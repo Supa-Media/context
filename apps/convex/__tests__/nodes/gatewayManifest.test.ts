@@ -20,8 +20,6 @@
  *  - dropping the `context:read` check: the capture-only case fails;
  *  - a token's expected workspace trusted outside the grant's set: the
  *    other-context refusals fail;
- *  - answering a walk whose rules do not parse (or that stopped short): the
- *    unparseable-rules case fails.
  */
 
 import { describe, expect, test } from "vitest";
@@ -33,6 +31,7 @@ import { modules } from "../../test.setup";
 import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { gatewayReadClearance } from "../../functions/lib/nodes/gatewayManifest";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -43,12 +42,12 @@ const CAPTURE = token("tree_capture");
 const OTHER = token("tree_other");
 const CLIENT = "mcp_client_tree";
 
+// Rows are keyed by their path with no trailing slash, so a folder's rule names it the same way.
 const RULES = {
-  etag: "privacy-1",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [{ path: "2-areas/shared.md", visibility: "team" }],
 };
@@ -75,7 +74,7 @@ async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
 
 async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[], mismatches = 0) {
   await observe(t, workspaceId, paths);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
+  await translateMirror(t, workspaceId, RULES);
   await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
   await t.mutation(internal.functions.nodes.saveParity, {
@@ -221,12 +220,6 @@ describe("POST /gateway/tree/manifest", () => {
     expect(sweeps).toBeGreaterThan(0);
     // A token that may not read it learns nothing of the sort.
     expect(await manifest(t, { accessToken: OTHER, expectedWorkspaceId: ws })).toEqual({ served: false });
-  });
-
-  test("rules that do not parse are not served: the gateway's own check fails closed on the bucket", async () => {
-    const { t, ws } = await fixture();
-    await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ws, mirror: { ...RULES, invalid: true }, at: 40 });
-    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toEqual({ served: false });
   });
 
   test("staff's Pause changes nothing for a reader", async () => {

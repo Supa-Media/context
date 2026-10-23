@@ -22,7 +22,8 @@ import type { ActionCtx } from "../_generated/server";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
+import { applySeededRules, rulesRowsStore } from "./fileOps/keyedFixture.fileops1.helpers";
 import { type FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../functions/lib/nodes/treeNames";
@@ -37,6 +38,9 @@ function makeTest() {
   return convexTest(schema, modules);
 }
 export type KeyedTest = ReturnType<typeof makeTest>;
+
+/** The group names every keyed workspace here carries, so a rule can name one. */
+export const GROUP_NAMES = ["supa-leads", "supa-owners"] as const;
 
 /** How a test seeds its bucket before the sweep keys it. */
 export type KeySeed = (store: KeyedStore) => Promise<void>;
@@ -72,7 +76,7 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
   const ws = await t.run(async (ctx) => {
     const now = Date.now();
     const owner = await ctx.db.insert("users", { email: "owner@example.test", emailVerificationTime: now } as never);
-    return await ctx.db.insert("workspaces", {
+    const id = await ctx.db.insert("workspaces", {
       slug: "atlas",
       displayName: "Atlas",
       createdBy: owner,
@@ -81,6 +85,11 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
       createdAt: now,
       updatedAt: now,
     });
+    // Two named groups, so a rule can point a note or folder at one (`@supa-leads`, `@supa-owners`).
+    for (const name of GROUP_NAMES) {
+      await ctx.db.insert("workspaceGroups", { workspaceId: id, name, createdBy: owner, createdAt: now });
+    }
+    return id;
   });
   const store = memoryStore({ conditional: true, ignoreIfMatchOnDelete: true }) as KeyedStore;
   store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
@@ -139,7 +148,9 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "move" } }, layered, store);
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "trash" } }, layered, store);
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "restoreTrash" } }, layered, store);
-  return { t, ctx, ws, store: layered, raw: store };
+  // The seeded rules become rows now that the notes are keyed; the text stays in the bucket as the fixture's record.
+  await applySeededRules(t, ws, store);
+  return { t, ctx, ws, store: rulesRowsStore(t, ws, store, layered as FileStore & MemoryStore), raw: store };
 }
 
 /** The live row at `path`, or `null`. */

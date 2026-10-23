@@ -137,7 +137,6 @@ export type FileOperation =
   /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
   | { kind: "nodesMoveBatch"; moves: { from: string; to: string; expectedEtag?: string }[] }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
-  | { kind: "nodesPrivacyExport" }
   /** Import the icons, emoji and forwarding files once, then write them from Convex (`lib/smallData/sync.ts`). */
   | { kind: "nodesSmallData" }
   /** A folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
@@ -150,7 +149,6 @@ export type FileOperation =
       files: Array<{ path: string; bytes: ArrayBuffer; contentType: string }>;
     }
   | { kind: "clearVault"; countOnly: boolean }
-  | { kind: "ensurePrivacy" }
   /**
    * Replace an encrypted note's content with plaintext. A separate operation
    * from `write` rather than one more of its shapes — `writeFile` never
@@ -181,9 +179,6 @@ export type FileOperation =
   /** Hidden old copies' text for the owner's Download as folders (`lib/oldCopies/hiding.ts`); run by the barrier. */
   | { kind: "readOldCopies"; paths: string[] }
   | { kind: "delete"; path: string; confirmation: string }
-  | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
-  | { kind: "setNoteGroup"; path: string; group: string }
-  | { kind: "setFolderGroup"; path: string; group: string }
   /**
    * Rows mode: the activity line a tier change records on the file path, for a change written to the rows
    * (`visibility.ts`). Not a privacy write: it touches `activity.md` only.
@@ -194,13 +189,6 @@ export type FileOperation =
       path: string;
       to: string;
       teamVisible: boolean;
-    }
-  | {
-      kind: "setFolderVisibility";
-      path: string;
-      visibility: "private" | "team";
-      /** Leave a rule the manifest already has for this folder untouched. */
-      onlyIfUnset?: boolean;
     }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
@@ -252,7 +240,6 @@ export type FileOperation =
       responseId: string;
       to: string;
     }
-  | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
   | { kind: "readStorageLayout" };
 
@@ -462,13 +449,6 @@ export type OperationResult =
       exception: boolean;
     }
   | { kind: "folderCreated"; path: string; readme: string }
-  | {
-      kind: "privacyReset";
-      path: string;
-      folders: string[];
-      backedUpTo: string | null;
-      partial: boolean;
-    }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }

@@ -18,7 +18,6 @@ import type { QueryCtx } from "../../../_generated/server";
 import { resolveGroupMembers } from "../../groups";
 import { groupLabelOf } from "../names";
 import { getMembership } from "../workspaceAuth";
-import { accessSourceOf } from "./accessBackfill";
 import { accessVersionOf } from "./accessRows";
 import { MAX_DOMAINS_PER_WORKSPACE } from "../../workspaceDomains";
 
@@ -159,7 +158,6 @@ export async function shareListHandler(
   if (userId === null) return null;
   const membership = await getMembership(ctx, args.workspaceId, userId);
   if (membership === null || membership.role !== "owner") return null;
-  if ((await accessSourceOf(ctx.db)) !== "rows") return null;
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return null;
   const row = await rowAt(ctx, args.workspaceId, args.path);

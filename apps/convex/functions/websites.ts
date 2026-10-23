@@ -47,6 +47,7 @@ import {
   markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
   websitePublicationRepairNeededHandler,
+  publicationRepairActorHandler,
   websiteStarterRepairNeededHandler,
 } from "./lib/websites/state";
 
@@ -490,6 +491,12 @@ export const websitePublicationRepairNeeded = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: websitePublicationRepairNeededHandler,
+});
+
+export const publicationRepairActor = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.id("users")),
+  handler: publicationRepairActorHandler,
 });
 
 export const markWebsitePublicationEnsured = internalMutation({

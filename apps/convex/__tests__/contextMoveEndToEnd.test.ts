@@ -28,8 +28,8 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
-import { asUser, drainScheduled } from "./fixtures.helpers";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
+import type { Id } from "../_generated/dataModel";
+import { asUser, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import {
   bodyOfRow,
   liveFileAt,
@@ -44,6 +44,25 @@ import {
   The whole suite twice: carried by this deployment, as a self-hosted one
   without a mover does, and by the gateway's mover, which is what ours runs.
 */
+/** The access setting of every live row in a workspace that carries one: `path` to its base tier. */
+async function accessRowsOf(t: TestConvex, workspaceId: Id<"workspaces">): Promise<Record<string, string>> {
+  return await t.run(async (ctx) => {
+    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect();
+    const access: Record<string, string> = {};
+    for (const row of rows) {
+      if (row.goneAt === undefined && row.access !== undefined) access[row.path] = row.access.base;
+    }
+    return access;
+  });
+}
+
+/** The row at `path` in a workspace, live or gone, or `null`. */
+async function rowAt(t: TestConvex, workspaceId: Id<"workspaces">, path: string) {
+  return await t.run(async (ctx) =>
+    (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path)).first()) ?? null,
+  );
+}
+
 describe.each([
   { carrier: "this deployment, no mover configured", mover: false },
   { carrier: "this deployment, with the gateway's mover configured", mover: true },
@@ -145,13 +164,13 @@ describe.each([
     expect(await liveFileAt(p.t, p.to, "work/acme/secret.md")).toBeNull();
   });
 
-  test("the source's manifest forgets the folder and the destination's is untouched", async () => {
+  test("the source's rows forget the folder and the destination's are untouched", async () => {
     // Into a context the mover owns, where both ends are private: nothing needs
-    // narrowing, so the destination's manifest must not be touched at all. A
-    // move that churns `privacy.md` on every batch is a move that rewrites the
+    // narrowing, so the destination's access rows must not be touched at all. A
+    // move that churns the access rows on every batch is a move that rewrites the
     // access map of a context it is only passing through.
     const p = await pair({ notes: 3, into: "own" });
-    const destinationManifestBefore = p.destination.objects.get(PRIVACY_KEY)!.body;
+    const destinationAccessBefore = await accessRowsOf(p.t, p.to);
 
     const { moveId } = await asUser(p.t, p.mover).action(
       api.functions.contextMoves.startContextMove,
@@ -166,7 +185,7 @@ describe.each([
 
     /*
       The outcome first, and it is not ceremony: without it this test passes
-      over a move that never happened — an untouched manifest is exactly what a
+      over a move that never happened — untouched access rows are exactly what a
       refusal leaves behind too. Measured: hardcoding the destination scope back
       to `team` (the defect the re-derivation above fixed) left every assertion
       below green.
@@ -175,8 +194,9 @@ describe.each([
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
     expect((await liveFilesUnder(p.t, p.to, "work/acme/")).length).toBe(3);
 
-    expect(p.destination.objects.get(PRIVACY_KEY)!.body).toBe(destinationManifestBefore);
-    expect(p.source.objects.get(PRIVACY_KEY)!.body).not.toContain("1-projects/acme");
+    expect(await accessRowsOf(p.t, p.to)).toEqual(destinationAccessBefore);
+    // The source forgets the folder: its row no longer carries an access setting.
+    expect((await rowAt(p.t, p.from, "1-projects/acme"))?.access).toBeUndefined();
   });
 
   test("it is recorded in the source context's audit trail, with both paths", async () => {
@@ -249,13 +269,12 @@ describe.each([
     /*
       `work` defaults to `team` in a shared context, so inheritance alone would
       publish this note to everybody in @bee-context the moment it landed. The
-      manifest has to carry an exception for it, and the whole path from the
+      note's own row has to carry an exception for it, and the whole path from the
       source's `private` to that exception runs through two buckets and three
       barrier calls — which is why it is asserted here as well as in the
       engine's own suite.
     */
-    const manifest = p.destination.objects.get(PRIVACY_KEY)!.body;
-    expect(manifest).toContain("work/acme/note-000.md: private");
+    expect((await rowAt(p.t, p.to, "work/acme/note-000.md"))?.access).toEqual({ base: "private" });
   });
 
   test("a move onto a folder the destination already has is refused, and nothing moves", async () => {
@@ -304,8 +323,8 @@ describe.each([
   test("a stopped move picks up where it left off rather than starting again", async () => {
     /*
       Into a context the mover owns, so the half-finished state below can be
-      staged by hand without also having to unpick the destination's manifest.
-      Between two private-default contexts a move writes no exceptions at all,
+      staged by hand without also having to unpick the destination's access rows.
+      Between two private-default contexts a move writes no access exceptions at all,
       which is what makes "put three of them back" a state the product could
       really be in rather than one only a test can build.
     */

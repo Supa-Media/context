@@ -28,7 +28,6 @@ import type { RunOperationValues } from "./useRunOperation";
 type VisibilityDeps =
   & Pick<
     FileActionsValues,
-    | "resetPrivacyAction"
     | "setDirectoryVisibility"
     | "setNoteVisibility"
     | "updateStorageLayoutAction"
@@ -41,7 +40,7 @@ type VisibilityDeps =
 
 export function useVisibility(deps: VisibilityDeps) {
   const {
-    ensureListing, expanded, listings, listingsRef, refresh, reportRefreshFailure, resetPrivacyAction, run,
+    ensureListing, expanded, listings, listingsRef, refresh, reportRefreshFailure, run,
     selectedPath, setDirectoryVisibility, setExpanded, setNoteVisibility, setNotice,
     updateStorageLayoutAction, workspaceId,
   } = deps;
@@ -106,50 +105,6 @@ export function useVisibility(deps: VisibilityDeps) {
     },
     [listings, run, setDirectoryVisibility, setNoteVisibility, workspaceId],
   );
-
-  /**
-   * Write a working `privacy.md` over one that is missing or unreadable.
-   *
-   * Goes through `run` like every other operation, so it inherits the timeout,
-   * the generation counter and the "a failed refresh is not a failed
-   * operation" rule — and, crucially, `run`'s own `canEdit` gate. The message
-   * is not a courtesy: this rewrites the file that governs the whole context,
-   * and the only visible change is that the banner disappears, so without a
-   * sentence the person cannot tell it from a button that did nothing.
-   *
-   * **Refreshing the root alone is enough, and that is worth stating because
-   * it looks like an omission.** A manifest rewrite would normally have to
-   * cascade through every open folder. This one cannot change what anybody
-   * sees: the caller is always the owner, who reads at `private` scope and
-   * therefore sees every note either way, and the repair writes every folder
-   * `private` over a manifest that was already failing closed — so each
-   * entry's `visibility`, `inherited` and `exception` come out identical, and
-   * so does every loaded folder's `folderDefault`. The one field that changes
-   * is `manifestUsable`, and the pane reads it from `listings[""]`.
-   */
-  const resetPrivacy = useCallback(() => {
-    void run(async () => {
-      const result = await resetPrivacyAction({ workspaceId: workspaceId! });
-      const declared =
-        result.folders.length === 0
-          ? "It has no folder rules yet."
-          : `It declares ${result.folders.length} folder${result.folders.length === 1 ? "" : "s"}, every one of them private.`;
-      // A short list is never printed as a complete one — the rule
-      // `noteCountTruncated` follows, for the same reason. Anything left out
-      // has no rule, so it stays private and can be given a line by hand.
-      const short = result.partial
-        ? " Some folders could not be listed as rules; those stay private and can be added to the file by hand."
-        : "";
-      const kept =
-        result.backedUpTo === null
-          ? ""
-          : ` The file that could not be read was kept at ${result.backedUpTo}.`;
-      return {
-        touched: [result.path],
-        message: `privacy.md has been rewritten. ${declared}${short}${kept} Share a folder when you are ready by changing its visibility.`,
-      };
-    });
-  }, [resetPrivacyAction, run, workspaceId]);
 
   /**
    * Start the resumable storage-layout migration for an owner.
@@ -244,7 +199,7 @@ export function useVisibility(deps: VisibilityDeps) {
     });
   }, [refresh, reportRefreshFailure, workspaceId]);
 
-  return { setVisibility, resetPrivacy, updateStorageLayout };
+  return { setVisibility, updateStorageLayout };
 }
 
 export type VisibilityValues = ReturnType<typeof useVisibility>;

@@ -162,16 +162,6 @@ describe("the owner's list: who may set it, and what it writes", () => {
     expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 
-  test("outside rows mode nothing is written", async () => {
-    const w = await world();
-    await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { accessSource: "file" });
-    });
-    expect(await setGrantees(w, w.owner, PLAN, [{ groupId: w.leads, role: "view" }])).toEqual({ ok: false, code: "NOT_ROWS_MODE" });
-    expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
-  });
-
   test("a shape error is INVALID: an entry naming two of handle, group and email, and a list over the cap", async () => {
     const w = await world();
     expect(await setGrantees(w, w.owner, PLAN, [{ handle: "@kola", email: "kola@example.test", role: "view" }])).toEqual({ ok: false, code: "INVALID" });

@@ -32,6 +32,7 @@ export const nodeAccessTables = {
     role: v.union(v.literal("view"), v.literal("edit")),
     grantedBy: v.optional(v.id("users")),
     at: v.number(),
+    // retired 2026-10-22: "privacy.md" is kept only so rows written before the file mode was removed still validate; no code writes it.
     source: v.union(v.literal("privacy.md"), v.literal("share"), v.literal("owner")),
   })
     .index("by_node", ["nodeId"])
@@ -54,7 +55,7 @@ export const nodeAccessTables = {
     workspaceId: v.id("workspaces"),
     version: v.number(),
     migratedFromEtag: v.optional(v.string()),
-    /** What those rules said (`lib/nodes/rulesDigest.ts`; null: none). Absent on a derivation before it was kept. */
+    /** retired 2026-10-22: what file-mode rules said (rulesDigest.ts was deleted). Unused; kept, no migration. */
     migratedFromDigest: v.optional(v.union(v.string(), v.null())),
     migratedAt: v.optional(v.number()),
     orphans: v.array(
@@ -130,9 +131,10 @@ export const nodeAccessTables = {
     checked: v.number(),
     differences: v.number(),
     sample: v.array(v.object({ path: v.string(), clearance: v.string() })),
+    // retired 2026-10-22: file-mode orphan count, unused.
     orphans: v.optional(v.number()),
     /**
-     * What the rules said when the check began (`lib/nodes/rulesDigest.ts`; null: the workspace has none), and
+     * retired 2026-10-22: what the file-mode rules said when the check began (rulesDigest.ts was deleted), and
      * what the rules the rows had then been derived from said. A check stands across later derivations from
      * rules that still say the same (`checkStatus`).
      */

@@ -62,7 +62,9 @@ describe("a projection that fails on a blip", () => {
     const after = await row(t, workspaceId);
     expect(after?.status).toBe("backfilling");
     expect(after?.error).toBeUndefined();
-    const retries = await queued(t, "runFileOperation");
+    // Only the chain's own links count: the rows-mode copy also queues its parity re-checks (`nodesParity`, half a
+    // minute out, beyond what `drainScheduled` reaches), and they are `runFileOperation` too.
+    const retries = (await queued(t, "runFileOperation")).filter((job) => JSON.stringify(job.args).includes("projectIndex"));
     expect(retries).toHaveLength(1);
     // Delayed, not immediate: an outage answered at once is answered the same.
     expect(retries[0]!.scheduledTime).toBeGreaterThan(Date.now() + 10_000);

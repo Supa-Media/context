@@ -30,7 +30,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { api } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import {
   emptyResponsesFile,
   parseFormBlocks,
@@ -42,6 +41,7 @@ import type { FileStore } from "../functions/lib/fileOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { FORM_BLOCK, FORM_NOTE, RESPONSES, type Fixture, bodyOf, fixture, keyOf, rewriteForm, submit } from "./keyedFixture.forms.helpers";
 import { asUser, captureError, errorCode } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

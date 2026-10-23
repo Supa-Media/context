@@ -493,7 +493,7 @@ export function tabLabel(state: TabsState, path: string): string {
  * in a public repository, inside a commit about comments the code contradicts.**
  * None of these is a regression and none is disclosure;
  * every one of them is "a short list printed as a complete one", the rule
- * CLAUDE.md states for `noteCountTruncated` and `resetPrivacyManifest.partial`.
+ * CLAUDE.md states for `noteCountTruncated` and `truncated`.
  */
 export function tabsToClose(
   tabs: readonly Tab[],

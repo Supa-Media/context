@@ -21,16 +21,11 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  type FileStore,
-  maintainSearchIndex,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex } from "../functions/lib/fileOps";
 import { shareOfNotes, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { shardKey } from "../../mcp/src/search/shards.js";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 

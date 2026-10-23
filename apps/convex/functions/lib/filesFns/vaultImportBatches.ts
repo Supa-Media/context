@@ -145,20 +145,6 @@ export async function importVaultJobBatchHandler(
     grantedNames,
     operation: { kind: "importVault", files: args.files },
   })) as Extract<OperationResult, { kind: "vaultImported" }>;
-  if (
-    job.strategy === "replace" &&
-    job.completedBatches.length + 1 === job.totalBatches &&
-    job.completedFiles + args.files.length === job.totalFiles
-  ) {
-    // Idempotent so a retry after storage succeeded but progress recording
-    // failed still restores the private access map before completing.
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "ensurePrivacy" },
-    });
-  }
   const recorded = await ctx.runMutation(internal.functions.files.recordVaultImportBatch, {
     jobId: args.jobId,
     actorUserId,

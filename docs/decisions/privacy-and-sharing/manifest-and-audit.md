@@ -2,6 +2,8 @@
 
 ### `privacy.md` is generated, and the console can generate a fresh one
 
+_Retired 2026-10-22: there is no `privacy.md` to repair. `resetPrivacyManifest` and its gate went with the file; the tree's access rows are the access map and nothing reads or writes the file. The text below is the history of the file-era exit._
+
 A bucket whose manifest is missing or unparseable fails closed — every note
 reads private, `mutateManifest` refuses every write — and until now it also had
 **no exit**. Every write path in the product refuses that key: `writeFile`

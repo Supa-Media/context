@@ -17,8 +17,8 @@ export interface FileBrowserOptions {
    * Whether the caller owns this context.
    *
    * Separate from `canEdit`, which an `editor` also has. Only the owner may
-   * rewrite the access map, so this is what decides whether the repair control
-   * exists — see `canResetPrivacy` on `FileBrowser`.
+   * rewrite the access map, so this is what decides whether the visibility
+   * controls exist.
    */
   isOwner?: boolean;
   /**

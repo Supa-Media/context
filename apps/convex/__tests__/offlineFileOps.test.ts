@@ -22,14 +22,7 @@
 
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
-import {
-  archivePath,
-  FileOpError,
-  movePath,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-} from "../functions/lib/fileOps";
+import { archivePath, FileOpError, movePath, trashPath } from "../functions/lib/fileOps";
 import {
   type KeyedLinks,
   type LinksStore,
@@ -41,6 +34,7 @@ import {
   liveRowAt,
   rowsOf,
 } from "./keyedFixture.links.helpers";
+import { setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");

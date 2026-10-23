@@ -1,24 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  archivePath,
-  copyPath,
-  createFolder,
-  duplicateName,
-  duplicatePath,
-  listFolder,
-  movePath,
-  readFile,
-  renderNewFolderAbout,
-  restoreTrashedPath,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-  writeFile,
-} from "../../functions/lib/fileOps";
+import { archivePath, copyPath, createFolder, duplicateName, duplicatePath, listFolder, movePath, readFile, renderNewFolderAbout, restoreTrashedPath, trashPath, writeFile } from "../../functions/lib/fileOps";
 import { treeView } from "../../functions/lib/fileOps/walk";
-import { PRIVACY_KEY, canSee, isPlumbing, parsePrivacyManifest } from "../../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
+import { canSee, isPlumbing } from "../../functions/lib/privacy";
 import { NOW, shareProjects, capture, errorShape, names } from "./fixtures.helpers";
 import {
   bytesAt,
@@ -29,13 +13,13 @@ import {
   notesAt,
   PARA_SEEDS,
   rowOf2,
+  rowRulesOf,
   textAt,
 } from "./keyedFixture.fileops1.helpers";
+import { setFolderVisibility, setVisibility, renderPrivacyManifestForFolders } from "../seededRules.helpers";
 
-/** The manifest a keyed bucket holds, as the file the lib judges by. */
-function manifestOf(f: KeyedBucket) {
-  return parsePrivacyManifest(f.raw.snapshot()[PRIVACY_KEY]!);
-}
+/** The rules a keyed bucket's rows give a reader: the answer `canSee` is asked with. */
+const manifestOf = rowRulesOf;
 
 /** The note's live rows beneath a folder, as paths, folder itself excluded. */
 async function notesUnder(f: KeyedBucket, folder: string): Promise<string[]> {
@@ -303,7 +287,7 @@ describe("moving and renaming", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(manifest.rules.find((rule) => rule.prefix === "5-work")?.vis).toBe("team");
     expect(manifest.overrides.get("5-work/pay.md")).toBe("private");
   });
@@ -317,7 +301,7 @@ describe("moving and renaming", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(canSee("1-projects/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
@@ -332,7 +316,7 @@ describe("moving and renaming", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(canSee("1-projects/clinic/notes.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     // One rule, not one exception per note: the manifest a customer opens has
@@ -351,7 +335,7 @@ describe("copying and duplicating", () => {
       to: "1-projects/health-copy.md",
       clearance: clearanceOf("private"),
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(canSee("1-projects/health-copy.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     // The original is untouched, which is what makes this one hard to notice.
     expect(canSee("2-areas/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
@@ -367,7 +351,7 @@ describe("copying and duplicating", () => {
       to: "1-projects/clinic",
       clearance: clearanceOf("private"),
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
     expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
@@ -413,7 +397,7 @@ describe("copying and duplicating", () => {
       to: "1-projects/pay-2027.md",
       clearance: clearanceOf("private"),
     });
-    expect(manifestOf(f).overrides.get("1-projects/pay-2027.md")).toBe("private");
+    expect((await manifestOf(f)).overrides.get("1-projects/pay-2027.md")).toBe("private");
   });
 
   test("pasting over something is refused", async () => {
@@ -448,7 +432,7 @@ describe("archiving is the recoverable one", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = manifestOf(f);
+    const manifest = await manifestOf(f);
     expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
@@ -580,7 +564,7 @@ describe("trash is hidden and reversible", () => {
   test("a team editor can trash and restore a shared note without changing privacy", async () => {
     const f = await keyedBucket(PARA_SEEDS);
     await shareProjects(f.store);
-    const privacy = f.raw.snapshot()[PRIVACY_KEY];
+    const rulesBefore = await rowRulesOf(f);
 
     const trashed = await trashPath(f.store, {
       path: "1-projects/context-lc.md",
@@ -590,7 +574,7 @@ describe("trash is hidden and reversible", () => {
     expect(trashed.to).toMatch(/^\.context\/trash\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
     expect(await textAt(f, trashed.to)).toContain("# Context.LC");
     expect(await liveAt(f, "1-projects/context-lc.md")).toBe(false);
-    expect(f.raw.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(await rowRulesOf(f)).toEqual(rulesBefore);
     expect(isPlumbing(trashed.to)).toBe(true);
 
     await restoreTrashedPath(f.store, {
@@ -600,7 +584,7 @@ describe("trash is hidden and reversible", () => {
     });
     expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
     expect(await liveAt(f, trashed.to)).toBe(false);
-    expect(f.raw.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(await rowRulesOf(f)).toEqual(rulesBefore);
   });
 
   test("restore cannot redirect a trash entry to a different path", async () => {

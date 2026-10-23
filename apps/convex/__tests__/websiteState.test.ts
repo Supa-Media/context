@@ -13,7 +13,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { WEBSITE_STARTER_MARKDOWN } from "@context/shared";
 import { memoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
@@ -32,6 +31,7 @@ import type { Id } from "../_generated/dataModel";
 
 import { copyTree } from "./fixtures.helpers";
 import { readNoteText, writeNote } from "./website.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 // Each test keys a workspace and runs the tree to its end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });

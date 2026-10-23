@@ -21,6 +21,7 @@ import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
 import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, drawnMoves, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
+import { privacyEtagOf } from "./lib/nodes/readerRules";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
 
 const refusalValidator = v.union(
@@ -172,9 +173,12 @@ export const rowMoveBatch = internalMutation({
       etag: v.optional(v.string()),
     }),
   ),
-  handler: async (ctx, { workspaceId, moves, privacyEtag, now }) => {
+  handler: async (ctx, { workspaceId, moves, privacyEtag: handed, now }) => {
     const moved = [];
     let total = 0;
+    // The first move is held to the version the caller was handed. Each move re-renders the rules from the rows it
+    // moved, so the next is held to the version that move left, which is this batch's own change, not someone else's.
+    let privacyEtag = handed;
     for (const [index, move] of moves.entries()) {
       const answer = await applyRowMove(ctx, {
         workspaceId,
@@ -189,6 +193,7 @@ export const rowMoveBatch = internalMutation({
       total += answer.rows;
       if (total > ROW_MOVE_MAX) throw new ConvexError({ batchRefusal: true, index, reason: "too_large" });
       moved.push({ from: move.from, to: move.to, rows: answer.rows, ...(answer.etag === undefined ? {} : { etag: answer.etag }) });
+      privacyEtag = await privacyEtagOf(ctx, workspaceId);
     }
     return moved;
   },

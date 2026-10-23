@@ -58,10 +58,11 @@ a torn write in the batch movers, an `archive_note` guard deleted on a premise
 that was false at team scope. The fold itself survived every one of those
 rounds untouched. So the engine lands on its own and the write-path apparatus
 comes back as its own change with its own review budget, rather than riding in
-on the back of a fix that was ready. It is kept as
-`docs/deferred/folded-twin-refusals.patch` with its five-round defect record
-beside it — in the tree, because `main` is squash-merged and a branch is not an
-archive.
+on the back of a fix that was ready. It was kept as a patch under
+`docs/deferred/` until privacy file mode was removed (2026-10-23): every file it
+changed had by then been deleted or rewritten for rows, so it was retired rather
+than carried. A refusal that comes back is written against the rows writers, and
+the five-round defect record above is what it has to survive.
 
 Until it returns, three things are true and none of them is disclosure:
 

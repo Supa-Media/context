@@ -6,6 +6,7 @@
  */
 
 import { expect } from "vitest";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { fixture, type Fixture } from "./moveFixture.helpers";
@@ -135,9 +136,7 @@ export async function bigFolder(f: Fixture, path: string, count: number, idBase 
   });
 }
 
+/** The etag a move is made under: the rows-version etag the production guard compares (`privacyEtagOf`). */
 export async function privacyEtag(f: Fixture): Promise<string | null> {
-  return await f.t.run(async (ctx) => {
-    const mirror = await ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-    return mirror?.etag ?? null;
-  });
+  return await f.t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: f.ws });
 }

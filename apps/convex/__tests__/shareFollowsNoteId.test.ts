@@ -21,7 +21,6 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -35,6 +34,7 @@ import {
   type TestConvex,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

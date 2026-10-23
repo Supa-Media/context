@@ -120,6 +120,7 @@ describe("public website resolution", () => {
     );
     f.backend.seed("1-projects/shared.md", "# Shared\n");
     f.backend.seed("1-projects/private.md", "# Private\n");
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.files.setDirectoryVisibility,
       {
@@ -128,22 +129,22 @@ describe("public website resolution", () => {
         visibility: "team",
       },
     );
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "1-projects/private.md",
       visibility: "private",
     });
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "website/draft.md",
       visibility: "team",
     });
-    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
     );
-    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
       workspaceId: f.workspaceId,
       path: "website/draft.md",
@@ -219,6 +220,7 @@ describe("public website resolution", () => {
       "1-projects/private.md",
       "---\ntitle: Private project\n---\n\nPrivate\n",
     );
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.files.setDirectoryVisibility,
       { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
@@ -228,7 +230,6 @@ describe("public website resolution", () => {
       path: "1-projects/private.md",
       visibility: "private",
     });
-    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
@@ -267,11 +268,11 @@ describe("public website resolution", () => {
       "1-projects/shared.md",
       "---\ntitle: Shared project\n---\n\nShared\n",
     );
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.files.setDirectoryVisibility,
       { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
     );
-    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },

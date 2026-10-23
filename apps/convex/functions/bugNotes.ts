@@ -31,7 +31,6 @@ import { internalMutation, internalQuery, type ActionCtx } from "../_generated/s
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
-import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { setAccessRow } from "./lib/nodes/setAccess";
 import { recordAudit } from "./lib/audit";
@@ -81,7 +80,6 @@ export const shareWithTeam = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId, path }) => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return true;
     const owner = (
       await ctx.db
         .query("workspaceMembers")

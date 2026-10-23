@@ -23,18 +23,12 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  type FileStore,
-  maintainSearchIndex,
-  notePathIndex,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex, notePathIndex } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { nodesPagedStore } from "../functions/lib/nodes/manifestStore";
 import { privacyMirrorOf } from "../functions/lib/nodes/privacyMirror";
 import { compareKeys } from "../functions/lib/nodes/sweep";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore() as MemoryStore & FileStore;

@@ -16,10 +16,9 @@
 
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, setFolderVisibility } from "../../functions/lib/fileOps";
+import { type FileStore } from "../../functions/lib/fileOps";
 import { liveChaosScoreOf, type ChaosSource } from "../../functions/lib/filesFns/chaosOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { foldedPages, nodesPagedStore, type NodePage } from "../../functions/lib/nodes/manifestStore";
 import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
 import { compareKeys } from "../../functions/lib/nodes/sweep";
@@ -31,6 +30,7 @@ import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { factChaosSource } from "../../functions/lib/nodes/factSources";
 import { internal } from "../../_generated/api";
 import { factCtx, fillAll, observeBucket, tester, workspace as convexWorkspace } from "./facts.helpers";
+import { renderPrivacyManifest, setFolderVisibility } from "../seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");

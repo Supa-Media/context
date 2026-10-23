@@ -28,7 +28,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -42,6 +41,7 @@ import {
   setupTest,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest, setFolderVisibility, type SeedableStore } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -65,6 +65,19 @@ interface Fixture {
 function seed(bucket: MemoryS3): void {
   bucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   bucket.seed("index.md", "# Context\n");
+}
+
+/** The bucket's own text under a key, as the seeding helpers read and write it. */
+function bucketText(bucket: MemoryS3): SeedableStore {
+  return {
+    async get(key) {
+      const text = bucket.snapshot()[key];
+      return text === undefined ? null : { text: async () => text };
+    },
+    async put(key, body) {
+      bucket.seed(key, body);
+    },
+  };
 }
 
 async function bind(t: TestConvex, workspaceId: Id<"workspaces">, boundBy: Id<"users">, bucket: string) {
@@ -116,11 +129,9 @@ async function fixture(): Promise<Fixture> {
   });
   await bind(t, aliceWs, alice, ALICE_BUCKET);
   await bind(t, bobWs, bob, BOB_BUCKET);
-  await asUser(t, bob).action(api.functions.files.setDirectoryVisibility, {
-    workspaceId: bobWs,
-    path: "1-projects",
-    visibility: "team",
-  });
+  // A note gives the shared folder its row; the share is seeded as the rule it always was, and the copy turns it into rows.
+  bobBucket.seed("1-projects/kickoff.md", "# Kickoff\n");
+  await setFolderVisibility(bucketText(bobBucket), { path: "1-projects", visibility: "team" });
   for (const workspaceId of [aliceWs, bobWs]) await copyTree(t, workspaceId);
   return { t, alice, bob, carol, aliceWs, bobWs, carolWs };
 }

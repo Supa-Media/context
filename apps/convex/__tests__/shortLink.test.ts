@@ -29,7 +29,6 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { cardImageLeaf, cardSignature, hashTitle } from "../functions/lib/cardKey";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import {
   MAX_SHORT_LINK_SLUG,
@@ -50,6 +49,7 @@ import {
   type TestConvex,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -117,6 +117,7 @@ async function fixture(): Promise<Fixture> {
     }),
   );
 
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
@@ -124,7 +125,6 @@ async function fixture(): Promise<Fixture> {
   });
 
   // The mint asks the tree whether its readers would see the note.
-  await copyTree(t, workspaceId);
   return { t, owner, member, workspaceId, backend };
 }
 
@@ -761,12 +761,12 @@ describe("what a short link unfurls with", () => {
         updatedAt: Date.now(),
       }),
     );
+    await copyTree(f.t, other);
     await asUser(f.t, stranger).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: other,
       path: "1-projects",
       visibility: "team",
     });
-    await copyTree(f.t, other);
     const theirs = await asUser(f.t, stranger).action(
       api.functions.shares.createLinkShare,
       { workspaceId: other, path: ENTRY },

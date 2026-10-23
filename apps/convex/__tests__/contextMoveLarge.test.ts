@@ -14,8 +14,8 @@ import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { CONTEXT_MOVE_OBJECT_MAX_BYTES, exportContextMoveBatch, type FileStore } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { memoryStore } from "./storeStub.helpers";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 const OWNER = clearanceOf("private", []);
 

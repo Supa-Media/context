@@ -30,7 +30,7 @@ import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { handleMoverPage } from "../../mcp/src/moves/mover.js";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 export const MOVER = "https://mover.example.invalid";
 

@@ -29,7 +29,6 @@
 
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
-import { accessSourceOf } from "./nodes/accessBackfill";
 import { accessRowsOf } from "./nodes/accessRows";
 import { accessNamesFor, type Audience } from "./nodes/rowAccess";
 import { reachesPinnedContext } from "./pinnedContext";
@@ -40,7 +39,6 @@ export const READS_AS_GUEST_NAME = READS_AS_GUEST.slice(1);
 
 /** Whether pin readers read as guests yet: rows mode, and the pinned workspace's rows migrated. */
 export async function pinReadersAreGuests(db: QueryCtx["db"]): Promise<boolean> {
-  if ((await accessSourceOf(db)) !== "rows") return false;
   const row = await db.query("nodeMigration").first();
   return row?.pinnedAccountsAt !== undefined;
 }

@@ -1,35 +1,19 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { treeView } from "../../functions/lib/fileOps/walk";
-import {
-  DELETE_CONFIRMATION,
-  type FileStore,
-  archivePath,
-  copyPath,
-  createFolder,
-  deletePath,
-  listFolder,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-  writeFile,
-} from "../../functions/lib/fileOps";
-import {
-  PRIVACY_KEY,
-  canSee,
-  parsePrivacyManifest,
-} from "../../functions/lib/privacy";
+import { DELETE_CONFIRMATION, type FileStore, archivePath, copyPath, createFolder, deletePath, listFolder, movePath, readFile, trashPath, writeFile } from "../../functions/lib/fileOps";
+import { canSee } from "../../functions/lib/privacy";
 import { NOW, shareProjects, capture, errorShape, names } from "./fixtures.helpers";
 import {
   keyedBucket,
   liveRowsUnder,
   PARA_SEEDS,
   rowOf2,
+  rowRulesOf,
   textAt,
   type KeyedBucket,
 } from "./keyedFixture.fileops1.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                      a destination you cannot see                          */
@@ -521,8 +505,8 @@ describe("deleting is the permanent one", () => {
         clearance: clearanceOf("private"),
       }),
     );
-    const manifest = parsePrivacyManifest(f.raw.snapshot()[PRIVACY_KEY]!);
-    expect(manifest.overrides.has("1-projects/pay.md")).toBe(true);
+    const { overrides } = await rowRulesOf(f);
+    expect(overrides.has("1-projects/pay.md")).toBe(true);
   });
 
   test("a team caller cannot trash what they cannot see, and gets the answer for a note that is not there", async () => {

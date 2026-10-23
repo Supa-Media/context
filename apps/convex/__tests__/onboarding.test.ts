@@ -21,7 +21,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { PARA_FOLDERS, PRIVACY_KEY } from "../functions/lib/scaffold";
+import { INDEX_KEY, PARA_FOLDERS, PRIVACY_KEY } from "../functions/lib/scaffold";
 import {
   type TestConvex,
   FAKE_STORAGE,
@@ -36,7 +36,7 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
-import { gatewayInternals } from "./gatewayFormat.helpers";
+import { canSeeInRows, rowFolderRules } from "./scaffold/rowsAccess.helpers";
 import {
   bodyAtPath,
   folderNoteBodies,
@@ -186,7 +186,7 @@ describe("connecting storage writes nothing and answers the question itself", ()
 /* -------------------------------------------------------------------------- */
 
 describe("the answer is what gets written", () => {
-  test("the standard layout lands as five folders, a manifest, and a privacy file", async () => {
+  test("the standard layout lands as five folders and a front page, and no access file", async () => {
     const { t, owner, workspaceId, backend } = await connected();
 
     expect(await apply(t, owner, workspaceId, { template: "para" })).toMatchObject({
@@ -199,7 +199,8 @@ describe("the answer is what gets written", () => {
     expect(await notePaths(t, workspaceId)).toEqual(
       ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     expect(await binding(t, owner, workspaceId)).toMatchObject({
       scaffolded: true,
       scaffoldReason: "created",
@@ -228,7 +229,8 @@ describe("the answer is what gets written", () => {
     await drainScheduled(t);
 
     expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
     expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
@@ -253,17 +255,14 @@ describe("the answer is what gets written", () => {
       });
       await drainScheduled(t);
 
-      const { parsePrivacyManifest, canSee } = gatewayInternals();
-      const { rules, overrides } = parsePrivacyManifest(
-        backend.objects.get(PRIVACY_KEY)!.body,
-      );
-      expect(rules.map((rule) => rule.prefix).sort()).toEqual(
-        [...choice.expected].sort(),
-      );
+      // Access is on the rows. Nothing in the bucket grants anything, and no folder row
+      // takes `team` on a personal workspace.
+      expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
+      const rules = await rowFolderRules(t, workspaceId);
       expect(rules.every((rule) => rule.vis === "private")).toBe(true);
       for (const folder of choice.expected) {
         expect(
-          canSee(`${folder}/anything.md`, "team", rules, overrides),
+          await canSeeInRows(t, workspaceId, `${folder}/anything.md`, "team"),
           `${folder} is team-visible`,
         ).toBe(false);
       }
@@ -607,12 +606,9 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
-    // The context works: the manifest the gateway enforces visibility with is
-    // in the bucket, and it parses.
-    const { parsePrivacyManifest } = gatewayInternals();
-    expect(
-      parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body).rules,
-    ).toHaveLength(PARA_FOLDERS.length);
+    // The context works: its front page landed, and access is on the rows, not in a file.
+    expect(await notePaths(t, workspaceId)).toContain("index.md");
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
 
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({
@@ -641,13 +637,14 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await drainScheduled(t);
 
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
     expect(row?.scaffoldMissing).toEqual([]);
   });
 
-  test("a run whose privacy.md failed is a failure, and is also retryable", async () => {
+  test("a run whose every write was refused is not created, and is retryable", async () => {
     const refuse = { all: true };
     const { t, owner, workspaceId, backend } = await connected({
       // Everything but the plumbing, so the writability probe still passes and
@@ -659,9 +656,11 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
+    // Nothing is essential any more, so a refused layout reads as partial rather than failed.
+    // That is the production behaviour (`lib/scaffold/run.ts`, `ESSENTIAL_KEYS`).
     expect(await binding(t, owner, workspaceId)).toMatchObject({
       scaffolded: false,
-      scaffoldReason: "failed",
+      scaffoldReason: "partial",
     });
     expect([...backend.objects.keys()]).toEqual([]);
 
@@ -671,7 +670,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
 
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("created");
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   /**
@@ -704,7 +704,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   test("rebinding to another bucket takes the licence with it", async () => {
@@ -811,35 +812,69 @@ describe("choosing a layout never brings a credential near the caller", () => {
  * open to everyone they later invite.
  */
 describe("a shared workspace is laid down for the people in it", () => {
-  test("the folders come out readable by the workspace, through the gateway's parser", async () => {
+  test("the folders come out readable by the workspace, on their rows", async () => {
     const { t, owner, workspaceId, backend } = await connected({ kind: "shared" });
 
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      backend.objects.get(PRIVACY_KEY)!.body,
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
+    expect((await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis])).toEqual(
+      [...PARA_FOLDERS].sort().map((folder) => [folder, "team"]),
     );
-
-    expect(rules.map((rule) => rule.prefix).sort()).toEqual([...PARA_FOLDERS].sort());
-    expect(canSee("projects/kickoff.md", "team", rules, overrides)).toBe(true);
-    // …and the access map is still an owner's business.
-    expect(canSee(PRIVACY_KEY, "team", rules, overrides)).toBe(false);
+    expect(await canSeeInRows(t, workspaceId, "projects/kickoff.md", "team")).toBe(true);
+    // …and the front page is the one root note opened by name, not a bucket-wide widening.
+    expect(await canSeeInRows(t, workspaceId, INDEX_KEY, "team")).toBe(true);
+    expect(await canSeeInRows(t, workspaceId, "payroll/2026.md", "team")).toBe(false);
   });
 
   test("a workspace in the same deployment still starts all-private", async () => {
-    const { t, owner, workspaceId, backend } = await connected();
+    const { t, owner, workspaceId } = await connected();
 
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      backend.objects.get(PRIVACY_KEY)!.body,
-    );
-    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
-    expect(canSee("projects/kickoff.md", "team", rules, overrides)).toBe(false);
+    expect((await rowFolderRules(t, workspaceId)).every((rule) => rule.vis === "private")).toBe(true);
+    expect(await canSeeInRows(t, workspaceId, "projects/kickoff.md", "team")).toBe(false);
+  });
+
+  /**
+   * `default_visibility` stays private, so opening the folders the scaffolder
+   * made does not open the bucket. A path outside them, at the root or in a
+   * folder nobody named, is still shut to the workspace.
+   */
+  test("a path outside the declared folders still fails closed", async () => {
+    const { t, owner, workspaceId } = await connected({ kind: "shared" });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    expect(await canSeeInRows(t, workspaceId, "payroll/salaries.md", "team")).toBe(false);
+    expect(await canSeeInRows(t, workspaceId, "root-level-note.md", "team")).toBe(false);
+  });
+
+  /** Every folder note the scaffold wrote is readable by the workspace, not only the folders. */
+  test("every folder note the scaffold writes is readable by the workspace", async () => {
+    const { t, owner, workspaceId } = await connected({ kind: "shared" });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    for (const folder of PARA_FOLDERS) {
+      expect(await canSeeInRows(t, workspaceId, `${folder}/about.md`, "team"), `${folder}/about.md`).toBe(true);
+    }
+  });
+
+  /** A custom layout opens the owner's own folders, and none of PARA's. */
+  test("a custom layout opens the owner's own folders, not PARA's", async () => {
+    const { t, owner, workspaceId } = await connected({ kind: "shared" });
+    await apply(t, owner, workspaceId, { template: "custom", folders: CUSTOM });
+    await drainScheduled(t);
+
+    expect((await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis])).toEqual([
+      ["clients", "team"],
+      ["reading", "team"],
+    ]);
+    expect(await canSeeInRows(t, workspaceId, "clients/acme.md", "team")).toBe(true);
+    expect(await canSeeInRows(t, workspaceId, "projects/anything.md", "team")).toBe(false);
   });
 
   /**
@@ -849,7 +884,7 @@ describe("a shared workspace is laid down for the people in it", () => {
    * they can issue that would let a client read one note.
    */
   test("an editor's widest possible grant can read the workspace", async () => {
-    const { t, owner, workspaceId, backend } = await connected({ kind: "shared" });
+    const { t, owner, workspaceId } = await connected({ kind: "shared" });
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
@@ -859,12 +894,8 @@ describe("a shared workspace is laid down for the people in it", () => {
     );
     expect(visibilityTierOf(editorScopes)).toBe("team");
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      backend.objects.get(PRIVACY_KEY)!.body,
-    );
     expect(
-      canSee("projects/kickoff.md", visibilityTierOf(editorScopes), rules, overrides),
+      await canSeeInRows(t, workspaceId, "projects/kickoff.md", visibilityTierOf(editorScopes)),
     ).toBe(true);
   });
 });

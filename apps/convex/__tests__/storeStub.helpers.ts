@@ -23,6 +23,7 @@
  */
 
 import type { ScaffoldStore } from "../functions/lib/scaffold";
+import { registerBucket } from "./bucketRegistry.helpers";
 
 /**
  * What the stub holds.
@@ -372,6 +373,14 @@ export function memoryS3(
   let counter = 0;
   const failureMessage =
     options.errorMessage ?? "The request signature we calculated does not match.";
+  registerBucket(bucket, {
+    rulesSource: (key) => ({
+      text: async () => objects.get(key)?.body ?? null,
+      remove: async () => {
+        objects.delete(key);
+      },
+    }),
+  });
 
   const fetchImpl = async (
     input: URL | RequestInfo,

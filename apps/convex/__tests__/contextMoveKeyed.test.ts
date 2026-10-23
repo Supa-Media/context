@@ -12,10 +12,9 @@
  * lands the wrong text, or a name the tree already holds.
  */
 
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
-import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
-import { addMember, asUser, createUser, drainScheduled, type TestConvex } from "./fixtures.helpers";
+import { addMember, asUser, createUser, drainScheduled } from "./fixtures.helpers";
 import {
   bodyOfRow,
   liveFileAt,
@@ -24,28 +23,6 @@ import {
   writeAs,
   type Pair,
 } from "./contextMove.helpers";
-
-/**
- * Access on the rows, as production runs: the rules are the authority, the rows
- * are derived from them and checked, and staff switch the readers to the rows.
- */
-async function rowsMode(t: TestConvex): Promise<void> {
-  const staff = "staff@example.invalid";
-  vi.stubEnv(ADMIN_EMAILS_ENV_VAR, staff);
-  const admin = asUser(t, await createUser(t, staff));
-  await t.run(async (ctx) => {
-    const row = await ctx.db.query("nodeMigration").first();
-    if (row === null) await ctx.db.insert("nodeMigration", { paused: false, privacyAuthority: true, updatedAt: 1 });
-    else await ctx.db.patch(row._id, { privacyAuthority: true });
-  });
-  await admin.mutation(api.functions.privacyRows.startKeeping, {});
-  await drainScheduled(t);
-  await admin.mutation(api.functions.privacyRows.checkAll, {});
-  await drainScheduled(t);
-  await admin.mutation(api.functions.privacyRows.useRows, {});
-}
-
-afterEach(() => vi.unstubAllEnvs());
 
 async function move(p: Pair, from: string, to: string) {
   const { moveId } = await asUser(p.t, p.mover).action(api.functions.contextMoves.startContextMove, {
@@ -66,7 +43,6 @@ describe.each([
 
   test("one note arrives as a new note at its own key, and the source's goes to its trash", async () => {
     const p = await pair({ notes: 3, into: "own" });
-    await rowsMode(p.t);
     const before = await liveFileAt(p.t, p.from, "1-projects/acme/note-001.md");
 
     const row = await move(p, "1-projects/acme/note-001.md", "work/note-001.md");
@@ -94,7 +70,6 @@ describe.each([
     // A member of the shared destination, who reads its team folders and nothing private.
     const member = await createUser(p.t, "member@example.invalid");
     await addMember(p.t, p.to, member, "member");
-    await rowsMode(p.t);
 
     const row = await move(p, "1-projects/acme", "work/acme");
 
@@ -116,7 +91,6 @@ describe.each([
   test("a name already taken in the destination stops the move and leaves the source in place", async () => {
     const p = await pair({ notes: 2, into: "own" });
     await writeAs(p, p.mover, p.to, "work/note-000.md", "already here\n");
-    await rowsMode(p.t);
     const taken = await liveFileAt(p.t, p.to, "work/note-000.md");
 
     const row = await move(p, "1-projects/acme/note-000.md", "work/note-000.md");

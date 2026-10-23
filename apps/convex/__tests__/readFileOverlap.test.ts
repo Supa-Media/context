@@ -12,9 +12,9 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, readFile, setFolderVisibility, setVisibility } from "../functions/lib/fileOps";
+import { type FileStore, readFile } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 const OWNER = clearanceOf("private");
 const TEAM = clearanceOf("team");

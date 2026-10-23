@@ -1,19 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  copyPath,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  writeFile,
-} from "../../functions/lib/fileOps";
+import { copyPath, movePath, readFile, writeFile } from "../../functions/lib/fileOps";
 import {
   PRIVACY_KEY,
   canSee,
 } from "../../functions/lib/privacy";
 import { NOW, bucket, shareProjects, capture, errorShape } from "./fixtures.helpers";
 import { bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 describe("three guards that no test was holding", () => {
   /**

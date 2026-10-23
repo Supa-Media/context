@@ -17,7 +17,6 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Grant } from "./accessBackfill";
-import { accessSourceOf } from "./accessBackfill";
 import { granteeInputOf, MAX_GRANTEES, setAccessRow, type GranteeInput } from "./setAccess";
 import { resolveEntry, type GranteeRequest, type SetGranteesAnswer } from "./setGrantees";
 
@@ -40,7 +39,6 @@ export async function addGranteesHandler(
   },
 ): Promise<SetGranteesAnswer> {
   if (args.actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
-  if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false, code: "NOT_ROWS_MODE" };
   if (args.entries.length === 0 || args.entries.length > MAX_GRANTEES) return { ok: false, code: "INVALID" };
   for (const entry of args.entries) {
     const named = [entry.handle, entry.groupId, entry.email].filter((field) => field !== undefined).length;

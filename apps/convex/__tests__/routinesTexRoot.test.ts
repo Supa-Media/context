@@ -82,6 +82,8 @@ describe("a scan reads both roots", () => {
   test("a move from routines/ to tex/routines/ is picked up like any move", async () => {
     const f = await routineFixture();
     f.backend.seed(DAILY, DAILY_TEXT);
+    // A note in tex/ gives the folder a row to share: the rows hold a folder's access, so it must exist first.
+    f.backend.seed("tex/about-me.md", "# About me\n");
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.owner, paths: [DAILY] });
     expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([DAILY]);
 

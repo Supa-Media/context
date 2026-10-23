@@ -107,10 +107,6 @@ export {
   trashKeyedRows,
 } from "./fileOps/deleting";
 export type { DeleteResult } from "./fileOps/deleting";
-export { resetPrivacyManifest } from "./fileOps/privacyReset";
-export type { PrivacyResetResult } from "./fileOps/privacyReset";
-export { setExactVisibility, setVisibility, setFolderVisibility } from "./fileOps/visibility";
-export type { VisibilityResult } from "./fileOps/visibility";
 export {
   MAX_STORED_IMAGE_BYTES,
   IMAGE_PREFIX,

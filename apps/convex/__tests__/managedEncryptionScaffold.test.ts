@@ -56,7 +56,9 @@ describe("a layout applied to a sealed bucket", () => {
     });
 
     const written = scaffolded(backend);
-    expect(written).toContain(PRIVACY_KEY);
+    // No access file: the layout's access is on the rows. What lands is the index note and the folder notes.
+    expect(written).not.toContain(PRIVACY_KEY);
+    expect(written.length).toBeGreaterThan(1);
     // The layout's index note lands at its id key, named by its row.
     expect(written).toContain(await keyOf({ t, workspaceId: ours, backend }, "index.md"));
     for (const key of written) {
@@ -83,8 +85,8 @@ describe("a layout applied to a sealed bucket", () => {
     vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
       const response = await backend.fetchImpl(input, init);
       const url = String(input instanceof Request ? input.url : input);
-      // The first layout write that lands: its index note is keyed, so the race is set on the privacy manifest's write.
-      if (!raced && init?.method === "PUT" && url.includes(PRIVACY_KEY)) {
+      // The first layout write that lands. A probe object under `.context/probes/` does not count.
+      if (!raced && init?.method === "PUT" && !url.includes("probes/")) {
         raced = true;
         // The walk, elsewhere, reaching `encrypted` between two layout writes.
         await t.run(async (ctx) => {

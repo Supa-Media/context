@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { asUser, captureError, copyTree, errorCode } from "./fixtures.helpers";
 import { DAILY, DAILY_TEXT, routineFixture, type RoutineFixture } from "./routines.helpers";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 /**
  * ROUTINES: READING A ROUTINE'S RECENT RUNS FROM THE APP.

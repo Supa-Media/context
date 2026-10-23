@@ -189,7 +189,7 @@ describe("a stranger cannot reach another workspace's files", () => {
       // Owner-only, and absent here since it was written. The one exit from a
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
-      (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
+      (workspaceId) => as.action(api.functions.files.setDirectoryVisibility, { workspaceId, path: "1-projects", visibility: "private" }),
       (workspaceId) => as.action(api.functions.files.updateStorageLayout, { workspaceId }),
       // Owner-only, and a writer of `privacy.md` like the two visibility
       // setters beside it. The group name resolves against the workspace the

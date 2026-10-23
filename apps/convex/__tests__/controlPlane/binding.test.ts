@@ -380,7 +380,10 @@ describe("/gateway/binding — the encryption key", () => {
     const text = await response.text();
     expect(response.status).toBe(200);
     expect(text).not.toContain("encryptionKey");
-    expect(Object.keys(JSON.parse(text) as Record<string, unknown>)).toEqual(["binding"]);
+    // `privacy` is the rules the rows hold for this workspace. Rows are the only access mode now, so every answer
+    // carries them; the siblings that are optional by design (search, rotation, features) stay absent.
+    const keys = Object.keys(JSON.parse(text) as Record<string, unknown>);
+    expect(keys.filter((key) => key !== "privacy")).toEqual(["binding"]);
   });
 
   test("...and asking for the binding did not create one", async () => {

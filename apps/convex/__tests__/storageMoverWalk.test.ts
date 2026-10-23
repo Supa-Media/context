@@ -133,9 +133,11 @@ describe("the encryption walk on the mover", () => {
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
 
-    // The three keyed notes, and the three path copies the bucket still holds.
-    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 6, filesTotal: 6 });
-    for (const key of [PRIVACY_KEY, index!, plan!, "index.md", "1-projects/plan.md"]) {
+    // Two keyed notes and the two path copies the bucket still holds. The access map is no file any more: its
+    // path was translated into rows and removed, but its keyed copy (`notes/<id>.md`, no row) was sealed too.
+    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 5, filesTotal: 5 });
+    expect(backend.snapshot()[PRIVACY_KEY]).toBeUndefined();
+    for (const key of [index!, plan!, "index.md", "1-projects/plan.md", ...Object.keys(backend.snapshot())]) {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
     }
     // Every seal (a write) happened inside the mover; outside it this
@@ -170,7 +172,7 @@ describe("the encryption walk on the mover", () => {
     await drainScheduled(t);
 
     expect(await row(t, ours)).toMatchObject({ state: "decrypted" });
-    for (const key of [PRIVACY_KEY, index!, plan!, "index.md", "1-projects/plan.md"]) {
+    for (const key of [index!, plan!, "index.md", "1-projects/plan.md", ...Object.keys(backend.snapshot())]) {
       expect(isSealed(backend.bytesOf(key))).toBe(false);
     }
     expect(walkPages(opened).map((page) => (page as { phase: string }).phase)).toEqual(["seal", "check", "unseal", "confirm"]);

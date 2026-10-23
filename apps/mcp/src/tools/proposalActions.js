@@ -4,7 +4,7 @@ import { clearExactVisibilityIfAbsent } from "../moves/objects.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
-import { loadScopeRules, persistExactVisibility } from "../privacy/state.js";
+import { persistExactVisibility } from "../privacy/state.js";
 import { normalizePath, timestampSlug } from "../notes/paths.js";
 import {
   pendingProposalById,
@@ -78,7 +78,7 @@ export async function toolReviewProposal(store, scope, id, action, destinationAr
     }
     // Proposal approval is a personal review action and defaults private even
     // when the logical destination sits in a team-default folder.
-    await persistExactVisibility(store, destination, "private", await loadScopeRules(store));
+    await persistExactVisibility(store, destination, "private");
     const created = await store.put(destination, proposal.content, { onlyIf: { absent: true } });
     if (!created) {
       await clearExactVisibilityIfAbsent(store, destination).catch(() => {});

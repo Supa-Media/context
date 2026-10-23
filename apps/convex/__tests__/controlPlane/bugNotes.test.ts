@@ -54,7 +54,7 @@ import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedb
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 // A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
-import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
+import { LEGACY_PARA_FOLDERS } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import {
   addMember,
@@ -68,6 +68,7 @@ import {
   type TestConvex,
 } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
+import { renderPrivacyManifestForFolders } from "../seededRules.helpers";
 
 const DSN = "https://0123456789abcdef0123456789abcdef@o1.ingest.example.invalid/42";
 const TEXTS = "Them: find my avocado note\n\nTex: I couldn't find a note about avocados.";
@@ -96,13 +97,15 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function world(rules: "para" | "team-everywhere" = "para") {
+async function world() {
   const tenants = await twoConnectedTenants();
   const { t, alice, grantA } = tenants;
   const staff = await createUser(t, "staff@example.invalid");
   const pinned = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
-  backend.seed(PRIVACY_KEY, rules === "para" ? renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS) : teamEverywhere());
+  backend.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS));
   backend.seed("index.md", "# Context\n");
+  // A context has its Areas folder before anybody reports anything, and the check reads that folder's row.
+  backend.seed("areas/README.md", "# Areas\n");
   await seedStorageBinding(t, { workspaceId: pinned, boundBy: staff, bucket: PINNED_BUCKET });
   await copyTree(t, pinned);
   // Tex's own client and grant, as `textLinks.ts` makes them.
@@ -144,11 +147,6 @@ async function judgedByRows(t: TestConvex, workspaceId: Id<"workspaces">) {
     if (privacy === null) await ctx.db.insert("nodePrivacy", { workspaceId, observedAt: 1, ...authorityRow });
     else await ctx.db.patch(privacy._id, authorityRow);
   });
-}
-
-/** A manifest with `areas` opened to the team: every account reads it through the pin. */
-function teamEverywhere(): string {
-  return renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS).replace("  2-areas: private\n", "  2-areas: private\n  areas: team\n");
 }
 
 async function report(t: TestConvex, body: Record<string, unknown>) {
@@ -212,7 +210,9 @@ describe("bug reports by text, as notes in the pinned context", () => {
   });
 
   test("a folder anybody can read through the pin gets nothing, and the report is not counted", async () => {
-    const { t, pinned } = await world("team-everywhere");
+    const { t, pinned, staff } = await world();
+    // Open the Areas folder to every account, as the console does: the rows, not a manifest line, carry it.
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team", accounts: true });
     expect(await report(t, { message: "x", texts: TEXTS })).toEqual({ report: null, refused: "unavailable" });
     expect(bugs(await notesIn(t, pinned))).toEqual([]);
     expect(JSON.stringify(backend.snapshot())).not.toContain("avocado");

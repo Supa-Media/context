@@ -102,8 +102,7 @@ export function createSessionMethods({ post, required }) {
         // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
-        // Phase 3, an eighth sibling: the privacy rules while they are the
-        // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
+        // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
         // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
         // workspace is keyed; anything else is a control plane that cannot say

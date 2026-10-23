@@ -30,6 +30,7 @@ import { modules } from "../../test.setup";
 import { isNoteKey } from "../../functions/lib/noteCount";
 import { gatewayPost, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -60,7 +61,7 @@ async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
     gone: [],
     vanishedUnder: [],
   });
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
+  await translateMirror(t, workspaceId, RULES);
   await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
   await t.mutation(internal.functions.nodes.saveParity, {

@@ -32,7 +32,7 @@ import {
   type PrivacyRule,
   type Visibility,
 } from "./privacy";
-import { loadPrivacyState, setExactVisibility, type FileStore } from "./fileOps";
+import { loadPrivacyState, type FileStore } from "./fileOps";
 import { manifestUsable } from "./fileOps/privacyState";
 import { forwardPath, readForwarding } from "../../../mcp/src/forwarding.js";
 
@@ -75,6 +75,11 @@ export interface ActivityChange {
  */
 export interface ActivityLanded {
   teamVisible: boolean;
+  /**
+   * The activity file is not private in the rules it was written under: its row must be made private again
+   * (`nodesAccess.keepActivityPrivate`, run by the barrier). It names private notes, so it stays private.
+   */
+  reprivate: boolean;
 }
 
 export async function recordActivity(
@@ -112,24 +117,11 @@ export async function recordActivity(
         ? await store.put(ACTIVITY_PATH, next.text, { onlyIf: conditional })
         : await store.put(ACTIVITY_PATH, next.text);
       if (put === null) continue;
-      /*
-        Private, checked rather than assumed — the gateway's copy carries the
-        reasoning. The case this is for is a hand-written note override
-        publishing the file, which would hand every member an index of every
-        private filename in the context. Costs nothing in the ordinary case:
-        the manifest is already loaded above, and the writer no-ops when the
-        answer is already private.
-      */
-      if (
-        effectiveVisibility(ACTIVITY_PATH, privacy.rules, privacy.overrides) !== "private"
-      ) {
-        await setExactVisibility(store, ACTIVITY_PATH, "private");
-      }
       // The line landed, so the workspace row's stamps are stale. The caller
       // patches them: this module holds a store and no `ctx`. The tier goes
       // with it, because a member who is not the owner is shown only the
       // team-tier stamp — see `schema.ts`, `activityTeamAt`.
-      return { teamVisible };
+      return { teamVisible, reprivate: effectiveVisibility(ACTIVITY_PATH, privacy.rules, privacy.overrides) !== "private" };
     }
     return null;
   } catch {

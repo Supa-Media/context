@@ -1,80 +1,32 @@
 /**
- * The privacy manifest as stored: loading it from a bucket (with the legacy
- * `scopes.yml` and `.note-acl` fallback), and recording or clearing one
- * note's exact visibility in it.
+ * The access rules a gateway request judges by, and recording or clearing one
+ * note's exact visibility in them. The rules are the tree's access rows
+ * (`store/privacyAuthority.js` renders them); nothing is read from a `privacy.md`.
  *
  * The decisions themselves are `engine.js`; this is the I/O around them.
  */
 
-import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import {
-  LEGACY_SCOPES_KEY,
   overrideFor,
   parsePrivacyManifest,
   PRIVACY_KEY,
   PRIVACY_RULES_BEGIN,
   PRIVACY_RULES_END,
   PrivacyOverrides,
-  replacePrivacyRulesBlock,
-  visibilityOf,
 } from "./engine.js";
 import { PRE_PARSED_RULES } from "./engine.js";
-import { listAllKeysWithLegacy } from "../notes/storage.js";
-import { NOTE_ACL_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
-function parseLegacyScopeRules(text) {
-  const rules = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*$/, "").trim();
-    if (!line || line === "rules:") continue;
-    const mm = line.match(/^([^:]+?)\/?\s*:\s*(public|team|private)$/);
-    if (mm) {
-      rules.push({
-        prefix: mm[1].trim().replace(/^\/+/, ""),
-        // `public` was the old name for authenticated team access.
-        vis: mm[2] === "public" ? "team" : mm[2],
-      });
-    }
-  }
-  return rules;
-}
-
-async function loadLegacyPrivacyState(store) {
-  const scopeObject = await getWithLegacyFallback(store, LEGACY_SCOPES_KEY);
-  const rules = scopeObject ? parseLegacyScopeRules(await scopeObject.text()) : [];
-  const overrides = new PrivacyOverrides();
-  const keys = await listAllKeysWithLegacy(store, NOTE_ACL_PREFIX);
-  for (const { key } of keys) {
-    const path = key.slice(NOTE_ACL_PREFIX.length).replace(/\.json$/, "");
-    if (path && key.endsWith(".json")) overrides.set(path, "private");
-  }
-  return { rules, overrides, legacy: true, object: scopeObject };
-}
-
+/**
+ * The rules a request judges by: the rows, rendered for the reader, which the store carries
+ * (`PRE_PARSED_RULES`). A store without them judges nothing: everything is private (fail closed).
+ */
 export async function loadPrivacyState(store) {
-  const object = await getWithLegacyFallback(store, PRIVACY_KEY);
-  if (!object) return loadLegacyPrivacyState(store);
-  // Rules the authority holds parsed, with row tokens in them: taken as held. The text is still the file's.
-  const preParsed = object[PRE_PARSED_RULES];
-  if (preParsed !== undefined) return { ...preParsed, text: await object.text(), object, legacy: false };
-  try {
-    const text = await object.text();
-    return { ...parsePrivacyManifest(text), text, object, legacy: false };
-  } catch (error) {
-    return { rules: [], overrides: new PrivacyOverrides(), text: "", object, legacy: false, error: error.message };
+  const object = await store.get(PRIVACY_KEY);
+  const preParsed = object?.[PRE_PARSED_RULES];
+  if (preParsed === undefined) {
+    return { rules: [], overrides: new PrivacyOverrides(), text: "", etag: undefined, object: null, error: "access rules are not loaded" };
   }
-}
-
-export async function loadScopeRules(store) {
-  return (await loadPrivacyState(store)).rules;
-}
-
-function noteAclKey(path) {
-  return `${NOTE_ACL_PREFIX}${path}.json`;
-}
-
-async function loadNoteVisibilityOverrides(store) {
-  return (await loadPrivacyState(store)).overrides;
+  return { ...preParsed, text: "", etag: object.etag, object, legacy: false };
 }
 
 /**
@@ -105,6 +57,11 @@ export async function setRowTier(store, path, tier, { folder = false, missingOk 
   throw new RowsWriteRefused(answer.code ?? "FORBIDDEN", "privacy rows refused the change");
 }
 
+/**
+ * Whether a note path can be written at all. The access rows take any path, but a path that cannot be read back
+ * as itself through the retired rule grammar is refused here as before (`writesOneRule`, kept until the grammar is
+ * decided away; see the report that added this).
+ */
 export const UNWRITABLE_PATH_REFUSAL =
   "that path cannot be recorded in privacy.md: a note path may not contain a character " +
   "the rule format uses. Rename the note and try again.";
@@ -150,68 +107,14 @@ export function writesOneRule(path, visibility = "private") {
   return overrideFor(parsed.overrides, path) === visibility;
 }
 
-export async function persistExactVisibility(store, path, visibility, rules) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const state = await loadPrivacyState(store);
-    if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
-    if (store.rowAccess) {
-      await setRowTier(store, path, visibility);
-      return;
-    }
-    if (state.legacy) {
-      const inherited = visibilityOf(path, rules);
-      if (visibility === "private" && inherited === "team") {
-        await store.put(
-          noteAclKey(path),
-          JSON.stringify({ path, visibility: "private", updated_at: new Date().toISOString() })
-        );
-      } else {
-        await deleteWithLegacyFallback(store, noteAclKey(path));
-      }
-      return;
-    }
-    const inherited = visibilityOf(path, state.rules);
-    // Belt to `normalizePath`'s brace, and the same technique the control
-    // plane's `writableAsRule` uses: render the rule this write would add and
-    // parse it back with the REAL parser, accepting it only if exactly one rule
-    // comes out naming exactly this path. A character blacklist is a guess
-    // about a parser that has a comment stripper, a trailing-slash tolerance
-    // and a dot-segment rule; a round trip is not a guess.
-    if (visibility !== inherited && !writesOneRule(path, visibility)) {
-      throw new Error("that path cannot be written as a privacy rule");
-    }
-    if (visibility === inherited) state.overrides.delete(path);
-    else state.overrides.set(path, visibility);
-    const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-    // Nothing to record: a team note in a team folder, written again. Every
-    // team write lands here, and a write of an unchanged manifest is a round
-    // trip to the control plane (or the bucket) that can only fail.
-    if (next === state.text) return;
-    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
-    if (put) return;
-  }
-  throw new Error("privacy manifest changed concurrently; retry the operation");
+/** Record one note's visibility on its row (`setRowTier`). The rows are the only access. */
+export async function persistExactVisibility(store, path, visibility) {
+  if (!store.rowAccess) throw new Error("access rows are not loaded");
+  await setRowTier(store, path, visibility);
 }
 
+/** Clear one note's own visibility, so it inherits again. A row that is gone has nothing to clear. */
 export async function clearExactVisibility(store, path) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const state = await loadPrivacyState(store);
-    if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
-    if (store.rowAccess) {
-      await setRowTier(store, path, "inherit", { missingOk: true });
-      return;
-    }
-    if (state.legacy) {
-      await deleteWithLegacyFallback(store, noteAclKey(path));
-      return;
-    }
-    // Exact on purpose, and asked through `delete`'s own answer so the two
-    // cannot drift apart: a fold reads across case, it never writes across it.
-    // Clearing `a/Foo.md` must not remove the override on `a/foo.md`.
-    if (!state.overrides.delete(path)) return;
-    const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
-    if (put) return;
-  }
-  throw new Error("privacy manifest changed concurrently; retry the operation");
+  if (!store.rowAccess) throw new Error("access rows are not loaded");
+  await setRowTier(store, path, "inherit", { missingOk: true });
 }

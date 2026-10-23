@@ -78,16 +78,6 @@ import { hideOldCopiesPass, readOldCopyTexts } from "../oldCopies/hiding";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 
-/** Operations that write `privacy.md`'s rules: refused in rows mode, where the rows are written instead. */
-const PRIVACY_WRITE_OPERATIONS = new Set([
-  "setVisibility",
-  "setNoteGroup",
-  "setFolderGroup",
-  "setFolderVisibility",
-  "resetPrivacy",
-  "ensurePrivacy",
-]);
-
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
 
@@ -118,15 +108,6 @@ export async function runFileOperationHandler(
   // A path under a built-in folder's default name (`inbox/...`) goes to the folder doing that job (`jobLens.ts`).
   const job = await jobLens(ctx, args);
   if (job !== null) return await runFileOperationHandler(ctx, { ...args, operation: job as typeof args.operation });
-  // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
-  // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
-  // credential is opened.
-  if (PRIVACY_WRITE_OPERATIONS.has(args.operation.kind) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
-    throw new ConvexError({
-      code: "ROWS_MODE",
-      message: "Access is kept on the tree's rows now. Change it through the console, or the gateway's set access.",
-    });
-  }
   /*
    * A PROJECTION PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
    *
@@ -479,9 +460,9 @@ export async function runFileOperationHandler(
     });
   }
 
-  // `privacy.md` decided by the rules held as the authority, where they are
-  // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
-  // below goes through this, the console's and the gateway's alike.
+  // The access rules, rendered from the tree's rows for this reader (`apps/mcp/src/store/privacyAuthority.js`).
+  // Every read of the rules below goes through this, the console's and the gateway's alike.
+  // A row's tier set by the operation itself (a copy narrowed, a move's destination tightened) goes through `setAccess`.
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId, readerAudience(args))) as unknown as FileStore;
   // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
   attachSmallData(ctx, args.workspaceId, store);
@@ -535,7 +516,7 @@ export async function runFileOperationHandler(
     return result;
   }
 
-  let wroteActivity: { teamVisible: boolean } | null = null;
+  let wroteActivity: { teamVisible: boolean; reprivate: boolean } | null = null;
   let dueNotification: (FormNotifyMaterial & { responseId: string }) | null = null;
   /*
     What this operation does to the file tree, if anything, and — for one
@@ -664,6 +645,12 @@ export async function runFileOperationHandler(
     late-landing stamp cannot walk the dot backwards.
   */
   if (wroteActivity !== null) {
+    // The activity file names private notes: whatever row it has, it is private again (non-negotiable 5).
+    if ((wroteActivity as { reprivate: boolean }).reprivate) {
+      await ctx
+        .runMutation(internal.functions.nodesAccess.keepActivityPrivate, { workspaceId: args.workspaceId })
+        .catch(() => {});
+    }
     await ctx
       .runMutation(internal.functions.files.markWorkspaceActivity, {
         workspaceId: args.workspaceId,

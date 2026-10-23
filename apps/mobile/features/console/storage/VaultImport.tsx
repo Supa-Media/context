@@ -82,22 +82,19 @@ function ImportProgress({
 
 /**
  * The same create-only folder importer is used during onboarding and later in
- * Settings. Keeping one implementation makes overwrite rules, filtering, and
- * privacy repair identical no matter when somebody brings their notes in.
+ * Settings. Keeping one implementation makes overwrite rules and filtering
+ * identical no matter when somebody brings their notes in.
  */
 export function VaultImport({
   workspaceId,
   onSkip,
   onComplete,
-  initializePrivacy = false,
   existingData = false,
   testIDPrefix = "vault",
 }: {
   workspaceId: Id<"workspaces">;
   onSkip?: () => void;
   onComplete?: () => void;
-  /** Fresh onboarding storage has no access map yet; established storage does. */
-  initializePrivacy?: boolean;
   /** Existing storage needs an explicit merge-or-folder choice before picking local files. */
   existingData?: boolean;
   testIDPrefix?: string;
@@ -109,7 +106,6 @@ export function VaultImport({
   const existingJob = useQuery(api.functions.files.latestVaultImportJob, {
     workspaceId,
   });
-  const resetPrivacy = useAction(api.functions.files.resetPrivacy);
   return (
     <VaultImportBody
       workspaceId={workspaceId}
@@ -119,7 +115,6 @@ export function VaultImport({
       importBatch={importBatch}
       clearReplacementBatch={clearReplacementBatch}
       pauseJob={pauseJob}
-      resetPrivacy={initializePrivacy ? resetPrivacy : undefined}
       onSkip={onSkip}
       onComplete={onComplete}
       testIDPrefix={testIDPrefix}
@@ -136,7 +131,6 @@ export function VaultImportBody({
   importBatch,
   clearReplacementBatch,
   pauseJob,
-  resetPrivacy,
   onSkip,
   onComplete,
   testIDPrefix = "vault",
@@ -171,7 +165,6 @@ export function VaultImportBody({
     workspaceId: Id<"workspaces">;
     jobId: Id<"vaultImportJobs">;
   }) => Promise<unknown>;
-  resetPrivacy?: (args: { workspaceId: Id<"workspaces"> }) => Promise<unknown>;
   onSkip?: () => void;
   onComplete?: () => void;
   testIDPrefix?: string;
@@ -311,10 +304,6 @@ export function VaultImportBody({
           total: latest.totalFiles,
         });
       }
-      // A fresh import replaces onboarding's scaffold step, so it needs the
-      // all-private access map that step would have created. Settings imports
-      // leave a workspace's existing access map alone.
-      if (strategy !== "replace" && resetPrivacy !== undefined) await resetPrivacy({ workspaceId });
       setUpload({
         kind: "complete",
         created: latest.createdFiles,

@@ -31,7 +31,6 @@ import { treeServesNow } from "./lib/nodes/listing";
 import { readerMirror, readerView } from "./lib/nodes/readerRules";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { audienceOfNames } from "./lib/pinnedReaders";
-import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import type { PrivacyMirror } from "./lib/nodes/table";
 import { movingRowMoves } from "./lib/nodes/rowMoveChunks";
@@ -78,7 +77,6 @@ async function feedPrivacy(
 
 /** The access rows' version while rows judge the workspace, else `undefined`. */
 async function rowsVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number | undefined> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return undefined;
   return await accessVersionOf(ctx, workspaceId);
 }
 

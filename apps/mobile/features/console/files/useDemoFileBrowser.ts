@@ -268,7 +268,6 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // folder loads on expansion — so `knownNotePaths` alone is already the
       // complete answer and there is no docmap to merge in.
       linkPaths: knownNotePaths(tree.listings),
-      resetPrivacy: noop,
       // The icons the tree came with (a homepage scene names some); nothing here can set one.
       // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
       iconOf: (path: string) => {
@@ -282,7 +281,6 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       addBuiltInFolder: async () => {
         throw new Error("The landing page cannot add folders.");
       },
-      canResetPrivacy: false,
       canSetVisibility: false,
       // No bucket behind this surface, so a Download would do nothing.
       canDownload: false,

@@ -65,7 +65,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { escapeHtml, sanitizeHeaderText } from "../functions/lib/invitationEmail";
 import { renderFormDigest, renderFormNotification } from "../functions/lib/formNotifyEmail";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
@@ -82,6 +81,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -182,6 +182,8 @@ async function fixture(notify: string | null = "owner"): Promise<Fixture> {
   const backend = memoryS3("fake-bucket");
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
+  // The folder the visibility change below names must exist as a row: a folder with no file under it is not in the tree.
+  backend.seed("1-projects/README.md", "# Projects\n");
 
   const sent: Fixture["sent"] = [];
   vi.stubGlobal("fetch", stubFetch(backend, sent));

@@ -206,8 +206,6 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     archive: () => {},
     destroy: () => {},
     setVisibility: () => {},
-    resetPrivacy: () => {},
-    canResetPrivacy: false,
     canSetVisibility: true,
     canShare: true,
     shares: [],

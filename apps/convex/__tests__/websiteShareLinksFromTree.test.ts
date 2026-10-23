@@ -24,12 +24,12 @@ async function shareSetup(sharedText = SHARED_NOTE) {
   const f = await fixture();
   f.backend.seed("website/index.md", HOME_PAGE);
   f.backend.seed("1-projects/shared.md", sharedText);
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId: f.workspaceId,
     path: "1-projects",
     visibility: "team",
   });
-  await copyTree(f.t, f.workspaceId);
   const { token } = await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
     workspaceId: f.workspaceId,
     path: "1-projects/shared.md",

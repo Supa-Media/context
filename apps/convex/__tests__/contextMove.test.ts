@@ -56,7 +56,7 @@ import {
   parsePrivacyManifest,
   replacePrivacyRulesBlock,
 } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 

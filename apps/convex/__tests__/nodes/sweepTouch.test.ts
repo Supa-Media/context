@@ -10,9 +10,8 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, setFolderVisibility, setVisibility } from "../../functions/lib/fileOps";
+import { type FileStore } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { FILL_FAILED, TOKEN_CURSOR, sweepNodesPass, type NodeListingStore } from "../../functions/lib/nodes/sweep";
 import { touchNodes } from "../../functions/lib/nodes/touch";
 import {
@@ -24,6 +23,7 @@ import {
 } from "../../functions/lib/nodes/table";
 import { memoryNodeSink } from "../nodeTable.helpers";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 type Store = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");

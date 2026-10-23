@@ -22,19 +22,29 @@ import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { seqAt } from "../../functions/lib/nodes/log";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
 const RULES = {
-  etag: "privacy-1",
   invalid: false,
+  // Rows are keyed by their path with no trailing slash, so a folder's rule names it the same way.
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [{ path: "2-areas/shared.md", visibility: "team" }],
 };
-const TOKEN = "nodes:privacy-1";
+
+/**
+ * The rules version a device is told by a walk that starts now (`walkStart`). Rows judge the workspace, so the token
+ * is the rows' version and their pending moves, not a `privacy.md` etag; a case reads it rather than writing it down.
+ */
+async function tokenOf(t: T, workspaceId: Id<"workspaces">): Promise<string> {
+  const start = await t.query(internal.functions.nodesFeed.walkStart, { workspaceId, now: Date.now() });
+  if (start === null) throw new Error("the feed has no rules version for this workspace");
+  return start.privacy;
+}
 
 async function fixture() {
   const t = convexTest(schema, modules);
@@ -57,7 +67,7 @@ async function fixture() {
     await ctx.db.insert("workspaceMembers", { workspaceId: ws, userId: memberId, role: "member", joinedAt: now });
     return { ws, ownerId, memberId, strangerId };
   });
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ids.ws, mirror: RULES, at: 1 });
+  await translateMirror(t, ids.ws, RULES);
   await observe(t, ids.ws, 10, ["privacy.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/mine.md", "2-areas/shared.md"]);
   await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: 5 });
@@ -94,7 +104,7 @@ async function catchUp(
     actorUserId,
     workspaceId: ws,
     since: options.since ?? seqAt(Date.now() - 60 * 60_000),
-    privacy: options.privacy ?? TOKEN,
+    privacy: options.privacy ?? (await tokenOf(t, ws)),
     now,
     ...(options.limit === undefined ? {} : { limit: options.limit }),
   });
@@ -204,12 +214,16 @@ describe("catching up", () => {
 
   test("a copy judged by other rules, or older than the log, walks", async () => {
     const { t, ws, memberId } = await fixture();
-    expect((await catchUp(t, ws, memberId, { privacy: "nodes:privacy-0" }))?.full).toBe(true);
-    expect((await catchUp(t, ws, memberId, { privacy: "privacy-1" }))?.full).toBe(true);
+    const current = await tokenOf(t, ws);
+    expect((await catchUp(t, ws, memberId, { privacy: `${current}-other` }))?.full).toBe(true);
     expect((await catchUp(t, ws, memberId, { since: 0 }))?.full).toBe(true);
-    await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ws, mirror: { ...RULES, etag: "privacy-2" }, at: 60 });
-    expect((await catchUp(t, ws, memberId))?.full).toBe(true);
-    expect((await catchUp(t, ws, memberId, { privacy: "nodes:privacy-2" }))?.full).toBe(false);
+    // A device told the rules before a real change walks; one told the rules after it does not.
+    const before = current;
+    await translateMirror(t, ws, { ...RULES, notes: [...RULES.notes, { path: "2-areas/mine.md", visibility: "team" }] });
+    const after = await tokenOf(t, ws);
+    expect(after).not.toBe(before);
+    expect((await catchUp(t, ws, memberId, { privacy: before }))?.full).toBe(true);
+    expect((await catchUp(t, ws, memberId, { privacy: after }))?.full).toBe(false);
   });
 
   test("staff's Pause changes nothing: the feed still answers", async () => {
@@ -223,11 +237,12 @@ describe("catching up", () => {
 
   test("a first copy not finished: null, and the device walks", async () => {
     const { t, ws, memberId } = await fixture();
+    const privacy = await tokenOf(t, ws);
     await t.run(async (ctx) => {
       const row = await ctx.db.query("nodeTrees").first();
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
-    expect(await catchUp(t, ws, memberId)).toBeNull();
+    expect(await catchUp(t, ws, memberId, { privacy })).toBeNull();
     expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() })).toBeNull();
   });
 
@@ -238,6 +253,7 @@ describe("catching up", () => {
 
   test("the action answers a cursor from this log with a walk once the tree stops serving", async () => {
     const { t, ws, member } = await fixture();
+    const privacy = await tokenOf(t, ws);
     await t.run(async (ctx) => {
       const row = await ctx.db.query("nodeTrees").first();
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
@@ -245,7 +261,7 @@ describe("catching up", () => {
     const result = await member.action(api.functions.treeChanges.syncTreeChanges, {
       workspaceId: ws,
       since: seqAt(Date.now()),
-      privacy: TOKEN,
+      privacy,
     });
     expect(result.full).toBe(true);
   });
@@ -255,7 +271,7 @@ describe("catching up", () => {
     const now = Date.now();
     expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now })).toEqual({
       since: seqAt(now - 60_000),
-      privacy: TOKEN,
+      privacy: await tokenOf(t, ws),
     });
   });
 });
@@ -277,7 +293,7 @@ describe("the live head", () => {
   test("moves when the rules change, and is null while the tree does not serve", async () => {
     const { t, ws, member } = await fixture();
     const before = await member.query(api.functions.nodesFeed.head, { workspaceId: ws });
-    await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ws, mirror: { ...RULES, etag: "privacy-2" }, at: 60 });
+    await translateMirror(t, ws, { ...RULES, notes: [...RULES.notes, { path: "2-areas/mine.md", visibility: "team" }] });
     const after = await member.query(api.functions.nodesFeed.head, { workspaceId: ws });
     expect(after?.token).not.toBe(before?.token);
     await t.run(async (ctx) => {

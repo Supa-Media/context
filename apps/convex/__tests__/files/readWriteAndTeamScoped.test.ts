@@ -95,6 +95,11 @@ describe("read access and write access are different grants", { timeout: 60_000 
     // the archive is refused by `archivePath` whatever its clearance says, and
     // both the third clause of the assertion below and the claim above would be
     // untestable. Verified by lowering all three bars: the three keys land.
+    // The folder has to exist first: a rule is a row's access in rows mode, and a path with no row is not found.
+    await asUser(f.t, f.owner).action(api.functions.files.createDirectory, {
+      workspaceId: f.workspaceId,
+      path: "4-archive",
+    });
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "4-archive",
@@ -226,9 +231,7 @@ describe("read access and write access are different grants", { timeout: 60_000 
     });
 
     const error = await captureError(() =>
-      asUser(f.t, f.reader).action(api.functions.files.resetPrivacy, {
-        workspaceId: f.workspaceId,
-      }),
+      asUser(f.t, f.reader).action(api.functions.files.setDirectoryVisibility, { workspaceId: f.workspaceId, path: "1-projects", visibility: "private" }),
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
   });

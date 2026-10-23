@@ -29,7 +29,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { MANAGED_BUCKET_PREFIX } from "../functions/lib/managedStorage";
 import { TURNSTILE_SECRET_ENV_VAR } from "../functions/lib/turnstile";
@@ -39,6 +38,7 @@ import { collectCapFrom } from "../functions/lib/collectLimits";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { FAKE_STORAGE, asUser, captureError, copyTree, createUser, createWorkspace } from "./fixtures.helpers";
 import { errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

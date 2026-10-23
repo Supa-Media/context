@@ -44,7 +44,6 @@
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { identifiersForUser, resolveAddressedUser } from "./identities";
-import { accessSourceOf } from "./nodes/accessBackfill";
 import { accessRowsOf } from "./nodes/accessRows";
 import { accessNamesFor } from "./nodes/rowAccess";
 import { ownedConfirmedEmailsOf } from "./signInEmails";
@@ -114,15 +113,13 @@ export async function grantedNamesFor(
     names.add(identifier.value);
   }
 
-  // Once the access rows are the source, a grant on a row names the caller by its token (`rowAccess.ts`).
-  // The membership check above has already run, so a person named by a grant who is no longer a
-  // member of this workspace gets nothing. The token is stored without its `@`, as the names above are.
-  if ((await accessSourceOf(ctx.db)) === "rows") {
-    // An email grant matches only an address this account alone holds (`ownedConfirmedEmailsOf`).
-    const emails = await ownedConfirmedEmailsOf(ctx, userId);
-    for (const name of accessNamesFor({ userId, groupIds, emails, member: true, account: true }, await accessRowsOf(ctx, workspaceId))) {
-      names.add(name.slice(1));
-    }
+  // A grant on a row names the caller by its token (`rowAccess.ts`). The membership check above has already run, so a
+  // person named by a grant who is no longer a member of this workspace gets nothing. The token is stored without
+  // its `@`, as the names above are.
+  // An email grant matches only an address this account alone holds (`ownedConfirmedEmailsOf`).
+  const emails = await ownedConfirmedEmailsOf(ctx, userId);
+  for (const name of accessNamesFor({ userId, groupIds, emails, member: true, account: true }, await accessRowsOf(ctx, workspaceId))) {
+    names.add(name.slice(1));
   }
 
   return [...names];

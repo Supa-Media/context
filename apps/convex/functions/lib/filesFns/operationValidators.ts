@@ -29,7 +29,6 @@ import {
   chaosScoreValidator,
   movedValidator,
   notesValidator,
-  privacyResetValidator,
   storageLayoutReadValidator,
   storageMigrationResultValidator,
   vaultClearResultValidator,
@@ -148,7 +147,6 @@ export const operationResultValidator = v.union(
   visibilityResultValidator,
   activityRecordedValidator,
   folderCreatedValidator,
-  privacyResetValidator,
   storageMigrationResultValidator,
   storageLayoutReadValidator,
   imageWrittenValidator,
@@ -302,7 +300,6 @@ export const operationValidator = v.union(
     kind: v.literal("nodesMoveBatch"),
     moves: v.array(v.object({ from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) })),
   }),
-  v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({ kind: v.literal("nodesSmallData") }),
   /** A folder List's notes from the Convex tree's facts (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
@@ -331,7 +328,6 @@ export const operationValidator = v.union(
     })),
   }),
   v.object({ kind: v.literal("clearVault"), countOnly: v.boolean() }),
-  v.object({ kind: v.literal("ensurePrivacy") }),
   v.object({
     kind: v.literal("removeEncryption"),
     path: v.string(),
@@ -491,46 +487,11 @@ export const operationValidator = v.union(
     confirmation: v.string(),
   }),
   v.object({
-    kind: v.literal("setVisibility"),
-    path: v.string(),
-    visibility: visibilityValidator,
-  }),
-  v.object({
-    kind: v.literal("setNoteGroup"),
-    path: v.string(),
-    /**
-     * The group's full name WITHOUT the `@`, already proven to belong to this
-     * workspace by `setNoteGroup` before the operation is dispatched. A plain
-     * string here rather than a group id: this is the value that lands in
-     * `privacy.md`, and the manifest holds names, not ids.
-     */
-    group: v.string(),
-  }),
-  v.object({
-    kind: v.literal("setFolderGroup"),
-    path: v.string(),
-    /**
-     * The name WITHOUT the `@`, already proven to belong to this workspace by
-     * `setFolderGroup` before the operation is dispatched. A plain string
-     * rather than an id for the same reason its note-shaped sibling is one:
-     * this is the value that lands in `privacy.md`, and the manifest holds
-     * names, not ids — which is what lets it stay legible on export and mean
-     * nothing without the control plane.
-     */
-    group: v.string(),
-  }),
-  v.object({
     kind: v.literal("visibilityLine"),
     action: v.union(v.literal("visibility.note"), v.literal("visibility.folder")),
     path: v.string(),
     to: v.string(),
     teamVisible: v.boolean(),
-  }),
-  v.object({
-    kind: v.literal("setFolderVisibility"),
-    path: v.string(),
-    visibility: visibilityValidator,
-    onlyIfUnset: v.optional(v.boolean()),
   }),
   v.object({
     /**
@@ -580,7 +541,6 @@ export const operationValidator = v.union(
     responseId: v.string(),
     to: v.string(),
   }),
-  v.object({ kind: v.literal("resetPrivacy") }),
   v.object({
     kind: v.literal("migrateStorage"),
     cleanup: v.boolean(),

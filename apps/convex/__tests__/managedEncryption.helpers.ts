@@ -12,11 +12,11 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { managedBucketName } from "../functions/lib/managedStorage";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { addMember, asUser, createUser, createWorkspace, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 
 type CatchUpArgs = FunctionArgs<typeof internal.functions.moveCatchUp.runMoveCatchUp>;
 import { memoryS3, type MemoryS3Options } from "./storeStub.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 export const ADMIN = "staff@example.invalid";
 export const MAGIC = new TextEncoder().encode("CTXENC");

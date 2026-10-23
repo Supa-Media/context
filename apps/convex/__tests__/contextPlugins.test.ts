@@ -24,7 +24,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { CONTEXT_PLUGINS } from "../../mcp/src/plugins/catalog.js";
 import { ENABLEMENT_KEY, parseEnablement } from "../../mcp/src/plugins/enablement.js";
@@ -41,6 +40,7 @@ import {
   errorCode,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

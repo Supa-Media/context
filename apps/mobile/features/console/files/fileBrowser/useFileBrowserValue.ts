@@ -11,7 +11,7 @@ import type { FileBrowser } from "../browser";
 import { useMemo } from "react";
 import { put } from "../clipboard";
 import { localPathOf, opsOf } from "../../../offline/outbox";
-import { canResetPrivacy, canSetVisibility } from "../../capabilities";
+import { canSetVisibility } from "../../capabilities";
 import { describeOp } from "../pendingMarks";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
@@ -117,7 +117,7 @@ type FileBrowserValueDeps =
     | "rename"
   >
   & Pick<BatchValues, "archiveMany" | "copyManyTo" | "destroyMany" | "moveMany" | "restoreMany">
-  & Pick<VisibilityValues, "resetPrivacy" | "setVisibility" | "updateStorageLayout">
+  & Pick<VisibilityValues, "setVisibility" | "updateStorageLayout">
   & Pick<
     SharesValues,
     | "copyShareLink"
@@ -147,7 +147,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     duplicate, editor, encryptedElsewhere, ensureListing, expanded, flushAutosave, keepMine,
     linkPaths, listings, loadImage, loading, mayShare, mirrorStatus, move, moveDestinations,
     moveMany, moveToContext, navigations, notice, unreadable, offline, onExternalWrite, onSaved, openBeside, openLinkPaths,
-    opening, paste, pending, readFormResponses, readRaw, rename, renamed, resetPrivacy, resolveWith,
+    opening, paste, pending, readFormResponses, readRaw, rename, renamed, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
     setCollaborationState, setDraft, focusTitle, setTitleCaret, titleEdit, titleFocus, setScope,
@@ -271,7 +271,6 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setScope,
       openLinkPaths,
       linkPaths,
-      resetPrivacy,
       updateStorageLayout: options.isOwner === true ? updateStorageLayout : undefined,
       // A control that cannot work is a control that is not drawn. All three
       // have to hold: the manifest is broken, this is the owner, and this
@@ -280,10 +279,6 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       // unreachable by any test — dropping the `isOwner` half of either failed
       // nothing across 1476 checks, and `canSetVisibility` is the capability
       // the console's one real authorization defect was about.
-      canResetPrivacy: canResetPrivacy(
-        { canEdit: options.canEdit, isOwner: options.isOwner === true },
-        listings[""]?.manifestUsable,
-      ),
       canSetVisibility: canSetVisibility({
         canEdit: options.canEdit,
         isOwner: options.isOwner === true,
@@ -371,7 +366,6 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       options.readOnlyReason,
       paste,
       rename,
-      resetPrivacy,
       updateStorageLayout,
       resolveWith,
       save,

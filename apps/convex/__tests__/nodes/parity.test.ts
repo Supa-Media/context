@@ -11,15 +11,15 @@
 
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, setExactVisibility, setFolderVisibility, setVisibility } from "../../functions/lib/fileOps";
+import { type FileStore } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { checkParity } from "../../functions/lib/nodes/parity";
 import { sweepNodesPass, type NodeListingStore } from "../../functions/lib/nodes/sweep";
 import { touchNodes } from "../../functions/lib/nodes/touch";
 import type { NodeRow, NodeSink } from "../../functions/lib/nodes/table";
 import { memoryNodeSink } from "../nodeTable.helpers";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
+import { renderPrivacyManifest, setExactVisibility, setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 type Store = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");

@@ -146,7 +146,6 @@ interface Shape {
   role?: string;
   kind?: string;
   manifestUsable?: boolean;
-  canResetPrivacy?: boolean;
   loading?: boolean;
   onReset?: () => void;
 }
@@ -201,8 +200,6 @@ function mockConsoleData(): never {
     archive: () => {},
     destroy: () => {},
     setVisibility: () => {},
-    resetPrivacy: shape.onReset ?? (() => {}),
-    canResetPrivacy: shape.canResetPrivacy ?? role === "owner",
   };
 
   return {
@@ -357,114 +354,3 @@ describe("the switcher offers a context of your own when you have none", () => {
   });
 });
 
-/**
- * The pane itself, not the layout.
- *
- * `Slot` is the route and it is mocked to `null` above, so the console layout
- * renders the rail and the frame and no pane at all. Browse is mounted directly
- * over the same shape — which is also how `consoleVisibilityRender.test.ts`
- * asserts the tier notice one line above this one.
- */
-const { BrowsePane } =
-  require("../features/console/panes/BrowsePane") as typeof import("../features/console/panes/BrowsePane");
-
-function mountBrowse(next: Shape) {
-  shape = next;
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
-
-  act(() => {
-    root.render(createElement(BrowsePane, { data: mockConsoleData() }));
-  });
-
-  return {
-    text: () => container.textContent ?? "",
-    find: (testId: string) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`),
-    press: (node: HTMLElement | null) => {
-      if (node === null) throw new Error("nothing to press");
-      act(() => {
-        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-    },
-    unmount: () => {
-      act(() => root.unmount());
-      container.remove();
-    },
-  };
-}
-
-describe("a privacy.md that cannot be read has a way out of the console", () => {
-  test("the owner is offered the reset", () => {
-    const pane = mountBrowse({ role: "owner", manifestUsable: false });
-    expect(pane.find("browse-reset-privacy")).not.toBeNull();
-    pane.unmount();
-  });
-
-  test("pressing it calls the repair", () => {
-    let called = 0;
-    const pane = mountBrowse({
-      role: "owner",
-      manifestUsable: false,
-      onReset: () => {
-        called += 1;
-      },
-    });
-
-    pane.press(pane.find("browse-reset-privacy"));
-
-    expect(called).toBe(1);
-    pane.unmount();
-  });
-
-  test("a working manifest gets neither the warning nor the button", () => {
-    const pane = mountBrowse({ role: "owner", manifestUsable: true });
-    expect(pane.find("browse-reset-privacy")).toBeNull();
-    expect(pane.text()).not.toContain("privacy.md is missing or could not be read");
-    pane.unmount();
-  });
-
-  test("an editor gets the explanation and no button, because it is not theirs to fix", () => {
-    const pane = mountBrowse({ role: "editor", manifestUsable: false });
-
-    expect(pane.text()).toContain("privacy.md is missing or could not be read");
-    expect(pane.find("browse-reset-privacy")).toBeNull();
-    expect(pane.text()).toContain("Only the owner of this context can rewrite it");
-
-    pane.unmount();
-  });
-
-  test("the banner no longer tells anybody to do the two things that cannot work", () => {
-    // Both were refused by every write path in the product. The sentence sent
-    // people to rclone or to a client that answers "that path is reserved".
-    for (const role of ["owner", "editor"]) {
-      const pane = mountBrowse({ role, manifestUsable: false });
-      const text = pane.text();
-      expect(text).toContain("privacy.md is missing or could not be read");
-      expect(text).not.toContain("ask a connected AI client to");
-      expect(text).not.toContain("Write a valid privacy.md at the root of the bucket");
-      pane.unmount();
-    }
-  });
-
-  test("the reset is described as changing nothing about who can see what", () => {
-    // The one thing an owner must be able to predict before pressing it. A
-    // repair that might publish a folder is a repair nobody should press on a
-    // context they share with four people.
-    const pane = mountBrowse({ role: "owner", manifestUsable: false });
-    expect(pane.text()).toContain("every one of them private");
-    expect(pane.text()).toContain("Nothing becomes visible to anybody");
-    pane.unmount();
-  });
-
-  test("the button is absent, never disabled, on the console that cannot act", () => {
-    // The demo on the landing page runs these same components. `canResetPrivacy`
-    // is false there, and a control that appears to work and does nothing is the
-    // failure mode `browser.ts` documents at length.
-    const pane = mountBrowse({ role: "owner", manifestUsable: false, canResetPrivacy: false });
-    expect(pane.find("browse-reset-privacy")).toBeNull();
-    pane.unmount();
-  });
-});

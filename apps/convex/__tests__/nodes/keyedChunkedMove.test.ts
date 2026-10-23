@@ -11,8 +11,7 @@
  *    the name people see is not found mid-move);
  *  - the access copies (`withMovingAccess`: rows not yet moved out of a private
  *    folder read as their old parent's, `team`);
- *  - the file-mode rules guard (`rules_changed`: a page moves rows the rules
- *    changed under);
+ *  - the rules guard (`rules_changed`: a page moves rows the rules changed under);
  *  - the watchdog and the resume (`continueRowMove`, `rowMoveFor`: a move whose
  *    request stopped is never finished);
  *  - the overlap check (`overlapsRowMove`: a second move inside the moving one lands);
@@ -25,14 +24,25 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { rulesForReaders } from "../../functions/lib/nodes/readerRules";
 import { canSee } from "../../functions/lib/privacy";
-import { OWNER, listed, start } from "./moveFixture.helpers";
-import { setFolderVisibility } from "../../functions/lib/fileOps";
-import { touchNodesNow } from "../../functions/lib/nodes/run";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
 import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
 
 type Fixture = Awaited<ReturnType<typeof keyedFixture>>;
+
+/**
+ * An owner's access change in rows mode (`setAccess`): the folder's own row takes the base, and the move's
+ * version (`privacyEtagNow`) moves with it, as a rule written mid-move does.
+ */
+async function setBase(f: Fixture, path: string, base: "private" | "team"): Promise<void> {
+  const answer = await f.t.mutation(internal.functions.nodesAccess.setAccess, {
+    workspaceId: f.ws,
+    path,
+    base,
+    actor: { userId: f.ownerId, role: "owner" },
+  });
+  expect(answer).toMatchObject({ ok: true });
+}
 
 const FILES = 1_200;
 const FROM = "1-projects/big";
@@ -197,7 +207,6 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
   test("rows mode: rows not yet out of a private folder stay private, at both names, mid-move", async () => {
     const f = await keyedFixture();
     await bigTree(f);
-    await f.t.mutation(internal.functions.nodesPrivacy.setAccessSource, { workspaceId: f.ws, source: "rows" });
     await f.t.mutation(internal.functions.nodesAccess.setAccess, {
       workspaceId: f.ws,
       path: FROM,
@@ -228,20 +237,17 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     expect(await teamSees(f, [`${TO}/n0001.md`, `${TO}/sub/n0010.md`])).toEqual([false, false]);
   });
 
-  test("file mode: a rule written under the old name mid-move holds the pages until it is carried; asking again carries it", async () => {
+  test("a rule written under the old name mid-move rides with its row: the pages go on, and asking again finishes it", async () => {
     const f = await keyedFixture();
     await bigTree(f);
     const id = await begin(f);
     await page(f, id);
-    const midway = await treeOf(f);
-    // An owner makes the subfolder private mid-move, at the old name the rules still hold it by.
-    await setFolderVisibility(f.store, { path: `${FROM}/sub`, visibility: "private", clearance: OWNER });
-    await touchNodesNow(f.ctx, f.ws, f.store, { paths: [], files: [PRIVACY_KEY] });
+    // An owner makes the subfolder private mid-move, at the old name. In rows mode the rule is the row's own access,
+    // which moves with the row, so no page is held for it (the move records no file-mode version to hold against).
+    await setBase(f, `${FROM}/sub`, "private");
+    expect(await page(f, id)).toMatchObject({ state: "moving" });
 
-    expect(await page(f, id)).toMatchObject({ state: "rules_changed", files: [] });
-    expect(await treeOf(f)).toEqual(midway);
-
-    // Asked again, the request carries the rules once more and pages to the end: the rule reached the new name.
+    // Asked again, the request resumes the move and pages to the end: the rule reached the new name.
     const finished = await start(f, FROM, TO);
     expect(finished).toMatchObject({ rowed: true });
     expect((await treeOf(f)).filter((row) => row.live && row.path.startsWith(`${TO}/`) && row.kind === "file")).toHaveLength(FILES);
@@ -249,14 +255,13 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     expect(await teamSees(f, [`${TO}/sub/n0010.md`, `${TO}/n0001.md`])).toEqual([false, true]);
   });
 
-  test("file mode: a rule changed elsewhere mid-move does not hold the pages", async () => {
+  test("a rule changed elsewhere mid-move does not hold the pages", async () => {
     const f = await keyedFixture();
     await bigTree(f);
     const id = await begin(f);
     await page(f, id);
     const before = await privacyEtag(f);
-    await setFolderVisibility(f.store, { path: "1-projects/secret", visibility: "team", clearance: OWNER });
-    await touchNodesNow(f.ctx, f.ws, f.store, { paths: [], files: [PRIVACY_KEY] });
+    await setBase(f, "1-projects/secret", "team");
     expect(await privacyEtag(f)).not.toBe(before);
 
     expect(await page(f, id)).toMatchObject({ state: "moving" });

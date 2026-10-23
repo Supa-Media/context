@@ -52,6 +52,7 @@ import {
 } from "../functions/lib/privacy";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
+import { refreshSnapshot } from "../functions/lib/nodes/accessBackfill";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -221,6 +222,25 @@ async function fixture(rule: { folder: string; name: string }): Promise<Fixture>
   };
 }
 
+/**
+ * The grants on the tree row at `path`, as the rows hold them (`nodeAccess`): the group id each names, or the
+ * person id, and the role. Access lives on the rows, so the rule a manifest used to hold is read from here.
+ */
+async function grantsAt(f: Fixture, path: string): Promise<{ groupId?: string; userId?: string; role: string }[]> {
+  return await f.t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
+      .unique();
+    if (row === null) return [];
+    const grants = await ctx.db
+      .query("nodeAccess")
+      .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+      .collect();
+    return grants.map((grant) => ({ groupId: grant.granteeGroupId, userId: grant.granteeUserId, role: grant.role }));
+  });
+}
+
 /** The names in a folder listing, for the caller given. */
 async function listing(f: Fixture, who: Id<"users">, path: string): Promise<string[]> {
   const result = await asUser(f.t, who).action(api.functions.files.listFiles, {
@@ -370,8 +390,8 @@ describe("a granted name is intersected with live membership", () => {
     });
 
     expect(await listing(f, f.insider, "2-areas")).toEqual([]);
-    // The bucket was never touched: the rule still names the group.
-    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("2-areas: @atlas-leads");
+    // The rule itself was never touched: the folder's row still grants the group, and only the membership changed.
+    expect(await grantsAt(f, "2-areas")).toEqual([{ groupId: groups[0].groupId, role: "view" }]);
   });
 
   test("a group row left behind by somebody who left the workspace is inert", async () => {
@@ -423,9 +443,8 @@ describe("a granted name is intersected with live membership", () => {
    * of this context has no way to see who that is.
    */
   test("a group belonging to another workspace grants nothing here", async () => {
-    // Built in one database: the rule names a group of `elsewhere`, and
-    // `outsider` is a live member of BOTH workspaces and of that group.
-    const f = await fixture({ folder: "2-areas", name: "@elsewhere-leads" });
+    // Built in one database: `outsider` is a live member of BOTH workspaces and of a group in the other one.
+    const f = await fixture({ folder: "2-areas", name: "@atlas-leads" });
     const otherWorkspace = await createWorkspace(f.t, f.outsider, "elsewhere", {
       kind: "shared",
       displayName: "Elsewhere",
@@ -439,9 +458,35 @@ describe("a granted name is intersected with live membership", () => {
       groupId: theirs.groupId,
       userId: f.outsider,
     });
-    // Non-vacuity: the group really is called what the rule names, so a
-    // refusal below is the workspace check and not a spelling mismatch.
+    // Non-vacuity: the group really is called what a rule would name, so a refusal below is the workspace check
+    // and not a spelling mismatch.
     expect(theirs.name).toBe("elsewhere-leads");
+
+    /*
+      THE ATTACK, IN ROWS. The writer refuses a group that is not this workspace's (`consoleAccess` resolves every
+      name against the workspace first), so the grant an attacker needs is written past it, straight into the rows
+      of the folder, and the snapshot is refreshed so the reader sees exactly what was written. Without the
+      workspace check in `grantedNamesFor`, `outsider` reads the folder through the other workspace's group.
+    */
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "2-areas"))
+        .unique();
+      if (row === null) throw new Error("no 2-areas row");
+      await ctx.db.insert("nodeAccess", {
+        workspaceId: f.workspaceId,
+        nodeId: row._id,
+        granteeKind: "group",
+        granteeGroupId: theirs.groupId,
+        role: "view",
+        grantedBy: f.owner,
+        at: Date.now(),
+        source: "owner",
+      });
+      await refreshSnapshot(ctx, f.workspaceId);
+    });
+    expect(await grantsAt(f, "2-areas")).toContainEqual({ groupId: theirs.groupId, role: "view" });
 
     expect(await listing(f, f.outsider, "2-areas")).toEqual([]);
     const refused = await captureError(() =>
@@ -498,7 +543,7 @@ describe("the resolver refuses on its own authority", () => {
    * gathering step alone would have granted it: `identifiersForUser` yields
    * the slug for any personal workspace the caller owns a row in.
    */
-  test("an ambiguously-owned handle grants nothing", async () => {
+  test("an ambiguously-owned handle grants nothing new, and a grant already made stays with its person", async () => {
     const f = await fixture({ folder: "2-areas", name: "@kola" });
     const before = await f.t.run((ctx) => grantedNamesFor(ctx, f.workspaceId, f.kola));
     expect(before).toContain("kola");
@@ -521,7 +566,12 @@ describe("the resolver refuses on its own authority", () => {
 
     const after = await f.t.run((ctx) => grantedNamesFor(ctx, f.workspaceId, f.kola));
     expect(after).not.toContain("kola");
-    expect(await listing(f, f.kola, "2-areas")).toEqual([]);
+    // The handle no longer names anyone, so the second owner gains nothing through it.
+    const intruder = await f.t.run((ctx) => grantedNamesFor(ctx, f.workspaceId, f.outsider));
+    expect(intruder).not.toContain("kola");
+    // A row's grant names the person it was resolved to when it was written, not the handle, so the folder stays
+    // shared with Kola (the rows' decision, notes-by-id): ambiguity later never hands it to someone else.
+    expect(await listing(f, f.kola, "2-areas")).toContain("hr.md");
   });
 });
 

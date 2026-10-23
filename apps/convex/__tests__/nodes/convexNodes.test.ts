@@ -9,13 +9,13 @@
 
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
-import { ConvexError } from "convex/values";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
+import { translateMirror } from "../seededRules.helpers";
 
 async function workspace(t: ReturnType<typeof convexTest>, slug: string): Promise<Id<"workspaces">> {
   return await t.run(async (ctx) => {
@@ -120,11 +120,7 @@ describe("nodes: tenant isolation", () => {
       vanishedUnder: [],
     });
     await t.mutation(internal.functions.nodes.begin, { workspaceId: beta, at: 10 });
-    await t.mutation(internal.functions.nodes.savePrivacy, {
-      workspaceId: beta,
-      at: 10,
-      mirror: { invalid: false, folders: [{ prefix: "secret/", visibility: "private" }], notes: [] },
-    });
+    await translateMirror(t, beta, { invalid: false, folders: [{ prefix: "secret/", visibility: "private" }], notes: [] },);
 
     const listed = await t.query(internal.functions.nodes.listLive, { workspaceId: alpha, limit: 100 });
     expect(listed.rows).toEqual([]);
@@ -136,7 +132,11 @@ describe("nodes: tenant isolation", () => {
     expect(rowsOf(await t.query(internal.functions.nodes.listLive, { workspaceId: beta, limit: 100 }))).toEqual([
       "secret/beta.md",
     ]);
-    expect(await t.query(internal.functions.nodes.privacy, { workspaceId: beta })).toMatchObject({ invalid: false });
+    // Rules are the rows now: beta's version is the one its own `secret/` row makes, and alpha's is not it.
+    // (No `nodePrivacy` mirror is kept in rows mode, so the mirror table is not what answers here.)
+    const betaVersion = await t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: beta });
+    expect(betaVersion).toMatch(/^rows:/);
+    expect(betaVersion).not.toBe(await t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: alpha }));
   });
 
   test("a vanish scan in one workspace never tombstones another's files under the same prefix", async () => {

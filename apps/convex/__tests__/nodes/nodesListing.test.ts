@@ -24,6 +24,7 @@ import { modules } from "../../test.setup";
 import { folderRowsStore, NODE_LISTING_ROWS } from "../../functions/lib/nodes/listing";
 import { listFolder } from "../../functions/lib/fileOps/listing";
 import { clearanceOf } from "../../functions/lib/clearance";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -35,12 +36,12 @@ interface Fixture {
   stranger: ReturnType<T["withIdentity"]>;
 }
 
+// Rows are keyed by their path with no trailing slash, so a folder's rule names it the same way.
 const RULES = {
-  etag: "privacy-1",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [{ path: "2-areas/shared.md", visibility: "team" }],
 };
@@ -75,7 +76,7 @@ async function fixture(): Promise<Fixture> {
     "2-areas/mine.md",
     "2-areas/shared.md",
   ]);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ids.ws, mirror: RULES, at: 10 });
+  await translateMirror(t, ids.ws, RULES);
   await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: 7 });
   await matches(t, ids.ws);
@@ -138,9 +139,11 @@ describe("when the tree answers", () => {
 
   test("a walk is handed the tree's rules whatever its parity", async () => {
     const { t, ws } = await fixture();
-    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag: "privacy-1" } });
+    const first = await t.query(internal.functions.nodes.served, { workspaceId: ws });
+    const etag = first?.mirror.etag;
+    expect(etag).toEqual(expect.any(String));
     await matches(t, ws, 1);
-    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag: "privacy-1" } });
+    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag } });
   });
 
   test("a tree with no parity yet is served", async () => {
@@ -229,11 +232,7 @@ describe("following changes", () => {
 
   test("a rule change in the mirror changes what a member sees", async () => {
     const { t, ws, member } = await fixture();
-    await t.mutation(internal.functions.nodes.savePrivacy, {
-      workspaceId: ws,
-      mirror: { ...RULES, etag: "privacy-2", folders: [{ prefix: "1-projects/", visibility: "private" }] },
-      at: 50,
-    });
+    await translateMirror(t, ws, { ...RULES, folders: [{ prefix: "1-projects", visibility: "private" }] });
     const root = await member.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" });
     expect(paths(root)).toEqual(["2-areas"]);
   });

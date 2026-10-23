@@ -55,14 +55,11 @@ export interface PrivacyNoteRow {
 /**
  * What the section can draw for one folder.
  *
- * `loading` and `broken` are states rather than empty readies, because both
- * would otherwise render as "nothing is shared here" — the first before
- * anybody has looked, the second over a manifest that cannot be read at all.
+ * `loading` is a state rather than an empty ready, because it would otherwise
+ * render as "nothing is shared here" before anybody has looked.
  */
 export type PrivacyFolderView =
   | { state: "loading" }
-  /** `privacy.md` is missing or will not parse: every note reads private. */
-  | { state: "broken" }
   | {
       state: "ready";
       path: string;
@@ -91,7 +88,6 @@ export function privacyViewOf(
 ): PrivacyFolderView {
   const listing = listings[path];
   if (listing === undefined) return { state: "loading" };
-  if (!listing.manifestUsable) return { state: "broken" };
   return {
     state: "ready",
     path: listing.path,

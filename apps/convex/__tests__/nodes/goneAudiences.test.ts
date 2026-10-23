@@ -25,6 +25,7 @@ import { modules } from "../../test.setup";
 import { touchNodes } from "../../functions/lib/nodes/touch";
 import type { NodeSink, Observation } from "../../functions/lib/nodes/table";
 import { gatewayPost } from "../fixtures.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -33,8 +34,9 @@ const AFTER_MOVE = {
   etag: "privacy-2",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "2-areas/", visibility: "private" },
+    // Folder rows are named without the trailing slash the rules file uses: the row is the folder's path.
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "2-areas", visibility: "private" },
   ],
   notes: [],
 };
@@ -56,7 +58,7 @@ async function fixture() {
     await ctx.db.insert("workspaceMembers", { workspaceId: id, userId: ownerId, role: "owner", joinedAt: now });
     return id;
   });
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ws, mirror: AFTER_MOVE, at: 1 });
+  await translateMirror(t, ws, AFTER_MOVE);
   await t.mutation(internal.functions.nodes.observe, {
     workspaceId: ws,
     at: 10,

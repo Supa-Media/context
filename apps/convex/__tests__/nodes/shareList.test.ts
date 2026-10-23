@@ -122,15 +122,6 @@ describe("reading one row's list", () => {
     expect(await list(w, w.ownerB, PLAN)).toBeNull();
     expect(await list(w, w.owner, "9-none/none.md")).toBeNull();
   });
-
-  test("outside rows mode the dialog is told nothing", async () => {
-    const w = await world();
-    await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { accessSource: "file" });
-    });
-    expect(await list(w, w.owner, PLAN)).toBeNull();
-  });
 });
 
 describe("writing a list and its base together", () => {

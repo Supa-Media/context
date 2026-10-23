@@ -22,7 +22,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
 import { bodyKeyOf } from "./website.helpers";
 import {
@@ -36,6 +35,7 @@ import {
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 // Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });

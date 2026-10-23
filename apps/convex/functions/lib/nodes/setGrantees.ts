@@ -26,7 +26,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { parseInvitee } from "../invitees";
 import type { Visibility } from "../privacy";
-import { accessSourceOf, resolveHandle, type Grant } from "./accessBackfill";
+import { resolveHandle, type Grant } from "./accessBackfill";
 import { setAccessRow, MAX_GRANTEES, type GranteeInput, type Role } from "./setAccess";
 import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 
@@ -46,7 +46,7 @@ export interface GranteeRequest {
 
 export type SetGranteesAnswer =
   | { ok: true; version: number }
-  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "GRANTEE_NOT_FOUND" | "INVALID" | "CONFLICT" };
+  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "GRANTEE_NOT_FOUND" | "INVALID" | "CONFLICT" };
 
 export const setGranteesAnswerValidator = v.union(
   v.object({ ok: v.literal(true), version: v.number() }),
@@ -55,7 +55,6 @@ export const setGranteesAnswerValidator = v.union(
     code: v.union(
       v.literal("NOT_FOUND"),
       v.literal("FORBIDDEN"),
-      v.literal("NOT_ROWS_MODE"),
       v.literal("GRANTEE_NOT_FOUND"),
       v.literal("INVALID"),
       v.literal("CONFLICT"),
@@ -156,7 +155,6 @@ export async function setGranteesHandler(
     if (code === "INSUFFICIENT_ROLE") return { ok: false, code: "FORBIDDEN" };
     return { ok: false, code: "NOT_FOUND" };
   }
-  if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false, code: "NOT_ROWS_MODE" };
 
   const row = await ctx.db
     .query("nodes")

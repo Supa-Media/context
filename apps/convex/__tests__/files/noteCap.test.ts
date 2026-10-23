@@ -16,7 +16,6 @@ import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { managedBucketName } from "../../functions/lib/managedStorage";
 import { FREE_MANAGED_NOTE_CAP } from "../../functions/lib/premium";
@@ -34,6 +33,7 @@ import {
 } from "../fixtures.helpers";
 import { vi } from "vitest";
 import { bodyAtPath, noteBodies } from "./keyedNotes.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
 /**
  * A free context on a bucket we run, holding exactly `notes` notes: the two

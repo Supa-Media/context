@@ -9,11 +9,11 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { OLD_COPIES_ROOT } from "../../functions/lib/fileOps/store";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { FAKE_STORAGE, createUser, createWorkspace, seedStorageBinding, setupTest, type TestConvex } from "../fixtures.helpers";
 import { memoryS3 } from "../storeStub.helpers";
 import { CHANNEL_FOLDERS } from "../../functions/lib/oldCopies/folders";
 import { COPIES, OWN, SEEDED } from "./oldCopies.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
 const deployments: TestConvex[] = [];
 

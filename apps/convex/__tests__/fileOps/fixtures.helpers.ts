@@ -24,16 +24,11 @@
 
 import { clearanceOf } from "../../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
-import {
-  FileOpError,
-  type FileStore,
-  type FolderListing,
-  setFolderVisibility,
-  setVisibility,
-} from "../../functions/lib/fileOps";
+import { FileOpError, type FileStore, type FolderListing } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 // A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
-import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
+import { LEGACY_PARA_FOLDERS } from "../../functions/lib/scaffold";
+import { renderPrivacyManifestForFolders, setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 export const NOW = 1_800_000_000_000;
 

@@ -24,14 +24,18 @@ import type { TreeNames } from "../../functions/lib/fileOps/treeChecks";
 import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { consoleIdLayoutHooks } from "../../functions/lib/noteIds/consoleLayer";
 import { runNodesOperation } from "../../functions/lib/nodes/run";
-import { type FileStore, setFolderVisibility, setVisibility } from "../../functions/lib/fileOps";
+import { type FileStore } from "../../functions/lib/fileOps";
+import { setFolderVisibility, setVisibility, translateSeededRules, renderPrivacyManifest } from "../seededRules.helpers";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
+import { readerView, rulesForReaders } from "../../functions/lib/nodes/readerRules";
+import { PRE_PARSED_RULES } from "../../../mcp/src/privacy/engine.js";
+import type { QueryCtx } from "../../_generated/server";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { bridge } from "../nodes/moveFixture.helpers";
 import { setupTest, createUser, type TestConvex } from "../fixtures.helpers";
 import type { RawRow } from "../nodes/keyedFixture.helpers";
+import type { PrivacyRule, Visibility } from "../../functions/lib/privacy";
 
 export interface KeyedBucket {
   t: TestConvex;
@@ -183,11 +187,110 @@ export async function keyedBucket(
     attachQueueMove(ctx, { workspaceId, operation: { kind } } as never, store, store, null);
   }
 
-  const bucket: KeyedBucket = { t, ctx, workspaceId, store, raw };
   for (const [path, body] of Object.entries(seed)) {
     await store.put(path, body);
   }
+  // The seeded rules become rows once the notes exist, as `moveFixture.helpers.ts` does for its bucket.
+  await applySeededRules(t, workspaceId, raw);
+  const rulesAware = rulesRowsStore(t, workspaceId, raw, store);
+  const bucket: KeyedBucket = { t, ctx, workspaceId, store: rulesAware, raw };
   return bucket;
+}
+
+/**
+ * Turn the rules text a keyed bucket holds into rows, as the product's rows writer would take them. The text stays
+ * in the bucket as the fixture's record of what was seeded (nothing in `functions/` reads it).
+ */
+export async function applySeededRules(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  raw: MemoryStore,
+): Promise<void> {
+  await translateSeededRules(t, workspaceId, {
+    text: async () => raw.snapshot()[PRIVACY_KEY] ?? null,
+    remove: async () => {},
+  });
+}
+
+/**
+ * The store the operations take, with the rules read from the rows, as production reads them.
+ *
+ * In production a store that answers from the tree hands `privacy.md` out as the rows' rules, pre-parsed
+ * (`lib/nodes/privacyMirror.ts`), so `canSee` judges by the rows. This does the same for a keyed bucket: `get` of the
+ * rules file carries the rows' rules, and `text()` stays the seeded text the setters in `seededRules.helpers.ts`
+ * edit. Writing the rules text through the store (what those setters do) also turns that text into rows, so a rule
+ * set after the bucket was built takes effect. Every other read and write passes straight through.
+ */
+export function rulesRowsStore(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  raw: MemoryStore,
+  store: FileStore & MemoryStore,
+): FileStore & MemoryStore {
+  const wrapped = Object.create(store) as FileStore & MemoryStore;
+  Object.defineProperty(wrapped, "get", {
+    value: async (key: string) => {
+      const object = await store.get(key);
+      if (key !== PRIVACY_KEY || object === null) return object;
+      // Only the mirror crosses the test runtime's boundary: `judged` holds a Map.
+      const mirror = await t.run(async (ctx) => (await readerView(ctx as unknown as QueryCtx, workspaceId)).mirror);
+      const rules: PrivacyRule[] = mirror.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility as Visibility }));
+      const overrides = new Map<string, Visibility>(mirror.notes.map((note): [string, Visibility] => [note.path, note.visibility as Visibility]));
+      return {
+        etag: object.etag,
+        text: () => object.text(),
+        arrayBuffer: () => object.arrayBuffer(),
+        [PRE_PARSED_RULES]: { rules, overrides },
+      };
+    },
+    enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(wrapped, "put", {
+    value: async (key: string, body: string | Uint8Array, options?: unknown) => {
+      const answer = await store.put(key, body, options as never);
+      if (key === PRIVACY_KEY) await applySeededRules(t, workspaceId, raw);
+      return answer;
+    },
+    enumerable: false,
+    configurable: true,
+  });
+  // A row's tier set by an operation itself (a copy narrowed), through the barrier's own mutation, as production does.
+  Object.defineProperty(wrapped, "rowAccess", {
+    value: {
+      setTier: async (path: string, tier: string, options: { folder?: boolean } = {}) =>
+        await t.mutation(internal.functions.nodesAccess.setOperationTier, {
+          workspaceId,
+          path,
+          base: tier as "private" | "team" | "inherit",
+          ...(options.folder === true ? { kind: "folder" as const } : {}),
+        }),
+    },
+    enumerable: false,
+    configurable: true,
+  });
+  return wrapped;
+}
+
+/**
+ * The rules a keyed bucket's rows give a reader, in the shape `canSee` takes. Rows are the truth now, so an assertion
+ * about what is private reads them, not the rules text.
+ */
+export async function rowRulesOf(f: KeyedBucket): Promise<{ rules: PrivacyRule[]; overrides: Map<string, Visibility> }> {
+  return await rowRulesIn(f.t, f.workspaceId);
+}
+
+/** `rowRulesOf` for a workspace held by any keyed fixture: the test instance and the workspace id. */
+export async function rowRulesIn(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+): Promise<{ rules: PrivacyRule[]; overrides: Map<string, Visibility> }> {
+  // A Map does not cross the test runtime's boundary as a value, so the overrides come back as entries.
+  const judged = await t.run(async (ctx) => {
+    const rules = await rulesForReaders(ctx as unknown as QueryCtx, workspaceId);
+    return { rules: rules.rules, overrides: [...rules.overrides.entries()] };
+  });
+  return { rules: judged.rules as PrivacyRule[], overrides: new Map(judged.overrides as [string, Visibility][]) };
 }
 
 /** The content type the bucket holds for the live note at `path`, or `undefined`. */

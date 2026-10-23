@@ -80,13 +80,6 @@ function treeOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"node
     .unique();
 }
 
-function privacyOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"nodePrivacy"> | null> {
-  return ctx.db
-    .query("nodePrivacy")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
 const stateOf = (row: Doc<"nodeTrees"> | null): NodeTreeState | null =>
   row === null
     ? null
@@ -187,10 +180,6 @@ export const report = query({
   returns: v.object({
     phase: v.number(),
     paused: v.boolean(),
-    /** The rules here are the authority, and `privacy.md` is their export. */
-    privacyAuthority: v.boolean(),
-    /** Workspaces whose `privacy.md` is still to be written from changed rules. */
-    owedExports: v.number(),
     changedAt: v.union(v.number(), v.null()),
     rows: v.array(rowValidator),
     truncated: v.boolean(),
@@ -201,12 +190,10 @@ export const report = query({
     const { ids, truncated } = await boundWorkspaces(ctx);
     const now = Date.now();
     const rows = [];
-    let owedExports = 0;
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
       if (workspace === null) continue;
       const tree = await treeOf(ctx, workspaceId);
-      if ((await privacyOf(ctx, workspaceId))?.exportOwed === true) owedExports += 1;
       rows.push({
         workspaceId,
         slug: workspace.slug ?? null,
@@ -227,8 +214,6 @@ export const report = query({
     return {
       phase: MIGRATION_PHASE,
       paused: switchRow?.paused === true,
-      privacyAuthority: switchRow?.privacyAuthority === true,
-      owedExports,
       changedAt: switchRow?.updatedAt ?? null,
       rows,
       truncated,
@@ -273,36 +258,6 @@ export const setPaused = mutation({
     else await ctx.db.patch(existing._id, fields);
     if (paused) return { started: 0 };
     return { started: await startDueSweeps(ctx) };
-  },
-});
-
-/**
- * Make the rules held here the authority for `privacy.md`, or hand it back to
- * the file (phase 3). Handing it back waits until every changed rule has been
- * written to its workspace's file, so the file it hands back to is current.
- * Turning it on writes nothing: each workspace's file is already its rules'
- * export, and a file edited since is put back by the next listing that sees it.
- */
-export const setPrivacyAuthority = mutation({
-  args: { on: v.boolean() },
-  returns: v.null(),
-  handler: async (ctx, { on }): Promise<null> => {
-    const userId = await staffOnly(ctx);
-    if (!on) {
-      for await (const row of ctx.db.query("nodePrivacy")) {
-        if (row.exportOwed === true) {
-          throw new ConvexError({
-            code: "EXPORTS_OWED",
-            message: "Some privacy files are still being written. Try again in a minute.",
-          });
-        }
-      }
-    }
-    const existing = await ctx.db.query("nodeMigration").first();
-    const fields = { privacyAuthority: on, updatedAt: Date.now(), updatedBy: userId };
-    if (existing === null) await ctx.db.insert("nodeMigration", { paused: false, ...fields });
-    else await ctx.db.patch(existing._id, fields);
-    return null;
   },
 });
 

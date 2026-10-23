@@ -20,7 +20,7 @@ import {
 } from "../functions/lib/fileOps";
 import { assertNotProtectedFolder } from "../functions/lib/fileOps/nameTwins";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");

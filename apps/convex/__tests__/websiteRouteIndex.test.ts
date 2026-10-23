@@ -10,7 +10,6 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { WEBSITE_STARTER_MARKDOWN } from "@context/shared";
 import { scanWebsiteRoutes } from "../functions/lib/websites/routes";
 import { memoryS3, type MemoryS3Options } from "./storeStub.helpers";
@@ -27,6 +26,7 @@ import {
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 // Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
@@ -46,7 +46,6 @@ async function fixture(slug = "atlas", options: MemoryS3Options = {}) {
   backend.seed("index.md", `# ${slug}\n`);
   vi.stubGlobal("fetch", backend.fetchImpl);
   await seedStorageBinding(t, { workspaceId, boundBy: owner });
-  await publishWebsiteFolder(t, owner, workspaceId);
   return { t, owner, member, stranger, workspaceId, backend };
 }
 
@@ -270,6 +269,7 @@ describe("website route index", () => {
       "---\ntitle: Team\naudience: members\n---\n\nMembers\n",
     );
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
 
     const statuses = await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
@@ -309,6 +309,7 @@ describe("website route index", () => {
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -344,6 +345,7 @@ describe("website route index", () => {
       "---\ntitle: Other\n---\n\nOther\n",
     );
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
 
     const statuses = await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
@@ -388,6 +390,7 @@ describe("website route index", () => {
     const f = await fixture("atlas-clearance");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -420,6 +423,7 @@ describe("website route index", () => {
     const f = await fixture("atlas-failure");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -453,6 +457,7 @@ describe("website route index", () => {
     });
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld page\n");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       { workspaceId: f.workspaceId },
@@ -490,6 +495,7 @@ describe("website route index", () => {
     const first = await fixture("atlas-first");
     first.backend.seed("website/index.md", "---\ntitle: First\n---\n\nFirst\n");
     await copyTree(first.t, first.workspaceId);
+    await publishWebsiteFolder(first.t, first.owner, first.workspaceId);
     await asUser(first.t, first.owner).action(
       api.functions.websites.refreshRouteStatuses,
       { workspaceId: first.workspaceId },
@@ -538,6 +544,7 @@ describe("website route index", () => {
     const f = await fixture("atlas-scheduled");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {
         workspaceId: f.workspaceId,
@@ -582,6 +589,7 @@ describe("website route index", () => {
   test("the unattended reconciler repairs one legacy missing starter, then respects later deletion", async () => {
     const f = await fixture("atlas-starter-repair");
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {
         workspaceId: f.workspaceId,
@@ -634,6 +642,7 @@ describe("website route index", () => {
       refuseWrite: (key) => refuseNotes && key.startsWith("notes/"),
     });
     await copyTree(f.t, f.workspaceId);
+    await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
     refuseNotes = true;
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {

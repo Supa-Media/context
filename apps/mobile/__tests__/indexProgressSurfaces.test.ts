@@ -256,8 +256,6 @@ function mockConsoleData(): never {
     conflict: null,
     canSetVisibility: true,
     canShare: true,
-    canResetPrivacy: false,
-    resetPrivacy: () => {},
     shares: [],
     share: () => {},
     teamShareLink: () => {},

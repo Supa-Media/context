@@ -39,7 +39,7 @@ async function setRowsMode(f: Fixture): Promise<void> {
 }
 
 /** Owner sets one row's base, as the console or the gateway would. */
-async function setBase(f: Fixture, path: string, base: "private" | "team"): Promise<void> {
+async function setBase(f: Fixture, path: string, base: "private" | "team" | "inherit"): Promise<void> {
   await f.t.run(async (ctx) =>
     setAccessRow(ctx as MutationCtx, {
       workspaceId: f.ws,
@@ -70,61 +70,17 @@ describe("B: a move in rows mode carries its rows, not the file's rules", () => 
     // The note is private by its folder's row; its file rules would carry a narrowing to the new name.
     await setBase(f, "1-projects/secret", "private");
     await setBase(f, "3-resources", "team");
-    const before = await privacyEtag(f);
     const bucketBefore = f.store.snapshot()[PRIVACY_KEY];
 
     await batch(f, [{ from: "1-projects/secret/codes.md", to: "3-resources/codes.md" }]);
 
-    expect(await privacyEtag(f)).toBe(before);
+    // The move writes a row, and the rows' rules render it as a private note override, so the rows' version moves.
+    // What must not move is the file: the move carries the row's access and writes no rules file.
+    expect(await privacyEtag(f)).toMatch(/^rows:/);
     expect(f.store.snapshot()[PRIVACY_KEY]).toBe(bucketBefore);
     expect((await nodeAt(f, "3-resources/codes.md"))?.access).toEqual({ base: "private" });
     expect(await listed(f.member, f.ws, "3-resources")).not.toContain("3-resources/codes.md");
     expect(await listed(f.owner, f.ws, "3-resources")).toContain("3-resources/codes.md");
-  });
-});
-
-describe("C: a new context's folders take their scaffolded defaults once, when their rows exist", () => {
-  test("the first derivation sets the defaults on the rows; a later one leaves the owner's rows as they are", async () => {
-    const f = await fixture();
-    await setRowsMode(f);
-    await f.t.run(async (ctx) => {
-      const state = await ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-      if (state !== null) await ctx.db.delete(state._id);
-    });
-
-    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
-    expect((await nodeAt(f, "1-projects"))?.access).toEqual({ base: "team" });
-    expect((await nodeAt(f, "1-projects/secret"))?.access).toEqual({ base: "private" });
-
-    // The owner changes a folder; the next run finds an access state and does nothing.
-    await setBase(f, "1-projects", "private");
-    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
-    expect((await nodeAt(f, "1-projects"))?.access).toEqual({ base: "private" });
-  });
-
-  test("pre-empted: an owner's write made first leaves a state, and the defaults still come, without clobbering the owner's row", async () => {
-    const f = await fixture();
-    await setRowsMode(f);
-    await f.t.run(async (ctx) => {
-      const state = await ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-      if (state !== null) await ctx.db.delete(state._id);
-    });
-    // The owner's write comes before the scaffold's derivation: it creates the access state, and sets 1-projects itself.
-    await setBase(f, "1-projects", "private");
-    const before = await f.t.run(async (ctx) =>
-      ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique(),
-    );
-    expect(before?.scaffoldDerived).toBeUndefined();
-
-    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
-
-    // The scaffold's default still lands on the row the owner did not touch, and the owner's choice stands.
-    expect((await nodeAt(f, "1-projects/secret"))?.access).toEqual({ base: "private" });
-    expect((await nodeAt(f, "1-projects"))?.access).toEqual({ base: "private" });
-    const after = await f.t.run(async (ctx) =>
-      ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique(),
-    );
-    expect(after?.scaffoldDerived).toBe(true);
   });
 });
 
@@ -141,6 +97,9 @@ describe("D: a website's folder in rows mode", () => {
     });
     expect(kept).toEqual({ ok: true, visibility: "private", changed: false });
 
+    // The bucket's rule for 3-resources is written to its row as team (the seeded rules become rows), so the row
+    // starts with no base of its own before the default is asked for.
+    await setBase(f, "3-resources", "inherit");
     const set = await f.t.mutation(internal.functions.nodesAccess.ensureFolderDefault, {
       workspaceId: f.ws,
       actorUserId: f.ownerId,

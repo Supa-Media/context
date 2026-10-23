@@ -4,7 +4,6 @@ import { PressRow } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Hint } from "../../../design/components/Field";
 import { Icon } from "../../../design/components/Icon";
-import { Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { TextLink } from "../../../design/components/TextLink";
@@ -20,8 +19,6 @@ import {
   type PrivacyFolderView,
 } from "../../privacy/map";
 import {
-  BROKEN_MANIFEST_HEADLINE,
-  brokenManifestNext,
   contextKindOf,
   exceptionLine,
   filteredViewLine,
@@ -216,13 +213,6 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
           <Text variant="rowSub" role="status">
             Reading this workspace&apos;s rules…
           </Text>
-        ) : root.state === "broken" ? (
-          <Notice tone="warn" testID="privacy-manifest-broken">
-            <Text variant="check">{BROKEN_MANIFEST_HEADLINE}</Text>
-            <Text variant="rowSub" style={styles.noticeNext}>
-              {brokenManifestNext(files.canResetPrivacy)}
-            </Text>
-          </Notice>
         ) : (
           <>
             {root.folders.map((row, index) => (
@@ -479,10 +469,6 @@ function FolderBlock({
           {inside.state === "loading" ? (
             <Text variant="rowSub" style={styles.nested} role="status">
               Reading {row.name}…
-            </Text>
-          ) : inside.state === "broken" ? (
-            <Text variant="rowSub" style={styles.nested}>
-              {BROKEN_MANIFEST_HEADLINE}
             </Text>
           ) : (
             <>

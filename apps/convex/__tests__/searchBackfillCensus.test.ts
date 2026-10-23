@@ -22,7 +22,7 @@ import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { stubD1 } from "./searchBackfill.helpers";
 import { type FileStore, projectSearchIndex } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore() as MemoryStore & FileStore;

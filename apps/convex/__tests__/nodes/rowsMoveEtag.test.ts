@@ -21,9 +21,6 @@ async function rowsEtag(f: Fixture): Promise<string | null> {
   return await f.t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: f.ws });
 }
 
-async function setSource(f: Fixture, source: "file" | "rows"): Promise<void> {
-  await f.t.mutation(internal.functions.nodesPrivacy.setAccessSource, { workspaceId: f.ws, source });
-}
 
 async function setBase(f: Fixture, path: string, base: "private" | "team"): Promise<void> {
   await f.t.mutation(internal.functions.nodesAccess.setAccess, {
@@ -35,14 +32,9 @@ async function setBase(f: Fixture, path: string, base: "private" | "team"): Prom
 }
 
 describe("the privacy etag a move is made under", () => {
-  test("file mode: the etag is the mirror's, as it has always been", async () => {
-    const f = await keyedFixture();
-    expect(await rowsEtag(f)).toBe(await privacyEtag(f));
-  });
 
   test("rows mode: a row-only privacy change between the read and the move refuses the move", async () => {
     const f = await keyedFixture();
-    await setSource(f, "rows");
     const read = await rowsEtag(f);
     expect(read).toMatch(/^rows:/);
 
@@ -64,7 +56,6 @@ describe("the privacy etag a move is made under", () => {
 
   test("rows mode: a grant-only change between the read and the move refuses too", async () => {
     const f = await keyedFixture();
-    await setSource(f, "rows");
     // The base is set first and then left alone, so the rendered member rules do not move: only the grant does.
     await setBase(f, "1-projects/keep.md", "team");
     const read = await rowsEtag(f);
@@ -88,7 +79,6 @@ describe("the privacy etag a move is made under", () => {
 
   test("rows mode: no change between the read and the move lets it through", async () => {
     const f = await keyedFixture();
-    await setSource(f, "rows");
     const read = await rowsEtag(f);
     const answer = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
       workspaceId: f.ws,
@@ -103,7 +93,6 @@ describe("the privacy etag a move is made under", () => {
 
   test("rows mode: a move started end to end is handed the rows etag and goes through", async () => {
     const f = await keyedFixture();
-    await setSource(f, "rows");
     const moved = await start(f, "1-projects/keep.md", "1-projects/kept.md");
     expect(moved).toMatchObject({ from: "1-projects/keep.md", to: "1-projects/kept.md", rowed: true });
   });

@@ -6,12 +6,10 @@
  */
 
 import { hasExistingContext, hasForeignContent, legacyFolderNoteKey } from "./detect";
-import { renderPrivacyManifest } from "./privacyManifest";
 import { renderCustomFolderReadme, renderFolderReadme, renderIndex } from "./readmes";
 import {
   INDEX_KEY,
   PARA_FOLDERS,
-  PRIVACY_KEY,
   type ContextKind,
   type CustomFolder,
   type ScaffoldStore,
@@ -39,7 +37,6 @@ export function scaffoldFiles(
   kind: ContextKind = "personal",
 ): { key: string; body: string }[] {
   const files = [
-    { key: PRIVACY_KEY, body: renderPrivacyManifest(template, customFolders, kind) },
     { key: INDEX_KEY, body: renderIndex(template, customFolders, kind) },
   ];
   if (template === "para") {
@@ -62,37 +59,10 @@ export function scaffoldFiles(
 /* -------------------------------------------------------------------------- */
 
 /**
- * THE FILES A CONTEXT CANNOT FUNCTION SAFELY WITHOUT.
- *
- * `privacy.md`, and nothing else. That is read off the gateway's own code
- * (`apps/mcp/src/index.js`), not chosen as a preference:
- *
- *  - **`privacy.md` is load-bearing, and it is a security control.** It is the
- *    visibility manifest `loadPrivacyState` parses, and its absence is not a
- *    thinner version of the same thing — `loadPrivacyState` falls through to
- *    `loadLegacyPrivacyState`, so the context silently runs on the
- *    pre-manifest `.note-acl/*.json` format. `set_folder_visibility` refuses
- *    outright ("privacy.md is required before folder visibility can be
- *    changed"), and `persistExactVisibility` writes any per-note decision into
- *    the legacy sidecar instead of the manifest. Reads do fail closed —
- *    `visibilityOf` with no rules returns `private` — so nothing leaks, but a
- *    context whose access control is a fallback nobody chose is not one we
- *    should call created.
- *  - **`index.md` is not.** The gateway reads it in exactly one place, and
- *    guarded: `toolOrient`'s `if (index && canSee("index.md", …))`. Nothing
- *    else in the gateway opens it, no visibility decision consults it, and no
- *    write path requires it. A missing `index.md` costs a paragraph of
- *    orientation prose. Best-effort.
- *  - **Folder `README.md`s are not.** A folder in object storage is the prefix
- *    of a key that exists; the READMEs are the leg-up, not the structure. An
- *    owner whose `2-areas/README.md` never landed can ask their own agent for
- *    it in one sentence — which is the point of the product.
- *
- * So a scaffold that lands `privacy.md` and loses two READMEs **succeeded**,
- * with a caveat naming what is missing. Reporting that as total failure is
- * what left people stuck.
+ * THE FILES A CONTEXT CANNOT FUNCTION SAFELY WITHOUT. None: access is the tree's rows, and the scaffold writes
+ * no access file. A scaffold that lands its folders and READMEs is `created`.
  */
-export const ESSENTIAL_KEYS: readonly string[] = [PRIVACY_KEY];
+export const ESSENTIAL_KEYS: readonly string[] = [];
 
 export type ScaffoldReason =
   /** Every file landed. `written` says which. */

@@ -21,21 +21,16 @@ import { describe, expect, test } from "vitest";
 import { internal } from "../_generated/api";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  FileOpError,
-  type FileStore,
-  loadPrivacyState,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { FileOpError, type FileStore, loadPrivacyState } from "../functions/lib/fileOps";
 import { checkFolderIcon, visibleFolderIcons } from "../functions/lib/fileOps/folderIcons";
 import { FOLDER_ICONS_KEY, parseFolderIcons, serializeFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { attachSmallData } from "../functions/lib/smallData/attach";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 // A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
-import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { LEGACY_PARA_FOLDERS } from "../functions/lib/scaffold";
 import { start } from "./nodes/moveFixture.helpers";
 import { keyedFixture } from "./nodes/keyedFixture.helpers";
+import { setFolderVisibility, setVisibility, renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");

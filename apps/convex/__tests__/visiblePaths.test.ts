@@ -7,10 +7,10 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, setFolderVisibility, setVisibility } from "../functions/lib/fileOps";
+import { type FileStore } from "../functions/lib/fileOps";
 import { visiblePathsOf } from "../functions/lib/fileOps/visiblePaths";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 async function bucket(): Promise<MemoryStore & FileStore> {
   const store = memoryStore() as MemoryStore & FileStore;

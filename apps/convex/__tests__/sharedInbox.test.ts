@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 
@@ -36,6 +36,39 @@ async function scenario(t: TestConvex) {
 
 function share(t: TestConvex, by: Id<"users">, workspaceId: Id<"workspaces">, path: string) {
   return asUser(t, by).mutation(api.functions.shares.createShare, { workspaceId, path, recipient: "@lk" });
+}
+
+/**
+ * Set a folder's or a note's base tier on its access row, as its owner. Access lives on the rows (there is no
+ * `privacy.md` to seed), so a title's rules are whatever this writes.
+ */
+async function setTier(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  owner: Id<"users">,
+  path: string,
+  base: "private" | "team",
+  kind: "file" | "folder",
+): Promise<void> {
+  // A grant on a path with no tree row waits as pending, and is not rendered until the row exists. A folder
+  // the tree has not seen yet is given its row first, as a bucket listing would have done.
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique();
+    if (existing === null && kind === "folder") {
+      await ctx.db.insert("nodes", { workspaceId, path, name: path.split("/").pop()!, kind: "folder", observedAt: 1 });
+    }
+  });
+  const answer = await t.mutation(internal.functions.nodesAccess.setAccess, {
+    workspaceId,
+    path,
+    base,
+    kind,
+    actor: { userId: owner, role: "owner" },
+  });
+  if (!answer.ok) throw new Error(`setting ${path} to ${base} was refused: ${answer.code}`);
 }
 
 describe("what @shared lists", () => {
@@ -108,20 +141,13 @@ describe("what @shared lists", () => {
       });
       // Sealed: no props, so no title.
       await ctx.db.insert("nodes", { ...row, workspaceId: atlas, path: "1-projects/sealed.md", name: "sealed.md" });
-      // The rules these notes are shared under. A title is re-derived against
-      // them (`lib/shares/inboxTitle.ts`), so a fixture without them is a
-      // fixture where nothing is readable and every title is withheld.
-      for (const workspaceId of [anaOwn, atlas]) {
-        await ctx.db.insert("nodePrivacy", {
-          workspaceId,
-          etag: "privacy-1",
-          invalid: false,
-          folders: [{ prefix: "1-projects", visibility: "team" }],
-          notes: [],
-          observedAt: 1,
-        });
-      }
     });
+    // The rules these notes are shared under. A title is re-derived against
+    // the access rows (`lib/shares/inboxTitle.ts`), so a fixture without them
+    // is a fixture where nothing is readable and every title is withheld.
+    for (const workspaceId of [anaOwn, atlas]) {
+      await setTier(t, workspaceId, ana, "1-projects", "team", "folder");
+    }
 
     const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
     const byPath = new Map(rows.map((row) => [row.entryPath, row]));
@@ -146,6 +172,10 @@ describe("what @shared lists", () => {
 
       Same shape as the website menu that kept the titles of newly-private
       notes, and the same answer: the title is re-derived, or it is not sent.
+
+      Two halves, so the withheld title is about the rule and not about a
+      title that was never there: while the folder is team the title shows,
+      and once the owner narrows it to private it does not.
     */
     const t = setupTest();
     const { ana, lk, anaOwn } = await scenario(t);
@@ -159,27 +189,22 @@ describe("what @shared lists", () => {
         name: "review.md",
         props: JSON.stringify({ properties: {}, heading: "Pay review: LK, below band" }),
       });
-      // What the owner changed their mind to: the folder is private, so a
-      // reader at `team` with no names sees nothing here.
-      await ctx.db.insert("nodePrivacy", {
-        workspaceId: anaOwn,
-        etag: "privacy-1",
-        invalid: false,
-        // A readable manifest that simply does not reach this note, so the
-        // title is withheld by the rules and not by an absent mirror.
-        folders: [
-          { prefix: "1-projects", visibility: "team" },
-          { prefix: "2-areas", visibility: "private" },
-        ],
-        notes: [],
-        observedAt: 1,
-      });
     });
+    const titleNow = async () => {
+      const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
+      const row = rows.find((entry) => entry.entryPath === "2-areas/comp/review.md");
+      expect(row, "the share row itself still stands; only its title is in question").toBeDefined();
+      return row?.title;
+    };
 
-    const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
-    const row = rows.find((entry) => entry.entryPath === "2-areas/comp/review.md");
-    expect(row, "the share row itself still stands; only its title is in question").toBeDefined();
-    expect(row?.title).toBeNull();
+    // Positive control: readable to the recipient, so the title is shown.
+    await setTier(t, anaOwn, ana, "2-areas", "team", "folder");
+    expect(await titleNow()).toBe("Pay review: LK, below band");
+
+    // What the owner changed their mind to: the folder is private, so a
+    // reader at `team` with no names sees nothing here.
+    await setTier(t, anaOwn, ana, "2-areas", "private", "folder");
+    expect(await titleNow()).toBeNull();
   });
 
   test("nobody else sees the row", async () => {

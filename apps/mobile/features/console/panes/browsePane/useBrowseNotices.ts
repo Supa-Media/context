@@ -110,10 +110,6 @@ export function useBrowseNotices({
     return () => clearTimeout(handle);
   }, [landed]);
   const layingOut: LayingOut = writing ? "writing" : landed ? "done" : null;
-  // Held back while the card is up, including its ticked moment: the root
-  // listing on screen is the one read before the layout landed until the
-  // re-read above comes back.
-  const manifestBroken = layingOut === null && files.listings[""]?.manifestUsable === false;
   /*
     Ask the bucket before offering anything, once per context.
 
@@ -273,7 +269,6 @@ export function useBrowseNotices({
     introVisible ||
     setupPromptVisible(setup) ||
     noBucket ||
-    manifestBroken ||
     files.notice !== null ||
     moveNotices.length > 0 ||
     missingFolders.visible ||
@@ -281,7 +276,6 @@ export function useBrowseNotices({
 
   return {
     noBucket,
-    manifestBroken,
     setup,
     layingOut,
     storageMigration,
