@@ -18,6 +18,20 @@ test('promotion verifies the dispatch commit rather than the current main tip', 
   assert.equal(url, good.html_url);
 });
 
+test('a commit whose CI on main failed, is pending or never ran cannot be promoted', async () => {
+  const ci = { ...good, html_url: 'https://example.com/ci' };
+  for (const runs of [[], [{ ...ci, conclusion: 'failure' }], [{ ...ci, status: 'in_progress' }], [{ ...ci, head_sha: 'b'.repeat(40) }], [{ ...ci, conclusion: 'failure' }, ci]]) {
+    const request = async (url) => ({ ok: true, json: async () => ({ workflow_runs: url.pathname.endsWith('/ci.yml/runs') ? runs : [good] }) });
+    await assert.rejects(requireStagingRelease(env, request), /CI has not passed/);
+  }
+  const asked = [];
+  await requireStagingRelease(env, async (url) => {
+    asked.push(url.pathname.split('/').at(-2));
+    return { ok: true, json: async () => ({ workflow_runs: [good] }) };
+  });
+  assert.deepEqual(asked, ['deploy-staging.yml', 'ci.yml']);
+});
+
 test('automatic events and non-main refs cannot promote', async () => {
   for (const change of [{ GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/tags/main' }]) {
     await assert.rejects(requireStagingRelease({ ...env, ...change }, () => assert.fail('must reject before API access')), /manually from main/);

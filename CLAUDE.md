@@ -236,11 +236,12 @@ change that would break a non-negotiable, or work framed as a spike — each a
 statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
-**Merging deploys to staging; production is a separate manual action.** Every
-merge to `main` runs `Deploy Staging`. Finish the PR and verify staging without
-asking again. Production requires an explicit request to run `Deploy to
-Production`, which deploys the run's fixed `main` commit only after that commit
-has passed staging. Do not trigger production as a side effect of merging.
+**Merging deploys to staging, and production follows it.** Every merge to
+`main` runs `Deploy Staging`; when it passes and CI on `main` is green for the
+same commit, `Promote to Production` runs `Deploy to Production` (decided by
+the owner, 2026-10-23). Check that production finished; do not dispatch it a
+second time. The repository variable `AUTO_DEPLOY_PRODUCTION=off` makes
+production a manual action again.
 Desktop releases, native builds, store submissions and secret rotation remain
 separate explicit actions. See [staging](./docs/staging.md).
 

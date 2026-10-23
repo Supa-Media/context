@@ -55,6 +55,9 @@ function repoFile(relative: string): string {
 const SET_ELSEWHERE: Record<string, string> = {
   APP_ENV: "synced only by scripts/staging-env.mjs; absent production value keeps the staging bypass disabled",
   STAGING_CONVEX_DEPLOYMENT: "synced only by scripts/staging-env.mjs from the staging GitHub environment variable",
+  CONVEX_TEST_MAP_RECORD:
+    "read only by the test runner (vitest.config.ts, testImpact.setup.ts), which CI points at a " +
+    "directory on pushes to main to record the Convex test map; no deployed function reads it",
   CONVEX_CLOUD_URL: "set by Convex itself on every deployment; used to verify the staging selector",
   CONVEX_SITE_URL: "set by Convex itself on every deployment; nothing to push",
   INGESTION_RECEIVER:
