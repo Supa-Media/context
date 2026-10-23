@@ -154,12 +154,13 @@ crons.interval(
 );
 
 /**
- * Keep every workspace's Convex copy of its file tree current
- * (`functions/nodesMigration.ts`): a copy that is due (never started, dirty,
- * interrupted, failed or an hour old) is swept again, so a workspace nobody
- * opens and a new one are covered too. Staff can pause it from admin. The
- * same pass imports each workspace's icons, emoji and forwarding files once,
- * and writes them from Convex where a write is owed (`lib/smallData/`).
+ * Keeps every workspace's Convex copy of its file tree current
+ * (`functions/nodesMigration.ts`): starts the facts fill of each copy that is
+ * due, so a workspace nobody opens is covered too. Staff can pause it from
+ * admin. The same pass imports each workspace's icons, emoji and forwarding
+ * files once, and writes them from Convex where a write is owed
+ * (`lib/smallData/`). Rows are written by the product's seam, never by
+ * listing the bucket.
  */
 crons.interval(
   "keep the Convex copy of each file tree current",

@@ -66,9 +66,9 @@ import { servedListingStore, TreeUnavailable } from "../tree/served.js";
 /**
  * The tools that only list and read: their walks are answered from the Convex
  * tree (`tree/served.js`) and never from the bucket. Where the tree cannot
- * answer, the call says so ("still loading") rather than listing storage. A
- * tool that writes keeps the bucket's own listing, so what it lists is always
- * what it is about to change.
+ * answer, the call says so ("could not be read just now") rather than listing
+ * storage. A tool that writes is not in this set: the names it needs come from
+ * the tree too, one at a time (`tree/names.js`, `tree/twins.js`, `moves/folder.js`).
  */
 export const TREE_LISTING_TOOLS = new Set([
   "orient",

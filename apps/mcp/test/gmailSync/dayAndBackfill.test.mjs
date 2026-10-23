@@ -8,6 +8,11 @@ import { parseChannelDayNote } from "../../../../packages/communications/src/ind
 import { dateRange, runBackfill, runIncrementalSync, syncDayFromGmail } from "../../src/communications/gmailSync.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 export async function runGmailDayAndBackfillChecks(check) {
   // -- one full day end to end, and idempotent re-sync -----------------------------
 
@@ -19,7 +24,7 @@ export async function runGmailDayAndBackfillChecks(check) {
     fixtureMessage({ id: "d3", threadId: "t3", date: "2026-09-08T09:00:00.000Z", from: "c@example.invalid", to: "person@example.invalid", subject: "Three", text: "third" }),
   ];
   const dayGmail = createFixtureGmail({ messages: dayMessages });
-  const dayStore = createMemoryStore();
+  const dayStore = servedMemoryStore();
   const dayOptions = {
     store: dayStore,
     fetchImpl: dayGmail.fetchImpl,
@@ -55,7 +60,7 @@ export async function runGmailDayAndBackfillChecks(check) {
     whatever the last pass before the deploy wrote, the dated copy growing,
     and both parsing as 2026-09-07.
   */
-  const legacyStore = createMemoryStore();
+  const legacyStore = servedMemoryStore();
   const legacyPath = "inbox/email/person-at-example-invalid/2026-09-07.md";
   await legacyStore.put(legacyPath, "---\ntype: channel-day\n---\n\n# 2026-09-07\n");
   const legacySync = await syncDayFromGmail({ ...dayOptions, store: legacyStore });
@@ -83,7 +88,7 @@ export async function runGmailDayAndBackfillChecks(check) {
     // 2026-09-02 has no mail at all.
   ];
   const backfillGmail = createFixtureGmail({ messages: backfillMessages });
-  const backfillStore = createMemoryStore();
+  const backfillStore = servedMemoryStore();
   const backfillResult = await runBackfill({
     store: backfillStore,
     fetchImpl: backfillGmail.fetchImpl,
@@ -104,7 +109,7 @@ export async function runGmailDayAndBackfillChecks(check) {
     (await backfillStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-02.md")) === null,
   );
 
-  const tinyBackfillStore = createMemoryStore();
+  const tinyBackfillStore = servedMemoryStore();
   const tinyBackfillResult = await runBackfill({
     store: tinyBackfillStore,
     fetchImpl: backfillGmail.fetchImpl,
@@ -133,7 +138,7 @@ export async function runGmailDayAndBackfillChecks(check) {
       pages: [{ history: [{ messagesAdded: [{ message: { id: "i1" } }, { message: { id: "i2" } }] }], historyId: "2000" }],
     },
   });
-  const incrementalStore = createMemoryStore();
+  const incrementalStore = servedMemoryStore();
   const incrementalResult = await runIncrementalSync({
     store: incrementalStore,
     fetchImpl: incrementalGmail.fetchImpl,
@@ -151,7 +156,7 @@ export async function runGmailDayAndBackfillChecks(check) {
 
   const gapGmail = createFixtureGmail({ messages: [], history: { expired: true } });
   const gapResult = await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: gapGmail.fetchImpl,
     accessToken: "tok",
     mailboxSlug: "p-at-example-invalid",
@@ -166,7 +171,7 @@ export async function runGmailDayAndBackfillChecks(check) {
 
   const emptyHistoryGmail = createFixtureGmail({ messages: [], history: { pages: [{ history: [], historyId: "1050" }] } });
   const emptyHistoryResult = await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: emptyHistoryGmail.fetchImpl,
     accessToken: "tok",
     mailboxSlug: "p-at-example-invalid",
@@ -183,7 +188,7 @@ export async function runGmailDayAndBackfillChecks(check) {
     history: { pages: Array.from({ length: 51 }, () => ({ historyId: "999999" })) },
   });
   const emptyPagedResult = await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: emptyPagedHistory.fetchImpl,
     accessToken: "tok",
     mailboxSlug: "p-at-example-invalid",
@@ -198,7 +203,7 @@ export async function runGmailDayAndBackfillChecks(check) {
   // Full reconcile: after a gap, the documented fallback is `runBackfill` over
   // the connection's window — prove it actually recovers the messages a
   // reconcile exists to catch.
-  const reconcileStore = createMemoryStore();
+  const reconcileStore = servedMemoryStore();
   const reconcileResult = await runBackfill({
     store: reconcileStore,
     fetchImpl: incrementalGmail.fetchImpl,

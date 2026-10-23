@@ -9,9 +9,8 @@
  * bucket the workspace's tree was copied from: `serveTree(workspaceId, store)`,
  * or `serveTreesFrom(env)` for every workspace bound to one of `env`'s R2
  * bindings, read at request time so `env` may be filled in later.
- * A workspace with none answers `{ served: false }`, which is what a
- * workspace whose first copy has not finished answers, and the gateway says
- * it is still loading.
+ * A workspace with none answers `{ served: false }`, and the gateway says the
+ * file list cannot be read just now.
  *
  * Read at request time, so a note a test writes is in the tree at once; the
  * real tree hears of a gateway write a second or so later. A logical-delete
@@ -195,8 +194,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
       return workspaceId === null ? NOT_SERVED : { served: true, forwarding: ledgers.get(workspaceId)?.entries ?? [] };
     }
     const source = await sourceFor(body);
-    // A stopped workspace is one on its first copy: a write's names say so.
-    if (!source && body.ask === "names" && sources.get(body.expectedWorkspaceId) === null) return { served: false, loading: true };
     if (!source) return NOT_SERVED;
     if (body.ask === "links") {
       const notes = (await allKeys(source)).map(({ key }) => key).filter((key) => key.endsWith(".md") && !plumbing(key));
@@ -341,7 +338,7 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
       if (env) envs.push(env);
       if (s3) backends.push(s3);
     },
-    /** The workspace answers `served: false`, as one whose first copy has not finished. */
+    /** The workspace answers `served: false`, as one the tree does not serve. */
     stopServing(workspaceId) {
       sources.set(workspaceId, null);
     },

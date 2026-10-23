@@ -16,7 +16,6 @@ import { FileOpError } from "../fileOps/errors";
 import type { FileStore } from "../fileOps/store";
 import { PRIVACY_KEY } from "../privacy";
 import { carryPrivacy } from "./movePrivacy";
-import { touchNodesNow } from "./run";
 
 /** Times one request carries the rules again for a move whose rules keep changing, before it says so. */
 const RECARRY_ATTEMPTS = 5;
@@ -92,7 +91,6 @@ export async function driveRowMove(
     if (carried === null) {
       throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; move the folder again to finish.");
     }
-    await touchNodesNow(ctx, args.workspaceId, args.store, { paths: [], files: [PRIVACY_KEY] });
     await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveRules, { id: args.id, privacyEtag: carried.etag });
   }
 }

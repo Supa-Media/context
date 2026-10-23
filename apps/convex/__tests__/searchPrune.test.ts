@@ -30,7 +30,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { copyTree } from "./fixtures.helpers";
 import { stubD1 } from "./searchBackfill.helpers";
 import { cancelPendingJobs, opted, row } from "./searchBackfill.trigger.helpers";
-import { memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { memoryStore, withTreeOf, type MemoryStore } from "./storeStub.helpers";
 import type { TestConvex } from "./fixtures.helpers";
 import { renderPrivacyManifest } from "./seededRules.helpers";
 
@@ -95,15 +95,18 @@ describe("pruning a ready database", () => {
     store.seed("1-projects/fresh.md", "# Fresh\n");
     await strandRow(d1.client, "1-projects/fresh.md");
     // The listing was taken before the note was written: it lacks it, the bucket has it.
-    const listedBefore = new Proxy(store, {
-      get(target, key, receiver) {
-        if (key !== "list") return Reflect.get(target, key, receiver);
-        return async (options: unknown) => {
-          const page = await target.list(options as never);
-          return { ...page, objects: page.objects.filter((object: { key: string }) => object.key !== "1-projects/fresh.md") };
-        };
-      },
-    });
+    // The census is the tree's names, which the store's own `treeListing` reads: the omission must reach it too.
+    const listedBefore = withTreeOf(
+      new Proxy(store, {
+        get(target, key, receiver) {
+          if (key !== "list") return Reflect.get(target, key, receiver);
+          return async (options: unknown) => {
+            const page = await target.list(options as never);
+            return { ...page, objects: page.objects.filter((object: { key: string }) => object.key !== "1-projects/fresh.md") };
+          };
+        },
+      }),
+    );
 
     expect(await pruneSearchIndex(listedBefore, d1.client)).toEqual({ deleted: 0, checked: true });
     expect(d1.paths()).toContain("1-projects/fresh.md");
@@ -113,14 +116,17 @@ describe("pruning a ready database", () => {
     const store = bucket();
     const d1 = await converged(store);
     await store.delete("0-inbox/probe.md");
-    const refused = new Proxy(store, {
-      get(target, key, receiver) {
-        if (key !== "list") return Reflect.get(target, key, receiver);
-        return async () => {
-          throw new Error("listing refused");
-        };
-      },
-    });
+    // The census is the tree's names, which the store's own `treeListing` reads: the refusal must reach it too.
+    const refused = withTreeOf(
+      new Proxy(store, {
+        get(target, key, receiver) {
+          if (key !== "list") return Reflect.get(target, key, receiver);
+          return async () => {
+            throw new Error("listing refused");
+          };
+        },
+      }),
+    );
 
     expect(await pruneSearchIndex(refused, d1.client)).toEqual({ deleted: 0, checked: false });
     expect(d1.paths()).toContain("0-inbox/probe.md");

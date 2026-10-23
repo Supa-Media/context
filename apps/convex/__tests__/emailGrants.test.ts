@@ -16,6 +16,7 @@
  *    the ownership lookup refuses an unverified address too, so the test is a guard only when both are broken.
  */
 
+import { seedTreeRows } from "./fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../_generated/api";
@@ -66,15 +67,7 @@ async function world(): Promise<World> {
     [ws, owner],
     [beta, ownerB],
   ] as const) {
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: workspace,
-      at: 10,
-      rows: ["1-projects/", PLAN].map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-      gone: [],
-      vanishedUnder: [],
-    });
-    await t.mutation(internal.functions.nodes.begin, { workspaceId: workspace, at: 5 });
-    await t.mutation(internal.functions.nodes.finish, { workspaceId: workspace, at: 20, files: 2 });
+    await seedTreeRows(t, workspace, ["1-projects/", PLAN]);
     // The folder is team and the note is private: the note is visible only through its list.
     await t.run(async (ctx) => {
       await setAccessRow(ctx as unknown as MutationCtx, { workspaceId: workspace, path: "1-projects", base: "team", actor: { userId: actor, role: "owner" } });

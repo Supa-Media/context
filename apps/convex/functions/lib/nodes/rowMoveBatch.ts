@@ -34,7 +34,6 @@ import { catchUpKeyedRows } from "./rowCatchUp";
 import { rowEtagFor } from "./handedVersion";
 import { PRIVACY_KEY, canSee } from "../privacy";
 import { type AddedRules, carryPrivacy, releasePrivacy } from "./movePrivacy";
-import { touchNodesNow } from "./run";
 import { ROW_MOVE_MAX, type RowMoveRefusal } from "./rowMove";
 import { refusal } from "./rowMoveStart";
 
@@ -123,7 +122,6 @@ export async function startRowMoveBatch(
     for (const entry of [...carried].reverse()) {
       await releasePrivacy(store, { from: entry.to, undone: true, added: entry.added }).catch(() => {});
     }
-    await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] }).catch(() => {});
   };
   try {
     for (const { move } of planned) {
@@ -142,7 +140,6 @@ export async function startRowMoveBatch(
     await undoCarried();
     throw error;
   }
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   // The callers' versions are the keys' (`idLayout.js`); rows the keys moved on from without telling them catch up first.
   // Each caller's version as the row carries it (`handedVersion.ts`).
   const expectations = await Promise.all(planned.map(({ move }) => rowEtagFor(store, move.from, move.expectedEtag)));
@@ -166,7 +163,6 @@ export async function startRowMoveBatch(
   }
 
   if (!rowsTruth) for (const entry of carried) await releasePrivacy(store, { from: entry.from, undone: false, added: entry.added });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   await recordForwarding(
     store,
     planned.map(({ move }) => ({ from: move.from, to: move.to, kind: "note" as const })),

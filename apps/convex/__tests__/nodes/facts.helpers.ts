@@ -12,6 +12,7 @@ import schema from "../../schema";
 import { modules } from "../../test.setup";
 import type { FileStore } from "../../functions/lib/fileOps";
 import { runFactFill } from "../../functions/lib/nodes/factFill";
+import { applyTreeObservation } from "../fixtures.helpers";
 
 export function tester() {
   return convexTest(schema, modules);
@@ -41,12 +42,7 @@ export async function observeBucket(t: Tester, workspaceId: Id<"workspaces">, st
   const rows = (listed.objects as { key: string; etag?: string }[])
     .filter(({ key }) => !key.startsWith("."))
     .map(({ key, etag }) => ({ path: key, ...(etag === undefined ? {} : { etag }) }));
-  await t.mutation(internal.functions.nodes.observe, { workspaceId, at, rows, gone: [], vanishedUnder: [] });
-}
-
-/** One path observed gone. */
-export async function observeGone(t: Tester, workspaceId: Id<"workspaces">, path: string, at = Date.now()) {
-  await t.mutation(internal.functions.nodes.observe, { workspaceId, at, rows: [], gone: [path], vanishedUnder: [] });
+  await applyTreeObservation(t, { workspaceId, at, rows, gone: [] });
 }
 
 /** An action context over convex-test, the tree served, scheduled passes recorded rather than run. */

@@ -4,6 +4,7 @@
  * on converges under v2. The rest of the checks are in searchV2Integration.test.mjs.
  */
 
+import { withServedTree } from "./servedTree.mjs";
 import { R2Store } from "../src/store/r2.js";
 import { SEARCH_INDEX_KEY, createSearchBudget, syncIndex } from "../src/search/maintain.js";
 import { parseIndex } from "../src/search/indexer.js";
@@ -58,7 +59,7 @@ export async function runSearchV2IntegrationShardChecks(check) {
         `# Spread ${n}\n\nA PORPOISE swims through note number ${n}.\n`
       );
     }
-    const spreadStore = new R2Store(spread);
+    const spreadStore = withServedTree(new R2Store(spread));
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const pass = await syncShardedIndex(spreadStore, { budget: createSearchBudget(300) });
       if (pass.pending === 0) break;
@@ -196,7 +197,7 @@ export async function runSearchV2IntegrationShardChecks(check) {
       // to sit between: v1's whole object above it, v2's largest shard below.
       const measureV1 = createBucket();
       seedNotes(measureV1);
-      await syncIndex(new R2Store(measureV1), { budget: createSearchBudget(400) });
+      await syncIndex(withServedTree(new R2Store(measureV1)), { budget: createSearchBudget(400) });
       const wholeIndexBytes = byteLength(measureV1.objects.get(SEARCH_INDEX_KEY).body);
 
       const measureV2 = createBucket();
@@ -206,7 +207,7 @@ export async function runSearchV2IntegrationShardChecks(check) {
       // test here; what a shard costs to store is.
       measureV2.seed(MANIFEST_KEY, serializeManifest(emptyManifest(16)));
       for (let attempt = 0; attempt < 12; attempt += 1) {
-        const pass = await syncShardedIndex(new R2Store(measureV2), {
+        const pass = await syncShardedIndex(withServedTree(new R2Store(measureV2)), {
           budget: createSearchBudget(400),
         });
         if (pass.pending === 0) break;
@@ -222,7 +223,7 @@ export async function runSearchV2IntegrationShardChecks(check) {
 
       const v1Bucket = createBucket();
       seedNotes(v1Bucket);
-      const v1Store = new R2Store(v1Bucket);
+      const v1Store = withServedTree(new R2Store(v1Bucket));
       // Five passes, unconditionally: v1's `pending` describes what it built in
       // memory, not what it stored, so a refused write reports a clean pass and
       // "run it until it says it is done" would stop after the first one.
@@ -236,7 +237,7 @@ export async function runSearchV2IntegrationShardChecks(check) {
       const v2Bucket = createBucket();
       seedNotes(v2Bucket);
       v2Bucket.seed(MANIFEST_KEY, serializeManifest(emptyManifest(16)));
-      const v2Store = new R2Store(v2Bucket);
+      const v2Store = withServedTree(new R2Store(v2Bucket));
       let v2Pass = null;
       for (let attempt = 0; attempt < 12; attempt += 1) {
         v2Pass = await syncShardedIndex(v2Store, {

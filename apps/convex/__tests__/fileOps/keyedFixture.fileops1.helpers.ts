@@ -23,7 +23,6 @@ import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
 import type { TreeNames } from "../../functions/lib/fileOps/treeChecks";
 import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { consoleIdLayoutHooks } from "../../functions/lib/noteIds/consoleLayer";
-import { runNodesOperation } from "../../functions/lib/nodes/run";
 import { type FileStore } from "../../functions/lib/fileOps";
 import { setFolderVisibility, setVisibility, translateSeededRules, renderPrivacyManifest } from "../seededRules.helpers";
 import { clearanceOf } from "../../functions/lib/clearance";
@@ -33,7 +32,7 @@ import { PRE_PARSED_RULES } from "../../../mcp/src/privacy/engine.js";
 import type { QueryCtx } from "../../_generated/server";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { bridge } from "../nodes/moveFixture.helpers";
-import { setupTest, createUser, type TestConvex } from "../fixtures.helpers";
+import { setupTest, createUser, seedTreeFromStore, type TestConvex } from "../fixtures.helpers";
 import type { RawRow } from "../nodes/keyedFixture.helpers";
 import type { PrivacyRule, Visibility } from "../../functions/lib/privacy";
 
@@ -172,12 +171,8 @@ export async function keyedBucket(
   const raw = memoryStore({ conditional: true, ignoreIfMatchOnDelete: false } as never) as MemoryStore;
   raw.seed(PRIVACY_KEY, options.manifest ?? renderPrivacyManifest("para"));
   const ctx = bridge(t);
-  // The tree must be served before the seams answer: a sweep of the empty bucket, then the parity mark a served tree carries.
-  await runNodesOperation(ctx, { workspaceId, scope: "private", operation: { kind: "nodesSweep" } }, raw);
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
-  });
+  // The tree must be served before the seams answer: a served tree for the empty bucket.
+  await seedTreeFromStore(t, workspaceId, raw);
 
   const store = withIdLayout(raw, consoleIdLayoutHooks(ctx, workspaceId) as unknown as Parameters<typeof withIdLayout>[1]) as unknown as FileStore & MemoryStore;
   attachFreshTree(ctx, workspaceId, store);

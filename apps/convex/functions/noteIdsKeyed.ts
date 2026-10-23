@@ -96,8 +96,6 @@ function seamWrite(path: string, at: number, row: { etag: string; size?: number;
       },
     ],
     gone: [],
-    vanishedUnder: [],
-    source: "seam",
   };
 }
 
@@ -180,8 +178,6 @@ export const removeKeyed = internalMutation({
       at: clampAt(at),
       rows: [],
       gone: [path],
-      vanishedUnder: [],
-      source: "seam",
     });
     return (await nodeAt(ctx.db, workspaceId, path))?.goneAt !== undefined;
   },

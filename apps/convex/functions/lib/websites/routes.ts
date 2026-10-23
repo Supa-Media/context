@@ -117,7 +117,7 @@ export async function scanWebsiteRoutes(
  * barrier's prefix-limited manifest. A listing that cannot finish fails the
  * scan rather than reading as "nothing there": a partial manifest is never
  * evidence that an indexed route was deleted. Always the Convex tree, moves
- * drawn; a tree still loading fails the scan (`TREE_LOADING`). `drawn` says
+ * drawn; a tree that does not serve yet fails the scan (`NOT_SERVED`). `drawn` says
  * every page came from it.
  */
 async function listMarkdownUnder(

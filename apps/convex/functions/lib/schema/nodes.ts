@@ -5,14 +5,12 @@ import { v } from "convex/values";
  * The workspace's file tree, in the control plane (decided by the owner,
  * 2026-10-12: "a move to Convex to have a better overall experience").
  *
- * One row per file or folder the bucket holds — names, versions and sizes,
- * **never note text** — plus each workspace's privacy rules, parsed. The
- * bucket stays canonical: these rows are rebuilt from a listing of it
- * (`lib/nodes/sweep.ts`) and kept current by re-checking what each change
- * touched (`lib/nodes/touch.ts`). Phase 1 of the migration is a **shadow**:
- * nothing reads these rows to answer a person yet; a parity check holds the
- * tree they describe equal to the bucket's at every clearance
- * (`lib/nodes/parity.ts`). See `docs/decisions/app-and-console/convex-tree.md`.
+ * One row per file or folder — names, versions and sizes, **never note
+ * text** — plus each workspace's privacy rules, parsed. The product's seam
+ * writes the rows (writes, moves, trash and the keyed copy report what they
+ * did, `lib/nodes/table.ts`); nothing lists the bucket to decide which names
+ * exist. A workspace's rows answer reads once its `nodeTrees` row is `ready`
+ * (`lib/nodes/treeGate.ts`). See `docs/decisions/app-and-console/convex-tree.md`.
  *
  * Who may see a row is never stored on it. It is decided when served, by the
  * same `canSee` over the workspace's rules that every listing applies.

@@ -12,6 +12,7 @@
  * `loadPrivacyState` and the token-rules case fails.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
@@ -103,16 +104,8 @@ async function fixture(): Promise<Fixture> {
     await ctx.db.insert("names", { name: "acme-leads", kind: "group", groupId: leads, claimedBy: owner, claimedAt: now });
     return { ws, owner, bob };
   });
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId: ids.ws,
-    at: 10,
-    rows: TREE.map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-    gone: [],
-    vanishedUnder: [],
-  });
+  await seedTreeRows(t, ids.ws, TREE);
   await translateMirror(t, ids.ws, RULES);
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: TREE.length });
   return {
     t,
     ws: ids.ws,

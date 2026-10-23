@@ -1,6 +1,8 @@
 # App and console — the tree moves into the control plane
 
 > **Superseded in part (owner, 2026-10-15):** names, folders and privacy move onto tree rows and bodies to `notes/<noteId>.md`, so bucket sweeps, `privacy.md` and byte-copying moves are retired as the work in [notes-by-id](../storage-and-credentials/notes-by-id.md) lands.
+>
+> **Retired (2026-10-23, at the owner's ask to remove every path-keyed code path):** the sweep, the touch re-check, parity and the tree's loading state are gone. Rows are written only by the product's seam; a workspace whose tree does not serve is refused (`NOT_SERVED`, `lib/nodes/treeGate.ts`), and the gateway refuses a listing it cannot get from the tree (`TREE_UNREACHABLE`) rather than walking the bucket. The sections below that describe sweeps, touches and parity are history.
 
 ### A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files
 

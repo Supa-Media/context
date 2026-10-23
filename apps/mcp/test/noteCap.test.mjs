@@ -188,7 +188,7 @@ test("a tree that cannot answer admits the write, and the next create asks again
     if (answer instanceof Error) throw answer;
     return answer;
   });
-  assert.ok(await store.put("1-projects/a.md", "x", { onlyIf: { absent: true } }), "still loading: admitted");
+  assert.ok(await store.put("1-projects/a.md", "x", { onlyIf: { absent: true } }), "a tree that cannot answer: admitted");
   answer = new Error("control plane unreachable");
   assert.ok(await store.put("1-projects/b.md", "x", { onlyIf: { absent: true } }), "unreachable: admitted");
   answer = 7;

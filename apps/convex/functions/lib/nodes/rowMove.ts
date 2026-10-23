@@ -39,6 +39,7 @@ import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
 import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 import { folderChain, nameOf } from "./table";
+import { type Rules, audiencesNow, mirrorRules } from "./log";
 import { underHiddenRoot } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
 import { refreshSnapshot } from "./accessBackfill";
@@ -189,6 +190,8 @@ export async function applyRowMove(
   // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
   if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
   const mirror = await readerMirror(ctx, ws);
+  // Who could see each old path, judged before any row moves (`followMovedFiles`).
+  const before = await mirrorRules(mirror);
   if (invalidMove(from, to)) return refuse("invalid");
   if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
 
@@ -251,7 +254,7 @@ export async function applyRowMove(
   const below = pairs.filter((pair) => pair.row._id !== root._id);
   for (const pair of below) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
   const files = pairs.filter((pair) => pair.row.kind === "file");
-  await followMovedFiles(ctx, ws, files, trash);
+  await followMovedFiles(ctx, ws, files, trash, before);
 
   await retireEmptied(ctx, ws, oldParent, now);
 
@@ -321,6 +324,7 @@ export async function followMovedFiles(
   ws: Id<"workspaces">,
   files: readonly { from: string; to: string }[],
   trash: boolean,
+  before: Rules,
 ): Promise<void> {
   if (!trash) {
     for (const pair of files) {
@@ -331,7 +335,12 @@ export async function followMovedFiles(
       for (const link of links) await ctx.db.patch(link._id, { source: pair.to });
     }
   }
-  const table = convexNodeTable(ctx, ws);
+  // The rows have moved, so the rules read now may have lost an exception the old path had: a gone entry
+  // names the audiences judged before the move, never the ones its old folder grants afterwards.
+  const left = files
+    .filter((pair) => !isPlumbing(pair.from))
+    .map((pair) => ({ path: pair.from, audiences: audiencesNow(pair.from, before) }));
+  const table = convexNodeTable(ctx, ws, left);
   for (const pair of files) {
     if (!isPlumbing(pair.from)) await table.logChange?.(pair.from, true);
     if (!isPlumbing(pair.to)) await table.logChange?.(pair.to, false);

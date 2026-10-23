@@ -509,7 +509,7 @@ export async function readThroughShare(
 
 /**
  * Whether the Convex tree holds this note as sealed. `false` when the tree does
- * not answer (a copy still loading, a failed query): the body check then
+ * not answer (a tree not serving yet, a failed query): the body check then
  * decides, and this never refuses on an absence it cannot read.
  */
 async function sealedInTree(

@@ -5,6 +5,7 @@
  * sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   LEGACY_V1_KEY,
   MANIFEST_KEY,
@@ -38,7 +39,7 @@ export async function runSearchShardsSyncBehaviorChecks(check) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA PANGOLIN sighting, number ${n}.\n`);
     }
     bucket.seed(".history/index.md.2020-01-01.md", "# Front page\n\nold\n");
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
 
     const first = await syncShardedIndex(store, { budget: createSearchBudget(60) });
     const manifest = storedManifest(bucket);
@@ -127,7 +128,7 @@ export async function runSearchShardsSyncBehaviorChecks(check) {
       bucket.seed(path, `# Note ${n}\n\nA WOMBAT burrow, number ${n}.\n`);
       notes.push(path);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
 
     const manifest = storedManifest(bucket);
@@ -211,13 +212,13 @@ export async function runSearchShardsSyncBehaviorChecks(check) {
 
     const measured = createBucket();
     seedBoth(measured);
-    await converge(new R2Store(measured));
+    await converge(withServedTree(new R2Store(measured)));
     const bigBytes = bytesOf(measured.objects.get(shardKey(0)).body);
     const smallBytes = bytesOf(measured.objects.get(shardKey(1)).body);
 
     const capped = createBucket();
     seedBoth(capped);
-    const cappedStore = new R2Store(capped);
+    const cappedStore = withServedTree(new R2Store(capped));
     const shardByteCap = smallBytes + 100;
     const refused = await syncShardedIndex(cappedStore, {
       budget: createSearchBudget(60),

@@ -1,5 +1,5 @@
 /**
- * The Convex tree, as a bucket listing, for the agent tools that list.
+ * The Convex tree, as a listing, for the agent tools that list.
  *
  * `list_notes`, `orient`'s map and counts, `list_contacts`, `list_meetings`,
  * `list_channel_days` and `evaluate_lists` list from the keys the control
@@ -21,34 +21,24 @@
  *    (`.context/`, a dot folder) is Context's own small data, which the tree
  *    never holds, and every read and write is the bucket's: note text still
  *    comes from the bucket.
- *  - **No tree, no listing.** A workspace whose first copy has not finished
- *    (`served: false`) is told it is still loading; a request that failed,
- *    timed out or came back malformed is told the list could not be read just
- *    now. Neither walks the bucket instead (`TreeUnavailable`).
+ *  - **No tree, no listing.** A workspace the tree does not serve
+ *    (`served: false`), and a request that failed, timed out or came back
+ *    malformed, are both told the list could not be read just now. Nothing
+ *    walks the bucket instead (`TreeUnavailable`).
  *
- * The one store that lists its bucket is one with no control plane at all:
- * the single-tenant token deployment and a self-hosted gateway, which have no
- * Convex to hold a tree. Nothing else could answer them, so this is not a
- * fallback from a tree that failed; a session that has a control plane never
- * reaches it.
+ * Every session has a control plane (decided by the owner, 2026-10-15: there
+ * is no mode without one), so a store with no `treeManifest` refuses every
+ * listing of names rather than walking storage for them.
  */
 
-import { listAllKeys } from "../notes/storage.js";
-
-/** Why a listing could not be answered: the tree is still being copied, or could not be asked. */
+/** Why a listing could not be answered: the control plane could not be asked for the tree. */
 export class TreeUnavailable extends Error {
-  /** @param {"loading" | "unreachable"} reason */
-  constructor(reason) {
-    super(reason === "loading" ? TREE_LOADING : TREE_UNREACHABLE);
+  constructor() {
+    super(TREE_UNREACHABLE);
     this.name = "TreeUnavailable";
-    this.reason = reason;
+    this.reason = "unreachable";
   }
 }
-
-/** What an agent is told while a workspace's first copy into Context has not finished. */
-export const TREE_LOADING =
-  "this workspace is still loading: Context is copying the list of its files, so it cannot be listed yet. " +
-  "read, write and search work now; list again in a minute or two.";
 
 /** What an agent is told when the control plane could not be asked for the list. */
 export const TREE_UNREACHABLE = "this workspace's file list could not be read just now; try again in a moment.";
@@ -92,7 +82,7 @@ function covers(folder, wanted) {
  * @param {object} store a session-bound store
  */
 export function servedListingStore(store) {
-  if (typeof store?.treeManifest !== "function") return bucketListing(store);
+  if (typeof store?.treeManifest !== "function") return store?.treeListing ? barrierListing(store) : refusedListing(store);
   /** Folder → its keys, sorted (a promise of them), for each subtree read so far in this call. */
   const subtrees = new Map();
   /** The first refusal, repeated for the rest of the call. */
@@ -106,8 +96,8 @@ export function servedListingStore(store) {
         ...(folder === "" ? {} : { folder }),
         ...(cursor === undefined ? {} : { cursor }),
       });
-      if (!answer || answer.served !== true) throw new TreeUnavailable("loading");
-      if (!Array.isArray(answer.entries)) throw new TreeUnavailable("unreachable");
+      if (!answer || answer.served !== true) throw new TreeUnavailable();
+      if (!Array.isArray(answer.entries)) throw new TreeUnavailable();
       for (const entry of answer.entries) {
         if (entry && typeof entry.path === "string" && entry.path !== "") entries.push(entry);
       }
@@ -115,11 +105,11 @@ export function servedListingStore(store) {
         entries.sort((a, b) => compareKeys(a.path, b.path));
         return entries;
       }
-      if (answer.cursor === cursor) throw new TreeUnavailable("unreachable");
+      if (answer.cursor === cursor) throw new TreeUnavailable();
       cursor = answer.cursor;
     }
     // More pages than any workspace holds is a walk that is not ending.
-    throw new TreeUnavailable("unreachable");
+    throw new TreeUnavailable();
   }
 
   /** The keys under `prefix`, or null for plumbing, which the bucket lists. */
@@ -136,7 +126,7 @@ export function servedListingStore(store) {
       try {
         return await read(folder);
       } catch (error) {
-        refused = error instanceof TreeUnavailable ? error : new TreeUnavailable("unreachable");
+        refused = error instanceof TreeUnavailable ? error : new TreeUnavailable();
         throw refused;
       }
     })();
@@ -195,17 +185,35 @@ function objectOf(entry) {
 }
 
 /**
- * A store with no control plane (see the header): its own listing, with
- * `treeKeys` and `treeEntries` walking the bucket, since there is no tree.
+ * A store inside the Convex credential barrier, which reads the tree's rows directly and attaches them as
+ * `treeListing` (`lib/nodes/treeNames.ts`): its listing is that one, never the bucket's.
  */
-function bucketListing(store) {
+function barrierListing(store) {
   const listing = Object.create(store);
-  let everything = null;
-  const all = () => {
-    everything ??= listAllKeys(store, "").then((objects) => objects.filter(({ key }) => !plumbingPrefix(key)));
-    return everything;
+  // Plumbing (`.context/`) is Context's own small data, which the tree never holds: the bucket lists it.
+  listing.list = async (options = {}) =>
+    plumbingPrefix(options.prefix ?? "") ? await store.list(options) : await store.treeListing.list(options);
+  listing.treeEntries = async () => {
+    const objects = [];
+    for (let cursor; ; ) {
+      const page = await store.treeListing.list({ ...(cursor === undefined ? {} : { cursor }), limit: 1000 });
+      objects.push(...(page.objects ?? []).filter((object) => !plumbingPrefix(object.key)));
+      if (!page.truncated || !page.cursor || page.cursor === cursor) return objects;
+      cursor = page.cursor;
+    }
   };
-  listing.treeKeys = async () => (await all()).map(({ key }) => key);
-  listing.treeEntries = async () => await all();
+  listing.treeKeys = async () => (await listing.treeEntries()).map((object) => object.key);
+  return listing;
+}
+
+/** A store with no control plane (see the header): every listing of names is refused. */
+function refusedListing(store) {
+  const listing = Object.create(store);
+  const refuse = async () => {
+    throw new TreeUnavailable();
+  };
+  listing.treeKeys = refuse;
+  listing.treeEntries = refuse;
+  listing.list = refuse;
   return listing;
 }

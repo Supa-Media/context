@@ -38,7 +38,6 @@ import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { MoveResult } from "../fileOps/moving";
 import { PRIVACY_KEY, canSee, isPlumbing } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
-import { touchNodesNow } from "./run";
 import { catchUpKeyedRows } from "./rowCatchUp";
 import type { RowMoveRefusal } from "./rowMove";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
@@ -148,7 +147,6 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   // Rows mode hands out the rows' version, taken after this move's own narrowing: only a change that lands
   // between here and the move refuses it.
   if (rowsTruth) carried.etag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   // The caller's version as the row carries it (`handedVersion.ts`), read only once the caller may see the note.
   const expectedEtag = await rowEtagFor(store, from, args.expectedEtag);
   // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
@@ -168,7 +166,6 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   if (!answer.ok) {
     // Nothing moved: take the carried rules back, as a move that never drew does.
     if (!rowsTruth) await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
-    await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] }).catch(() => {});
     // A taken name the caller cannot see is "not found", never "exists": that is the disclosure the guards prevent.
     const visibleTarget =
       plan.kind === "folder"
@@ -217,7 +214,6 @@ async function settleRowMove(
 ): Promise<MoveResult> {
   const { workspaceId, store, from, to, now } = args;
   if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   // A renamed note keeps its collaboration history under its new name, as a trash does (`rowHistory.ts`), so the
   // version it was handed before the move is still the one a read of the new name hands out.
   await carryRowHistory(store, moved.files);

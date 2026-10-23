@@ -7,9 +7,7 @@
  * completion, the folder picker, a List, the chaos score) is answered from
  * the Convex tree before the bucket's credential is opened, and never from
  * the bucket (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
- * Until phase 7 of `docs/decisions/app-and-console/convex-tree.md` this file
- * also kept a second copy of the tree in each context's fast-search database
- * (D1); that is gone, and so are the bucket fallbacks that replaced it.
+  Rows are written by the change's own seam, never by listing the bucket.
  *
  * Each use runs inside the credential barrier (`runFileOperation`).
  */
@@ -19,28 +17,8 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
-import { treeAudiences } from "../treeAudiences";
-import { PRIVACY_KEY } from "../privacy";
-import { scheduleNodesTouch, touchNodesNow } from "../nodes/run";
+import { scheduleFactFill } from "../nodes/factFill";
 import type { OperationResult } from "./operationTypes";
-
-/**
- * The store an operation inside the barrier walks. Every manifest and every
- * walk of which notes exist (`lib/nodes/treeReads.ts`, `docs/decisions/websites.md`)
- * is answered from the tree before the barrier opens the bucket, so no
- * manifest reaches here; what is left here is the bucket's own listing.
- */
-export async function manifestSource(
-  _ctx: ActionCtx,
-  _args: {
-    workspaceId: Id<"workspaces">;
-    scope: "private" | "team";
-    operation: { kind: string; source?: string; cursor?: string };
-  },
-  store: FileStore,
-): Promise<{ store: FileStore; source: "bucket" | "nodes"; since?: number; privacy?: string | null }> {
-  return { store, source: "bucket" };
-}
 
 async function markChanged(ctx: ActionCtx, workspaceId: Id<"workspaces">, audiences: string[]) {
   if (audiences.length === 0) return;
@@ -50,23 +28,16 @@ async function markChanged(ctx: ActionCtx, workspaceId: Id<"workspaces">, audien
 }
 
 /**
- * After a console change: re-check what it touched in the Convex tree, then
- * tell its audiences. Before the change answers where the bucket is open
- * here, since the console reads that tree (phase 2), so a tab told the tree
- * changed reads the change rather than the row before it; scheduled
- * otherwise.
+ * After a change: the notes it touched now say something new, so their facts
+ * are read again, and the audiences that can see it are told their tree is
+ * stale. The rows themselves were already written by the change's seam.
  */
 export async function keepTreeAndAnnounce(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces"> },
-  change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
-  store?: FileStore,
+  change: { paths: string[]; files: string[]; audiences: string[] },
 ): Promise<void> {
-  const nodesChange = { paths: change.paths, files: change.files, left: change.left };
-  if (change.paths.length + change.files.length > 0) {
-    if (store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
-    else await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
-  }
+  if (change.paths.length + change.files.length > 0) await scheduleFactFill(ctx, args.workspaceId).catch(() => {});
   await markChanged(ctx, args.workspaceId, change.audiences);
 }
 
@@ -95,7 +66,7 @@ export async function announceTreeChange(
   files: string[] = [],
 ): Promise<void> {
   if (change === null) {
-    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] }, store);
+    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] });
     return;
   }
   try {
@@ -113,15 +84,7 @@ export async function announceTreeChange(
     }
     const after = await loadPrivacyState(store);
     const audiences = audiencesForChange({ change, paths, gone, before, after });
-    // Who could see each key this took away, by the manifest from before it:
-    // what a device catching up is told by (`nodesFeed`). Unknown without
-    // that manifest, and then only the owner is told.
-    const left = before === null
-      ? []
-      : [...gone].map((path) => ({ path, audiences: treeAudiences([path], before.rules, before.overrides) }));
-    // A change that rewrote the rules re-reads them into the tree's mirror too.
-    const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
-    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
+    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files, audiences });
   } catch {
     // See above: a hint is never a failed change.
   }

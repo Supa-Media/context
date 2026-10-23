@@ -21,6 +21,8 @@ import { beginCopyPass, copyRowOf, ensureCopyRow } from "../../functions/lib/not
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { observeBucket } from "../nodes/facts.helpers";
 import { internal as internalApi } from "../../_generated/api";
+import { applyTreeObservation } from "../fixtures.helpers";
+import { withTreeOf } from "../storeStub.helpers";
 
 export { observeBucket };
 
@@ -35,7 +37,7 @@ export async function observeKeys(t: T, workspaceId: Id<"workspaces">, store: St
     const object = await store.get(key);
     if (object !== null) rows.push({ path: key, etag: object.etag, size: store.bytesOf(key)?.byteLength ?? 0 });
   }
-  await t.mutation(internalApi.functions.nodes.observe, { workspaceId, at, rows, gone: [], vanishedUnder: [] });
+  await applyTreeObservation(t, { workspaceId, at, rows, gone: [] });
 }
 export type T = ReturnType<typeof convexTest>;
 export type Store = MemoryStore;
@@ -91,14 +93,14 @@ export function bucket(files: Record<string, string>): Store {
 
 /** The store as the copy reads it: the bare adapter's `head` is answered from the bytes. */
 export function storeWithHead(store: Store) {
-  return {
+  return withTreeOf({
     ...store,
     async head(key: string) {
       const object = await store.get(key);
       if (object === null) return null;
       return { etag: object.etag, size: store.bytesOf(key)?.byteLength ?? 0 };
     },
-  };
+  });
 }
 
 export const CREDENTIAL = { workspaceId: "", bucket: "bucket", endpoint: "https://storage.example.test" } as never;

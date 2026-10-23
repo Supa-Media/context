@@ -11,8 +11,6 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
-import { applyObservation } from "../nodes/observe";
-import { convexNodeTable } from "../nodes/convexTable";
 import { COPY_FAILED_LABEL, COPY_HEAL_MAX, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
 import { copyRowOf, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
 
@@ -75,18 +73,14 @@ export async function failCopyRun(
  */
 async function refreshRow(
   ctx: MutationCtx,
-  workspaceId: Id<"workspaces">,
   node: NodeDoc,
   current: { etag: string; size?: number },
   at: number,
 ): Promise<void> {
-  await applyObservation(convexNodeTable(ctx, workspaceId), {
-    at,
-    rows: [{ path: node.path, etag: current.etag, size: current.size ?? node.size, uploaded: node.uploaded }],
-    gone: [],
-    vanishedUnder: [],
-    source: "bucket",
-  });
+  // The row is still at its path (not keyed yet), so it takes the object's version directly: the seam's observe
+  // only ever changes keyed rows, and nothing lists the bucket to bring this one up to date.
+  // A size the copy did not report is cleared rather than kept: the old one belongs to the old bytes.
+  await ctx.db.patch(node._id, { etag: current.etag, size: current.size, observedAt: at });
 }
 
 /** What one page's scan and copies add to the pass, and what the next step is. */
@@ -148,7 +142,7 @@ export async function recordCopyPage(
         // The bucket holds a version the row does not: a writer changed the object without the tree hearing of it,
         // so the row is what is stale. Refresh it to the bucket's version (as a sweep would) and copy again next pass.
         // A note that keeps changing is healed a few passes in a row, then reported as changed.
-        await refreshRow(ctx, args.workspaceId, node, { etag: result.currentEtag, size: result.currentSize }, now);
+        await refreshRow(ctx, node, { etag: result.currentEtag, size: result.currentSize }, now);
         const heals = node.idHeals ?? 0;
         if (heals < COPY_HEAL_MAX) {
           await ctx.db.patch(node._id, { idHeals: heals + 1 });

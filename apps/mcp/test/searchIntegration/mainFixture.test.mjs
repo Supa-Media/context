@@ -5,6 +5,7 @@
  * sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   MANIFEST_KEY,
   OWNER_TOKEN,
@@ -239,7 +240,7 @@ export async function runSearchIntegrationMainFixtureChecks(check, harness) {
         `# Vault bulk ${n}\n\nZEBRAFISH again, privately, number ${n}.\n`
       );
     }
-    const bucketStore = new R2Store(bucket);
+    const bucketStore = withServedTree(new R2Store(bucket));
     await convergeV2(bucketStore);
     const teamAfterBulk = await searchText(env, TEAM_TOKEN, { query: "zebrafish" });
     const ownerAfterBulk = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });

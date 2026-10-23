@@ -23,6 +23,7 @@ import {
 } from "./fixtures.helpers";
 import { type KeyedBucket, bodyAt, keyedBucket, withTreeListing } from "../keyedFixture.fileops2.helpers";
 import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { withTreeOf } from "../storeStub.helpers";
 
 describe("changing visibility goes through the manifest", () => {
   const gateway = gatewayInternals();
@@ -152,14 +153,14 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
 
   /** The same stall over a plain bucket, for the cases that still run on one. */
   function stallingPlain(store: MemoryStore & FileStore): FileStore {
-    return {
+    return withTreeOf({
       ...store,
       list: async (options) => ({
         ...(await store.list(options)),
         truncated: true,
         cursor: undefined,
       }),
-    };
+    });
   }
 
   test("a folder delete is refused rather than half-done", async () => {
@@ -261,7 +262,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
 
     // Only the big folder stalls. Everything else lists normally, so the two
     // probes differ in exactly one thing.
-    const lopsided: FileStore = {
+    const lopsided: FileStore = withTreeOf({
       ...store,
       list: async (options) => {
         const page = await store.list(options);
@@ -269,7 +270,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
           ? { ...page, truncated: true, cursor: undefined }
           : page;
       },
-    };
+    });
 
     const big = await capture(() =>
       duplicatePath(lopsided, { path: "2-areas/big/x.md", clearance: clearanceOf("team") }),

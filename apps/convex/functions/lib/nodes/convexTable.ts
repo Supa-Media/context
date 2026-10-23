@@ -63,7 +63,7 @@ function toStored(doc: Doc<"nodes">): StoredNode {
  * write take a `MutationCtx`).
  */
 export function convexNodeTable(ctx: MutationCtx, workspaceId: Id<"workspaces">, left?: readonly LeftAudiences[]): NodeTable;
-export function convexNodeTable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pick<NodeTable, "byPath" | "underPrefix" | "observedBefore" | "hasLiveChild">;
+export function convexNodeTable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pick<NodeTable, "byPath" | "hasLiveChild">;
 export function convexNodeTable(
   ctx: MutationCtx | QueryCtx,
   workspaceId: Id<"workspaces">,
@@ -182,25 +182,6 @@ export function convexNodeTable(
       await writer.db.delete(await ownRow(id));
     },
 
-    async underPrefix(prefix, { after, limit }) {
-      // Everything under `prefix` sorts from `prefix` on; resume strictly after
-      // `after` when it is itself under the walk. Stops at the first key that
-      // leaves the prefix, so a page never reads past its own range.
-      const lower = after !== undefined && after >= prefix ? after : prefix;
-      const strictly = after !== undefined && after >= prefix;
-      const rows = ctx.db.query("nodes").withIndex("by_workspace_path", (q) => {
-        const scoped = q.eq("workspaceId", workspaceId);
-        return strictly ? scoped.gt("path", lower) : scoped.gte("path", lower);
-      });
-      const out: StoredNode[] = [];
-      for await (const doc of rows) {
-        if (!doc.path.startsWith(prefix)) break;
-        out.push(toStored(doc));
-        if (out.length >= limit) break;
-      }
-      return out;
-    },
-
     async hasLiveChild(parentId) {
       const child = await ctx.db
         .query("nodes")
@@ -233,19 +214,6 @@ export function convexNodeTable(
         // its writer knew of before the change (`goneAudiences`).
         ...(gone ? { audiences: await goneAudiences(path) } : {}),
       });
-    },
-
-    async observedBefore(before, limit) {
-      // A keyed row is never pruned by an observation's age (`observe.ts`), so it is
-      // not read here at all: a page of only keyed rows would otherwise never end.
-      // The same holds for a row carrying its own access (`nodes.access`, the
-      // folder anchors and overrides `accessBackfill.ts` derives): a rule names it.
-      const docs = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).lt("observedAt", before))
-        .filter((q) => q.and(q.eq(q.field("storageKey"), undefined), q.eq(q.field("access"), undefined)))
-        .take(limit);
-      return docs.map(toStored);
     },
   };
 }

@@ -1,7 +1,7 @@
 /**
  * The survey's counts, from the Convex tree: `orient` lists the whole tree in
  * one answer (`tree/served.js`), so a folder of any size is counted exactly,
- * and a workspace the tree cannot answer for yet says so rather than walking
+ * and a workspace the tree cannot answer for says so rather than walking
  * the bucket. These checks used to hold the bucket walk's page budget and its
  * "5000+" floors; the walk is gone (decided by the owner, 2026-10-13), and
  * with it the floors. See orientation.test.mjs for the module overview.
@@ -75,8 +75,8 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   );
   check("orient carries the customer's own front page", owner.includes("Shipping the gateway."));
 
-  // A workspace whose first copy into the tree has not finished: orient says
-  // so, still carries the front page, and lists nothing from the bucket.
+  // A workspace the tree does not serve: orient says so, still carries the
+  // front page, and lists nothing from the bucket.
   const listed = [];
   const realList = bucket.list;
   bucket.list = async (options) => {
@@ -84,15 +84,18 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
     return realList(options);
   };
   controlPlane.stopServing("ws_large");
-  const loading = await orientText(env, OWNER_TOKEN);
+  const unserved = await orientText(env, OWNER_TOKEN);
   const listing = await callText(env, OWNER_TOKEN, "list_notes", {});
   controlPlane.resumeServing("ws_large");
   bucket.list = realList;
   check(
-    "a workspace still loading is told so, with its front page and no map",
-    loading.includes("still loading") && loading.includes("Shipping the gateway.") && !loading.includes("1-projects/bulk/")
+    "a workspace the tree does not serve is told so, with its front page and no map",
+    unserved.includes("Map not drawn") && unserved.includes("Shipping the gateway.") && !unserved.includes("1-projects/bulk/")
   );
-  check("...and list_notes says it is still loading", /still loading/.test(listing) && !listing.includes("1-projects/"));
+  check(
+    "...and list_notes says the file list cannot be read just now",
+    /could not be read just now/.test(listing) && !listing.includes("1-projects/")
+  );
   check(
     "...and neither listed the bucket",
     listed.every((prefix) => prefix.startsWith("."))

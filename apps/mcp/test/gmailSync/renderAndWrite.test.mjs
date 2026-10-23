@@ -10,6 +10,11 @@ import { parseChannelDayNote } from "../../../../packages/communications/src/ind
 import { renderDay, syncOneDay, writeDayPart } from "../../src/communications/gmailSync.js";
 import { createMemoryStore } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 export async function runGmailRenderAndWriteChecks(check, { event }) {
   // -- rendering one day ---------------------------------------------------------
 
@@ -32,7 +37,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
 
   // -- writing through the store --------------------------------------------------
 
-  const writeStore = createMemoryStore();
+  const writeStore = servedMemoryStore();
   const part = { path: "inbox/email/x/2026/09/2026-09-07.md", text: "hello" };
   const first = await writeDayPart(writeStore, part);
   check("a first write of a new path writes", first.wrote === true);
@@ -42,7 +47,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
   check("writing DIFFERENT bytes to the same path still writes", third.wrote === true);
   check("...and the store now holds the new bytes", (await writeStore.get(part.path)).text() !== undefined);
 
-  const nonConditionalStore = createMemoryStore({ conditionalWrite: false });
+  const nonConditionalStore = servedMemoryStore({ conditionalWrite: false });
   const nonConditionalResult = await writeDayPart(nonConditionalStore, part);
   check("a store without conditionalWrite still writes, unconditionally", nonConditionalResult.wrote === true);
 
@@ -61,7 +66,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
 
   // -- quota bound -----------------------------------------------------------------
 
-  const quotaStore = createMemoryStore();
+  const quotaStore = servedMemoryStore();
   const bigEvents = [event, { ...event, messageId: "m1-b", subject: "Second message", body: "y".repeat(2000) }];
   const partsForQuota = renderDay({
     mailboxSlug: "person-at-example-invalid",
@@ -83,7 +88,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
   check("...and the store agrees — nothing landed", (await quotaStore.list({ prefix: "inbox" })).objects.length === 0);
   void partsForQuota;
 
-  const roomyStore = createMemoryStore();
+  const roomyStore = servedMemoryStore();
   const roomyResult = await syncOneDay({
     store: roomyStore,
     mailboxSlug: "person-at-example-invalid",

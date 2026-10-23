@@ -15,6 +15,7 @@ import {
   names,
 } from "./fixtures.helpers";
 import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { withTreeOf } from "../storeStub.helpers";
 
 describe("listing a folder", () => {
   test("folders come first, then files, each alphabetically", async () => {
@@ -216,13 +217,13 @@ describe("a team-scoped caller sees only what is shared", () => {
     // listings against 1. Collapsing the result while forking the clock is the
     // same oracle one layer down, so this counts rather than argues.
     let lists = 0;
-    const counted: FileStore = {
+    const counted: FileStore = withTreeOf({
       ...store,
       list: (options) => {
         lists += 1;
         return store.list(options);
       },
-    };
+    });
     await listFolder(counted, { path: "1-projects/secret-client", clearance: clearanceOf("team") });
     const withheldLists = lists;
     lists = 0;
@@ -301,7 +302,7 @@ describe("a team-scoped caller sees only what is shared", () => {
     // Truncation claimed, continuation withheld — the shape the walk's own
     // comment is about. Nothing here is malicious; it is a store being loose
     // with a flag, which is the customer's provider and not our choice.
-    const nonconforming: FileStore = {
+    const nonconforming: FileStore = withTreeOf({
       ...store,
       list: async (options) => {
         const page = await store.list(options);
@@ -311,7 +312,7 @@ describe("a team-scoped caller sees only what is shared", () => {
           ? { ...page, truncated: true, cursor: undefined }
           : page;
       },
-    };
+    });
 
     const hidden = await listFolder(nonconforming, {
       path: "1-projects/secret-client",
@@ -352,7 +353,7 @@ describe("a team-scoped caller sees only what is shared", () => {
     });
 
     let lists = 0;
-    const paged: FileStore = {
+    const paged: FileStore = withTreeOf({
       ...store,
       list: async (options) => {
         lists += 1;
@@ -363,7 +364,7 @@ describe("a team-scoped caller sees only what is shared", () => {
           ? { ...page, objects, truncated: true, cursor: objects[objects.length - 1]?.key }
           : page;
       },
-    };
+    });
 
     const hidden = await listFolder(paged, {
       path: "1-projects/secret-client",

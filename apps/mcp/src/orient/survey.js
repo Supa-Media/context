@@ -17,7 +17,7 @@ import { mostRecent, ORIENT_RECENT_LIMIT, summarizeCaptured } from "./render.js"
  * Every key comes from the Convex tree (`store.treeEntries`, `tree/served.js`),
  * one answer for the whole workspace, so every count is exact: the page
  * budget and the "312+" floors a bucket walk needed are gone with the walk.
- * Where the tree cannot answer, the survey is `loading` and draws no map
+ * Where the tree cannot answer, the survey is `unreadable` and draws no map
  * rather than listing the bucket.
  *
  * **Every count is a count of notes this connection can see.** Counting hidden
@@ -31,10 +31,10 @@ import { mostRecent, ORIENT_RECENT_LIMIT, summarizeCaptured } from "./render.js"
 export async function surveyContext(store, scope, rules, overrides) {
   let objects;
   try {
-    if (typeof store?.treeEntries !== "function") throw new TreeUnavailable("unreachable");
+    if (typeof store?.treeEntries !== "function") throw new TreeUnavailable();
     objects = await store.treeEntries();
   } catch (error) {
-    if (error instanceof TreeUnavailable) return loadingSurvey(error.message);
+    if (error instanceof TreeUnavailable) return unreadableMap(error.message);
     throw error;
   }
   const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
@@ -79,8 +79,8 @@ export async function surveyContext(store, scope, rules, overrides) {
 }
 
 /** The survey of a workspace the tree cannot answer for: no map, and why. */
-function loadingSurvey(message) {
-  return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], loading: message };
+function unreadableMap(message) {
+  return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], unreadable: message };
 }
 
 /**

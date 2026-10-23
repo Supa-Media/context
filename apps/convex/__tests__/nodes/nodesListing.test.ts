@@ -15,6 +15,7 @@
  *  - hand `listFolder` a mirror-less store and the team cases fail.
  */
 
+import { applyTreeObservation, seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
@@ -67,19 +68,10 @@ async function fixture(): Promise<Fixture> {
     await ctx.db.insert("workspaceMembers", { workspaceId: ws, userId: memberId, role: "member", joinedAt: now });
     return { ws, ownerId, memberId, strangerId };
   });
-  await observe(t, ids.ws, 10, [
-    "privacy.md",
-    "index.md",
-    "1-projects/plan.md",
-    "1-projects/secret/codes.md",
-    "1-projects/empty-marker/",
-    "2-areas/mine.md",
-    "2-areas/shared.md",
-  ]);
+  // An empty folder is a folder marker, which only the tree's seeding lays down; it also marks the tree served.
+  await seedTreeRows(t, ids.ws, ["1-projects/empty-marker/"]);
+  await observe(t, ids.ws, 10, ["privacy.md", "index.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/mine.md", "2-areas/shared.md"]);
   await translateMirror(t, ids.ws, RULES);
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: 7 });
-  await matches(t, ids.ws);
   return {
     t,
     ws: ids.ws,
@@ -89,21 +81,9 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
+/** The store's observations as the seam reports them: each path written at `at`, each `gone` path removed at `at`. */
 async function observe(t: T, workspaceId: Id<"workspaces">, at: number, paths: string[], gone: string[] = []) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-    gone,
-    vanishedUnder: [],
-  });
-}
-
-async function matches(t: T, workspaceId: Id<"workspaces">, mismatches = 0) {
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: 30, clearances: 2, mismatches, privacyMatches: true },
-  });
+  await applyTreeObservation(t, { workspaceId, at, rows: paths.map((path) => ({ path, etag: "e" })), gone });
 }
 
 const paths = (listing: { entries: { path: string }[] } | null) => listing?.entries.map((entry) => entry.path) ?? null;
@@ -118,17 +98,11 @@ describe("who may read", () => {
 
 describe("when the tree answers", () => {
   // Decided by the owner, 2026-10-13: Convex always answers once the first
-  // copy has finished. Parity is a staff alarm and Pause stops copying; a
-  // tree that is not there yet is "still loading" (null), never the bucket.
-  test("once the first copy finished: differing, failing or paused still answer", async () => {
+  // copy has finished. Pause stops copying; a tree that is not there yet is
+  // "still loading" (null), never the bucket.
+  test("once the first copy finished: a paused tree still answers", async () => {
     const { t, ws, owner } = await fixture();
     const ask = () => owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" });
-    expect(await ask()).not.toBeNull();
-
-    await matches(t, ws, 3);
-    expect(await ask()).not.toBeNull();
-
-    await t.mutation(internal.functions.nodes.fail, { workspaceId: ws, label: "Tree sweep failed; inspect service logs" });
     expect(await ask()).not.toBeNull();
 
     await t.run(async (ctx) => {
@@ -137,12 +111,11 @@ describe("when the tree answers", () => {
     expect(await ask()).not.toBeNull();
   });
 
-  test("a walk is handed the tree's rules whatever its parity", async () => {
+  test("a walk is handed the tree's rules, the same on every read", async () => {
     const { t, ws } = await fixture();
     const first = await t.query(internal.functions.nodes.served, { workspaceId: ws });
     const etag = first?.mirror.etag;
     expect(etag).toEqual(expect.any(String));
-    await matches(t, ws, 1);
     expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag } });
   });
 
@@ -179,7 +152,6 @@ describe("when the tree answers", () => {
 
   test("a re-sweep of a finished copy keeps serving the rows it has", async () => {
     const { t, ws, owner } = await fixture();
-    await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 40 });
     expect(await owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" })).not.toBeNull();
   });
 });
@@ -266,11 +238,10 @@ describe("the barrier's one-folder listing (`listServed`)", () => {
     }
   });
 
-  test("null only while the first copy has not finished; parity and Pause change nothing", async () => {
+  test("null only while the first copy has not finished; Pause changes nothing", async () => {
     const { t, ws } = await fixture();
     const ask = () => t.query(internal.functions.nodesListing.listServed, { workspaceId: ws, path: "", scope: "team" });
     expect(await ask()).not.toBeNull();
-    await matches(t, ws, 2);
     expect(await ask()).not.toBeNull();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });

@@ -494,7 +494,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   try {
     entries = await servedListingStore(store).treeEntries();
   } catch {
-    // What changed can't be told while the tree is loading: tried again soon, from the same point.
+    // What changed can't be told while the tree cannot be read: tried again soon, from the same point.
     await skipped(TREE_UNAVAILABLE_WORDS);
     return json({ error: "tree_unavailable" }, 503);
   }

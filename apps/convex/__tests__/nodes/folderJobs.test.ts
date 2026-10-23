@@ -170,6 +170,8 @@ describe("what a built-in folder may do", () => {
     store.seed("website/index.md", "# Site\n");
     store.seed("recipes/a.md", "# R\n");
     Object.defineProperty(store, "workspaceKeyed", { value: async () => keyed });
+    // The tree's names are the store's own here: the barrier attaches the Convex tree in production.
+    Object.defineProperty(store, "treeListing", { value: { list: store.list.bind(store) }, enumerable: false, configurable: true });
     return await assertNotProtectedFolder(store, path, OWNER, intent).then(
       () => "allowed",
       (error: Error) => error.message,

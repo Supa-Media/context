@@ -34,6 +34,7 @@ import {
   segment,
 } from "./fixtures.mjs";
 import { fullToolList } from "../fullToolList.mjs";
+import { withServedTree } from "../servedTree.mjs";
 
 /** @param {(label: string, ok: boolean) => void} check */
 export async function runMeetingFolderChecks(check, harness) {
@@ -527,7 +528,8 @@ export async function runMeetingFolderChecks(check, harness) {
     { name: "a storage error", error: () => new Error("the bucket said no"), released: false },
   ];
   for (const [index, releaseCase] of releaseCases.entries()) {
-    const store = fakeStore({ conditionalWrite: true });
+    // The store's tree is served as production serves it: a claim's finalize reads the names it may file under.
+    const store = withServedTree(fakeStore({ conditionalWrite: true }));
     const id = `mtg_${"c".repeat(19)}${index}`;
     let refuse = true;
     const publish = async (_store, _scope, { path }) => {

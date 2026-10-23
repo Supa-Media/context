@@ -129,7 +129,7 @@ describe("POST /gateway/note-ids/adopt", () => {
     expect(answer).toEqual({
       ok: true,
       adopted: false,
-      taken: { path: PLAN, state: "path", key: `notes/${NOTE_IDS.plan}.md`, etag: `e-${PLAN}`, keyEtag: "key-etag-0", fresh: true },
+      taken: { path: PLAN, state: "path", key: `notes/${NOTE_IDS.plan}.md`, etag: PLAN, keyEtag: "key-etag-0", fresh: true },
     });
   });
 

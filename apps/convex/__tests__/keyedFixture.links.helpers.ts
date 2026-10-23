@@ -21,13 +21,12 @@ import { modules } from "../test.setup";
 import type { FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../functions/lib/nodes/treeNames";
-import { runNodesOperation } from "../functions/lib/nodes/run";
 import { attachWorkspaceKeyed } from "../functions/lib/noteIds/keyedStore";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "./seededRules.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { bridge } from "./nodes/moveFixture.helpers";
-import type { TestConvex } from "./fixtures.helpers";
+import { seedTreeFromStore, type TestConvex } from "./fixtures.helpers";
 
 export type LinksStore = MemoryStore & FileStore;
 
@@ -76,11 +75,7 @@ export async function keyedLinks(
   await setup(store);
 
   const ctx = bridge(t);
-  await runNodesOperation(ctx, { workspaceId: ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ws,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
-  });
+  await seedTreeFromStore(t, ws, store);
   await key(t, ws, store);
   const f = { t, ctx, ws, store };
   seamsOf(f);

@@ -6,6 +6,7 @@ import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { NOW, bucket, shareProjects, capture, listingShape, names } from "./fixtures.helpers";
 import { type KeyedBucket, bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
 import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { withTreeOf } from "../storeStub.helpers";
 
 describe('a bulk operation acts only on what the caller can see', () => {
   /**
@@ -187,7 +188,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
     // walk misses `note copy.md`, `duplicateName` picks it, and the guard
     // answers "that file does not exist" — the oracle this test's neighbour
     // exists to close, reopened by an incomplete listing.
-    const thin: FileStore = {
+    const thin: FileStore = withTreeOf({
       ...store,
       list: async (options) => {
         const page = await store.list(options);
@@ -198,7 +199,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
           cursor: `c${Math.random()}`,
         };
       },
-    };
+    });
     const error = await capture(() =>
       duplicatePath(thin, { path: "1-projects/note.md", clearance: clearanceOf("team") }),
     );

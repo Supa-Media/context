@@ -129,8 +129,8 @@ async function aboutAnswer(store, scope, rules, overrides, about) {
     const survey = await surveyOf(store, store, scope, rules, overrides);
     const note = hasWebsiteFolder(survey)
       ? ""
-      : survey.loading
-        ? "This workspace's map is still loading, so whether it has a website/ folder is not known yet. The guide to building one:\n\n"
+      : survey.unreadable
+        ? "This workspace's map cannot be read just now, so whether it has a website/ folder is not known yet. The guide to building one:\n\n"
         : "This workspace has no website/ folder yet. The guide to building one:\n\n";
     return toolText(note + WEBSITE_GUIDE);
   }

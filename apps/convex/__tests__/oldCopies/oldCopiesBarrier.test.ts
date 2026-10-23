@@ -9,7 +9,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { OLD_COPIES_ROOT } from "../../functions/lib/fileOps/store";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { FAKE_STORAGE, createUser, createWorkspace, seedStorageBinding, setupTest, type TestConvex } from "../fixtures.helpers";
+import { FAKE_STORAGE, createUser, createWorkspace, pathObjectsOf, seedStorageBinding, seedTreeRows, setupTest, type TestConvex } from "../fixtures.helpers";
 import { memoryS3 } from "../storeStub.helpers";
 import { CHANNEL_FOLDERS } from "../../functions/lib/oldCopies/folders";
 import { COPIES, OWN, SEEDED } from "./oldCopies.helpers";
@@ -38,7 +38,15 @@ async function boundWorkspace() {
   for (const [path, text] of Object.entries(SEEDED)) bucket.seed(path, text);
   vi.stubGlobal("fetch", bucket.fetchImpl);
   await seedStorageBinding(t, { workspaceId, boundBy: owner });
-  await t.action(internal.functions.files.runFileOperation, { workspaceId, scope: "private", operation: { kind: "nodesSweep" } });
+  // The tree as the product's seam would have written it: each seeded note's row, with a note id to key it by.
+  let noteN = 0;
+  await seedTreeRows(
+    t,
+    workspaceId,
+    pathObjectsOf(bucket)
+      .filter((object) => object.path !== PRIVACY_KEY)
+      .map((object) => ({ ...object, ...(object.path in SEEDED ? { noteId: `note-${(noteN += 1)}` } : {}) })),
+  );
   // Keyed, as every production workspace is: each note's bytes at its id key.
   const keys = await t.run(async (ctx) => {
     await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });

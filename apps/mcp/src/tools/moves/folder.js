@@ -99,12 +99,10 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   // objects and leaves the private ones behind. move_folder is the bulk
   // spelling of that operation, so it behaves the same way rather than
   // becoming the one tool that answers a question the others refuse.
-  // A dry run answers from the Convex tree (`tree/served.js`), and says so
-  // where the tree cannot answer yet; it never lists the bucket. A real move
-  // in one go lists the bucket it is about to change: an agent's note written
-  // a moment ago reaches the tree a second later, and a move that listed the
-  // tree would leave it behind.
-  const lister = dryRun ? servedListingStore(store) : store;
+  // The folder's names come from the Convex tree (`tree/served.js`), dry run
+  // and real move alike, and the bucket is never listed for them. Where the
+  // tree cannot answer, the move says so and changes nothing.
+  const lister = servedListingStore(store);
   let listed;
   try {
     listed = await listAllKeys(lister, sourcePrefix);
@@ -138,7 +136,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     // go, so the answer is to wait, not a move job in the bucket.
     return toolError(
       `could not queue this move right now: a folder of more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} objects moves ` +
-        "through the queue, which did not take it (the workspace may still be loading, or another move is being set up). " +
+        "through the queue, which did not take it (the file list may be unavailable just now, or another move is being set up). " +
         "Try again in a minute, or move it from the Context app."
     );
   }

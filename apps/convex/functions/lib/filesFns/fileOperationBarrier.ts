@@ -37,15 +37,14 @@ import { siteLens } from "../websites/siteLens";
 import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { texFolderOf } from "../routines/texFolder";
 import { executeOperation } from "./executeOperation";
-import { announceTreeChange, manifestSource } from "./treeOps";
+import { announceTreeChange } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
 import { recordProjectionOutcome } from "./projectionOutcome";
-import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
+import { isNodesOperation, runNodesOperation } from "../nodes/run";
 import { isTreeRead, treeReadAnswer } from "../nodes/treeReads";
-import { TreeUnbound } from "../nodes/treeLoading";
+import { TreeUnbound } from "../nodes/treeGate";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
-import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
 import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
 import { jobLens } from "./jobLens";
@@ -318,7 +317,7 @@ export async function runFileOperationHandler(
   }
 
   // Which notes exist, and what their facts say, is answered from the Convex
-  // tree with no bucket credential decrypted at all, or "still loading"
+  // tree with no bucket credential decrypted at all, or "NOT_SERVED"
   // (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
   if (isTreeRead(args.operation)) {
     try {
@@ -509,6 +508,8 @@ export async function runFileOperationHandler(
       walk, not when it arrived.
     */
     const written = recordWrites(store);
+    // Its contact lookup lists the contacts folder by the tree's names, never the bucket's (`contactLookup.js`).
+    attachTreeListing(ctx, args.workspaceId, store);
     const result = await runGoogleForwardSync(ctx, store, forwardSyncJob);
     if (written.size > 0) {
       await announceTreeChange(ctx, store, args, { paths: [...written], narrows: false }, result, null);
@@ -530,13 +531,12 @@ export async function runFileOperationHandler(
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
   // capped.
-  const listing = await manifestSource(ctx, args, store);
+  const listing = { store };
   attachQueueMove(ctx, args, listing.store, bucket, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
   attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
   await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
-  if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
   const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
   const operate = () => executeOperation(
@@ -563,7 +563,6 @@ export async function runFileOperationHandler(
     ? asRelocation(store, operate)
     : operate()
   ).catch(rethrowUnreadable);
-  if (result.kind === "manifest") Object.assign(result, { source: listing.source }, listing.since === undefined ? {} : { since: listing.since, privacy: listing.privacy ?? null });
 
   // Website rows are a derivative of bucket bytes: mark them stale after the
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.
@@ -619,7 +618,6 @@ export async function runFileOperationHandler(
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
   const landedChange = treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
-  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();
 
   /*

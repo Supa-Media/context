@@ -49,6 +49,7 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { withLogicalDelete } from "../src/store/logicalDelete.js";
 import { readDocument, replaceText } from "@context/collaboration";
 import {
   codeRanges,
@@ -64,7 +65,6 @@ import {
   styleOf,
 } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
-
 /** `test.mjs`'s own predicate, kept local: this file stands up its own worker. */
 function succeeded(result) {
   return Boolean(result) && !result.isError;
@@ -471,7 +471,7 @@ async function runWiredChecks(check) {
     NATIVE_BINDINGS: "CONTEXT_BUCKET",
     CONTEXT_BUCKET: bucket,
   };
-  controlPlane.serveTreesFrom(env);
+  controlPlane.serveTree("ws_links", withLogicalDelete(store)); // live notes only: a delete leaves a marker, which the control plane never holds
 
   let id = 0;
   async function call(token, name, args = {}) {

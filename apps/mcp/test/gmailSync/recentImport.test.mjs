@@ -23,6 +23,11 @@ import {
 } from "../../src/communications/gmailSync.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 const SLUG = "p-at-example-invalid";
 const DAY_PATH = (date) => `inbox/email/${SLUG}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
 
@@ -74,7 +79,7 @@ export async function runGmailRecentImportChecks(check) {
     ...day("2026-09-01", 5, "z"),
   ];
   const gmail = createFixtureGmail({ messages: mailbox });
-  const store = createMemoryStore();
+  const store = servedMemoryStore();
   const result = await runRecentImport(options(gmail, store));
 
   const listCalls = gmail.calls.filter((call) => call.startsWith("/gmail/v1/users/me/messages?"));
@@ -106,7 +111,7 @@ export async function runGmailRecentImportChecks(check) {
   );
 
   // The same days, written the forward pass's way, are the same bytes.
-  const forwardStore = createMemoryStore();
+  const forwardStore = servedMemoryStore();
   for (const date of ["2026-10-14", "2026-10-15", "2026-10-16"]) {
     await syncDayFromGmail({ ...options(gmail, forwardStore), date, remainingQuotaBytes: 10_000_000 });
   }
@@ -127,7 +132,7 @@ export async function runGmailRecentImportChecks(check) {
   const firehose = createFixtureGmail({
     messages: [...day("2026-10-16", 30, "a"), ...day("2026-10-15", 400, "f")],
   });
-  const firehoseStore = createMemoryStore();
+  const firehoseStore = servedMemoryStore();
   const firehoseResult = await runRecentImport(options(firehose, firehoseStore));
   check("a day too large for the ceiling is skipped, not half-written", (await messagesIn(firehoseStore, "2026-10-15")) === null);
   check("...while the newer whole day is still written", (await messagesIn(firehoseStore, "2026-10-16")) === 30);
@@ -136,13 +141,13 @@ export async function runGmailRecentImportChecks(check) {
   check("...and the import never fetches more than the ceiling", firehoseFetches <= RECENT_IMPORT_FETCH_CEILING);
 
   const emptyGmail = createFixtureGmail({ messages: [] });
-  const emptyStore = createMemoryStore();
+  const emptyStore = servedMemoryStore();
   const empty = await runRecentImport(options(emptyGmail, emptyStore));
   check("an empty mailbox imports nothing and writes nothing", empty.itemsFound === 0 && empty.bytesWritten === 0 && emptyStore._dump().size === 0);
 
-  const tiny = await runRecentImport(options(gmail, createMemoryStore(), { quotaBytes: 50 }));
+  const tiny = await runRecentImport(options(gmail, servedMemoryStore(), { quotaBytes: 50 }));
   check("a quota too small for one day stops and says so", tiny.quotaExceeded === true && tiny.daysWritten === 0);
 
-  const spent = await runRecentImport(options(gmail, createMemoryStore(), { bytesAlreadyUsed: 10_000_000 }));
+  const spent = await runRecentImport(options(gmail, servedMemoryStore(), { bytesAlreadyUsed: 10_000_000 }));
   check("a connection already at its quota reads no message at all", spent.quotaExceeded === true && spent.itemsFound === 0);
 }

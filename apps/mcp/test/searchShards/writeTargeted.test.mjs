@@ -14,6 +14,7 @@
  * not read — the one move that would write away notes it knows nothing about.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   MANIFEST_KEY,
   R2Store,
@@ -33,7 +34,7 @@ function seeded() {
   for (let n = 0; n < 6; n += 1) {
     bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA PANGOLIN sighting, number ${n}.\n`);
   }
-  return { bucket, store: new R2Store(bucket) };
+  return { bucket, store: withServedTree(new R2Store(bucket)) };
 }
 
 function written(bucket, path) {
@@ -139,7 +140,7 @@ export async function runSearchShardsWriteTargetedChecks(check) {
   {
     const bucket = createBucket();
     bucket.seed("1-projects/okapi.md", "# Okapi\n");
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     const pass = await syncShardedIndex(store, {
       budget: createSearchBudget(40),
       only: written(bucket, "1-projects/okapi.md"),

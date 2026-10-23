@@ -90,10 +90,8 @@ export async function recordKeyedCheckPage(
     counted.differs += 1;
     await applyObservation(convexNodeTable(ctx, workspaceId), {
       at: Date.now(),
-      source: "seam",
       rows: [{ path: answer.path, etag: answer.headEtag, size: answer.headSize, keyed: { noteId: node.noteId, storageKey: answer.key } }],
       gone: [],
-      vanishedUnder: [],
     });
   }
   return counted;

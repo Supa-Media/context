@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { DELETE_CONFIRMATION, type FileStore, deletePath, listFolder, movePath, readFile, trashPath } from "../../functions/lib/fileOps";
+import { listFolder, movePath, readFile, trashPath } from "../../functions/lib/fileOps";
 import { NOW, bucket, capture, errorShape, names, shareProjects } from "./fixtures.helpers";
 import { type KeyedBucket, bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
 import { treeView } from "../../functions/lib/fileOps/walk";

@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { toolMoveFolder } from "../src/tools/moves/folder.js";
 import { toolMoveNote } from "../src/tools/moves/note.js";
 import { KEYED_PATH_REFUSAL } from "../src/store/idLayout.js";
+import { withServedTree } from "./servedTree.mjs";
 
 /** A bucket fake that is also the tree: its keys are the notes' names, as the id layer routes them. */
 function workspace(files) {
@@ -62,7 +63,7 @@ function workspace(files) {
       return { objects: keys.map((key) => ({ key, etag: objects.get(key).etag, size: 1 })), truncated: false };
     },
   };
-  return { store, objects, writes };
+  return { store: withServedTree(store), objects, writes };
 }
 
 /** The writes that touch note bytes: not the activity record. */

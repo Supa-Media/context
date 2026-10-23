@@ -120,18 +120,8 @@ export type FileOperation =
   | { kind: "pruneIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
-  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
-  | { kind: "nodesSweep"; passes?: number }
+  /** The Convex tree's facts fill (`lib/nodes/run.ts`): scheduled only, never sent by a client. */
   | { kind: "nodesFactFill"; passes?: number }
-  | {
-      kind: "nodesTouch";
-      paths: string[];
-      files: string[];
-      moves?: { from: string; to: string }[];
-      /** Who could see each key the change took away, before it (`lib/nodes/convexTable.ts`). */
-      left?: { path: string; audiences: string[] }[];
-    }
-  | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
   | { kind: "nodesMoveStart"; from: string; to: string; expectedEtag?: string }
   /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
@@ -386,7 +376,7 @@ export type OperationResult =
     }
   | ({
       kind: "manifest";
-      source?: "tree" | "bucket" | "nodes";
+      source?: "tree" | "nodes";
       /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
       since?: number;
       /** The `privacy.md` version the walk was judged by, read before it started. */
@@ -403,7 +393,6 @@ export type OperationResult =
   | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */
   | { kind: "moveBatch"; ok: boolean; moves?: { from: string; to: string }[]; error?: string; message?: string }
-  | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult
   | ChaosScoreResult

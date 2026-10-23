@@ -15,6 +15,7 @@
  *  - drop the `skip` of rows under a pending move and the copy-churn case fails.
  */
 
+import { applyTreeObservation, seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
@@ -68,24 +69,19 @@ async function fixture() {
     return { ws, ownerId, memberId, strangerId };
   });
   await translateMirror(t, ids.ws, RULES);
+  // The tree serves once a first copy has finished; an empty seed is that finish, and the rows come through the seam.
+  await seedTreeRows(t, ids.ws, []);
   await observe(t, ids.ws, 10, ["privacy.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/mine.md", "2-areas/shared.md"]);
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: 5 });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ids.ws,
-    parity: { checkedAt: 30, clearances: 2, mismatches: 0, privacyMatches: true },
-  });
   return { t, ...ids, owner: t.withIdentity({ subject: ids.ownerId }), member: t.withIdentity({ subject: ids.memberId }), stranger: t.withIdentity({ subject: ids.strangerId }) };
 }
 
+/**
+ * The store's observations as the seam reports them: each path is written at `at` (a keyed row, as `applyTreeObservation`
+ * keys every seam row) and each `gone` path is removed at `at`. Only keyed rows can be removed by the seam, so a
+ * departure in these cases is always of a keyed note.
+ */
 async function observe(t: T, workspaceId: Id<"workspaces">, at: number, paths: string[], gone: string[] = [], etag = "e") {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at,
-    rows: paths.map((path) => ({ path, etag: `${etag}-${path}`, size: 1 })),
-    gone,
-    vanishedUnder: [],
-  });
+  await applyTreeObservation(t, { workspaceId, at, rows: paths.map((path) => ({ path, etag })), gone });
 }
 
 async function logRows(t: T) {

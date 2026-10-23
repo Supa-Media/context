@@ -5,10 +5,10 @@
  */
 
 import { internal } from "../../_generated/api";
-import { runNodesOperation } from "../../functions/lib/nodes/run";
 import { hideOldCopiesPass } from "../../functions/lib/oldCopies/hiding";
 import { fixture, type Fixture } from "../nodes/moveFixture.helpers";
 import { rowOf } from "../nodes/keyedFixture.helpers";
+import { seedTreeFromStore } from "../fixtures.helpers";
 
 const day = (origin: string, date: string) =>
   `---\ntype: "channel-day"\nchannel: "email"\ndate: "${date}"\norigin: "${origin}"\n---\n\n# ${date}\n\nA stranger's words.\n`;
@@ -42,7 +42,7 @@ export const OWN = ["0-inbox/email/me/my-own-filing.md", "0-inbox/contacts/b/bo.
 export async function copiesFixture(): Promise<Fixture> {
   const f = await fixture();
   for (const [path, text] of Object.entries(SEEDED)) f.store.seed(path, text);
-  await runNodesOperation(f.ctx, { workspaceId: f.ws, scope: "private", operation: { kind: "nodesSweep" } }, f.store);
+  await seedTreeFromStore(f.t, f.ws, f.store);
   await f.t.run(async (ctx) => {
     await ctx.db.patch(f.ws, { kind: "personal" });
     await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });

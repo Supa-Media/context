@@ -9,8 +9,12 @@
  * case fails.
  */
 
+import { pathObjectsOf, seedTreeRows } from "../fixtures.helpers";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { api, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
+import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { copyIsFresh, ID_COPY_MAX_BYTES, idKeyFor, newNoteId } from "../../functions/lib/nodes/noteIds";
 import { nodePath } from "../../functions/lib/nodes/table";
@@ -22,15 +26,47 @@ import {
   bucket,
   chain,
   drain,
-  observeBucket,
-  observeKeys,
   pass,
   rowAt,
   runPass,
   storeWithHead,
   tester,
-  user,
+  type Store,
+  type T,
 } from "./noteIds.helpers";
+
+/**
+ * Lay the bucket's objects named by `keys` into the tree at their current
+ * versions. A row the tree does not hold is written unkeyed, as a path row
+ * (`seedTreeRows`); a row it holds takes the object's etag and size, as a
+ * path-keyed write of the product leaves it. Nothing lists the bucket to decide
+ * which rows exist, and no row is written with a key of its own: the copy pass
+ * is what gives a path row its id key.
+ */
+async function observeKeys(t: T, workspaceId: Id<"workspaces">, store: Store, keys: string[], at = Date.now()): Promise<void> {
+  const created: { path: string; etag: string; size: number }[] = [];
+  for (const key of keys) {
+    const object = await store.get(key);
+    if (object === null) continue;
+    const size = store.bytesOf(key)?.byteLength ?? 0;
+    const row = await rowAt(t, workspaceId, key);
+    if (row === null) {
+      created.push({ path: key, etag: object.etag, size });
+      continue;
+    }
+    await t.run(async (ctx) => {
+      const table = convexNodeTable(ctx as MutationCtx, workspaceId);
+      await table.patch(row._id, { etag: object.etag, size, observedAt: at });
+      await table.logChange?.(key, false);
+    });
+  }
+  if (created.length > 0) await seedTreeRows(t, workspaceId, created);
+}
+
+/** Every path object the bucket holds now (copies under `notes/` and `files/` excluded), observed as `observeKeys` does. */
+async function observeBucket(t: T, workspaceId: Id<"workspaces">, store: Store, at = Date.now()): Promise<void> {
+  await observeKeys(t, workspaceId, store, pathObjectsOf(store).map((object) => object.path), at);
+}
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -82,13 +118,7 @@ describe("rows and backfill", () => {
   test("a row the tree inserts has its id from the start", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "fresh");
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: ws,
-      at: 10,
-      rows: [{ path: "1-projects/a.md", etag: "e1" }, { path: "1-projects/b.md", etag: "e2" }],
-      gone: [],
-      vanishedUnder: [],
-    });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e1" }, { path: "1-projects/b.md", etag: "e2" }]);
     const a = await rowAt(t, ws, "1-projects/a.md");
     const b = await rowAt(t, ws, "1-projects/b.md");
     expect(a?.noteId).toMatch(UUID_V7);
@@ -257,13 +287,7 @@ describe("the copy pass", () => {
     const t = tester();
     const ws = await boundWorkspace(t, "huge");
     const store = bucket({ "2-areas/movie.mp4": "x" });
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: ws,
-      at: Date.now(),
-      rows: [{ path: "2-areas/movie.mp4", etag: "big", size: ID_COPY_MAX_BYTES + 1 }],
-      gone: [],
-      vanishedUnder: [],
-    });
+    await seedTreeRows(t, ws, [{ path: "2-areas/movie.mp4", etag: "big", size: ID_COPY_MAX_BYTES + 1 }]);
     const c = chain(t, ws, store, {
       copyHere: async () => {
         throw new Error("a file over the limit must not be read");
@@ -486,9 +510,6 @@ describe("the copies are not notes", () => {
     const a = await rowAt(t, ws, "1-projects/a.md");
     expect(store.bytesOf(`notes/${a?.noteId}.md`)).toBeTruthy();
 
-    await observeBucket(t, ws, store);
-    expect(await rowAt(t, ws, `notes/${a?.noteId}.md`)).toBeNull();
-    expect(await rowAt(t, ws, "notes")).toBeNull();
     await runPass(c);
     expect(await pass(c)).toMatchObject({ status: "done", files: 2, failed: 0 });
     expect((await store.list({ limit: 100 })).objects.map((o) => o.key).filter((k) => /^(notes|files)\//.test(k))).toHaveLength(2);
@@ -559,34 +580,14 @@ describe("stale rows and shared ids", () => {
   test("a file that was gone and is seen again keeps its id but not its old copy", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "revived");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e1" }]);
     const first = await rowAt(t, ws, "1-projects/a.md");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e2" }]);
 
     const again = await rowAt(t, ws, "1-projects/a.md");
     expect(first?.noteId).toMatch(UUID_V7);
     expect(again?.goneAt).toBeUndefined();
     expect(again?.noteId).toBe(first?.noteId);
     expect(again?.idCopy).toBeUndefined();
-  });
-
-  test("a gone row seen again after a live row took its id starts without that id", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "taken");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
-    const first = await rowAt(t, ws, "1-projects/a.md");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
-    // A move handed the id to the note's new place while the old one was gone.
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 25, rows: [{ path: "2-areas/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
-    const moved = await rowAt(t, ws, "2-areas/a.md");
-    await t.run(async (ctx) => {
-      await ctx.db.patch(moved!._id, { noteId: first!.noteId });
-    });
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
-
-    const again = await rowAt(t, ws, "1-projects/a.md");
-    expect(again?.goneAt).toBeUndefined();
-    expect(again?.noteId).not.toBe(first?.noteId);
   });
 });

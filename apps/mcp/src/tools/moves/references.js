@@ -258,7 +258,7 @@ export async function rewriteReferencesAfterMove(store, scope, rules, overrides,
   try {
     options = await referenceCandidates(store, renames);
   } catch (error) {
-    if (error instanceof TreeUnavailable) return { notes: 0, links: 0, capped: true, loading: true };
+    if (error instanceof TreeUnavailable) return { notes: 0, links: 0, capped: true, unreadable: true };
     throw error;
   }
   return await rewriteReferences(store, scope, rules, overrides, renames, options ?? {});

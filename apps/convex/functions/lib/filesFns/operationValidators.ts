@@ -109,12 +109,6 @@ export const operationResultValidator = v.union(
     error: v.optional(v.string()),
     message: v.optional(v.string()),
   }),
-  v.object({
-    kind: v.literal("nodesParity"),
-    clearances: v.number(),
-    mismatches: v.number(),
-    privacyMatches: v.boolean(),
-  }),
   treeChangesValidator,
   folderNotesValidator,
   chaosScoreValidator,
@@ -282,19 +276,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("pruneIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
-  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
-  v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
+  /** The Convex tree's facts fill (`lib/nodes/run.ts`); scheduled only. */
   v.object({ kind: v.literal("nodesFactFill"), passes: v.optional(v.number()) }),
-  v.object({
-    kind: v.literal("nodesTouch"),
-    paths: v.array(v.string()),
-    files: v.array(v.string()),
-    /** An agent's moves, old name to new, so pins and recents follow (`placesFollow.ts`). */
-    moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
-    /** Who could see each key the change took away, before it: gone rows narrow to it. */
-    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
-  }),
-  v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({
     kind: v.literal("nodesMoveBatch"),

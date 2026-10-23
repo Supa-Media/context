@@ -6,14 +6,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { nameTwinRefusal, protectedFolderRefusal } from "../src/tree/twins.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function storeOf(keys) {
   const sorted = [...keys].sort();
-  return {
+  return withServedTree({
     async list({ prefix = "" } = {}) {
       return { objects: sorted.filter((key) => key.startsWith(prefix)).map((key) => ({ key })), truncated: false };
     },
-  };
+  });
 }
 
 const NONE = new PrivacyOverrides();

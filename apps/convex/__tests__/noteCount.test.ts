@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { memoryStore } from "./storeStub.helpers";
 import { COUNT_PAGE_CAP, countNotes } from "../functions/lib/noteCount";
+import { withTreeOf } from "./storeStub.helpers";
 
 /**
  * Counting what is in somebody's bucket.
@@ -241,12 +242,12 @@ describe("countNotes", () => {
   test("a failing listing yields no count rather than an exception", async () => {
     const store = memoryStore();
     store.seed("1-projects/ship.md", "#");
-    const broken = {
+    const broken = withTreeOf({
       ...store,
       list: async () => {
         throw new Error("connection reset");
       },
-    };
+    });
 
     expect(await countNotes(broken)).toBeNull();
   });

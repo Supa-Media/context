@@ -28,8 +28,8 @@ import { type FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../functions/lib/nodes/treeNames";
 import { attachWorkspaceKeyed } from "../functions/lib/noteIds/keyedStore";
-import { runNodesOperation } from "../functions/lib/nodes/run";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { seedTreeFromStore } from "./treeSeeding.helpers";
 import { consoleIdLayoutHooks } from "../functions/lib/noteIds/consoleLayer";
 import { withIdLayout } from "../../mcp/src/store/idLayout.js";
 
@@ -42,7 +42,7 @@ export type KeyedTest = ReturnType<typeof makeTest>;
 /** The group names every keyed workspace here carries, so a rule can name one. */
 export const GROUP_NAMES = ["supa-leads", "supa-owners"] as const;
 
-/** How a test seeds its bucket before the sweep keys it. */
+/** How a test seeds its bucket before the tree is laid from it and keyed. */
 export type KeySeed = (store: KeyedStore) => Promise<void>;
 export type KeyedStore = MemoryStore & FileStore;
 
@@ -68,7 +68,7 @@ function bridge(t: KeyedTest): ActionCtx {
 
 /**
  * A keyed workspace whose bucket holds a PARA context and whatever `seed`
- * adds. `seed` runs on the plain bucket before the sweep, so it may call the
+ * adds. `seed` runs on the plain bucket before the tree is laid, so it may call the
  * visibility setters (which write the rules file, not notes).
  */
 export async function keyedBucket(seed: KeySeed = async () => {}): Promise<KeyedBucket> {
@@ -104,7 +104,7 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
 
   const ctx = bridge(t);
   const bodies = store.snapshot();
-  await runNodesOperation(ctx, { workspaceId: ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
+  await seedTreeFromStore(t, ws, store);
   await t.run(async (c) => {
     await c.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });
     await c.db.insert("noteIdCopies", {
@@ -125,10 +125,6 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
       await c.db.patch(row._id, { storageKey: key });
       store.seed(key, bodies[row.path] ?? "");
     }
-  });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ws,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
   });
 
   // Reads and writes by path go through the id layer, as the barrier's store does (`consoleLayer.ts`).

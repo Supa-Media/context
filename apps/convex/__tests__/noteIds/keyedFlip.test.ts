@@ -11,8 +11,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
+import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
+import { seedTreeRows } from "../fixtures.helpers";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { FLIP_PAGE } from "../../functions/lib/noteIds/flip";
 import { idKeyFor, newNoteId } from "../../functions/lib/nodes/noteIds";
@@ -23,8 +26,6 @@ import {
   bucket,
   chain,
   drain,
-  observeBucket,
-  observeKeys,
   pass,
   rowAt,
   runPass,
@@ -34,6 +35,32 @@ import {
   type T,
 } from "./noteIds.helpers";
 import type { Store } from "./noteIds.helpers";
+
+/**
+ * Lay the bucket's objects named by `keys` into the tree at their current
+ * versions: a row the tree does not hold is written unkeyed, as a path row
+ * (`seedTreeRows`); a row it holds takes the object's etag and size, as a
+ * path-keyed write of the product leaves it. Nothing lists the bucket.
+ */
+async function observeKeys(t: T, ws: Id<"workspaces">, store: Store, keys: string[], at = Date.now()): Promise<void> {
+  const created: { path: string; etag: string; size: number }[] = [];
+  for (const key of keys) {
+    const object = await store.get(key);
+    if (object === null) continue;
+    const size = store.bytesOf(key)?.byteLength ?? 0;
+    const row = await rowAt(t, ws, key);
+    if (row === null) {
+      created.push({ path: key, etag: object.etag, size });
+      continue;
+    }
+    await t.run(async (ctx) => {
+      const table = convexNodeTable(ctx as MutationCtx, ws);
+      await table.patch(row._id, { etag: object.etag, size, observedAt: at });
+      await table.logChange?.(key, false);
+    });
+  }
+  if (created.length > 0) await seedTreeRows(t, ws, created);
+}
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -413,14 +440,5 @@ describe("keyed rows through the copy pass and the diagnosis", () => {
     });
     expect(counted).toEqual({ checked: 0, missing: 0, differs: 0 });
     expect(c.pending).toEqual([]);
-  });
-
-  test("a keyed workspace's bucket listing does not change a keyed row, even when the path object differs", async () => {
-    const t = tester();
-    const { ws, store } = await keyedWorkspace(t, "listingkeyed", { "1-projects/a.md": "# A\n" });
-    const before = await rowAt(t, ws, "1-projects/a.md");
-    store.seed("1-projects/a.md", "# something else\n");
-    await observeKeys(t, ws, store, ["1-projects/a.md"], Date.now() + 1_000);
-    expect(await rowAt(t, ws, "1-projects/a.md")).toEqual(before);
   });
 });
