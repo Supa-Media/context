@@ -20,6 +20,7 @@ const REFUSALS = new Set([
   "has_guests",
   "not_organizer",
   "not_invited",
+  "other_calendar",
   "not_configured",
   "unavailable",
 ]);

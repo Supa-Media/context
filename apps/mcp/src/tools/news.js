@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-23",
     text:
+      "calendar_event takes `calendar`: the address of one of their connected Google accounts (fetch calendar: names each). " +
+      "A create goes on that calendar; any other change looks for the event there only.",
+  },
+  {
+    date: "2026-10-23",
+    text:
       "calendar_event takes action `edit` (find the event by `title` and `start` as they are now, then any of `new_title`, `new_start` + `new_end`, " +
       "`location`, `notes`, `add_guests`, `remove_guests`, `meet`, `reminders`, `recurrence`) and `rsvp` (`response`: accepted, declined or tentative); " +
       "`all_events: true` changes every time a repeating event happens. create also takes `reminders` (minutes before) and `recurrence` (RRULE lines).",
@@ -304,7 +310,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "97240418";
+export const TOOL_SHAPE = "96eabf84";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

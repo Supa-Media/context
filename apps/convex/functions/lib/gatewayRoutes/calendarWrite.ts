@@ -107,14 +107,19 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     log({ outcome: "refused", reason: room.refused, check });
     return json({ ok: false, refused: room.refused });
   }
-  if (check && change.action === "create") {
-    return json({ ok: true, calendar: room.address, ...(change.guests.length > 0 ? { guests: change.guests } : {}) });
-  }
 
   try {
-    // A new event goes on the first calendar that may be changed; an existing
-    // one is looked for on each in turn, since the person may have connected several.
-    const writers: Writer[] = change.action === "create" ? [room.writers[0]!] : room.writers;
+    // A new event goes on the calendar named, or the first that may be changed;
+    // an existing one is looked for on each in turn, since the person may have connected several.
+    const named = change.calendar === null ? room.writers : room.writers.filter((row: Writer) => row.address.toLowerCase() === change.calendar!.toLowerCase());
+    if (named.length === 0) {
+      log({ outcome: "refused", reason: "other_calendar", check });
+      return json({ ok: false, refused: "other_calendar" });
+    }
+    const writers: Writer[] = change.action === "create" ? [named[0]!] : named;
+    if (check && change.action === "create") {
+      return json({ ok: true, calendar: named[0]!.address, ...(change.guests.length > 0 ? { guests: change.guests } : {}) });
+    }
     let found: Found = { ok: false, refused: "not_found" };
     let writer: Writer | null = null;
     let googleToken: string | null = null;
