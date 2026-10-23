@@ -21,7 +21,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
-import { mailCheckerFor } from "./mailChecker.js";
+import { checkerQuestion, mailCheckerFor } from "./mailChecker.js";
 import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb } from "./turnWeb.js";
@@ -308,7 +308,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // A group's kept turns carry what the chat said beside what the tagger
       // asked, and the checker reads a kept turn as the person (`groupTurn.js`).
       history: group !== null ? checkerHistory(history) : history,
-      question,
+      question: checkerQuestion(question, quoted),
       config: aiGatewayConfig(env),
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });

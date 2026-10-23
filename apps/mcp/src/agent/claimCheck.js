@@ -317,6 +317,8 @@ export function claimCheck({ question, judge = null }) {
   let wrote = false;
   let keptWish = false;
   let held = false;
+  // The Mail checker refused an email and told Tex to ask in one short text, which a yes or 👍 then releases (`emailGate.js`).
+  let checkerRefused = false;
   let noticed = false;
   let hadWeb = false;
   let triedWeb = false;
@@ -347,6 +349,7 @@ export function claimCheck({ question, judge = null }) {
         const result = await callTool(name, args);
         steps.push({ name, ok: result?.isError !== true });
         if (result?.held === true) held = true;
+        if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
@@ -372,7 +375,7 @@ export function claimCheck({ question, judge = null }) {
           ? MUTE_NOTICE
           : claimsAChange(answer) && !wrote
             ? CLAIM_NOTICE
-            : offersAHeldChange(answer) && !held
+            : offersAHeldChange(answer) && !held && !checkerRefused
               ? offerNotice(offeredKinds(answer))
               : hadWeb && !triedWeb && saysItCouldNot(answer)
                 ? TRY_NOTICE

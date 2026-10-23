@@ -23,6 +23,7 @@
  */
 
 import { folded } from "../agent/folded.js";
+import { offersAHeldChange } from "../agent/claimCheck.js";
 
 const MIN_TEXT = 20;
 const RECENT_TEXTS = 4;
@@ -80,4 +81,22 @@ export function agreedWordsHold(session, parts) {
   if (said.some((way) => way === undefined) || !said.some((way) => way.length >= MIN_PART)) return false;
   egress.liked = null;
   return true;
+}
+
+/*
+  A FORWARD THEY SAID YES TO (the owner, 2026-10-23: "tex asked for like 4
+  confirmations again"). Tex texted "Do you want me to send it to
+  supa.media.llc@…?" about a receipt, and later "Say yes and I'll forward it
+  to …", with nothing held; each 👍 reached a model that only raised the next
+  ask. An offer to forward can't hold the forwarded email word for word, so
+  `agreedWordsHold` never matched one. Their yes or 👍 on Tex's text releases
+  a forward when that text offered to send or forward (`offersAHeldChange`)
+  and names every recipient, and the Mail checker, reading their 👍 or yes on
+  it, said they asked for this email (`emailGate.js`). Once a turn, as above.
+*/
+/** Whether the words they agreed to offered this forward to every one of `recipients`; spends the agreement when they did. */
+export function agreedToForward(session, recipients) {
+  const liked = session?.egress?.liked;
+  if (typeof liked !== "string" || !offersAHeldChange(liked) || !Array.isArray(recipients) || recipients.length === 0) return false;
+  return agreedWordsHold(session, recipients);
 }

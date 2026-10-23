@@ -88,6 +88,7 @@ import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runEmailGateChecks } from "./emailGate.test.mjs";
+import { runEmailGateOneThumbChecks } from "./emailGateOneThumb.test.mjs";
 import { runEmailDraftChecks } from "./emailDraft.test.mjs";
 import { runEmailReadChecks } from "./emailRead.test.mjs";
 import { runCalendarGateChecks } from "./calendarGate.test.mjs";
@@ -152,6 +153,7 @@ const SUITES = [
   ["runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check)],
   // The send-review gate: every email waits for the person's yes to its exact copy.
   ["runEmailGateChecks", () => runEmailGateChecks(check)],
+  ["runEmailGateOneThumbChecks", () => runEmailGateOneThumbChecks(check)],
   // A draft in the person's Gmail sends nothing, so it needs no yes.
   ["runEmailDraftChecks", () => runEmailDraftChecks(check)],
   ["runEmailReadChecks", () => runEmailReadChecks(check)],
