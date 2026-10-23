@@ -224,5 +224,13 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 9,000 when they were told never to hand back work they can do (prompt.js, DO_IT_YOURSELF_LINE, 2026-10-22),
   // and from 9,600 when that line became the adopted hand-back rule: what they may be asked for, captchas only after every try (9,884 then).
   // and from 10,000 when they were told what they can do outside the notes and to keep a fact the moment it's given (ACTIONS_LINE, REMEMBER_LINE, 2026-10-23; 11,035 then).
-  assert.ok(system.length < 11_500, `system was ${system.length} characters`);
+  // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23).
+  assert.ok(system.length < 12_000, `system was ${system.length} characters`);
+});
+
+test("a texted turn by somebody with no Gmail connected is asked to offer it once (owner, 2026-10-23)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /they have no Gmail connected yet/);
+  assert.match(system, /manage connect_google \(kind gmail\)/);
 });

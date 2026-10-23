@@ -28,6 +28,7 @@ export const mailHealth = internalQuery({
         state: mailboxState,
         lastSyncedAt: v.union(v.number(), v.null()),
         tell: v.boolean(),
+        readOnly: v.boolean(),
       }),
     ),
   ),

@@ -21,9 +21,14 @@ import { resolveGrantByAccessTokenHandler } from "../controlPlane/session";
 import { personalWorkspaceOf } from "../../textLinks";
 import { HEARTBEAT_CLIENT_ID, HEARTBEAT_LEASE_MS } from "../heartbeats/model";
 import { TELLABLE, mailboxState, toldRecently, type MailboxState } from "./model";
+import { GMAIL_SEND_SCOPE } from "../googleOAuth";
 
-/** What an agent is told about one mailbox. `tell`: a check-in should say it now. */
-export type MailboxHealth = { address: string; state: MailboxState; lastSyncedAt: number | null; tell: boolean };
+/**
+ * What an agent is told about one mailbox. `tell`: a check-in should say it
+ * now. `readOnly`: connected before every connect asked to send (2026-10-23),
+ * so Tex can read it and not send from it until one reconnect.
+ */
+export type MailboxHealth = { address: string; state: MailboxState; lastSyncedAt: number | null; tell: boolean; readOnly: boolean };
 
 /** More than anyone connects; the read stays bounded. */
 const MAX_CONNECTIONS = 50;
@@ -61,7 +66,7 @@ async function mailboxesOf(ctx: QueryCtx, cleared: Cleared, now: number) {
     const health = mailboxState(row, now);
     if (health === null) continue;
     const tell = TELLABLE.has(health.state) && !toldRecently(notices, row._id, health.state, now);
-    found.push({ connectionId: row._id, address: row.address, ...health, tell });
+    found.push({ connectionId: row._id, address: row.address, ...health, tell, readOnly: !row.scopes.includes(GMAIL_SEND_SCOPE) });
   }
   return found.sort((a, b) => a.address.localeCompare(b.address));
 }

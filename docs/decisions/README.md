@@ -710,6 +710,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [Tex offers Google before it is asked, and shows Google's two screens (owner, 2026-10-23)](./texting-assistant/onboarding.md)
 - [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)

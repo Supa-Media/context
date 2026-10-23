@@ -4,6 +4,7 @@
  *
  *   node scripts/render-og-card.mjs        # the Context card
  *   node scripts/render-og-card.mjs tex    # the Tex card (texHost.ts)
+ *   node scripts/render-og-card.mjs google # the Google connect guide Tex texts (1080x1350)
  *
  * ## Why this file exists
  *
@@ -64,6 +65,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const CARDS = {
   context: { source: "og-card.source.html", output: "og-card.png", libron: false },
   tex: { source: "og-tex-card.source.html", output: "og-tex-card.png", libron: true },
+  // A phone-shaped picture, not a card: texted beside a Google connect link.
+  google: { source: "og-google-connect.source.html", output: "og-google-connect.png", libron: false, width: 1080, height: 1350 },
 };
 const which = process.argv[2] ?? "context";
 const card = CARDS[which];
@@ -100,8 +103,8 @@ function embeddedFontBase64() {
   return chunks.join("");
 }
 
-const WIDTH = 1200;
-const HEIGHT = 630;
+const WIDTH = card.width ?? 1200;
+const HEIGHT = card.height ?? 630;
 
 const browser = await chromium.launch();
 try {
