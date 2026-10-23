@@ -312,7 +312,7 @@ export async function runTurn(options) {
     toolTimeouts = {},
     grants = null,
     local = [],
-    aboutMe = null,
+    aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
@@ -414,7 +414,7 @@ export async function runTurn(options) {
     threadNote +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
     (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
     (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)

@@ -13,6 +13,8 @@
  * other write.
  */
 
+import { identityPrompt } from "./identity.js";
+
 export const ABOUT_ME_PATH = "tex/about-me.md";
 
 /**
@@ -74,8 +76,15 @@ export async function readTexNote(callTool, path) {
   }
 }
 
-/** What the system prompt says about it, given whether this turn may write. */
-export function aboutMePrompt(text, { edits }) {
+/**
+ * What the system prompt says about it, given whether this turn may write,
+ * after who they are by their account (`identity.js`) when that is known.
+ */
+export function aboutMePrompt(text, { edits, identity = null }) {
+  return identityPrompt(identity) + noteFacts(text, { edits });
+}
+
+function noteFacts(text, { edits }) {
   const body = typeof text === "string" ? text.trim() : "";
   const keep = edits
     ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write: fetch it first and keep the rest. One short line per fact, never more than ${MAX_ABOUT_ME_LINES} lines: when it's getting long, merge and drop what's stale.`

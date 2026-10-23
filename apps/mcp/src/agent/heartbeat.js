@@ -42,6 +42,7 @@ import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
 import { ABOUT_ME_PATH } from "./aboutMe.js";
+import { readTexNotes } from "./jobs.js";
 import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
@@ -575,6 +576,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
           ...(setup !== null ? { setup: setup.version } : {}),
         },
       },
+      // Who they are and what Tex keeps about them, so it judges what matters to them (`aboutMe.js`, `identity.js`).
+      ...(({ aboutMe, identity }) => ({ aboutMe, identity }))(await readTexNotes(dispatch, { controlPlane, session })),
       localNow: { now: started, timeZone },
       observe: (event) => events.push(event),
       maxRounds: HEARTBEAT_ROUNDS,

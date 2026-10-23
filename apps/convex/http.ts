@@ -123,6 +123,7 @@ import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
 import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
+import * as texIdentity from "./functions/lib/gatewayRoutes/texIdentity";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
 import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import * as mailHealth from "./functions/lib/gatewayRoutes/mailHealth";
@@ -920,6 +921,9 @@ http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewa
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+/* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
+export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
+http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
 export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
 http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });

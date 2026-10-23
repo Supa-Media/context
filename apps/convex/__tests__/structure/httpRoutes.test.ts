@@ -144,6 +144,7 @@ describe("the gateway's HTTP routes", () => {
    * this list exists to prevent; it is listed now, as is every later route. */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
+    "/gateway/agent/identity": "gatewayAgentIdentity",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
     "/gateway/privacy": "gatewayPrivacy",

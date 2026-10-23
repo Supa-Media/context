@@ -46,6 +46,7 @@ import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
 import { mineHandbacks } from "./handbackMiner.js";
+import { findMemories, memoriesLine } from "./dreamMemories.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
 export const DREAMS_CLIENT_ID = "context_dreams";
@@ -157,13 +158,14 @@ export const FIRST_LOOK = [
  * What the dream is asked to do: the setup's words (`instructions`, the
  * production note's body) or the built-in ones, then tonight's facts.
  */
-export function dreamQuestion({ transcripts, first, since, timeZone, instructions = null }) {
+export function dreamQuestion({ transcripts, memories = [], first, since, timeZone, instructions = null }) {
   const when = first || typeof since !== "number" ? "lately" : `since ${dayOf(since, timeZone)}`;
   const tonight = [
     `Bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
     transcripts.length > 0
       ? `Read these transcripts of your texts with them (tool calls and thinking included, never what a tool returned):\n${transcripts.map((path) => `- ${path}`).join("\n")}`
       : "There are no transcripts of your texts with them yet.",
+    memoriesLine(memories), // what their other AI apps saved (`dreamMemories.js`)
     first ? FIRST_LOOK : "",
   ].filter(Boolean);
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : DREAM_INSTRUCTIONS;
@@ -268,12 +270,13 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const listed = await dispatch("list_notes", { prefix: TRANSCRIPTS_FOLDER }).catch(() => null);
   const listing = listed?.isError === true ? "" : (listed?.content ?? []).map((part) => part?.text ?? "").join("\n");
   const transcripts = transcriptsToRead(listing, { since, now: started, timeZone });
+  const memories = await findMemories(store, dispatch, { since, now: started, timeZone });
   const before = await readAboutMe(dispatch);
   // No note yet is a first dream, whatever `since` says: an earlier first dream
   // that wrote nothing must not leave them without one.
   const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
-  if (transcripts.length === 0 && !first) return json({ outcome: "nothing_new" });
+  if (transcripts.length === 0 && memories.length === 0 && !first) return json({ outcome: "nothing_new" });
 
   try {
     await openProvider(controlPlane, session, undefined, env);
@@ -297,7 +300,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   let turn = null;
   try {
     turn = await runTurn({
-      question: dreamQuestion({ transcripts, first, since, timeZone, instructions: setup?.prompt ?? null }),
+      question: dreamQuestion({ transcripts, memories, first, since, timeZone, instructions: setup?.prompt ?? null }),
       tools: dreamTools(offered),
       grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
       callTool: dreamCallTool(dispatch),
@@ -338,7 +341,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const entry = dreamEntry({
     now,
     timeZone,
-    transcripts,
+    transcripts: [...transcripts, ...memories], // the log names every note it read
     model: turn?.model ?? null,
     changes,
     why: turn?.answer ?? "",
@@ -355,6 +358,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
       provider: BUILTIN_PROVIDER,
       outcome,
       transcripts: transcripts.length,
+      memories: memories.length,
       added: changes.added.length,
       removed: changes.removed.length,
       retired: retired.length,

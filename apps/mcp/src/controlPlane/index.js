@@ -19,6 +19,7 @@ import { createWorkspaceMethods } from "./workspaces.js";
 import { createDreamMethods } from "./dreams.js";
 import { createAttentionMethods } from "./attention.js";
 import { createMailHealthMethods } from "./mailHealth.js";
+import { createIdentityMethods } from "./identity.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -54,5 +55,6 @@ export function createControlPlane(env, options = {}) {
     ...createDreamMethods({ post }),
     ...createAttentionMethods({ post }),
     ...createMailHealthMethods({ post }),
+    ...createIdentityMethods({ post }),
   };
 }

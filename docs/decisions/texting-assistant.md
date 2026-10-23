@@ -216,7 +216,9 @@ Tex's own jobs, each with its record:
 - [Transcripts](./texting-assistant/transcripts.md): each person's texts,
   thinking and tool calls, daily in their own `tex/transcripts/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
-  up to date from the day's transcripts, logged in `tex/dreams/`.
+  up to date from the day's transcripts and the facts their other AI apps saved, logged in `tex/dreams/`.
+- [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
+  and Google accounts, told on every turn Tex answers for them.
 - [Runtime](./texting-assistant/runtime.md): the conversation as a log of
   exchanges, a thread's texts read that thread, tapbacks answered or noted,
   check-ins wait for ten quiet minutes.
