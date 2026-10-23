@@ -506,7 +506,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
       tools: [
-        ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null) || tool.name !== "propose_note"),
+        ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null && !runner) || tool.name !== "propose_note"), // a routine stops itself with DONE:, never a proposal
         ...textingWriting, ...groupWriting, ...forwarding,
         ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []), ...(background?.tools ?? []),
@@ -567,7 +567,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {
-      const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
       await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*

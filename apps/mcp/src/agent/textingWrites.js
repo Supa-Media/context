@@ -50,8 +50,10 @@ export const WITHHELD_FIELDS = new Map();
 const ROUTINE_HELP =
   " Routines are notes the assistant runs on a schedule as this person, then texts them what it found. " +
   "Write a new routine or reminder at tex/routines/<how-often>/<name>.md, in Tex's own tex/ folder. " +
-  "The folder says how often: every-5-minutes, hourly, " +
+  "The folder says how often: hourly, " +
   "every-3-hours, daily, weekly, every-2-weeks, monthly, or once for a one-off reminder (tex/routines/once/). " +
+  // The owner, 2026-10-23: an every-5-minutes "retry Planning Center" check texted the same line over and over.
+  "Never make one that runs more often than hourly; to retry something, use hourly with until:. " +
   "Older routines at routines/<how-often>/<name>.md still run where they are: edit them in place, and move one only when asked. " +
   "A one-off needs its date and time: at: 2026-10-15 9:00 am; it texts once, then is marked done: and stays as a record. " +
   "Other optional lines at the top, between --- lines: " +
@@ -61,6 +63,8 @@ const ROUTINE_HELP =
   "A routine texts only the person who wrote it, and runs only in their own personal workspace, never in a shared one. " +
   "The body is plain instructions for the assistant, written as the person asked; " +
   "a reminder's body is the reminder itself, with any link they gave (\"Call Apple about the app review: <link>\"). " +
+  // The owner, 2026-10-23: "stop the check please wth", after Tex sent a pause for approval.
+  "When they ask to stop, pause, cancel or delete a routine, archive it yourself at once; never send it for approval. " +
   "One routine per thing: when they change a reminder (\"every 3 hours until I do it\"), edit or archive the old one, never add a second. " +
   // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
   "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +
@@ -147,6 +151,9 @@ function refusalFor(name, args) {
     const inRoutines = root !== null;
     if (inRoutines && path.endsWith(".md") && routineFromPath(path)?.kind !== "routine") {
       return `Only a routine file can be written under ${root}: ${root}<how-often>/<name>.md, with a folder like daily or weekly.`;
+    }
+    if (inRoutines && name === "write_note" && args.expected_etag === undefined && routineFromPath(path)?.cadence?.unit === "minute") {
+      return "Routines can't run more often than hourly from a text: they would text over and over. Use hourly, with until: for when to stop.";
     }
     // A routine runs as the person who wrote it, in their own context.
     if (inRoutines && name === "write_note" && args.context !== undefined) {

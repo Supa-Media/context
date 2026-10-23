@@ -191,6 +191,13 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
         `If it is true now, start your answer with ${DONE_WORD} and say what happened.`,
     );
   }
+  // The owner, 2026-10-23: an every-5-minutes check said "Planning Center's connected." while every read failed,
+  // then "I couldn't stop this check myself" and sent a pause for approval.
+  lines.push(
+    `To stop this routine (its job is done, it can't be done, or they asked to stop it), start your answer with ${DONE_WORD}: ` +
+      "it stops at once. Never send a change to it for approval. " +
+      "Say something worked only when a call in this run showed it working: an app listed as connected is not a read that worked.",
+  );
   if (mail) lines.push(mail);
   lines.push(
     // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
@@ -226,13 +233,28 @@ export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
  * an explanation is still quiet, and instructions read back are said to them
  * (`checkInGuards.js`).
  */
-export function runOutcome(answer) {
+export function runOutcome(answer, { routine = null, runs = [] } = {}) {
   const trimmed = typeof answer === "string" ? answer.trim() : "";
   if (saysQuiet(trimmed)) return { outcome: "skipped", text: "" };
   if (trimmed.toUpperCase().startsWith(DONE_WORD)) {
     return { outcome: "finished", text: spokenToThem(trimmed.slice(DONE_WORD.length)) };
   }
-  return { outcome: "answered", text: spokenToThem(trimmed) };
+  const text = spokenToThem(trimmed);
+  return repeatsItself(routine, runs, text) ? { outcome: "skipped", text: "" } : { outcome: "answered", text };
+}
+
+const sameWords = (text) => String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Whether a routine that runs more than once an hour would text exactly what
+ * its last answer did (the owner, 2026-10-23: an every-5-minutes check texted
+ * "Planning Center's connected." again and again). A reminder every few hours
+ * is meant to repeat, so only minute cadences are held to this.
+ */
+export function repeatsItself(routine, runs, text) {
+  if (routine?.cadence?.unit !== "minute" || !Array.isArray(runs)) return false;
+  const last = runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished");
+  return last !== undefined && sameWords(last.text) === sameWords(text);
 }
 
 function isRun(value) {
