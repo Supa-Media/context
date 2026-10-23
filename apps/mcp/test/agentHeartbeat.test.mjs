@@ -49,6 +49,7 @@ import {
   continuesFrom,
   readSettings,
   textedLines,
+  calendarLooked,
 } from "../src/agent/heartbeat.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
 import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
@@ -522,6 +523,42 @@ export async function runAgentHeartbeatChecks(check) {
     const unmailed = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
     controlPlane.flags.mailRefusal = undefined;
     check("no mailbox and nothing changed is still nothing_new", unmailed.body?.outcome === "nothing_new");
+
+    /* ---------------- today's calendar, read live (2026-10-23) ---------------- */
+
+    // Sabotage record (applied, run, observed failing, reverted, 2026-10-23):
+    // dropping `calendarNew` from the nothing_new test, and the calendar from
+    // `tainted`, each fail a check here.
+    let calendarAsked = null;
+    controlPlane.flags.calendarDays = (body) => {
+      calendarAsked = body;
+      return {
+        ok: true,
+        days: [{ address: "me@example.invalid", date: body.date, text: `# Calendar · ${body.date}\n\n## 3:00 pm · Venue walkthrough with Amy\n` }],
+        unanswered: [],
+        reconnect: [],
+      };
+    };
+    model.install([{ text: "Your venue walkthrough with Amy is at 3. Want me to add the two confirmed venues to your notes for it?" }]);
+    const dayLook = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
+    const dayPrompt = JSON.stringify(model.requests.at(-1));
+    check(
+      "with nothing changed, a day with meetings still gets a look, shown today's calendar read live as a stranger's words",
+      dayLook.status === 200 && dayLook.body?.outcome === "speak" && calendarAsked?.date === transcriptPath(Date.now(), "UTC").match(/\d{4}-\d{2}-\d{2}/)?.[0] &&
+        calendarAsked?.days === 1 && dayPrompt.includes("Venue walkthrough with Amy") && dayPrompt.includes("today's calendar") &&
+        dayPrompt.includes("whoever sent the invite"),
+    );
+    check(
+      "a look shown the calendar saves its exchange tainted, and the log says it looked at today's calendar",
+      conversationTurns(bucket).at(-1)?.tainted === true && calendarLooked(log()),
+    );
+    const beforeAgain = model.requests.length;
+    const dayAgain = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
+    check(
+      "the calendar alone wakes one look a day: the next with nothing else new is nothing_new",
+      dayAgain.body?.outcome === "nothing_new" && model.requests.length === beforeAgain,
+    );
+    controlPlane.flags.calendarDays = undefined;
 
     /* ---------------- their instructions ---------------- */
 

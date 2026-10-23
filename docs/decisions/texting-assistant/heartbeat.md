@@ -135,3 +135,30 @@ which Tex could not do. So, in `apps/mcp/src/agent/checkInGuards.js`:
   never sends email or changes a calendar.
 
 Tests: `apps/mcp/test/agentHeartbeat.test.mjs` (sabotages 7 and 8).
+
+## Today's calendar and Slack, read live (2026-10-23)
+
+When the calendar's copied day notes were removed (2026-10-21), check-ins
+stopped seeing the calendar at all: a look saw only changed notes. The owner
+called that a bug ("a huge gap"), and asked for Slack too, but only "if you can
+muster together helpful actions/responses". So (`apps/mcp/src/agent/checkInSources.js`):
+
+- Every look that runs is shown today's calendar in their zone, read live from
+  Google, fenced as the invite-writer's words, and may `read_calendar` other
+  days. A day with events wakes one look on its own (the day's log records
+  "today's calendar"); after that it only rides along, so a busy day is not
+  three model turns for the same meetings. An empty day wakes nothing.
+- Every look is shown Slack DMs and mentions since the last look (two
+  `search.messages` queries through the person's own connection, their own
+  messages dropped, at most ten). New ones wake a look like new mail. The look
+  may not call Slack itself; it offers a reply, which Tex sends after their yes.
+- The instructions say a Slack message is worth a text only with something to
+  bring to it (the answer from their notes, mail or calendar, and the reply to
+  send), never a bare "you were pinged".
+- Either shown taints the saved exchange, like mail.
+
+**What a simplification would cost:** dropping the once-a-day rule spends a
+model turn per slot on an unchanged calendar; giving the look `slack_api`
+hands an unattended, inbox-steered turn a method that can post. Tests:
+`apps/mcp/test/agentHeartbeat.test.mjs` (today's calendar),
+`apps/mcp/test/checkInSources.test.mjs`.
