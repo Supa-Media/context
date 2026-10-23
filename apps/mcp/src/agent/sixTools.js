@@ -42,6 +42,7 @@ const own = (call) => (call.args && typeof call.args === "object" && !Array.isAr
 export const ASSISTANT_SEND_ACTIONS = {
   search_web: { tool: "search_web", summary: "Search the web.", take: own },
   open_page: { tool: "open_page", summary: "Read web pages by their address.", take: own },
+  travel_time: { tool: "travel_time", summary: "How long a trip takes, from Google Maps directions; never estimate one.", take: own },
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
   fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: own },
   fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
