@@ -111,6 +111,7 @@ import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
 import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as googleChat from "./functions/lib/gatewayRoutes/googleChat";
+import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
@@ -884,6 +885,11 @@ export const gatewayChatSpaces = gatewayRoute(googleChat.gatewayChatSpacesHandle
 
 http.route({ path: "/gateway/chat/send", method: "POST", handler: gatewayChatSend });
 http.route({ path: "/gateway/chat/spaces", method: "POST", handler: gatewayChatSpaces });
+
+// The Chat messages written to the token's person lately, read live for Tex's check-ins.
+export const gatewayChatRecent = gatewayRoute(googleChatRead.gatewayChatRecentHandler);
+
+http.route({ path: "/gateway/chat/recent", method: "POST", handler: gatewayChatRecent });
 
 // Days of the person's own calendars, read live: nothing of a calendar is copied into notes.
 export const gatewayPersonCalendarDays = gatewayRoute(personCalendar.gatewayPersonCalendarDaysHandler);

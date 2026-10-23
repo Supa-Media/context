@@ -136,7 +136,7 @@ which Tex could not do. So, in `apps/mcp/src/agent/checkInGuards.js`:
 
 Tests: `apps/mcp/test/agentHeartbeat.test.mjs` (sabotages 7 and 8).
 
-## Today's calendar and Slack, read live (2026-10-23)
+## Today's calendar, Slack and Google Chat, read live (2026-10-23)
 
 When the calendar's copied day notes were removed (2026-10-21), check-ins
 stopped seeing the calendar at all: a look saw only changed notes. The owner
@@ -152,7 +152,11 @@ muster together helpful actions/responses". So (`apps/mcp/src/agent/checkInSourc
   `search.messages` queries through the person's own connection, their own
   messages dropped, at most ten). New ones wake a look like new mail. The look
   may not call Slack itself; it offers a reply, which Tex sends after their yes.
-- The instructions say a Slack message is worth a text only with something to
+- Google Chat the same way, through `/gateway/chat/recent`
+  ([google-chat-messages](../communications/google-chat-messages.md)): DMs,
+  group chats and mentions since the last look, for accounts that granted
+  reading.
+- The instructions say a Slack or Chat message is worth a text only with something to
   bring to it (the answer from their notes, mail or calendar, and the reply to
   send), never a bare "you were pinged".
 - Either shown taints the saved exchange, like mail.

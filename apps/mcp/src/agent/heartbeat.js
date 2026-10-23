@@ -62,7 +62,7 @@ import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
 import { checkInMutes, mutedCheckIn, withoutPreamble } from "./checkInGuards.js";
 import { newMailSection, newMailSince } from "./newMail.js";
-import { CALENDAR_SHOWN, calendarSection, newSlackSince, slackSection, todaysCalendar } from "./checkInSources.js";
+import { CALENDAR_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackSection, todaysCalendar } from "./checkInSources.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -236,13 +236,13 @@ export const HEARTBEAT_INSTRUCTIONS = [
   "When there is a next step you could take for them, end by offering that one step by name, as a yes-or-no question " +
     "(\"Want me to put it on your calendar?\"). One step, never a menu, and never take it in the check-in: their yes is the go-ahead. " +
     "Offer only what a text from them lets you do once they say yes: write or change a note or their to-do list, send, reply to or forward an email " +
-    "(a forward takes the email's attachments with it), save an email draft, add, move or cancel a calendar event, reply in Slack, or set up a routine. " +
+    "(a forward takes the email's attachments with it), save an email draft, add, move or cancel a calendar event, reply in Slack or Google Chat, or set up a routine. " +
     "Never offer anything else (paying, calling, signing in, filing something on a website); when nothing you can do would help, just tell them. " +
     "When it is the kind of thing that will come again and a routine could do it on its own (a routine reads their notes and mail, writes notes and texts them; " +
     "it never sends email or changes their calendar, except that it can keep forwarding one kind of mail, like receipts, to one address once they 👍 that), the offer may have two halves in one question: this one now, and the next ones from now on " +
     "(\"Want me to add it to your to-do list, and keep these on it from now on?\"). That is still one offer, not a menu.",
   "Text only when it is concrete and useful now. Most check-ins should stay quiet. Never text just to say hello, to summarize what changed, " +
-    "or to say that you looked. A Slack message is worth a text only when you can bring something to it: the answer from their notes, mail or calendar, " +
+    "or to say that you looked. A Slack or Google Chat message is worth a text only when you can bring something to it: the answer from their notes, mail or calendar, " +
     "and the reply you would send for them (\"Amy asked in Slack about the venue search. Two venues confirmed availability by email; want me to tell her?\"). " +
     "A ping you can add nothing to is not worth a text, and neither is their calendar alone when today holds nothing they need to hear about. " +
     "Mail that needs nothing from them (newsletters, receipts, notifications, marketing) is not worth a text. " +
@@ -366,12 +366,13 @@ export function calendarLooked(log) {
 }
 
 /** One look's part of the day's log. */
-export function heartbeatEntry({ now, timeZone, changed, mail = 0, calendar = false, slack = 0, model, text, events, outcome, muted = null }) {
+export function heartbeatEntry({ now, timeZone, changed, mail = 0, calendar = false, slack = 0, chat = 0, model, text, events, outcome, muted = null }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
   const shown = changed.slice(0, MAX_CHANGED_SHOWN).map((note) => `\`${note.key}\``);
   const more = changed.length - shown.length;
   if (mail > 0) shown.push(`${mail} new email${mail === 1 ? "" : "s"}`);
   if (slack > 0) shown.push(`${slack} new Slack message${slack === 1 ? "" : "s"}`);
+  if (chat > 0) shown.push(`${chat} new Google Chat message${chat === 1 ? "" : "s"}`);
   // Also how a later look tells today's calendar was already looked at (`handleHeartbeat`).
   if (calendar) shown.push(CALENDAR_SHOWN);
   lines.push(
@@ -506,14 +507,15 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // Today's calendar, read live: copied day notes are gone (2026-10-21), so no changed note brings it.
   const calendar = await todaysCalendar(store, started, timeZone);
   const slack = await newSlackSince(store, since);
+  const chat = await newChatSince(store, since);
   // A day with meetings gets one look for them alone; after that the calendar rides along with whatever changed.
   const calendarNew =
     calendar?.events === true &&
     changed.length === 0 &&
     mail.length === 0 &&
     !calendarLooked((await readWithEtag(dispatch, heartbeatPath(started, timeZone)))?.body);
-  // Nothing changed since the last look, no new mail or Slack, no mailbox owed a word and no unseen day: no model turn spent.
-  if (changed.length === 0 && mail.length === 0 && slack.length === 0 && owed.length === 0 && !calendarNew) {
+  // Nothing changed since the last look, no new mail, Slack or Chat, no mailbox owed a word and no unseen day: no model turn spent.
+  if (changed.length === 0 && mail.length === 0 && slack.length === 0 && chat.length === 0 && owed.length === 0 && !calendarNew) {
     await skipped(NOTHING_NEW_WORDS);
     return json({ outcome: "nothing_new" });
   }
@@ -555,7 +557,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
         mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
-        sources: [calendarSection(calendar, started, timeZone), slackSection(slack)].filter(Boolean).join("\n\n"),
+        sources: [calendarSection(calendar, started, timeZone), slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
         muted: mutes,
       }),
       tools: heartbeatTools(offered),
@@ -609,6 +611,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     mail: mail.length,
     calendar: calendar !== null,
     slack: slack.length,
+    chat: chat.length,
     model: turn?.model ?? null,
     text,
     events,
@@ -627,9 +630,9 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
-      // Tainted when it was shown mail, an invite or Slack, or opened one: a stranger's words (`HEARTBEAT_READS`).
+      // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
       await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
-        tainted: mail.length > 0 || calendar !== null || slack.length > 0 || session.egress.ledger.untrusted === true,
+        tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });
     } catch {
@@ -647,6 +650,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       newMail: mail.length,
       calendar: calendar !== null,
       slack: slack.length,
+      chat: chat.length,
       mailboxesOwed: owed.length,
       logged,
       ms: now - started,

@@ -195,6 +195,10 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // limits. `__tests__/googleChatSend.test.ts` carries the behavioural half.
   "http.gatewayChatSend",
   "http.gatewayChatSpaces",
+  // `/gateway/chat/recent` (owner 2026-10-23: check-ins read Chat): the same
+  // argument, a connection whose consent granted `chat.messages.readonly`; the
+  // token is spent on listing spaces and reading a few, never returned.
+  "http.gatewayChatRecent",
   // The person's own Gmail, read (`/gateway/email/search` and
   // `/gateway/email/read`, owner 2026-10-18: mail the sync does not hold is
   // read from the connection). Gateway secret plus the person's live access

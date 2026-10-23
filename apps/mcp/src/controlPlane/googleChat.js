@@ -4,6 +4,8 @@
  * token's person's own that granted Chat sending), finds the direct message
  * or space by the name Chat gives it, and sends. `check` asks only whether it
  * could go and where, and sends nothing. `spaces` lists the spaces they are in.
+ * `recent` reads the messages written to them since a moment, for check-ins
+ * (`agent/checkInSources.js`).
  *
  * Answers `{ ok: true, from, place }` / `{ ok: true, from, spaces }`, or `{ ok: false, refused }`.
  */
@@ -48,6 +50,16 @@ export function createGoogleChatMethods({ post }) {
       if (answer?.ok === true && Array.isArray(answer.spaces)) {
         const spaces = answer.spaces.filter((space) => typeof space?.name === "string" && typeof space?.displayName === "string");
         return { ok: true, from: typeof answer.from === "string" ? answer.from : "", spaces };
+      }
+      return refusedOf(answer);
+    },
+    async googleChatRecent(accessToken, expectedWorkspaceId, { since }) {
+      const answer = await post("/gateway/chat/recent", { accessToken, expectedWorkspaceId, since }, { timeoutMs: TIMEOUT_MS });
+      if (answer?.ok === true && Array.isArray(answer.messages)) {
+        const messages = answer.messages.filter(
+          (message) => typeof message?.id === "string" && typeof message?.text === "string" && typeof message?.at === "string",
+        );
+        return { ok: true, messages };
       }
       return refusedOf(answer);
     },

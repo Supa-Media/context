@@ -560,6 +560,31 @@ export async function runAgentHeartbeatChecks(check) {
     );
     controlPlane.flags.calendarDays = undefined;
 
+    /* ---------------- Google Chat written to them (2026-10-23) ---------------- */
+
+    // Sabotage record (applied, run, observed failing, reverted, 2026-10-23):
+    // dropping `chat.length` from the nothing_new test fails the first check.
+    let chatAsked = null;
+    controlPlane.googleChat.flags.from = "me@example.invalid";
+    controlPlane.googleChat.flags.recent = (body) => {
+      chatAsked = body;
+      return [{ id: "spaces/DM1/messages/m1", type: "DIRECT_MESSAGE", space: "", from: "Amy", at: new Date().toISOString(), text: "Any luck on the venue search?" }];
+    };
+    model.install([{ text: "Amy asked on Chat about the venue search. Two venues confirmed by email; want me to tell her?" }]);
+    const chatLook = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
+    const chatPrompt = JSON.stringify(model.requests.at(-1));
+    controlPlane.googleChat.flags.recent = null;
+    controlPlane.googleChat.flags.from = null;
+    check(
+      "a Google Chat message to them with nothing else new still gets a look, shown as a stranger's words",
+      chatLook.status === 200 && chatLook.body?.outcome === "speak" && typeof chatAsked?.since === "number" &&
+        chatPrompt.includes("Any luck on the venue search?") && chatPrompt.includes("New Google Chat messages"),
+    );
+    check(
+      "a look shown Chat saves its exchange tainted, and the log counts it",
+      conversationTurns(bucket).at(-1)?.tainted === true && log().includes("1 new Google Chat message"),
+    );
+
     /* ---------------- their instructions ---------------- */
 
     bucket.set("tex/heartbeat.md", { body: "Only text me about deadlines.\n", etag: "h4", lastModified: new Date().toISOString() });

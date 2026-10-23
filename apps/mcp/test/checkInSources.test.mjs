@@ -9,7 +9,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_SLACK_SHOWN, calendarSection, newSlackSince, slackQueries, slackSection, todaysCalendar } from "../src/agent/checkInSources.js";
+import { MAX_SLACK_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackQueries, slackSection, todaysCalendar } from "../src/agent/checkInSources.js";
 
 function storeWith(name, value) {
   const store = {};
@@ -79,4 +79,29 @@ test("today's calendar is read live for their own day, and an empty day is shown
   assert.equal(await todaysCalendar({}, now, "UTC"), null);
   assert.equal(await todaysCalendar(storeWith("calendar", { days: async () => ({ ok: false, refused: "no_calendar" }) }), now, "UTC"), null);
   assert.equal(calendarSection(null, now, "UTC"), "");
+});
+
+test("Google Chat written to them is shown by place and sender, and nothing breaks a look", async () => {
+  const asked = [];
+  const store = storeWith("googleChat", {
+    recent: async (request) => (
+      asked.push(request),
+      {
+        ok: true,
+        messages: [
+          { id: "spaces/DM1/messages/m1", type: "DIRECT_MESSAGE", space: "", from: "Amy", at: "2026-10-23T12:00:00Z", text: "Any luck on the venue search?" },
+          { id: "spaces/AAA/messages/a1", type: "SPACE", space: "Venue planning", from: "", at: "2026-10-23T10:30:00Z", text: "@Dev can you confirm?" },
+        ],
+      }
+    ),
+  });
+  const found = await newChatSince(store, SINCE);
+  assert.deepEqual(asked, [{ since: SINCE }]);
+  assert.match(found[0].line, /^- chat:spaces\/DM1\/messages\/m1 · 2026-10-23 12:00 UTC · a direct message · from Amy\n {4}Any luck/);
+  assert.match(found[1].line, /in Venue planning · from someone/);
+  assert.match(chatSection(found), /Google Chat.*a stranger's words/s);
+  assert.deepEqual(await newChatSince({}, SINCE), []);
+  assert.deepEqual(await newChatSince(storeWith("googleChat", { recent: async () => ({ ok: false, refused: "no_chat" }) }), SINCE), []);
+  assert.deepEqual(await newChatSince(storeWith("googleChat", { recent: async () => { throw new Error("down"); } }), SINCE), []);
+  assert.equal(chatSection([]), "");
 });

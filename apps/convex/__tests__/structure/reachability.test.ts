@@ -317,6 +317,8 @@ describe("no public function can reach a storage secret", () => {
         // `/gateway/chat/spaces`; see their CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayChatSend",
         "http.gatewayChatSpaces",
+        // `/gateway/chat/recent`, the same account read for check-ins.
+        "http.gatewayChatRecent",
         // THE PERSON'S OWN GMAIL, READ. `/gateway/email/search` and
         // `/gateway/email/read`; see their CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonMailSearch",
