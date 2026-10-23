@@ -163,6 +163,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/calendar/event": "gatewayCalendarWrite",
     "/gateway/chat/send": "gatewayChatSend",
     "/gateway/chat/spaces": "gatewayChatSpaces",
+    "/gateway/chat/recent": "gatewayChatRecent",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",
     "/gateway/authorize/start": "gatewayAuthorizeStart",

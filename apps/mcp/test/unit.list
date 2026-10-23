@@ -199,3 +199,4 @@ test/agentClaimCheck.test.mjs
 test/agentHandback.test.mjs
 test/calendarWords.test.mjs
 test/emailGateTiming.test.mjs
+test/checkInSources.test.mjs

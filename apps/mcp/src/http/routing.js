@@ -86,6 +86,8 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       check: (message) => controlPlane.sendGoogleChat(session.accessToken, session.workspaceId, message, { check: true }),
       send: (message) => controlPlane.sendGoogleChat(session.accessToken, session.workspaceId, message),
       spaces: () => controlPlane.googleChatSpaces(session.accessToken, session.workspaceId),
+      // What was written to them lately, for a check-in (`agent/checkInSources.js`).
+      recent: (request) => controlPlane.googleChatRecent(session.accessToken, session.workspaceId, request),
     },
     enumerable: false,
     writable: false,

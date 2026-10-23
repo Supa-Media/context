@@ -49,3 +49,27 @@ API refuses.
 Reversing this sends Tex back to the browser for every Chat message. The
 tests that fail are `googleChatGate.test.mjs` (the hold and the one yes) and
 `googleChatSend.test.ts` (whose account, which scopes, which space, limits).
+
+## Reading what was written to them, for check-ins (2026-10-23)
+
+The owner asked for check-ins to look at Google Chat too, "but only say
+something if you can muster together helpful actions/responses".
+`POST /gateway/chat/recent` (`gatewayRoutes/googleChatRead.ts`) reads, live
+and as the person, the few spaces most recently active since the last look
+(at most eight, never further back than three days), and answers at most ten
+messages: everything someone else wrote in a direct message or group chat,
+and in a named space only a message that mentions them. Bots are left out.
+Their own Chat id comes from their membership of a space, looked up by their
+address, since Chat names people only by id.
+
+- `chat.messages.readonly` is restricted, so it rides on the testers' Gmail
+  connect like the send scopes: one reconnect grants both.
+- `claimChatRead` (in `functions/googleChatSend.ts`) uses the same
+  own-account clearance as a send, wants a connection that granted reading,
+  and allows 30 reads an hour. Nothing of a message is stored or logged.
+- Nothing is copied into notes; the check-in shows the messages to the model
+  as a stranger's words and taints its saved exchange
+  (`docs/decisions/texting-assistant/heartbeat.md`).
+
+Tests: `googleChatRead.test.ts` (whose account, which scope, what counts as
+written to them, limits), `apps/mcp/test/checkInSources.test.mjs`.

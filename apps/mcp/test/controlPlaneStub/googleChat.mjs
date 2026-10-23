@@ -9,7 +9,8 @@
  */
 
 export function createGoogleChatRoute(clearedOwnAccount) {
-  const flags = { from: null, spaceName: null, refusal: null };
+  // `recent`: the messages `/gateway/chat/recent` answers (a list, or a function of the body).
+  const flags = { from: null, spaceName: null, refusal: null, recent: null };
   /** Every call: the message, whether it was a check, and what was answered. */
   const calls = [];
 
@@ -37,6 +38,11 @@ export function createGoogleChatRoute(clearedOwnAccount) {
   async function handle(path, body) {
     if (path === "/gateway/chat/send") return await send(body);
     if (path === "/gateway/chat/spaces") return await spaces(body);
+    if (path === "/gateway/chat/recent") {
+      if (!(await clearedOwnAccount(body))) return { ok: false, refused: "not_allowed" };
+      if (!flags.from) return { ok: false, refused: "no_chat" };
+      return { ok: true, from: flags.from, messages: typeof flags.recent === "function" ? flags.recent(body) : (flags.recent ?? []) };
+    }
     return undefined;
   }
 

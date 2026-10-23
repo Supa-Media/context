@@ -15,6 +15,7 @@ import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { CHAT_SEND_SCOPES, chatSendPolicies } from "./lib/googleChatSend";
+import { CHAT_READ_SCOPES } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -79,5 +80,40 @@ export const claimChatSend = internalMutation({
       details: { to: args.to },
     });
     return claimed;
+  },
+});
+
+/** Live reads of a person's Chat an hour: a check-in is three a day, so this only stops a runaway. */
+export const CHAT_READ_HOURLY_LIMIT = 30;
+
+/**
+ * Which of a person's Google connections reads their Google Chat for Tex's
+ * check-ins (`lib/gatewayRoutes/googleChatRead.ts`): the same clearance as a
+ * send, a connection that granted reading, and one spend of an hourly limit.
+ */
+export const claimChatRead = internalMutation({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(
+    v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections") }),
+    v.object({ ok: v.literal(false), refused: v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("hourly_limit")) }),
+  ),
+  handler: async (ctx, args) => {
+    const cleared = await ownAccountClearance(ctx, args);
+    if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
+    const connections = await ctx.db
+      .query("googleConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.personal._id))
+      .take(20);
+    const reader = connections.find(
+      (row) => row.disconnectedAt === undefined && CHAT_READ_SCOPES.every((scope) => row.scopes.includes(scope)),
+    );
+    if (reader === undefined) return { ok: false as const, refused: "no_chat" as const };
+    const room = await tryConsumeRateLimit(ctx, {
+      key: `chat_read.hour:${cleared.actorUserId}`,
+      limit: CHAT_READ_HOURLY_LIMIT,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!room) return { ok: false as const, refused: "hourly_limit" as const };
+    return { ok: true as const, address: reader.address, connectionId: reader._id };
   },
 });

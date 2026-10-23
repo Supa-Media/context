@@ -158,6 +158,14 @@ export const CHAT_SPACES_CREATE_SCOPE = "https://www.googleapis.com/auth/chat.sp
 export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_SPACES_CREATE_SCOPE] as const;
 
 /**
+ * Reading the person's own Google Chat messages, for Tex's check-ins
+ * (`gatewayRoutes/googleChatRead.ts`, owner 2026-10-23: "add slack and google
+ * chat"). Restricted, like Gmail's read, so tester-only until Google reviews it.
+ */
+export const CHAT_READ_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly";
+export const CHAT_READ_SCOPES = [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE] as const;
+
+/**
  * The write permissions, asked for only of testers (staff and the production
  * test account, `lib/googleWriteTesters.ts`) until Google has reviewed them
  * (decided by the owner, 2026-10-17: "it should work for testing accounts
@@ -172,10 +180,11 @@ export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_S
  *
  * Google Chat's send scopes ride on the Gmail connect every texter already
  * has, so one reconnect lets Tex message people on Chat as them (approved by
- * the owner, 2026-10-22). They work only on a Google Workspace account.
+ * the owner, 2026-10-22), and read what was written to them for its check-ins
+ * (2026-10-23). They work only on a Google Workspace account.
  */
 export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES],
+  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
   calendar: [CALENDAR_WRITE_SCOPE],
   chat: [...CHAT_SEND_SCOPES],
 };
