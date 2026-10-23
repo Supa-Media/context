@@ -63,7 +63,8 @@ export async function runStoreGuardChecks(check, gateway) {
   // that one walk's. A refusal is the tree's answer to any of them.
   const refusedAs = (answer) =>
     answer?.result?.isError === true && answer.result.content?.[0]?.text === TREE_UNREACHABLE;
-  const hostileManifest = async (pageOf) => {
+  const listNotes = () => hostileCall(async () => ({ objects: [], truncated: false }), {}, "list_notes");
+  const hostileManifest = async (pageOf, run = listNotes) => {
     const previous = globalThis.fetch;
     let pages = 0;
     globalThis.fetch = async (input, init) => {
@@ -76,7 +77,7 @@ export async function runStoreGuardChecks(check, gateway) {
       });
     };
     try {
-      const answer = await hostileCall(async () => ({ objects: [], truncated: false }), {}, "list_notes");
+      const answer = await run();
       return { answer, pages };
     } finally {
       globalThis.fetch = previous;
@@ -109,23 +110,26 @@ export async function runStoreGuardChecks(check, gateway) {
     refusedAs(runawayPages.answer) && runawayPages.pages === 50
   );
 
-  // The connect handshake reads the root's delimited layout (`mcp/sessionInstructions.js`) and falls back to the
-  // static instructions when that fails, so the cap shows as a walk that stops, and a handshake that still
-  // completes. Its error is caught there, so the check reads the walk's own count.
-  let delimitedPages = 0;
-  const runawayLayout = await hostileRpc(
-    async () => ({
-      objects: [],
-      delimitedPrefixes: [],
-      truncated: true,
-      cursor: `layout-${++delimitedPages}`,
-    }),
-    "initialize",
-    { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } }
+  // The connect handshake reads the root's layout from the tree (`mcp/sessionInstructions.js`) and falls back to
+  // the static instructions when that fails, so the cap shows as a walk that stops, and a handshake that still
+  // completes. Its error is caught there, so the check reads the walk's own count. The bucket is never listed
+  // for the layout: its root holds note ids, not names.
+  let layoutListed = 0;
+  const runawayLayout = await hostileManifest(
+    (page) => ({ served: true, entries: [], cursor: `layout-${page}` }),
+    () =>
+      hostileRpc(
+        async (options = {}) => {
+          if (!(options.prefix ?? "").startsWith(".")) layoutListed += 1;
+          return { objects: [], truncated: false };
+        },
+        "initialize",
+        { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } }
+      )
   );
   check(
-    "the delimited layout walk is capped too, not just the flat key walk",
-    Boolean(runawayLayout.result) && delimitedPages >= 1 && delimitedPages <= 200
+    "the layout walk at connect is capped too, not just the flat key walk",
+    Boolean(runawayLayout.answer.result) && runawayLayout.pages >= 1 && runawayLayout.pages <= 50 && layoutListed === 0
   );
 
   const dotSegmentRead = await hostileCall(async () => ({ objects: [], truncated: false }), {
