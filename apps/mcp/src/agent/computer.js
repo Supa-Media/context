@@ -44,6 +44,7 @@ import { browserJar } from "./browserJar.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
+import { TRAVEL_TIME_TOOL, travelTimeTool } from "./travelTime.js";
 
 /** The web tools: opening a page, and searching when there is a searcher. */
 export const OPEN_PAGE_TOOL = "open_page";
@@ -193,6 +194,11 @@ export function webPrompt(webNames) {
         : "You can open web pages the person gives you with send action open_page, and follow links on them.",
     );
   }
+  if (webNames.has(TRAVEL_TIME_TOOL)) {
+    lines.push(
+      "For how long it takes to get somewhere (a commute, a travel block on their calendar, when to leave), use send action travel_time and go by its minutes; never estimate a travel time.",
+    );
+  }
   if (webNames.has(BROWSE_TOOL)) {
     lines.push(
       "When the person wants something done on a website (search a site, fill in a form, check availability, add to a cart), use send action browse and do it rather than telling them how. Do several steps per call. Never buy, book, send or delete anything without the person's yes in this conversation.",
@@ -292,12 +298,26 @@ export function webSession(computer, question, { decide = null, search = null, a
   const logins = browser && store ? fillLoginTool(browser, store) : null;
   // Saved cards, filled the same way, each on the person's yes (`fillCard.js`).
   const cards = browser && store ? fillCardTool(browser, store, { asks }) : null;
+  // Google Maps directions, read like a page (`travelTime.js`).
+  const travel =
+    typeof computer?.readPage === "function"
+      ? travelTimeTool({
+          readPage: (url) => computer.readPage(url),
+          allow: (url) => allowed.add(url),
+          takePage() {
+            if (opened + 1 > pageCap()) return false;
+            opened += 1;
+            return true;
+          },
+        })
+      : null;
   const tools = [
     ...(computer ? [OPEN_PAGE_DEFINITION] : []),
     ...(browser ? [browser.definition] : []),
     ...(logins ? [logins.definition] : []),
     ...(cards ? [cards.definition] : []),
     ...(search ? [SEARCH_WEB_DEFINITION] : []),
+    ...(travel ? [travel.definition] : []),
   ];
   return {
     tools,
@@ -344,6 +364,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       if (name === BROWSE_TOOL && browser) return browser.call(args);
       if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
       if (name === FILL_CARD_TOOL && cards) return cards.call(args);
+      if (name === TRAVEL_TIME_TOOL && travel) return travel.call(args);
       if (name !== OPEN_PAGE_TOOL || !computer) return text("There is no such tool.", true);
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
