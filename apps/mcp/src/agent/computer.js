@@ -277,13 +277,16 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question, say = null, store = null, files = null, keep = null, asks = null } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, opened: openedBefore = [], say = null, store = null, files = null, keep = null, asks = null } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
   // this gateway wrote and carries the last run's answer — the model's words,
   // which must never vouch for anything (`route.js`).
   const allowed = new OpenableAddresses(addressesIn(addresses));
+  // Pages this conversation's earlier answers opened (`sources.js`) open again, as they did then:
+  // a later text carries on where the last one was ("Tex try again", 2026-10-24). They vouch for no words.
+  for (const url of openedBefore) for (const address of addressesIn(url)) allowed.add(address);
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;

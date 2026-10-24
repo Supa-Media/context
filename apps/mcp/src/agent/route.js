@@ -348,7 +348,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const vouched = runner ? routine?.body ?? "" : [theirEarlierWords(history), chatLines(group), question].filter(Boolean).join("\n\n"); // their earlier texts too (`turnWeb.js`)
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
-  const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, channel, store, dispatch, ledger });
+  const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, history: runner ? [] : history, channel, store, dispatch, ledger });
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted

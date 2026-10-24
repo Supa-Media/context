@@ -47,13 +47,27 @@ export function theirEarlierWords(history) {
 }
 
 /**
+ * The web pages this conversation's earlier answers opened, as their sources
+ * keep them (`sources.js`): opened again in a later text the way they were
+ * then, never as words the browser may type. Only https pages, never a note
+ * or an email id.
+ */
+export function pagesOpenedBefore(history) {
+  return (Array.isArray(history) ? history : [])
+    .filter((turn) => turn?.role === "assistant" && Array.isArray(turn.sources))
+    .slice(-EARLIER_TEXTS_VOUCHED)
+    .flatMap((turn) => turn.sources)
+    .filter((source) => typeof source === "string" && source.startsWith("https://"));
+}
+
+/**
  * `{ opened, web }`: the question's web session (null when it has none) and
  * what `runTurn` is handed of it.
  *
  * `vouched` is the text whose addresses count as the person's own
  * (`route.js` says why a routine's is its body and never its prompt).
  */
-export async function openTurnWeb(env, { session, texting, group, question, vouched, channel, store, dispatch, ledger }) {
+export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger }) {
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
   // A handoff texts their own `/tex/<handle>` page, never the browser's link.
@@ -72,6 +86,7 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           decide: decisionEngine(env.AI),
           search,
           addresses: vouched,
+          opened: pagesOpenedBefore(history),
           // A browser handed to the person is texted the moment it exists.
           say: channel !== null ? (text) => channel.say(text) : null,
           // The vault this turn's grant opens, for `fill_login`: a group chat's is its
