@@ -234,3 +234,18 @@ captcha is handed over untried.
 `apps/mcp/test/agentTurnLimits.test.mjs`,
 `infra/site-shots/src/paymentFrames.test.ts` and `captcha.test.ts`. Sabotage
 records in the tests' headers.
+
+## A page is blocked only after this turn tried it (2026-10-24)
+
+In a group chat Tex texted "the browser still won't open claude.ai/login from
+this chat" and "the browser refused the address" four times, in turns where no
+browser step ran at all, then signed in at the first real try. The answer
+check now sends back any answer that gives up on the browser or calls a page
+blocked: after a failed browser call it says to run it again (and, for a
+refused address, to search for the page and open the result); with no browser
+call this turn, while the turn has a browser, it says to try it now. Once a
+turn, like the other notices. Dropping either branch would let "won't open"
+stand on an earlier turn's failure, which is the behaviour this replaces.
+
+**Tests.** `apps/mcp/test/agentBrowserUntried.test.mjs`, sabotage record in
+its header.
