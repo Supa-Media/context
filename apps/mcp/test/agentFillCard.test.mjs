@@ -352,6 +352,35 @@ describe("Tex asks by text", () => {
     }
   });
 
+  /*
+    2026-10-24: "ok" and "sure" disarm the payment ask so a later bare yes
+    cannot reach it — `disarmRecords` says how many it could neither drop nor
+    disarm, and that count was dropped on the floor here. A record it cannot
+    clear (its etag moved under the conditional put, or the store refused the
+    write) stays armed for the ask's whole life, and the person is told
+    nothing, so their next plain "yes" pays.
+  */
+  test("a payment ask that would not disarm is said out loud, not left armed in silence", async () => {
+    const { store, id, ledger, web } = await texted();
+    await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+    await textedAsk(store, SESSION, ledger.asked);
+    const held = (await listPending(store, { userId: "user_a", texting: true })).map(({ key }) => key);
+    assert.equal(held.length, 1);
+    // The store refuses to clear that one record, the way a concurrent touch
+    // of it does: the delete fails and the conditional put does not apply.
+    const put = store.put.bind(store);
+    const remove = store.delete.bind(store);
+    store.delete = async (key, ...rest) => (held.includes(key) ? Promise.reject(new Error("refused")) : remove(key, ...rest));
+    store.put = async (key, ...rest) => (held.includes(key) ? null : put(key, ...rest));
+
+    const pay = await settlePayByText(store, SESSION, approvalVerdict("ok"), "ok");
+    assert.equal(pay.allowed.length, 0, "an ok still pays for nothing");
+    assert.equal((await listPending(store, { userId: "user_a", texting: true })).length, 1, "the ask is still armed, which is the premise");
+    assert.equal(pay.replies.length, 1, "and the person is told, rather than left to find out by paying");
+    assert.match(pay.replies[0], /still open/i);
+    assert.match(pay.replies[0], /yes/i);
+  });
+
   test("a card in another workspace is still asked about in the app", async () => {
     const own = await vaultWith();
     const team = await vaultWith();
