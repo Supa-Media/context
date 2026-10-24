@@ -227,6 +227,19 @@ describe("what a review may carry", () => {
     expect(await readNote(t, pinned, path!)).toContain('people: ["@alfa"]');
   });
 
+  test("a group names everybody in it by their personal workspace when nobody claimed a name", async () => {
+    const { t, pinned, grantA, bob, alice, aliceWs } = await world();
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid bob@example.invalid");
+    await addMember(t, aliceWs, bob, "member", alice);
+    await asGroup(t, grantA, [bob]);
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("names").collect()) if (row.kind === "user") await ctx.db.delete(row._id);
+    });
+    expect(await review(t, { reason: "ended", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    const [path] = reviews(await notesIn(t, pinned));
+    expect(await readNote(t, pinned, path!)).toContain('people: ["@alfa","@alphabet"]');
+  });
+
   test("saying yes in Settings shares the words; saying no again takes the yes away", async () => {
     const { t, pinned, alice } = await world();
     expect(await asUser(t, alice).query(api.functions.texReviews.myTexReviewSharing, {})).toBe(false);
