@@ -107,11 +107,17 @@ function shown(value) {
   return typeof value === "string" ? oneLine(value).slice(0, MAX_PLACE).trim() : "";
 }
 
-/** A Slack person's name as Slack has it: their real name, else their display name. */
+/**
+ * A Slack person's name as Slack has it: their real name, else their display
+ * name, with `names` holding every spelling Slack gave for them. The person
+ * may have agreed to any of them in their own words (`likedPreview.js`), so
+ * all are kept; the model never adds one.
+ */
 async function personName(calls, user, team) {
   const answer = await calls.call({ provider: "slack", method: "users.info", args: { user }, ...(team ? { team } : {}) });
   const found = answer?.ok === true && answer.body?.ok === true ? answer.body.user : null;
-  return { name: shown(found?.real_name) || shown(found?.profile?.real_name) || shown(found?.profile?.display_name), team: shown(answer?.team) };
+  const names = [...new Set([shown(found?.real_name), shown(found?.profile?.real_name), shown(found?.profile?.display_name)].filter(Boolean))];
+  return { name: names[0] ?? "", names, team: shown(answer?.team) };
 }
 
 /**
@@ -130,14 +136,14 @@ export async function slackPlace(store, args) {
   try {
     if (SLACK_PERSON.test(channel)) {
       const found = await personName(calls, channel, team);
-      return found.name ? { person: found.name, team: found.team } : null;
+      return found.name ? { person: found.name, team: found.team, names: found.names } : null;
     }
     if (!SLACK_CONVERSATION.test(channel)) return null;
     const answer = await calls.call({ provider: "slack", method: "conversations.info", args: { channel }, ...(team ? { team } : {}) });
     const found = answer?.ok === true && answer.body?.ok === true ? answer.body.channel : null;
     if (found?.is_im === true && typeof found.user === "string" && SLACK_PERSON.test(found.user)) {
       const person = await personName(calls, found.user, team);
-      return person.name ? { person: person.name, team: person.team || shown(answer.team) } : null;
+      return person.name ? { person: person.name, team: person.team || shown(answer.team), names: person.names } : null;
     }
     const name = shown(found?.name);
     return name ? { channel: `#${name.replace(/^#/, "")}`, team: shown(answer.team) } : null;
