@@ -41,7 +41,8 @@ export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 /** The gateway's ceilings (`apps/mcp/src/agent/attachments.js`), kept in step. */
 export const MAX_IMAGE_BYTES = 5_000_000;
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
-export const MAX_TEXT_CHARS = 100_000;
+/** A file's words, at most: the gateway keeps them for later texts and shows a turn the first 100,000 (`MAX_KEPT_TEXT_CHARS`). */
+export const MAX_TEXT_CHARS = 1_000_000;
 export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 20_000;

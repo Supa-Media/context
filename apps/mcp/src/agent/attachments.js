@@ -24,8 +24,12 @@
  * holding its bytes: write_note's `images[].data` may say `attachment:N`, and
  * the bytes are put in on the way to the tool.
  *
- * Attachments live only for the turn. The saved conversation keeps their names
- * (`attachmentsLine`), never their contents. A picture today's transcript
+ * The bytes ride along only for the turn. A file's words or a PDF are kept
+ * in the person's own bucket for 30 days under a `download:` id
+ * (`keptFiles.js`, 2026-10-24), and the saved conversation keeps that id, so
+ * a later text or a background job reads the file again with `read_file`;
+ * the conversation itself keeps names and ids (`attachmentsLine`), never
+ * contents. A picture today's transcript
  * stored (`transcript.js`) is named with where it is, so a later text ("it
  * took me here") can look at it again with read_image rather than every turn
  * carrying its bytes (Dev, 2026-10-20: "not keep the photo itself in the
@@ -40,13 +44,16 @@ export const MAX_IMAGE_BYTES = 5_000_000;
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 /** A voice message, at most: the transcription service's own ceiling (`infra/transcribe-worker`). */
 export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
-/** A file's words, at most. */
+/** A file's words shown to the turn it came with, at most. */
 export const MAX_TEXT_CHARS = 100_000;
+/** A file's words taken in and kept for later turns (`keptFiles.js`), at most: a year of bank transactions fits. */
+export const MAX_KEPT_TEXT_CHARS = 1_000_000;
 /** Everything one question carries, decoded. Under the model API's own request ceiling. */
 export const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 
 export const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const PDF = "application/pdf";
+const DATA_FILE = /\.(?:csv|tsv|xlsx?|ods|json)$/i;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 export class AttachmentRefusal extends Error {
@@ -87,7 +94,7 @@ export function readAttachments(raw) {
     if (typeof item.text === "string") {
       total += item.text.length;
       if (total > MAX_TOTAL_BYTES) throw new AttachmentRefusal("The attachments are too big.");
-      return { name, mediaType: mediaType || "text/plain", text: item.text.slice(0, MAX_TEXT_CHARS) };
+      return { name, mediaType: mediaType || "text/plain", text: item.text.slice(0, MAX_KEPT_TEXT_CHARS) };
     }
     if (typeof item.data !== "string" || !BASE64.test(item.data) || item.data.length % 4 !== 0) {
       throw new AttachmentRefusal("An attachment needs base64 data, text, or an unread reason.");
@@ -164,6 +171,11 @@ export async function hearVoiceMessages(attachments, transcribe, callerId) {
   );
 }
 
+/** Whether a text carries a data file (a CSV, a spreadsheet) bigger than a glance: a turn worth planning on the thinking model. */
+export function carriesData(attachments) {
+  return attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && DATA_FILE.test(attachment.name) && attachment.text.length > 2_000);
+}
+
 const isPicture = (attachment) => typeof attachment.data === "string" && IMAGE_TYPES.has(attachment.mediaType);
 
 /** What the model is told about the attachments, ahead of the person's words. */
@@ -174,8 +186,13 @@ function describe(attachments) {
     if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above.`;
     if (attachment.mediaType === PDF) return `${n}. ${attachment.name}: a PDF, shown above.`;
     if (attachment.heard) return `${n}. ${attachment.name}: a voice message; what they said is transcribed above. Answer it as if they had typed it.`;
-    return `${n}. ${attachment.name}: a file, its text shown above.`;
+    const length = attachment.text.length;
+    return length > MAX_TEXT_CHARS
+      ? `${n}. ${attachment.name}: a file of ${length} characters; only the first ${MAX_TEXT_CHARS} are shown above.${attachment.kept ? ` The rest: read_file with path "${attachment.kept.id}@${MAX_TEXT_CHARS}".` : ""}`
+      : `${n}. ${attachment.name}: a file, its text shown above.`;
   });
+  const kept = attachments.filter((attachment) => attachment.kept);
+  const data = attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && DATA_FILE.test(attachment.name));
   const pictures = attachments.filter(isPicture);
   return [
     `They sent ${attachments.length === 1 ? "this attachment" : `these ${attachments.length} attachments`} with this text:`,
@@ -183,6 +200,17 @@ function describe(attachments) {
     ...(pictures.length > 0
       ? [
           'To keep a picture in a note, save the note with write and args: { images: [{ name: "<a file name>.jpg", data: "attachment:<number>" }] }, and embed it by that name; never type out its bytes.',
+        ]
+      : []),
+    ...kept.map(
+      (attachment) =>
+        `${attachment.name} is kept for ${attachment.kept.keptFor} as ${attachment.kept.id}: read_file with path "${attachment.kept.id}" reads it again in any later text or background job, ` +
+        `so put that id in a job's brief, and never ask them to send it again. To email it, attach: ["${attachment.kept.id}"].`,
+    ),
+    ...(data
+      ? [
+          "Every figure you give about a data file is worked out from its rows, never estimated or made up: if you haven't read every row, say which part you read. " +
+            "A breakdown of the whole file (spending, totals, trends) is long work: start a background job for it with the file's id in the brief, and say only that it's started.",
         ]
       : []),
   ].join("\n");
@@ -198,7 +226,7 @@ export function anthropicAttachmentBlocks(attachments, text) {
       blocks.push({ type: "document", source: { type: "base64", media_type: PDF, data: attachment.data }, title: attachment.name });
     } else if (typeof attachment.text === "string") {
       const title = attachment.heard ? `${attachment.name} (voice message, transcribed)` : attachment.name;
-      blocks.push({ type: "document", source: { type: "text", media_type: "text/plain", data: attachment.text || "(empty)" }, title });
+      blocks.push({ type: "document", source: { type: "text", media_type: "text/plain", data: attachment.text.slice(0, MAX_TEXT_CHARS) || "(empty)" }, title });
     }
   }
   blocks.push({ type: "text", text: `${describe(attachments)}\n\n${text || "(No words, just the attachments.)"}` });
@@ -235,10 +263,15 @@ export function attachmentsLine(attachments, kept = []) {
   const where = new Map(kept.map((picture) => [picture.index, picture]));
   const names = attachments.map((attachment, index) => {
     const picture = where.get(index);
-    return picture ? `${attachment.name} (image ${picture.leaf} in ${picture.note})` : attachment.name;
+    if (picture) return `${attachment.name} (image ${picture.leaf} in ${picture.note})`;
+    return attachment.kept ? `${attachment.name} (kept as ${attachment.kept.id})` : attachment.name;
   });
-  const again = where.size > 0 ? " read_image with that note and image shows it again." : "";
-  const line = `[Sent with this text: ${names.join(", ")}. Seen only on that turn.${again}]`;
+  const lost = attachments.some((attachment) => !attachment.kept && !attachment.heard);
+  const again = [
+    ...(where.size > 0 ? [" read_image with that note and image shows it again."] : []),
+    ...(attachments.some((attachment) => attachment.kept) ? [' read_file with path "download:…" reads a kept file again; never ask them to resend it.'] : []),
+  ].join("");
+  const line = `[Sent with this text: ${names.join(", ")}.${lost ? " Seen only on that turn." : ""}${again}]`;
   const said = attachments
     .filter((attachment) => attachment.heard)
     .map((attachment) => `[Voice message ${attachment.name}: "${attachment.text.slice(0, MAX_SAVED_VOICE_CHARS)}"]`);

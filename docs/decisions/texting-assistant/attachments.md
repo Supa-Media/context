@@ -72,3 +72,33 @@ picture just now." The saved conversation says a picture was sent, never its
 bytes.
 
 Tests: `agentOutgoingPictures.test.mjs`, `outgoing.test.ts`.
+
+## A texted file is kept for later texts and jobs (owner's review, 2026-10-24)
+
+The owner texted Tex a bank export (a CSV) for a spending breakdown. Its words
+reached that one turn and nothing else, so the background job doing the
+breakdown never had it, every later text asked for it again, and the turn that
+did see it texted cash-flow figures that weren't in it.
+
+Now a file that comes with a text (a file's words, or a PDF) is kept the way a
+file Tex's browser downloads is: in the person's own bucket under
+`.context/agent/downloads/`, for 30 days, named by a random `download:` id
+(`apps/mcp/src/agent/keptFiles.js`). The turn is told the id, the saved
+conversation keeps it, and any later turn or background job reads the file
+again with `read_file` (or `read_note`, or `fetch`) and that id; a long file
+is read in parts (`download:<id>@<from>`), each part naming where the next one
+starts, and a CSV's part says how many rows it has. `send_email` attaches it
+as it attaches a download. Pictures are not kept here: today's transcript
+already keeps them for `read_image`. A file's words are taken in up to
+1,000,000 characters (the Worker's ceiling matches) and a turn is shown the
+first 100,000, told where the rest is.
+
+A data file (CSV, TSV, a spreadsheet, JSON) of more than a glance plans its
+turn on the thinking model, and the turn is told that every figure comes from
+its rows, never estimated, and that a breakdown of the whole file is a
+background job with the file's id in its brief.
+
+The bucket is the tenancy boundary, so an id names nothing outside it, and
+what a kept file holds is someone else's words like any file: reading it marks
+the turn untrusted. Undo: drop `keepSentFiles` and `withKeptFiles` from
+`apps/mcp/src/agent/route.js`; `agentKeptFiles.test.mjs` fails.

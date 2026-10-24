@@ -332,7 +332,7 @@ export function jobPrompt(job) {
       : "") +
     (job.followUps.length > 0
       ? "\nSince you started, they texted this about it (their own words, newer than your plan: where they differ, do it their " +
-        "new way, and fix anything you already made the old way):\n" +
+        "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
       : "") +
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +

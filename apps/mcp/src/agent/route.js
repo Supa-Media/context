@@ -29,7 +29,9 @@ import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach, meterParts } from "./modelPlan.js";
-import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { attachmentsLine, carriesData, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { keepSentFiles, withKeptFiles } from "./keptFiles.js";
+import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
@@ -237,8 +239,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
-  // Voice messages become their words only now, once the turn is allowed and counted.
-  const attachments = await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId);
+  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs (`keptFiles.js`).
+  const attachments = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
   const offered = await grantedToolsFor(session, store);
 
@@ -481,7 +483,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, waiting: setAside.length > 0, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
@@ -503,7 +505,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
-          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting)), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
+          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting)), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
         )),
       )))),
       pictures: texted || group !== null,
@@ -546,7 +548,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
       toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
-      planned: job !== null, ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
+      // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
+      planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser, if it opened one, is not left running.
     if (opened !== null) await afterAnswer(opened.close());
@@ -592,7 +595,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // The ask goes out in the gateway's own words, after whatever the model
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
-    const { answer: told, pictures } = outgoing.take(turn.answer);
+    // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
+    const { answer: told, pictures } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
