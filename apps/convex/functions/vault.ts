@@ -23,13 +23,9 @@
  * that operation shows a person: an entry's name, sites, people and field
  * names. The one operation that returns a secret part is `reveal` (decided by
  * the owner, 2026-10-10: API keys and env variables a person can see and
- * copy), and the rule its callers meet — rather than a list of them, which
- * rots the first time a legitimate one is added — is this: every caller is a
- * signed-in action that has already checked this person against the live
- * link or their membership, and no gateway route and no tool reaches it.
- * `revealVaultEntry` answers the person on the entry's people list who opened
- * that page; `vaultMove.ts` opens the values to re-seal them under another
- * workspace's key and refuses unless the person saved the key themselves. `edit` opens one to change it in place, and
+ * copy). Its callers are not listed here, because a list rots: each must be a
+ * signed-in action that has already checked this person against the live link
+ * or their membership, and no gateway route and no tool reaches it. `edit` opens one to change it in place, and
  * `delete` removes one; both answer only names (`lib/vaultEdit.ts`).
  */
 
