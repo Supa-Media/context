@@ -161,6 +161,21 @@ export async function agentTextsGmailHandler(
   return json(await ctx.runQuery(internal.functions.texHome.gmailFor, { phone }));
 }
 
+/**
+ * `POST /agent-texts/vault-saved` — `{ phone, since }` → `{ status: "waiting" | "gone" }`
+ * or `{ status: "saved", savedAt }`: whether a login was saved on a link Tex
+ * texted, so the Worker can carry the task on without a "done" from them.
+ */
+export async function agentTextsVaultSavedHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  const since = body.since;
+  if (phone === null || typeof since !== "number" || !Number.isFinite(since)) return badRequest();
+  return json(await ctx.runQuery(internal.functions.vaultWatch.savedSince, { phone, since }));
+}
+
 /** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */
 export async function agentTextsUnlinkHandler(
   ctx: ActionCtx,

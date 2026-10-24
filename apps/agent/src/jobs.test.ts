@@ -130,6 +130,17 @@ describe("background jobs", () => {
     expect(storage.data.has(RUN_KEY)).toBe(false);
   });
 
+  it("a job's turn that texted a link to save a login has its chat watch for the save (`vaultWatch.ts`)", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const { deps, reports } = jobDeps([{ body: { answer: "Saved the link for you to fill in.", vaultWatch: true, exhausted: true } }, { body: { answer: "Done." } }]);
+    await runJob(storage, deps);
+    expect(reports.at(-1)).toMatchObject({ state: "running", vaultWatch: PHONE });
+    await runJob(storage, deps);
+    expect(reports.at(-1)).toMatchObject({ state: "done" });
+    expect(reports.at(-1)?.vaultWatch).toBeUndefined();
+  });
+
   it("carries on in a new turn when one ran out of steps", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);

@@ -57,7 +57,7 @@ export function vaultToolDefinitions() {
         properties: {
           type: { type: "string", enum: ["login", "secret", "card"], description: "login (username and password), secret (named fields) or card (a payment card). Default login." },
           name: { type: "string", description: "What to call it, e.g. Netflix or OpenAI. Optional; they can change it." },
-          site: { type: "string", description: "The site it fills on, e.g. netflix.com. Optional for a secret or a card (a card with none fills at any checkout, each time on their yes); they can change it." },
+          site: { type: "string", description: "The site it fills on, e.g. netflix.com. Needed for a login. Optional for a secret or a card (a card with none fills at any checkout, each time on their yes); they can change it." },
           fields: {
             type: "array",
             items: { type: "string" },

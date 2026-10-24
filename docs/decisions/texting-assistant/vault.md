@@ -397,6 +397,28 @@ Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
 Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
 script Maya declining the save and test the handoff as the fallback.
 
+### A saved login carries Tex's task on, with no "done" from them
+
+Dev2, 2026-10-24, ordering Instacart groceries by text: the save-login page
+opened with no website filled in, and after the login was saved nothing
+happened until a "done" ("after adding the email and password Tex should know
+that i'm done adding"). Two rules follow. A login's `vault_add_link` needs its
+`site` (the tool refuses one without, so the model asks again with it); a
+secret or a card may still name none. And a texted turn (or a background job's
+turn) that minted a save link answers with `vaultWatch`; the sender's inbox
+then asks the control plane (`POST /agent-texts/vault-saved`, times only,
+never which entry) every 10 to 30 seconds for half an hour, and once a save
+link of theirs was used it queues a turn with no words and
+`event: "vault_saved"`. The gateway asks that turn its own fixed line
+(`apps/mcp/src/agent/vaultSaved.js`), only on the texting client's 1:1 turn,
+and Tex carries the task on. A text from them after the save means that text's
+turn already did, and nothing is queued; one save queues one turn. Polling
+rather than a push keeps the control plane from knowing the Worker's address,
+the same as the Gmail-connected text. Reversing it fails
+`apps/mcp/test/agentVaultSavedRoute.test.mjs`,
+`apps/agent/src/vaultWatch.test.ts` and
+`apps/convex/__tests__/vaultWatch.test.ts`.
+
 ### Tex's browser sign-ins are one sealed vault item
 
 Decided by the owner, 2026-10-20 ("Sealed in vault", over a Browserbase

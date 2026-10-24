@@ -51,7 +51,8 @@ export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin
 export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
-export type JobUpdate = { id: string; state: JobState; status?: string; texts?: string[]; first?: number; step?: string };
+/** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
+export type JobUpdate = { id: string; state: JobState; status?: string; texts?: string[]; first?: number; step?: string; vaultWatch?: string };
 
 export const MAX_RUNNING_JOBS = 3;
 /** Turns one job may take before it texts what it has (the gateway clamps to the same). */
@@ -234,13 +235,14 @@ export async function noteJobSent(storage: InboxStorage, id: string, sent: numbe
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, texts, first, step } = value as Record<string, unknown>;
+  const { id, state, status, texts, first, step, vaultWatch } = value as Record<string, unknown>;
   if (typeof id !== "string" || !ID.test(id) || (state !== "running" && state !== "done" && state !== "failed")) return null;
   return {
     id,
     state,
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step } : {}),
+    ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
   };

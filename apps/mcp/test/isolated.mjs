@@ -80,6 +80,7 @@ import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
 import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
 import { runAgentBackgroundRouteChecks } from "./agentBackgroundRoute.test.mjs";
+import { runAgentVaultSavedChecks } from "./agentVaultSavedRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentDreamChecks } from "./agentDream.test.mjs";
 import { runAgentHeartbeatChecks } from "./agentHeartbeat.test.mjs";
@@ -140,6 +141,8 @@ const SUITES = [
   ["runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(check)],
   // Tex runs long asks as background jobs, several at once (`background.js`).
   ["runAgentBackgroundRouteChecks", () => runAgentBackgroundRouteChecks(check)],
+  // A login saved on the page Tex texted carries the task on (`vaultSaved.js`).
+  ["runAgentVaultSavedChecks", () => runAgentVaultSavedChecks(check)],
   // Tex's daily transcript in tex/transcripts/, written as a text is answered.
   ["runAgentTranscriptChecks", () => runAgentTranscriptChecks(check)],
   ["runAgentDreamChecks", () => runAgentDreamChecks(check)],

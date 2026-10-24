@@ -75,7 +75,7 @@ test("vault_add_link gets a private link from the stub, with the form's prefill 
 
 test("no link is minted in a workspace the connection cannot reach", async () => {
   const before = controlPlane.vaultCalls.length;
-  const answer = await call(TOKEN_OTHER, "vault_add_link", { type: "login", context: "@vaulta" });
+  const answer = await call(TOKEN_OTHER, "vault_add_link", { type: "login", site: "streamly.example", context: "@vaulta" });
   assert.equal(answer.isError, true);
   assert.equal(controlPlane.vaultCalls.length, before);
 });
