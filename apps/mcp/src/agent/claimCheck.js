@@ -205,6 +205,21 @@ const CHANGE_HANDBACK = [
   /\b(?:can't|cannot|can not|am unable to|'m unable to|have no way to)\s+(?:edit|change|update|move|add|send|create|delete|book|cancel|reply|rsvp|invite|reschedule)\b[^.?!\n]{0,60}\b(?:events?|calendar|invites?|meetings?|emails?|messages?|location|time|title)\b/i,
 ];
 
+/*
+  A CHANGE ON A SITE TEX IS SIGNED IN TO, HANDED BACK (2026-10-24): "in the
+  Instacart app, remove the turkey penne items and add chicken wings" and "you
+  can remove the turkey penne and add the Korean beef in the app", from a Tex
+  whose browser held the cart. A payment, a code or a tap on their phone is
+  still theirs (`THEIRS_TO_DO`).
+*/
+const APP_CHANGE = String.raw`(?:remove|add|swap|change|edit|delete|update|cancel|place|order|check ?out|replace|pick|choose|select|empty)`;
+const IN_THE_APP = String.raw`\b(?:in|on|through|from)\s+(?:the|your)\s+(?:[\w.'&-]+\s+){0,2}?(?:app|website|site)\b`;
+const APP_HANDBACK = [
+  new RegExp(`${IN_THE_APP}\\s*,\\s*(?:just\\s+)?${APP_CHANGE}\\b`, "i"),
+  new RegExp(String.raw`\byou (?:can|could|may|might|'d need to|would need to|need to|have to|should)\s+(?:also\s+|just\s+|always\s+|still\s+)?${APP_CHANGE}\b[^.?!\n]{0,120}?${IN_THE_APP}`, "i"),
+  new RegExp(String.raw`^(?:just\s+|please\s+|or\s+)?(?:remove|swap|edit|change|delete|update|replace)\b[^.?!\n]{0,120}?\b(?:in|on)\s+(?:the|your)\s+(?:[\w.'&-]+\s+){0,2}?(?:app|website|site|cart)\b`, "i"),
+];
+
 /** A sentence that opens by telling them to go and do it. */
 const HANDBACK_IMPERATIVE =
   /^(?:please\s+|maybe\s+|just\s+|so\s+)?(?:check|look (?:up|in|at|through|for)|search|find|dig up|pull up|go to|head to|download|grab|forward|log ?in|sign in|open up|reach out to|contact)\b(?![-'])/i;
@@ -224,7 +239,8 @@ export function handsWorkBack(answer, { held = false } = {}) {
       FILE_HANDBACK.some((pattern) => pattern.test(sentence)) ||
       LOOK_YOURSELF.some((pattern) => pattern.test(sentence)) ||
       (!held && CHANGE_HANDBACK.some((pattern) => pattern.test(sentence))) ||
-      (!THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence)))),
+      (!THEIRS_TO_DO.test(sentence) &&
+        (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence)) || APP_HANDBACK.some((pattern) => pattern.test(sentence)))),
   );
 }
 
@@ -234,6 +250,7 @@ export const HANDBACK_NOTICE =
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
   "A calendar change is yours: calendar_event adds, edits any part of (title, time, place, notes, guests, Meet, reminders, repeats), moves, cancels or answers an event. " +
   "So are an email (send_email), a Slack post (slack) and a Google Chat message (google_chat): each is shown to them for one 👍, so just call it. " +
+  "A change on a site you're signed in to (a cart, an order, a booking) is yours to make in your browser; if a browser call failed, run it again. " +
   "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send_email or save_email_draft puts it in the email. " +
   "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
@@ -250,8 +267,12 @@ export const HANDBACK_NOTICE =
   them; an answer that hands them a captcha with no such result this turn
   gets one more round.
 */
-const CAPTCHA_ASK =
-  /\b(?:solve|tick|check|complete|pass|clear|get (?:past|through)|click|do)\b[^.?!\n]{0,40}\b(?:captcha|not a robot|robot check|bot check)\b|\b(?:captcha|robot check|bot check)\b[^.?!\n]{0,60}\b(?:you|your|tap|solve|tick|complete)\b/i;
+/** "captcha", and what Tex calls one in plain words: "a picture check keeps rejecting my answers" (2026-10-24, Instacart). */
+const CAPTCHA_WORDS = String.raw`(?:captcha|not a robot|robot check|bot check|human check|security check|(?:picture|image|photo|slider) (?:check|test|puzzle|challenge))`;
+const CAPTCHA_ASK = new RegExp(
+  String.raw`\b(?:solve|tick|check|complete|pass|clear|get (?:past|through)|click|do)\b[^.?!\n]{0,40}\b${CAPTCHA_WORDS}|\b${CAPTCHA_WORDS}[^.?!\n]{0,60}\b(?:you|your|tap|solve|tick|complete)\b`,
+  "i",
+);
 
 /** Whether an answer asks them to get past a captcha. */
 export function handsOverACaptcha(answer) {
@@ -263,6 +284,28 @@ export const CAPTCHA_NOTICE =
   "Whenever a page shows a captcha, browse tries Browserbase's solver, a reload and a fresh browser with a new address by itself, so open the page with browse and carry on. " +
   "Only a captcha the browse result says is still there after every try is theirs, and then only with everything else on the page done. " +
   "If those words weren't asking them to solve anything, send your answer again as it was.";
+
+/*
+  ONE FAILED BROWSER CALL IS NOT "IT WON'T OPEN" (2026-10-24). Tex texted
+  "Instacart's cart won't open in my browser right now" four times, offered
+  "say try again", and the plain retry the person then asked for worked.
+  When the turn's last browser call failed and the answer gives up on it, one
+  more round says to run it again first.
+*/
+const BROWSER_TOOLS = new Set(["browse", "fill_card", "fill_login"]);
+const BROWSER_GAVE_UP =
+  /\b(?:won't|wouldn't|doesn't|didn't|isn't|wasn't|can't|couldn't|cannot|could not|unable to|wasn't able to)\s+(?:open|load|work|change|update|edit|reach|fill|type|get|finish)\b|\b(?:in|from) my browser\b/i;
+
+export const BROWSER_RETRY_NOTICE =
+  "Before this goes: your last browser call failed and your answer gives up on it. A slow page or a dropped connection is common, and a second try usually works. " +
+  "Run it again now: a read step first to see where the browser is, then the rest in smaller calls. " +
+  "Only if it fails again, say in one line what you tried and offer the one next thing you'll do; never ask them to make the change themselves in the app or site. " +
+  "If your answer wasn't giving up on a browser step, send it again as it was.";
+
+/** Whether an answer gives up on something in the browser. */
+export function givesUpOnTheBrowser(answer) {
+  return BROWSER_GAVE_UP.test(String(answer ?? "").replace(/[‘’]/g, "'"));
+}
 
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
@@ -341,6 +384,9 @@ export function claimCheck({ question, judge = null }) {
   let handedBack = false;
   let captchaStuck = false;
   let captchaNoticed = false;
+  // Whether the turn's last browser call failed, and whether Tex was told to run it again (`BROWSER_RETRY_NOTICE`).
+  let browserFailedLast = false;
+  let retryNoticed = false;
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
@@ -359,6 +405,7 @@ export function claimCheck({ question, judge = null }) {
           triedWeb = true;
           const result = await web.call(name, args);
           steps.push({ name, ok: result?.isError !== true });
+          if (BROWSER_TOOLS.has(name)) browserFailedLast = result?.isError === true;
           if (result?.captchaStuck === true) captchaStuck = true;
           return result;
         },
@@ -381,7 +428,12 @@ export function claimCheck({ question, judge = null }) {
       };
     },
     check(answer) {
-      // First, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
+      // First, a browser call that failed once, given up on: the plainest fix is to run it again.
+      if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
+        retryNoticed = true;
+        return BROWSER_RETRY_NOTICE;
+      }
+      // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
       // more exact notice, since an answer that gives up also tends to hand the looking back.
       if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
         routesNoticed = true;

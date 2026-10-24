@@ -755,6 +755,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex asks the person only for a key, a yes, a choice, a fact or a body (2026-10-22)](./texting-assistant/handing-back.md)
 - [A small model reads an answer that asks them something](./texting-assistant/handing-back.md#a-small-model-reads-an-answer-that-asks-them-something)
 - [A captcha is the person's only after every way past it was tried](./texting-assistant/handing-back.md#a-captcha-is-the-persons-only-after-every-way-past-it-was-tried)
+- [A grocery order, handed back four ways (2026-10-24)](./texting-assistant/handing-back.md#a-grocery-order-handed-back-four-ways-2026-10-24)
 - [Tex scores every finished conversation, and keeps the words only where everyone said yes (2026-10-24)](./texting-assistant/self-review.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
 - [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)

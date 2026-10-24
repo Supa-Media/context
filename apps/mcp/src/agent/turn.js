@@ -45,7 +45,7 @@
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { webPrompt } from "./computer.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
@@ -652,7 +652,7 @@ export async function runTurn(options) {
         */
         if (error instanceof ProviderError) throw error;
         const text =
-          error instanceof ToolTimeout ? TOOL_TIMED_OUT : "That call failed. Don't guess what it would have said.";
+          error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).

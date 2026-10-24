@@ -101,6 +101,34 @@ function withRef(step) {
   return m ? { ...step, ref: Number(m[1]) } : step;
 }
 
+/** One email address, alone in a type step's text. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Said for an email typed where a saved login belongs (`guessedSignInEmail`). */
+export const GUESSED_EMAIL =
+  "Not typed: the person has a login saved for this site, so its own email goes in, never one you found. " +
+  "Use fill_login with the login's id and username_ref (alone, on a page that asks for the email first), then press continue.";
+
+/**
+ * Said when the browser failed mid-call and a read showed where it got to:
+ * a slow page or a dropped connection is not "the cart won't open" (the
+ * owner's review, 2026-10-24: told four times, then a plain retry worked).
+ */
+const HICCUP_LINE =
+  "\n\nThe browser stumbled on those steps (a slow page or a dropped connection), so this is a fresh reading of where it is now. " +
+  "Check which of your steps took, then run the rest again. Never tell the person the page won't open, or to do it themselves in the app, after one stumble.";
+
+/**
+ * What the model reads when a browse call outran its time (`turn.js`): the
+ * browser is still where it got to, and a slow page is worth a second try.
+ * "Don't retry it" had Tex text "the cart won't open in my browser" four
+ * times before a plain retry worked (2026-10-24).
+ */
+export const BROWSE_TIMED_OUT =
+  "That browser call took too long and was stopped, but the browser is still open where it got to. " +
+  "Read the page (a read step) to see which steps took, then run the rest again in smaller calls. " +
+  "Never tell the person the page won't open, or to do it themselves in the app, after one slow call.";
+
 /** The gateway's line when a handoff was asked for and no link could be made. */
 export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
 
@@ -250,7 +278,7 @@ function readingText(reading, ran) {
  * `addresses` is the person's own words this question (see `route.js` on why
  * a routine's are its body, not its prompt).
  */
-export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null, keep = null }) {
+export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null, keep = null, savedLogin = null }) {
   const theirWords = new Set(wordsOf(addresses));
   // Exact values a skill read this question vouched for (`vouch` below).
   const vouchedValues = new Set();
@@ -331,6 +359,22 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   // The setup's `open_web: yes`, read when needed: `trust` comes after this session is made.
   const webIsOpen = () => allowed.webIsOpen?.() === true;
 
+  /**
+   * An email the person never wrote, typed on a site they have a login saved
+   * for (this page's, or one a goto earlier in the call opens), open web or
+   * not: that box is the saved login's (`fill_login`). On 2026-10-24 Tex
+   * typed a Gmail address it found into Instacart's sign-in, not the one
+   * saved for instacart.com. An email they wrote may still be typed.
+   */
+  async function guessedSignInEmail(text, plannedSoFar) {
+    if (typeof savedLogin !== "function" || !EMAIL.test(text.trim()) || onlyTheirWords(text, theirWords)) return false;
+    if (vouchedValues.has(text.trim().toLowerCase())) return false;
+    const origins = new Set(origin === null ? [] : [origin]);
+    for (const step of plannedSoFar) if (step.do === "goto") origins.add(new URL(step.url).origin);
+    for (const at of origins) if (await Promise.resolve(savedLogin(at)).catch(() => false)) return true;
+    return false;
+  }
+
   return {
     // Only a browser that can be handed over is described as one (`canHandOff`).
     get definition() {
@@ -391,6 +435,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           planned.push({ do: "goto", url });
         } else if (step.do === "type") {
           if (typeof step.text !== "string") return textResult("A type step needs text.", true);
+          if (await guessedSignInEmail(step.text, planned)) return textResult(GUESSED_EMAIL, true);
           let onlyOn = null;
           // Open web: anything on any page, and no host re-check at the keys.
           const delegatedTo = delegatedValues.get(step.text.trim());
@@ -434,7 +479,18 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       } catch {
         done = null;
       }
-      if (done === null) return textResult("The browser couldn't do that. Try again, or answer without it.", true);
+      // One stumble is not a failure: read where the browser got to, rather than say it couldn't.
+      if (done === null && session !== null) {
+        done = await run([{ do: "read" }]).catch(() => null);
+        if (done !== null) {
+          captchaLine = HICCUP_LINE;
+          handoff = false;
+          done.ran = [{ do: "read", ok: false, reason: "the steps before this reading may not all have run" }];
+        }
+      }
+      if (done === null) {
+        return textResult("The browser couldn't do that twice running. Run the steps again once more before you tell the person anything, and never ask them to do it themselves in the app.", true);
+      }
       if (handoff && handoffLink !== null && !handoffSaid && typeof say === "function") {
         /*
           The host, in the line itself. A `goto` may follow a link the PAGE

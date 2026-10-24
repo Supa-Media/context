@@ -566,9 +566,20 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
 - **Groups.** As for logins ([groups](./groups.md)): a group chat counts only
   a card given to the whole workspace, and the yes is asked of the person who
   tagged Tex.
-- **Not yet.** Card boxes inside a payment provider's own frame (Stripe
-  Elements, Shopify's checkout) are on another origin the browser does not
-  reach; there Tex hands the browser over for the card, as before.
+- **Payment frames (2026-10-24).** Checkouts keep the card's boxes in their
+  processor's frame (Stripe Elements, Braintree, Shopify's card fields). On
+  an Instacart order the person had said yes to their saved Mastercard and
+  Tex still sent them its browser to type it, because the fill step refused
+  the frame as another origin. A card's part (never a login) now goes into a
+  frame when, at the keys: the top page is the checkout the yes named; the
+  frame is on https and is the checkout's own site or a known processor's
+  (`PAYMENT_HOSTS`); and every document between it and the top page is the
+  checkout's own site (`location.ancestorOrigins`), so a processor's frame
+  inside an ad's frame gets nothing, and a frame hiding its ancestors gets
+  nothing (`infra/site-shots/src/paymentFrames.ts`). Widening the list to
+  "any frame" would hand the card to whatever third party the checkout
+  embeds; narrowing it back hands the person the browser for every Stripe
+  checkout. Tests: `infra/site-shots/src/paymentFrames.test.ts`.
 
 Tests: `apps/mcp/test/agentFillCard.test.mjs` (sabotaged: the ask skipped,
 the spend dropped, the host ignored, approve-always offered, the missing-part

@@ -44,7 +44,7 @@ export function captchaPending(signs: CaptchaSigns | null): boolean {
 
 /** Reads the signs; run in the page. Its result is three booleans and nothing else. */
 export const CAPTCHA_PROBE = `(() => {
-  const hosts = /recaptcha|hcaptcha\\.com|challenges\\.cloudflare\\.com|arkoselabs|funcaptcha|captcha-delivery\\.com|geetest|px-cdn|px-captcha|perimeterx/i;
+  const hosts = /recaptcha|hcaptcha\\.com|challenges\\.cloudflare\\.com|arkoselabs|funcaptcha|captcha-delivery\\.com|geetest|px-cdn|px-captcha|perimeterx|awswaf|friendlycaptcha|mtcaptcha/i;
   const widget = [...document.querySelectorAll("iframe")].some((f) => {
     const src = f.src || "";
     if (!hosts.test(src) || /size=invisible/.test(src)) return false;
@@ -54,7 +54,7 @@ export const CAPTCHA_PROBE = `(() => {
   const boxes = [...document.querySelectorAll('textarea[name="g-recaptcha-response"], textarea[name="h-captcha-response"], input[name="cf-turnstile-response"]')];
   const answered = boxes.length > 0 && boxes.every((b) => (b.value || "").length > 0);
   const words = ((document.title || "") + " " + (document.body ? document.body.innerText : "")).slice(0, 3000);
-  const wall = /just a moment\\.\\.\\.|verify (that )?you are (a )?human|are you a robot|press (&|and) hold|unusual traffic from your|checking (if the site connection is secure|your browser)/i.test(words);
+  const wall = /just a moment\\.\\.\\.|(verify|confirm|prove) (that )?you('re| are) (a )?human|are you a robot|press (&|and) hold|unusual traffic from your|checking (if the site connection is secure|your browser)|select all (the )?(images|squares|pictures)|(complete|solve) (the|this) (puzzle|challenge)/i.test(words);
   return { widget, answered, wall };
 })()`;
 

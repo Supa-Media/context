@@ -31,6 +31,7 @@ export const FILL_CARD_DEFINITION = {
   description:
     "Pay with a card the person saved: fills the card boxes on the checkout page your browser is on. " +
     "First get to the payment step with send action browse, then pass the card's id from fetch vault: and the numbers of the boxes. " +
+    "The boxes are often in the payment processor's frame (a card form from another site), read after the page and numbered from 1001: those numbers fill too. " +
     "Each time, the person is asked to allow that card on that site; when the answer says they are being asked, tell them what you're buying and the total, and fill again once they allowed it. " +
     "You never see the card; it fills and never pays: press the page's pay button with send action browse yourself, after they know the total. " +
     "If there is no saved card, never ask for the number: send manage action vault_add's link with type card.",
