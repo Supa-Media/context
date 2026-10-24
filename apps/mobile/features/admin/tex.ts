@@ -215,7 +215,7 @@ export function formatMicroUsd(micro: number): string {
 
 /** A model name as staff say it: the part after the provider. */
 export function modelLabel(model: string): string {
-  const name = model.split("/").pop() ?? model;
+  const name = model.slice(model.lastIndexOf("/") + 1);
   const short = name.replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2");
   return short.charAt(0).toUpperCase() + short.slice(1);
 }
