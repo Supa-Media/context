@@ -36,11 +36,12 @@ import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 
 /** A busy hour of texting ends a few conversations; this only stops a loop. */
 const REVIEWS_PER_HOUR = 30;
-const HOUR_MS = 60 * 60 * 1000;
+/** One rate-limit window, for the review filing and the switch alike. */
+const REVIEW_WINDOW_MS = 60 * 60 * 1000;
 /** A day's scores note lists at most this many. */
 export const MAX_SCORES_PER_DAY = 500;
 /** Scores rows are kept this long, then swept a few at a time as new ones arrive. */
-export const SCORES_KEPT_MS = 90 * 24 * HOUR_MS;
+export const SCORES_KEPT_MS = 90 * 24 * REVIEW_WINDOW_MS;
 const SWEEP_PER_WRITE = 20;
 const SWITCH_WRITES_PER_HOUR = 30;
 
@@ -130,7 +131,7 @@ export const recordScores = internalMutation({
   },
   returns: v.array(v.object({ at: v.number(), kind: v.union(v.literal("one"), v.literal("group")), reason: v.string(), ...scoreFields })),
   handler: async (ctx, { userId, now, ...row }) => {
-    await consumeRateLimit(ctx, { key: `tex.review:${userId}`, limit: REVIEWS_PER_HOUR, windowMs: HOUR_MS });
+    await consumeRateLimit(ctx, { key: `tex.review:${userId}`, limit: REVIEWS_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
     const day = new Date(now).toISOString().slice(0, 10);
     await ctx.db.insert("texReviewScores", { day, at: now, ...row });
     const old = await ctx.db
@@ -165,7 +166,7 @@ export const setMyTexReviewSharing = mutation({
   returns: v.boolean(),
   handler: async (ctx, { share }) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await consumeRateLimit(ctx, { key: `tex.review.sharing:${userId}`, limit: SWITCH_WRITES_PER_HOUR, windowMs: HOUR_MS });
+    await consumeRateLimit(ctx, { key: `tex.review.sharing:${userId}`, limit: SWITCH_WRITES_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
     const rows = await ctx.db
       .query("texReviewSharing")
       .withIndex("by_user", (q) => q.eq("userId", userId))
