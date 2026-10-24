@@ -88,6 +88,12 @@ export function otherRoutesNotice(untried) {
 /** "Once it answers, I'll check your serving schedule and text you what I find." */
 const PROMISE =
   /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:[\w'’,]+\s+){0,8}?(?:text|message|ping|tell|let|get back to|update|circle back to)\s+you\b/i;
+/**
+ * "I'll send the organized breakdown … within the next 10–15 minutes" (2026-10-24): a promise of work by a
+ * time, with no "text you" in it. Tex had started nothing, and said so only when asked what 医保 meant.
+ */
+const TIMED_PROMISE =
+  /\b(?:I'll|I will|I'm going to|I am going to)\b[^.!?\n]{0,240}?\b(?:within|in)(?:\s+(?:the next|the|about|around))?\s+(?:\d+|a few|a couple of)(?:\s*(?:-|\u2013|to)\s*\d+)?\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
 /** A later that's theirs or Tex's in-turn work: "once you say yes", "when you're back". */
 const THEIR_LATER = /\b(?:once|when|after|if)\s+you\b|\byes\b|\u{1F44D}/iu;
 
@@ -95,7 +101,7 @@ const THEIR_LATER = /\b(?:once|when|after|if)\s+you\b|\byes\b|\u{1F44D}/iu;
 export function promisesLater(answer) {
   return words(answer)
     .split(/\n+|(?<=[.!?])\s+/)
-    .some((sentence) => PROMISE.test(sentence) && !THEIR_LATER.test(sentence));
+    .some((sentence) => (PROMISE.test(sentence) || TIMED_PROMISE.test(sentence)) && !THEIR_LATER.test(sentence));
 }
 
 /** The calls that keep a promise to text later: a job, a delegated job, or a routine written. */

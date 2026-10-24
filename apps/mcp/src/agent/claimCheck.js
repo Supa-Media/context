@@ -47,6 +47,7 @@
  */
 
 import { mayAsk } from "./handbackJudge.js";
+import { replyChecks } from "./replyChecks.js";
 import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -372,7 +373,9 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null }) {
+export function claimCheck({ question, judge = null, waiting = false }) {
+  // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
+  const shape = replyChecks({ question, waiting });
   let wrote = false;
   let keptWish = false;
   let held = false;
@@ -428,7 +431,9 @@ export function claimCheck({ question, judge = null }) {
       };
     },
     check(answer) {
-      // First, a browser call that failed once, given up on: the plainest fix is to run it again.
+      const shaped = shape(answer, steps);
+      if (shaped !== null) return shaped;
+      // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
       if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
         retryNoticed = true;
         return BROWSER_RETRY_NOTICE;

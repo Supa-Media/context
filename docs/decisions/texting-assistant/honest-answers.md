@@ -76,3 +76,22 @@ change the person never saw exactly. Dropping the offer check brings back the
 double yes. Tests: `apps/mcp/test/calendarGate.test.mjs` (the owner's chat end
 to end), `agentClaimCheck.test.mjs`, `agentHeldEcho.test.mjs`,
 `calendarWords.test.mjs`.
+
+## Four more things an answer is checked for (owner's review, 2026-10-24)
+
+In one afternoon's chat Tex sent nothing at all four times (the Worker sends no
+text for an empty answer), texted "The bulk of that is医保 and necessities",
+said "your notes have been down all afternoon" when no note call had failed,
+and answered "is Kansi on the email thread?" by pointing back at the forward
+waiting for a 👍. It also promised a breakdown "within the next 10–15 minutes"
+with nothing started.
+
+`apps/mcp/src/agent/replyChecks.js` catches each, once a turn, before
+`claimCheck.js`'s other checks: an empty answer, a word in a script the
+person's text doesn't use, an answer blaming their notes when no note read or
+write failed in the turn, and, while an ask waits, an answer that only points
+at it. Each sends one more round with a notice. An answer still empty after
+it is texted as a fixed line saying the answer got lost, never as nothing.
+`otherRoutes.js` counts "I'll … within N minutes" as a promise to keep, like
+"I'll text you". A background job's follow-ups that say stop are a rule for
+the rest of the job, retries included. Tests: `agentReplyChecks.test.mjs`.
