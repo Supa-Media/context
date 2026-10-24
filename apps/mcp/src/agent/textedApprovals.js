@@ -114,31 +114,35 @@ export function approvalVerdict(text) {
  * send” seems very robotic"), and ending the way Dev2 asked on 2026-10-21:
  * "Give it a 👍 and I'll send it." A typed yes still works.
  */
-export function askLine(asked) {
+export function askLine(asked, { who = null } = {}) {
+  // In a group chat the ask names its tagger, whose account it goes from and whose yes alone makes it (`tools/offerFor.js`).
+  const yes = who ? `@${who}, give it a 👍` : SAY_YES;
+  const only = who ? ` Only @${who} can OK it; anyone can ask me for changes first.` : "";
+  const theirs = (thing) => (who ? `${thing} from @${who}'s email` : thing);
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll make the change.`;
+    return `Here's the change I'd make${who ? ` on @${who}'s calendar` : ""}:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll make the change.${only}`;
   }
   if (asked.length === 1 && asked[0].tool === GOOGLE_CHAT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the Google Chat message I'd send:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
+    return `Here's the Google Chat message I'd send:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
   }
   if (asked.length === 1 && asked[0].tool === FORWARD_RULE_TOOL && typeof asked[0].detail === "string") {
-    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll start.`;
+    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll start.${only}`;
   }
   // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
   if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
-    return `Before I pay, I need your OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${SAY_YES} and I'll fill it in.`;
+    return `Before I pay, I need ${who ? `@${who}'s` : "your"} OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${yes} and I'll fill it in.${only}`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\n${SAY_YES} and I'll send ${emails.length === 1 ? "it" : "them"}.`;
+    return `${theirs(emails.length === 1 ? "Here's the email I'd send" : "Here are the emails I'd send")}:\n\n${copies}\n\n${yes} and I'll send ${emails.length === 1 ? "it" : "them"}.${only}`;
   }
   const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. ${SAY_YES} and I'll go ahead.`;
+  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need ${who ? `@${who}'s` : "your"} OK: ${what}. ${yes} and I'll go ahead.${only}`;
 }
 
 /** Fewer words than this quoted cannot tell one ask from another. */
@@ -149,13 +153,13 @@ const MIN_QUOTED = 24;
  * it was on are the ask the person was shown for exactly what is armed now
  * (Dev2, 2026-10-21). A like on an older ask, or on any other text, is not.
  */
-export async function thumbsUpIsYes(store, session, quoted) {
+export async function thumbsUpIsYes(store, session, quoted, { who = null } = {}) {
   if (quoted?.tapback !== "Liked" && quoted?.tapback !== "Loved") return false;
   const words = folded(quoted.words);
   if (words.length < MIN_QUOTED) return false;
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
   const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
-    const shown = folded(askLine(order));
+    const shown = folded(askLine(order, { who }));
     return shown === words || shown.startsWith(words);
   });
   // Without its words: enough to tell a 👍 on nothing armed from one on other words (2026-10-22).
@@ -183,14 +187,14 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked, told = "") {
+export async function textedAsk(store, session, asked, told = "", { who = null } = {}) {
   if (asked.length === 0) {
     // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
     if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return { ask: null, verbatim: [] };
   }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
-  const ask = askLine(asked);
+  const ask = askLine(asked, { who });
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask.length <= TEXTED_ASK_CAP) {

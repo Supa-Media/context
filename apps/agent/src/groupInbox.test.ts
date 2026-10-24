@@ -513,6 +513,19 @@ describe("the group chat of 2026-10-21", () => {
     expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:late", messageId: "late" }), 1_000 + 31 * 60_000)).toBe("kept");
   });
 
+  it("an email offered to someone else waits for their yes alone, and the gateway is told who is here", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const control = { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group",
+      names: [{ phone: ADA, handle: "ada" }, { phone: BO, handle: "bo" }] };
+    await acceptGroup(storage, message("Tex, send it as bo"), 0);
+    await drainGroup(storage, deps(w, { control, agent: { answer: ask, verbatim: [ask], askFor: "bo" } }));
+    expect(w.asks[0]).toMatchObject({ group: { from: "ada", people: ["ada", "bo"] } });
+    // Ada asked, but it's Bo's to OK: her bare yes is chat, his reaches Tex.
+    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:ada-yes", messageId: "ada-yes" }), 2_000)).toBe("kept");
+    expect(await acceptGroup(storage, message("yes", { from: BO, eventId: "sendblue:bo-yes", messageId: "bo-yes" }), 2_000)).toBe("queued");
+  });
+
   it("closes the ask once Tex answers anything else", async () => {
     const storage = new MemoryStorage();
     const w = world();

@@ -154,7 +154,7 @@ test("a group turn must name its chat, and a chat names only hashes", async () =
   assert.equal(refused.status, 400);
   assert.equal(groupOf({ group: { key: KEY, members: "+15555550100", from: "ada" } }), null, "a phone number is not a participant hash");
   assert.equal(groupOf({ group: { key: "short", members: MEMBERS } }), null);
-  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", chat: [] });
+  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", people: [], chat: [] });
   // A chat line names a handle or nobody, never a number, and a line that isn't one is left out.
   const said = groupOf({ group: chat({ chat: [{ from: "+15555550100", text: "hi" }, { text: 7 }, { from: "bo", text: "  friday?  " }] }) });
   assert.deepEqual(said.chat, [{ from: "", text: "hi" }, { from: "bo", text: "friday?" }]);

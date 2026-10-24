@@ -27,6 +27,25 @@ import { resolveUpload } from "./uploads.js";
 import { keepDownload } from "./downloads.js";
 import { markUntrusted } from "../privacy/egress.js";
 
+/** How many of their earlier texts vouch for what the browser may type and open. */
+export const EARLIER_TEXTS_VOUCHED = 20;
+
+/**
+ * The person's own earlier texts in this conversation (a group's: the chat's
+ * people), newest last, so the browser may type what they said a text ago
+ * (the owner, 2026-10-24: group Tex had claude.ai's sign-in page open and
+ * "won't type dev2@… into its email box" after "Tex try again", because only
+ * the current text vouched). Only their words: never Tex's answers, and never
+ * a finished job's line, whose title a model wrote.
+ */
+export function theirEarlierWords(history) {
+  return (Array.isArray(history) ? history : [])
+    .filter((turn) => turn?.role === "user" && typeof turn.text === "string" && !turn.text.startsWith("(Background job finished:"))
+    .slice(-EARLIER_TEXTS_VOUCHED)
+    .map((turn) => turn.text)
+    .join("\n\n");
+}
+
 /**
  * `{ opened, web }`: the question's web session (null when it has none) and
  * what `runTurn` is handed of it.

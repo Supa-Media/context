@@ -4,6 +4,7 @@
  */
 
 import { claimCheck, lastOffer } from "./claimCheck.js";
+import { addressedTo, offerLine } from "../tools/offerFor.js";
 import { handbackJudgeFor } from "./handbackJudge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
@@ -24,7 +25,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { checkerQuestion, mailCheckerFor } from "./mailChecker.js";
 import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
-import { openTurnWeb } from "./turnWeb.js";
+import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
@@ -191,7 +192,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
   if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null) {
     // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
-    thumbsUp = await thumbsUpIsYes(store, session, quoted);
+    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null });
     const settled = await settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
@@ -265,7 +266,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // The routine this run is, for a standing forward only it may use (`tools/forwardRule.js`).
     ...(runner ? { routine: routine.path } : {}),
     // A 👍 on words that were not the armed ask: Tex's own preview, maybe (`tools/likedPreview.js`).
-    ...(group === null && !thumbsUp && (quoted.tapback === "Liked" || quoted.tapback === "Loved") ? { liked: quoted.words } : {}),
+    // In a group, only on words that asked this tagger by name (`tools/offerFor.js`).
+    ...(!thumbsUp && (quoted.tapback === "Liked" || quoted.tapback === "Loved") && (group === null || addressedTo(quoted.words, group.from)) ? { liked: quoted.words } : {}),
+    ...(group !== null ? { group: { from: group.from, people: group.people } } : {}), // who an email may be offered to (`offerFor.js`)
   };
 
   /*
@@ -285,7 +288,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
-  if (group === null && session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = lastOffer(history) ?? undefined;
+  if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read
@@ -342,7 +345,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     addresses in its own body and nothing else. The routine's *path* is not in
     the body either, which keeps `watch.md` from reading as a hostname. A group's chat lines are people's own words.
   */
-  const vouched = runner ? routine?.body ?? "" : [chatLines(group), question].filter(Boolean).join("\n\n");
+  const vouched = runner ? routine?.body ?? "" : [theirEarlierWords(history), chatLines(group), question].filter(Boolean).join("\n\n"); // their earlier texts too (`turnWeb.js`)
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
   const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, channel, store, dispatch, ledger });
@@ -597,8 +600,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // relaying it is a courtesy rather than the mechanism.
     const { answer: told, pictures } = outgoing.take(turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
-    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told);
-    const answer = answerWithAsk(told, ask, ledger.asked);
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
+    const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
+    const answer = [answerWithAsk(told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n");
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
@@ -636,7 +640,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
       ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
-      ...(verbatim.length > 0 ? { verbatim } : {}),
+      ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
+      ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
       ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
       ...(pictures.length > 0 ? { pictures } : {}),
       ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
