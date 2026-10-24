@@ -8,16 +8,19 @@
  * sign-ins between browsers, and their saved logins for `fill_login`.
  *
  * A group chat's turn gets the web and nothing of the tagger's (the owner,
- * 2026-10-21: "computer use as well"): a browser with no tag and no sign-ins
- * kept between browsers, because anyone in the chat steers what it does. Its
- * `fill_login` opens the chat's shared workspace's vault, and there only what
- * is given to the whole workspace (`vault/access.js`;
+ * 2026-10-21: "computer use as well"): the chat's own browser, tagged by the
+ * chat and the people in it (`groupBrowserOwner`), with the chat's own
+ * sign-ins kept in its shared workspace (2026-10-24), never the tagger's. So a
+ * site that signs in with an email and a code can be signed in from the chat,
+ * the code texted after Tex asks for it, and stays signed in for the chat's
+ * later asks. Its `fill_login` opens the chat's shared workspace's vault, and
+ * there only what is given to the whole workspace (`vault/access.js`;
  * docs/decisions/texting-assistant/groups.md).
  */
 
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
-import { browserOwner } from "./browserProviders.js";
+import { browserOwner, groupBrowserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
 import { decisionEngine } from "./decide.js";
 import { resolveUpload } from "./uploads.js";
@@ -38,7 +41,7 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
   const computer = texting
     ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
     : group
-      ? computerFor(env)
+      ? computerFor(env, { owner: await groupBrowserOwner(env, group), store, group })
       : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.

@@ -111,10 +111,24 @@ other people's words are in its history.
   workspace with `context:private`; a group grant is neither.
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
-- **Use the web with a browser that holds nobody's sign-ins**
-  (`apps/mcp/src/agent/turnWeb.js`): no browser tag carried between turns
-  and no sign-ins kept between browsers, because anyone in the chat steers
-  what the browser does.
+- **Use the web with the chat's own browser, never the tagger's**
+  (`apps/mcp/src/agent/turnWeb.js`). Until 2026-10-24 a group's browser had
+  no tag and kept nothing, so a site that signs in with an email and a
+  one-time code could not be signed in at all: the code arrives in a later
+  text, after the browser had closed, and Tex refused it for want of a vault
+  login that could not exist. The owner asked Tex to sign in from the chat
+  and keep the sign-in for every later run in that chat. So a group now has
+  its own browser tag (`groupBrowserOwner`, an HMAC of the chat and the exact
+  set of people in it, never equal to a person's) and its own sealed jar in
+  the shared workspace at `.context/vault/groups/<hash>.json`
+  (`browserJar.js`), sealed naming that chat and set of people. Somebody
+  added to the chat gets a new browser, signed out, as they get a new memory;
+  a group never opens a person's own browser or jar, nor a person's turn the
+  chat's. Anyone in the chat steers that browser, which is what keeping a
+  sign-in for the chat means; whoever signs a chat in to an account they own
+  is choosing that. The prompt says a code sign-in needs no saved login, to
+  ask the chat for the code and type it at once, and that a password is never
+  typed in the chat.
 - **Sign in and use keys only with what the workspace itself holds** (the
   owner, 2026-10-21: "people can give Tex its own email ... but not through
   the individual saved logins, since we don't want anyone steering someone's
@@ -136,7 +150,9 @@ an editor able to; one that dropped the actor filter would let any person
 in the chat approve another's email; one that read a group's vault access
 as the tagger's would let anyone in the chat sign in as them. `apps/convex/__tests__/textGroupsOwnAccount.test.ts`
 `apps/mcp/test/agentGroupActions.test.mjs` and
-`apps/mcp/test/vaultGroupChat.test.mjs` fail if any is reversed.
+`apps/mcp/test/vaultGroupChat.test.mjs` fail if any is reversed;
+`apps/mcp/test/agentGroupSignIn.test.mjs` fails if a group's browser or jar
+stops being the chat's own, or reaches a person's.
 
 ## Memory lives in the shared workspace
 

@@ -51,6 +51,17 @@ export async function browserOwner(env, userId) {
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * A group chat's browser tag (the owner, 2026-10-24): one browser per chat and
+ * set of people in it, so a sign-in code texted after Tex asks for it lands in
+ * the same browser, and somebody added to the chat gets a new one. Its own
+ * label, so it never equals any person's tag.
+ */
+export async function groupBrowserOwner(env, group) {
+  if (typeof group?.key !== "string" || !group.key || typeof group?.members !== "string" || !group.members) return null;
+  return await browserOwner(env, `group:${group.key}:${group.members}`);
+}
+
 async function post(binding, path, body) {
   return await binding.fetch(`https://site-shots${path}`, {
     method: "POST",

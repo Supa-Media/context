@@ -226,7 +226,7 @@ test("signing in is Tex's to do: no saved login means asking Gmail or another em
   assert.match(prompt, /Gmail or another email/);
   assert.match(prompt, /vault_add/);
   // A captcha only once browse says it outlasted every try (captchaLadder.js, 2026-10-22).
-  assert.match(prompt, /only for what truly needs them, a code, a captcha browse said outlasted Browserbase's solver, a reload and a fresh browser, or a payment/);
+  assert.match(prompt, /only for what truly needs them, a code they can't text you, a captcha browse said outlasted Browserbase's solver, a reload and a fresh browser, or a payment/);
   assert.doesNotMatch(prompt, /so they sign in themselves/);
   assert.match(FILL_LOGIN_DEFINITION.description, /Gmail or another email/);
   assert.doesNotMatch(FILL_LOGIN_DEFINITION.description, /hand the browser over/);
