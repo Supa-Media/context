@@ -7,8 +7,13 @@
  *
  * - `meta`: the name, the sites it fills on, and who may use it. Opened to
  *   list entries and to check a fill.
- * - `secret`: the username and password. Opened only by `openForFill`, and by
- *   nothing that answers a model.
+ * - `secret`: the username and password. Opened only where the value leaves
+ *   Context without being shown to anybody — typed into the live page by the
+ *   fill step (`fill.js`), or added to an outgoing request by the proxy step
+ *   (`proxy.js`) — and never by anything whose answer reaches a model, a tool
+ *   result, a log or a message. `vaultSecretDoors.test.mjs` pins that pair:
+ *   naming the openers here and leaving the count to rot is what row 762 was
+ *   about.
  *
  * The key is the workspace data key (`workspaceDataKeys`, held sealed by the
  * control plane, never in the bucket), expanded with its own label, so the
