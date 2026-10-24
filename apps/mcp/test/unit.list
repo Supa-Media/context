@@ -214,3 +214,4 @@ test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs
 test/agentNoteWriteRetry.test.mjs
 test/fileParts.test.mjs
+test/calendarRetry.test.mjs

@@ -79,16 +79,32 @@ export const ASK_NOTICE =
   "Mention the waiting ask only if this text is about it, and if their answer makes it unnecessary, say so plainly. If your answer already did that, send it again as it was.";
 
 /**
- * The check for one turn: `{ question, waiting }` from the turn, `steps` as
+ * They sent a picture and the answer asks them something (a review of a chat,
+ * 2026-10-24: a screenshot of the tailor agreeing "Sunday after 3pm", and Tex
+ * asked "Is there a time you want me to block?"). A question mark is enough
+ * to look again: one round, once.
+ */
+export function asksPastPicture(answer, pictures) {
+  return pictures === true && /\?/.test(String(answer ?? ""));
+}
+
+export const PICTURE_NOTICE =
+  "Before this goes: they sent a picture with this text, and your answer asks them something. Look at the picture again first: " +
+  "a screenshot of a chat, an email, a ticket or a receipt often already answers it (a time agreed, a place, a name, an amount). " +
+  "If it does, use what it shows and don't ask. If it doesn't, send your answer again as it was.";
+
+/**
+ * The check for one turn: `{ question, waiting, pictures }` from the turn, `steps` as
  * `claimCheck.js` records them. Answers a notice, each kind once, or null.
  */
-export function replyChecks({ question, waiting = false }) {
+export function replyChecks({ question, waiting = false, pictures = false }) {
   const given = new Set();
   const checks = [
     ["empty", (answer) => isEmptyAnswer(answer), EMPTY_NOTICE],
     ["script", (answer) => strayScript(answer, question), SCRIPT_NOTICE],
     ["notes", (answer, steps) => blamesNotes(answer, steps), NOTES_NOTICE],
     ["ask", (answer) => pointsAtWaitingAsk(answer, waiting), ASK_NOTICE],
+    ["picture", (answer) => asksPastPicture(answer, pictures), PICTURE_NOTICE],
   ];
   return (answer, steps = []) => {
     for (const [kind, fails, notice] of checks) {

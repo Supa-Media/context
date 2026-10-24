@@ -282,6 +282,17 @@ export const REFUSED = {
   unavailable: "Not changed: Google Calendar did not take the change just now. Nothing was changed; it can be asked for again.",
 };
 
+/**
+ * No answer in time is not a refusal: the change may have been made. A create
+ * sent again with the same title and times never makes a second event
+ * (`gatewayRoutes/calendarWrite.ts`), so it is safe to send once more; for
+ * anything else the calendar is read first.
+ */
+export const NO_ANSWER =
+  "Not known whether it changed: the calendar didn't answer in time, and the change may have been made. " +
+  "A create sent again with exactly the same title and times never adds a second event, so you may send it once more; " +
+  "for any other change, read their calendar for that day first (fetch calendar:) and never say it failed.";
+
 export async function toolCalendarEvent(store, args) {
   const read = readCalendarChange(args);
   if (read.error) return toolError(`Not changed: ${read.error}`);
@@ -290,10 +301,13 @@ export async function toolCalendarEvent(store, args) {
   try {
     answer = await store.calendar.change(read.change);
   } catch {
-    return toolError(REFUSED.unavailable);
+    return toolError(NO_ANSWER);
   }
   if (answer?.ok === true) {
     const meet = typeof answer.meet === "string" ? ` Google Meet link: ${answer.meet}` : read.change.meet ? " Google made no Meet link." : "";
+    if (answer.existing === true) {
+      return toolText(`Already on ${answer.calendar}'s calendar: ${calendarSummary(read.change)}. Nothing new was added, so there is one, not two.${meet}`);
+    }
     return toolText(`Done on ${answer.calendar}'s calendar: ${calendarSummary(read.change)}.${meet}`);
   }
   return toolError(refusalFor(answer));

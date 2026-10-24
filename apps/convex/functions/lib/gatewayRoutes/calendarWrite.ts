@@ -19,6 +19,13 @@
  * `sendUpdates=none`. A new event invites guests only with it too, and gets a
  * Google Meet with `meet` (`conferenceDataVersion=1`). Nothing of the event is stored or logged; Google's
  * error body can quote it, so only a status is.
+ *
+ * A create is safe to send twice (a review of a chat, 2026-10-24: "Serving at
+ * church" landed twice, the second call sent after the first looked failed).
+ * Its Google event id is worked out from the calendar, the title and the
+ * moments (`createdEventId`), so the same event asked for again is Google's
+ * 409 and answered as the one already there (`existing`); one the person
+ * deleted since holds that id still, cancelled, so it is added afresh.
  */
 
 import { internal } from "../../../_generated/api";
@@ -27,7 +34,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import type { CalendarChange, CalendarRefusal, GoogleEvent } from "../calendarWrite";
-import { googleTime, matchingEvents, meetLink, readCalendarChange, searchWindow } from "../calendarWrite";
+import { googleTime, instant, matchingEvents, meetLink, readCalendarChange, searchWindow } from "../calendarWrite";
 import { googleReminders } from "../calendarEdit";
 import { EVENTS_ENDPOINT, existingEventRequest, whoHears } from "./calendarEditRequest";
 
@@ -63,13 +70,39 @@ async function findEvent(accessToken: string, change: CalendarChange, check: boo
   return { ok: true, event, guests: heard.guests };
 }
 
-/** The one request that adds a new event. */
-function createRequest(change: CalendarChange): { url: string; method: string; body: string } {
+const BASE32HEX = "0123456789abcdefghijklmnopqrstuv";
+
+/**
+ * The Google event id a create asks for: the same calendar, title (any case
+ * or spacing), start and end always give the same one, in the base32hex
+ * Google takes. Nothing of the event can be read back from it.
+ */
+export async function createdEventId(connectionId: string, change: CalendarChange): Promise<string> {
+  const title = change.title.trim().replace(/\s+/g, " ").toLowerCase();
+  const key = [connectionId, title, instant(change.start), instant(change.end!), (change.recurrence ?? []).join(";")].join("\n");
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+  let bits = 0;
+  let value = 0;
+  let id = "ctx";
+  for (const byte of digest.subarray(0, 20)) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      id += BASE32HEX[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  return id;
+}
+
+/** The one request that adds a new event, under `id` when given. */
+function createRequest(change: CalendarChange, id: string | null): { url: string; method: string; body: string } {
   const quiet = change.notifyGuests ? "?sendUpdates=all" : "?sendUpdates=none";
   return {
     url: `${EVENTS_ENDPOINT}${quiet}${change.meet ? "&conferenceDataVersion=1" : ""}`,
     method: "POST",
     body: JSON.stringify({
+      ...(id !== null ? { id } : {}),
       summary: change.title,
       start: googleTime(change.start),
       end: googleTime(change.end!),
@@ -161,7 +194,8 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     }
     // A change to an existing event checked: whether it would tell anybody, so the gateway knows to ask first.
     if (check) return json({ ok: true, calendar: writer.address, guests: found.guests });
-    const request = change.action === "create" ? createRequest(change) : await existingEventRequest(change, found.event, { accessToken: googleToken });
+    const eventId = change.action === "create" ? await createdEventId(writer.connectionId, change) : null;
+    const request = change.action === "create" ? createRequest(change, eventId) : await existingEventRequest(change, found.event, { accessToken: googleToken });
     if (request === null) {
       log({ outcome: "http_error", stage: "prepare", action: change.action });
       return json({ ok: false, refused: "unavailable" });
@@ -170,11 +204,24 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     // still counted, the safe direction for a limit.
     const spent = await claim(true);
     if (!spent.ok) return json({ ok: false, refused: spent.refused });
-    const response = await fetch(request.url, {
-      method: request.method,
-      headers: { Authorization: `Bearer ${googleToken}`, "Content-Type": "application/json" },
-      ...(request.body !== undefined ? { body: request.body } : {}),
-    });
+    const send = async (sent: { url: string; method: string; body?: string }) =>
+      await fetch(sent.url, {
+        method: sent.method,
+        headers: { Authorization: `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        ...(sent.body !== undefined ? { body: sent.body } : {}),
+      });
+    let response = await send(request);
+    if (response.status === 409 && eventId !== null) {
+      // The same create, already made: the event it made is the answer, unless the person has deleted it since.
+      const there = await fetch(`${EVENTS_ENDPOINT}/${eventId}`, { headers: { Authorization: `Bearer ${googleToken}` } });
+      const event = there.ok ? ((await there.json().catch(() => null)) as { status?: unknown } | null) : null;
+      if (event !== null && event.status !== "cancelled") {
+        log({ outcome: "existing", action: change.action });
+        const meet = change.meet ? meetLink(event) : null;
+        return json({ ok: true, calendar: writer.address, existing: true, ...(meet !== null ? { meet } : {}) });
+      }
+      if (event !== null) response = await send(createRequest(change, null));
+    }
     log({ outcome: response.ok ? "changed" : "http_error", action: change.action, status: response.status });
     if (response.status === 403 && change.action !== "create") return json({ ok: false, refused: "not_organizer" });
     if (!response.ok) return json({ ok: false, refused: "unavailable" });

@@ -498,16 +498,18 @@ export async function runTurn(options) {
         told the model that answered, and a benchmark counts how often it
         happened, because this is what production does too.
       */
-      if (error instanceof ProviderError && fallback !== null && model !== fallback && !fellBack) {
+      // A turn carrying a picture names its fallback by the model that failed (`pictureFallback`, `attachments.js`).
+      const next = typeof fallback === "function" ? fallback(model) : fallback;
+      if (error instanceof ProviderError && next !== null && model !== next && !fellBack) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
-        tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, ms });
+        tell({ kind: "model", model: next, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
         // Another model reads none of this one's thinking, and the prompt changed with it.
-        switchTo(fallback);
+        switchTo(next);
         round -= 1;
         continue;
       }

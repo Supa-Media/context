@@ -162,3 +162,29 @@ at once.
 Tests: `apps/convex/__tests__/calendarWrite.test.ts`,
 `apps/mcp/test/calendarGate.test.mjs`,
 `apps/convex/__tests__/googleConnect/writeScopes.test.ts`.
+
+## A create is safe to send twice (a review of a chat, 2026-10-24)
+
+"Serving at church" landed on a person's calendar twice, and Tex deleted
+one by hand in its browser. The gateway gave a calendar change the control
+plane's default 8 seconds. A create that took longer (claiming the limit,
+minting a Google token, Google's insert) still landed, but the model was told
+"Nothing was changed; it can be asked for again" and sent it again. Now:
+
+- A create asks Google for an event id worked out from the calendar, the
+  title (any case or spacing), the start and end moments and any recurrence
+  (`createdEventId` in `apps/convex/functions/lib/gatewayRoutes/calendarWrite.ts`).
+  The same event asked for again is Google's 409, and the answer is the event
+  already there (`existing`; the tool says "Already on … Nothing new was
+  added"). An event the person deleted since keeps that id, cancelled, so it
+  is added afresh without one. The id is a hash, so nothing of the event can
+  be read from it.
+- The gateway waits 30 seconds for a change (`CHANGE_TIMEOUT_MS`), as it
+  waits for an email send.
+- A call the gateway gave up on is told as "Not known whether it changed",
+  never as failed (`NO_ANSWER` in `apps/mcp/src/tools/calendarWrite.js`).
+
+The cost: asking for the very same event twice on purpose makes one, which is
+what the person meant in every case we have seen. Undo: send creates without
+`id`; `apps/convex/__tests__/calendarWrite.test.ts` "a create is safe to send
+again" and `apps/mcp/test/calendarRetry.test.mjs` fail.

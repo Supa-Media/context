@@ -29,6 +29,12 @@ const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_calendar", "rate_li
 
 /** A live read waits longer than the control plane's own bounded Google calls. */
 const READ_TIMEOUT_MS = 25_000;
+/**
+ * A change waits for Google's answer too. At the default 8 s a create that
+ * took longer still landed, was told to the model as failed, and was sent
+ * again ("Serving at church" twice, a review of 2026-10-24).
+ */
+export const CHANGE_TIMEOUT_MS = 30_000;
 
 export function createCalendarMethods({ post }) {
   return {
@@ -49,12 +55,13 @@ export function createCalendarMethods({ post }) {
       return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", reconnect: names(answer?.reconnect) };
     },
     async changePersonCalendar(accessToken, expectedWorkspaceId, change, { check = false } = {}) {
-      const answer = await post("/gateway/calendar/event", { accessToken, expectedWorkspaceId, change, check });
+      const answer = await post("/gateway/calendar/event", { accessToken, expectedWorkspaceId, change, check }, { timeoutMs: CHANGE_TIMEOUT_MS });
       if (answer?.ok === true && typeof answer.calendar === "string") {
         // A move or cancel checked names who it would tell (`calendarGate.js` asks first when anybody).
         const guests = Array.isArray(answer.guests) ? answer.guests.filter((name) => typeof name === "string" && name !== "").slice(0, 10) : [];
         const meet = typeof answer.meet === "string" && /^https:\/\/meet\.google\.com\/[a-z0-9-]{1,64}$/i.test(answer.meet) ? answer.meet : null;
-        return { ok: true, calendar: answer.calendar, guests, ...(meet !== null ? { meet } : {}) };
+        // A create sent again finds the event the first made (`gatewayRoutes/calendarWrite.ts`).
+        return { ok: true, calendar: answer.calendar, guests, ...(answer.existing === true ? { existing: true } : {}), ...(meet !== null ? { meet } : {}) };
       }
       const refused = REFUSALS.has(answer?.refused) ? answer.refused : "unavailable";
       // The accounts Google said can only be read, by address alone (`gatewayRoutes/calendarWrite.ts`).

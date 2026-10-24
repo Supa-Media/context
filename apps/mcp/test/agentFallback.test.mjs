@@ -127,3 +127,30 @@ test("ChatGPT's search and fetch are never offered to the agent, which has searc
     ["search_notes", "read_note"],
   );
 });
+
+test("a fallback can be named by the model that failed, as a turn carrying a picture names it", async () => {
+  const ai = binding({ failing: [MAIN] });
+  const asked = [];
+  const result = await turn(ai, { fallback: (failed) => (asked.push(failed), FALLBACK) });
+  assert.equal(result.answer, "From the spare model.");
+  assert.deepEqual(asked, [MAIN]);
+  assert.equal(result.timing.trace.find((entry) => entry.kind === "fallback")?.model, FALLBACK);
+});
+
+test("a turn carrying a picture never falls back to a model that cannot see it", async () => {
+  const { pictureFallback } = await import("../src/agent/attachments.js");
+  const HAIKU = "anthropic/claude-haiku-5-5";
+  const OPUS = "anthropic/claude-opus-5-5";
+  const picture = [{ name: "IMG_2634.png", mediaType: "image/png", data: "iVBORw0KGgo=" }];
+  const words = [{ name: "notes.txt", mediaType: "text/plain", text: "hi" }];
+  const blindSpare = "@cf/zai-org/glm-4.7-flash";
+  const named = pictureFallback(blindSpare, [HAIKU, OPUS], picture);
+  assert.equal(typeof named, "function");
+  assert.equal(named(HAIKU), OPUS, "Haiku failed: Opus sees it");
+  assert.equal(named(OPUS), HAIKU, "Opus failed: Haiku sees it");
+  assert.equal(pictureFallback(blindSpare, [HAIKU, undefined], picture)(HAIKU), blindSpare, "no other seeing model: the blind one, which says it can't see");
+  assert.equal(pictureFallback(blindSpare, [HAIKU, OPUS], words), blindSpare, "no picture: the setup's fallback");
+  assert.equal(pictureFallback(OPUS, [HAIKU], picture), OPUS, "a fallback that sees is kept");
+  assert.equal(pictureFallback(null, [HAIKU, OPUS], picture), null);
+  assert.equal(pictureFallback(blindSpare, ["@cf/acme/main-model"], picture), blindSpare);
+});
