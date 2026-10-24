@@ -220,9 +220,13 @@ export async function scoreConversation({ transcript, words, config, request = r
   }
 }
 
+function markKey(key) {
+  return `${REVIEW_MARK_PREFIX}${key}.json`;
+}
+
 async function readMark(store, key) {
   try {
-    const object = await store.get(`${REVIEW_MARK_PREFIX}${key}.json`);
+    const object = await store.get(markKey(key));
     if (!object) return null;
     const mark = JSON.parse(await object.text())?.mark;
     return typeof mark === "string" ? mark : null;
@@ -231,10 +235,24 @@ async function readMark(store, key) {
   }
 }
 
+async function writeMark(store, key, mark) {
+  await store.put(markKey(key), JSON.stringify({ version: 1, mark }));
+}
+
 /**
  * Review one conversation: what came after the last review, scored and
  * filed. Answers what was filed (`full` or `scores`), or null when nothing
  * was: switched off, nothing new, no model, or the control plane said no.
+ *
+ * The turns are marked reviewed before the model is asked, not after the
+ * review is filed. A review runs after the answer has gone, where the host
+ * may stop it at any moment, and a slow filing (a bucket that is timing out)
+ * can land in the control plane after the Worker has been stopped: the mark
+ * was then never written and the next review scored the same turns again
+ * (2026-10-24, an urgent review at 19:00 and the quiet one at 19:37). Stopped
+ * half way, a review now costs its own scores rather than counting turns twice.
+ * A review that ran to the end and filed nothing puts the old mark back, so
+ * the next one reads these turns; a mark that cannot be written files nothing.
  */
 export async function reviewConversation({ env, store, session, controlPlane, history, key, reason, after = [], request = requestViaGateway, log = (line) => console.log(line) }) {
   if (env?.TEX_REVIEW !== "on") return null;
@@ -243,12 +261,25 @@ export async function reviewConversation({ env, store, session, controlPlane, hi
   const mark = await readMark(store, key);
   const turns = await sinceReviewed(history, mark);
   if (!turns.some((turn) => turn.role === "assistant")) return null;
+  // Claimed before anything slow, the tier included, so a review racing this one reads the new mark.
+  try {
+    await writeMark(store, key, await markOf(turns));
+  } catch {
+    log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, filed: null, unmarked: true }));
+    return null;
+  }
+  // Best effort: a mark that could not be put back skips these turns, never counts them twice. A null mark reads as none.
+  const unclaim = () => writeMark(store, key, mark).catch(() => {});
   const tier = await controlPlane.texReviewTier(session.accessToken).catch(() => null);
-  if (tier === null) return null;
+  if (tier === null) {
+    await unclaim();
+    return null;
+  }
   const transcript = transcriptOf(turns, after);
   const metadata = { feature: "self-review", workspace: String(session.workspaceId) };
   const review = await scoreConversation({ transcript, words: tier === "full", config, request, metadata });
   if (review === null) {
+    await unclaim();
     log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed: null }));
     return null;
   }
@@ -263,10 +294,7 @@ export async function reviewConversation({ env, store, session, controlPlane, hi
       ...(tier === "full" ? { words: { ...review.words, transcript } } : {}),
     })
     .catch(() => null);
-  if (filed !== null) {
-    const next = await markOf(turns);
-    if (next !== null) await store.put(`${REVIEW_MARK_PREFIX}${key}.json`, JSON.stringify({ version: 1, mark: next })).catch(() => {});
-  }
+  if (filed === null) await unclaim();
   // Numbers only: never anybody's words.
   log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed, ...review.scores, task: review.task, signals: review.signals }));
   return filed;

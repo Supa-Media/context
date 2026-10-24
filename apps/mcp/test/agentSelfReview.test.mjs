@@ -19,6 +19,13 @@
  *     tool names, never a result" fails.
  *  4. `handleReview` answering any grant. → "only Tex's own texting grants may
  *     ask for a review" fails.
+ *  5. Writing the mark only once the review is filed, as before. → "a review
+ *     stopped before its filing came back never scores the same turns again"
+ *     fails: the second review reads the avocado turns again.
+ *  6. Not putting the old mark back when nothing was filed. → "a review that
+ *     filed nothing leaves its turns for the next one" fails.
+ *  7. Asking the model when the mark could not be written. → "a mark that
+ *     cannot be written files nothing" fails.
  */
 
 import assert from "node:assert/strict";
@@ -139,6 +146,45 @@ test("a conversation reviewed once is not reviewed again until somebody texts", 
   assert.equal(await run(history), "scores");
   assert.match(model.asked[1].messages[0].text, /banana/);
   assert.doesNotMatch(model.asked[1].messages[0].text, /avocado/);
+});
+
+test("a review stopped before its filing came back never scores the same turns again", async () => {
+  const store = memoryStore();
+  let history = await texted(store, ["find my avocado note", "Here it is."]);
+  const model = road(JSON.stringify({ scores: SCORES }));
+  // The first filing never answers, as when the host stops the Worker while the control plane is still writing.
+  const stalled = { ...plane("scores"), fileTexReview: () => new Promise(() => {}) };
+  const run = (h, control) => reviewConversation({ env: ENV, store, session: SESSION, controlPlane: control, history: h, key: "texts", reason: "frustrated", request: model.request, log: () => {} });
+  void run(history, stalled);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(model.asked.length, 1);
+  history = [...history, { role: "user", text: "and the banana one?" }, { role: "assistant", text: "Found it too." }];
+  assert.equal(await run(history, plane("scores")), "scores");
+  assert.match(model.asked[1].messages[0].text, /banana/);
+  assert.doesNotMatch(model.asked[1].messages[0].text, /avocado/);
+});
+
+test("a review that filed nothing leaves its turns for the next one", async () => {
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const model = road(JSON.stringify({ scores: SCORES }));
+  const run = (control) => reviewConversation({ env: ENV, store, session: SESSION, controlPlane: control, history, key: "texts", reason: "ended", request: model.request, log: () => {} });
+  assert.equal(await run({ ...plane("scores"), fileTexReview: async () => null }), null);
+  assert.equal(await run(plane("scores")), "scores");
+  assert.match(model.asked[1].messages[0].text, /avocado/);
+});
+
+test("a mark that cannot be written files nothing", async () => {
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  store.put = async () => {
+    throw new Error("bucket timed out");
+  };
+  const model = road(JSON.stringify({ scores: SCORES }));
+  const control = plane("scores");
+  assert.equal(await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: control, history, key: "texts", reason: "ended", request: model.request, log: () => {} }), null);
+  assert.equal(model.asked.length, 0);
+  assert.deepEqual(control.filed, []);
 });
 
 test("switched off, no tier, or no model: nothing is asked and nothing filed", async () => {
