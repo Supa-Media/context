@@ -22,3 +22,11 @@ export const GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
  * gateway calls for a summary. Priced in `MODEL_USD_PER_MTOK` (`meter.ts`).
  */
 export const HAIKU_MODEL = "anthropic/claude-haiku-5-5";
+/**
+ * The texting assistant's thinking tier (`apps/mcp/src/agent/router.js`): a text
+ * the router sends to think runs its planning rounds here. Priced in
+ * `MODEL_USD_PER_MTOK`; unpriced, it was metered at GLM's rates.
+ */
+export const OPUS_MODEL = "anthropic/claude-opus-5-5";
+/** A setup may name Sonnet as `main` or `think`; priced so its spend is real. */
+export const SONNET_MODEL = "anthropic/claude-sonnet-5-5";

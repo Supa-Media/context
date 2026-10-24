@@ -28,6 +28,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
 - [Product analytics records outcomes and named interactions](./observability/product-analytics.md) (2026-10-21)
+- [Tex telemetry: every turn says where it came from and what it cost](./observability/tex-telemetry.md) (2026-10-24)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else

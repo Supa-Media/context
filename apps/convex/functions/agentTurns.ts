@@ -17,6 +17,7 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { TEXTS_CLIENT_ID } from "./textLinks";
+import { writingCostMicroUsd } from "./lib/jev/meter";
 
 /** How long a turn's row is kept. Long enough to compare weeks, no longer. */
 export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -46,6 +47,22 @@ export const traceEntryValidator = v.object({
   ms: v.number(),
 });
 
+/** Where a turn came from, as the gateway names it (`apps/mcp/src/agent/turnLog.js`). */
+export const TURN_KINDS = ["one", "group", "job", "routine", "app"] as const;
+export const turnKindValidator = v.union(v.literal("one"), v.literal("group"), v.literal("job"), v.literal("routine"), v.literal("app"));
+
+/** One model's share of a turn, as the gateway's `meterParts` splits it (`modelPlan.js`). */
+export const modelUsageValidator = v.object({
+  model: v.string(),
+  input: v.number(),
+  output: v.number(),
+  cacheRead: v.number(),
+  cacheWrite: v.number(),
+});
+
+/** A turn runs on its main model, a thinking model and a fallback at most. */
+export const MAX_MODELS_PER_TURN = 4;
+
 const STATUS = (n: number | undefined) => (n === undefined ? {} : { status: count(n, 999) });
 
 export const recordAgentTurn = internalMutation({
@@ -61,6 +78,8 @@ export const recordAgentTurn = internalMutation({
     rounds: v.number(),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    kind: v.optional(turnKindValidator),
+    usage: v.optional(v.array(modelUsageValidator)),
     trace: v.array(traceEntryValidator),
   },
   returns: v.boolean(),
@@ -71,6 +90,7 @@ export const recordAgentTurn = internalMutation({
     if (args.expectedWorkspaceId !== null && args.expectedWorkspaceId !== session.workspaceId) return false;
     if (args.trace.length > MAX_TRACE_ENTRIES) return false;
     if (!PROVIDER.test(args.provider) || !MODEL.test(args.model)) return false;
+    if (args.usage !== undefined && (args.usage.length > MAX_MODELS_PER_TURN || args.usage.some((part) => !MODEL.test(part.model)))) return false;
 
     const trace = [];
     for (const entry of args.trace) {
@@ -110,11 +130,37 @@ export const recordAgentTurn = internalMutation({
       rounds: count(args.rounds, 64),
       inputTokens: count(args.inputTokens, MAX_TOKENS),
       outputTokens: count(args.outputTokens, MAX_TOKENS),
+      ...(args.kind === undefined ? {} : { kind: args.kind }),
+      ...spendOf(args),
       trace,
     });
     return true;
   },
 });
+
+/**
+ * The turn's cache tokens and list-price cost, per model when the gateway sent
+ * each model's counts, else from the turn's own counts on its answering model.
+ * Every count is clamped as the turn's own are, so a wild number costs a row
+ * its accuracy, never the table its shape.
+ */
+function spendOf(args: { model: string; inputTokens: number; outputTokens: number; usage?: Array<{ model: string; input: number; output: number; cacheRead: number; cacheWrite: number }> }) {
+  if (args.usage === undefined || args.usage.length === 0) {
+    return { costMicroUsd: writingCostMicroUsd({ input: count(args.inputTokens, MAX_TOKENS), output: count(args.outputTokens, MAX_TOKENS), model: args.model }) };
+  }
+  const models = args.usage.map((part) => {
+    const spent = {
+      inputTokens: count(part.input, MAX_TOKENS),
+      outputTokens: count(part.output, MAX_TOKENS),
+      cacheReadTokens: count(part.cacheRead, MAX_TOKENS),
+      cacheWriteTokens: count(part.cacheWrite, MAX_TOKENS),
+    };
+    const costMicroUsd = writingCostMicroUsd({ input: spent.inputTokens, output: spent.outputTokens, cacheRead: spent.cacheReadTokens, cacheWrite: spent.cacheWriteTokens, model: part.model });
+    return { model: part.model, ...spent, costMicroUsd };
+  });
+  const sum = (key: "cacheReadTokens" | "cacheWriteTokens" | "costMicroUsd") => models.reduce((total, part) => total + part[key], 0);
+  return { cacheReadTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"), costMicroUsd: sum("costMicroUsd"), models };
+}
 
 /** Drop turns past their retention, a batch at a time (crons.ts). */
 export const purgeOldAgentTurns = internalMutation({

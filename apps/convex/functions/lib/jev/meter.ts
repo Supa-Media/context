@@ -10,6 +10,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { planFor, statusOf } from "../billing/plan";
 import { premiumFeaturesOn } from "../premium";
 import { ALL_JEV_FEATURES, JEV_FEATURES, type JevFeatureName } from "./features";
+import { OPUS_MODEL, SONNET_MODEL } from "./models";
 
 /** Clef's published price: input tokens (Cloudflare's model page, 2026-10-05). Was Jev's $0.042. */
 export const DEFAULT_USD_PER_MTOK = 0.24;
@@ -37,6 +38,10 @@ export interface ModelUsdPerMtok {
 export const MODEL_USD_PER_MTOK: ReadonlyMap<string, ModelUsdPerMtok> = new Map([
   ["@cf/zai-org/glm-4.7-flash", { input: 0.06, output: 0.4, cacheRead: 0.06, cacheWrite: 0.06 }],
   ["anthropic/claude-haiku-5-5", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
+  // Tex's thinking tier and the setups that name Sonnet: Anthropic's list price, 2026-10-24.
+  // Before this row they fell back to GLM's rates, so a planned turn's Opus rounds were counted at a fiftieth of their price or less.
+  [OPUS_MODEL, { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }],
+  [SONNET_MODEL, { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }],
   // Tex's make_picture (`apps/mcp/src/agent/pictureMaker.js`): Google's list price, 2026-10-19.
   // A 1K picture is 1,290 output tokens on 2.5 Flash Image, about $0.039; 1,120 on 3.1 Flash-Lite, $0.034.
   ["google/gemini-2.5-flash-image", { input: 0.3, output: 30, cacheRead: 0.03, cacheWrite: 0.3 }],
