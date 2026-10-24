@@ -37,6 +37,34 @@ export const SCORE_LABELS: Record<ScoreKey, string> = {
 export const REVIEW_REASONS = ["ended", "fix_this", "frustrated"] as const;
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
 
+/**
+ * What a conversation was mainly for, and what showed frustration: codes from
+ * closed sets on every tier, the same lists as the gateway's
+ * (`apps/mcp/src/agent/selfReview.js`). Never a word anybody said.
+ */
+export const TASK_CODES = ["email", "calendar", "web_errand", "notes", "research", "reminders", "messaging", "purchase", "setup", "chat", "other"] as const;
+export type TaskCode = (typeof TASK_CODES)[number];
+export const SIGNAL_CODES = ["repeated", "try_again", "cant_first", "gave_up", "swore", "corrected", "fix_this"] as const;
+export type SignalCode = (typeof SIGNAL_CODES)[number];
+/** A conversation reviewed is at most this many of their texts (the gateway reads the newest 40 turns). */
+export const MAX_REVIEW_TEXTS = 40;
+
+/** The task code, or null for anything outside the set. */
+export function parseTask(value: unknown): TaskCode | null {
+  return typeof value === "string" && (TASK_CODES as readonly string[]).includes(value) ? (value as TaskCode) : null;
+}
+
+/** The signals that are codes, each once; anything else is dropped. */
+export function parseSignals(value: unknown): SignalCode[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((code): code is SignalCode => typeof code === "string" && (SIGNAL_CODES as readonly string[]).includes(code)))];
+}
+
+/** How many texts the person sent, a whole number 1 to `MAX_REVIEW_TEXTS`, or null. */
+export function parseTexts(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_REVIEW_TEXTS ? value : null;
+}
+
 /** Bounds on what a review may carry, so one review cannot fill a note. */
 export const MAX_REVIEW_TEXT_CHARS = 2_000;
 export const MAX_REVIEW_TRANSCRIPT_CHARS = 40_000;

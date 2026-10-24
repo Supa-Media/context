@@ -83,5 +83,7 @@ export const agentTurnTables = {
     ),
   })
     .index("by_at", ["at"])
-    .index("by_workspace_at", ["workspaceId", "at"]),
+    .index("by_workspace_at", ["workspaceId", "at"])
+    // A finished conversation's turns, for its review's cost (`texReviews.recordScores`).
+    .index("by_grant_at", ["grantId", "at"]),
 };

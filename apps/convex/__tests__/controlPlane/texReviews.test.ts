@@ -23,6 +23,9 @@
  *  6. `onTheTeam` ignoring the pinned workspace's members. → "anybody with a
  *     membership in the pinned workspace is on the team…" and "a group of
  *     pinned-workspace members…" fail.
+ *  7. `conversationSpend` reading every grant's turns. → "a review keeps what
+ *     it was for, what frustrated them and what its own turns cost" fails:
+ *     bob's turn is counted.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -226,7 +229,51 @@ describe("what a review may carry", () => {
     await review(t, { reason: "frustrated", scores: SCORES });
     const rows = await t.run((ctx) => ctx.db.query("texReviewScores").collect());
     expect(rows).toHaveLength(1);
-    expect(Object.keys(rows[0]!).sort()).toEqual(["_creationTime", "_id", "at", "calm", "day", "friendly", "goal", "independence", "kind", "reason", "turns"]);
+    expect(Object.keys(rows[0]!).sort()).toEqual(["_creationTime", "_id", "at", "calm", "day", "friendly", "goal", "independence", "kind", "reason", "signals", "turns", "who"]);
+  });
+
+  test("a review keeps what it was for, what frustrated them and what its own turns cost", async () => {
+    const { t, grantA, grantB } = await world();
+    const turn = async (grantId: Id<"oauthGrants">, model: string, costMicroUsd: number, ago: number) =>
+      await t.run(async (ctx) => {
+        const grant = await ctx.db.get(grantId);
+        await ctx.db.insert("agentTurns", {
+          workspaceId: grant!.workspaceId,
+          grantId,
+          client: "texts",
+          provider: "anthropic",
+          model,
+          outcome: "answered",
+          at: Date.now() - ago,
+          ms: 1_000,
+          modelMs: 900,
+          toolMs: 100,
+          rounds: 1,
+          inputTokens: 10,
+          outputTokens: 10,
+          costMicroUsd,
+          trace: [],
+        });
+      });
+    await turn(grantA, "anthropic/claude-haiku-5-5", 900, 60_000);
+    await turn(grantA, "anthropic/claude-opus-5-5", 15_000, 120_000);
+    // Older than the two texts reviewed, and another person's: neither counts.
+    await turn(grantA, "anthropic/claude-haiku-5-5", 1_000_000, 180_000);
+    await turn(grantB, "anthropic/claude-haiku-5-5", 2_000_000, 30_000);
+    await review(t, { reason: "frustrated", scores: SCORES, task: "web_errand", signals: ["try_again", "angry about avocados", "try_again"], texts: 2 });
+    const [row] = await t.run((ctx) => ctx.db.query("texReviewScores").collect());
+    expect(row).toMatchObject({ task: "web_errand", signals: ["try_again"], texts: 2, who: "new", costMicroUsd: 15_900, thought: true });
+  });
+
+  test("a task outside the codes, or a count out of range, is dropped and the scores still file", async () => {
+    const { t } = await world();
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid");
+    expect(await review(t, { reason: "ended", scores: SCORES, task: "her avocado order", texts: 400 })).toEqual({ review: { filed: "scores" } });
+    const [row] = await t.run((ctx) => ctx.db.query("texReviewScores").collect());
+    expect(row!.task).toBeUndefined();
+    expect(row!.texts).toBeUndefined();
+    expect(row!.costMicroUsd).toBeUndefined();
+    expect(row!.who).toBe("staff");
   });
 });
 

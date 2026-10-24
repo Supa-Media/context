@@ -36,3 +36,34 @@ What a simplification would cost: pricing in the gateway would put a second
 price table beside the meter's, and the two would drift; dropping `kind` would
 put group chats and routines back under `app`. `__tests__/agentTurns.test.ts`
 ("priced at its own list price") fails if the Opus row goes.
+
+## What a conversation was for, and what frustrated them (step 2)
+
+The self-review (`texReviewScores`, [self-review](../texting-assistant/self-review.md))
+is where a whole conversation is judged, so it is where the dashboard's slices
+live. The same Haiku call that scores it now also names:
+
+- `task`: what it was mainly for, one code from `TASK_CODES` (email, calendar,
+  web_errand, notes, research, reminders, messaging, purchase, setup, chat,
+  other);
+- `signals`: what showed frustration, codes from `SIGNAL_CODES` (repeated,
+  try_again, cant_first, gave_up, swore, corrected, fix_this);
+
+and the gateway adds `texts`, how many texts the person sent. The control
+plane adds `who` (`staff`, `new` for an account under a week old, `other`) and
+what the conversation's turns cost and whether any ran on the thinking tier,
+read from the grant's newest `texts` turns of the last day
+(`conversationSpend`, `functions/texReviews.ts`).
+
+**Codes on the anonymous row, never words, never on the turn rows.** The row
+still names nobody. Putting the task on `agentTurns` instead would tie a
+person's workspace to what they asked for. A code outside the closed sets is
+dropped in the gateway and again in the route, and never costs the scores.
+
+**Time of day is not a slice.** Nothing knows the person's local time when the
+review runs, and UTC hours would mislead; it waits until it can be done right.
+
+What a simplification would cost: free-text categories would leak what people
+asked for into an anonymous table. `__tests__/controlPlane/texReviews.test.ts`
+("a review keeps what it was for…") fails if the spend reads another grant's
+turns, and "a scores row names nobody" pins the row's keys.

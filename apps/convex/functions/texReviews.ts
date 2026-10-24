@@ -28,6 +28,7 @@ import { internalMutation, internalQuery, mutation, query, type QueryCtx } from 
 import { userIsStaff } from "./lib/admin";
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
+import { isThinkingModel } from "./lib/jev/models";
 import { reviewFolder } from "./lib/feedback/texReviewNote";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
@@ -46,6 +47,10 @@ export const MAX_SCORES_PER_DAY = 500;
 export const SCORES_KEPT_MS = 90 * 24 * REVIEW_WINDOW_MS;
 const SWEEP_PER_WRITE = 20;
 const SWITCH_WRITES_PER_HOUR = 30;
+/** An account younger than this is `new` on the dashboard. */
+const NEW_ACCOUNT_MS = 7 * 24 * REVIEW_WINDOW_MS;
+/** A conversation's turns are its grant's newest, and never older than this. */
+const CONVERSATION_SPAN_MS = 24 * REVIEW_WINDOW_MS;
 
 const scoreFields = {
   goal: v.number(),
@@ -132,20 +137,33 @@ async function sharesReviews(ctx: Pick<QueryCtx, "db">, userId: Id<"users">): Pr
  * One review's numbers, kept without anybody's name, and the day's rows to
  * write the scores note from. Counted against the person whose grant sent it,
  * so a loop cannot fill the table; the row itself does not name them.
+ *
+ * Beside the scores: the task and frustration codes and the text count the
+ * gateway sent, `who` in coarse terms (`staff` is the team, as `onTheTeam`), and what the conversation's turns cost
+ * (its grant's newest turns, one per text, from the last day), so the
+ * dashboard can slice frustration by task, by model and by spend.
  */
 export const recordScores = internalMutation({
   args: {
     userId: v.id("users"),
+    grantId: v.optional(v.id("oauthGrants")),
     kind: v.union(v.literal("one"), v.literal("group")),
     reason: v.string(),
     now: v.number(),
+    task: v.optional(v.string()),
+    signals: v.optional(v.array(v.string())),
+    texts: v.optional(v.number()),
     ...scoreFields,
   },
   returns: v.array(v.object({ at: v.number(), kind: v.union(v.literal("one"), v.literal("group")), reason: v.string(), ...scoreFields })),
-  handler: async (ctx, { userId, now, ...row }) => {
+  handler: async (ctx, { userId, grantId, now, texts, ...row }) => {
     await consumeRateLimit(ctx, { key: `tex.review:${userId}`, limit: REVIEWS_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
     const day = new Date(now).toISOString().slice(0, 10);
-    await ctx.db.insert("texReviewScores", { day, at: now, ...row });
+    const user = await ctx.db.get(userId);
+    const pinned = await pinnedContextWorkspace(ctx);
+    const who = (await onTheTeam(ctx, pinned?._id ?? null, userId)) ? "staff" : user !== null && now - user._creationTime < NEW_ACCOUNT_MS ? "new" : "other";
+    const spend = grantId !== undefined && texts !== undefined ? await conversationSpend(ctx, grantId, texts, now) : {};
+    await ctx.db.insert("texReviewScores", { day, at: now, ...row, ...(texts !== undefined ? { texts } : {}), who, ...spend });
     const old = await ctx.db
       .query("texReviewScores")
       .withIndex("by_at", (q) => q.lt("at", now - SCORES_KEPT_MS))
@@ -160,6 +178,29 @@ export const recordScores = internalMutation({
       .map(({ at, kind, reason, goal, independence, turns, friendly, calm }) => ({ at, kind, reason, goal, independence, turns, friendly, calm }));
   },
 });
+
+/**
+ * What a conversation's turns cost and whether any thought: the grant's
+ * newest `texts` turns from the last day. A turn from before costs were kept
+ * adds nothing; none found leaves both out rather than claiming zero.
+ */
+async function conversationSpend(
+  ctx: Pick<QueryCtx, "db">,
+  grantId: Id<"oauthGrants">,
+  texts: number,
+  now: number,
+): Promise<{ costMicroUsd?: number; thought?: boolean }> {
+  const turns = await ctx.db
+    .query("agentTurns")
+    .withIndex("by_grant_at", (q) => q.eq("grantId", grantId).gt("at", now - CONVERSATION_SPAN_MS))
+    .order("desc")
+    .take(texts);
+  if (turns.length === 0) return {};
+  return {
+    costMicroUsd: turns.reduce((sum, turn) => sum + (turn.costMicroUsd ?? 0), 0),
+    thought: turns.some((turn) => (turn.models ?? []).some((used) => isThinkingModel(used.model)) || isThinkingModel(turn.model)),
+  };
+}
 
 /** Whether the caller said yes to sharing their finished conversations with Tex; null signed out. */
 export const myTexReviewSharing = query({
