@@ -48,6 +48,8 @@ export const STEER_JOB_TOOL = "steer_background_job";
 /** Their later texts a job's turn is shown, newest last. */
 export const MAX_FOLLOW_UPS = 5;
 const MAX_FOLLOW_UP = 4_000;
+/** The most of a replaced answer (`jobRun.ts` `draft`) the next part is shown. */
+const MAX_DRAFT = 4_000;
 /** Jobs one chat may have running at once; a fourth waits for one to finish. */
 export const MAX_RUNNING_JOBS = 3;
 /** Entries of `running` read from a request: running ones and a few just finished. */
@@ -141,6 +143,7 @@ export function jobOf(value) {
           .slice(-MAX_FOLLOW_UPS)
           .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
       : [],
+    draft: typeof value.draft === "string" ? value.draft.trim().slice(0, MAX_DRAFT) : "",
   };
 }
 
@@ -334,6 +337,12 @@ export function jobPrompt(job) {
       ? "\nSince you started, they texted this about it (their own words, newer than your plan: where they differ, do it their " +
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
+      : "") +
+    (job.draft
+      ? "\nYour last part ended with this answer, which was never sent because they texted more before it went out:\n<<<\n" +
+        `${job.draft}\n>>>\n` +
+        "Build on it rather than starting over: keep its figures unless their newer text changes them or you find a mistake, and when one changes, " +
+        "say which and why in one line. Your answer replaces it, so it is the one result they get."
       : "") +
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
     "before you finish, even if some of it is unfinished, and say what's missing in it. End with the result in a few lines and the " +

@@ -28,15 +28,14 @@
  */
 
 import { keepDownload, readDownload } from "./downloads.js";
-import { MAX_FILE_CHARS, QUOTATION, fileWords, typeOfFile } from "../tools/readFile.js";
+import { QUOTATION, fileWords, typeOfFile } from "../tools/readFile.js";
+import { isTable, partLines, partOf } from "../tools/fileParts.js";
 import { toolError, toolText } from "../tools/results.js";
 
 /** `download:<id>`, optionally `@<from>`: where in a kept file's words to start. */
 const REF = /^(download:\d{13}-[sl]-[a-f0-9]{32})(?:@(\d{1,9}))?$/;
 const PDF = "application/pdf";
 const TEXT_TYPE = /^(?:text\/|application\/(?:json|xml|x-yaml|yaml)$)/;
-/** Files whose words are rows of figures: what a breakdown is added up from. */
-const TABLE = /\.(?:csv|tsv)$/i;
 
 function utf8Base64(text) {
   const bytes = new TextEncoder().encode(text);
@@ -92,34 +91,22 @@ export function keptRef(value) {
   return match ? { id: match[1], from: match[2] === undefined ? 0 : Number(match[2]) } : null;
 }
 
-/** How many rows a table's words hold (its header line not counted), and its header. */
-function tableFacts(text) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
-  return { rows: Math.max(0, lines.length - 1), header: (lines[0] ?? "").slice(0, 500) };
-}
-
-/** One kept file's words as a tool answer, from `from`, in parts of `MAX_FILE_CHARS`. */
+/** One kept file's words as a tool answer, from `from`, in parts (`tools/fileParts.js`); a table's facts on every part. */
 export async function readKeptFile(store, ai, ref, { now } = {}) {
   const read = await readDownload(store, ref.id, now === undefined ? {} : { now });
   if (read.error) return toolError(read.error);
   const { name, type } = read.file;
   const bytes = fromBase64(read.file.data);
   const head = [`file: ${name}`, `id: ${ref.id}`, "kind: file", `type: ${type}`, "trust: untrusted"];
-  if (TEXT_TYPE.test(type)) {
-    const text = new TextDecoder().decode(bytes);
-    if (ref.from >= text.length && text.length > 0) return toolError(`${ref.id} has ${text.length} characters; nothing starts at ${ref.from}`);
-    const to = Math.min(text.length, ref.from + MAX_FILE_CHARS);
-    head.push(`characters: ${ref.from} to ${to} of ${text.length}`);
-    if (TABLE.test(name)) {
-      const { rows, header } = tableFacts(text);
-      head.push(`rows: ${rows} (not counting the header)`, `header: ${header}`);
-    }
-    if (to < text.length) head.push(`more: read_file with path "${ref.id}@${to}" reads the next part; read every part before you total anything`);
-    return toolText(`${head.join("\n")}\n\n${QUOTATION}\n\n${text.slice(ref.from, to)}`);
+  const next = (at) => `read_file with path "${ref.id}@${at}"`;
+  if (TEXT_TYPE.test(type) && !isTable(name, type)) {
+    const part = partOf(new TextDecoder().decode(bytes), ref.from);
+    if (part === null) return toolError(`${ref.id} has no words starting at ${ref.from}`);
+    return toolText(`${[...head, ...partLines(part, next)].join("\n")}\n\n${QUOTATION}\n\n${part.part}`);
   }
-  const readAs = typeOfFile(name, bytes) ?? (type === PDF ? PDF : null);
+  const readAs = isTable(name, type) ? "text/csv" : (typeOfFile(name, bytes) ?? (type === PDF ? PDF : null));
   if (readAs === null) return toolError(`${ref.id} is a ${type} file: it can be attached to an email or put into a page, not read`);
-  const words = await fileWords(ai, name, readAs, bytes);
+  const words = await fileWords(ai, name, readAs, bytes, { from: ref.from, next, summary: ref.summary ?? null });
   if (words.error) return toolError(`${words.error}: ${ref.id}`);
   return toolText(`${head.join("\n")}\n\n${QUOTATION}\n\n${words.text}`);
 }
@@ -135,8 +122,14 @@ const READERS = { read_file: "path", read_note: "path", fetch: "id" };
 export function withKeptFiles(store, onRead, callTool) {
   return async (name, args) => {
     const field = READERS[name];
-    const ref = field ? keptRef(args?.[field]) : null;
-    if (ref === null) return callTool(name, args);
+    const named = field ? keptRef(args?.[field]) : null;
+    if (named === null) return callTool(name, args);
+    // `from` as read_file takes it, or `@<from>` on the id.
+    const ref = {
+      ...named,
+      ...(Number.isInteger(args?.from) && args.from > 0 ? { from: args.from } : {}),
+      ...(args?.summary && typeof args.summary === "object" ? { summary: args.summary } : {}),
+    };
     onRead?.();
     return await readKeptFile(store, store?.ai, ref);
   };

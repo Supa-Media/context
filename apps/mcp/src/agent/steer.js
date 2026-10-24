@@ -101,6 +101,19 @@ export function steerFor(store, session, body) {
         return []; // a text not picked up is answered on its own
       }
     },
+    /**
+     * Whether a text sent to this turn is still waiting, untaken. For a job,
+     * that means its answer will not be texted: the Worker runs another part
+     * with that text instead (`apps/agent/src/jobRun.ts`).
+     */
+    async pending() {
+      try {
+        const page = await store.list({ prefix, limit: 20 });
+        return (page?.objects ?? []).some((object) => !seen.has(object.key));
+      } catch {
+        return false;
+      }
+    },
     /** Clear what this turn was sent, taken or not: one not taken is answered on its own. */
     async clear() {
       try {

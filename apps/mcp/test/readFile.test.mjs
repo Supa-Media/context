@@ -161,11 +161,33 @@ test("fetch routes a file path to read_file, and a folder or note as before", ()
   });
   assert.equal(translateFetch({ id: "1-projects/a.md" }, { client: "claude-code" }).name, "read_note");
   assert.equal(translateFetch({ id: "0-inbox/email/" }, { client: "claude-code" }).name, "list_notes");
-  assert.match(translateFetch({ id: PDF, args: { limit: 3 } }, { client: "claude-code" }).error, /takes no args/);
+  assert.match(translateFetch({ id: PDF, args: { limit: 3 } }, { client: "claude-code" }).error, /takes args: from, summary/);
 });
 
 test("reading a file marks the turn as having taken in outside words", () => {
   const ledger = newLedger();
   recordRead(ledger, { name: "read_file", args: { path: "1-projects/plan.pdf" }, result: { content: [{ type: "text", text: "path: x" }] } });
   assert.equal(ledger.untrusted, true);
+});
+
+// 2026-10-24: an 8,530-row export was read only to its first 100,000 characters (`fileParts.js`).
+const CSV_EXPORT = ["Date,Account Name,Name,Amount,Category", "2026-08-05,Chase,Blue Bottle,6.50,Dining", "2026-09-02,BofA,Rent,3850.00,Housing"].join("\n");
+
+test("a stored CSV is read as its rows, never converted, and read again from where a part ended", async () => {
+  const { store, rules, overrides } = await world(null);
+  const path = "0-inbox/email/me/attachments/2026/10/24/abc-transactions.csv";
+  const rows = `${CSV_EXPORT}\n${"2026-10-01,Chase,Coffee,4.00,Dining\n".repeat(4_000)}`;
+  store.seed(path, rows);
+  store.ai = { toMarkdown: async () => assert.fail("a CSV is never sent to toMarkdown") };
+  const first = await toolReadFile(store, "private", rules, overrides, path);
+  const words = first.content[0].text;
+  assert.match(words, /rows: 4002/);
+  assert.match(words, /duplicate rows: 3999 rows/);
+  const at = Number(/more: read_file with path "[^"]+" and from: (\d+)/.exec(words)?.[1]);
+  assert.ok(at > 0, words.slice(0, 600));
+  const rest = await toolReadFile(store, "private", rules, overrides, path, at);
+  assert.match(rest.content[0].text, new RegExp(`characters: ${at} to ${rows.length} of ${rows.length}`));
+  const summed = await toolReadFile(store, "private", rules, overrides, path, 0, { by: ["Category"] });
+  assert.match(summed.content[0].text, /Dining: 10\.50 \(2 rows\)/, "4,000 identical coffee rows count once");
+  assert.equal((await toolReadFile(store, "private", rules, overrides, path, -3)).isError, true);
 });

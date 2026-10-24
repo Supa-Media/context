@@ -60,6 +60,8 @@ export const STEERS_KEY = "jobsteers";
 /** Set when they asked for the job to stop. Deleted with the run. */
 export const STOP_KEY = "jobstop";
 const MAX_STEERS = 5;
+/** The most of a replaced answer handed to the next part. */
+const MAX_DRAFT = 4_000;
 
 /** The turn running now, in memory only: its access token is a credential. */
 type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: string };
@@ -166,7 +168,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
   const changed = outcome.kind === "answer" && left.length > 0;
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed;
   if (carryOn && run.attempt < MAX_JOB_ATTEMPTS) {
-    await storage.put<Stored>(RUN_KEY, { ...run, sent, attempt: run.attempt + 1, tries: 0 });
+    // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
+    const draft = changed && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
+    await storage.put<Stored>(RUN_KEY, { ...run, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}) });
     await tell({
       state: "running",
       ...watch,
@@ -214,6 +218,7 @@ function ask(run: JobRun, followUps: string[]): JobAsk {
     attempt: run.attempt,
     ...(run.doneWhen ? { doneWhen: run.doneWhen } : {}),
     ...(run.tainted ? { tainted: true as const } : {}),
+    ...(run.draft ? { draft: run.draft } : {}),
   };
 }
 

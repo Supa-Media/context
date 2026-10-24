@@ -213,3 +213,4 @@ test/agentReplyChecks.test.mjs
 test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs
 test/agentNoteWriteRetry.test.mjs
+test/fileParts.test.mjs

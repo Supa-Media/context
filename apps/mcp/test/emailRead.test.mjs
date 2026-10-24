@@ -180,6 +180,21 @@ export async function runEmailReadChecks(check) {
       "...typed by its bytes when Gmail's label is generic",
       converted.at(-1)?.[0]?.blob?.type === "application/pdf" && (await converted.at(-1)[0].blob.text()) === "%PDF-1.7 lease",
     );
+    // An emailed export read whole (2026-10-24: 8,530 rows, cut at the first 100,000 characters, rent counted twice).
+    const rows = ["Date,Name,Amount", ...Array.from({ length: 6000 }, (_, i) => `2026-08-${String((i % 28) + 1).padStart(2, "0")},Shop ${i},-10.00`), "2026-08-03,Rent,-3850.00", "2026-08-03,Rent,-3850.00"];
+    controlPlane.flags.mailAttachment = { filename: "transactions.csv", contentType: "text/csv", data: btoa(rows.join("\n")) };
+    const convertedBefore = converted.length;
+    const csv = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
+    const more = /more: read_email with id "email:me@example\.com\/18c0ffee", attachment: 1 and from: (\d+)/.exec(textOf(csv));
+    check(
+      "an emailed CSV is read as its rows, with its facts counted over the whole file and where its next part starts",
+      csv?.isError !== true && converted.length === convertedBefore && textOf(csv).includes("rows: 6002") &&
+        textOf(csv).includes("duplicate rows: 1 rows repeat an earlier row") && more !== null,
+    );
+    const rest = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, from: Number(more?.[1] ?? 0) } });
+    check("...its next part reaches its last rows", rest?.isError !== true && textOf(rest).includes("2026-08-03,Rent,-3850.00"));
+    const summed = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, summary: { where: [{ column: "Name", contains: "rent" }] } } });
+    check("...and its totals are counted by Context, repeats left out", textOf(summed).includes("1 rows, total -3,850.00; 1 repeated rows left out"));
     controlPlane.flags.mailAttachment = { filename: "song.mp3", contentType: "audio/mpeg", data: btoa("ID3") };
     const song = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
     check("...and a kind of file it cannot read says so", song?.isError === true && textOf(song).includes("not a kind of file"));

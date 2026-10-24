@@ -129,6 +129,32 @@ export function emailToolDefinitions() {
             minimum: 1,
             description: "Optional. An attachment's number as the email lists it (1 for the first): returns the words in that PDF, Word, Excel or picture file instead of the email.",
           },
+          from: {
+            type: "integer",
+            minimum: 0,
+            description: "Optional, with attachment. Where to start in a long attachment: the number its last part's more: line gave.",
+          },
+          summary: {
+            type: "object",
+            description:
+              "Optional, with attachment, for a CSV: totals worked out by Context over every row, instead of the rows themselves, with exact repeats left out. " +
+              "by: up to 3 column names, or \"month\"; where: [{ column, contains }]; dates: { from, to } as YYYY-MM-DD. " +
+              "Use it for any total, average or breakdown of a long file.",
+            properties: {
+              by: { type: "array", items: { type: "string" } },
+              where: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { column: { type: "string" }, contains: { type: "string" } },
+                  required: ["column", "contains"],
+                  additionalProperties: false,
+                },
+              },
+              dates: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, additionalProperties: false },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["id"],
         additionalProperties: false,
