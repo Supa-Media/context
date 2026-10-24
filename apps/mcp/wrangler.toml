@@ -35,6 +35,11 @@ SHARING_JUDGE = "on"
 # them work Tex could do goes back for one more round. Needs the AI gateway.
 HANDBACK_JUDGE = "on"
 
+# Tex's self-review (docs/decisions/texting-assistant/self-review.md): a small
+# model scores a finished texted conversation, and the control plane decides
+# whether its words may go with the scores. Needs the AI gateway.
+TEX_REVIEW = "on"
+
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
@@ -197,6 +202,7 @@ workers_dev = true
 [env.staging.vars]
 SHARING_JUDGE = "on"
 HANDBACK_JUDGE = "on"
+TEX_REVIEW = "on"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc https://tex-staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"
