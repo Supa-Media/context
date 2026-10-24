@@ -25,6 +25,8 @@ import { reviewFolder } from "../feedback/texReviewNote";
 export const TRIAGE_AGENT = "triage";
 /** Where the triage agent keeps one note per named problem, under the reviews folder. */
 export const THEMES_FOLDER = "themes";
+/** A folder's own notes, which are about the folder rather than one problem. */
+const ABOUT_NOTES = new Set(["readme.md", "about.md", "index.md"]);
 /** Rows read from one folder; the desk shows the newest of them. */
 export const TRIAGE_ROWS = 1_000;
 
@@ -239,8 +241,9 @@ export async function notesUnder(db: DatabaseReader, workspaceId: Id<"workspaces
 
 /** Everything on the desk, from the rows alone. */
 export async function triageRows(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders) {
-  const bugs = (await notesUnder(db, workspaceId, folders.bugs)).map((row) => bugRowOf(row.path, row.props));
-  const themes = (await notesUnder(db, workspaceId, folders.themes)).map((row) => themeRowOf(row.path, row.props));
+  // Reports and reviews are named with their stamp; a folder's own README or about note is not one.
+  const bugs = (await notesUnder(db, workspaceId, folders.bugs)).filter((row) => stampOf(row.path) !== null).map((row) => bugRowOf(row.path, row.props));
+  const themes = (await notesUnder(db, workspaceId, folders.themes)).filter((row) => !ABOUT_NOTES.has(row.name.toLowerCase())).map((row) => themeRowOf(row.path, row.props));
   const reviews = (await notesUnder(db, workspaceId, folders.reviews))
     .filter((row) => !row.path.startsWith(`${folders.themes}/`) && !row.path.startsWith(`${folders.reviews}/scores/`))
     .filter((row) => stampOf(row.path) !== null)

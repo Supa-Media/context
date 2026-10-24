@@ -67,6 +67,8 @@ async function world() {
   backend.seed(USER_BUG, "---\nstatus: open\nreporter: user\ntexts: not shared\n---\n\n# Blank reply\n");
   backend.seed(REVIEW, "---\nstatus: new\ntask: notes\nsignals: [\"try_again\",\"gave_up\"]\naverage: 3.4\ntheme: note-saves-time-out\n---\n\n# Saving a long note failed\n");
   backend.seed(THEME, "---\nstatus: shipped\nsignals: [try_again]\ntasks: notes\nprs: [\"#2154\"]\nmerged: 2026-10-24\nfix_thread: Fix Tex note saves timing out\n---\n\n# Note saves time out\n");
+  backend.seed("areas/tex-reviews/themes/README.md", "# Named problems\n");
+  backend.seed("areas/tex-bugs/README.md", "# Bugs\n");
   backend.seed(SCORES, "---\nday: 2026-10-24\n---\n\n# Scores\n");
   backend.seed("areas/secret.md", "# Not on the desk\n");
   await seedStorageBinding(t, { workspaceId: pinned, boundBy: staff, bucket: PINNED_BUCKET });
@@ -89,6 +91,7 @@ describe("what the desk lists", () => {
     expect(bug).toMatchObject({ status: "open", reporter: "team", textsShared: true, title: "Calendar made two events", filed: Date.UTC(2026, 9, 24, 12) });
     expect(desk.reviews.map((review) => review.path)).toEqual([REVIEW]);
     expect(desk.reviews[0]).toMatchObject({ task: "notes", signals: ["try_again", "gave_up"], theme: "note-saves-time-out", average: 3.4 });
+    // The folders' own READMEs are about the folder, not a report or a problem.
     expect(desk.themes).toHaveLength(1);
     expect(desk.themes[0]).toMatchObject({ slug: "note-saves-time-out", name: "Note saves time out", status: "shipped", prs: [2154], signals: ["try_again"], tasks: ["notes"] });
     expect(desk.themes[0]!.merged).toBe(Date.UTC(2026, 9, 24));
