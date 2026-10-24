@@ -20,6 +20,9 @@
  *     takes the yes away" fails.
  *  5. The scores row keeping the person's id. → "a scores row names nobody"
  *     fails.
+ *  6. `onTheTeam` ignoring the pinned workspace's members. → "anybody with a
+ *     membership in the pinned workspace is on the team…" and "a group of
+ *     pinned-workspace members…" fail.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -131,6 +134,25 @@ describe("what a review may carry", () => {
     expect(note).toContain('people: ["@alice-handle"]');
     expect(note).toContain("Tex open the avocado login");
     expect(note).toContain("Try the sign-in page before asking for anything.");
+  });
+
+  test("anybody with a membership in the pinned workspace is on the team, without being staff", async () => {
+    const { t, pinned, staff, alice } = await world();
+    expect(await review(t, { mode: "tier" })).toEqual({ tier: "scores" });
+    await addMember(t, pinned, alice, "member", staff);
+    expect(await review(t, { mode: "tier" })).toEqual({ tier: "full" });
+    expect(await review(t, { reason: "ended", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    expect(reviews(await notesIn(t, pinned))).toHaveLength(1);
+  });
+
+  test("a group of pinned-workspace members keeps words only once every one of them is a member", async () => {
+    const { t, pinned, staff, grantA, bob, alice, aliceWs } = await world();
+    await addMember(t, aliceWs, bob, "member", alice);
+    await asGroup(t, grantA, [bob]);
+    await addMember(t, pinned, alice, "editor", staff);
+    expect(await review(t, { mode: "tier" })).toEqual({ tier: "scores" });
+    await addMember(t, pinned, bob, "member", staff);
+    expect(await review(t, { mode: "tier" })).toEqual({ tier: "full" });
   });
 
   test("a person who is not staff and never said yes gets scores only, and their words are dropped unread", async () => {

@@ -7,8 +7,9 @@
  * token. Who the conversation was with decides the rest, here and never in
  * the gateway:
  *
- *   - **Everybody in it is staff** (`ADMIN_EMAILS`, verified, `lib/admin.ts`)
- *     **or said yes** in Settings → Feedback (`texReviewSharing`): the tier is
+ *   - **Everybody in it is on the team** (a member of the pinned workspace,
+ *     `@context-lc`, or staff on `ADMIN_EMAILS`) **or said yes** in
+ *     Settings → Feedback (`texReviewSharing`): the tier is
  *     `full`, and the review is a note in the pinned context the team reads,
  *     with what they expected, how Tex should improve, and the conversation.
  *   - **Anybody else**: `scores`. The numbers become an anonymous row and a
@@ -31,6 +32,7 @@ import { reviewFolder } from "./lib/feedback/texReviewNote";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { guestNamesIn } from "./lib/pinnedReaders";
+import { getMembership } from "./lib/workspaceAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 
@@ -87,14 +89,14 @@ export const reviewSetup = internalQuery({
     } else {
       return null;
     }
+    const pinned = await pinnedContextWorkspace(ctx);
     let full = true;
     const people: string[] = [];
     for (const userId of [...new Set(everyone)]) {
-      if (full && !(await userIsStaff(ctx, userId)) && !(await sharesReviews(ctx, userId))) full = false;
+      if (full && !(await onTheTeam(ctx, pinned?._id ?? null, userId)) && !(await sharesReviews(ctx, userId))) full = false;
       const handle = await usernameOf(ctx, userId);
       if (handle !== null) people.push(handle);
     }
-    const pinned = await pinnedContextWorkspace(ctx);
     const destination =
       pinned === null
         ? null
@@ -107,6 +109,16 @@ export const reviewSetup = internalQuery({
     return { tier: full ? ("full" as const) : ("scores" as const), kind, userId: grant.userId, people: full ? people : [], destination };
   },
 });
+
+/**
+ * The team is whoever has a membership row in the pinned workspace (the owner's
+ * rule, 2026-10-24: "go based off of who has context-lc workspace access"), and
+ * staff. Reaching it through the pin, as every account does, is not a row.
+ */
+async function onTheTeam(ctx: QueryCtx, pinned: Id<"workspaces"> | null, userId: Id<"users">): Promise<boolean> {
+  if (pinned !== null && (await getMembership(ctx, pinned, userId)) !== null) return true;
+  return await userIsStaff(ctx, userId);
+}
 
 async function sharesReviews(ctx: Pick<QueryCtx, "db">, userId: Id<"users">): Promise<boolean> {
   const row = await ctx.db
