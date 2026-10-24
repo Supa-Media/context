@@ -184,7 +184,7 @@ export const agentReport = query({
   },
 });
 
-/** The Tex tab: texts handled, spend, and every scored conversation to slice. See `lib/adminFns/texReport.ts`. */
+/** The Tex dashboard (tex.lc/admin): texts handled, spend, and every scored conversation to slice. See `lib/adminFns/texReport.ts`. */
 export const texReport = query({
   args: { days: v.optional(v.number()) },
   returns: texReportValidator,

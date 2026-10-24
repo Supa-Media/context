@@ -1,17 +1,17 @@
 /**
- * THE TEX TAB'S FIGURES: how many texts Tex handles and what they cost, read
+ * THE TEX DASHBOARD'S FIGURES (tex.lc/admin): how many texts Tex handles and what they cost, read
  * from `agentTurns`, and every scored conversation in the window, read from
- * `texReviewScores`, for the tab to slice (`docs/decisions/observability/
+ * `texReviewScores`, for the page to slice (`docs/decisions/observability/
  * tex-telemetry.md`).
  *
  * Asked for by the owner, 2026-10-24 ("how many texts we are processing,
  * categorization of tasks ... tokens ... pricing, tool usage, as well as the
  * scores"), drawn from the approved dashboard concept. Staff only:
- * `functions/adminTex.ts` calls `requireAdmin` before this.
+ * `functions/admin.ts` calls `requireAdmin` before this.
  *
  * Nothing here can return a word anybody wrote: the turn log holds names and
  * counts, and a scores row holds numbers and codes and names nobody. The
- * review rows go to the tab whole because slicing them by any field is the
+ * review rows go to the page whole because slicing them by any field is the
  * point (the Explore view), and a row cannot be traced back to a person.
  *
  * Both reads are capped and say `truncated` past the cap rather than
@@ -22,6 +22,7 @@ import { v, type Infer } from "convex/values";
 import type { Doc } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { dayKey } from "../usage";
+import { texPerformance, texPerformanceValidator } from "./texPerformance";
 
 /** Scores are kept 90 days and turns 30; the turn figures stop at 30. */
 export const TEX_REPORT_WINDOWS = [7, 30, 90] as const;
@@ -85,6 +86,8 @@ export const texReportValidator = v.object({
     ),
     tools: v.array(v.object({ tool: v.string(), calls: v.number(), failed: v.number() })),
   }),
+  /** Model rounds, answer times, the router and where the time goes. */
+  performance: texPerformanceValidator,
   reviewsTruncated: v.boolean(),
   /** Every scored conversation in the window, newest first. */
   reviews: v.array(reviewRow),
@@ -170,9 +173,11 @@ export async function texReportHandler(ctx: QueryCtx, args: { days?: number }, n
     thought: row.thought ?? null,
   }));
 
+  const dayOf = (at: number) => turnDays - 1 - Math.floor((dayStart - Math.floor(at / DAY_MS) * DAY_MS) / DAY_MS);
   return {
     days,
     turnDays,
+    performance: texPerformance(turns, turnDays, dayOf),
     turns: {
       truncated: turnRows.length > MAX_TEX_TURNS_READ,
       total: turns.length,
