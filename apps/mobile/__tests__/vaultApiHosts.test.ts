@@ -40,7 +40,7 @@ describe("the list", () => {
   });
 
   test("the shared-host list is the gateway's, word for word", () => {
-    const source = readFileSync(join(__dirname, "../../mcp/src/vault/proxy.js"), "utf8");
+    const source = readFileSync(join(__dirname, "../../mcp/src/vault/sharedHosts.js"), "utf8");
     const block = source.match(/const SHARED_SUFFIXES = \[([\s\S]*?)\];/);
     expect(block).not.toBeNull();
     expect([...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1])).toEqual([...SHARED_HOST_SUFFIXES]);
