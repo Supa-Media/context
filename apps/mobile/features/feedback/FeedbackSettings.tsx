@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { Card, Grow, Row } from "../design/components/Card";
 import { Switch } from "../design/components/Switch";
@@ -37,6 +39,15 @@ export function FeedbackSettings() {
 
   const loading = prefs === null;
   const web = Platform.OS === "web";
+
+  // Tex conversations are the account's alone: no device copy, off until they say yes (`functions/texReviews.ts`).
+  const { isAuthenticated } = useConvexAuth();
+  const sharing = useQuery(api.functions.texReviews.myTexReviewSharing, isAuthenticated ? {} : "skip");
+  const setSharing = useMutation(api.functions.texReviews.setMyTexReviewSharing);
+  const changeSharing = (share: boolean) => {
+    setFailed(false);
+    setSharing({ share }).catch(() => setFailed(true));
+  };
 
   return (
     <View>
@@ -82,6 +93,20 @@ export function FeedbackSettings() {
         ) : null}
       </Card>
 
+      {isAuthenticated ? (
+        <Card style={styles.texCard}>
+          <SettingRow
+            first
+            title="Share finished Tex conversations"
+            sub="When a conversation with Tex ends, the Context team can read it, with a score of how it went, to make Tex better. Off unless you turn it on. With it off, only the scores are kept, with no words and no name."
+            value={sharing === true}
+            disabled={sharing === undefined || sharing === null}
+            onChange={changeSharing}
+            testID="privacy-tex-conversations"
+          />
+        </Card>
+      ) : null}
+
       {failed ? (
         <Text variant="hint" style={styles.problem} testID="privacy-save-failed">
           Couldn't save that change. Try again.
@@ -92,7 +117,7 @@ export function FeedbackSettings() {
         <Text variant="rowSub">
           <Text variant="rowTitle">Never collected: </Text>
           note text, titles, folder names, links, your email or your @handle, unless you put
-          them in a report yourself.
+          them in a report yourself, or share Tex conversations above.
         </Text>
       </View>
 
@@ -139,6 +164,7 @@ function SettingRow({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     head: { marginBottom: 4 },
+    texCard: { marginTop: space.x3 },
     sub: { marginBottom: space.x3, maxWidth: 546 },
     rowSub: { marginTop: 2, maxWidth: 520 },
     problem: { marginTop: space.x2, color: colors.critText },
