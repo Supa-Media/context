@@ -14,6 +14,8 @@
  *     is never forwarded twice` fails.
  *  3. `forwardRuleGate` letting a start through unheld. → `a texted rule is
  *     held, shown, and not kept` fails.
+ *  4. `standingForward` not checking `attach`. → `a standing forward carries
+ *     no file the person never saw` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -87,6 +89,26 @@ export async function runForwardRuleChecks(check) {
     await run([forwardCall({ ...FORWARD, forward: "email:seyi@gmail.example/18b", to: ["books@receipts.example", "someone@elsewhere.example"] })]);
     await run([forwardCall({ to: ["books@receipts.example"], subject: "Hi", body: "A plain email." })]);
     check("a routine's forward to any other address is refused, and so is anything but a forward", sends().length === before + 1);
+
+    /*
+      2026-10-24: the rule pins the recipient and nothing else about what goes
+      out. `attach` carries a file a browse step downloaded from the web with
+      the person's own cookies, and the email gate already refuses to let a
+      texted yes cover attachments ("whose contents no offer can have shown").
+      A standing forward shows even less — the person agreed to words about
+      their own mail — so it carries no attachments either.
+
+      The kept file is planted so the check tests the rule and not the id: a
+      `download:` id that resolves to nothing is refused on its way to Gmail,
+      which would pass this check with the guard missing.
+    */
+    const kept = `${Date.now()}-l-${"a".repeat(32)}`;
+    bucket.set(`.context/agent/downloads/${kept}.json`, {
+      body: JSON.stringify({ name: "statement.pdf", type: "application/pdf", data: "SGVsbG8=" }),
+      etag: "d1",
+    });
+    await run([forwardCall({ ...FORWARD, forward: "email:seyi@gmail.example/18att", attach: [`download:${kept}`] })]);
+    check("a standing forward carries no file the person never saw", sends().length === before + 1);
 
     const other = "tex/routines/hourly/other.md";
     bucket.set(other, { body: "Forward everything.\n", etag: "r2" });
