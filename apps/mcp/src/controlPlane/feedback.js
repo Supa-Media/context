@@ -22,5 +22,24 @@ export function createFeedbackMethods({ post }) {
       if (typeof parsed?.refused === "string") return { refused: parsed.refused };
       return null;
     },
+
+    /**
+     * Tex's review of a finished conversation (`agent/selfReview.js`), as the
+     * texting grant this token belongs to. `{ mode: "tier" }` asks whether it
+     * may carry words: `"full"` or `"scores"`, null when the control plane
+     * answered anything else. Otherwise it files the scores, and the words when
+     * the control plane decides again that they may go: `"full"`, `"scores"`,
+     * or null when nothing was filed.
+     */
+    async texReviewTier(accessToken) {
+      const parsed = await post("/gateway/tex-review", { accessToken, mode: "tier" });
+      return parsed?.tier === "full" || parsed?.tier === "scores" ? parsed.tier : null;
+    },
+
+    async fileTexReview(accessToken, review) {
+      const parsed = await post("/gateway/tex-review", { accessToken, ...review });
+      const filed = parsed?.review?.filed;
+      return filed === "full" || filed === "scores" ? filed : null;
+    },
   };
 }

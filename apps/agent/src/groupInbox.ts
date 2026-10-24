@@ -47,6 +47,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText, type GroupMessage } from "./sendblueGroups";
+import { watchConversation } from "./reviewWatch";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
@@ -468,6 +469,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
   for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture);
   log("answered");
+  // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
+  await watchConversation(storage, { kind: "group", message, people }, deps.now());
   // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
   if (answer.jobs && deps.spawnJob) {
     await startJobs(storage, answer.jobs, {

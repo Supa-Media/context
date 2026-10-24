@@ -39,6 +39,7 @@ import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { handleReview } from "../agent/selfReview.js";
 import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
 import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
@@ -222,6 +223,7 @@ export async function route(request, env, ctx) {
       path === "/agent" ||
       path === "/agent/try" ||
       path === "/agent/steer" ||
+      path === "/agent/review" ||
       path === "/collaboration" ||
       approvalsRoute ||
       meetingRoute
@@ -655,6 +657,8 @@ export async function route(request, env, ctx) {
       // setup an @context-lc editor picked, then a judge turn on its rules.
       // A text sent while a texted turn runs, for that turn to take in (`agent/steer.js`).
       if (path === "/agent/steer") return await handleSteer(request, store, session);
+      // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
+      if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
 

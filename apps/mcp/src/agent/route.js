@@ -17,6 +17,7 @@ import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
 import { afterTextedTurn } from "./reflect.js";
+import { reviewAfterTurn } from "./selfReview.js";
 import { searchSettingsOf } from "../search/settings.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
@@ -634,6 +635,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       }
     }
 
+    // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
+    if (!turn.exhausted) await afterAnswer(reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
     return json({
       answer: sent,
       // How many held calls the answer's last line asks about, so a caller that

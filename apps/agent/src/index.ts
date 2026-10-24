@@ -37,7 +37,8 @@ import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
-import { acceptGroup, drainGroup, groupInboxName } from "./groupInbox";
+import { acceptGroup, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { acceptJob, runJob, steerJob } from "./jobRun";
@@ -398,8 +399,17 @@ export class SenderInbox implements DurableObject {
     await checkReady(this.state.storage, this.deps());
     await checkGmail(this.state.storage, this.deps());
     await carryOnAfterSave(this.state.storage, this.deps());
+    // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
+    await checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) });
     // A job's object has only `jobrun`; every other object finds nothing to run.
     await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
+  }
+
+  /** A group's token for its review, minted as a tagged turn's is; null unless the chat is ready. */
+  private async mintGroup(message: GroupMessage, people: string[]) {
+    const asked = await askControlPlane(this.deps(), message, people, null);
+    if (asked.status !== "ready" || asked.accessToken === undefined) return null;
+    return { accessToken: asked.accessToken, ...(asked.handle ? { handle: asked.handle } : {}), names: asked.names ?? [] };
   }
 
   /** A job's word to the inbox it belongs to: taken once it answers 200. */
