@@ -67,7 +67,7 @@ export const PLAN_NOTICES = Object.freeze({
   onDeviceUnavailable:
     "On-device transcription is not built yet, so this meeting is typed rather than transcribed. Switch to cloud transcription, or type — your notes still land in your bucket.",
   micOnly:
-    "System audio is not available on this build, so only your microphone is recorded — the far side of a call on headphones will not be in the transcript. A signed build is what macOS wants before it hands over system audio.",
+    "This Mac did not hand over its own sound, so only your microphone is recorded — the other people on a call will not be in the transcript. Allow Context under System Settings › Privacy & Security › Screen & System Audio Recording; the next meeting asks again.",
 });
 
 export interface CapturePlanInput {
@@ -98,4 +98,23 @@ export function capturePlan({ settings, connected, systemAudio }: CapturePlanInp
 /** True when this plan opens no audio at all — the meeting is a typed one. */
 export function isNotesOnly(plan: CapturePlan): boolean {
   return plan.channels.length === 0;
+}
+
+/**
+ * What one meeting's attempt at the system tap teaches the next meeting.
+ *
+ * Only a success is remembered. A refusal used to be stored as `false`, and
+ * `capturePlan` then planned every later meeting as microphone-only without
+ * asking again — for the life of the process, which for a menu-bar app is
+ * days. So one refused attempt (the tap asked for before macOS had the
+ * permission, a ScreenCaptureKit hiccup) silently cost the other side of every
+ * call until the app was quit, even after the person had allowed it.
+ *
+ * Asking costs nothing here: the shell answers its own `getDisplayMedia`
+ * without a picker, so a meeting that tries and is refused just records the
+ * microphone and says so (`PLAN_NOTICES.micOnly`), and the next one tries
+ * again. `null` is "try it", which is what an unprobed machine already does.
+ */
+export function nextSystemAudioProbe(degraded: boolean): true | null {
+  return degraded ? null : true;
 }
