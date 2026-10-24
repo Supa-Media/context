@@ -163,3 +163,33 @@ test("the browser may type what they said a text ago, never Tex's words or a job
   assert.doesNotMatch(words, /evil/);
   assert.equal(theirEarlierWords(null), "");
 });
+
+test("a page an earlier answer opened opens again in a later text, and vouches for no words", async () => {
+  const { pagesOpenedBefore } = await import("../src/agent/turnWeb.js");
+  const history = [
+    { role: "user", text: "Tex sign in to claude as me" },
+    { role: "assistant", text: "I have the sign-in page open.", sources: ["https://claude.ai/login", "note:tex/x.md", "email:a@example.com/1"] },
+  ];
+  assert.deepEqual(pagesOpenedBefore(history), ["https://claude.ai/login"]);
+  assert.deepEqual(pagesOpenedBefore([{ role: "user", text: "x", sources: ["https://evil.example/"] }]), [], "a question's words never carry sources");
+
+  resetBrowserbaseProbe();
+  const store = memoryStore();
+  const sent = [];
+  const SITE_SHOTS = {
+    async fetch(_url, init) {
+      const body = JSON.parse(init.body);
+      sent.push(body);
+      return Response.json({ session: "bb-group", ran: body.steps.map((s) => ({ do: s.do, ok: true })), page: { url: "https://claude.ai/login", title: "Claude", text: "Email", elements: [] } });
+    },
+  };
+  const env = { SITE_SHOTS, GATEWAY_SECRET: "test-secret" };
+  const session = { actorUserId: "user_a", workspaceId: "ws_shared", egress: {} };
+  const open = (past) => openTurnWeb(env, { session, texting: false, group: GROUP, question: "Tex try again", vouched: "Tex try again", history: past, channel: null, store, dispatch: null, ledger: {} });
+  const refused = await (await open([])).web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://claude.ai/login" }] });
+  assert.equal(refused.isError, true, "nobody wrote it and no answer opened it");
+  const again = await (await open(history)).web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://claude.ai/login" }] });
+  assert.notEqual(again.isError, true, JSON.stringify(again));
+  const typed = await (await open(history)).web.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "claude login" }] });
+  assert.equal(typed.isError, true, "the page's address vouches for no words");
+});

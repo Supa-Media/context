@@ -147,7 +147,10 @@ other people's words are in its history.
   sign-in for the chat means; whoever signs a chat in to an account they own
   is choosing that. The prompt says a code sign-in needs no saved login, to
   ask the chat for the code and type it at once, and that a password is never
-  typed in the chat.
+  typed in the chat. Since 2026-10-24 a later text carries on too: the browser may type what
+  the chat said in its last twenty texts, and open again a page an earlier
+  answer opened (its kept `sources`), which vouches for no words
+  (`turnWeb.js` `theirEarlierWords`, `pagesOpenedBefore`).
 - **Sign in and use keys only with what the workspace itself holds** (the
   owner, 2026-10-21: "people can give Tex its own email ... but not through
   the individual saved logins, since we don't want anyone steering someone's
