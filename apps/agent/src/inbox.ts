@@ -62,6 +62,7 @@ import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply 
 import { startTurn, steerInto } from "./steer";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
+import { watchConversation } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -476,6 +477,8 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     storage,
   ).finally(end);
   await clearReactions(storage, reacted);
+  // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
+  if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
   if (pictures.length === 0) return texts;
