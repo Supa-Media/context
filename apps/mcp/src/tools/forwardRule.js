@@ -123,6 +123,14 @@ export async function standingForward(store, session, supplied, email) {
   if (rule === undefined) return null;
   const only = `Not sent: this routine may only forward one of the person's emails, by its id in forward, to ${rule.to} alone.`;
   if (!email.forward || email.to.length !== 1 || email.cc.length !== 0 || email.to[0] !== rule.to) return toolError(only);
+  // The rule is a yes to forwarding their own mail, and the person reads only
+  // the rule's own words. A browse download is a file from a web page, fetched
+  // in that page with their cookies, which no rule can have shown them — the
+  // email gate refuses one on a texted yes for the same reason (`emailGate.js`,
+  // "whose contents no offer can have shown"), and a rule shows less than that.
+  if ((email.attach?.length ?? 0) > 0) {
+    return toolError("Not sent: a standing forward passes on one of the person's emails and nothing else. Ask them about an email with files attached.");
+  }
   const named = parseEmailId(String(supplied.forward).trim());
   const id = `${named.address}/${named.messageId}`;
   if (rule.forwarded.includes(id)) return toolError("Not sent: this email was already forwarded under this rule. Skip it.");
