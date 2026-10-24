@@ -50,7 +50,7 @@ export const SCRIPT_NOTICE =
 
 /** "Your notes have been down all afternoon", "your notes aren't saving right now", "Context is having trouble saving". */
 const NOTES_DOWN =
-  /\b(?:notes?|context|workspace)\b[^.!?\n]{0,40}?\b(?:(?:been|is|are|was|were|went)\s+down|down\s+(?:right now|all|today|this)|(?:aren't|are not|isn't|is not|weren't|wasn't|not)\s+(?:saving|working|loading)|(?:having|had)\s+trouble|failing|broken)\b/i;
+  /\b(?:(?:your|the|my)\s+(?:notes?|workspace)|context)\s+(?:(?:have|has)\s+been\s+|(?:are|is|were|was|keeps?|kept)\s+(?:being\s+)?|went\s+)?(?:down|not\s+(?:saving|working|loading)|having\s+trouble|failing|broken)\b|\b(?:notes?|workspace)\s+(?:aren't|are not|isn't|is not|weren't|wasn't)\s+(?:saving|working|loading)\b/i;
 /** The calls that reach their notes; one of these failing in the turn is what "your notes are down" could rest on. */
 const NOTE_TOOLS = new Set(["read_note", "write_note", "search_notes", "list_notes", "fetch", "search", "write", "edit_note", "append_note", "move_note", "archive_note"]);
 

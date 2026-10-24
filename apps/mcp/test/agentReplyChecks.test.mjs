@@ -48,6 +48,8 @@ test("each check holds back where it should", () => {
   assert.equal(strayScript("Café crème, à 8h.", "where to"), false, "accents are not another script");
   assert.equal(blamesNotes("Your notes aren't saving right now.", [{ name: "write_note", ok: false }]), false, "a write really failed");
   assert.equal(blamesNotes("Rocket Money blocked the sign-in.", []), false);
+  assert.equal(blamesNotes("The notes say the boiler is broken, so call Sam.", []), false, "a note's words about something else");
+  assert.equal(blamesNotes("Context is down right now.", []), true);
   assert.equal(pointsAtWaitingAsk("It's still waiting for your 👍 above.", false), false, "nothing waits");
   assert.equal(pointsAtWaitingAsk("Yes, she's on it, so don't 👍 the forward.", true), false);
 });
