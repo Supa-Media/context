@@ -50,6 +50,7 @@ import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
+import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
@@ -143,22 +144,6 @@ const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
   "and say plainly what you could not check.";
 
-/** Settle `work` within `ms`, or throw `ToolTimeout`. */
-async function withinTime(work, ms) {
-  let timer;
-  try {
-    return await Promise.race([
-      work,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new ToolTimeout()), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-class ToolTimeout extends Error {}
 
 export class AgentRefusal extends Error {
   constructor(code, message) {
@@ -631,16 +616,20 @@ export async function runTurn(options) {
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
       try {
-        result = await withinTime(
-          progress && call.name === PROGRESS_TOOL
-            ? progress.call(call.args)
-            : localCalls.has(call.name)
-            ? localCalls.get(call.name)(call.args)
-            : webNames.has(call.name)
-              ? web.call(call.name, call.args)
-              : callTool(call.name, call.args),
-          timeoutFor(call.name),
-        );
+        const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
+        result = viaMcp && isPlainNoteWrite(call.name, call.args)
+          // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
+          ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
+          : await withinTime(
+              progress && call.name === PROGRESS_TOOL
+                ? progress.call(call.args)
+                : localCalls.has(call.name)
+                ? localCalls.get(call.name)(call.args)
+                : webNames.has(call.name)
+                  ? web.call(call.name, call.args)
+                  : callTool(call.name, call.args),
+              timeoutFor(call.name),
+            );
       } catch (error) {
         /*
           A tool that threw is the model's problem to work around, not the

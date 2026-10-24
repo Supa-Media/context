@@ -19,7 +19,7 @@
  */
 
 import * as Y from "yjs";
-import { diffChars } from "diff";
+import { diffText } from "./textDiff.js";
 
 function visibleStrings(text, visit) {
   for (let item = text._start; item !== null; item = item.right) {
@@ -69,7 +69,7 @@ function keepsDeletedRun(baseText, desired, deleted) {
   const stretch = new Int32Array(baseText.length).fill(-1);
   let index = 0;
   let stretches = 0;
-  for (const part of diffChars(baseText, desired)) {
+  for (const part of diffText(baseText, desired)) {
     if (part.added) continue;
     if (!part.removed) {
       stretches += 1;
@@ -109,7 +109,7 @@ export function replayResolution(base, current, desired) {
   let inserts = false;
   let dropsGained = false;
   let dropsOlder = false;
-  for (const part of diffChars(currentText, desired)) {
+  for (const part of diffText(currentText, desired)) {
     if (part.added) {
       inserts = true;
       continue;
