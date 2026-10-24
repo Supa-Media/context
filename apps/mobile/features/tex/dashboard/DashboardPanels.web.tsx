@@ -11,7 +11,6 @@ import {
   SCORE_LABELS,
   formatMicroUsd,
   formatSeconds,
-  formatTokens,
   frustrationByDay,
   frustrationByTask,
   modelLabel,
