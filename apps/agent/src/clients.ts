@@ -221,7 +221,8 @@ export type AgentAnswer =
    */
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
   /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps. */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true }
+  /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; vaultWatch?: true }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -273,6 +274,7 @@ export async function askAgent(
     running,
     job,
     onStep,
+    event,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -283,6 +285,8 @@ export async function askAgent(
     job?: JobAsk;
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string) => Promise<void>;
+    /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
+    event?: "vault_saved";
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -300,6 +304,7 @@ export async function askAgent(
     ...(turn ? { turn } : {}),
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
+    ...(event ? { event } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -343,6 +348,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
+      ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };

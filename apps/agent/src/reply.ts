@@ -72,6 +72,8 @@ export type ReplyDeps = {
   told?: Told[];
   onTold?: (told: Told) => Promise<void>;
   onToldDelivered?: () => Promise<void>;
+  /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
+  onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[]) => void;
   /**
@@ -183,6 +185,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     ).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
+    if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
       // Nothing but one word of the text goes, and no model runs before a link.
       const setup = await textSetup(
@@ -224,10 +228,11 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
+      if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
@@ -238,13 +243,15 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return textsWithExact(answer.text, answer.verbatim);
     }
+    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
+    if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
     if (answer.kind === "no_storage") return COPY.noStorage;
-    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     return COPY.unavailable;
   } catch (error) {
-    if (error instanceof ServiceError) return COPY.unavailable;
+    if (error instanceof ServiceError) return message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }
 }

@@ -27,6 +27,9 @@
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
  *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
  *   goes when that text is sent, or after twenty minutes.
+ * - `vault-watch` holds the phone and times, never text, for at most half an
+ *   hour after Tex texted a link to save a login, while it looks for the save
+ *   so the task carries on without a "done" from them (`vaultWatch.ts`).
  * - `reactions` holds up to five tapbacks not answered, each with the words
  *   it was on, for at most a day, until the next text's turn is told them
  *   (`reactions.ts`).
@@ -58,6 +61,7 @@ import { answers, clearReactions, noteReaction, notedReactions, tapbackText, typ
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -199,6 +203,39 @@ export async function accept(
   // Words sent while Tex works on the text before join that job (`steer.ts`).
   await steerInto(storage, message, pending.size);
   return "queued";
+}
+
+/**
+ * Once a login Tex asked for is saved (`vaultWatch.ts`), a turn of its own
+ * carries the task on: queued like a text, with no words of theirs and
+ * `event: "vault_saved"`, in the chat they last texted from. Not when they
+ * texted since the save: that text's turn carried it on. Called from the alarm.
+ */
+export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDeps, "fetch" | "controlPlaneOrigin" | "workerSecret" | "now">): Promise<void> {
+  const saved = await checkVaultSaved(storage, deps);
+  if (saved === null) return;
+  const chat = await storage.get<RememberedChat>(CHAT_KEY);
+  if (chat === undefined) return logVaultWatch("no_chat");
+  if (chat.at > saved.savedAt) return logVaultWatch("texted_since");
+  const eventId = `vault-saved:${saved.savedAt}`;
+  if ((await storage.get<number>(seenKey(eventId))) !== undefined) return;
+  const now = deps.now();
+  const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
+  await storage.put("seq", seq);
+  await storage.put(seenKey(eventId), now);
+  const message: Message = {
+    kind: "message",
+    eventId,
+    chatId: chat.chatId,
+    from: saved.phone,
+    messageId: "",
+    text: "",
+    event: "vault_saved",
+    ...(chat.channel === "simulator" ? { channel: "simulator" as const } : {}),
+  };
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await storage.setAlarm(now);
+  logVaultWatch("queued");
 }
 
 /** What became of a tapback, without its words: enough to tell a 👍 that reached nothing from one never sent. */
@@ -431,6 +468,8 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       told,
       onTold: (sent) => noteTold(storage, sent),
       onToldDelivered: () => clearTold(storage, told),
+      // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
+      onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent) => void (pictures = sent),
       ...(await jobsFor(storage, message, deps)),
     },

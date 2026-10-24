@@ -29,7 +29,7 @@ export const FILL_LOGIN_DEFINITION = {
     "Sign in with a login the person saved: fills the username and password boxes on the page your browser is on. " +
     "First open the site's sign-in page with send action browse, then pass the login's id from fetch vault: and the numbers of the boxes. " +
     "You never see the username or password; press the sign-in button with send action browse afterwards. " +
-    "It only works on the login's own site; a Google login (site google.com) fills on Google's sign-in page, which a site's Continue with Google button opens. If there is no saved login, never ask for the password: ask whether they sign in with Gmail or another email and send manage action vault_add's link for it, then sign in yourself once it's saved.",
+    "It only works on the login's own site; a Google login (site google.com) fills on Google's sign-in page, which a site's Continue with Google button opens. If there is no saved login, never ask for the password: ask whether they sign in with Gmail or another email and send manage action vault_add's link for it with its site; Context tells you when it's saved, and you sign in yourself then.",
   inputSchema: {
     type: "object",
     properties: {

@@ -22,5 +22,7 @@ export const vaultTables = {
     usedAt: v.optional(v.number()),
   })
     .index("by_hashed_token", ["hashedToken"])
-    .index("by_expires", ["expiresAt"]),
+    .index("by_expires", ["expiresAt"])
+    /** The texting Worker's look for a login saved since Tex texted the link (`functions/vaultWatch.ts`). */
+    .index("by_user_kind", ["userId", "kind"]),
 };

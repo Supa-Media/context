@@ -60,6 +60,12 @@ export type Inbound =
        */
       threaded?: true;
       /**
+       * Not a text: the inbox queued it because a login Tex asked for was
+       * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
+       * own fixed question for it. Never set from a webhook.
+       */
+      event?: "vault_saved";
+      /**
        * Set on arrival (`inbox.ts`, `accept`): a plain text after the chat was
        * quiet a while, so it starts a topic and its answer opens a thread under it.
        */

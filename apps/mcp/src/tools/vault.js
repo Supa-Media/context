@@ -88,6 +88,8 @@ export async function toolVaultAddLink(store, args) {
   if (fields.length > 30 || fields.some((name) => !isFieldName(name)) || (type === "card" && fields.length > 0)) {
     return toolError("fields are up to 30 names like OPENAI_API_KEY or Account number.");
   }
+  // A login only ever fills on its site, so the page opens with it filled in (Dev2, 2026-10-24: Instacart's came blank).
+  if (type === "login" && !clip(args?.site, 300)) return toolError("Pass site, the website the login is for, e.g. instacart.com, so the page has it filled in.");
   const minted = await calls.request({
     kind: "add",
     type,

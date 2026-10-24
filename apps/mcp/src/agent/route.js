@@ -31,19 +31,7 @@ import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImag
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
-import {
-  loadRoutine,
-  keepRun,
-  readRuns,
-  RoutineRefusal,
-  ROUTINES_CLIENT_ID,
-  routinePathFrom,
-  routineRunQuestion,
-  routineTimeZone,
-  runOutcome,
-  stopRoutine,
-  finishOnce,
-} from "./routine.js";
+import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { delegateSession, withDelegate } from "./delegate.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
@@ -56,6 +44,7 @@ import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
+import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
@@ -152,7 +141,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   let runs = [];
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
   let supervision = null;
-  let question = typeof body.question === "string" ? body.question.trim() : "";
+  // A saved login's turn (`vaultSaved.js`) is asked the gateway's own line, never the body's.
+  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (typeof body.question === "string" ? body.question.trim() : "");
   if (runner) {
     try {
       routine = await loadRoutine(dispatch, routinePathFrom(body.routine));
@@ -516,12 +506,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
       answerCheck: claims?.check ?? null,
-      callTool: (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
+      callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
           withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
-      ))),
+      )))),
       pictures: texted || group !== null,
       attachments,
       env,
@@ -649,6 +639,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
       ...(pictures.length > 0 ? { pictures } : {}),
+      ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,

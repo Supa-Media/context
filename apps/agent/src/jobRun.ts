@@ -66,7 +66,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[] }
+  | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[]; vaultWatch?: true }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -160,6 +160,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
     await storage.setAlarm(deps.now() + RETRY_MS * 2 ** run.tries);
     return log("retry", run.id);
   }
+  // It texted a link to save a login: the chat's inbox watches for the save, to carry the task on (`vaultWatch.ts`).
+  const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
   // A text that came after the turn's last look changes the job: it is not texted the old way.
   const changed = outcome.kind === "answer" && left.length > 0;
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed;
@@ -167,6 +169,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
     await storage.put<Stored>(RUN_KEY, { ...run, sent, attempt: run.attempt + 1, tries: 0 });
     await tell({
       state: "running",
+      ...watch,
       status: changed ? "Changing it to what you texted" : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
     await storage.setAlarm(deps.now());
@@ -175,7 +178,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
 
   const update: Omit<JobUpdate, "id" | "first"> =
     outcome.kind === "answer"
-      ? { state: "done", status: outcome.status, texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts }
+      ? { state: "done", status: outcome.status, texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts, ...watch }
       : outcome.kind === "stop"
         ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
         : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
@@ -227,6 +230,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       exhausted: answer.exhausted === true,
       status: firstLine(answer.text),
       steered: answer.steered ?? [],
+      ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };

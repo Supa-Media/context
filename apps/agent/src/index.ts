@@ -24,7 +24,7 @@
  */
 
 import { parseInbound, type Inbound } from "./inbound";
-import { accept, drain, react, type InboxDeps } from "./inbox";
+import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
@@ -397,6 +397,7 @@ export class SenderInbox implements DurableObject {
     await drain(this.state.storage, this.deps());
     await checkReady(this.state.storage, this.deps());
     await checkGmail(this.state.storage, this.deps());
+    await carryOnAfterSave(this.state.storage, this.deps());
     // A job's object has only `jobrun`; every other object finds nothing to run.
     await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
   }
