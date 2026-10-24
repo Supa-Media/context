@@ -154,6 +154,20 @@ export const REMEMBER_LINE =
   "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference), " +
   "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
 
+/**
+ * A note they ask for is saved, and saved where their folders say (Tex's
+ * self-review, 2026-10-24: Tex refused three times to keep a child's Screen
+ * Time code in a note, the person saying each time it was not a real
+ * password, then filed it in the inbox; and saved meeting notes beside the
+ * person's "2026 - Fall" subfolder rather than in it). The vault is for
+ * logins, keys and cards; anything else is theirs to keep as they ask.
+ */
+export const SAVING_LINE =
+  "When they ask you to keep something as a note, save it in this turn, whatever older instructions above say. A code or number they call not secret " +
+  "(a Screen Time or door code, a locker combination) is theirs to keep in a note in their personal workspace, filed with what it's about. " +
+  "Only an account's password, an API key or a card number goes to the vault: offer its link once, and if they still want a note, save the note. Never refuse twice. " +
+  "A new note goes where their folders say: when the folder sorts its notes into subfolders (a term, a year, a topic), put it in the one that fits.";
+
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
@@ -282,7 +296,7 @@ export function systemPrompt(
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
         ACTIONS_LINE,
-        ...(edits ? [REMEMBER_LINE] : []),
+        ...(edits ? [REMEMBER_LINE, SAVING_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

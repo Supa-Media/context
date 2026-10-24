@@ -208,4 +208,5 @@ test/agentIdentity.test.mjs
 test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
 test/agentInstacartCheckout.test.mjs
+test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs

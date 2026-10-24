@@ -219,6 +219,8 @@ Tex's own jobs, each with its record:
   up to date from the day's transcripts and the facts their other AI apps saved, logged in `tex/dreams/`.
 - [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
   and Google accounts, told on every turn Tex answers for them.
+- [Saving notes](./texting-assistant/saving-notes.md): a note they ask for is saved
+  at once, a non-secret code included, in the subfolder their folders say.
 - [Runtime](./texting-assistant/runtime.md): the conversation as a log of
   exchanges, a thread's texts read that thread, tapbacks answered or noted,
   check-ins wait for ten quiet minutes.
