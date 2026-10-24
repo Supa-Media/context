@@ -89,6 +89,11 @@ describe("a shipped fix", () => {
     expect(painStatusOf(theme({ status: "open", prs: [], fixThread: null }))).toBe("none");
     expect(painStatusOf(theme({ status: "open", prs: [], fixThread: "Fix it" }))).toBe("working");
     expect(painStatusOf(theme({ status: "retired" }))).toBe("retired");
+    // The reviews folder's own words.
+    expect(painStatusOf(theme({ status: "fixed" }))).toBe("shipped");
+    expect(painStatusOf(theme({ status: "new", prs: [], fixThread: "none" }))).toBe("none");
+    expect(painStatusOf(theme({ status: "triaged", prs: [], fixThread: null }))).toBe("working");
+    expect(painStatusOf(theme({ status: "no action" }))).toBe("retired");
   });
 });
 

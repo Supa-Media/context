@@ -222,15 +222,17 @@ export interface PainRow {
   isNew: boolean;
 }
 
+/** The reviews folder's own statuses (new; triaged, fixing; fixed, no action) and the words people use beside them. */
 const SHIPPED = new Set(["shipped", "fixed", "merged", "done"]);
-const RETIRED = new Set(["retired", "wontfix", "dropped"]);
+const RETIRED = new Set(["retired", "no action", "wontfix", "dropped"]);
+const UNTOUCHED = new Set(["new", "open", ""]);
 
 export function painStatusOf(theme: ThemeRow): PainStatus | "retired" {
   const status = theme.status.toLowerCase();
   if (RETIRED.has(status)) return "retired";
   if (SHIPPED.has(status)) return "shipped";
-  if (theme.fixThread !== null || theme.prs.length > 0 || status !== "open") return "working";
-  return "none";
+  if (!UNTOUCHED.has(status)) return "working";
+  return theme.fixThread !== null && theme.fixThread.toLowerCase() !== "none" ? "working" : theme.prs.length > 0 ? "working" : "none";
 }
 
 /** Whether one scored conversation is a case of the problem: a matching signal, in a task it names (any, if none). */
@@ -451,6 +453,7 @@ export const BUG_STATUSES = ["open", "triage", "fixing", "fixed", "retired"] as 
 export function bugStatusOf(status: string): (typeof BUG_STATUSES)[number] {
   const lower = status.toLowerCase();
   if ((BUG_STATUSES as readonly string[]).includes(lower)) return lower as (typeof BUG_STATUSES)[number];
+  if (lower === "triaged") return "fixing";
   if (SHIPPED.has(lower)) return "fixed";
   if (RETIRED.has(lower)) return "retired";
   return "open";
