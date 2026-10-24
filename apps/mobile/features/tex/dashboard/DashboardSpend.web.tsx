@@ -9,6 +9,7 @@
 import { texDashboardColors as C } from "../../design/tokens/texDashboardColors";
 import { AreaChart, Axis, Bar, Card } from "./DashboardPanels.web";
 import { formatMicroUsd, formatTokens, modelLabel, type TexReport } from "./model";
+import { costOf } from "./insights";
 import { spendByDay, windowDayList, type TexSpend } from "./trends";
 
 /** What each gateway label paid for, as staff say it. */
@@ -87,6 +88,42 @@ export function SpendPanel({ report, spend }: { report: TexReport; spend: TexSpe
           </div>
         </div>
       ) : null}
+    </Card>
+  );
+}
+
+/**
+ * What a text costs, near the top of the page: billed spend on answering
+ * people over the texts Tex answered, and where the rest went (`costOf`).
+ */
+export function CostPanel({ report, spend, days }: { report: TexReport; spend: TexSpend | undefined; days: number }) {
+  const cost = costOf(report, spend, days);
+  const total = cost.textsUsd + cost.otherUsd + cost.testsUsd;
+  const part = (value: number) => `${total === 0 ? 0 : (value / total) * 100}%`;
+  return (
+    <Card title="What a text costs" meta={cost.billed ? "billed by Cloudflare, cache included" : spend === undefined ? "asking Cloudflare…" : "our estimate at list price"} testID="tex-dashboard-cost">
+      <div className="td-cost">
+        <div>
+          <span className="td-trend-value num">{cost.perText === null ? "—" : usd(cost.perText)}</span>
+          <p className="td-meta">
+            per text Tex answered · {cost.texts.toLocaleString("en-US")} texts, {usd(cost.textsUsd)}
+          </p>
+        </div>
+        {cost.billed ? (
+          <div className="td-cost-split">
+            <div className="td-split" role="img" aria-label={`Texts ${usd(cost.textsUsd)}, everything else ${usd(cost.otherUsd)}, tests ${usd(cost.testsUsd)}`}>
+              <div style={{ width: part(cost.textsUsd), background: C.blue }} />
+              <div style={{ width: part(cost.otherUsd), background: C.ochre }} />
+              <div style={{ width: part(cost.testsUsd), background: C.hair }} />
+            </div>
+            <div className="td-legend">
+              <span><span className="td-dot" style={{ background: C.blue }} />Answering texts {usd(cost.textsUsd)}</span>
+              <span><span className="td-dot" style={{ background: C.ochre }} />Check-ins, dreams and judges {usd(cost.otherUsd)}</span>
+              <span><span className="td-dot" style={{ background: C.hair }} />Tests {usd(cost.testsUsd)}</span>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </Card>
   );
 }

@@ -4,17 +4,22 @@
 
 /**
  * tex.lc/admin, actually rendered: the Tex dashboard is a page of its own, not
- * a tab in the staff console (the owner, 2026-10-24).
+ * a tab in the staff console (the owner, 2026-10-24), redesigned around where
+ * Tex hurts and whether it is getting better.
  *
  *  1. **The host decides.** `/admin` on tex.lc draws the dashboard; on
  *     context.lc it is still the console's redirect to Growth.
- *  2. **Its figures reach the screen** from `texReport`: texts, spend, answer
- *     time, frustration, the model cards, tasks, tools and what needs a look.
- *  3. **The window reaches the query.**
- *  4. **Explore's filters are dropdowns that narrow the table**, and a task
- *     card filters Explore to that task.
- *  5. **Somebody who is not staff sees "Staff only"**, and the report is
- *     never asked for.
+ *  2. **Do next names the worst unfixed problem**, and its button sends that
+ *     problem's note to the triage agent.
+ *  3. **Every number has a target and the window before**, and says when it
+ *     rests on too few chats to call.
+ *  4. **Where it hurts** lists the problems, unfixed first, with a shipped
+ *     fix's before and since.
+ *  5. **The window reaches the query**, asked for twice over.
+ *  6. **The bug desk** counts reports, opens one, and comments or retires it.
+ *  7. **Explore's filters still narrow the table.**
+ *  8. **Somebody who is not staff sees "Staff only"**, and nothing is asked
+ *     for.
  *
  * Every value here is obviously fake. This repository is public.
  *
@@ -23,9 +28,11 @@
  *   `AdminRoute` ignoring the host (always redirecting)             6
  *   `applyFilters` ignoring the filters                             2
  *   `texReport` asked without the staff check ("skip" removed)      1
+ *   `painRowsOf` sorting shipped problems first                     2
+ *   `NoteReader` sending "triage" for Retire                        1
  */
 
-import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 const mockAnswers = new Map<string, unknown>();
 const mockArgs = new Map<string, unknown>();
@@ -66,7 +73,13 @@ import AdminRoute from "../app/(app)/admin/index";
 
 const roots: (() => void)[] = [];
 
+beforeEach(() => {
+  jest.spyOn(Date, "now").mockReturnValue(NOW);
+  Element.prototype.scrollIntoView = () => {};
+});
+
 afterEach(() => {
+  jest.restoreAllMocks();
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockAnswers.clear();
@@ -123,9 +136,13 @@ function spend() {
 }
 const ADMIN = "functions/admin:amIAdmin";
 
+/** After codes began (Oct 24, 18:00 UTC), so every row counts. */
+const SCORED = Date.parse("2026-10-24T20:00:00Z");
+const NOW = Date.parse("2026-10-25T06:00:00Z");
+
 function review(over: Record<string, unknown> = {}) {
   return {
-    at: Date.parse("2026-10-24T12:00:00Z"),
+    at: SCORED,
     kind: "one",
     reason: "ended",
     goal: 8,
@@ -157,8 +174,8 @@ function report() {
       costMicroUsd: 3_200_000,
       priced: 14,
       byDay: [
-        { day: "2026-10-23", turns: 6, costMicroUsd: 1_000_000 },
-        { day: "2026-10-24", turns: 8, costMicroUsd: 2_200_000 },
+        { day: "2026-10-23", turns: 6, texts: 5, troubled: 1, costMicroUsd: 1_000_000 },
+        { day: "2026-10-24", turns: 8, texts: 7, troubled: 2, costMicroUsd: 2_200_000 },
       ],
       models: [{ model: "fake-provider/think-model", turns: 4, inputTokens: 12_000, outputTokens: 2_000, cacheReadTokens: 0, costMicroUsd: 3_000_000 }],
       tools: [{ tool: "browse", calls: 10, failed: 3 }],
@@ -175,19 +192,43 @@ function report() {
     },
     reviewsTruncated: false,
     reviews: [
-      review({ at: Date.parse("2026-10-23T12:00:00Z") }),
-      review({ task: "web_errand", signals: ["try_again"], calm: 3, texts: 6 }),
+      review({ at: SCORED - 3_600_000 }),
+      review({ task: "web_errand", signals: ["try_again"], calm: 3, texts: 6, goal: 5 }),
       review({ task: "web_errand", calm: 4, kind: "group" }),
-      review({ task: "web_errand", calm: 2 }),
+      review({ task: "web_errand", calm: 2, goal: 4 }),
       review({ task: "calendar" }),
     ],
   };
 }
 
-function asStaff(withSpend: unknown = spend()): HTMLElement {
+const TRIAGE = "functions/texDashboard:triage";
+const READ = "functions/texDashboard:readNote";
+const ACT = "functions/texDashboard:act";
+const OPEN_THEME = "areas/tex-reviews/themes/retries-on-errands.md";
+const BUG = "areas/tex-bugs/user/2026-10-24 2100 reminder never came abc123.md";
+
+function triage() {
+  const theme = { signals: [] as string[], tasks: [] as string[], prs: [] as number[], merged: null, firstSeen: null, fixThread: null };
+  return {
+    available: true,
+    slug: "context-lc",
+    bugs: [
+      { path: BUG, filed: Date.parse("2026-10-24T21:00:00Z"), status: "open", reporter: "user", textsShared: true, title: "Reminder never came", theme: null },
+      { path: "areas/tex-bugs/team/2026-10-24 1000 old one def456.md", filed: Date.parse("2026-10-24T10:00:00Z"), status: "retired", reporter: "team", textsShared: false, title: "Old one", theme: null },
+    ],
+    reviews: [{ path: "areas/tex-reviews/2026-10-24 2000 calm 2 aaaaaa.md", reviewed: SCORED, status: "new", theme: "retries-on-errands", task: "web_errand", signals: ["try_again"], average: 4 }],
+    themes: [
+      { ...theme, path: "areas/tex-reviews/themes/note-saves.md", slug: "note-saves", name: "Note saves time out", status: "shipped", signals: ["repeated"], tasks: ["notes"], prs: [2154], merged: Date.parse("2026-10-24T00:00:00Z") },
+      { ...theme, path: OPEN_THEME, slug: "retries-on-errands", name: "Errands need a retry", status: "open", signals: ["try_again"], tasks: ["web_errand"] },
+    ],
+  };
+}
+
+function asStaff(withSpend: unknown = spend(), desk: unknown = triage()): HTMLElement {
   mockAnswers.set(ADMIN, true);
   mockAnswers.set(TEX, report());
   mockAnswers.set(SPEND, withSpend);
+  mockAnswers.set(TRIAGE, desk);
   const container = mount();
   // The billed spend arrives from an action, after the first paint.
   return container;
@@ -196,6 +237,15 @@ function asStaff(withSpend: unknown = spend()): HTMLElement {
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
+  });
+}
+
+function pick(testID: string, value: string): void {
+  const select = find(testID) as HTMLSelectElement | null;
+  if (select === null) throw new Error(`no select called ${testID}`);
+  act(() => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -211,92 +261,114 @@ describe("tex.lc/admin", () => {
     expect(find("redirect")?.getAttribute("data-href")).toBe("/admin/growth");
   });
 
-  test("its figures reach the screen", async () => {
+  test("do next names the worst problem nobody is fixing, and sends it to triage", async () => {
     asStaff();
     await settle();
-    expect(find("tex-dashboard-kpi-texts")?.textContent).toContain("12");
-    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("$21.50");
-    expect(find("tex-dashboard-kpi-speed")?.textContent).toContain("4.2s");
-    expect(find("tex-dashboard-kpi-frustrated")?.textContent).toContain("60%");
-    expect(find("tex-dashboard-models")?.textContent).toContain("Think-model");
-    expect(find("tex-dashboard-models")?.textContent).toContain("Router sent 30% to thinking");
-    expect(find("tex-dashboard-models")?.textContent).toMatch(/Errors \/ retried10% \/ 5%/);
-    expect(find("tex-dashboard-task-web_errand")?.textContent).toContain("Web errands");
-    expect(find("tex-dashboard-tools")?.textContent).toContain("browse");
-    expect(find("tex-dashboard-look")?.textContent).toContain("Web errands: 100% of 3 conversations frustrated people");
-    expect(find("tex-dashboard-look")?.textContent).toContain("Think-model failed 10% of its rounds");
+    const today = find("tex-dashboard-today")?.textContent ?? "";
+    expect(today).toContain("Errands need a retry: 1 chat in 14 days, and nobody is fixing it yet.");
+    // The shipped fix: one notes chat could have hit it since, too few to judge.
+    expect(today).toContain("#2154 Note saves time out: 0 of 0 before, 0 of 0 since. Too early, 5 more to judge.");
+    const button = [...document.querySelectorAll("button")].find((node) => node.textContent === "Send to triage to fix");
+    act(() => button!.click());
+    await settle();
+    expect(mockArgs.get(ACT)).toEqual({ path: OPEN_THEME, action: "triage" });
   });
 
-  test("the window reaches the report and the billed spend", async () => {
+  test("every number has its target and the window before, and says when there are too few to call", async () => {
     asStaff();
     await settle();
-    expect(mockArgs.get(TEX)).toEqual({ days: 7 });
-    expect(mockArgs.get(SPEND)).toEqual({ days: 7 });
-    click("tex-dashboard-days-30");
+    const success = find("tex-dashboard-tile-success")?.textContent ?? "";
+    // Five scored chats; the two emails, the calendar one and one errand got what they wanted.
+    expect(success).toContain("60%");
+    expect(success).toContain("Target 70%");
+    expect(success).toContain("5 scored chats in 7 days");
+    // Codes began this week, so there is no window before to compare with.
+    expect(success).toContain("no window before");
+    expect(find("tex-dashboard-tile-p95")?.textContent).toContain("75s");
+    expect(find("tex-dashboard-tile-p95")?.textContent).toContain("Target under 60s");
+    expect(find("tex-dashboard-tile-troubled")?.textContent).toContain("21%");
+  });
+
+  test("where it hurts puts the unfixed problem first, and a shipped one says when", async () => {
+    asStaff();
+    await settle();
+    const rows = [...document.querySelectorAll('[data-testid^="tex-dashboard-pain-"]')].map((row) => row.getAttribute("data-testid"));
+    expect(rows).toEqual(["tex-dashboard-pain-retries-on-errands", "tex-dashboard-pain-note-saves"]);
+    expect(find("tex-dashboard-pain-retries-on-errands")?.textContent).toContain("No fix yet");
+    expect(find("tex-dashboard-pain-note-saves")?.textContent).toContain("Shipped Oct 24");
+    expect(find("tex-dashboard-pain-note-saves")?.textContent).toContain("#2154");
+  });
+
+  test("the window reaches the report, asked for twice over, and the billed spend", async () => {
+    asStaff();
     await settle();
     expect(mockArgs.get(TEX)).toEqual({ days: 30 });
+    expect(mockArgs.get(SPEND)).toEqual({ days: 7 });
+    pick("tex-dashboard-window", "30");
+    await settle();
+    expect(mockArgs.get(TEX)).toEqual({ days: 90 });
     expect(mockArgs.get(SPEND)).toEqual({ days: 30 });
   });
 
-  test("spend is Cloudflare's billed figure, split by job and by how much was cached", async () => {
+  test("the bug desk counts reports, opens one, and comments on it or retires it", async () => {
     asStaff();
     await settle();
-    const card = find("tex-dashboard-spend")?.textContent ?? "";
-    expect(card).toContain("$21.50 billed for Tex");
-    expect(card).toContain("Test runs cost another $8.00");
-    expect(card).toMatch(/Check-ins/);
-    expect(card).toContain("90% cached");
+    expect(find("tex-dashboard-bugs")?.textContent).toContain("1 waiting");
+    // Waiting reports by default; the retired one is behind the dropdown.
+    expect(document.querySelectorAll('[data-testid="tex-dashboard-bug"]')).toHaveLength(1);
+    pick("tex-dashboard-bugs-show", "all");
+    expect(document.querySelectorAll('[data-testid="tex-dashboard-bug"]')).toHaveLength(2);
+    mockAnswers.set(READ, { path: BUG, text: "---\nstatus: open\n---\n\n# Reminder never came\n", mail: [{ at: "2026-10-24T22:00:00.000Z", from: "triage", to: "everyone", text: "Looking at it" }] });
+    mockAnswers.set(ACT, { status: "retired" });
+    act(() => (document.querySelector('[data-testid="tex-dashboard-bug"]') as HTMLButtonElement).click());
+    await settle();
+    expect(mockArgs.get(READ)).toEqual({ path: BUG });
+    const reader = find("tex-dashboard-reader")?.textContent ?? "";
+    expect(reader).toContain("# Reminder never came");
+    expect(reader).toContain("Looking at it");
+    const box = document.getElementById("td-comment") as HTMLTextAreaElement;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(box, "Duplicate of the reminders fix");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const retire = [...document.querySelectorAll("button")].find((node) => node.textContent === "Retire");
+    act(() => retire!.click());
+    await settle();
+    expect(mockArgs.get(ACT)).toEqual({ path: BUG, action: "retire", comment: "Duplicate of the reminders fix" });
   });
 
-  test("without Cloudflare connected, spend says it is our estimate", async () => {
+  test("staff who are not on the team context are told why problems and bugs are missing", async () => {
+    asStaff(spend(), { available: false, reason: "not_a_member" });
+    await settle();
+    expect(document.body.textContent).toContain("not a member of the team context");
+    expect(find("tex-dashboard-bugs")).toBeNull();
+  });
+
+  test("without Cloudflare connected, the cost says it is our estimate", async () => {
     asStaff({ configured: false });
     await settle();
-    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("$3.20");
-    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("our estimate");
+    expect(find("tex-dashboard-cost")?.textContent).toContain("our estimate");
     expect(find("tex-dashboard-spend-compare")?.textContent).toContain("isn't connected");
   });
 
-  test("day by day shows each figure per day with the change from the day before, and follows the task", async () => {
-    asStaff();
-    await settle();
-    // Oct 23: one calm email; Oct 24: three frustrated web errands of four.
-    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("75%");
-    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("+75 pts");
-    expect(find("tex-dashboard-trend-spend")?.textContent).toContain("+$8.50");
-    const select = find("tex-dashboard-trends-task") as HTMLSelectElement;
-    act(() => {
-      select.value = "calendar";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("0%");
-    expect(find("tex-dashboard-trend-frustrated")?.textContent).not.toContain("pts");
-  });
-
-  test("a task picked from the Task dropdown narrows the table, and Clear brings it back", () => {
+  test("a task picked from Explore's dropdown narrows the table, and Clear brings it back", () => {
     asStaff();
     expect(find("tex-dashboard-table")?.textContent).toContain("Email");
     click("tex-dashboard-filter-task");
     click("tex-dashboard-filter-task-web_errand");
-    expect(find("tex-dashboard-filter-task")?.textContent).toContain("Web errands");
     expect(find("tex-dashboard-table")?.textContent).not.toContain("Email");
     expect(find("tex-dashboard-explore-count")?.textContent).toContain("3 of 5 conversations");
     click("tex-dashboard-clear");
     expect(find("tex-dashboard-table")?.textContent).toContain("Email");
   });
 
-  test("a task card filters Explore to that task", () => {
-    asStaff();
-    Element.prototype.scrollIntoView = () => {};
-    click("tex-dashboard-task-calendar");
-    expect(find("tex-dashboard-explore-count")?.textContent).toContain("1 of 5 conversations");
-  });
-
-  test("somebody who is not staff sees Staff only, and the report is never asked for", () => {
+  test("somebody who is not staff sees Staff only, and nothing is asked for", () => {
     mockAnswers.set(ADMIN, false);
     mockAnswers.set(TEX, report());
     mount();
     expect(find("tex-dashboard-staff-only")?.textContent).toContain("Staff only");
     expect(mockArgs.get(TEX)).toBe("skip");
-    expect(find("tex-dashboard-kpi-texts")).toBeNull();
+    expect(mockArgs.get(TRIAGE)).toBe("skip");
   });
 });

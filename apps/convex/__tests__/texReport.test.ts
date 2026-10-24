@@ -109,7 +109,11 @@ describe("the tex report", () => {
     expect(report.turns.byKind).toEqual({ one: 1, group: 1, job: 0, routine: 0, app: 0, older: 1 });
     expect(report.turns).toMatchObject({ answered: 2, failed: 1, costMicroUsd: 15_750, priced: 2 });
     expect(report.turns.byDay).toHaveLength(7);
-    expect(report.turns.byDay.at(-1)).toMatchObject({ turns: 1, costMicroUsd: 15_450 });
+    // Today's one turn answered a person, and its browse failed: a troubled text.
+    expect(report.turns.byDay.at(-1)).toMatchObject({ turns: 1, texts: 1, troubled: 1, costMicroUsd: 15_450 });
+    // The failed group turn two days ago; the older turn answered with its tool fine.
+    expect(report.turns.byDay.at(-3)).toMatchObject({ turns: 1, texts: 1, troubled: 1 });
+    expect(report.turns.byDay.at(-4)).toMatchObject({ turns: 1, texts: 0, troubled: 0 });
     expect(report.turns.models[0]).toMatchObject({ model: THINK, turns: 1, costMicroUsd: 15_000 });
     expect(report.turns.models.find((row) => row.model === MAIN)).toMatchObject({ turns: 3, cacheReadTokens: 400, costMicroUsd: 750 });
     expect(report.turns.tools).toEqual([{ tool: "browse", calls: 2, failed: 1 }]);

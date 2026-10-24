@@ -1,36 +1,68 @@
 /**
- * tex.lc/admin: the Tex dashboard, its own page (the owner, 2026-10-24: "an
- * entirely new page, not another tab within the admin page"), drawn from the
- * approved concept: a dark hero with the headline numbers, how conversations
- * feel, frustration and what set it off, texts to finish, model performance,
- * texts and spend, tasks and tools, what needs a look, and Explore.
+ * tex.lc/admin: where Tex hurts, and whether it is getting better.
  *
- * Figures are `texReport` (`apps/convex/functions/lib/adminFns/texReport.ts`),
- * which is staff only on the server; the page asks `amIAdmin` only to say so
- * kindly instead of drawing an error. The arithmetic is `./model`.
+ * Its own page (the owner, 2026-10-24: "an entirely new page"), redesigned the
+ * same evening after the owner called the scorecards meaningless without a
+ * frame of reference, through two rounds of product and design review. Top to
+ * bottom: the one thing to fix next and what to check on; four numbers, each
+ * against its target and the window before; the problems the triage agent
+ * named, with what each fix did; thirty days of trend with shipped fixes on
+ * them; the bug desk; what a text costs; and everything else folded away.
+ *
+ * Figures are `texReport` and the triage desk (`api.functions.texDashboard`),
+ * staff only on the server; the page asks `amIAdmin` only to say so kindly.
+ * The reasoning is `./insights`.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { Tex } from "../../chaos/Tex";
 import { api } from "@context/convex/_generated/api";
 import { DASHBOARD_CSS } from "./dashboardCss";
+import { BugsPanel, NoteReader } from "./DashboardBugs.web";
 import { DashboardExplore } from "./DashboardExplore.web";
-import { FeelPanel, FrustrationPanel, LookPanel, ModelsPanel, TasksPanel, TextsPanel, ToolsPanel, VolumePanel } from "./DashboardPanels.web";
-import { SpendPanel } from "./DashboardSpend.web";
-import { TrendsPanel } from "./DashboardTrends.web";
-import { spendByDay, windowDayList, type TexSpend } from "./trends";
-import { TEX_WINDOWS, formatMicroUsd, formatSeconds, frustrationByDay, isFrustrated, sparkPaths, textsHandled, type TexFilters, type TexReport, type TexWindow } from "./model";
-import { texDashboardColors as C } from "../../design/tokens/texDashboardColors";
+import { PainPanel } from "./DashboardPain.web";
+import { ModelsPanel, TasksPanel, ToolsPanel, VolumePanel } from "./DashboardPanels.web";
+import { ProgressPanel } from "./DashboardProgress.web";
+import { CostPanel, SpendPanel } from "./DashboardSpend.web";
+import {
+  CODES_BEGAN,
+  directionOf,
+  formatTile,
+  markersOf,
+  onTarget,
+  painRowsOf,
+  seriesOf,
+  shortDate,
+  tilesOf,
+  untriagedSignals,
+  verdictOf,
+  type BugRow,
+  type Tile,
+  type TriageDesk,
+  type Verdict,
+} from "./insights";
+import { TASK_LABELS, TEX_WINDOWS, type TexFilters, type TexReport, type TexReview, type TexWindow } from "./model";
+import type { TexSpend } from "./trends";
 
 export const TEX_DASHBOARD_TITLE = "Tex dashboard";
+
+/** The report is asked for twice the window, so every number has the window before it. */
+const FETCH_DAYS: Record<TexWindow, number> = { "7": 30, "30": 90, "90": 90 };
+type Who = "all" | "not_staff" | "new";
 
 export function TexDashboard() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   const [days, setDays] = useState<TexWindow>("7");
-  const report = useQuery(api.functions.admin.texReport, isAdmin === true ? { days: Number(days) } : "skip");
-  const [filters, setFilters] = useState<TexFilters>({});
+  const [who, setWho] = useState<Who>("all");
+  const [task, setTask] = useState<string>("all");
+  const report = useQuery(api.functions.admin.texReport, isAdmin === true ? { days: FETCH_DAYS[days] } : "skip");
+  const triage = useQuery(api.functions.texDashboard.triage, isAdmin === true ? {} : "skip");
   const spend = useTexSpend(isAdmin === true ? Number(days) : null);
+  const [reading, setReading] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<TexFilters>({});
+  const desk = triage !== undefined && triage.available ? triage : null;
   return (
     <div className="td" data-testid="tex-dashboard">
       <style>{DASHBOARD_CSS}</style>
@@ -45,29 +77,55 @@ export function TexDashboard() {
         </div>
       ) : (
         <>
-          <Hero report={report ?? null} spend={spend} days={days} onDays={setDays} />
+          <header className="td-wrap">
+            <Brand />
+            <div className="td-top">
+              <div>
+                <h1 className="td-h1">Where Tex hurts, and is it getting better</h1>
+                <p className="td-sub">{report ? subline(report, Number(days)) : "Everyone who texts Tex"}</p>
+              </div>
+              <div className="td-filters">
+                <Select label="Window" value={days} onChange={(value) => setDays(value as TexWindow)} options={TEX_WINDOWS.map((w) => ({ value: w.key, label: w.label }))} testID="tex-dashboard-window" />
+                <Select label="Who" value={who} onChange={(value) => setWho(value as Who)} options={[{ value: "all", label: "Everyone" }, { value: "not_staff", label: "Not the team" }, { value: "new", label: "New this week" }]} testID="tex-dashboard-who" />
+                <Select label="Task" value={task} onChange={setTask} options={[{ value: "all", label: "All tasks" }, ...Object.entries(TASK_LABELS).map(([value, label]) => ({ value, label }))]} testID="tex-dashboard-task" />
+              </div>
+            </div>
+          </header>
           <main className="td-body">
             {report === undefined || report === null ? (
               <section className="td-card" aria-busy>
                 <p className="td-empty">Loading…</p>
               </section>
             ) : (
-              <Body report={report} spend={spend} onTask={(task) => setFilters({ task: [task] })} filters={filters} onFilters={setFilters} />
+              <Body
+                report={report}
+                rows={narrow(report.reviews, who, task)}
+                days={Number(days)}
+                desk={desk}
+                deskNote={triage !== undefined && !triage.available ? triage.reason : null}
+                spend={spend}
+                statusOf={(bug) => statuses[bug.path] ?? bug.status}
+                onOpen={setReading}
+                filters={filters}
+                onFilters={setFilters}
+              />
             )}
           </main>
           <footer className="td-foot">
-            Spend is what Cloudflare's AI Gateway priced Tex's calls at, cache included, for the whole account (staging too). Without it, the page falls back to our own estimate from token counts.
+            Scores are Haiku's read of each finished chat; task and frustration codes began {shortDate(CODES_BEGAN)}. Targets are starting points: 70% got what they wanted, under 15% handed back, slow replies under 60s, under 5% of replies going wrong. Spend is what Cloudflare's AI Gateway billed.
           </footer>
+          {reading !== null ? <NoteReader path={reading} onClose={() => setReading(null)} onStatus={(path, status) => setStatuses((now) => ({ ...now, [path]: status }))} /> : null}
         </>
       )}
     </div>
   );
 }
 
-/**
- * The billed spend for the window, asked of Cloudflare through Convex. Undefined
- * while asking; a failure is kept as an answer so the page can say so.
- */
+function narrow(rows: readonly TexReview[], who: Who, task: string): TexReview[] {
+  return rows.filter((row) => (who === "all" || (who === "new" ? row.who === "new" : row.who !== "staff")) && (task === "all" || row.task === task));
+}
+
+/** The window's spend, asked of Cloudflare through Convex; a failure is kept as an answer so the page can say so. */
 function useTexSpend(days: number | null): TexSpend | undefined {
   // Held in a ref so the request follows the window alone, not the identity of the function handed back.
   const ask = useRef(useAction(api.functions.texSpend.report));
@@ -85,80 +143,162 @@ function useTexSpend(days: number | null): TexSpend | undefined {
   return answer !== null && answer.days === days ? answer.spend : undefined;
 }
 
-function Body({ report, spend, filters, onFilters, onTask }: { report: TexReport; spend: TexSpend | undefined; filters: TexFilters; onFilters: (next: TexFilters) => void; onTask: (task: string) => void }) {
-  const openTask = (task: string) => {
-    onTask(task);
+function Body(props: {
+  report: TexReport;
+  rows: TexReview[];
+  days: number;
+  desk: TriageDesk | null;
+  deskNote: string | null;
+  spend: TexSpend | undefined;
+  statusOf: (bug: BugRow) => string;
+  onOpen: (path: string) => void;
+  filters: TexFilters;
+  onFilters: (next: TexFilters) => void;
+}) {
+  const { report, rows, days, desk, spend, onOpen } = props;
+  // Small arrays, worked out afresh each render, so "now" moves with the page.
+  const now = Date.now();
+  const tiles = tilesOf(report, rows, days, now);
+  const pain = painRowsOf(desk, rows, now);
+  const untriaged = untriagedSignals(desk, rows, now);
+  const verdict = verdictOf(pain, untriaged, tiles);
+  const series = seriesOf(report, rows);
+  const turnDays = report.turns.byDay.map((day) => day.day);
+  const markers = markersOf(desk, turnDays);
+  const exploreSignal = (code: string) => {
+    props.onFilters({ signal: [code] });
+    const more = document.getElementById("more") as HTMLDetailsElement | null;
+    if (more) more.open = true;
     document.getElementById("explore")?.scrollIntoView({ behavior: "smooth" });
   };
+  const send = useSendToTriage();
   return (
     <>
-      {report.turns.truncated || report.reviewsTruncated ? (
-        <div className="td-alert">This window holds more than the page reads at once, so the figures cover the newest.</div>
-      ) : null}
-      <TrendsPanel report={report} spend={spend} />
-      <FeelPanel report={report} />
-      <div className="td-row">
-        <FrustrationPanel report={report} />
-        <TextsPanel report={report} />
-      </div>
-      <ModelsPanel report={report} />
-      <div className="td-row">
-        <VolumePanel report={report} />
-        <SpendPanel report={report} spend={spend} />
-      </div>
-      <div className="td-row">
-        <TasksPanel report={report} onTask={openTask} />
-        <ToolsPanel report={report} />
-      </div>
-      <LookPanel report={report} />
-      <DashboardExplore reviews={report.reviews} filters={filters} onFilters={onFilters} />
+      {report.turns.truncated || report.reviewsTruncated ? <div className="td-alert">This window holds more than the page reads at once, so the figures cover the newest.</div> : null}
+      {props.deskNote === "not_a_member" ? <div className="td-alert">You are staff but not a member of the team context, so problems and bug reports are hidden from you.</div> : null}
+      <Today verdict={verdict} onSend={send} onSignal={exploreSignal} />
+      <section className="td-tiles" aria-label="This window against its targets">
+        {tiles.map((tile) => (
+          <TileCard key={tile.key} tile={tile} days={days} />
+        ))}
+      </section>
+      <p className="td-pain-meta">Bar: the tick is the target, the ring is the window before, the dot is now. Blue is on target, ochre is not yet.</p>
+      <PainPanel rows={pain} untriaged={untriaged} onOpen={onOpen} onSignal={exploreSignal} onSend={send} />
+      <ProgressPanel series={series} days={turnDays} markers={markers} />
+      {desk !== null ? <BugsPanel bugs={desk.bugs} days={turnDays} statusOf={props.statusOf} onOpen={onOpen} /> : null}
+      <CostPanel report={report} spend={spend} days={days} />
+      <details id="more" className="td-more">
+        <summary>Everything else: models, tools, tasks, volume, spend and every scored chat</summary>
+        <div className="td-more-body">
+          <ModelsPanel report={report} />
+          <div className="td-row">
+            <TasksPanel report={report} onTask={(task) => props.onFilters({ task: [task] })} />
+            <ToolsPanel report={report} />
+          </div>
+          <div className="td-row">
+            <VolumePanel report={report} />
+            <SpendPanel report={report} spend={spend} />
+          </div>
+          <DashboardExplore reviews={rows} filters={props.filters} onFilters={props.onFilters} />
+        </div>
+      </details>
     </>
   );
 }
 
-function Hero({ report, spend, days, onDays }: { report: TexReport | null; spend: TexSpend | undefined; days: TexWindow; onDays: (days: TexWindow) => void }) {
-  const kpis = useMemo(() => (report === null ? [] : heroFigures(report, spend)), [report, spend]);
+/** Send a problem's note to the triage agent with no comment, from the row or the top of the page. */
+function useSendToTriage() {
+  const act = useRef(useAction(api.functions.texDashboard.act));
+  return (path: string) => {
+    void act.current({ path, action: "triage" }).catch(() => undefined);
+  };
+}
+
+function Today({ verdict, onSend, onSignal }: { verdict: Verdict; onSend: (path: string) => void; onSignal: (code: string) => void }) {
+  const [sent, setSent] = useState(false);
+  const next = verdict.next;
   return (
-    <header className="td-wrap">
-      <Brand />
-      <div className="td-top">
-        <div>
-          <h1 className="td-h1">How Tex is doing</h1>
-          <p className="td-sub">{report === null ? "Everyone who texts Tex" : windowLabel(report)}</p>
-        </div>
-        <div className="td-controls">
-          <div className="td-seg" role="group" aria-label="Time range">
-            {TEX_WINDOWS.map((w) => (
-              <button key={w.key} type="button" aria-pressed={days === w.key} onClick={() => onDays(w.key)} data-testid={`tex-dashboard-days-${w.key}`}>
-                {w.label}
-              </button>
-            ))}
-          </div>
-          <a className="td-cta" href="#explore">
-            Explore and filter
-          </a>
-        </div>
-      </div>
-      <div className="td-kpis">
-        {kpis.map((kpi) => {
-          const paths = sparkPaths(kpi.spark);
-          return (
-            <div key={kpi.label} className="td-kpi" data-testid={`tex-dashboard-kpi-${kpi.key}`}>
-              <span className="td-kpi-label">{kpi.label}</span>
-              <span>
-                <span className="td-kpi-value num">{kpi.value}</span>
-                {kpi.unit ? <span className="td-kpi-unit">{kpi.unit}</span> : null}
-              </span>
-              <svg viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden>
-                <path d={paths.area} fill={kpi.color} fillOpacity={0.12} />
-                <path d={paths.line} fill="none" stroke={kpi.color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-              </svg>
-              <span className={`td-kpi-note${kpi.crit ? " crit" : ""}`}>{kpi.note}</span>
+    <section className="td-today" aria-label="Today" data-testid="tex-dashboard-today">
+      <div className="td-today-next">
+        <span className="td-eyebrow">Do next</span>
+        {next === null ? (
+          <p className="td-today-line">Nothing open. Every problem triage named has a fix on the way.</p>
+        ) : (
+          <>
+            <p className="td-today-line">
+              {next.name}: {next.detail}
+            </p>
+            <div className="td-filters">
+              {next.theme !== null ? (
+                <button
+                  type="button"
+                  className="td-btn light"
+                  disabled={sent}
+                  onClick={() => {
+                    onSend(next.theme!.path);
+                    setSent(true);
+                  }}
+                >
+                  {sent ? "Sent to triage" : "Send to triage to fix"}
+                </button>
+              ) : null}
+              {next.signal !== null ? (
+                <button type="button" className="td-btn light" onClick={() => onSignal(next.signal!)}>
+                  See the chats
+                </button>
+              ) : null}
             </div>
-          );
-        })}
+          </>
+        )}
       </div>
-    </header>
+      <div className="td-today-checks">
+        <span className="td-eyebrow">Check on</span>
+        {verdict.checks.length === 0 ? <p>No shipped fix or slide to watch yet.</p> : verdict.checks.map((check) => <p key={check.key} className={check.tone}>{check.text}</p>)}
+      </div>
+    </section>
+  );
+}
+
+function TileCard({ tile, days }: { tile: Tile; days: number }) {
+  const scale = tile.unit === "pct" ? 1 : Math.max(tile.target * 2.5, tile.value ?? 0, tile.before ?? 0);
+  const x = (value: number) => `${Math.min(1, value / scale) * 100}%`;
+  const good = onTarget(tile);
+  const direction = directionOf(tile);
+  return (
+    <div className="td-tile" data-testid={`tex-dashboard-tile-${tile.key}`}>
+      <span className="td-kpi-label">{tile.label}</span>
+      <span className="td-tile-row">
+        <span className="td-trend-value num">{formatTile(tile.unit, tile.value)}</span>
+        <span className={`td-delta${direction === "better" ? " good" : direction === "worse" ? " bad" : ""}`}>
+          {direction === null ? (tile.before === null ? "no window before" : `was ${formatTile(tile.unit, tile.before)}, too few to call`) : direction === "same" ? "about the same" : `${direction}, was ${formatTile(tile.unit, tile.before)}`}
+        </span>
+      </span>
+      <span className="td-gauge" aria-hidden>
+        <span className="track" />
+        <span className="tick" style={{ left: x(tile.target) }} />
+        {tile.before !== null ? <span className="ring" style={{ left: x(tile.before) }} /> : null}
+        {tile.value !== null ? <span className={`dot${good === false ? " warn" : ""}`} style={{ left: x(tile.value) }} /> : null}
+      </span>
+      <span className="td-pain-meta">
+        Target {tile.better === "up" ? "" : "under "}
+        {formatTile(tile.unit, tile.target)} · {tile.n.toLocaleString("en-US")} {tile.unit === "pct" && tile.key !== "troubled" ? "scored chats" : "replies"} in {days} days · {tile.foot}
+      </span>
+    </div>
+  );
+}
+
+function Select({ label, value, onChange, options, testID }: { label: string; value: string; onChange: (value: string) => void; options: { value: string; label: string }[]; testID: string }) {
+  return (
+    <label className="td-select">
+      <span className="td-sr">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} data-testid={testID}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -179,92 +319,10 @@ function Brand() {
   );
 }
 
-function windowLabel(report: TexReport): string {
-  const first = report.turns.byDay[0]?.day;
-  const last = report.turns.byDay[report.turns.byDay.length - 1]?.day;
-  const fmt = (day: string | undefined) => (day ? new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "");
-  return `${fmt(first)} – ${fmt(last)} · everyone who texts Tex · days in UTC`;
-}
-
-interface Kpi {
-  key: string;
-  label: string;
-  value: string;
-  unit?: string;
-  note: string;
-  spark: number[];
-  color: string;
-  crit?: boolean;
-}
-
-function heroFigures(report: TexReport, spend: TexSpend | undefined): Kpi[] {
-  const { turns, reviews, performance } = report;
-  const days = turns.byDay.map((day) => day.day);
-  const frustrated = reviews.length === 0 ? null : reviews.filter(isFrustrated).length / reviews.length;
-  const goal = reviews.length === 0 ? null : reviews.reduce((sum, row) => sum + row.goal, 0) / reviews.length;
-  return [
-    {
-      key: "texts",
-      label: "Texts handled",
-      value: textsHandled(report).toLocaleString("en-US"),
-      note: `${turns.total.toLocaleString("en-US")} turns with jobs and routines`,
-      spark: turns.byDay.map((day) => day.turns),
-      color: C.blue,
-    },
-    spendFigure(report, spend),
-    {
-      key: "speed",
-      label: "Typical answer",
-      value: turns.total === 0 ? "—" : formatSeconds(performance.time.p50),
-      note: turns.total === 0 ? "no turns yet" : `slowest 1 in 20: ${formatSeconds(performance.time.p95)}`,
-      spark: performance.daily.map((day) => day.p50),
-      color: C.ochre,
-    },
-    {
-      key: "frustrated",
-      label: "Frustrated",
-      value: frustrated === null ? "—" : `${Math.round(frustrated * 100)}%`,
-      note: `of ${reviews.length} scored conversations`,
-      spark: frustrationByDay(reviews, days).map((share) => share ?? 0),
-      color: C.bad,
-      crit: frustrated !== null && frustrated > 0.25,
-    },
-    {
-      key: "goal",
-      label: "Got what they wanted",
-      value: goal === null ? "—" : goal.toFixed(1),
-      unit: "/ 10",
-      note: "average score, Haiku-judged",
-      spark: days.map((day) => {
-        const those = reviews.filter((row) => new Date(row.at).toISOString().slice(0, 10) === day);
-        return those.length === 0 ? 0 : those.reduce((sum, row) => sum + row.goal, 0) / those.length;
-      }),
-      color: C.blue,
-    },
-  ];
-}
-
-/** Spend: Cloudflare's billed figure when it answered, else our estimate, saying which. */
-function spendFigure(report: TexReport, spend: TexSpend | undefined): Kpi {
-  const money = spendByDay(report, spend, windowDayList(report));
-  const live = spend !== undefined && spend.configured && spend.error === null ? spend : null;
-  const turns = report.turns.total;
-  if (live !== null) {
-    return {
-      key: "spend",
-      label: "Spend",
-      value: formatMicroUsd(live.totalUsd * 1_000_000),
-      note: turns === 0 ? "billed by Cloudflare's AI Gateway" : `${formatMicroUsd((live.totalUsd / turns) * 1_000_000)} a turn · billed, cache included`,
-      spark: money.values.map((value) => value ?? 0),
-      color: C.ink,
-    };
-  }
-  return {
-    key: "spend",
-    label: "Spend",
-    value: formatMicroUsd(report.turns.costMicroUsd),
-    note: spend === undefined ? "asking Cloudflare…" : "our estimate, not billed",
-    spark: money.values.map((value) => value ?? 0),
-    color: C.ink,
-  };
+function subline(report: TexReport, days: number): string {
+  const since = Date.now() - days * 86_400_000;
+  const scored = report.reviews.filter((row) => row.at > since);
+  const staff = scored.filter((row) => row.who === "staff").length;
+  const fresh = scored.filter((row) => row.who === "new").length;
+  return `Last ${days} days against the ${days} before · ${scored.length} scored chats: ${staff} team, ${fresh} new, ${scored.length - staff - fresh} others · days in UTC`;
 }

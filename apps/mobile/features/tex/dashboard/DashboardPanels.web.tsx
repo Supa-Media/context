@@ -1,27 +1,13 @@
 /**
- * The Tex dashboard's cards (tex.lc/admin, `./TexDashboard.web`), each one
- * section of the approved concept. Every figure comes from `texReport`
- * through `./model`; none of them can hold a word anybody wrote.
+ * The Tex dashboard's detail cards (tex.lc/admin, `./TexDashboard.web`):
+ * models, volume, tasks and tools, folded under "Everything else", and the
+ * card and chart pieces the other sections draw with. Every figure comes from
+ * `texReport` through `./model`; none of them can hold a word anybody wrote.
  */
 
 import type { ReactNode } from "react";
 import { texDashboardColors as C } from "../../design/tokens/texDashboardColors";
-import {
-  KIND_LABELS,
-  SCORE_LABELS,
-  formatMicroUsd,
-  formatSeconds,
-  frustrationByDay,
-  frustrationByTask,
-  modelLabel,
-  needsALook,
-  scoreAverages,
-  signalCounts,
-  sparkPaths,
-  textsByTask,
-  textsToFinish,
-  type TexReport,
-} from "./model";
+import { KIND_LABELS, formatMicroUsd, formatSeconds, frustrationByTask, modelLabel, sparkPaths, type TexReport } from "./model";
 
 export function Card({ title, meta, children, testID, wide }: { title: string; meta?: string; children: ReactNode; testID: string; wide?: boolean }) {
   return (
@@ -71,120 +57,6 @@ export function Axis({ days }: { days: readonly string[] }) {
       <span>{shortDay(days[0])}</span>
       <span>{shortDay(days[days.length - 1])}</span>
     </div>
-  );
-}
-
-/** A score's colour says how it is doing: Tex blue at 7 and over, ochre from 5, brick under. */
-function ringColor(value: number | null): string {
-  if (value === null || value >= 7) return C.blue;
-  return value >= 5 ? C.ochre : C.bad;
-}
-
-export function FeelPanel({ report }: { report: TexReport }) {
-  const scores = scoreAverages(report.reviews);
-  const hints: Record<string, string> = {
-    goal: "did they get it",
-    independence: "no work handed back",
-    turns: "no needless back-and-forth",
-    friendly: "like a friend, not a bot",
-    calm: "10 is no frustration",
-  };
-  return (
-    <Card title="How it feels to people" meta={`Haiku scores every finished conversation 1 to 10 · ${report.reviews.length} in this window · numbers only`} testID="tex-dashboard-feel">
-      <div className="td-rings">
-        {scores.map((score, i) => {
-          const share = score.value === null ? 0 : score.value / 10;
-          const circumference = 2 * Math.PI * 40;
-          return (
-            <div key={score.key} className="td-ring">
-              <div className="td-ring-dial">
-                <svg viewBox="0 0 96 96" aria-hidden>
-                  <circle cx={48} cy={48} r={40} fill="none" stroke={C.tray} strokeWidth={9} />
-                  <circle cx={48} cy={48} r={40} fill="none" stroke={ringColor(score.value)} strokeWidth={9} strokeLinecap="round" strokeDasharray={`${share * circumference} ${circumference}`} />
-                </svg>
-                <span className="td-ring-value num">{score.value === null ? "—" : score.value.toFixed(1)}</span>
-              </div>
-              <span className="td-ring-name">{SCORE_LABELS[i].label}</span>
-              <span className="td-ring-hint">{hints[score.key]}</span>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-export function FrustrationPanel({ report }: { report: TexReport }) {
-  const days = report.turns.byDay.map((day) => day.day);
-  const daily = frustrationByDay(report.reviews, days);
-  const signals = signalCounts(report.reviews);
-  const top = signals[0]?.n ?? 0;
-  return (
-    <Card title="Frustration" meta="share of each day's conversations that frustrated people" testID="tex-dashboard-frustration">
-      {report.reviews.length === 0 ? (
-        <p className="td-empty">No scored conversations in this window yet.</p>
-      ) : (
-        <>
-          <AreaChart values={daily.map((share) => share ?? 0)} color={C.bad} fill={C.badWash} label="Frustrated share per day" />
-          <Axis days={days} />
-        </>
-      )}
-      <div className="td-sep">
-        <span className="td-small-h">What set people off (counted signals, no words kept)</span>
-        {signals.length === 0 ? (
-          <p className="td-empty">No frustration signals yet. They're counted on conversations scored since Oct 24.</p>
-        ) : (
-          <div className="td-bars">
-            {signals.map((signal) => (
-              <Bar key={signal.code} label={signal.label} share={signal.n / top} value={String(signal.n)} tone="warm" />
-            ))}
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-export function TextsPanel({ report }: { report: TexReport }) {
-  const finish = textsToFinish(report.reviews);
-  const byTask = textsByTask(report.reviews);
-  const tallest = Math.max(...finish.buckets.map((b) => b.share), 0.0001);
-  return (
-    <Card
-      title="Texts to finish"
-      meta={finish.n === 0 ? "texts the person sent per conversation" : `typical ${finish.median} · average ${finish.mean?.toFixed(1)} · ${finish.n} conversations`}
-      testID="tex-dashboard-texts"
-    >
-      {finish.n === 0 ? (
-        <p className="td-empty">Counted on conversations scored since Oct 24; none yet in this window.</p>
-      ) : (
-        <>
-          <div className="td-hist">
-            {finish.buckets.map((bucket) => (
-              <div key={bucket.label} className="td-hist-col">
-                <span className="td-hist-pct num">{Math.round(bucket.share * 100)}%</span>
-                <div className="td-hist-bar" style={{ height: `${(bucket.share / tallest) * 80}%` }} />
-              </div>
-            ))}
-          </div>
-          <div className="td-hist-labels">
-            {finish.buckets.map((bucket) => (
-              <span key={bucket.label}>{bucket.label}</span>
-            ))}
-          </div>
-        </>
-      )}
-      {byTask.length > 0 ? (
-        <div className="td-sep">
-          <span className="td-small-h">Average texts, by kind of task</span>
-          <div className="td-bars">
-            {byTask.slice(0, 6).map((row) => (
-              <Bar key={row.label} label={`${row.label} (${row.n})`} share={row.texts / byTask[0].texts} value={row.texts.toFixed(1)} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </Card>
   );
 }
 
@@ -319,26 +191,6 @@ export function ToolsPanel({ report }: { report: TexReport }) {
               tone={tool.failed / tool.calls >= 0.2 ? "crit" : undefined}
               value={`${tool.calls}${tool.failed > 0 ? ` · ${Math.round((tool.failed / tool.calls) * 100)}% failed` : ""} · ${formatSeconds(speed.get(tool.tool) ?? 0)}`}
             />
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-export function LookPanel({ report }: { report: TexReport }) {
-  const alerts = needsALook(report);
-  return (
-    <Card title="Needs a look" meta="worked out from this window" testID="tex-dashboard-look">
-      {alerts.length === 0 ? (
-        <p className="td-empty">Nothing stands out in this window.</p>
-      ) : (
-        <div className="td-alerts">
-          {alerts.map((alert) => (
-            <div key={alert.text} className={`td-alert${alert.tone === "crit" ? " crit" : ""}`}>
-              <span aria-hidden>{alert.tone === "crit" ? "●" : "▲"}</span>
-              {alert.text}
-            </div>
           ))}
         </div>
       )}

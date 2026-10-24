@@ -26,4 +26,6 @@ export const texDashboardColors = {
   ochreWash: "#F2E5CC",
   bad: "#9A2B1F",
   badWash: "#F2DCD7",
+  /** A rule on the ink panel. */
+  inkRule: "#3A3C40",
 } as const;
