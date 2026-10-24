@@ -102,6 +102,9 @@ function sources(dir: string): string[] {
     // The landing pages' Paper sheet, kept beside the palette rather than in
     // it so the guest bundles that read `colors.ts` do not change with it.
     if (full.endsWith(join("design", "tokens", "landingColors.ts"))) return [];
+    // The Tex dashboard's sheet (tex.lc/admin), the same arrangement for one
+    // light-only staff page; it keeps the retired defaults out on its own.
+    if (full.endsWith(join("design", "tokens", "texDashboardColors.ts"))) return [];
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
 }

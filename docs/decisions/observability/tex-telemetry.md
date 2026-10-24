@@ -5,8 +5,8 @@ texts it handles, what people ask it to do, tokens, spend, tool use, the
 self-review scores ([self-review](../texting-assistant/self-review.md)), model
 performance, frustration and how many texts a task takes, with filters to
 slice any of them ("see what tasks people get frustrated with"). The approved
-concept is a staff console tab with an overview and an Explore view whose
-filters are compact dropdowns, never rows of chips.
+concept is a page of its own at tex.lc/admin, with an overview and an Explore
+view whose filters are compact dropdowns, never rows of chips.
 
 **The turn log is the base.** `agentTurns` already kept each `/agent` turn's
 model, outcome, times, rounds and trace (`functions/agentTurns.ts`). It now
@@ -68,20 +68,40 @@ asked for into an anonymous table. `__tests__/controlPlane/texReviews.test.ts`
 ("a review keeps what it was for…") fails if the spend reads another grant's
 turns, and "a scores row names nobody" pins the row's keys.
 
-## The Tex tab (step 3)
+## The dashboard is its own page: tex.lc/admin (step 3)
 
-The staff console's Tex tab (`apps/mobile/features/admin/TexSection.tsx`) is
-the dashboard: texts handled by where they came from, spend by day and by
-model, tools, the scorecard, what frustrates people by task, and Explore.
-`texReport` (`functions/lib/adminFns/texReport.ts`) sends the window's turn
-figures already summed, and the window's scored conversations as rows.
+The dashboard is a page of its own at tex.lc/admin, not a tab in the staff
+console: a first cut shipped as a console tab and the owner rejected it the
+same day ("an entirely new page, not another tab within the admin page").
+tex.lc serves the same app as context.lc, so `/admin` decides by host
+(`app/(app)/admin/index.tsx`, as `/` does in `features/home/RootScreen.tsx`):
+on tex.lc it draws `features/tex/dashboard/TexDashboard.web.tsx`, on
+context.lc it is still the console's redirect to Growth. It sits under
+`(app)` so the session gate applies, and `texReport` is staff only on the
+server (`requireAdmin`); the page asks `amIAdmin` only to say "Staff only"
+kindly instead of drawing an error.
+
+It follows the approved concept: a dark hero with texts, spend, typical answer
+time, frustration and the goal score, each with a sparkline; how conversations
+feel; frustration by day and what set it off; texts to finish; model
+performance; texts and spend by day; tasks and tools; what needs a look; and
+Explore. `texReport` (`functions/lib/adminFns/texReport.ts`) sends the
+window's turn figures already summed, the model performance read from each
+turn's trace (`texPerformance.ts`: rounds, failures, retries, running out of
+room, fallbacks, round and answer times, the router's thinking share), and the
+window's scored conversations as rows. Like tex.lc's other pages it is plain
+web markup with one stylesheet, its colours in
+`features/design/tokens/texDashboardColors.ts`.
 
 **Explore slices on the page.** The rows are anonymous codes and numbers, a
 few thousand at most, so every filter, measure and rows-by-columns table is
-computed in the browser (`features/admin/tex.ts`) rather than as a query per
-slice. Filters are dropdown menus, one button per field, never rows of chips
-(the owner, 2026-10-24). A cell under three conversations is drawn faint.
+computed in the browser (`features/tex/dashboard/model.ts`) rather than as a
+query per slice. Filters are dropdown menus, one button per field, never rows
+of chips (the owner, 2026-10-24). A cell under three conversations is drawn
+faint. Tapping a task card filters Explore to it.
 
-What a simplification would cost: a query per slice would make every change of
-filter a round trip and need an index per field. `__tests__/adminTexRender.test.ts`
-fails if the Task dropdown stops narrowing the table.
+What a simplification would cost: folding it back into the console is the
+thing the owner rejected; a query per slice would make every change of filter
+a round trip and need an index per field. `__tests__/texDashboardRender.test.ts`
+fails if tex.lc/admin stops drawing the page, if the Task dropdown stops
+narrowing the table, or if the report is asked for before the staff check.

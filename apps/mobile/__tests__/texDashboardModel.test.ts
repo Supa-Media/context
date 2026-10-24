@@ -1,6 +1,7 @@
 /**
- * The Tex tab's arithmetic (`features/admin/tex.ts`): filters, measures and
- * the pivot the Explore view draws over scored conversations.
+ * The Tex dashboard's arithmetic (`features/tex/dashboard/model.ts`, drawn at
+ * tex.lc/admin): filters, measures, the pivot Explore draws over scored
+ * conversations, and the figures behind the page's charts.
  *
  * Every value here is obviously fake. This repository is public.
  */
@@ -10,16 +11,23 @@ import {
   applyFilters,
   filterButtonLabel,
   formatMicroUsd,
+  formatSeconds,
+  frustrationByDay,
   frustrationByTask,
   heatOf,
   isFrustrated,
   measureOf,
   modelLabel,
+  needsALook,
   optionsOf,
   pivot,
+  signalCounts,
+  sparkPaths,
+  textsToFinish,
+  type TexReport,
   toggleFilter,
   type TexReview,
-} from "../features/admin/tex";
+} from "../features/tex/dashboard/model";
 
 function row(over: Partial<TexReview> = {}): TexReview {
   return {
@@ -118,5 +126,48 @@ describe("the pivot", () => {
 
   test("tasks ranked by how often they frustrate", () => {
     expect(frustrationByTask(ROWS)[0]).toMatchObject({ task: "web_errand", n: 2, share: 1 });
+  });
+});
+
+describe("the page's charts", () => {
+  test("a sparkline spans its box, and sits flat on the floor when everything is zero", () => {
+    expect(sparkPaths([0, 5, 10], 120, 32).line).toBe("M0.0 31.0 L60.0 16.0 L120.0 1.0");
+    expect(sparkPaths([0, 0], 120, 32).line).toBe("M0.0 31.0 L120.0 31.0");
+    expect(sparkPaths([]).line).toBe("");
+  });
+
+  test("frustration per day is a share of that day's conversations, and null on a day with none", () => {
+    const day = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
+    const rows = [row({ at: day("2026-10-23"), calm: 2 }), row({ at: day("2026-10-23") }), row({ at: day("2026-10-24") })];
+    expect(frustrationByDay(rows, ["2026-10-22", "2026-10-23", "2026-10-24"])).toEqual([null, 0.5, 0]);
+  });
+
+  test("signals are counted most first, by their label", () => {
+    const rows = [row({ signals: ["try_again", "gave_up"] }), row({ signals: ["try_again"] })];
+    expect(signalCounts(rows).map((s) => [s.code, s.n])).toEqual([["try_again", 2], ["gave_up", 1]]);
+  });
+
+  test("texts to finish buckets six and over together, and leaves out conversations with no count", () => {
+    const rows = [row({ texts: 1 }), row({ texts: 2 }), row({ texts: 9 }), row({ texts: null })];
+    const out = textsToFinish(rows);
+    expect(out.n).toBe(3);
+    expect(out.median).toBe(2);
+    expect(out.buckets.map((b) => b.share)).toEqual([1 / 3, 1 / 3, 0, 0, 0, 1 / 3]);
+  });
+
+  test("needs a look names a frustrating task and a failing model, worst first, and stays quiet on small numbers", () => {
+    const base = {
+      turns: { total: 5, exhausted: 0, failed: 0, tools: [{ tool: "browse", calls: 3, failed: 3 }] },
+      performance: { time: { p95: 5_000 }, models: [{ model: "fake/think-model", rounds: 20, failed: 4, cut: 0 }] },
+    };
+    const report = { ...base, reviews: [row({ task: "web_errand", calm: 2 }), row({ task: "web_errand", calm: 2 }), row({ task: "web_errand" })] } as unknown as TexReport;
+    expect(needsALook(report).map((a) => a.text)).toEqual(["Web errands: 67% of 3 conversations frustrated people", "Think-model failed 20% of its rounds"]);
+    const quiet = { ...base, reviews: [row({ calm: 2 })], performance: { time: { p95: 5_000 }, models: [] } } as unknown as TexReport;
+    expect(needsALook(quiet)).toEqual([]);
+  });
+
+  test("seconds keep a decimal only under ten", () => {
+    expect(formatSeconds(4_200)).toBe("4.2s");
+    expect(formatSeconds(75_000)).toBe("75s");
   });
 });

@@ -130,3 +130,47 @@ describe("the tex report", () => {
     expect(report.turns.byDay).toHaveLength(30);
   });
 });
+
+describe("model performance", () => {
+  test("rounds, failures, retries, cuts and fallbacks per model; the router's picks; where the time goes", async () => {
+    const t = setupTest();
+    const { staff, adaWs, grant } = await world(t);
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("agentTurns", {
+        workspaceId: adaWs,
+        grantId: grant,
+        client: "texts",
+        kind: "one",
+        provider: "builtin",
+        model: MAIN,
+        outcome: "answered",
+        at: now - 60_000,
+        ms: 9_000,
+        modelMs: 6_000,
+        toolMs: 3_000,
+        rounds: 3,
+        inputTokens: 10,
+        outputTokens: 10,
+        trace: [
+          { kind: "router", tier: "think", confidence: 0.8, model: THINK, ok: true, ms: 50 },
+          { kind: "model", model: THINK, ok: false, status: 529, retried: true, ms: 1_000 },
+          { kind: "fallback", model: MAIN, status: 529, ok: true, ms: 0 },
+          { kind: "model", model: MAIN, ok: true, cut: true, ms: 5_000 },
+          { kind: "tool", tool: "browse", ok: true, ms: 3_000 },
+        ],
+      }),
+    );
+    const { performance } = await asUser(t, staff).query(api.functions.admin.texReport, { days: 7 });
+    expect(performance.time).toMatchObject({ totalMs: 9_000, modelMs: 6_000, toolMs: 3_000, p50: 9_000 });
+    expect(performance.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ model: THINK, rounds: 1, failed: 1, retried: 1, cut: 0, fallbacks: 0 }),
+        expect.objectContaining({ model: MAIN, rounds: 1, failed: 0, cut: 1, fallbacks: 1, p50: 5_000 }),
+      ]),
+    );
+    expect(performance.router).toEqual({ picks: 1, think: 1, confidence: 0.8 });
+    expect(performance.daily.at(-1)).toEqual({ p50: 9_000, p95: 9_000 });
+    expect(performance.tools).toEqual([{ tool: "browse", p50: 3_000 }]);
+  });
+});
