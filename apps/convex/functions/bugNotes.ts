@@ -129,6 +129,24 @@ export async function fileBugNote(
   report: { message: string; texts?: string; eventId: string; now: number },
 ): Promise<boolean> {
   const path = bugNotePath(where.folder, report);
+  return await fileTeamNote(ctx, where, path, renderBugNote({ ...report, handle: where.handle, team: where.team }), "bug_note");
+}
+
+/**
+ * Write a note into the pinned context that the team reads and nobody reaching
+ * it through the pin does: a bug report, or Tex's review of a conversation
+ * (`texReviews.ts`). Checked before the write, never after, at the clearance
+ * every pin reader holds, and refused (false, nothing written) when the path
+ * is readable through the pin. `log` names the kind in the error lines, which
+ * never carry the note's words.
+ */
+export async function fileTeamNote(
+  ctx: Pick<ActionCtx, "runAction" | "runMutation">,
+  where: Pick<BugDestination, "workspaceId" | "pinReaders">,
+  path: string,
+  text: string,
+  log: string,
+): Promise<boolean> {
   const workspaceId: Id<"workspaces"> = where.workspaceId;
   try {
     // As a pin reader sees it: a guest's names and rules once they read as guests, plain `team` before.
@@ -139,29 +157,29 @@ export async function fileBugNote(
       operation: { kind: "visiblePaths", paths: [path] },
     });
     if (seen.kind !== "visiblePaths" || seen.paths.length > 0) {
-      console.error("bug_note_folder_not_private", { workspaceId });
+      console.error(`${log}_folder_not_private`, { workspaceId });
       return false;
     }
     await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "private",
       actorName: null,
-      operation: { kind: "write", path, text: renderBugNote({ ...report, handle: where.handle, team: where.team }) },
+      operation: { kind: "write", path, text },
     });
-    // The report is filed either way; a team that cannot see it yet is a log line, not a lost report.
+    // The note is filed either way; a team that cannot see it yet is a log line, not a lost note.
     // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
     // budget and asks them to send the same texts again, though the note already holds them.
     try {
       if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
-        console.error("bug_note_not_shared", { workspaceId });
+        console.error(`${log}_not_shared`, { workspaceId });
       }
     } catch (error) {
-      console.error("bug_note_not_shared", { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
+      console.error(`${log}_not_shared`, { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
     }
     return true;
   } catch (error) {
-    // Never the report's words: only that it did not land.
-    console.error("bug_note_failed", { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
+    // Never the note's words: only that it did not land.
+    console.error(`${log}_failed`, { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
     return false;
   }
 }

@@ -115,6 +115,7 @@ import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
+import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
@@ -900,6 +901,9 @@ http.route({ path: "/gateway/calendar/days", method: "POST", handler: gatewayPer
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
 http.route({ path: "/gateway/feedback", method: "POST", handler: gatewayFeedback });
+
+// Tex's review of a finished conversation: scores for everyone, words only where everyone said yes.
+http.route({ path: "/gateway/tex-review", method: "POST", handler: gatewayRoute(texReview.gatewayTexReviewHandler) });
 
 export const gatewayLinksList = gatewayRoute(links.gatewayLinksListHandler);
 

@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // Their yes to sharing finished conversations with Tex (`texReviews.ts`): a time.
+  const texReviewSharing = await ctx.db
+    .query("texReviewSharing")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of texReviewSharing) await ctx.db.delete(row._id);
+
   // When they dismissed the early-beta notice: a time.
   const betaNoticeReads = await ctx.db
     .query("betaNoticeReads")

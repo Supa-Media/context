@@ -27,6 +27,7 @@ import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
+import { texReviewTables } from "./functions/lib/schema/texReviews";
 import { appearanceTables } from "./functions/lib/schema/appearance";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
@@ -123,6 +124,7 @@ const schema = defineSchema({
   ...feedbackTables,
   ...textLinkTables,
   ...textGroupTables,
+  ...texReviewTables,
   ...vaultTables,
   ...connectionTables,
   ...signInEmailTables,

@@ -53,7 +53,7 @@ export function bugNotePath(folder: string, input: Pick<BugNoteInput, "message" 
 }
 
 /** A fence longer than any run of backticks in `text`, so the text cannot close it. */
-function fenceFor(text: string): string {
+export function fenceFor(text: string): string {
   const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
   return "`".repeat(Math.max(3, longest + 1));
 }
