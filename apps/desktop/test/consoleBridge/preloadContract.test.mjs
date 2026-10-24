@@ -46,7 +46,7 @@
  *   the preload passing the main process's object through unnormalised        2
  *   `installDesktopBridge` exposing regardless of `shouldExposeBridge`        4
  *   the exposed object not frozen                                             3
- *   `systemAudioCapability` ignoring the probe's `false`                      1
+ *   `systemAudioCapability` letting a refused probe stick                    1
  *   ...ignoring `packaged`, so a dev build claims a loopback tap              1
  *   ...ignoring `signed`, so an unsigned packaged build claims one            1
  *   the guard reading Electron's live getters unprotected again               1

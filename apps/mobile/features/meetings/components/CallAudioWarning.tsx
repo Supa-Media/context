@@ -28,7 +28,9 @@ import { useMeetingsSnapshot } from "../useMeetings";
  *    Chrome (Arc, Brave, Edge) a second muted line: Mac browsers need System
  *    Settings' permission and a restart after it changes, and some cannot hand
  *    over sound at all yet — Dev2's Arc said "already checked" and still
- *    failed.
+ *    failed. Chrome on a Mac gets its own line: with the switch on and Chrome
+ *    not allowed in macOS's "Screen & System Audio Recording", the share
+ *    hands back a dead audio track, so the switch is not the whole fix.
  *  - **Not asked, on purpose** (`callAudioNote`): this browser failed the last
  *    few times, or the person chose to record the room. Muted, not red —
  *    nothing was chosen wrong — with a link that asks after all.
@@ -83,7 +85,12 @@ export function CallAudioWarning({
             {asking ? null : " and turn on Also share system audio."}
           </Text>
         )}
-        {!picker || !onMac() || browser === "Chrome" ? null : (
+        {!picker || !onMac() ? null : browser === "Chrome" ? (
+          <Text variant="rowSub" style={styles.hint} testID={`${testID}-mac`}>
+            {"Already on? Allow Chrome in System Settings › Privacy & Security › Screen & System Audio Recording, or use the "}
+            {macApp}.
+          </Text>
+        ) : (
           <Text variant="rowSub" style={styles.hint} testID={`${testID}-mac`}>
             {`Already on? Quit and reopen ${browser === "This browser" ? "your browser" : browser}, or record in Chrome or the `}
             {macApp}.

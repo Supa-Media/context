@@ -52,8 +52,13 @@ export interface SystemAudioInput {
  *
  * Three refusals and one guess, in that order:
  *
- *  - **The probe wins whenever there has been one.** It is the only fact in the
- *    list; everything below it is inference about what macOS is likely to do.
+ *  - **A probe that worked wins.** It is the only fact in the list; everything
+ *    below it is inference about what macOS is likely to do. A probe that was
+ *    refused does not: it says nothing about the next meeting, where the
+ *    person may since have allowed the permission. It used to win as well, and
+ *    a page that read this once then never asked for the call's audio again
+ *    for the life of the app — with no warning, because a shell that claims no
+ *    tap has nothing to apologise for.
  *  - **Not macOS, no tap.** `audio: "loopback"` is a ScreenCaptureKit binding.
  *    A Windows shell would need WASAPI loopback and a Linux one has no general
  *    answer, so both answer false and the UI already knows what to do with that.
@@ -73,7 +78,7 @@ export interface SystemAudioInput {
  * records the microphone and says in one sentence what it is not doing.
  */
 export function systemAudioCapability(input: SystemAudioInput): boolean {
-  if (input.probed !== null) return input.probed;
+  if (input.probed === true) return true;
   if (input.platform !== "darwin") return false;
   if (!input.packaged || !input.signed) return false;
   return input.darwinMajor >= MACOS_13_DARWIN_MAJOR;

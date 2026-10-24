@@ -262,8 +262,12 @@ export async function runProducerCensusChecks(check) {
     systemAudioCapability({ platform: "darwin", packaged: true, signed: false, darwinMajor: 24, probed: null }) === false,
   );
   check(
-    "THE PROBE OVERRULES THE GUESS — a build that was refused a tap reports none",
-    systemAudioCapability({ platform: "darwin", packaged: true, signed: true, darwinMajor: 24, probed: false }) === false,
+    "A REFUSED TAP DOES NOT STICK — a signed build refused once still offers the call's audio to the next meeting",
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: true, darwinMajor: 24, probed: false }) === true,
+  );
+  check(
+    "...while an unsigned build refused one still claims none",
+    systemAudioCapability({ platform: "darwin", packaged: true, signed: false, darwinMajor: 24, probed: false }) === false,
   );
   check(
     "...and a build that was given one reports it, packaged or not",

@@ -155,8 +155,13 @@ export interface AudioGraph {
  *    transient activation. None of them is a fault worth its own words.
  *  - **A resolved share with no audio track is the common miss.** Chrome hands
  *    back a video-only stream when the "share audio" box is left unticked, and
- *    when a whole screen is picked on a platform that cannot loop it back. Kept,
- *    it would hold a tab captured for a recording it contributes nothing to, so
+ *    when a whole screen is picked on a platform that cannot loop it back.
+ *    Its twin is a share that **does** carry an audio track, born `ended`:
+ *    Chromium's answer on a Mac where the browser was never allowed "Screen &
+ *    System Audio Recording". It never delivers a sample and fires no event,
+ *    so it was mixed in, counted as a share that worked, and recorded
+ *    silence for the call's whole side with nothing said. Either one, kept,
+ *    would hold a share captured for a recording it contributes nothing to, so
  *    it is stopped here — including the video track, which is what actually
  *    ends the share and turns the browser's sharing bar off.
  */
@@ -167,7 +172,7 @@ export async function shareSystemAudio(): Promise<MediaStream | null> {
   } catch {
     return null;
   }
-  if (shared.getAudioTracks().length === 0) {
+  if (!shared.getAudioTracks().some((track) => track.readyState !== "ended")) {
     for (const track of shared.getTracks()) track.stop();
     return null;
   }
