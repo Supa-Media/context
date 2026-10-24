@@ -161,6 +161,7 @@ import type * as functions_textPhones from "../functions/textPhones.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
 import type * as functions_texHome from "../functions/texHome.js";
+import type * as functions_texSpend from "../functions/texSpend.js";
 import type * as functions_routines from "../functions/routines.js";
 import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
@@ -364,6 +365,7 @@ declare const fullApi: ApiFromModules<{
   "functions/textSetup": typeof functions_textSetup;
   "functions/textSignIn": typeof functions_textSignIn;
   "functions/texHome": typeof functions_texHome;
+  "functions/texSpend": typeof functions_texSpend;
   "functions/routines": typeof functions_routines;
   "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;

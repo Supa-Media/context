@@ -39,6 +39,15 @@ jest.mock("convex/react", () => {
       mockArgs.set(name, args);
       return args === "skip" ? undefined : mockAnswers.get(name);
     },
+    useAction: (reference: never) => {
+      const name = getFunctionName(reference);
+      return async (args: unknown) => {
+        mockArgs.set(name, args);
+        const answer = mockAnswers.get(name);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      };
+    },
   };
 });
 
@@ -92,6 +101,26 @@ function click(testID: string): void {
 }
 
 const TEX = "functions/admin:texReport";
+const SPEND = "functions/texSpend:report";
+
+function spend() {
+  return {
+    configured: true,
+    error: null,
+    totalUsd: 21.5,
+    testsUsd: 8,
+    keptFrom: "2026-08-26",
+    days: [
+      { day: "2026-10-23", usd: 6.5, requests: 300 },
+      { day: "2026-10-24", usd: 15, requests: 500 },
+    ],
+    models: [{ model: "claude-opus-5-5", requests: 400, usd: 18, freshInputTokens: 1_000, cacheReadTokens: 9_000, cacheWriteTokens: 0, outputTokens: 2_000 }],
+    jobs: [
+      { job: "texts", usd: 19, requests: 600 },
+      { job: "heartbeat", usd: 2.5, requests: 200 },
+    ],
+  };
+}
 const ADMIN = "functions/admin:amIAdmin";
 
 function review(over: Record<string, unknown> = {}) {
@@ -146,7 +175,7 @@ function report() {
     },
     reviewsTruncated: false,
     reviews: [
-      review(),
+      review({ at: Date.parse("2026-10-23T12:00:00Z") }),
       review({ task: "web_errand", signals: ["try_again"], calm: 3, texts: 6 }),
       review({ task: "web_errand", calm: 4, kind: "group" }),
       review({ task: "web_errand", calm: 2 }),
@@ -155,10 +184,19 @@ function report() {
   };
 }
 
-function asStaff(): HTMLElement {
+function asStaff(withSpend: unknown = spend()): HTMLElement {
   mockAnswers.set(ADMIN, true);
   mockAnswers.set(TEX, report());
-  return mount();
+  mockAnswers.set(SPEND, withSpend);
+  const container = mount();
+  // The billed spend arrives from an action, after the first paint.
+  return container;
+}
+
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 describe("tex.lc/admin", () => {
@@ -173,10 +211,11 @@ describe("tex.lc/admin", () => {
     expect(find("redirect")?.getAttribute("data-href")).toBe("/admin/growth");
   });
 
-  test("its figures reach the screen", () => {
+  test("its figures reach the screen", async () => {
     asStaff();
+    await settle();
     expect(find("tex-dashboard-kpi-texts")?.textContent).toContain("12");
-    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("$3.20");
+    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("$21.50");
     expect(find("tex-dashboard-kpi-speed")?.textContent).toContain("4.2s");
     expect(find("tex-dashboard-kpi-frustrated")?.textContent).toContain("60%");
     expect(find("tex-dashboard-models")?.textContent).toContain("Think-model");
@@ -188,11 +227,49 @@ describe("tex.lc/admin", () => {
     expect(find("tex-dashboard-look")?.textContent).toContain("Think-model failed 10% of its rounds");
   });
 
-  test("the window reaches the query", () => {
+  test("the window reaches the report and the billed spend", async () => {
     asStaff();
+    await settle();
     expect(mockArgs.get(TEX)).toEqual({ days: 7 });
+    expect(mockArgs.get(SPEND)).toEqual({ days: 7 });
     click("tex-dashboard-days-30");
+    await settle();
     expect(mockArgs.get(TEX)).toEqual({ days: 30 });
+    expect(mockArgs.get(SPEND)).toEqual({ days: 30 });
+  });
+
+  test("spend is Cloudflare's billed figure, split by job and by how much was cached", async () => {
+    asStaff();
+    await settle();
+    const card = find("tex-dashboard-spend")?.textContent ?? "";
+    expect(card).toContain("$21.50 billed for Tex");
+    expect(card).toContain("Test runs cost another $8.00");
+    expect(card).toMatch(/Check-ins/);
+    expect(card).toContain("90% cached");
+  });
+
+  test("without Cloudflare connected, spend says it is our estimate", async () => {
+    asStaff({ configured: false });
+    await settle();
+    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("$3.20");
+    expect(find("tex-dashboard-kpi-spend")?.textContent).toContain("our estimate");
+    expect(find("tex-dashboard-spend-compare")?.textContent).toContain("isn't connected");
+  });
+
+  test("day by day shows each figure per day with the change from the day before, and follows the task", async () => {
+    asStaff();
+    await settle();
+    // Oct 23: one calm email; Oct 24: three frustrated web errands of four.
+    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("75%");
+    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("+75 pts");
+    expect(find("tex-dashboard-trend-spend")?.textContent).toContain("+$8.50");
+    const select = find("tex-dashboard-trends-task") as HTMLSelectElement;
+    act(() => {
+      select.value = "calendar";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(find("tex-dashboard-trend-frustrated")?.textContent).toContain("0%");
+    expect(find("tex-dashboard-trend-frustrated")?.textContent).not.toContain("pts");
   });
 
   test("a task picked from the Task dropdown narrows the table, and Clear brings it back", () => {
