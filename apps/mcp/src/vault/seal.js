@@ -11,9 +11,9 @@
  *   Context without being shown to anybody — typed into the live page by the
  *   fill step (`fill.js`), or added to an outgoing request by the proxy step
  *   (`proxy.js`) — and never by anything whose answer reaches a model, a tool
- *   result, a log or a message. `vaultSecretDoors.test.mjs` pins that pair:
- *   naming the openers here and leaving the count to rot is what row 762 was
- *   about.
+ *   result, a log or a message. `vaultSecretDoors.test.mjs` pins that pair,
+ *   because naming the openers here and leaving the count to rot is how a
+ *   reader concludes there is one door to check.
  *
  * The key is the workspace data key (`workspaceDataKeys`, held sealed by the
  * control plane, never in the bucket), expanded with its own label, so the

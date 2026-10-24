@@ -5,8 +5,8 @@
  * second legitimate opener existed (the proxy step), and `vault.ts` said
  * `reveal`'s "only caller is `revealVaultEntry`" while `vaultMove.ts` was a
  * second. Both were true when written and neither was enforced by anything,
- * which is register row 762: a header that counts its callers is a guard with
- * an expiry date.
+ * and that is the point: a header which counts its callers is a
+ * guard with an expiry date.
  *
  * So the count lives here instead. Adding a third opener is allowed — it just
  * has to be a deliberate edit of this list, by somebody who has read why the
