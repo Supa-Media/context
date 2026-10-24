@@ -21,7 +21,7 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { fileTeamNote } from "../../bugNotes";
 import { hashToken } from "../crypto";
-import { parseReason, parseScores, parseWords, renderReviewNote, renderScoresNote, reviewNotePath, scoresNotePath } from "../feedback/texReviewNote";
+import { parseReason, parseScores, parseSignals, parseTask, parseTexts, parseWords, renderReviewNote, renderScoresNote, reviewNotePath, scoresNotePath } from "../feedback/texReviewNote";
 import { json, stringField } from "../gatewayAuth";
 
 function randomId(): string {
@@ -48,7 +48,20 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
   const now = Date.now();
   let rows;
   try {
-    rows = await ctx.runMutation(internal.functions.texReviews.recordScores, { userId: setup.userId, kind: setup.kind, reason, now, ...scores });
+    // Codes and a count, each read strictly: anything else is dropped, never kept.
+    const task = parseTask(body.task);
+    const texts = parseTexts(body.texts);
+    rows = await ctx.runMutation(internal.functions.texReviews.recordScores, {
+      userId: setup.userId,
+      grantId: session.grantId,
+      kind: setup.kind,
+      reason,
+      now,
+      ...(task !== null ? { task } : {}),
+      signals: parseSignals(body.signals),
+      ...(texts !== null ? { texts } : {}),
+      ...scores,
+    });
   } catch (error) {
     const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;
     return json({ review: null, refused: code === "RATE_LIMITED" ? "rate_limited" : "unavailable" });

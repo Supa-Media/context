@@ -86,11 +86,19 @@ test("'fix this' and plain frustration review now; an ordinary text does not", (
 });
 
 test("the model's answer is read strictly: five whole numbers 1 to 10", () => {
-  assert.deepEqual(readReview(JSON.stringify({ scores: SCORES }), { words: false }), { scores: SCORES });
+  assert.deepEqual(readReview(JSON.stringify({ scores: SCORES }), { words: false }), { scores: SCORES, task: null, signals: [] });
   assert.equal(readReview(JSON.stringify({ scores: { ...SCORES, goal: 11 } }), { words: false }), null);
   assert.equal(readReview(JSON.stringify({ scores: { ...SCORES, calm: 2.5 } }), { words: false }), null);
   assert.equal(readReview("it went fine", { words: false }), null);
   assert.equal(readReview(FULL_ANSWER, { words: true }).words.improve, "Open the sign-in page before asking for a code.");
+});
+
+test("task and signals are codes from closed sets: anything else is dropped and the scores still count", () => {
+  const coded = readReview(JSON.stringify({ scores: SCORES, task: "web_errand", signals: ["try_again", "repeated", "try_again"] }), { words: false });
+  assert.deepEqual(coded, { scores: SCORES, task: "web_errand", signals: ["try_again", "repeated"] });
+  const loose = readReview(JSON.stringify({ scores: SCORES, task: "she wanted her avocado order", signals: ["angry about the avocado", "swore", 7] }), { words: false });
+  assert.deepEqual(loose, { scores: SCORES, task: null, signals: ["swore"] });
+  assert.deepEqual(readReview(JSON.stringify({ scores: SCORES, signals: "swore" }), { words: false }).signals, []);
 });
 
 test("on the scores tier the model is asked for numbers alone, and only numbers leave", async () => {
@@ -102,7 +110,7 @@ test("on the scores tier the model is asked for numbers alone, and only numbers 
   assert.equal(filed, "scores");
   assert.equal(model.asked.length, 1);
   assert.doesNotMatch(model.asked[0].system, /summary|expected|improve/);
-  assert.deepEqual(control.filed, [{ reason: "ended", scores: SCORES }]);
+  assert.deepEqual(control.filed, [{ reason: "ended", scores: SCORES, signals: [], texts: 1 }]);
 });
 
 test("on the full tier the review carries what they expected, the fix and the conversation", async () => {

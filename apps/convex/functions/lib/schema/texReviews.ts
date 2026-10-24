@@ -38,6 +38,20 @@ export const texReviewTables = {
     turns: v.number(),
     friendly: v.number(),
     calm: v.number(),
+    /**
+     * Codes and counts for the Tex dashboard (2026-10-24), still naming
+     * nobody: what it was for (`TASK_CODES`), what showed frustration
+     * (`SIGNAL_CODES`), how many texts it took, who in coarse terms (`staff`,
+     * `new` for an account under a week old, else `other`), and what its last
+     * turns cost and whether any ran on the thinking tier. Missing on rows
+     * from before.
+     */
+    task: v.optional(v.string()),
+    signals: v.optional(v.array(v.string())),
+    texts: v.optional(v.number()),
+    who: v.optional(v.union(v.literal("staff"), v.literal("new"), v.literal("other"))),
+    costMicroUsd: v.optional(v.number()),
+    thought: v.optional(v.boolean()),
   })
     .index("by_day", ["day"])
     .index("by_at", ["at"]),

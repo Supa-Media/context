@@ -30,3 +30,8 @@ export const HAIKU_MODEL = "anthropic/claude-haiku-5-5";
 export const OPUS_MODEL = "anthropic/claude-opus-5-5";
 /** A setup may name Sonnet as `main` or `think`; priced so its spend is real. */
 export const SONNET_MODEL = "anthropic/claude-sonnet-5-5";
+
+/** Whether a model name is one the thinking tier runs on: the dashboard's "Opus thought" slice. */
+export function isThinkingModel(model: string): boolean {
+  return model === OPUS_MODEL || model === SONNET_MODEL;
+}
