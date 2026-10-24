@@ -8,17 +8,21 @@ two friends working on something" or "like I'm talking to ChatGPT", then say
 how Tex should improve, and send it somewhere a Claude thread reads every
 hour and turns into work. "Obviously this is a lot of power … it's not
 something we want to have for everything": the conversations themselves go
-only for staff (`ADMIN_EMAILS`), in their own chats and in staff group
-chats. Minutes later the owner added a version for everybody else that
-respects privacy, and an opt-in for people who want to share theirs.
+only for staff, in their own chats and in staff group chats. Minutes later
+the owner added a version for everybody else that respects privacy, and an
+opt-in for people who want to share theirs. An hour later the owner settled
+who staff is here: "go based off of who has context-lc workspace access", so
+adding someone to `@context-lc` is the whole step, with no list kept
+anywhere else.
 
 **Three tiers, decided by the control plane.** For each conversation,
 `functions/texReviews.ts` reads who was in it from the texting grant that
 asks: one person for their own texts, everybody in the chat for a group
 (`texGroup.coViewerIds`).
 
-- **Everybody in it is staff** (a verified address on `ADMIN_EMAILS`, the same
-  test as `lib/admin.ts`) **or said yes** in Settings → Feedback ("Share
+- **Everybody in it is on the team** (a membership row in the pinned
+  workspace, `@context-lc`, or a verified address on `ADMIN_EMAILS`) **or said
+  yes** in Settings → Feedback ("Share
   finished Tex conversations", off by default, a row in `texReviewSharing`):
   the review is `full`. It becomes a note in the pinned context's
   `areas/tex-reviews/`, which the team reads and nobody reaching the context
