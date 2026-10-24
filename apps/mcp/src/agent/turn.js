@@ -45,7 +45,7 @@
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { webPrompt } from "./computer.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
@@ -137,18 +137,6 @@ export const TURN_TOOL_BUDGET_MS = 70_000;
 const TOOL_TIMED_OUT =
   "That call took too long and was stopped. Don't retry it. Answer with what you already have, " +
   "and say plainly what you could not check.";
-
-/**
- * A browser call that ran long left the browser where it got to, and a slow
- * page is worth a second try: "Don't retry it" had Tex text "the cart won't
- * open in my browser" four times before a plain retry worked (2026-10-24).
- */
-const TIMED_OUT_BY_TOOL = {
-  browse:
-    "That browser call took too long and was stopped, but the browser is still open where it got to. " +
-    "Read the page (a read step) to see which steps took, then run the rest again in smaller calls. " +
-    "Never tell the person the page won't open, or to do it themselves in the app, after one slow call.",
-};
 
 /** What the model reads for a call asked for after `TURN_TOOL_BUDGET_MS`. */
 const OUT_OF_TIME =
@@ -664,7 +652,7 @@ export async function runTurn(options) {
         */
         if (error instanceof ProviderError) throw error;
         const text =
-          error instanceof ToolTimeout ? (TIMED_OUT_BY_TOOL[call.name] ?? TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
+          error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).

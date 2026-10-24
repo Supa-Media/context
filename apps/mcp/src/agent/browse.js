@@ -118,6 +118,17 @@ const HICCUP_LINE =
   "\n\nThe browser stumbled on those steps (a slow page or a dropped connection), so this is a fresh reading of where it is now. " +
   "Check which of your steps took, then run the rest again. Never tell the person the page won't open, or to do it themselves in the app, after one stumble.";
 
+/**
+ * What the model reads when a browse call outran its time (`turn.js`): the
+ * browser is still where it got to, and a slow page is worth a second try.
+ * "Don't retry it" had Tex text "the cart won't open in my browser" four
+ * times before a plain retry worked (2026-10-24).
+ */
+export const BROWSE_TIMED_OUT =
+  "That browser call took too long and was stopped, but the browser is still open where it got to. " +
+  "Read the page (a read step) to see which steps took, then run the rest again in smaller calls. " +
+  "Never tell the person the page won't open, or to do it themselves in the app, after one slow call.";
+
 /** The gateway's line when a handoff was asked for and no link could be made. */
 export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
 
