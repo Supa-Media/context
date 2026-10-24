@@ -51,6 +51,10 @@ export function calendarToolDefinitions() {
             type: "string",
             description: "Optional: which of their connected Google accounts, by address (fetch calendar: names each). create puts it there; otherwise only that one is searched.",
           },
+          as: {
+            type: "string",
+            description: "Group chats only, optional: the handle of the person in the chat whose calendar it changes, when that isn't whoever tagged you. It is shown to them, and only their 👍 or yes makes it.",
+          },
           notify_guests: { type: "boolean", description: "Leave out: Context sets it on a change the person said yes to." },
         },
         required: ["action", "title", "start"],

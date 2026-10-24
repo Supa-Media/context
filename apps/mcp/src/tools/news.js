@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-24",
+    text:
+      "send_email and calendar_event take `as` in a group chat: the handle of the person in the chat it goes from, when that isn't whoever tagged Tex. " +
+      "They are shown the exact copy, and only their 👍 or yes makes it.",
+  },
+  {
     date: "2026-10-23",
     text:
       "calendar_event takes `calendar`: the address of one of their connected Google accounts (fetch calendar: names each). " +
@@ -310,7 +316,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "96eabf84";
+export const TOOL_SHAPE = "a331bf46";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

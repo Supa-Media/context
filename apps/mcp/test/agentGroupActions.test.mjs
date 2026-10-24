@@ -81,7 +81,7 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   assert.equal(sends().length, 0);
   assert.equal(live(PENDING_PREFIX).length, 1, "held in the chat's workspace");
-  assert.match(asked.body?.answer ?? "", /From: cy@gmail\.example[\s\S]*Give it a 👍 and I'll send it/, "the ask asks for a 👍");
+  assert.match(asked.body?.answer ?? "", /from @cy's email:[\s\S]*From: cy@gmail\.example[\s\S]*@cy, give it a 👍 and I'll send it\. Only @cy can OK it/, "the ask asks the sender, by name, for a 👍");
 
   const before = world.model.requests.length;
   world.model.install([{ text: "That one's Cy's to approve." }]);
@@ -137,28 +137,37 @@ test("a link somebody wrote in the chat before the tag opens (beacon.sh, 2026-10
   const [page] = toolReplies(world.model.requests.at(-1));
   assert.match(page, /All fine/, "the page was read");
 
-  // An address nobody in the chat wrote is still refused (no production setup opens the web here).
+  // Said in the chat a tag ago still counts (2026-10-24: "Tex try again" could not type the email asked for before it).
   world.model.install([
     { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
+    { text: "Still fine." },
+  ]);
+  await tagged(TOKEN_GROUP_EGRESS, "Tex check it again", "ada");
+  const [again] = toolReplies(world.model.requests.at(-1));
+  assert.match(again, /All fine/, "an address the chat wrote earlier opens");
+
+  // An address nobody in the chat wrote is still refused (no production setup opens the web here).
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/elsewhere"] } } }] },
     { text: "Couldn't." },
   ]);
   await tagged(TOKEN_GROUP_EGRESS, "Tex what's the status?", "ada");
   const [refused] = toolReplies(world.model.requests.at(-1));
-  assert.doesNotMatch(refused, /All fine/, refused);
+  assert.match(refused, /You can only open|only open/i, refused);
 });
 
 test("an ask already shown isn't re-posted as the answer to the next question (2026-10-23)", async () => {
   const again = { ...EMAIL, subject: "Saturday", body: "Hi Jo,\n\nSaturday at 2.\n\nCy" };
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "Drafted it for Jo." }]);
   const first = await tagged(TOKEN_GROUP_MEMBER, "Tex email Jo that it's Saturday at 2", "cy");
-  assert.match(first.body?.answer ?? "", /Give it a 👍/);
+  assert.match(first.body?.answer ?? "", /@cy, give it a 👍/);
 
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "I can read and write notes here, search the web and send one email for you." }]);
   const next = await tagged(TOKEN_GROUP_MEMBER, "Tex what tools do you have?", "cy");
   assert.equal(next.status, 200);
   const [refused] = toolReplies(world.model.requests.at(-1));
   assert.match(refused, /Not shown again/);
-  assert.doesNotMatch(next.body?.answer ?? "", /Give it a 👍|Saturday at 2/, "the old ask is not the answer");
+  assert.doesNotMatch(next.body?.answer ?? "", /give it a 👍|Saturday at 2/i, "the old ask is not the answer");
   assert.match(next.body?.answer ?? "", /search the web/);
   assert.equal(sends().length, 1, "nothing new was sent");
 

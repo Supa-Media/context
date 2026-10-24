@@ -53,6 +53,8 @@ const MAX_CHAT_LINE = 4_000;
 export const MAX_CHAT_CHARS = 60_000;
 
 const HEX64 = /^[0-9a-f]{64}$/;
+/** Most people a chat names (`apps/convex/functions/textGroups.ts` `MAX_GROUP_PARTICIPANTS`). */
+const MAX_PEOPLE = 32;
 /** A handle as `functions/lib/names.ts` allows one. */
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
 
@@ -91,7 +93,13 @@ export function groupOf(body) {
   if (group === null || typeof group !== "object" || Array.isArray(group)) return null;
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
-  return { key: group.key, members: group.members, from, chat: chatOf(group.chat) };
+  return { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat) };
+}
+
+/** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
+function peopleOf(value, from) {
+  const named = Array.isArray(value) ? value.filter((handle) => typeof handle === "string" && HANDLE.test(handle)).slice(0, MAX_PEOPLE) : [];
+  return [...new Set([...named, ...(from ? [from] : [])])];
 }
 
 /** What the chat said, newest kept within the bounds, oldest first; an entry that isn't one is left out. */
@@ -269,8 +277,10 @@ export function groupPrompt(group, workspace) {
     "say the person can text you on their own for that. " +
     "You can do anything with notes there that you can in a text, by the role of whoever tagged you; never say you can't change a note from here. " +
     "Never write into a form's responses note (the gateway writes those) or a note that says it is generated. " +
-    "For the person who tagged you, and only them, you can add, edit, move or cancel one event on their own calendar, or answer an invite, " +
-    "or send one email from their own Gmail: either is shown in the chat and waits for their yes to that exact copy. " +
+    "You can add, edit, move or cancel one event on someone's own calendar, or answer an invite, or send one email from someone's own Gmail. " +
+    "It goes from whoever asked for it; never refuse because this is a group. When the chat means it to go from someone else in it (\"send it as @jo\", " +
+    "or someone else asks for changes to an email that was @jo's), pass as with their handle: they are shown the exact copy and only their 👍 or yes makes it, " +
+    "so everyone can refine it together first. Anyone else's yes does nothing. " +
     "Guests can't be invited, so to put something on everyone's calendar, send them the details by email or have each person ask. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
     GROUP_CODE_SIGN_IN_LINE +

@@ -402,6 +402,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await sha256Hex(people.join(",")),
     ...(asked.handle ? { from: asked.handle } : {}),
+    // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
+    people: [...new Set(handles.values())].filter(Boolean),
   };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
@@ -439,8 +441,10 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (answer.kind !== "answer") throw new ServiceError("gateway", null);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
-  // An answer that asks for a yes leaves it open for the asker; any other answer closes it.
-  if ((answer.verbatim?.length ?? 0) > 0) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(message.from), at: deps.now() });
+  // An answer that asks for a yes leaves it open for the one person it asks: the
+  // asker, or the person an email is offered to (`askFor`); any other answer closes it.
+  const asks = answer.askFor !== undefined ? [...handles].find(([, handle]) => handle === answer.askFor)?.[0] : message.from;
+  if ((answer.verbatim?.length ?? 0) > 0 && asks !== undefined) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(asks), at: deps.now() });
   else await storage.delete(ASK_KEY);
 
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.

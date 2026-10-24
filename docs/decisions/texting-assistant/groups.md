@@ -102,11 +102,30 @@ other people's words are in its history.
   gateway exempts exactly `send_email` and `calendar_event` from the
   dispatcher's write-scope check, because the change is to the tagger's
   account, not the workspace. Each is held for the tagger's yes to the exact
-  copy shown in the chat, as in a 1:1 text, and the ask says "Reply yes to
-  this", because an untagged "yes" in a group is chat. Pending approvals are
+  copy shown in the chat, as in a 1:1 text, and the ask names them, because
+  an untagged "yes" in a group is chat unless it comes from the person asked. Pending approvals are
   listed by the acting person, so somebody else in the chat saying "Tex,
   yes" releases nothing. A yes is settled before any model, as in 1:1, and
   kept in the chat's memory.
+- **Offer one to somebody else in the chat, who alone may OK it** (the owner,
+  2026-10-24: people "can be in the group chat ... refining the email", but
+  "the explicit thumbs up or yes has to come from the person that the email
+  is going to come from"). Every group ask names its sender ("Here's the
+  email I'd send from @cy's email ... @cy, give it a 👍 ... Only @cy can OK
+  it; anyone can ask me for changes first"). When the email or calendar
+  change is to go from someone other than the tagger, `send_email` and
+  `calendar_event` take `as` with that person's handle, which must be one of
+  the chat's people as the control plane named them to the Worker
+  (`apps/mcp/src/tools/offerFor.js`). Nothing is held, because a hold is the
+  tagger's and their grant acts for nobody else: the copy is shown addressed
+  to that person, the answer carries `askFor`, and the Worker arms the chat's
+  ask for that person's phone alone (`apps/agent/src/groupInbox.ts`). Their
+  👍 or yes is a turn of their own; the gateway lets it count as agreement
+  only to words that asked them by name (`addressedTo` in `route.js`), the
+  model makes the same call as them, and the exact copy they agreed to goes
+  once from their own account (`likedPreview.js`), replacing anything held for
+  them before. Anybody else's 👍 on it is no yes. `apps/mcp/test/agentGroupOffer.test.mjs`
+  and `apps/agent/src/groupInbox.test.ts` fail if either rule is dropped.
 - **Never read mail.** `claimPersonMailRead` needs an owner of the personal
   workspace with `context:private`; a group grant is neither.
 - **Never invite.** Calendar writes refuse guests and send no updates, so

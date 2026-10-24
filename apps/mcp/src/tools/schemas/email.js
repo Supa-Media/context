@@ -34,6 +34,11 @@ export function emailToolDefinitions() {
             description:
               "Optional: the email:<address>/<id> id search_email gave for an email to forward. It goes below the body with all of its attachments, from that mailbox.",
           },
+          as: {
+            type: "string",
+            description:
+              "Group chats only, optional: the handle of the person in the chat it goes from, when that isn't whoever tagged you. It is shown to them, and only their 👍 or yes sends it.",
+          },
           attach: {
             type: "array",
             items: { type: "string" },

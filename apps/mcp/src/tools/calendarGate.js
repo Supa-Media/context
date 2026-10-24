@@ -24,6 +24,7 @@ import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDo
 import { toolError } from "./results.js";
 import { CALENDAR_TOOL, REFUSED, calendarCopy, calendarSummary, readCalendarChange, refusalFor } from "./calendarWrite.js";
 import { emailCaller } from "./emailGate.js";
+import { offerFor, offerTarget } from "./offerFor.js";
 
 export { CALENDAR_TOOL };
 
@@ -38,6 +39,10 @@ export async function calendarGate(supplied, { store, session, target }) {
   }
   const read = readCalendarChange(supplied);
   if (read.error) return toolError(`Not changed: ${read.error}`);
+  // A change to somebody else's calendar in a group chat, made on their own yes (`offerFor.js`).
+  const offer = offerTarget(session, supplied, "calendar change");
+  if (offer?.error) return toolError(`Not changed: ${offer.error}`);
+  if (offer) return offerFor(session, { who: offer.who, tool: CALENDAR_TOOL, detail: calendarCopy(read.change, Date.now(), []), noun: "calendar change" });
   const userId = session.actorUserId;
 
   // A connected AI calling again after the person approved it in the app.

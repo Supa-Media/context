@@ -27,7 +27,7 @@
  * through to `send_email` itself.
  */
 
-import { DETAIL_CAP, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
+import { DETAIL_CAP, createPending, disarmTexting, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
@@ -36,6 +36,7 @@ import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
 import { agreedToForward, agreedWordsHold } from "./likedPreview.js";
 import { recordChange } from "../activity/record.js";
+import { offerFor, offerTarget } from "./offerFor.js";
 
 export { EMAIL_TOOL };
 
@@ -79,6 +80,16 @@ export async function emailGate(supplied, { store, session, target }) {
   const read = readEmail(supplied);
   if (read.error) return toolError(`Not sent: ${read.error}`);
   const email = read.email;
+
+  // Somebody else in a group chat sends it, from their own Gmail, on their own yes (`offerFor.js`).
+  const offer = offerTarget(session, supplied, "email");
+  if (offer?.error) return toolError(`Not sent: ${offer.error}`);
+  if (offer) {
+    if (email.forward || email.replyTo || email.attach || email.from) {
+      return toolError("Not sent: a reply, a forward, an attachment or a chosen sender goes from a mailbox only its owner can name. Leave them out, or have them ask you.");
+    }
+    return offerFor(session, { who: offer.who, tool: EMAIL_TOOL, detail: emailCopy(email), noun: "email" });
+  }
 
   // A routine forwarding under a rule the person 👍'd once (`forwardRule.js`); any other routine send is refused below.
   const standing = await standingForward(store, session, supplied, email);
@@ -206,6 +217,8 @@ export async function emailGate(supplied, { store, session, target }) {
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));
+    // In a group, a copy someone else refined replaces the one held for them before: that one never goes now (`offerFor.js`).
+    if (session.egress?.group) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return null;
   }
   const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
