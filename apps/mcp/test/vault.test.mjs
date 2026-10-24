@@ -87,6 +87,27 @@ test("a site fills on itself and beneath it, never on a lookalike or plain http"
   assert.equal(siteMatches(sites, "not a url"), false);
 });
 
+/*
+  2026-10-24: "the saved site or beneath it" is what makes
+  `accounts.netflix.com` work, and it is unbounded when the saved site is one
+  anyone can publish under. A login saved for `github.io` filled on
+  `attacker.github.io`. The proxy step already refuses a key pinned to one of
+  these hosts (`isSharedHost`, the owner's own list); the fill step now
+  refuses to go beneath one too. The apex itself still matches, so a real
+  login saved for such a host keeps working on it.
+*/
+test("a site anyone can publish under fills on itself and never beneath it", () => {
+  for (const shared of ["github.io", "pages.dev", "workers.dev", "vercel.app", "webhook.site"]) {
+    assert.equal(siteMatches([shared], `https://attacker.${shared}`), false, shared);
+    assert.equal(siteMatches([shared], `https://${shared}`), true, `${shared} itself`);
+  }
+  // A real address under one of them is one person's, and keeps its subdomains.
+  assert.equal(siteMatches(["my-app.github.io"], "https://my-app.github.io"), true);
+  assert.equal(siteMatches(["my-app.pages.dev"], "https://preview.my-app.pages.dev"), true);
+  // An ordinary host is untouched.
+  assert.equal(siteMatches(["netflix.com"], "https://accounts.netflix.com"), true);
+});
+
 test("the fill step opens a login only for its people, on its site", async () => {
   const { store, id } = await vaultWith();
   const filled = await openForFill(store, undefined, { entryId: id, origin: "https://www.netflix.com" });
