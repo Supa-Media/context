@@ -113,6 +113,7 @@ test/treeServed.test.mjs
 test/treeTouchReporting.test.mjs
 test/treeWriteNames.test.mjs
 test/vault.test.mjs
+test/vaultSecretDoors.test.mjs
 test/vaultCard.test.mjs
 test/vaultProxy.test.mjs
 test/vaultAsks.test.mjs
