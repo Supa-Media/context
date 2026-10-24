@@ -65,7 +65,9 @@ test("a texted file is kept under a download: id and read again whole", async ()
   assert.equal(read.isError, undefined, textOf(read));
   const words = textOf(read);
   assert.match(words, /rows: 3 \(not counting the header\)/);
-  assert.match(words, /header: Date,Description,Amount/);
+  assert.match(words, /header: Date, Description, Amount/);
+  assert.match(words, /duplicate rows: none/);
+  assert.match(words, /total of Amount: 2,017\.90/);
   assert.match(words, /trust: untrusted/);
   assert.match(words, /2026-10-03,Rent,-2100\.00/);
 });
@@ -82,16 +84,20 @@ test("a voice message and a picture are not kept as files; a PDF is", async () =
   assert.ok(out[2].kept?.id);
 });
 
-test("a long file is read in parts, each saying where the next starts", async () => {
+test("a long file is read in parts, each ending at a line and saying where the next starts", async () => {
   const store = memoryStore();
   const long = { name: "big.csv", mediaType: "text/csv", text: `h\n${"1,2,3\n".repeat(30_000)}` };
   const [kept] = await keepSentFiles(store, [long]);
   const first = textOf(await readKeptFile(store, null, keptRef(kept.kept.id)));
-  assert.match(first, /characters: 0 to 100000 of 180002/);
-  assert.match(first, new RegExp(`more: read_file with path "${kept.kept.id}@100000"`));
-  const second = textOf(await readKeptFile(store, null, keptRef(`${kept.kept.id}@100000`)));
-  assert.match(second, /characters: 100000 to 180002 of 180002/);
+  // 100,000 falls inside a row, so the part ends at the line before it.
+  assert.match(first, /characters: 0 to 99998 of 180002/);
+  assert.match(first, new RegExp(`more: read_file with path "${kept.kept.id}@99998"`));
+  assert.match(first, /rows: 30000/, "a table's facts count every row on every part");
+  const second = textOf(await readKeptFile(store, null, keptRef(`${kept.kept.id}@99998`)));
+  assert.match(second, /characters: 99998 to 180002 of 180002/);
   assert.doesNotMatch(second, /more:/);
+  const viaFrom = withKeptFiles(store, null, async () => null);
+  assert.match(textOf(await viaFrom("read_file", { path: kept.kept.id, from: 99998 })), /characters: 99998 to 180002/);
 });
 
 test("an id kept in one bucket finds nothing in another", async () => {

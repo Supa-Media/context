@@ -190,6 +190,31 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     check("a job's turn names no jobs of its own", ran.body?.jobs === undefined);
 
+    /* ---------------- a job's answer a later text replaces is not kept as said (2026-10-24) ---------------- */
+
+    // A text for the job lands during its turn and is never taken in: the Worker runs another part, so this answer is never texted.
+    const kept = conversationTurns(bucket).length;
+    await post(env, TOKEN_TEXTS, "/agent/steer", { turn: "turn-replaced-0001", id: "e9", text: "make it a visual note" });
+    model.install([{ text: "Base spend is $7.6k a month." }]);
+    const replaced = await post(env, TOKEN_TEXTS, "/agent", {
+      question: "research our competitors and write it up",
+      conversation: "texts",
+      turn: "turn-replaced-0001",
+      job: { ...job, attempt: 1, followUps: [] },
+    });
+    check("a job's answer a later text replaces is not kept in the conversation", replaced.status === 200 && conversationTurns(bucket).length === kept);
+    model.install([{ text: "Base spend is $7.6k a month; the note is visual now." }]);
+    await post(env, TOKEN_TEXTS, "/agent", {
+      question: "research our competitors and write it up",
+      conversation: "texts",
+      job: { ...job, attempt: 2, followUps: ["make it a visual note"], draft: "Base spend is $7.6k a month." },
+    });
+    check(
+      "...and the next part is shown it, to build on rather than start over",
+      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.requests.at(-1))) &&
+        conversationTurns(bucket).length === kept + 2,
+    );
+
     /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
 
     model.install([

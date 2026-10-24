@@ -250,7 +250,11 @@ export async function toolReadEmail(store, args) {
   // Kept with the answer, so the next text can still forward it (`agent/sources.js`).
   const sources = [`${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}`];
   if (wanted !== undefined) {
-    const words = await attachmentWords(store, message, answer.attachment);
+    const words = await attachmentWords(store, message, answer.attachment, {
+      from: Number.isInteger(args?.from) && args.from > 0 ? args.from : 0,
+      summary: args?.summary && typeof args.summary === "object" ? args.summary : null,
+      next: (at) => `read_email with id "${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}", attachment: ${wanted} and from: ${at}`,
+    });
     return words.isError === true ? words : { ...words, sources };
   }
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -283,7 +287,7 @@ export async function toolReadEmail(store, args) {
  * `read_email`): for mail the sync never stored, or stored without its files.
  * Nothing is kept: the bytes are turned into words and dropped.
  */
-async function attachmentWords(store, message, file) {
+async function attachmentWords(store, message, file, part = {}) {
   let bytes;
   try {
     const binary = atob(file.data);
@@ -295,7 +299,7 @@ async function attachmentWords(store, message, file) {
   const name = oneLine(file.filename, 200) || "attachment";
   const type = typeOfFile(name, bytes);
   if (type === null) return toolError(`${name} is not a kind of file Context can read: PDF, Word, Excel, CSV and pictures are.`);
-  const words = await fileWords(store.ai, name, type, bytes);
+  const words = await fileWords(store.ai, name, type, bytes, part);
   if (words.error) return toolError(`${words.error}: ${name}`);
   return toolText(
     [

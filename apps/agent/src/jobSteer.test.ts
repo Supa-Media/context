@@ -135,7 +135,8 @@ describe("steering a running job", () => {
     expect(reports.some((update) => update.texts?.includes("Made a green logo."))).toBe(false);
     expect(reports.at(-1)).toMatchObject({ state: "running", status: "Changing it to what you texted" });
     await runJob(storage, deps);
-    expect(asked[1].job).toMatchObject({ attempt: 2, followUps: [yellow.text] });
+    // The green answer it replaces is handed on, so the yellow one builds on it and is the one result texted.
+    expect(asked[1].job).toMatchObject({ attempt: 2, followUps: [yellow.text], draft: "Made a green logo." });
     expect(asked[1].question).toBe("make me a green logo");
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Made it yellow."] });
   });

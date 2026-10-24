@@ -102,3 +102,34 @@ The bucket is the tenancy boundary, so an id names nothing outside it, and
 what a kept file holds is someone else's words like any file: reading it marks
 the turn untrusted. Undo: drop `keepSentFiles` and `withKeptFiles` from
 `apps/mcp/src/agent/route.js`; `agentKeptFiles.test.mjs` fails.
+
+## A table is read whole, its repeats counted, its totals summed (owner's review, 2026-10-24)
+
+Later in the same chat the export arrived by email. Tex reported rent going
+out twice because the export repeated rows, and checked only after the person
+pushed back; a job then said the file was "too long for me to read every
+row". A CSV or TSV is now read as its own rows, never converted
+(`apps/mcp/src/tools/fileParts.js`), and every part, whichever part it is,
+starts with facts counted over the whole file: rows, header, rows that repeat
+an earlier row in every column, near-repeats (same date, amount and payee),
+and each amount column's total without and with the repeats. Parts end on a
+line break and name where the next starts (`from` on `read_file` and
+`read_email`, or `download:<id>@<from>`), so a long file is read in full.
+`summary` (`by` columns or `month`, `where`, `dates`) totals every row in the
+gateway with exact repeats left out, so a breakdown is arithmetic done once,
+not a model adding up 4,000 rows. Undo: route tables back through
+`toMarkdown` in `readFile.js`; `fileParts.test.mjs` and `readFile.test.mjs`
+fail.
+
+## One background job texts one result (owner's review, 2026-10-24)
+
+A job whose part finished while the person texted more was carried on to a
+new part (the Worker's `changed`), and that answer was never texted, but the
+gateway had already saved it to the conversation, and the next part worked
+the figures out again, differently: two "finished" results. Now a job's answer
+is not saved while a steer waits unread (`steer.pending()` in
+`apps/mcp/src/agent/route.js`), and the Worker hands the unsent answer to the
+next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
+it and keep its figures unless the new text changes them; its answer replaces
+the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
+fails.

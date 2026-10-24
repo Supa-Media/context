@@ -32,7 +32,8 @@ export type JobStep = { at: number; text: string };
 /** One line of the chat's job list, sent with every texted turn, with its last few steps. */
 export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[] };
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
-export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[] };
+/** `draft`: the last part's answer, never texted because a later text changed the job; the next part builds on it. */
+export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 export type JobSteer = { id: string; text: string; stop?: true };
 /** What a turn asked of a running job: the job, and whether to stop it. */
@@ -45,7 +46,7 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
 export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true };

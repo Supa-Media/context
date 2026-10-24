@@ -25,6 +25,7 @@ import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { toolError, toolText } from "./results.js";
 import { linksSection, pdfLinks } from "./pdfLinks.js";
+import { factLines, isTable, partLines, partOf, tableFacts, tableSummary } from "./fileParts.js";
 
 /** The extensions `read_file` opens, and the type each is handed to the converter as. */
 export const READABLE_FILE_TYPES = new Map([
@@ -54,7 +55,8 @@ export function readableFileType(path) {
   return match ? READABLE_FILE_TYPES.get(match[1].toLowerCase()) ?? null : null;
 }
 
-export async function toolReadFile(store, scope, rules, overrides, pathArg) {
+export async function toolReadFile(store, scope, rules, overrides, pathArg, from = 0, summary = null) {
+  if (from !== undefined && from !== null && (!Number.isInteger(from) || from < 0)) return toolError("from is a character to start at: 0, or the number a part's more: line gave");
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
   const type = readableFileType(path);
@@ -69,7 +71,11 @@ export async function toolReadFile(store, scope, rules, overrides, pathArg) {
   const declared = Number.isFinite(obj.size) ? obj.size : 0;
   if (declared > MAX_FILE_BYTES) return tooLarge(path, declared);
   const bytes = new Uint8Array(await obj.arrayBuffer());
-  const words = await fileWords(store?.ai, path.slice(path.lastIndexOf("/") + 1), type, bytes);
+  const words = await fileWords(store?.ai, path.slice(path.lastIndexOf("/") + 1), type, bytes, {
+    from: from ?? 0,
+    summary,
+    next: (at) => `read_file with path "${path}" and from: ${at}`,
+  });
   if (words.error) return toolError(`${words.error}: ${path}`);
   return toolText(
     `path: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\nkind: file\ntype: ${type}\n` +
@@ -88,9 +94,22 @@ export const QUOTATION =
  *
  * @returns {Promise<{text: string} | {error: string}>}
  */
-export async function fileWords(ai, name, type, bytes) {
-  if (!ai || typeof ai.toMarkdown !== "function") return { error: "reading files is not available on this deployment" };
+export async function fileWords(ai, name, type, bytes, { from = 0, next = null, summary = null } = {}) {
   if (bytes.byteLength > MAX_FILE_BYTES) return { error: `this file is ${megabytes(bytes.byteLength)}, over the ${megabytes(MAX_FILE_BYTES)} a file is read at` };
+  // A table is already words: read as they are, with its facts counted over every row (`fileParts.js`).
+  if (isTable(name, type)) {
+    const text = new TextDecoder().decode(bytes);
+    if (summary && typeof summary === "object") {
+      const summed = tableSummary(text, name, summary);
+      return summed.error ? { error: summed.error } : { text: summed.lines.join("\n") };
+    }
+    const part = partOf(text, from);
+    if (part === null) return { error: `this file has ${text.length} characters; nothing starts at ${from}` };
+    const where = next ? partLines(part, next) : part.to < part.total ? [`[this is its first ${part.to} of ${part.total} characters]`] : [];
+    return { text: [...factLines(tableFacts(text, name)), ...where, "", part.part].join("\n") };
+  }
+  if (summary) return { error: "summary totals a CSV or TSV; this file is read as words" };
+  if (!ai || typeof ai.toMarkdown !== "function") return { error: "reading files is not available on this deployment" };
   let answer;
   try {
     answer = await withTimeout(ai.toMarkdown([{ name, blob: new Blob([bytes], { type }) }]), CONVERT_TIMEOUT_MS);
@@ -102,6 +121,11 @@ export async function fileWords(ai, name, type, bytes) {
   // Where a PDF's buttons and linked words go, which its words alone never say (`pdfLinks.js`).
   const links = type === "application/pdf" ? linksSection(await pdfLinks(bytes)) : "";
   if (!text && !links) return { error: "no words could be taken out of this file" };
+  if (next) {
+    const part = partOf(text, from);
+    if (part === null) return { error: `this file has ${text.length} characters of words; nothing starts at ${from}` };
+    return { text: `${[...partLines(part, next), "", part.part].join("\n")}${part.to >= part.total ? links : ""}` };
+  }
   const words = text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n\n[cut: the file's words run to ${text.length} characters]` : text;
   return { text: `${words || "(no words could be taken out of this file)"}${links}` };
 }

@@ -142,7 +142,7 @@ async function runTool(name, args, store, scope) {
     case "read_contact":
       return toolReadContact(store, scope, rules, overrides, args);
     case "read_file":
-      return toolReadFile(store, scope, rules, overrides, args.path);
+      return toolReadFile(store, scope, rules, overrides, args.path, args.from, args.summary ?? null);
     case "read_image":
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":

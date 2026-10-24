@@ -139,7 +139,7 @@ export function translateFetch(call, app = {}) {
     return target(label, a, { name: "app_read", action: "app", fixed: { app }, copy: ["tool", "arguments"] });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
-    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment"] });
+    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
   }
   if (id.startsWith("proposals:")) {
     const proposalId = id.slice("proposals:".length).trim();
@@ -171,7 +171,7 @@ export function translateFetch(call, app = {}) {
 
   // A stored file (a PDF an email carried, a spreadsheet): its words.
   if (readableFileType(id) !== null) {
-    return target(label, a, { name: "read_file", action: "file", fixed: { path: id } });
+    return target(label, a, { name: "read_file", action: "file", fixed: { path: id }, copy: ["from", "summary"] });
   }
 
   // A folder: named with a trailing slash, or without one. Empty is everything.

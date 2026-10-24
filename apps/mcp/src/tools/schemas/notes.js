@@ -41,6 +41,32 @@ export function noteWriteToolDefinitions() {
             type: "string",
             description: "The file's path, as a note links it, e.g. 'inbox/email/<mailbox>/attachments/2026/10/16/<hash>-quote.pdf'",
           },
+          from: {
+            type: "integer",
+            minimum: 0,
+            description: "Optional. Where to start, for a long file: the number its last part's more: line gave. Read every part before totalling anything.",
+          },
+          summary: {
+            type: "object",
+            description:
+              "Optional, for a CSV: totals worked out by Context over every row, instead of the rows themselves, with exact repeats left out. " +
+              "by: up to 3 column names, or \"month\"; where: [{ column, contains }]; dates: { from, to } as YYYY-MM-DD. " +
+              "Use it for any total, average or breakdown of a long file.",
+            properties: {
+              by: { type: "array", items: { type: "string" } },
+              where: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { column: { type: "string" }, contains: { type: "string" } },
+                  required: ["column", "contains"],
+                  additionalProperties: false,
+                },
+              },
+              dates: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, additionalProperties: false },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["path"],
         additionalProperties: false,
