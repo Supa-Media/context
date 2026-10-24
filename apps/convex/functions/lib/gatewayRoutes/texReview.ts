@@ -70,7 +70,7 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
   if (setup.destination === null) return json({ review: { filed: "scores" } });
 
   const day = new Date(now).toISOString().slice(0, 10);
-  await fileTeamNote(ctx, setup.destination, scoresNotePath(setup.destination.folder, day), renderScoresNote(day, rows), "tex_scores_note");
+  await fileTeamNote(ctx, setup.destination, scoresNotePath(setup.destination.folder, day), renderScoresNote(day, rows), "tex_scores_note", { replace: true });
   // Decided here again, never by what the gateway sent.
   const words = setup.tier === "full" ? parseWords(body.words) : null;
   if (words === null) return json({ review: { filed: "scores" } });

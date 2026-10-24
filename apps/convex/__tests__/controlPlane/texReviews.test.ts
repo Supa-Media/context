@@ -26,6 +26,14 @@
  *  7. `conversationSpend` reading every grant's turns. → "a review keeps what
  *     it was for, what frustrated them and what its own turns cost" fails:
  *     bob's turn is counted.
+ *  8. The day's scores note written without `replace`. → "every review of the
+ *     day lands in the day's scores note…" fails in all three shapes: the
+ *     second write conflicts with the first and the day stops at one row.
+ *  9. `fileTeamNote` skipping its pin check. → "a scores note somebody opened
+ *     to every account is not rewritten" fails.
+ * 10. `usernameOf` reading only a `user` name claim, which almost nobody has.
+ *     → "a person with no claimed name is named by their personal workspace"
+ *     fails: `people: []`.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -40,7 +48,7 @@ import { parseScores, parseWords, renderReviewNote, reviewNotePath } from "../..
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { LEGACY_PARA_FOLDERS } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
-import { addMember, asUser, copyTree, createUser, createWorkspace, gatewayPost, seedStorageBinding, type TestConvex } from "../fixtures.helpers";
+import { addMember, asUser, copyTree, createUser, createWorkspace, drainScheduled, gatewayPost, seedStorageBinding, type TestConvex } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { renderPrivacyManifestForFolders } from "../seededRules.helpers";
 
@@ -170,6 +178,53 @@ describe("what a review may carry", () => {
     expect(note).toContain("| 4 | 3 | 5 | 6 | 2 |");
     expect(JSON.stringify(backend.snapshot())).not.toContain("avocado");
     expect(JSON.stringify(backend.snapshot())).not.toContain("alice-handle");
+  });
+
+  /** Production's shape: the access rows judge, and pin readers read as guests (`bugNotes.test.ts`). */
+  async function judgedByRows(t: TestConvex, pinned: Id<"workspaces">, moved: boolean) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeMigration", { paused: false, updatedAt: 1, accessSource: "rows" as const, privacyAuthority: true });
+      await ctx.db.insert("nodePrivacy", { workspaceId: pinned, observedAt: 1, etag: "e1", invalid: false, folders: [], notes: [] });
+    });
+    if (!moved) return;
+    await t.mutation(internal.functions.pinnedAccounts.start, {});
+    await drainScheduled(t);
+  }
+
+  test.each(["files", "rows", "moved"])("every review of the day lands in the day's scores note, not only the first (%s)", async (shape) => {
+    const { t, pinned } = await world();
+    if (shape !== "files") await judgedByRows(t, pinned, shape === "moved");
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid");
+    expect(await review(t, { reason: "ended", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    expect(await review(t, { reason: "ended", scores: { ...SCORES, goal: 9 }, words: WORDS })).toEqual({ review: { filed: "full" } });
+    const paths = await notesIn(t, pinned);
+    expect(reviews(paths)).toHaveLength(2);
+    const days = scoreNotes(paths);
+    expect(days).toHaveLength(1);
+    const note = await readNote(t, pinned, days[0]!);
+    expect(note).toContain("| 4 | 3 | 5 | 6 | 2 |");
+    expect(note).toContain("| 9 | 3 | 5 | 6 | 2 |");
+  });
+
+  test("a scores note somebody opened to every account is not rewritten", async () => {
+    const { t, pinned, staff } = await world();
+    await judgedByRows(t, pinned, true);
+    await review(t, { reason: "ended", scores: SCORES });
+    const [day] = scoreNotes(await notesIn(t, pinned));
+    await asUser(t, staff).action(api.functions.files.setNoteVisibility, { workspaceId: pinned, path: day!, visibility: "team", accounts: true });
+    await review(t, { reason: "ended", scores: { ...SCORES, goal: 9 } });
+    expect(await readNote(t, pinned, day!)).not.toContain("| 9 | 3 | 5 | 6 | 2 |");
+  });
+
+  test("a person with no claimed name is named by their personal workspace", async () => {
+    const { t, pinned } = await world();
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid");
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("names").collect()) if (row.kind === "user") await ctx.db.delete(row._id);
+    });
+    expect(await review(t, { reason: "ended", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    const [path] = reviews(await notesIn(t, pinned));
+    expect(await readNote(t, pinned, path!)).toContain('people: ["@alfa"]');
   });
 
   test("saying yes in Settings shares the words; saying no again takes the yes away", async () => {

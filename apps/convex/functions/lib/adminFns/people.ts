@@ -29,6 +29,7 @@ import type { AdminActor } from "../admin";
 import { normalizePhone, phoneHeldByAnother } from "../phoneCheck";
 import { attachedEmailsOf } from "../signInEmails";
 import { recordAdminAudit } from "./audit";
+import { handleForUser } from "../identities";
 
 /** People one search returns. */
 export const PEOPLE_PAGE = 50;
@@ -91,13 +92,13 @@ export const setPhoneResultValidator = v.object({
 
 type SetPhoneResult = typeof setPhoneResultValidator.type;
 
+/**
+ * A person's handle: a `user` claim, else their personal workspace's slug, which
+ * is the one nearly everybody has (`handleForUser`). Reading the claim alone
+ * named nobody on Tex's reviews and bug reports.
+ */
 export async function usernameOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | null> {
-  const row = await ctx.db
-    .query("names")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .filter((q) => q.eq(q.field("kind"), "user"))
-    .first();
-  return row?.name ?? null;
+  return await handleForUser(ctx, userId);
 }
 
 async function personOf(ctx: QueryCtx, user: Doc<"users">, archived: boolean): Promise<Person> {

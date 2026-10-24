@@ -139,6 +139,11 @@ export async function fileBugNote(
  * every pin reader holds, and refused (false, nothing written) when the path
  * is readable through the pin. `log` names the kind in the error lines, which
  * never carry the note's words.
+ *
+ * A note is created, never overwritten, unless `replace` says it is one that
+ * is rewritten whole each time, as the day's scores note is: then a note
+ * already there is replaced at the version the bucket reports, so the second
+ * review of a day lands rather than conflicting with the first.
  */
 export async function fileTeamNote(
   ctx: Pick<ActionCtx, "runAction" | "runMutation">,
@@ -146,6 +151,7 @@ export async function fileTeamNote(
   path: string,
   text: string,
   log: string,
+  options: { replace?: boolean } = {},
 ): Promise<boolean> {
   const workspaceId: Id<"workspaces"> = where.workspaceId;
   try {
@@ -160,12 +166,20 @@ export async function fileTeamNote(
       console.error(`${log}_folder_not_private`, { workspaceId });
       return false;
     }
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "private",
-      actorName: null,
-      operation: { kind: "write", path, text },
-    });
+    const write = async (expectedEtag?: string) =>
+      await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        actorName: null,
+        operation: { kind: "write", path, text, ...(expectedEtag === undefined ? {} : { expectedEtag }) },
+      });
+    try {
+      await write();
+    } catch (error) {
+      const data = error instanceof ConvexError ? (error.data as { code?: string; currentEtag?: string }) : undefined;
+      if (options.replace !== true || data?.code !== "CONFLICT" || data.currentEtag === undefined) throw error;
+      await write(data.currentEtag);
+    }
     // The note is filed either way; a team that cannot see it yet is a log line, not a lost note.
     // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
     // budget and asks them to send the same texts again, though the note already holds them.
