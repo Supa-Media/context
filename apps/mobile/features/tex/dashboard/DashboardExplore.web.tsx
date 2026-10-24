@@ -44,7 +44,7 @@ export function DashboardExplore({ reviews, filters, onFilters }: { reviews: rea
   return (
     <section className="td-card" id="explore" data-testid="tex-dashboard-explore">
       <div className="td-card-head">
-        <h2 className="td-h2 disp">Explore</h2>
+        <h2 className="td-h2">Explore</h2>
         <span className="td-meta" data-testid="tex-dashboard-explore-count">
           {kept.length} of {reviews.length} conversations
         </span>
@@ -102,7 +102,7 @@ export function DashboardExplore({ reviews, filters, onFilters }: { reviews: rea
                   {[...table.cells[r], ...(table.cols.length > 1 ? [table.totals[r]] : [])].map((cell, c) => {
                     const heat = cell.n >= THIN ? heatOf(measure, cell.value, compared) : null;
                     return (
-                      <td key={c} className={cell.n > 0 && cell.n < THIN ? "thin" : undefined} style={heat === null ? undefined : { background: `rgba(185, 28, 28, ${(0.05 + heat * 0.35).toFixed(2)})` }}>
+                      <td key={c} className={cell.n > 0 && cell.n < THIN ? "thin" : undefined} style={heat === null ? undefined : { background: `rgba(154, 43, 31, ${(0.04 + heat * 0.22).toFixed(2)})` }}>
                         {cell.n === 0 ? null : (
                           <>
                             <span className="v num">{formatMeasure(measure, cell.value)}</span>

@@ -90,8 +90,31 @@ window's turn figures already summed, the model performance read from each
 turn's trace (`texPerformance.ts`: rounds, failures, retries, running out of
 room, fallbacks, round and answer times, the router's thinking share), and the
 window's scored conversations as rows. Like tex.lc's other pages it is plain
-web markup with one stylesheet, its colours in
-`features/design/tokens/texDashboardColors.ts`.
+web markup with one stylesheet in tex.lc's own look (paper, a Libron
+headline, Instrument Sans, Tex blue as the one accent; the owner asked for
+"our context/tex style" over the first cut's dark-slate concept), its colours
+in `features/design/tokens/texDashboardColors.ts`.
+
+**Day by day comes first.** Under the headline numbers, every figure is a line
+with one point per day and the change from the day before
+(`features/tex/dashboard/trends.ts`), with a Task dropdown for the
+conversation figures, because the owner's question is whether a bad day gets
+better the next (2026-10-24). A day with nothing to measure is a gap, never a
+zero.
+
+**Spend is what Cloudflare billed.** Every model call goes through the AI
+gateway with a `feature`/`client` label, and the gateway prices each one
+itself, cache reads and writes at their own rates, keeping the cost per day,
+model and label in its analytics even though no words are logged.
+`functions/texSpend.ts` (staff only) reads those for Tex's labels
+(`lib/adminFns/texSpend.ts`), never asking for the workspace label, with the
+test suites' `benchmark` label counted apart. Cloudflare answers at most about
+a month per question and keeps about two, so a 90-day window is asked in
+30-day pieces from the oldest day it keeps, and earlier days are blank, not
+free. It is the whole account, staging included. Our own estimate from token
+counts (`agentTurns.costMicroUsd`) stays beside it as a check and stands in
+when the analytics token is not set. On 2026-10-24 the two differed by about
+10x over a week, because the estimate began that day and never saw side calls.
 
 **Explore slices on the page.** The rows are anonymous codes and numbers, a
 few thousand at most, so every filter, measure and rows-by-columns table is
@@ -104,4 +127,7 @@ What a simplification would cost: folding it back into the console is the
 thing the owner rejected; a query per slice would make every change of filter
 a round trip and need an index per field. `__tests__/texDashboardRender.test.ts`
 fails if tex.lc/admin stops drawing the page, if the Task dropdown stops
-narrowing the table, or if the report is asked for before the staff check.
+narrowing the table, if the report is asked for before the staff check, or if
+spend stops being the billed figure; `apps/convex/__tests__/texSpend.test.ts`
+fails if anything but Tex's labels is counted or a window is asked in one
+question Cloudflare refuses.
