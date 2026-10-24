@@ -79,5 +79,10 @@ only when everybody in it may share"). Asking the model for words on the
 fails ("on the scores tier the model is asked for numbers alone…").
 Reviewing without the mark scores the same conversation every quiet spell:
 "a conversation reviewed once is not reviewed again until somebody texts"
-fails. `TEX_REVIEW = "on"` in the gateway's `wrangler.toml` switches it on;
+fails. The mark is written before the model is asked, and put back only when
+a review that ran to the end filed nothing: a review the host stops half way
+then loses its own scores instead of counting the same turns twice, as the
+19:00 and 19:37 reviews of one chat did on 2026-10-24 ("a review stopped
+before its filing came back never scores the same turns again" fails if the
+mark waits for the filing). `TEX_REVIEW = "on"` in the gateway's `wrangler.toml` switches it on;
 without the AI gateway it does nothing.
