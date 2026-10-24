@@ -31,3 +31,39 @@ export function wireTraceEntry(entry) {
     ...(typeof entry.status === "number" ? { status: entry.status } : {}),
   };
 }
+
+/**
+ * Where a turn came from, for the turn log's `kind`: a routine's run, a
+ * background job, a group chat, a person's own texts, or the app.
+ */
+export function turnKind({ runner, job, group, texting }) {
+  if (runner) return "routine";
+  if (job) return "job";
+  if (group) return "group";
+  return texting ? "one" : "app";
+}
+
+/**
+ * The row `recordAgentTurn` keeps of a finished turn: names, outcomes, times
+ * and token counts, never text. `parts` is `meterParts(turn)` (`modelPlan.js`),
+ * each model's own counts, which the control plane prices; a failed turn has
+ * none and is priced from its own counts.
+ */
+export function turnReport({ provider, outcome, model, timing, usage, parts, kind, ms }) {
+  return {
+    provider,
+    model: typeof model === "string" ? model : "unknown",
+    outcome,
+    kind,
+    ms,
+    modelMs: timing?.modelMs ?? 0,
+    toolMs: timing?.toolMs ?? 0,
+    rounds: timing?.rounds ?? 0,
+    inputTokens: usage?.input ?? 0,
+    outputTokens: usage?.output ?? 0,
+    ...(Array.isArray(parts) && parts.length > 0
+      ? { usage: parts.filter((part) => typeof part.model === "string").map(({ model: name, input, output, cacheRead, cacheWrite }) => ({ model: name, input: input ?? 0, output: output ?? 0, cacheRead: cacheRead ?? 0, cacheWrite: cacheWrite ?? 0 })) }
+      : {}),
+    trace: Array.isArray(timing?.trace) ? timing.trace.map(wireTraceEntry) : [],
+  };
+}

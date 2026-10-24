@@ -12,7 +12,7 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
-import { wireTraceEntry } from "./turnLog.js";
+import { turnKind, turnReport } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
@@ -28,7 +28,7 @@ import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
-import { meterEach } from "./modelPlan.js";
+import { meterEach, meterParts } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
@@ -439,19 +439,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     like the meter: a log that could not be reached costs us a row, not the
     person their answer.
   */
-  const logTurn = (outcome, model, timing, usage) => {
-    const report = {
-      provider: BUILTIN_PROVIDER,
-      model: typeof model === "string" ? model : "unknown",
-      outcome,
-      ms: Date.now() - received,
-      modelMs: timing?.modelMs ?? 0,
-      toolMs: timing?.toolMs ?? 0,
-      rounds: timing?.rounds ?? 0,
-      inputTokens: usage?.input ?? 0,
-      outputTokens: usage?.output ?? 0,
-      trace: Array.isArray(timing?.trace) ? timing.trace.map(wireTraceEntry) : [],
-    };
+  const logTurn = (outcome, model, timing, usage, parts = null) => {
+    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received });
     console.log(
       JSON.stringify({
         event: "agent_turn",
@@ -558,7 +547,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // The question's browser, if it opened one, is not left running.
     if (opened !== null) await afterAnswer(opened.close());
     await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
-    await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
+    await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
