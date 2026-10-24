@@ -26,7 +26,18 @@ export async function settlePayByText(store, session, verdict, texted, now = Dat
   if (waiting.length === 0 || verdict === null) return { allowed, replies };
   if (verdict === "approve" && !PLAIN_YES.test(texted)) {
     // Not a yes to a payment: nothing a later bare yes may reach either.
-    await disarmRecords(store, waiting);
+    // `disarmRecords` counts the ones it could neither drop nor disarm — a
+    // record whose etag moved under the conditional put, or a store refusing
+    // the write. Those stay armed for the rest of the ask's life, so a later
+    // plain "yes" would pay. Saying so is the whole of the guard: the person
+    // is the only one who can tell that yes from the one they meant.
+    const stuck = await disarmRecords(store, waiting);
+    if (stuck > 0) {
+      replies.push(
+        "I couldn't close the card question I asked you earlier, so it is still open: " +
+          'say "pay it" if you mean that one, and don\'t just say yes.'
+      );
+    }
     return { allowed, replies };
   }
   for (const { record } of waiting) {
