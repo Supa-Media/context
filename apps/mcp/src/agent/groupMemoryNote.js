@@ -22,6 +22,7 @@
  */
 
 import { loadPrivacyState, setRowTier } from "../privacy/state.js";
+import { servedListingStore } from "../tree/served.js";
 import { sourcesOf } from "./sources.js";
 
 export const GROUP_NOTES_FOLDER = "tex/groups";
@@ -157,6 +158,12 @@ export async function readGroupNote(dispatch, path) {
  * setting (the nearest setting wins). The control plane decides whether this
  * grant may change access at all (owners and editors); a refusal leaves things
  * as they were. Whether it shared the folder.
+ *
+ * What is filed there is read from the tree, never the bucket: a note's bytes
+ * live at `notes/<noteId>.md` and its folder is a row, so a listing by path
+ * prefix finds nothing however much is in the folder (2026-10-24). A tree
+ * that cannot answer shares nothing and the owner makes the folder by hand,
+ * which is the safe way for this one to fall.
  */
 export async function shareGroupNotesFolder(store) {
   if (typeof store?.rowAccess?.setTier !== "function") return false;
@@ -168,7 +175,7 @@ export async function shareGroupNotesFolder(store) {
       return prefix === "tex" || prefix === GROUP_NOTES_FOLDER || prefix.startsWith(`${GROUP_NOTES_FOLDER}/`);
     };
     if (rules.some((rule) => set(rule.prefix))) return false;
-    const filed = await store.list({ prefix: `${GROUP_NOTES_FOLDER}/`, limit: 1 });
+    const filed = await servedListingStore(store).list({ prefix: `${GROUP_NOTES_FOLDER}/`, limit: 1 });
     if ((filed?.objects ?? filed?.keys ?? []).length > 0) return false;
     return await setRowTier(store, GROUP_NOTES_FOLDER, "team", { folder: true });
   } catch {
