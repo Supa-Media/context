@@ -17,6 +17,10 @@
  *  4. Dropping `notifyGuests !== guests.length > 0` from `readCalendarChange`.
  *     → "a new event invites its guests with a Google Meet only as the change
  *     the person said yes to" fails.
+ *  5. `createRequest` sent without its `id`. → "the same create sent twice
+ *     makes one event" fails.
+ *  6. The 409 answered as existing whatever its status. → "an event they
+ *     deleted is added again" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -112,6 +116,7 @@ describe("changing the person's own calendar", () => {
     expect(calls[0]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none");
     expect(calls[0]!.auth).toBe("Bearer ya29.fake-access-token");
     expect(calls[0]!.body).toEqual({
+      id: expect.stringMatching(/^ctx[0-9a-v]{32}$/),
       summary: "Dentist",
       start: { dateTime: CREATE.start },
       end: { dateTime: CREATE.end },
@@ -287,5 +292,61 @@ describe("what a change may be", () => {
     expect(readCalendarChange({ ...CREATE, meet: true })?.meet).toBe(true);
     expect(readCalendarChange({ ...CREATE, meet: "yes" })).toBeNull();
     expect(readCalendarChange({ ...CANCEL, meet: true })).toBeNull();
+  });
+});
+
+/** Google Calendar keeping the events created with an id: a second create of one is 409, as Google answers it. */
+function keepingCalendar() {
+  const made = new Map<string, { status: string }>();
+  const calls: Array<{ method: string; url: string; body: Record<string, unknown> | null }> = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://www.googleapis.com/calendar/")) return await realFetch(input, init);
+    const method = init?.method ?? "GET";
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+    calls.push({ method, url, body });
+    if (method === "POST") {
+      const id = typeof body?.id === "string" ? body.id : `auto${made.size}`;
+      if (made.has(id)) return new Response(JSON.stringify({ error: { code: 409 } }), { status: 409 });
+      made.set(id, { status: "confirmed" });
+      return new Response(JSON.stringify({ id }), { status: 200 });
+    }
+    const id = decodeURIComponent(url.split("/events/")[1]?.split("?")[0] ?? "");
+    const event = made.get(id);
+    return event ? new Response(JSON.stringify({ id, ...event }), { status: 200 }) : new Response("{}", { status: 404 });
+  });
+  return { made, calls };
+}
+
+describe("a create is safe to send again", () => {
+  test("the same create sent twice makes one event, and the second says it was there", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    // The same moment in another offset, and the title in other case, is the same event.
+    const again = { ...CREATE, title: " dentist ", start: "2026-10-20T19:00:00Z", end: "2026-10-20T20:00:00Z" };
+    expect(await change(t, ACCESS_A, aliceWs, again)).toEqual({ ok: true, calendar: "alice@gmail.example", existing: true });
+    expect(made.size).toBe(1);
+    expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET"]);
+  });
+
+  test("another time or title is another event", async () => {
+    const { made } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    await change(t, ACCESS_A, aliceWs, { ...CREATE, title: "Dentist follow-up" });
+    await change(t, ACCESS_A, aliceWs, { ...CREATE, start: "2026-10-21T15:00:00-04:00", end: "2026-10-21T16:00:00-04:00" });
+    expect(made.size).toBe(3);
+  });
+
+  test("an event they deleted is added again", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    for (const event of made.values()) event.status = "cancelled";
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(made.size).toBe(2);
+    expect(calls.at(-1)!.method).toBe("POST");
+    expect(calls.at(-1)!.body?.id).toBeUndefined();
   });
 });

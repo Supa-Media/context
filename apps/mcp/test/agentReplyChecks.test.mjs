@@ -13,6 +13,10 @@
  *     never sent as nothing" fails.
  *   `TIMED_PROMISE` dropped from `promisesLater` → "a promise of work by a
  *     time" fails.
+ *   The "picture" check dropped from `replyChecks` → "an answer that asks them
+ *     something past a picture" fails.
+ *   `route.js` choosing the setup's fallback without `pictureFallback` → "a
+ *     picture turn whose model fails…" in `agentProduction.test.mjs` fails.
  */
 
 import assert from "node:assert/strict";
@@ -98,4 +102,13 @@ test("an answer still empty is never sent as nothing", async () => {
   } finally {
     world.restore();
   }
+});
+
+test("an answer that asks them something past a picture they sent looks at it again, once", async () => {
+  const { PICTURE_NOTICE, asksPastPicture } = await import("../src/agent/replyChecks.js");
+  const check = replyChecks({ question: "can you add these to my cal", pictures: true });
+  assert.equal(check("Is there a time you want me to block for the fitting?"), PICTURE_NOTICE);
+  assert.equal(check("Is there a time you want me to block for the fitting?"), null, "once a turn");
+  assert.equal(asksPastPicture("Added the fitting, Sunday 3 pm.", true), false);
+  assert.equal(asksPastPicture("What time?", false), false, "no picture");
 });

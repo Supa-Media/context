@@ -178,6 +178,26 @@ export function carriesData(attachments) {
 
 const isPicture = (attachment) => typeof attachment.data === "string" && IMAGE_TYPES.has(attachment.mediaType);
 
+/** Whether a turn came with a picture. */
+export const carriesPictures = (attachments) => attachments.some(isPicture);
+
+/** Only an Anthropic model is shown a picture (`providers.js`); any other is told it can't see one. */
+export const seesPictures = (model) => typeof model === "string" && model.startsWith("anthropic/");
+
+/**
+ * The fallback for a turn carrying a picture (a review of a chat, 2026-10-24:
+ * a screenshot of the agreed time, and Tex asked for the time). The setup's
+ * fallback is a Workers AI model that cannot see it, so a turn whose model
+ * failed goes on with the other model of the setup that can (Haiku after
+ * Opus, Opus after Haiku), and only with none on the blind one.
+ */
+export function pictureFallback(fallback, models, attachments) {
+  if (fallback === null || seesPictures(fallback) || !attachments.some(isPicture)) return fallback;
+  const seeing = [...new Set(models.filter(seesPictures))];
+  if (seeing.length === 0) return fallback;
+  return (failed) => seeing.find((model) => model !== failed) ?? fallback;
+}
+
 /** What the model is told about the attachments, ahead of the person's words. */
 function describe(attachments) {
   const lines = attachments.map((attachment, index) => {
@@ -199,6 +219,8 @@ function describe(attachments) {
     ...lines,
     ...(pictures.length > 0
       ? [
+          "Look at the pictures before anything else: a screenshot of a chat, an email, a ticket or a receipt is them showing you what's settled. " +
+            "Use what it shows (a time agreed, a place, a name, an amount) as given, and never ask for, or search elsewhere for, what a picture already shows.",
           'To keep a picture in a note, save the note with write and args: { images: [{ name: "<a file name>.jpg", data: "attachment:<number>" }] }, and embed it by that name; never type out its bytes.',
         ]
       : []),

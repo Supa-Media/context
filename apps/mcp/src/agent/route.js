@@ -29,7 +29,7 @@ import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach, meterParts } from "./modelPlan.js";
-import { attachmentsLine, carriesData, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { keepSentFiles, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
 import { grantedToolsFor } from "./sixTools.js";
@@ -405,8 +405,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt, thinkRounds: production.router.thinkRounds }
       : null;
   // The setup's fallback model (`production.js`), when this deployment can call it.
-  const fallback =
-    productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null;
+  const fallback = pictureFallback(productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null, [builtinUsed, router?.think], attachments);
 
   const started = Date.now();
   /*
@@ -483,7 +482,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, waiting: setAside.length > 0, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, waiting: setAside.length > 0, pictures: carriesPictures(attachments), judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({

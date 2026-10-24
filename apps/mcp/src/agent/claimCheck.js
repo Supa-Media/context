@@ -387,9 +387,9 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false }) {
+export function claimCheck({ question, judge = null, waiting = false, pictures = false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyChecks({ question, waiting });
+  const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
   let keptWish = false;
   let held = false;

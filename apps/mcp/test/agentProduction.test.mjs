@@ -561,3 +561,27 @@ test("a fallback this deployment cannot call is no fallback, and the failure is 
   assert.ok(!trace.some((entry) => entry.kind === "fallback"));
   assert.deepEqual(trace.at(-1) && { kind: trace.at(-1).kind, ok: trace.at(-1).ok }, { kind: "model", ok: false });
 });
+
+test("a picture turn whose model fails goes on with the other model that sees it, never the blind fallback", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ROUTED_FRONT}\n  fallback: "@cf/acme/spare-model"`), etag: "pic1" });
+  const ai = fakeAi([clefSays("lookup")]);
+  const below = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://gateway.ai.cloudflare.com/") && JSON.parse(init.body).model === "claude-haiku-5-5") {
+      gatewayCalls.push({ url, headers: { ...init?.headers }, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ error: { type: "overloaded_error" } }), { status: 529, headers: { "Content-Type": "application/json" } });
+    }
+    return below(input, init);
+  };
+  try {
+    const picture = { name: "IMG_2634.png", mediaType: "image/png", data: "iVBORw0KGgo=" };
+    const response = await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE, { attachments: [picture] });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5", "Opus took over");
+    assert.ok(JSON.stringify(gatewayCalls.at(-1)?.body?.messages).includes('"type":"image"'), "and was shown the picture");
+    assert.ok(!ai.calls.some((call) => call.model === "@cf/acme/spare-model"), "the blind fallback was never asked");
+  } finally {
+    globalThis.fetch = below;
+  }
+});
