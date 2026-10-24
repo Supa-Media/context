@@ -70,6 +70,7 @@ import { FeaturesSection } from "./FeaturesSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
+import { TexSection } from "./TexSection";
 import { UsageSection } from "./UsageSection";
 import { DEFAULT_PLACE, searchView, type AdminPlace } from "./place";
 import type { AdminPlaceControl } from "./useAdminPlace";
@@ -182,6 +183,7 @@ function Console(props: AdminPaneProps) {
         {tab === "agent" ? (
           <AgentSection openId={sub} onOpen={(id) => openOrClose({ tab: "agent", sub: id })} />
         ) : null}
+        {tab === "tex" ? <TexSection /> : null}
         {tab === "aiCosts" ? (
           <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
         ) : null}

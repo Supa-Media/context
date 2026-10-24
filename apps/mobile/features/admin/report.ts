@@ -252,6 +252,7 @@ export const ADMIN_TABS = [
   { key: "activity", label: "Activity" },
   { key: "usage", label: "Usage" },
   { key: "agent", label: "Agent" },
+  { key: "tex", label: "Tex" },
   { key: "aiCosts", label: "AI costs" },
   { key: "ai", label: "AI" },
   { key: "search", label: "Search" },

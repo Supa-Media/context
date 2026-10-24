@@ -67,3 +67,21 @@ What a simplification would cost: free-text categories would leak what people
 asked for into an anonymous table. `__tests__/controlPlane/texReviews.test.ts`
 ("a review keeps what it was for…") fails if the spend reads another grant's
 turns, and "a scores row names nobody" pins the row's keys.
+
+## The Tex tab (step 3)
+
+The staff console's Tex tab (`apps/mobile/features/admin/TexSection.tsx`) is
+the dashboard: texts handled by where they came from, spend by day and by
+model, tools, the scorecard, what frustrates people by task, and Explore.
+`texReport` (`functions/lib/adminFns/texReport.ts`) sends the window's turn
+figures already summed, and the window's scored conversations as rows.
+
+**Explore slices on the page.** The rows are anonymous codes and numbers, a
+few thousand at most, so every filter, measure and rows-by-columns table is
+computed in the browser (`features/admin/tex.ts`) rather than as a query per
+slice. Filters are dropdown menus, one button per field, never rows of chips
+(the owner, 2026-10-24). A cell under three conversations is drawn faint.
+
+What a simplification would cost: a query per slice would make every change of
+filter a round trip and need an index per field. `__tests__/adminTexRender.test.ts`
+fails if the Task dropdown stops narrowing the table.
