@@ -17,6 +17,13 @@
  * document ends exactly where the writer asked. Only how finely a concurrent
  * peer's typing is merged around a rewrite changes, and Yjs keeps a peer's
  * insertion inside a deleted range either way.
+ *
+ * That last sentence is about text. `replay.js` does not build text from a
+ * diff: it reads the diff's shape to decide whether a replacement may be
+ * rebased onto the current document, and a coarser tier reports text as
+ * rewritten that the writer in fact kept. Which tier made the parts is
+ * therefore part of the answer, and `replay.js` asks for the granularity
+ * each decision needs (`diffTextDetail`).
  */
 
 import { diffChars, diffLines } from "diff";
@@ -26,13 +33,29 @@ export const CHAR_EDIT_LIMIT = 1_000;
 /** Past this many line edits, the changed middle is swapped whole. */
 export const LINE_EDIT_LIMIT = 2_000;
 
+/**
+ * jsdiff-shaped parts, and the tier that made them: `"chars"`, `"lines"` or
+ * `"middle"`.
+ *
+ * The tier is how finely an unchanged part can be trusted. At `"chars"` an
+ * unchanged part is exactly the text the writer kept. At `"lines"` a line the
+ * writer touched at all reads as rewritten whole, so a run inside it does not
+ * show as kept. At `"middle"` everything between the common ends reads as
+ * rewritten.
+ *
+ * @returns {{ parts: Array<{ value: string, added?: boolean, removed?: boolean }>, tier: "chars" | "lines" | "middle" }}
+ */
+export function diffTextDetail(before, after) {
+  const chars = diffChars(before, after, { maxEditLength: CHAR_EDIT_LIMIT });
+  if (chars) return { parts: chars, tier: "chars" };
+  const lines = diffLines(before, after, { maxEditLength: LINE_EDIT_LIMIT });
+  if (lines) return { parts: lines, tier: "lines" };
+  return { parts: swapMiddle(before, after), tier: "middle" };
+}
+
 /** jsdiff-shaped parts (`{ value, added?, removed? }`) turning `before` into `after`. */
 export function diffText(before, after) {
-  return (
-    diffChars(before, after, { maxEditLength: CHAR_EDIT_LIMIT }) ??
-    diffLines(before, after, { maxEditLength: LINE_EDIT_LIMIT }) ??
-    swapMiddle(before, after)
-  );
+  return diffTextDetail(before, after).parts;
 }
 
 /** Keep the common start and end, replace everything between them. */
