@@ -13,9 +13,18 @@
  *
  *  - the words they liked hold the message's whole text, as Slack would get
  *    it, at least `MIN_TEXT` letters long: they saw exactly what goes out;
- *  - Slack names where it goes (`slackPlace`), a person or a channel, and that
- *    name is in the words they liked or in Tex's last few texts: they knew
- *    who it goes to. A post Slack can't name is asked about as before.
+ *  - Slack names where it goes (`slackPlace`), a person or a channel, and one
+ *    of the spellings Slack gave for it is in those same words: they agreed
+ *    to who it goes to, not only to what it says. A post Slack can't name is
+ *    asked about as before.
+ *
+ * Tex's own last few texts named the place until 2026-10-24: a name it had
+ * said for any other reason ("Jo Park emailed you about the invoice") stood
+ * in for their agreement to send there, and the model chooses both the name
+ * it says and the channel it then posts to. Where it goes is now read from
+ * the words they agreed to, as it already is for an email and a Chat message
+ * (`emailGate.js`, `googleChatGate.js`), and Tex names the place in the text
+ * it asks about.
  *
  * Once a turn: a second post in the same turn is held as usual. The quote is
  * Tex's own words echoed back on the person's line, and nothing here trusts
@@ -26,26 +35,27 @@ import { folded } from "../agent/folded.js";
 import { offersAHeldChange } from "../agent/claimCheck.js";
 
 const MIN_TEXT = 20;
-const RECENT_TEXTS = 4;
+
+/** A name this short picks nobody out ("jo" in "Hey Jo"), so it is never the yes to a place. */
+const MIN_NAME = 3;
+
+/** Every spelling Slack itself gave for where this goes (`slackPlace`); the model adds none. */
+function placeNames(place) {
+  const given = Array.isArray(place?.names) ? place.names : [];
+  const named = [...given, place?.person, place?.channel]
+    .filter((name) => typeof name === "string")
+    .filter((name) => folded(name).length >= MIN_NAME);
+  return [...new Set(named)];
+}
 
 /** Whether this Slack call is the one the person 👍'd a preview of; spends the 👍 when it is. */
 export function likedPreviewAllows(session, args, place) {
-  const egress = session?.egress;
-  const liked = typeof egress?.liked === "string" ? folded(egress.liked) : "";
-  if (egress?.texting !== true || liked === "" || !place) return false;
   const given = args?.args && typeof args.args === "object" && !Array.isArray(args.args) ? args.args : {};
-  const text = typeof given.text === "string" ? folded(given.text) : "";
-  if (text.length < MIN_TEXT || !liked.includes(text)) return false;
-  const name = folded(place.person ?? String(place.channel ?? "").replace(/^#/, ""));
-  if (name === "") return false;
-  const history = Array.isArray(egress.turn?.history) ? egress.turn.history : [];
-  const recent = history
-    .filter((turn) => turn?.role === "assistant" && typeof turn.text === "string")
-    .slice(-RECENT_TEXTS)
-    .map((turn) => folded(turn.text));
-  if (!liked.includes(name) && !recent.some((said) => said.includes(name))) return false;
-  egress.liked = null;
-  return true;
+  const text = typeof given.text === "string" ? given.text : "";
+  if (folded(text).length < MIN_TEXT || !place) return false;
+  const names = placeNames(place);
+  if (names.length === 0) return false;
+  return agreedWordsHold(session, [names, text]);
 }
 
 /*
