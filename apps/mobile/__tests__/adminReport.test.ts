@@ -418,13 +418,15 @@ describe("the tabs", () => {
     // people send from the app and the staff review of it; features after
     // them, for switching a built feature on for everyone without a deploy;
     // AI beside AI costs, for the ai/ folder every AI job's notes live in;
-    // usage after activity, for visits, time in app, pages and buttons.
+    // usage after activity, for visits, time in app, pages and buttons; Tex
+    // after the agent, for texts, spend and scored conversations to slice.
     expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
       "growth",
       "estate",
       "activity",
       "usage",
       "agent",
+      "tex",
       "aiCosts",
       "ai",
       "search",
