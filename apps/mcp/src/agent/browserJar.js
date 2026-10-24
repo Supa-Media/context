@@ -11,8 +11,12 @@
  * held outside the bucket, with associated data naming this jar, so the bucket
  * alone never yields a sign-in and no vault entry's sealed part opens as one.
  *
- * A personal workspace's only: the browser is one person's (`browserOwner`),
- * so its sign-ins are theirs, never a shared workspace's. The jar goes from
+ * A person's own browser (`browserOwner`) keeps its jar in their personal
+ * workspace. A group chat's browser (`groupBrowserOwner`, the owner,
+ * 2026-10-24: a sign-in made in the chat is kept for the chat's later asks)
+ * keeps its own in the chat's shared workspace, filed by the chat and the
+ * exact set of people in it, as the chat's memory is: somebody added later
+ * starts signed out, and a group never opens a person's own jar. The jar goes from
  * here to the screenshot Worker and back (`browserProviders.js`); it is never
  * in a tool result, a log or a message, and a model never sees it.
  */
@@ -66,13 +70,30 @@ function dropOldest(jar) {
   return false;
 }
 
-/** Where this turn's sign-ins are kept, or null when it has nowhere to keep them. */
-export function browserJar(store) {
+/** Where a group chat's jars are kept, in its shared workspace. */
+export const GROUP_JAR_PREFIX = `${VAULT_PREFIX}groups/`;
+const HEX64 = /^[0-9a-f]{64}$/;
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Where this turn's sign-ins are kept, or null when it has nowhere to keep
+ * them: a person's own in their personal workspace, a group chat's (`group`,
+ * as `groupOf` reads it) in the shared workspace the chat is bound to.
+ */
+export function browserJar(store, { group = null } = {}) {
   const keys = store?.encryptionKey;
   const workspaceId = store?.actor?.workspaceId;
-  const personal = (store?.contexts ?? []).find((entry) => entry?.current)?.kind === "personal";
-  if (!keys || typeof workspaceId !== "string" || !personal || typeof store.get !== "function" || typeof store.put !== "function") return null;
-  const where = { workspaceId, ...SEAL };
+  const kind = (store?.contexts ?? []).find((entry) => entry?.current)?.kind;
+  if (!keys || typeof workspaceId !== "string" || typeof store.get !== "function" || typeof store.put !== "function") return null;
+  if (group === null ? kind !== "personal" : kind !== "shared" || !HEX64.test(group?.key ?? "") || !HEX64.test(group?.members ?? "")) return null;
+  // A chat's jar is sealed naming the chat and its people, so no other jar, and no vault entry, opens as it.
+  const chat = group === null ? null : sha256Hex(`${group.key}:${group.members}`);
+  const where = async () => (chat === null ? { workspaceId, ...SEAL } : { workspaceId, entryId: `browser-jar:${await chat}`, part: "jar" });
+  const keyOf = async () => (chat === null ? JAR_KEY : `${GROUP_JAR_PREFIX}${await chat}.json`);
   let held;
   let written = null;
 
@@ -80,11 +101,11 @@ export function browserJar(store) {
     if (held !== undefined) return held;
     held = null;
     try {
-      const object = await store.get(JAR_KEY);
+      const object = await store.get(await keyOf());
       if (!object) return held;
       const record = JSON.parse(await object.text());
       if (record?.format !== FORMAT) return held;
-      const jar = await openPart(keys, where, record.jar);
+      const jar = await openPart(keys, await where(), record.jar);
       if (isJar(jar)) held = jar;
     } catch {
       // A jar that does not open is no jar: Tex signs in again, as before.
@@ -101,13 +122,13 @@ export function browserJar(store) {
       const plain = JSON.stringify(next);
       if (plain === written || plain === JSON.stringify(held)) return;
       try {
-        let record = JSON.stringify({ format: FORMAT, version: 1, jar: await sealPart(keys, where, next) });
+        let record = JSON.stringify({ format: FORMAT, version: 1, jar: await sealPart(keys, await where(), next) });
         // Too big: the sites read longest ago give up their IndexedDB, then their storage, so a full jar still takes new sign-ins.
         while (record.length > MAX_JAR_CHARS && dropOldest(next)) {
-          record = JSON.stringify({ format: FORMAT, version: 1, jar: await sealPart(keys, where, next) });
+          record = JSON.stringify({ format: FORMAT, version: 1, jar: await sealPart(keys, await where(), next) });
         }
         if (record.length > MAX_JAR_CHARS) return;
-        await store.put(JAR_KEY, record);
+        await store.put(await keyOf(), record);
         held = next;
         written = plain;
       } catch {

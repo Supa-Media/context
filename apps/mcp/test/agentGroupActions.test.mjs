@@ -72,7 +72,7 @@ test("a group turn is offered email, calendar and the web, and nothing that read
   const shown = JSON.stringify(sent.tools);
   for (const reads of ["search_email", "read_email", "email_search"]) assert.ok(!shown.includes(`"${reads}"`), `${reads} is not a group turn's`);
   assert.match(send, /- fill_login: /, "signing in is offered, from the workspace's vault");
-  assert.match(JSON.stringify(sent.system), /only with a login saved in this workspace for the whole workspace/);
+  assert.match(JSON.stringify(sent.system), /A password comes only from a login saved in this workspace for the whole workspace/);
 });
 
 test("a member tagger's email is held, the ask says to reply, and somebody else's yes sends nothing", async () => {

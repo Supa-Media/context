@@ -106,12 +106,13 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (a code, a captcha this tool said outlasted every try, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
+  "When the person has to do something themselves (a code they can't text you, a captcha this tool said outlasted every try, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
   "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
   "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
 const NO_HANDOFF_SENTENCE =
-  "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
+  "This browser can't be handed to the person, so when they must do something themselves (a payment, or a sign-in only they can finish), say exactly what to do on the site; never promise them a link to it. " +
+  "A one-time code a site sends them is theirs to text you: ask for it, then type it here yourself. ";
 
 /** What an upload step takes, said only when this question can read the person's files. */
 const UPLOAD_SENTENCE =

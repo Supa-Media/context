@@ -247,6 +247,17 @@ export function keepGroupSettled(store, group, dispatch = null) {
   };
 }
 
+/*
+  A sign-in with an email and a one-time code (the owner, 2026-10-24: Tex
+  refused to sign in to a site that has no password, asking for a vault login
+  that could not exist, and ignored "I'll give you an otp code"). It needs no
+  saved login: Tex starts it, asks the chat for the code, and the chat's own
+  browser keeps the sign-in (`turnWeb.js`, `browserJar.js`).
+*/
+export const GROUP_CODE_SIGN_IN_LINE =
+  "A site that signs in with an email and a one-time code needs no saved login: type the email you were given, ask for the code it sends, " +
+  "and when someone in the chat texts it, type it into the same browser right away. Never refuse it for want of a vault login. ";
+
 /** What a group turn is told, after the built-in words. */
 export function groupPrompt(group, workspace) {
   const where = workspace ? `@${workspace}` : "one shared workspace";
@@ -261,8 +272,10 @@ export function groupPrompt(group, workspace) {
     "For the person who tagged you, and only them, you can add, edit, move or cancel one event on their own calendar, or answer an invite, " +
     "or send one email from their own Gmail: either is shown in the chat and waits for their yes to that exact copy. " +
     "Guests can't be invited, so to put something on everyone's calendar, send them the details by email or have each person ask. " +
-    "You can search the web and open or browse pages. You can sign in only with a login saved in this workspace for the whole workspace, never anyone's own; " +
-    "if there is none, say someone can save one in the workspace's vault and share it with everyone there. " +
+    "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
+    GROUP_CODE_SIGN_IN_LINE +
+    "A password comes only from a login saved in this workspace for the whole workspace, never anyone's own, and never typed in the chat; " +
+    "when a site needs a password and there is none saved, say someone can save one in the workspace's vault and share it with everyone there. " +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
     "You can't set reminders or routines from a group yet, or text anyone outside it. " +
     "When someone asks for a note's link here, send its link: line; it opens in the Context app for everyone in this chat, because they are all members. " +

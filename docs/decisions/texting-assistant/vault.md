@@ -441,8 +441,11 @@ the bucket alone never yields one and no entry's part opens as it.
   storage is put back as its pages open, by a script in an isolated world
   that writes only the page's own origin and never over what it holds
   (`infra/site-shots/src/jar.ts`), so no site's code reads another's.
-- **Whose.** A personal workspace's only, with a data key: the browser is one
-  person's. A shared workspace keeps none. It is not listed with the logins.
+- **Whose.** A person's browser keeps its jar in their personal workspace,
+  with a data key. A group chat's browser keeps its own in the chat's shared
+  workspace, one per chat and set of people, at `.context/vault/groups/`
+  (the owner, 2026-10-24; [groups](./groups.md)); a shared workspace keeps
+  no other. Neither is listed with the logins.
 - **Failure.** A jar that does not open, or a restore that fails, is no jar:
   Tex signs in as before, and a browser that never got the jar is not read
   back over it.
