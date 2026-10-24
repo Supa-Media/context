@@ -128,8 +128,12 @@ describe("the call-audio band", () => {
     setBrowser(MAC_CHROME, "MacIntel");
     const container = mount();
     expect(find(container, "band")?.textContent).toContain("turn on Also share system audio");
-    // Chrome on a Mac gets no restart line: the switch is its whole fix.
-    expect(find(container, "band-mac")).toBeNull();
+    // Chrome on a Mac is pointed at macOS's own permission: with the switch on
+    // and that permission off, the share comes back with a dead audio track.
+    const mac = find(container, "band-mac")?.textContent ?? "";
+    expect(mac).toContain("Allow Chrome in System Settings");
+    expect(mac).toContain("Screen & System Audio Recording");
+    expect(mac).not.toContain("Quit and reopen");
   });
 
   test("a Mac browser that is not Chrome is told to restart it, or where else to record", () => {

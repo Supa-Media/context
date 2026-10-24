@@ -17,7 +17,7 @@ import {
 } from "../core/consent/gate.ts";
 import { isBlockedSource } from "../core/consent/blocklist.ts";
 import type { BeginResult, SessionView } from "../core/recording/controller.ts";
-import { capturePlan } from "../core/capture/plan.ts";
+import { capturePlan, nextSystemAudioProbe } from "../core/capture/plan.ts";
 import { revealNotepadQuietly } from "./windows.ts";
 import { CONSOLE_NOTICES, logCaptureFailure } from "./notices.ts";
 import type { MainActions, MainContext } from "./context.ts";
@@ -94,13 +94,15 @@ export function createMeetings(ctx: MainContext): Pick<MainActions, "onDetection
         The probe's answer, recorded for the next meeting.
 
         The renderer is the only thing that can know whether macOS handed over a
-        system-audio track, and it only knows by asking. So the first meeting on
-        an unsigned build asks and degrades; every meeting after it plans for
-        the microphone alone and does not raise Screen Recording again.
+        system-audio track, and it only knows by asking. Only a success is
+        kept: a refused tap degrades this meeting, says so, and the next
+        meeting asks again (`nextSystemAudioProbe`). Unsigned builds never get
+        here asking, because `systemAudioCapability` already says no for them.
       */
       if (capture && plan.channels.includes("system")) {
-        ctx.systemAudioAvailable = !capture.degradedChannels().includes("system");
-        if (!ctx.systemAudioAvailable) {
+        const degraded = capture.degradedChannels().includes("system");
+        ctx.systemAudioAvailable = nextSystemAudioProbe(degraded);
+        if (degraded) {
           // Re-planned rather than re-worded, so the sentence a person sees is
           // the one `plan.ts` owns and the suite checks.
           controller.notice(capturePlan({ settings: ctx.settings, connected: true, systemAudio: false }).notice);

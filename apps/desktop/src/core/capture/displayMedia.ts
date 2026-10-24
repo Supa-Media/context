@@ -84,3 +84,24 @@ export function answerDisplayMedia(request: DisplayMediaRequest): DisplayMediaAn
   }
   return { kind: "loopback", streams: { audio: "loopback" } };
 }
+
+/** The half of a `MediaStreamTrack` the check below reads. */
+export interface TrackState {
+  readyState: string;
+}
+
+/**
+ * Whether a system-audio stream has a track that can still deliver sound.
+ *
+ * A stream with an audio track is not the same as a stream with audio in it.
+ * When macOS has not granted this app "Screen & System Audio Recording",
+ * Chromium still resolves `getDisplayMedia` with an audio track, and that
+ * track is born `ended` and never delivers a sample — with no error and no
+ * event, because an `ended` event only fires on a transition. Counting that
+ * track as system audio is how a meeting recorded the microphone alone while
+ * every surface said the call was being heard. So a stream whose audio tracks
+ * are all `ended` is treated exactly like one with none: refused, and said.
+ */
+export function hasLiveAudio(tracks: readonly TrackState[]): boolean {
+  return tracks.some((track) => track.readyState !== "ended");
+}

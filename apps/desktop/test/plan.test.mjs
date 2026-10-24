@@ -15,9 +15,12 @@
  *   a failed system-audio probe silently planning both channels                3
  *   `notice: null` on the mic-only plan (degrading, but not honestly)          2
  *   the on-device branch falling through to cloud                              3
+ *   `nextSystemAudioProbe` storing a refusal as `false` again                  2
+ *   `hasLiveAudio` counting tracks instead of reading `readyState`             1
  */
 
-import { PLAN_NOTICES, capturePlan, isNotesOnly } from "../src/core/capture/plan.ts";
+import { PLAN_NOTICES, capturePlan, isNotesOnly, nextSystemAudioProbe } from "../src/core/capture/plan.ts";
+import { hasLiveAudio } from "../src/core/capture/displayMedia.ts";
 
 const cloud = { transcription: "cloud" };
 const onDevice = { transcription: "on-device" };
@@ -46,9 +49,34 @@ export function runPlanChecks(check) {
     check("...and still transcribes", plan.transcription === "cloud");
     check("...and says which half is missing", plan.notice === PLAN_NOTICES.micOnly);
     check(
-      "...naming the consequence rather than the API — the far side of a call is not in it",
-      PLAN_NOTICES.micOnly.includes("headphones"),
+      "...naming the consequence rather than the API — the other people on a call are not in it",
+      PLAN_NOTICES.micOnly.includes("other people on a call"),
     );
+    check(
+      "...and the fix: where in System Settings macOS keeps the permission",
+      PLAN_NOTICES.micOnly.includes("Screen & System Audio Recording"),
+    );
+  }
+
+  // -- what one attempt teaches the next meeting ----------------------------
+  {
+    check("a tap that opened is remembered", nextSystemAudioProbe(false) === true);
+    check(
+      "A REFUSED TAP IS NOT REMEMBERED — the next meeting asks again rather than planning mic-only for the life of the app",
+      nextSystemAudioProbe(true) === null,
+    );
+    const next = capturePlan({ settings: cloud, connected: true, systemAudio: nextSystemAudioProbe(true) });
+    check("...so the meeting after a refusal still plans both sides", next.channels.join(",") === "mic,system");
+  }
+
+  // -- a stream with an audio track is not a stream with audio in it --------
+  {
+    check("a live system-audio track counts", hasLiveAudio([{ readyState: "live" }]) === true);
+    check(
+      "A TRACK BORN ENDED IS NO SYSTEM AUDIO — what Chromium hands back when macOS has not allowed the tap",
+      hasLiveAudio([{ readyState: "ended" }]) === false,
+    );
+    check("...and neither is no track at all", hasLiveAudio([]) === false);
   }
 
   // -- nothing to transcribe with -------------------------------------------

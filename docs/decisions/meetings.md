@@ -209,6 +209,10 @@ Moved to [A session that captured nothing is not filed](./meetings/capture-integ
 
 Moved to [A recording that has outlived its own capture is failed, not counted](./meetings/capture-integrity.md#a-recording-that-has-outlived-its-own-capture-is-failed-not-counted).
 
+### The call's audio is asked for at every meeting, and a dead track is no call audio
+
+Lives in [capture-integrity](./meetings/capture-integrity.md#the-calls-audio-is-asked-for-at-every-meeting-and-a-dead-track-is-no-call-audio-2026-10-24).
+
 ## A segment id names its own meeting, and both sides check it
 
 Moved to [A segment id names its own meeting, and both sides check it](./meetings/segment-and-refusal.md#a-segment-id-names-its-own-meeting-and-both-sides-check-it).
