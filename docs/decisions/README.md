@@ -757,6 +757,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A captcha is the person's only after every way past it was tried](./texting-assistant/handing-back.md#a-captcha-is-the-persons-only-after-every-way-past-it-was-tried)
 - [A grocery order, handed back four ways (2026-10-24)](./texting-assistant/handing-back.md#a-grocery-order-handed-back-four-ways-2026-10-24)
 - [Tex scores every finished conversation, and keeps the words only where everyone said yes (2026-10-24)](./texting-assistant/self-review.md)
+- [A note they ask for is saved at once, where their folders say (2026-10-24)](./texting-assistant/saving-notes.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
 - [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)

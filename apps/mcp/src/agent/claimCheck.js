@@ -295,13 +295,27 @@ export const CAPTCHA_NOTICE =
 */
 const BROWSER_TOOLS = new Set(["browse", "fill_card", "fill_login"]);
 const BROWSER_GAVE_UP =
-  /\b(?:won't|wouldn't|doesn't|didn't|isn't|wasn't|can't|couldn't|cannot|could not|unable to|wasn't able to)\s+(?:open|load|work|change|update|edit|reach|fill|type|get|finish)\b|\b(?:in|from) my browser\b/i;
+  /\b(?:won't|wouldn't|doesn't|didn't|isn't|wasn't|can't|couldn't|cannot|could not|unable to|wasn't able to)\s+(?:open|load|work|change|update|edit|reach|fill|type|get|finish)\b|\b(?:in|from) my browser\b|\bbrowser\b[^.!?\n]{0,40}\brefus|\b(?:page|site|address|sign-?in|login)\b[^.!?\n]{0,30}\b(?:is|was|stays|still) blocked\b/i;
+/** The answer is about the browser or a page, not some other thing it couldn't get. */
+const ABOUT_A_PAGE = /\b(?:browser|page|site|address|link|sign-?in|log ?in)\b|\b[a-z0-9-]+\.(?:com|ai|org|net|io|co|app)\b/i;
 
 export const BROWSER_RETRY_NOTICE =
   "Before this goes: your last browser call failed and your answer gives up on it. A slow page or a dropped connection is common, and a second try usually works. " +
   "Run it again now: a read step first to see where the browser is, then the rest in smaller calls. " +
   "Only if it fails again, say in one line what you tried and offer the one next thing you'll do; never ask them to make the change themselves in the app or site. " +
+  "If the browser said it can't open that address, search for the page with search_web and open the result. " +
   "If your answer wasn't giving up on a browser step, send it again as it was.";
+
+/*
+  NOT TRIED IS NOT FAILED (2026-10-24, a group chat). Tex texted "the browser
+  still won't open claude.ai/login" and "the browser refused the address" in
+  turns where no browser step ran at all, then signed in at the first real
+  try. A page is only blocked once this turn's browser has tried it.
+*/
+export const BROWSER_UNTRIED_NOTICE =
+  "Before this goes: your answer says the browser can't open or do something, but no browser step ran in this turn, so nothing was tried. " +
+  "Try it now with send action browse (search for the page with search_web first if you don't have its address), and answer with what happened. " +
+  "Never say a page is blocked or won't open from an earlier turn's try. If your answer wasn't about the browser, send it again as it was.";
 
 /** Whether an answer gives up on something in the browser. */
 export function givesUpOnTheBrowser(answer) {
@@ -390,6 +404,9 @@ export function claimCheck({ question, judge = null, waiting = false }) {
   // Whether the turn's last browser call failed, and whether Tex was told to run it again (`BROWSER_RETRY_NOTICE`).
   let browserFailedLast = false;
   let retryNoticed = false;
+  // Whether the turn could browse, and did (`BROWSER_UNTRIED_NOTICE`).
+  let canBrowse = () => false;
+  let browserTried = false;
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
@@ -402,13 +419,17 @@ export function claimCheck({ question, judge = null, waiting = false }) {
     wrapWeb(web) {
       if (web === null) return null;
       hadWeb = true;
+      canBrowse = () => Array.isArray(web.tools) && web.tools.some((tool) => BROWSER_TOOLS.has(tool?.name));
       return {
         ...web,
         call: async (name, args) => {
           triedWeb = true;
           const result = await web.call(name, args);
           steps.push({ name, ok: result?.isError !== true });
-          if (BROWSER_TOOLS.has(name)) browserFailedLast = result?.isError === true;
+          if (BROWSER_TOOLS.has(name)) {
+            browserTried = true;
+            browserFailedLast = result?.isError === true;
+          }
           if (result?.captchaStuck === true) captchaStuck = true;
           return result;
         },
@@ -437,6 +458,11 @@ export function claimCheck({ question, judge = null, waiting = false }) {
       if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
         retryNoticed = true;
         return BROWSER_RETRY_NOTICE;
+      }
+      // A browser it never tried this turn, said to have failed: try it first.
+      if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
+        retryNoticed = true;
+        return BROWSER_UNTRIED_NOTICE;
       }
       // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
       // more exact notice, since an answer that gives up also tends to hand the looking back.
