@@ -48,3 +48,32 @@ keeps; dropping `SAVING_LINE` lets an old "never accept a code by text" line
 refuse a note the person asked for. Tests:
 `apps/mcp/test/agentFolderFit.test.mjs` and "a texted turn saves a note it's
 asked for" in `apps/mcp/test/agentInstructions.test.mjs`.
+
+## A slow save is followed through, never told as failed unseen (2026-10-24)
+
+Three of one person's conversations that afternoon (self-reviews at 19:00,
+19:37 and 20:09) had Tex say "the write timed out" and "your notes stopped
+saving", and a long finance note never got its corrected numbers, while a
+short new note written in the same workspace saved at once.
+
+**Cause.** Rewriting an existing note goes through the collaboration merge,
+which diffed the old and new text character by character. That diff is
+roughly quadratic in the size of the edit: a 20,000-character rewrite took
+18 s, and one save runs it up to three times. A short edit or a new note never
+paid it. `packages/collaboration/src/textDiff.js` now bounds it by edit length
+(a Worker's clock does not advance while it computes, so a deadline would not
+work): characters up to 1,000 edits, then lines, then the changed middle
+swapped whole. The saved text is exact at every tier; only how finely a
+concurrent person's typing is merged around a rewrite changes.
+
+**Reporting.** The turn's 20 s tool limit answered a slow save "took too long
+… Don't retry it" while the save itself kept running. A plain `write_note`
+past its limit now waits its own limit again, reads the note back, and retries
+once (a full-content write is safe to repeat: the merge answers a repeat as
+unchanged), all inside the turn's tool time
+(`apps/mcp/src/agent/noteWriteRetry.js`). The model reads the save's own
+answer, "saved" from the read-back, a real refusal, or "still saving, not
+confirmed": never a failure nobody saw.
+
+Reversing either fails `packages/collaboration/test/textDiff.mjs` or
+`apps/mcp/test/agentNoteWriteRetry.test.mjs`.

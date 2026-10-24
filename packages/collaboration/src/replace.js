@@ -1,7 +1,7 @@
 /** Replacing text against an exact retained base, preserving unseen Yjs items. */
 
 import * as Y from "yjs";
-import { diffChars as provenDiffChars } from "diff";
+import { diffText } from "./textDiff.js";
 import { eligible } from "./eligibility.js";
 import {
   MAX_RETRIES,
@@ -22,10 +22,10 @@ import { ready } from "./load.js";
 import { commitSnapshot } from "./commit.js";
 import { replayResolution } from "./replay.js";
 
-function diffChars(before, after) {
+function editOperations(before, after) {
   const operations = [];
   let baseIndex = 0;
-  for (const part of provenDiffChars(before, after)) {
+  for (const part of diffText(before, after)) {
     if (part.added) {
       const previous = operations.at(-1);
       if (previous && previous.index + previous.deleteCount === baseIndex && previous.deleteCount > 0) previous.insert += part.value;
@@ -41,7 +41,7 @@ function diffChars(before, after) {
 /** Edit `doc`'s text into `targetText`, in place. */
 function applyTextDiff(doc, targetText) {
   const text = doc.getText("note");
-  const operations = diffChars(text.toString(), targetText);
+  const operations = editOperations(text.toString(), targetText);
   for (let index = operations.length - 1; index >= 0; index -= 1) {
     const operation = operations[index];
     if (operation.deleteCount) text.delete(operation.index, operation.deleteCount);
