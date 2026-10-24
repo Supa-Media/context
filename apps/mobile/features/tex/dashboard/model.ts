@@ -288,15 +288,6 @@ export function heatOf(measure: Measure, value: number | null, all: readonly (nu
 
 // -- the overview ----------------------------------------------------------
 
-/** The texts people sent Tex: their own texts and group chats, not jobs or routines. */
-export function textsHandled(report: TexReport): number {
-  return report.turns.byKind.one + report.turns.byKind.group;
-}
-
-export function scoreAverages(rows: readonly TexReview[]): { key: string; label: string; value: number | null }[] {
-  return SCORE_LABELS.map(({ key, label }) => ({ key, label, value: mean(rows.map((row) => row[key])) }));
-}
-
 /** Tasks ranked by how often they frustrate, with how many there were. */
 export function frustrationByTask(rows: readonly TexReview[]): { task: string; label: string; n: number; share: number }[] {
   return optionsOf(rows, "task")
@@ -317,71 +308,6 @@ export function sparkPaths(values: readonly number[], w = 120, h = 32): { line: 
   const points = values.map((value, i) => [i * step, max > 0 ? h - (value / max) * (h - 2) - 1 : h - 1] as const);
   const line = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
   return { line, area: `${line} L${w} ${h} L0 ${h} Z` };
-}
-
-/** Per day of the window, oldest first: the share of that day's scored conversations that frustrated, or null with none. */
-export function frustrationByDay(rows: readonly TexReview[], days: readonly string[]): (number | null)[] {
-  return days.map((day) => {
-    const those = rows.filter((row) => new Date(row.at).toISOString().slice(0, 10) === day);
-    return those.length === 0 ? null : those.filter(isFrustrated).length / those.length;
-  });
-}
-
-/** How often each frustration signal showed, most first. */
-export function signalCounts(rows: readonly TexReview[]): { code: string; label: string; n: number }[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) for (const code of row.signals) counts.set(code, (counts.get(code) ?? 0) + 1);
-  return [...counts.entries()].map(([code, n]) => ({ code, label: SIGNAL_LABELS[code] ?? code, n })).sort((a, b) => b.n - a.n);
-}
-
-export const TEXT_BUCKETS = ["1", "2", "3", "4", "5", "6+"] as const;
-
-/** How many texts conversations took: the share in each bucket, the typical (median) and the average. */
-export function textsToFinish(rows: readonly TexReview[]): { buckets: { label: string; share: number }[]; median: number | null; mean: number | null; n: number } {
-  const texts = rows.flatMap((row) => (row.texts === null ? [] : [row.texts])).sort((a, b) => a - b);
-  const counts = TEXT_BUCKETS.map(() => 0);
-  for (const n of texts) counts[Math.min(n, 6) - 1] += 1;
-  return {
-    buckets: TEXT_BUCKETS.map((label, i) => ({ label, share: texts.length === 0 ? 0 : counts[i] / texts.length })),
-    median: texts.length === 0 ? null : texts[Math.floor((texts.length - 1) / 2)],
-    mean: mean(texts),
-    n: texts.length,
-  };
-}
-
-/** Average texts per conversation, by task, most first. */
-export function textsByTask(rows: readonly TexReview[]): { label: string; n: number; texts: number }[] {
-  return optionsOf(rows, "task")
-    .map(({ value, label }) => {
-      const subset = rows.filter((row) => (row.task ?? NONE) === value);
-      return { label, n: subset.length, texts: measureOf(subset, "texts") };
-    })
-    .flatMap((row) => (row.texts === null ? [] : [{ label: row.label, n: row.n, texts: row.texts }]))
-    .sort((a, b) => b.texts - a.texts);
-}
-
-export interface Attention {
-  tone: "crit" | "warn";
-  text: string;
-}
-
-/** What deserves a look, worst first: a frustrating task, a failing model or tool, a slow answer. */
-export function needsALook(report: TexReport): Attention[] {
-  const out: Attention[] = [];
-  for (const row of frustrationByTask(report.reviews)) {
-    if (row.n >= 3 && row.share >= 0.5) out.push({ tone: "crit", text: `${row.label}: ${Math.round(row.share * 100)}% of ${row.n} conversations frustrated people` });
-  }
-  for (const model of report.performance.models) {
-    if (model.rounds >= 10 && model.failed / model.rounds >= 0.05) out.push({ tone: "crit", text: `${modelLabel(model.model)} failed ${Math.round((model.failed / model.rounds) * 100)}% of its rounds` });
-    if (model.rounds >= 10 && model.cut / model.rounds >= 0.05) out.push({ tone: "warn", text: `${modelLabel(model.model)} ran out of room in ${Math.round((model.cut / model.rounds) * 100)}% of its rounds` });
-  }
-  for (const tool of report.turns.tools) {
-    if (tool.calls >= 10 && tool.failed / tool.calls >= 0.2) out.push({ tone: "warn", text: `${tool.tool} failed ${Math.round((tool.failed / tool.calls) * 100)}% of ${tool.calls} calls` });
-  }
-  const stuck = report.turns.exhausted + report.turns.failed;
-  if (report.turns.total >= 20 && stuck / report.turns.total >= 0.05) out.push({ tone: "warn", text: `${Math.round((stuck / report.turns.total) * 100)}% of turns got stuck or failed` });
-  if (report.performance.time.p95 >= 60_000) out.push({ tone: "warn", text: `The slowest 1 in 20 answers took ${formatSeconds(report.performance.time.p95)} or more` });
-  return out.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "crit" ? -1 : 1));
 }
 
 export function formatSeconds(ms: number): string {

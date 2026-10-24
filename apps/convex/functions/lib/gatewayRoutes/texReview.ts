@@ -47,9 +47,10 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
 
   const now = Date.now();
   let rows;
+  // Codes and a count, each read strictly: anything else is dropped, never kept.
+  const task = parseTask(body.task);
+  const signals = parseSignals(body.signals);
   try {
-    // Codes and a count, each read strictly: anything else is dropped, never kept.
-    const task = parseTask(body.task);
     const texts = parseTexts(body.texts);
     rows = await ctx.runMutation(internal.functions.texReviews.recordScores, {
       userId: setup.userId,
@@ -58,7 +59,7 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
       reason,
       now,
       ...(task !== null ? { task } : {}),
-      signals: parseSignals(body.signals),
+      signals,
       ...(texts !== null ? { texts } : {}),
       ...scores,
     });
@@ -80,7 +81,7 @@ export async function gatewayTexReviewHandler(ctx: ActionCtx, body: Record<strin
     ctx,
     setup.destination,
     path,
-    renderReviewNote({ id, now, kind: setup.kind, reason, people: setup.people, scores, words }),
+    renderReviewNote({ id, now, kind: setup.kind, reason, people: setup.people, scores, task, signals, words }),
     "tex_review_note",
   );
   return json({ review: { filed: filed ? "full" : "scores" } });

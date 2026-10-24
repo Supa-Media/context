@@ -72,8 +72,12 @@ export const texReportValidator = v.object({
     /** List-price spend of the turns that carried one (since 2026-10-24). */
     costMicroUsd: v.number(),
     priced: v.number(),
-    /** Oldest first, zero-filled. */
-    byDay: v.array(v.object({ day: v.string(), turns: v.number(), costMicroUsd: v.number() })),
+    /**
+     * Oldest first, zero-filled. `texts` are turns answering a person (one to
+     * one or a group); `troubled` are turns that did not answer or had a tool
+     * fail, the day-by-day line of "is it getting better" on the page.
+     */
+    byDay: v.array(v.object({ day: v.string(), turns: v.number(), texts: v.number(), troubled: v.number(), costMicroUsd: v.number() })),
     models: v.array(
       v.object({
         model: v.string(),
@@ -113,7 +117,7 @@ export async function texReportHandler(ctx: QueryCtx, args: { days?: number }, n
   const byKind = Object.fromEntries(KINDS.map((kind) => [kind, 0])) as Record<KindKey, number>;
   const outcomes = { answered: 0, exhausted: 0, failed: 0 };
   const dayStart = Math.floor(now / DAY_MS) * DAY_MS;
-  const byDay = Array.from({ length: turnDays }, (_, index) => ({ day: dayKey(dayStart - (turnDays - 1 - index) * DAY_MS), turns: 0, costMicroUsd: 0 }));
+  const byDay = Array.from({ length: turnDays }, (_, index) => ({ day: dayKey(dayStart - (turnDays - 1 - index) * DAY_MS), turns: 0, texts: 0, troubled: 0, costMicroUsd: 0 }));
   const models = new Map<string, { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; costMicroUsd: number }>();
   const tools = new Map<string, { calls: number; failed: number }>();
   let cost = 0;
@@ -123,7 +127,11 @@ export async function texReportHandler(ctx: QueryCtx, args: { days?: number }, n
     outcomes[row.outcome] += 1;
     const index = turnDays - 1 - Math.floor((dayStart - Math.floor(row.at / DAY_MS) * DAY_MS) / DAY_MS);
     const bucket = byDay[index];
-    if (bucket) bucket.turns += 1;
+    if (bucket) {
+      bucket.turns += 1;
+      if (row.kind === "one" || row.kind === "group") bucket.texts += 1;
+      if (row.outcome !== "answered" || row.trace.some((step) => step.kind === "tool" && !step.ok)) bucket.troubled += 1;
+    }
     if (row.costMicroUsd !== undefined) {
       cost += row.costMicroUsd;
       priced += 1;

@@ -136,12 +136,15 @@ describe("what a review may carry", () => {
     const { t, pinned } = await world();
     vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid");
     expect(await review(t, { mode: "tier" })).toEqual({ tier: "full" });
-    expect(await review(t, { reason: "fix_this", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    expect(await review(t, { reason: "fix_this", scores: SCORES, task: "web_errand", signals: ["gave_up", "nonsense"], words: WORDS })).toEqual({ review: { filed: "full" } });
     const [path] = reviews(await notesIn(t, pinned));
     expect(path).toMatch(/^areas\/tex-reviews\/\d{4}-\d{2}-\d{2} \d{4} calm 2 [0-9a-f]{6}\.md$/);
     const note = await readNote(t, pinned, path!);
     expect(note).toContain("status: new");
     expect(note).toContain("reason: fix_this");
+    // The codes, so triage groups reports without reading them (`texTriage.ts`); a code outside the list is dropped.
+    expect(note).toContain("task: web_errand");
+    expect(note).toContain('signals: ["gave_up"]');
     expect(note).toContain('people: ["@alice-handle"]');
     expect(note).toContain("Tex open the avocado login");
     expect(note).toContain("Try the sign-in page before asking for anything.");

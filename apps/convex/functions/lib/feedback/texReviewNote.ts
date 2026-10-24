@@ -149,6 +149,9 @@ export interface ReviewNoteInput {
   /** The handles of everyone in the conversation, without `@`. */
   people: string[];
   scores: Scores;
+  /** The scorer's codes (`TASK_CODES`, `SIGNAL_CODES`), so triage can group reports without reading them. */
+  task?: string | null;
+  signals?: string[];
   words: ReviewWords;
 }
 
@@ -163,6 +166,8 @@ export function renderReviewNote(input: ReviewNoteInput): string {
     `reason: ${input.reason}`,
     `people: ${JSON.stringify(input.people.map((handle) => `@${handle}`))}`,
     ...SCORE_KEYS.map((key) => `${key}: ${input.scores[key]}`),
+    `task: ${input.task ?? "unknown"}`,
+    `signals: ${JSON.stringify(input.signals ?? [])}`,
     `average: ${average.toFixed(1)}`,
     `reference: ${JSON.stringify(input.id)}`,
     "---",

@@ -131,3 +131,55 @@ narrowing the table, if the report is asked for before the staff check, or if
 spend stops being the billed figure; `apps/convex/__tests__/texSpend.test.ts`
 fails if anything but Tex's labels is counted or a window is asked in one
 question Cloudflare refuses.
+
+## Where Tex hurts, and whether it is getting better (step 4)
+
+The owner called the first page useless the same evening: "These numbers and
+scorecards mean nothing to me. I have no frame of reference of improvement or
+regression and where the gaps are." The redesign went through two rounds of
+product, design, operations and owner-voice review before it was built, and
+rests on four rules (`features/tex/dashboard/insights.ts`):
+
+- **Every number has a target and the window before it.** The report is asked
+  for twice the window so there is a window before; a number says how many
+  chats it rests on, and calls itself better or worse only when both windows
+  hold `MIN_RATE_N`. Targets are starting points the owner accepted on
+  2026-10-24: 70% got what they wanted (goal 8 or more, never gave up), under
+  15% handed back, the slowest 1 in 20 replies under 60 seconds, and under 5%
+  of replies going wrong (no answer, or a tool failed: `texReport`'s
+  per-day `troubled`).
+- **Only coded rows count.** Task and signal codes began on 2026-10-24 at
+  about 18:00 UTC; a row before it has `signals: []`, which is unknown, not
+  calm, so `CODES_BEGAN` leaves it out of every rate.
+- **Problems are the triage agent's, matched by codes.** The hourly triage
+  agent keeps one note per named problem in the reviews folder's `themes/`,
+  front matter only: `status`, `signals`, `tasks`, `prs`, `merged`,
+  `fix_thread`, `first_seen`. A review or bug it files under one gets
+  `theme: <slug>`. The page reads these from the tree rows' facts, never the
+  notes' text (`functions/texDashboard.ts`, `lib/adminFns/texTriage.ts`).
+  Unfixed problems come first, then by chats hit in 14 days; no severity
+  weights, which at this volume would decide the order by themselves.
+- **A shipped fix is judged on the chats where it could have happened.** Of
+  the scored chats in the problem's tasks, how many hit its signals in the 14
+  days before `merged` and since; too early until 5 since, working at half the
+  rate or less.
+
+Review notes now carry the scorer's `task` and `signals` in front matter, so
+triage can group them without reading them.
+
+**The bug desk.** The owner asked for "a place where you can track number of
+bugs filed, and view them/read them and send them to triaging agent to fix",
+then for a comment to the agent and a way to retire one. Reports and reviews
+are listed from the rows; one opens at the staff member's own clearance
+(`authorizeFileAccess`), shown as text, never rendered. Comment, send to
+triage, retire and reopen are note mail to the agent named `triage`, from the
+staff member's handle, plus the `status:` the action leaves, written into the
+report itself at the version read: the report stays the one copy, and the
+agent reads both on its next pass. Every call is staff *and* a member of the
+pinned context, acting needs an editor's role, and only notes inside the bugs
+and reviews folders open. `apps/convex/__tests__/controlPlane/texTriage.test.ts`
+fails if staff off the team see the desk, if a path outside those folders
+opens, if a viewer can act, or if a status line doubles;
+`apps/mobile/__tests__/texDashboardInsights.test.ts` fails if a fix is judged
+on chats outside its task, if a thin window calls a direction, or if uncoded
+rows count.
