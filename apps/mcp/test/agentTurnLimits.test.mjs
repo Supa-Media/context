@@ -183,3 +183,14 @@ test("a turn with earlier turns is told their lookups happened", async () => {
   assert.doesNotMatch(opening, /you did use them/, "a first text has no earlier turns to explain");
   assert.doesNotMatch(systemPrompt(null, { texting: true }), /you did use them/);
 });
+
+test("a browser call that ran long is worth a second try, unlike any other slow call (2026-10-24)", async () => {
+  // Tex texted "the cart won't open in my browser" four times; a plain retry worked.
+  const BROWSE = { name: "browse", description: "Use a browser", inputSchema: { type: "object", properties: {} } };
+  const ai = scripted([chat("", ["browse"]), chat("Your cart's updated.")]);
+  await turn(ai, { tools: [BROWSE], callTool: () => new Promise(() => {}), toolTimeoutMs: 20 });
+  const sent = toolResultSentOn(ai, 1);
+  assert.match(sent, /still open where it got to/);
+  assert.match(sent, /run the rest again/);
+  assert.doesNotMatch(sent, /Don't retry it/);
+});

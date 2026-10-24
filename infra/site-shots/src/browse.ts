@@ -15,7 +15,8 @@
  *   a value and the kind of field it is for. A password goes only into a
  *   password box, which no page echoes back as text, and a username only into
  *   a text, email or phone box. Its value is never returned, logged or shown
- *   in a reading.
+ *   in a reading. A card's part may also go into the checkout's payment
+ *   frame, under the rules in `./paymentFrames.ts`.
  *
  * A reading numbers the things on the page a person could press or type into
  * (`data-tex-ref`), and never includes what is typed in a field: only whether
@@ -30,6 +31,7 @@ import { dropSource, fillMarkedSource, markedSelector, markedSizeSource, pickerH
 import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } from "./download";
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
 import { MAX_SCANNED, snapshot } from "./reading";
+import { isCheckoutPaymentFrame } from "./paymentFrames";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 
 /*
@@ -649,7 +651,10 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       const doc = await docOf(page, step.ref);
       if (doc === null) return missing;
       // The origin of the frame the box is in: a login for one site never goes into another site's frame.
-      if ((await where(doc)).origin !== step.origin) return { do: "fill", ok: false, reason: "origin mismatch" };
+      // A card's part may also go into the checkout's own payment frame (./paymentFrames.ts).
+      if ((await where(doc)).origin !== step.origin && !(isCardField(step.field) && (await isCheckoutPaymentFrame(page, doc, step.origin)))) {
+        return { do: "fill", ok: false, reason: "origin mismatch" };
+      }
       const box = await fieldIs(doc, step.ref, step.field);
       if (box === null) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
       if (isCardField(step.field)) await doc.evaluate(`document.querySelector('${selector(step.ref)}').setAttribute("data-context-card", "")`);

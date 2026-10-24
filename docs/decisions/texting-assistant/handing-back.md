@@ -190,3 +190,47 @@ notes don't have his number".
 roads named by what the turn skipped, the promise kept by a routine or a
 job, a scripted turn that finds the serving email); bench case 8 in
 `bench/ai/tests/handback.md`. Sabotage record in the test's header.
+
+## A grocery order, handed back four ways (2026-10-24)
+
+A texted Instacart order (from Tex's own self-review report) went wrong four
+ways. Tex typed a Gmail address it found into Instacart's email-first
+sign-in, not the login saved for instacart.com; handed over a "picture check"
+it had been answering itself; texted "the cart won't open in my browser"
+four times and told the person to change the cart in the Instacart app,
+until a plain retry worked; and sent its browser for the saved card because
+the card boxes were in Stripe's frame.
+
+- **The saved login's email.** `fill_login` takes `username_ref` alone for
+  a page that asks for the email first. `browse` refuses to type an email the
+  person never wrote on a site they have a login saved for, and names
+  `fill_login` (`guessedSignInEmail`, `apps/mcp/src/agent/browse.js`).
+- **The captcha ladder gets its time.** Browse calls were cut at 30 s, but
+  the Worker alone waits 30 s for Browserbase's solver before the reload and
+  the fresh browser (`captchaLadder.js`), so the ladder never finished and the
+  model was told "don't retry it". Browse now gets 160 s
+  (`apps/mcp/src/agent/route.js`). The probe knows "confirm you're human",
+  "select all images" and AWS WAF's frame, and an answer handing over a
+  "picture check" is read as handing over a captcha.
+- **A stumble is retried.** A browse call that ran long is told the browser
+  is still where it got to and to run the rest again (`turn.js`); one whose
+  run threw reads where the browser is instead of saying it couldn't; and an
+  answer that gives up after the turn's last browser call failed gets one
+  round saying to run it again first (`BROWSER_RETRY_NOTICE`,
+  `claimCheck.js`).
+- **The cart is Tex's.** "In the Instacart app, remove ..." and "you can
+  remove ... in the app" are hand-backs (`APP_HANDBACK`); a payment, a code
+  or a tap on their phone stays theirs.
+- **The card fills in the processor's frame.** See the vault note's
+  "Payment frames".
+
+**What a simplification would cost.** Letting the model type any email puts
+a guessed account into a sign-in and spends the person's patience on "that's
+literally not the account I saved". Cutting browse back to 30 s means every
+captcha is handed over untried.
+
+**Tests.** `apps/mcp/test/agentInstacartCheckout.test.mjs`,
+`apps/mcp/test/agentFillLogin.test.mjs` (email-first and found-email cases),
+`apps/mcp/test/agentTurnLimits.test.mjs`,
+`infra/site-shots/src/paymentFrames.test.ts` and `captcha.test.ts`. Sabotage
+records in the tests' headers.

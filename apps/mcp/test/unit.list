@@ -207,3 +207,4 @@ test/routineVoice.test.mjs
 test/agentIdentity.test.mjs
 test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
+test/agentInstacartCheckout.test.mjs

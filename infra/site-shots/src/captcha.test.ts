@@ -59,4 +59,19 @@ describe("settleCaptcha", () => {
     expect(run(page("Shop", "hello", [{ value: "tok" }], [{ src: "https://www.google.com/recaptcha/api2/anchor?k=x" }]))).toEqual({ widget: true, answered: true, wall: false });
     expect(run(page("Shop", "hello", [], [{ src: "https://www.google.com/recaptcha/api2/anchor?size=invisible" }]))).toEqual({ widget: false, answered: false, wall: false });
   });
+
+  it("knows a picture check by its words and an AWS WAF puzzle by its frame (Instacart, 2026-10-24)", () => {
+    const page = (words: string, frames: Array<{ src: string }> = []) => ({
+      title: "Instacart",
+      body: { innerText: words },
+      querySelector: () => null,
+      querySelectorAll: (selector: string) =>
+        selector === "iframe" ? frames.map((f) => ({ ...f, getBoundingClientRect: () => ({ width: 300, height: 300 }) })) : [],
+    });
+    const run = (document: unknown) => new Function("document", `return ${CAPTCHA_PROBE}`)(document);
+    expect(run(page("Let's confirm you're human. Select all images with a bus")).wall).toBe(true);
+    expect(run(page("Please solve this puzzle to continue")).wall).toBe(true);
+    expect(run(page("Sign in", [{ src: "https://abc.token.awswaf.com/captcha" }])).widget).toBe(true);
+    expect(run(page("Your cart: 26 items, select all to remove"))).toEqual({ widget: false, answered: false, wall: false });
+  });
 });

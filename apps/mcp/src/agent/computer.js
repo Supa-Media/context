@@ -37,7 +37,7 @@
  */
 
 import { BROWSE_TOOL, browserSession } from "./browse.js";
-import { FILL_LOGIN_TOOL, fillLoginTool } from "./fillLogin.js";
+import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
 import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
@@ -302,6 +302,8 @@ export function webSession(computer, question, { decide = null, search = null, a
           say,
           files,
           keep,
+          // A sign-in with a saved login takes its own email, never one typed (`fillLogin.js`).
+          savedLogin: store ? savedLoginOn(store) : null,
           takePages(n) {
             if (opened + n > pageCap()) return false;
             opened += n;
