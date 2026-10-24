@@ -439,3 +439,40 @@ test("a streamed group turn texts its progress to the chat, as a text does (2026
   assert.deepEqual(lines.filter((line) => line.progress).map((line) => line.progress), ["Reading the page now."]);
   assert.equal(lines.at(-1).body?.answer ?? lines.at(-1).answer, "Done.", JSON.stringify(lines.at(-1)));
 });
+
+/*
+  2026-10-24: `tex/groups/` is shared with the workspace only when nothing is
+  filed there yet, so a note somebody put there themselves is never widened by
+  Tex's first chat. That check listed the bucket by path prefix, and a note's
+  bytes live at `notes/<noteId>.md` with its folder in a row, so it found
+  nothing however much was in the folder. It reads the tree instead.
+*/
+test("a note already filed in tex/groups/ stops Tex sharing the folder", async () => {
+  const { shareGroupNotesFolder } = await import("../src/agent/groupMemoryNote.js");
+  const { PRE_PARSED_RULES, PrivacyOverrides } = await import("../src/privacy/engine.js");
+  const held = { rules: [], overrides: new PrivacyOverrides() };
+  const holding = (paths) => {
+    const shared = [];
+    return {
+      shared,
+      get: async () => ({ etag: "e1", [PRE_PARSED_RULES]: held }),
+      // The bucket keys a note by its id, so no key carries the folder's path.
+      list: async () => ({ objects: [] }),
+      treeManifest: async () => ({ served: true, cursor: null, entries: paths.map((path) => ({ path })) }),
+      rowAccess: { setTier: async (path, tier) => (shared.push(`${path}: ${tier}`), { ok: true }) },
+    };
+  };
+
+  const empty = holding([]);
+  assert.equal(await shareGroupNotesFolder(empty), true, "an empty folder is Tex's to share");
+  assert.deepEqual(empty.shared, ["tex/groups: team"]);
+
+  const filed = holding(["tex/groups/what ada wrote.md"]);
+  assert.equal(await shareGroupNotesFolder(filed), false);
+  assert.deepEqual(filed.shared, [], "somebody's own note in the folder is never widened to the workspace");
+
+  const unreachable = holding([]);
+  delete unreachable.treeManifest;
+  assert.equal(await shareGroupNotesFolder(unreachable), false, "a tree that cannot answer shares nothing");
+  assert.deepEqual(unreachable.shared, []);
+});
