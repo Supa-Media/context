@@ -30,13 +30,14 @@ export const GROUP_NOTES_FOLDER = "tex/groups";
 const HEADING = "# Tex's memory of this group chat";
 const INTRO =
   "Tex reads this note before it answers in the chat and adds to it after. Change or delete anything here and Tex goes by what's left. Everyone in this workspace can read it.";
+const GUEST_INTRO = INTRO.replace("Everyone in this workspace", "Everyone in this chat");
 const RULE = "---";
 const TEX = "**Tex:**";
 const META = /^<!--\s*tex used:(.*)-->$/;
 
-/** The chat's note, from the same hash its plumbing file is named by. */
-export function groupNotePath(hash) {
-  return `${GROUP_NOTES_FOLDER}/chat-${hash.slice(0, 12)}.md`;
+/** The chat's note, from the same hash its plumbing file is named by; a guest chat's is in its own folder (`groupGuests.js`). */
+export function groupNotePath(hash, folder = GROUP_NOTES_FOLDER) {
+  return `${folder}/chat-${hash.slice(0, 12)}.md`;
 }
 
 /** A line that would read as the note's own structure, kept as words. */
@@ -65,7 +66,7 @@ function metaLine(turn) {
 }
 
 /** The kept turns as the note's text. */
-export function renderGroupNote(turns) {
+export function renderGroupNote(turns, { guests = false } = {}) {
   const blocks = [];
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
@@ -77,7 +78,7 @@ export function renderGroupNote(turns) {
     blocks.push(`${TEX} ${escaped(turn.text)}${meta ? `\n${meta}` : ""}`);
     if (i < turns.length - 1) blocks.push(RULE);
   }
-  return `${HEADING}\n\n${INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
+  return `${HEADING}\n\n${guests ? GUEST_INTRO : INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
 }
 
 /** What a hidden line says: "a, b|source source tainted". */
@@ -184,9 +185,9 @@ export async function shareGroupNotesFolder(store) {
 }
 
 /** Write the note; its new etag, or null when this grant couldn't. */
-export async function writeGroupNote(dispatch, path, turns, etag = null) {
+export async function writeGroupNote(dispatch, path, turns, etag = null, { guests = false } = {}) {
   try {
-    const result = await dispatch("write_note", { path, content: renderGroupNote(turns), ...(etag ? { expected_etag: etag } : {}) });
+    const result = await dispatch("write_note", { path, content: renderGroupNote(turns, { guests }), ...(etag ? { expected_etag: etag } : {}) });
     if (result?.isError === true) return null;
     return /\(etag ([^)\s]+)\)/.exec(String(result?.content?.[0]?.text ?? ""))?.[1] ?? null;
   } catch {

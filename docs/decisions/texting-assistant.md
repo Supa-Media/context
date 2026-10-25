@@ -34,7 +34,7 @@ personal context would read that person's notes into a room other people are
 in. So a group never reaches anyone's personal context: on Sendblue it is
 answered from the one shared workspace everyone in it is a member of, through
 a grant of its own ([groups](./texting-assistant/groups.md), 2026-10-20), and
-on Linq it is still dropped.
+on Linq it is still dropped ([guest mode](./texting-assistant/group-guests.md): the chat's group only).
 
 **The gate fails closed, and that is the load-bearing half.** A direct chat has
 to prove itself with `data.chat.is_group === false`; anything else — a missing

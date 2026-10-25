@@ -186,6 +186,9 @@ export function createControlPlaneStub(options = {}) {
     userId = "user_test",
     alsoMemberOf = [],
     grantedNamesByWorkspace = {},
+    // The names a group chat's grant is minted with in its own workspace, whatever its client (a guest chat's,
+    // `apps/convex/functions/lib/controlPlane/liveGrants.ts`).
+    grantedNames,
     expiresAt,
     toolsListedAt,
   }) {
@@ -200,6 +203,7 @@ export function createControlPlaneStub(options = {}) {
       userId,
       alsoMemberOf,
       grantedNamesByWorkspace,
+      grantedNames,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
       toolsListedAt,
@@ -235,6 +239,7 @@ export function createControlPlaneStub(options = {}) {
     const namesFor = (workspaceId) => {
       // Match Convex: only the first-party console grant receives live group
       // names. Ordinary OAuth and pinned reach carry no such authority.
+      if (Array.isArray(grant.grantedNames) && workspaceId === grant.workspaceId) return [...grant.grantedNames];
       if (grant.clientId !== "context_console") return undefined;
       const names = grant.grantedNamesByWorkspace?.[workspaceId];
       return Array.isArray(names) ? [...names] : [];
@@ -440,7 +445,7 @@ export function createControlPlaneStub(options = {}) {
         // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
         // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
         const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
-        const privacy = await tree.rulesFor(served);
+        const privacy = heldRules.get(served) ?? (await tree.rulesFor(served));
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
@@ -900,6 +905,12 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
+  /** The rules `/gateway/binding` carries for one workspace, as given, in place of rendering them (a guest chat's). */
+  const heldRules = new Map();
+  function holdRules(workspaceId, held) {
+    heldRules.set(workspaceId, held);
+  }
+
   /** What `/gateway/builtin-model` answers for one workspace. */
   function setBuiltinVerdict(workspaceId, verdict) {
     builtinVerdicts.set(workspaceId, verdict);
@@ -928,6 +939,7 @@ export function createControlPlaneStub(options = {}) {
     dreams,
     issueCode,
     setBuiltinVerdict,
+    holdRules,
     builtinReports,
     builtinStarts,
     setMeetingSummaryVerdict,

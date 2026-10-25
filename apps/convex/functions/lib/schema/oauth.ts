@@ -191,6 +191,13 @@ export const oauthTables = {
         groupId: v.id("textGroups"),
         coViewerIds: v.array(v.id("users")),
         meterWorkspaceId: v.id("workspaces"),
+        /**
+         * Guest mode (`lib/textGroupGuests.ts`): the chat's own group, whose rows are all the grant reads, and
+         * whether the person who tagged Tex is a guest (not a member of `workspaceId`), so the grant is the
+         * binder's and acts for nobody's own account.
+         */
+        guestGroupId: v.optional(v.id("workspaceGroups")),
+        guestTagger: v.optional(v.boolean()),
       }),
     ),
     workspaceId: v.id("workspaces"),

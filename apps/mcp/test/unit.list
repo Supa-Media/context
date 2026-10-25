@@ -187,6 +187,7 @@ test/searchKeyed/census.test.mjs
 test/agentGroupActions.test.mjs
 test/agentGroupSignIn.test.mjs
 test/agentGroupOffer.test.mjs
+test/agentGroupGuests.test.mjs
 test/vaultGroupChat.test.mjs
 test/connectors.test.mjs
 test/apps.test.mjs

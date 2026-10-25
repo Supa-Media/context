@@ -17,33 +17,41 @@ import { privacyEtagOf, rulesForReaders } from "./lib/nodes/readerRules";
 import type { Audience } from "./lib/nodes/rowAccess";
 import { INDEX_KEY } from "./lib/scaffold/store";
 import { nodeAt } from "./lib/nodes/paths";
+import { chatRules } from "./lib/nodes/chatFolders";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
 /** Who the rules are rendered for: a member, or a guest (a pin reader, `lib/pinnedReaders.ts`). Member when absent. */
 const audienceValidator = v.union(v.literal("member"), v.literal("guest"));
-const heldValidator = v.object({ etag: v.string(), folders, notes, accessVersion: v.number() });
+/** The paths a Tex guest chat holds only to view (`lib/nodes/chatFolders.ts`): read, never changed. */
+const readOnlyValidator = v.object({ folders: v.array(v.string()), notes: v.array(v.string()) });
+const heldValidator = v.object({ etag: v.string(), folders, notes, accessVersion: v.number(), readOnly: v.optional(readOnlyValidator) });
 
 /** The rules as the gateway holds them: rendered from the rows for a member (or a guest), with the rows' version. */
 async function heldFor(
   ctx: Parameters<typeof rulesForReaders>[0],
   workspaceId: Id<"workspaces">,
   audience: Audience,
+  chatNames?: readonly string[],
 ) {
-  const rendered = await rulesForReaders(ctx, workspaceId, audience);
+  const guest = await rulesForReaders(ctx, workspaceId, chatNames === undefined ? audience : "guest");
+  // A Tex guest chat holds the guest rules read for it: its rows `team`, the rest `private` (`chatFolders.ts`).
+  const chat = chatNames === undefined ? null : chatRules(guest, chatNames);
+  const rendered = chat ?? guest;
   return {
     etag: await privacyEtagOf(ctx, workspaceId),
     folders: rendered.rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
     notes: [...rendered.overrides].map(([path, visibility]) => ({ path, visibility })),
     accessVersion: await accessVersionOf(ctx, workspaceId),
+    ...(chat !== null ? { readOnly: chat.readOnly } : {}),
   };
 }
 
 /** The rules the gateway holds for a workspace, rendered for an audience. */
 export const authority = internalQuery({
-  args: { workspaceId: v.id("workspaces"), audience: v.optional(audienceValidator) },
+  args: { workspaceId: v.id("workspaces"), audience: v.optional(audienceValidator), chatNames: v.optional(v.array(v.string())) },
   returns: heldValidator,
-  handler: async (ctx, { workspaceId, audience }) => await heldFor(ctx, workspaceId, audience ?? "member"),
+  handler: async (ctx, { workspaceId, audience, chatNames }) => await heldFor(ctx, workspaceId, audience ?? "member", chatNames),
 });
 
 /** The rules Convex readers judge by (`lib/nodes/readerRules.ts`), as plain values a query can return. */

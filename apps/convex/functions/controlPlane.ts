@@ -45,6 +45,7 @@
  */
 
 import { audienceOfNames } from "./lib/pinnedReaders";
+import { readsAsChat } from "./lib/nodes/chatFolders";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
@@ -449,6 +450,8 @@ export const openStorageBinding = internalAction({
       managedEncryption,
       // A pin reader's rules are rendered for a guest (`lib/pinnedReaders.ts`), from the names the grant resolved to.
       ...(audienceOfNames(covered.grantedNames) === "guest" ? { audience: "guest" as const } : {}),
+      // A Tex guest chat's are read for it, from the same names (`lib/nodes/chatFolders.ts`).
+      ...(readsAsChat(covered.grantedNames) ? { chatNames: covered.grantedNames ?? [] } : {}),
     };
   },
 });

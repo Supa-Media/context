@@ -84,14 +84,27 @@ export function maySee(meta, userId, groups = []) {
   group, nor one they saved for themselves, and it is used, never seen.
 */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+/** A Tex guest chat's name (`privacy/engine.js` `READS_AS_CHAT`). */
+const READS_AS_CHAT = "@#reads-as-chat";
 
 function workspaceOnly(actor) {
   return actor?.clientId === TEXTS_GROUP_CLIENT_ID;
 }
 
+/*
+  A guest chat (`agent/groupGuests.js`) has people in it who aren't members, so a key given to the whole workspace is
+  not given to them: a key counts there only when it is given to the chat's own group, and it is used, never seen.
+*/
+function chatGroups(actor) {
+  const groups = Array.isArray(actor?.groups) ? actor.groups : [];
+  return groups.includes(READS_AS_CHAT) ? new Set(groups.filter((name) => isGroupToken(name))) : null;
+}
+
 /** How much of a key the caller `actor` (a store's `actor`) has: "see", "use", or null. */
 export function actorAccessOf(meta, actor) {
   if (!workspaceOnly(actor)) return accessOf(meta, actor?.userId, actor?.groups);
+  const chat = chatGroups(actor);
+  if (chat !== null) return sharesOf(meta).some((share) => isGroupToken(share.to) && chat.has(share.to)) ? "use" : null;
   return sharesOf(meta).some((share) => share.to === EVERYONE) ? "use" : null;
 }
 

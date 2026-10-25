@@ -64,6 +64,8 @@ export const openStorageBindingReturns = v.union(
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
     /** `guest` for a pin reader: the binding's rules are rendered for a guest (`lib/pinnedReaders.ts`). */
     audience: v.optional(v.literal("guest")),
+    /** A Tex guest chat's names: its rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). */
+    chatNames: v.optional(v.array(v.string())),
   }),
 );
 

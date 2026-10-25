@@ -13,6 +13,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { pinnedContextWorkspace } from "../pinnedContext";
 import { withPendingPrivate } from "./pendingAccess";
+import { withChatFolders } from "./chatFolders";
 import type { AccessRow, Grantee } from "./rowAccess";
 import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
 import { located, nodePaths } from "./paths";
@@ -121,7 +122,9 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
   // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
   const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
   // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
-  return await withAccountsHonoured(ctx, workspaceId, withPendingPrivate(moving, state?.pending, Date.now()));
+  const pending = withPendingPrivate(moving, state?.pending, Date.now());
+  // A Tex guest chat's folder is shared with the chat's group before it has a row (`chatFolders.ts`).
+  return await withAccountsHonoured(ctx, workspaceId, await withChatFolders(ctx, workspaceId, pending));
 }
 
 /**

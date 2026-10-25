@@ -179,6 +179,8 @@ export interface OpenedGatewayBinding {
   managedEncryption?: { mode: "migrating" | "encrypted" | "decrypting" };
   /** `guest` for a pin reader, whose rules are rendered for a guest (`lib/pinnedReaders.ts`). Absent otherwise. */
   audience?: "guest";
+  /** A Tex guest chat's names, whose rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). Absent otherwise. */
+  chatNames?: string[];
 }
 
 /**

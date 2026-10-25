@@ -25,6 +25,19 @@ export const textGroupTables = {
     introducedAt: v.optional(v.number()),
     /** Hashes of senders who are not set up and were told so once (`groupKey`-salted, never a number). */
     toldUnknown: v.optional(v.array(v.string())),
+    /**
+     * Guest mode (`lib/textGroupGuests.ts`, decided by the owner, 2026-10-25): the chat's own group in
+     * `workspaceId`, named with three words, and its folder, shared with that group to edit. Set together, by an
+     * owner or editor saying "Tex, use @slug"; while set the chat reads only what is shared with the group.
+     */
+    guestGroupId: v.optional(v.id("workspaceGroups")),
+    guestFolder: v.optional(v.string()),
+    /** The token the folder is shared behind until it has a row of its own (`lib/nodes/chatFolders.ts`). */
+    guestToken: v.optional(v.string()),
+    /** The folder's row has been given the group's grant once; from then on the row is the owner's to change. */
+    guestFolderGranted: v.optional(v.boolean()),
     lastSeenAt: v.number(),
-  }).index("by_key", ["groupKey"]),
+  })
+    .index("by_key", ["groupKey"])
+    .index("by_workspace", ["workspaceId"]),
 };

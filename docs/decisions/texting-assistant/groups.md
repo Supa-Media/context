@@ -18,7 +18,9 @@ Each tagged message is resolved again by the control plane
 - Everyone in the chat except the line the message came in on must be a phone
   linked to an account, with texting not paused. The list is the webhook's
   and Sendblue's members read together, so more people can only narrow it.
-  One person who isn't on Context means no notes in that chat.
+  One person who isn't on Context means no notes in that chat, until an
+  owner or editor turns guest mode on
+  ([group-guests](./group-guests.md), 2026-10-25).
 - The chat is bound to **one shared workspace** every one of them is a
   member of. A personal workspace never counts: it carries its owner's mail,
   calendar, vault and Tex's own notes about them.
