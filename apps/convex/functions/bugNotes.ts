@@ -174,9 +174,18 @@ export async function fileTeamNote(
     try {
       await write();
     } catch (error) {
-      const data = error instanceof ConvexError ? (error.data as { code?: string; currentEtag?: string }) : undefined;
-      if (options.replace !== true || data?.code !== "CONFLICT" || data.currentEtag === undefined) throw error;
-      await write(data.currentEtag);
+      const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;
+      if (options.replace !== true || code !== "CONFLICT") throw error;
+      // The version an editor would read, not the conflict's raw bucket etag: once one rewrite has
+      // made the note a collaboration document, the raw etag is no base it accepts, and every
+      // later rewrite conflicted (the day's scores stopped after its second review, 2026-10-24 and 25).
+      const current = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "read", path },
+      });
+      if (current.kind !== "file") throw error;
+      await write(current.etag);
     }
     // The note is filed either way; a team that cannot see it yet is a log line, not a lost note.
     // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
