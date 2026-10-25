@@ -118,3 +118,15 @@ We could not see which of these happened on that chat: the Worker's logs and
 the turn reports were not readable from the session that made this change.
 Undo: drop `pictureFallback` from `route.js`; `agentProduction.test.mjs` "a
 picture turn whose model fails…" fails.
+
+## Figures about a picture are the picture's (a review of a chat, 2026-10-25)
+
+Asked about a Screen Time screenshot, Tex quoted category totals
+("Social 1h 37m, Travel 1h 6m…") that the person said weren't in it, then
+took them back when the next screenshot came. Now an answer that gives a
+figure on a turn that carries a picture, or that read one with read_image,
+gets one round to check each figure against the picture: it keeps only
+those it can read, says a sum it worked out is its own, and says what the
+picture doesn't show (`FIGURES_NOTICE`, `replyChecks.js`). The turn is told
+the same rule up front. Undo: drop the "figures" check;
+`agentReplyChecks.test.mjs` fails.

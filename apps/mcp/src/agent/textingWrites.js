@@ -32,6 +32,7 @@ import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
+import { routineWhen } from "./routineWhen.js";
 import { NOTE_SOURCE_PREFIX } from "./sources.js";
 
 /**
@@ -169,7 +170,7 @@ function refusalFor(name, args) {
  * fields their mirrored schemas name, on paths outside plumbing. Every other
  * tool passes through untouched.
  */
-export function textingAwareCallTool(callTool, writeTools) {
+export function textingAwareCallTool(callTool, writeTools, { timeZone = null } = {}) {
   const accepted = new Map(writeTools.map((tool) => [tool.name, Object.keys(tool.inputSchema?.properties ?? {})]));
   return (name, args) => {
     const fields = accepted.get(name);
@@ -182,8 +183,17 @@ export function textingAwareCallTool(callTool, writeTools) {
     const done = name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)
       ? Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result))
       : Promise.resolve(callTool(name, given));
-    return done.then((result) => withWrittenNotes(result, given));
+    return done.then((result) => withRunTime(withWrittenNotes(result, given), given, timeZone));
   };
+}
+
+/** A routine written: when it first texts them, or why it won't (`routineWhen.js`). */
+function withRunTime(result, args, timeZone) {
+  if (!result || typeof result !== "object" || result.isError === true || result.held === true) return result;
+  if (!isRoutineFilePath(args.path)) return result;
+  const when = routineWhen(args.path, args.content, timeZone);
+  if (when === null) return result;
+  return { ...result, content: [...(result.content ?? []), { type: "text", text: when.text }] };
 }
 
 /**

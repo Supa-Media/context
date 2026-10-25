@@ -220,7 +220,8 @@ function describe(attachments) {
     ...(pictures.length > 0
       ? [
           "Look at the pictures before anything else: a screenshot of a chat, an email, a ticket or a receipt is them showing you what's settled. " +
-            "Use what it shows (a time agreed, a place, a name, an amount) as given, and never ask for, or search elsewhere for, what a picture already shows.",
+            "Use what it shows (a time agreed, a place, a name, an amount) as given, and never ask for, or search elsewhere for, what a picture already shows. " +
+            "Every figure you give about a picture is one you can read in it; a sum you work out, say is yours, and what it doesn't show, say it doesn't.",
           'To keep a picture in a note, save the note with write and args: { images: [{ name: "<a file name>.jpg", data: "attachment:<number>" }] }, and embed it by that name; never type out its bytes.',
         ]
       : []),

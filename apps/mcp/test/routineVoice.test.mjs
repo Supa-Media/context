@@ -124,7 +124,10 @@ test("a new routine's result names the others", async () => {
   calls.length = 0;
   const edited = await call("write_note", { path: "tex/routines/every-3-hours/call-apple.md", content: "x", expected_etag: "e1" });
   assert.deepEqual(calls, ["write_note"]);
-  assert.equal(edited.content.length, 1);
+  // An edit lists no others; it is told only when it now texts (`routineWhen.js`).
+  assert.equal(edited.content.length, 2);
+  assert.doesNotMatch(edited.content[1].text, /Their other routines/);
+  assert.match(edited.content[1].text, /^It first texts them /);
   const note = await call("write_note", { path: "projects/a.md", content: "x" });
   assert.equal(note.content.length, 1);
 });
