@@ -19,11 +19,12 @@ import {
   visibilityOf,
 } from "../privacy/engine.js";
 import { ROW_TOKEN_PATTERN } from "../privacy/rowAccess.js";
+import { readOnlyAt, readOnlyRow } from "./readOnlyRows.js";
 
 /**
  * @typedef {{prefix: string, visibility: string}} FolderRule
  * @typedef {{path: string, visibility: string}} NoteRule
- * @typedef {{etag: string, folders: FolderRule[], notes: NoteRule[], accessVersion: number}} HeldRules
+ * @typedef {{etag: string, folders: FolderRule[], notes: NoteRule[], accessVersion: number, readOnly?: {folders: string[], notes: string[]}}} HeldRules
  * @typedef {Object} PrivacyAuthority
  * @property {HeldRules} rules the rules the control plane renders for this reader
  * @property {(change: {path: string, base: string, expectedVersion?: number, kind?: string, grantees?: unknown}) => Promise<{ok: true, version: number}|{ok: false, code?: string}>} [setAccess]
@@ -153,18 +154,23 @@ export function withPrivacyAuthority(store, authority) {
     enumerable: false,
     value: { setTier: setRowTier, addPeople: addRowPeople },
   });
+  // A row held only to view (a guest chat's, `readOnlyRows.js`) is read and never changed, whichever tool asks.
+  Object.defineProperty(wrapped, "readOnlyAt", { enumerable: false, value: (path) => readOnlyAt(held, path) });
   // The file is not written: its rules are the rows, and a write of it is refused rather than dropped.
   wrapped.put = async (key, value, options) => {
-    if (key !== PRIVACY_KEY) return await store.put(key, value, options);
-    throw readOnlyManifest();
+    if (key === PRIVACY_KEY) throw readOnlyManifest();
+    if (readOnlyAt(held, key)) throw readOnlyRow(key);
+    return await store.put(key, value, options);
   };
   wrapped.delete = async (key, options) => {
-    if (key !== PRIVACY_KEY) return await store.delete(key, options);
-    throw readOnlyManifest();
+    if (key === PRIVACY_KEY) throw readOnlyManifest();
+    if (readOnlyAt(held, key)) throw readOnlyRow(key);
+    return await store.delete(key, options);
   };
   if (typeof store.copy === "function") {
     wrapped.copy = async (source, destination, options) => {
       if (destination === PRIVACY_KEY) throw readOnlyManifest();
+      if (readOnlyAt(held, destination)) throw readOnlyRow(destination);
       return await store.copy(source, destination, options);
     };
   }

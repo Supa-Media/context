@@ -133,6 +133,18 @@ export const GROUP_LINES = {
         `"Tex, stop" mutes me and "Tex, start" brings me back.`
       : ""),
   status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
+  // Guest mode (`docs/decisions/texting-assistant/group-guests.md`): people here who aren't on Context are guests.
+  guestBound: (slug: string, guest: GuestInfo) =>
+    `Got it. Everyone here is a guest of @${slug} now, as the group @${guest.group}. I only see notes shared with that group, ` +
+    `and I keep what I make for this chat in ${guest.folder}. Anyone here can start a message with "Tex" to ask me something. "Tex, stop" mutes me.`,
+  guestIntro: (slug: string, guest: GuestInfo) =>
+    `Hi, I'm Tex. Anyone here can start a message with "Tex" and I'll answer, using only notes shared with @${guest.group} in @${slug}. ` +
+    `I keep what I make in ${guest.folder}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
+  guestStatus: (slug: string, guest: GuestInfo) => `In this chat I can see only notes shared with @${guest.group} in @${slug}.`,
+  notAllowed: (slug: string) => `Only an owner or editor of @${slug} can bring it into this chat. One of them can say "Tex use @${slug}".`,
+  guestsOff:
+    "The person who brought me into this chat can't share that workspace here anymore, so I'm stepping back. " +
+    'An owner or editor can say "Tex use @name" to start again.',
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
@@ -380,6 +392,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
+  if (status === "not_allowed") return void (await say(storage, deps, message, GROUP_LINES.notAllowed(asked.slug)));
+  if (status === "guests_off") return void (await say(storage, deps, message, GROUP_LINES.guestsOff));
   if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
   if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
   if (status === "choose") {
@@ -389,14 +403,19 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
   await setChatBound(storage, message);
-  if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug, asked.intro)));
-  if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
+  const guest = asked.guest;
+  if (command?.kind === "use") {
+    return void (await say(storage, deps, message, guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
+  }
+  if (command?.kind === "status") return void (await say(storage, deps, message, guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
-  if (asked.intro) await say(storage, deps, message, GROUP_LINES.intro(asked.slug));
+  if (asked.intro) await say(storage, deps, message, guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
 
   const quoted = message.replyTo === undefined ? null : await readOwnGroupMessage(deps.fetch, deps.sendblue, message.replyTo, chat);
   const said = await chatBefore(storage, message, acceptedAt, deps.now());
   const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
+  // A guest is named in the chat's lines by a label from the control plane, never by number; never offered an email.
+  const labels = new Map((asked.guests ?? []).map(({ phone, label }) => [phone, label]));
   // Pictures sent in the chat are read, as a 1:1 text's are (the group chat of 2026-10-23).
   const files = filesFor(message, said.lines);
   const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
@@ -406,6 +425,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
     people: [...new Set(handles.values())].filter(Boolean),
+    ...(guest ? { guest } : {}),
   };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
@@ -424,7 +444,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     asked.accessToken,
     {
       question: message.text,
-      group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
+      group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
       ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
@@ -503,6 +523,8 @@ export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, upd
 export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "not_shared"; slugs: string[] }
+  | { status: "not_allowed"; slug: string }
+  | { status: "guests_off" }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -513,7 +535,22 @@ export type ControlAnswer =
       handle?: string;
       accessToken?: string;
       names?: { phone: string; handle: string }[];
+      guest?: GuestInfo;
+      guests?: { phone: string; label: string }[];
     };
+
+/** A guest chat's group, three words and folder (`apps/convex/functions/lib/textGroupGuests.ts`). */
+export type GuestInfo = { group: string; words: string; folder: string };
+
+const LABEL = /^guest-[0-9a-f]{4}$/;
+const WORDS = /^[a-z]{2,12}-[a-z]{2,12}-[a-z]{2,12}$/;
+
+function guestInfoOf(value: unknown): GuestInfo | undefined {
+  const info = record(value);
+  if (typeof info.group !== "string" || !/^[a-z0-9][a-z0-9-]{1,99}$/.test(info.group)) return undefined;
+  if (typeof info.words !== "string" || !WORDS.test(info.words) || typeof info.folder !== "string") return undefined;
+  return { group: info.group, words: info.words, folder: info.folder };
+}
 
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" ? undefined : command;
@@ -539,6 +576,11 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
       return { status: "not_shared", slugs: (Array.isArray(body.slugs) ? body.slugs.filter(slug) : []).slice(0, 8) as string[] };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
+    case "not_allowed":
+      if (!slug(body.slug)) throw new ServiceError("control_plane", status);
+      return { status: "not_allowed", slug: body.slug as string };
+    case "guests_off":
+      return { status: "guests_off" };
     case "choose": {
       const slugs = Array.isArray(body.slugs) ? body.slugs.filter(slug) : [];
       if (slugs.length === 0) throw new ServiceError("control_plane", status);
@@ -555,6 +597,10 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ...(typeof body.accessToken === "string" && body.accessToken !== "" ? { accessToken: body.accessToken } : {}),
         names: (Array.isArray(body.names) ? body.names : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && slug(entry.handle) ? [{ phone: entry.phone, handle: entry.handle as string }] : [],
+        ),
+        ...(guestInfoOf(body.guest) ? { guest: guestInfoOf(body.guest) } : {}),
+        guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
+          typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
         ),
       };
     default:

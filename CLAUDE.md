@@ -85,7 +85,9 @@ breaking one, stop and say so rather than working around it.
    `team` (members), plus any mix of groups and named people, inside the
    workspace or not, each with view or edit (decided by the owner,
    2026-10-15). Every grantee is a person with an account or an email awaiting
-   one. No *setting* publishes a
+   one; a Tex group chat in guest mode is the exception, its grantees whoever
+   is in the chat
+   ([group-guests](./docs/decisions/texting-assistant/group-guests.md)). No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
    indexed. **A link an owner mints and can revoke is the single exception**, and
    it is always a share row, never a value of a row's access. A link covers one note, or one folder and the subtree

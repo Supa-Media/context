@@ -35,6 +35,7 @@
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, writeGroupNote } from "./groupMemoryNote.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { routineRootOf } from "../../../../packages/shared/src/routines.cjs";
 import { toolError } from "../tools/results.js";
 import { toolDefinitions } from "../tools/registry.js";
@@ -87,13 +88,19 @@ export function groupOwnAccountTools(definitions) {
  * group id, hashed), `members` (the participant set, hashed) and `from` (the
  * tagger's handle). Hashes only: no phone number reaches the gateway. Null
  * when any of it is missing or malformed.
+ *
+ * A guest chat (`groupGuests.js`) is known by the session's names, and then
+ * `guest` is its group and folder as the Worker names them, and a turn with
+ * no tagger handle is a guest's (`guestTagger`).
  */
-export function groupOf(body) {
+export function groupOf(body, session = null) {
   const group = body?.group;
   if (group === null || typeof group !== "object" || Array.isArray(group)) return null;
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
-  return { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat) };
+  const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat) };
+  if (!isGuestChat(session)) return kept;
+  return { ...kept, guestChat: true, guest: guestInfoOf(group.guest), guestTagger: from === "" };
 }
 
 /** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
@@ -167,13 +174,20 @@ export async function readGroupMemory(store, group, dispatch = null) {
     kept = { turns: [] };
   }
   // The visible note, when somebody has changed it since Tex last wrote it (`groupMemoryNote.js`).
-  const note = dispatch === null ? null : await readGroupNote(dispatch, groupNotePath(await sha256Hex(`${group.key}:${group.members}`)));
+  const notePath = chatNotePath(group, await sha256Hex(`${group.key}:${group.members}`));
+  const note = dispatch === null || notePath === null ? null : await readGroupNote(dispatch, notePath);
   const edited = note !== null && note.etag !== kept.noteEtag ? parseGroupNote(note.text) : null;
   const turns = edited ?? (Array.isArray(kept?.turns) ? kept.turns.filter(isTurn) : []);
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources })));
   NOTE_STATE.set(history, { etag: note?.etag ?? null, kept: typeof kept?.noteEtag === "string" ? kept.noteEtag : null });
   return history;
+}
+
+/** The chat's note: a guest chat's in its own folder, or none when the Worker didn't name it. */
+function chatNotePath(group, hash) {
+  if (!group.guestChat) return groupNotePath(hash);
+  return group.guest ? groupNotePath(hash, group.guest.folder) : null;
 }
 
 /** What `readGroupMemory` saw of the note, for the write after the turn. */
@@ -221,10 +235,11 @@ export async function keepGroupExchange(store, group, history, question, answer,
   const hash = await sha256Hex(`${group.key}:${group.members}`);
   // Only over the note this turn read, so an edit made meanwhile is never overwritten.
   const seen = NOTE_STATE.get(history) ?? { etag: null, kept: null };
-  const path = groupNotePath(hash);
-  let written = dispatch === null ? null : await writeGroupNote(dispatch, path, turns, seen.etag);
-  // A chat's first note in a workspace that never set tex/groups/: share that folder, then write it.
-  if (written === null && dispatch !== null && seen.etag === null && (await shareGroupNotesFolder(store))) {
+  const path = chatNotePath(group, hash);
+  const guests = group.guestChat === true;
+  let written = dispatch === null || path === null ? null : await writeGroupNote(dispatch, path, turns, seen.etag, { guests });
+  // A chat's first note in a workspace that never set tex/groups/: share that folder, then write it. Never a guest chat's.
+  if (written === null && dispatch !== null && !guests && seen.etag === null && (await shareGroupNotesFolder(store))) {
     written = await writeGroupNote(dispatch, path, turns, null);
   }
   // The etag a read gives (a collaborative note's own, not the object's), so the next read knows it untouched.
@@ -268,6 +283,7 @@ export const GROUP_CODE_SIGN_IN_LINE =
 
 /** What a group turn is told, after the built-in words. */
 export function groupPrompt(group, workspace) {
+  if (group.guestChat) return guestPrompt(group, workspace);
   const where = workspace ? `@${workspace}` : "one shared workspace";
   const who = group.from ? `@${group.from} tagged you` : "Someone tagged you";
   return (
@@ -329,8 +345,10 @@ export function earlierChatTool(history) {
  * workspace and its shared vault); and the tagger's own email and calendar
  * change, whatever their role (`GROUP_OWN_ACCOUNT_TOOLS`).
  */
-export function groupWriteTools(offered) {
-  const text = textingWriteTools(offered, { texting: true }).filter((tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name) && !SOMEBODYS_ALONE.has(tool.name));
+export function groupWriteTools(offered, group = null) {
+  const text = textingWriteTools(offered, { texting: true }).filter(
+    (tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name) && !SOMEBODYS_ALONE.has(tool.name) && (!group?.guestChat || GUEST_NOTE_TOOLS.includes(tool.name)),
+  );
   return [...text, ...groupOwnAccountTools(toolDefinitions())];
 }
 
@@ -360,10 +378,10 @@ const routinePaths = (args) =>
  * in the chat's shared workspace would never run; it is refused with that
  * reason rather than saved to sit there.
  */
-export function groupAwareCallTool(callTool, writeTools) {
+export function groupAwareCallTool(callTool, writeTools, { store = null, group = null } = {}) {
   const texting = textingAwareCallTool(callTool, writeTools.filter((tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name)));
   const writes = new Set(writeTools.map((tool) => tool.name));
-  return async (name, args) => {
+  const grouped = async (name, args) => {
     // A write tool this turn wasn't given is the turn's allowlist's to refuse; never passed on wider.
     if (!writes.has(name) && WRITE_TOOL_NAMES.has(name)) return toolError(`${name} isn't available in this group chat.`);
     if (writes.has(name) && routinePaths(args).length > 0) {
@@ -371,4 +389,6 @@ export function groupAwareCallTool(callTool, writeTools) {
     }
     return texting(name, args);
   };
+  // A guest chat's narrower writes go first (`groupGuests.js`).
+  return group?.guestChat ? guestAwareCallTool(grouped, { store, group, guestTagger: group.guestTagger === true }) : grouped;
 }

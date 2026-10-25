@@ -131,7 +131,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   }
 
   // A group chat's turn names its chat (`groupTurn.js`); decided by the grant, never by the body.
-  const group = isGroupSession(session) ? groupOf(body) : null;
+  const group = isGroupSession(session) ? groupOf(body, session) : null;
   if (isGroupSession(session) && group === null) return json({ error: "invalid_request", error_description: "A group chat's turn names its chat." }, 400);
   // Background jobs (`background.js`): a texted turn may start them, and a job's own turn names itself.
   const chatTurn = !runner && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
@@ -194,8 +194,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   let setAside = [];
   let paid = [];
   let thumbsUp = false;
-  // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
-  if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null) {
+  // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
+  if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
     // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
     thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null });
     const settled = await settleTextedText(store, session, {
@@ -328,7 +328,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   // A group chat edits as its tagger could in the app, never moving or deleting a note (`groupTurn.js`).
-  const groupWriting = group !== null ? groupWriteTools(offered) : [];
+  const groupWriting = group !== null ? groupWriteTools(offered, group) : [];
   /*
     A long task texts its progress (`progress.js`): a person's own texted
     turn or a group's, asked for as a stream by the texting Worker. A routine runs
@@ -505,7 +505,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
-          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
+          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
         )),
       )))),
       pictures: texted || group !== null,

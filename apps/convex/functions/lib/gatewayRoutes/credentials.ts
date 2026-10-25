@@ -84,6 +84,8 @@ export async function gatewayBindingHandler(
       // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
       // judges by these rules, listing and search included, gives them the notes open to All Context users only.
       ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+      // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
+      ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
     })
     .catch(() => null);
   // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.

@@ -18,6 +18,9 @@ import { pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 import { phoneSignInPaused } from "../emailProof";
+import { guestBinder } from "../textGroupGuests";
+import { chatNamesOf } from "../nodes/chatFolders";
+import { accessRowsOf } from "../nodes/accessRows";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -109,6 +112,11 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   const group = await ctx.db.get(texGroup.groupId);
   if (group === null || group.mutedAt !== undefined || group.workspaceId !== grant.workspaceId) return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
+  // A guest chat's grant (`lib/textGroupGuests.ts`) holds while the chat is still a guest chat of the same group and
+  // the person who opened it may still: an owner or editor, texting. An ordinary chat's grant never resolves in a
+  // guest chat, nor a guest chat's in an ordinary one, so neither reads at the other's reach.
+  if ((texGroup.guestGroupId ?? null) !== (group.guestGroupId ?? null)) return false;
+  if (texGroup.guestGroupId !== undefined) return (await guestBinder(ctx, group)) !== null;
   for (const userId of texGroup.coViewerIds) {
     if ((await getMembership(ctx, grant.workspaceId, userId)) === null) return false;
     if (await phoneSignInPaused(ctx, userId)) return false;
@@ -201,7 +209,19 @@ export async function contextsForGrant(
   }
   // A group chat's grant reaches its one workspace and nothing else: not the
   // tagger's other memberships, not their personal workspace, not the pin.
-  if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) return [own];
+  if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
+    // A guest chat's reads only what is shared with its group, as a guest reads (`lib/nodes/chatFolders.ts`).
+    const chatGroupId = live.grant.texGroup?.guestGroupId;
+    if (chatGroupId !== undefined) {
+      const chatGroup = await ctx.db.get(chatGroupId);
+      if (chatGroup === null || chatGroup.workspaceId !== own.workspaceId) return [];
+      // Never more than an editor's hand there, whoever opened it: an owner's tools (visibility, links) stay theirs.
+      const role = own.role === "owner" ? "editor" : own.role;
+      const grantedNames = chatNamesOf(chatGroupId, chatGroup.name, await accessRowsOf(ctx, own.workspaceId));
+      return [{ ...own, role, grantedNames }];
+    }
+    return [own];
+  }
 
   const memberships = await ctx.db
     .query("workspaceMembers")

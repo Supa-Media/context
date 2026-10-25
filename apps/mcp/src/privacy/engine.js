@@ -403,6 +403,18 @@ export function readsAsGuest(names) {
 }
 
 /**
+ * The name a Tex guest chat's grant holds (`apps/convex/functions/lib/nodes/chatFolders.ts`, where the reasoning is):
+ * its rules arrive already read for it, a row its group holds as `team` and every other row as `private`, so the
+ * session drops the guest marker and the row tokens that reading used (`session.js` `grantedGroupsOf`).
+ */
+export const READS_AS_CHAT = "@#reads-as-chat";
+
+/** Whether these names are a Tex guest chat's (`READS_AS_CHAT`). */
+export function readsAsChat(names) {
+  return names !== undefined && names !== null && typeof names.has === "function" && names.has(READS_AS_CHAT);
+}
+
+/**
  * May this caller see this key at all?
  *
  * ## A group is reached by the grant, never by the role

@@ -41,6 +41,7 @@ import { StorageUnavailable } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
 import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
+import { READS_AS_CHAT } from "./privacy/engine.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -212,7 +213,7 @@ export async function resolveSession(token, slug, controlPlane) {
   // removed — two answers to one question, which is the shape of every
   // privilege bug in this neighbourhood.
   const scopes = effectiveScopes(session.scopes, workspace.role);
-  const grantedGroups = new Set(workspace.grantedNames.map((name) => `@${name}`));
+  const grantedGroups = grantedGroupsOf(workspace.grantedNames);
   const resolvedSession = {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
@@ -317,7 +318,7 @@ export function sessionForContext(session, name) {
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
-    grantedGroups: new Set((covered.grantedNames || []).map((name) => `@${name}`)),
+    grantedGroups: grantedGroupsOf(covered.grantedNames),
   };
   Object.defineProperty(sibling, "accessToken", {
     value: session.accessToken,
@@ -417,6 +418,21 @@ function normalizeSession(raw) {
  * becomes an existence oracle for every name in a global namespace: type slugs
  * until one answers differently and you have enumerated the customer list.
  */
+/**
+ * The names a grant reads one context with, each as `@name`.
+ *
+ * A Tex guest chat's (`READS_AS_CHAT`) rules arrive already read for it: a row its group holds is `team`, every other
+ * row `private` (`apps/convex/functions/lib/nodes/chatFolders.ts`). So the guest marker, which would shut those `team`
+ * rows, and the row tokens the reading already used are dropped; the chat marker and its group's name are kept. Only
+ * a session's own rules are read this way: `accessForLiveGrant` judges a grant by somebody else's rules and keeps
+ * every name, so there the guest marker still shuts `team`.
+ */
+export function grantedGroupsOf(names) {
+  const all = (names || []).map((name) => `@${name}`);
+  if (!all.includes(READS_AS_CHAT)) return new Set(all);
+  return new Set(all.filter((name) => name === READS_AS_CHAT || !name.startsWith("@#")));
+}
+
 function selectWorkspace(session, slug) {
   if (!slug) {
     const fallback = session.workspaces.find((w) => w.workspaceId === session.defaultWorkspaceId);
