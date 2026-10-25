@@ -161,6 +161,18 @@ describe("writing a list and its base together", () => {
   });
 });
 
+describe("someone outside named by their @handle", () => {
+  test("is shown by that handle, never by their name or address", async () => {
+    const w = await world();
+    await createWorkspace(w.t, w.stranger, "stran", { kind: "personal" });
+    expect(await save(w, PLAN, [{ handle: "@stran", role: "edit" }])).toMatchObject({ ok: true });
+    const answer = await list(w, w.owner, PLAN);
+    expect(answer?.grantees).toEqual([{ kind: "user", userId: w.stranger, label: "@stran", member: false, role: "edit" }]);
+    // Sent back by id on the next write, as the dialog does, and still accepted.
+    expect(await save(w, PLAN, [{ userId: w.stranger, role: "view" }])).toMatchObject({ ok: true });
+  });
+});
+
 describe("a list written from a stale read", () => {
   test("is refused as CONFLICT, and nothing is written", async () => {
     const w = await world();

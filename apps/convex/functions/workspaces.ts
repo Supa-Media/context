@@ -274,6 +274,8 @@ export const listMembers = query({
       role: v.string(),
       email: v.optional(v.string()),
       name: v.optional(v.string()),
+      /** Their own `@name` (their personal workspace), so the share field finds a member by it. */
+      handle: v.optional(v.string()),
       /**
        * Whether this row is the caller, so an interface can say "you" instead
        * of comparing ids it would otherwise have to be told. Same reason

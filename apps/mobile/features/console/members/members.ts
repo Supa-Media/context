@@ -27,6 +27,8 @@ export interface ConsoleMember {
   role: string;
   email?: string;
   name?: string;
+  /** Their own `@name` (their personal workspace), without the `@`. */
+  handle?: string;
   joinedAt: number;
   /** True for the signed-in person, so the row can say so instead of guessing. */
   isMe: boolean;

@@ -88,7 +88,9 @@ export function RecipientPicker({
     } else if (picked.kind === "group" && onShareWithGroup !== undefined) {
       onShareWithGroup(picked.group!);
     } else {
-      onShare(picked.kind === "member" ? picked.label : picked.key);
+      // A member by their own `@name` where they have one: a display name like "Mari Lola" is not something a
+      // share can be addressed to.
+      onShare(picked.kind === "member" ? (picked.handle !== undefined ? `@${picked.handle}` : picked.label) : picked.key);
     }
     setPicked(null);
     setRole("view");
