@@ -51,6 +51,7 @@ import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
+import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
 import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
@@ -344,8 +345,10 @@ export async function runTurn(options) {
   */
   const six = sixToolsOver(tools, grants);
   // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
+  // A move's own is in `slowMoves.js`, under whatever the caller set.
+  const limits = { ...MOVE_TIMEOUTS, ...toolTimeouts };
   const timeoutFor = (name) =>
-    Math.max(1, Math.min(Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs, toolBudgetMs + 30_000 - (clock() - began)));
+    Math.max(1, Math.min(Number.isInteger(limits[name]) && limits[name] > 0 ? limits[name] : toolTimeoutMs, toolBudgetMs + 30_000 - (clock() - began)));
 
   const provider = BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
@@ -643,7 +646,7 @@ export async function runTurn(options) {
         */
         if (error instanceof ProviderError) throw error;
         const text =
-          error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
+          error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : isMove(call.name) ? MOVE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).

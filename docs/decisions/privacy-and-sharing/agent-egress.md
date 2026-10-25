@@ -103,7 +103,15 @@ writes.
 (`elsewhereOnly`), which names no link, no publication and nobody new, and was
 the friction approvals were removed for; nor, for now, a move of a note into
 another workspace, which takes its own path (`moves/acrossContexts.js`) and
-carries the note's visibility with it. Without `SHARING_JUDGE`, or without an
+carries the note's visibility with it. Nor a move *inside* another workspace
+(`move_note`, `move_notes` or `move_folder` addressed with `context` alone, not
+asked to publish) whose every destination that workspace's own manifest reads
+no wider than its source: it is a relocation there, an ordinary write. Judging
+it as a move "into" the workspace refused Tex every move of a reorganize the
+owner asked for in their own shared workspace (2026-10-24); the owner said yes
+to this exception on 2026-10-25. A destination that reads wider there, a
+publish, or a move between two workspaces is judged as before
+(`apps/mcp/test/movesInsideAnotherWorkspace.test.mjs`). Without `SHARING_JUDGE`, or without an
 AI gateway to ask, nothing is judged and such calls run at once as before.
 Tests: `apps/mcp/test/agentEgressJudge.test.mjs`, sabotage record in its
 header.

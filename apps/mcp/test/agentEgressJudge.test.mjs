@@ -24,6 +24,8 @@
  *  5. `route.js` folding `quoted` into `question` (as the texting Worker did
  *     when inline replies landed). → `a texted turn is judged on the person's
  *     own text, never the message they replied to` fails.
+ *  6. `widening.js`'s inside-the-workspace shortcut for `move_note` removed.
+ *     → `a move inside another workspace runs without asking the judge` fails.
  */
 
 import { ask, call, request, textOf, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
@@ -122,6 +124,17 @@ export async function runAgentEgressJudgeChecks(check) {
     check(
       "an ordinary write into another workspace runs without asking the judge",
       elsewhere.isError !== true && team.get("notes/judged-elsewhere.md") !== undefined && model.requests.length === before,
+    );
+
+    // 2026-10-24: every move Tex sent inside @supa was judged as "into @supa" and refused.
+    const moved = await call(env, TOKEN_MCP, "move_note", {
+      source: "notes/judged-elsewhere.md",
+      destination: "notes/moved/judged-elsewhere.md",
+      context: "@egress-team",
+    });
+    check(
+      "a move inside another workspace runs without asking the judge",
+      moved.isError !== true && team.get("notes/moved/judged-elsewhere.md") !== undefined && model.requests.length === before,
     );
 
     model.install([verdict(true, "Asked for.")]);

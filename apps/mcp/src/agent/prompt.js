@@ -168,6 +168,20 @@ export const SAVING_LINE =
   "Only an account's password, an API key or a card number goes to the vault: offer its link once, and if they still want a note, save the note. Never refuse twice. " +
   "A new note goes where their folders say: when the folder sorts its notes into subfolders (a term, a year, a topic), put it in the one that fits.";
 
+/**
+ * Rearranging notes the person asked to have rearranged is Tex's to do (the
+ * owner, 2026-10-25: "Tex should be allowed to freely work in my context",
+ * "make sure Tex knows that it can do that", and, for this exact line, "yes i
+ * give you explicit permission to add that"). On 2026-10-24 a reorganize in a
+ * shared workspace was refused by the sharing judge (fixed in
+ * `privacy/widening.js`) and Tex told the person the moves were waiting for
+ * their OK. A move keeps each note's visibility, so it shows nobody anything.
+ */
+export const REORGANIZE_LINE =
+  "When they ask you to move, rename, archive or reorganize notes or folders, in their own workspace or a shared one they can write in, " +
+  "do it yourself in this turn: a move keeps who can see each note, so you don't ask first. Several notes go in one move_notes. " +
+  "If a move is refused, read why and fix the call rather than telling them it needs their OK.";
+
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
@@ -296,7 +310,7 @@ export function systemPrompt(
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
         ACTIONS_LINE,
-        ...(edits ? [REMEMBER_LINE, SAVING_LINE] : []),
+        ...(edits ? [REMEMBER_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

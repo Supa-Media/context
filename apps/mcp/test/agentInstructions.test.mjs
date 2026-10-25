@@ -228,7 +228,15 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 10,000 when they were told what they can do outside the notes and to keep a fact the moment it's given (ACTIONS_LINE, REMEMBER_LINE, 2026-10-23; 11,035 then).
   // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23).
   // and from 12,000 when a note they ask for is saved, and filed in the subfolder that fits (prompt.js, SAVING_LINE, 2026-10-24; 12,244 then).
-  assert.ok(system.length < 12_500, `system was ${system.length} characters`);
+  // and from 12,500 when they were told a reorganize they ask for is theirs to do at once (prompt.js, REORGANIZE_LINE, 2026-10-25).
+  assert.ok(system.length < 13_000, `system was ${system.length} characters`);
+});
+
+test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /do it yourself in this turn: a move keeps who can see each note/);
+  assert.match(system, /Several notes go in one move_notes/);
 });
 
 test("a texted turn by somebody with no Gmail connected is asked to offer it once (owner, 2026-10-23)", async () => {
