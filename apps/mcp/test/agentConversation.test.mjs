@@ -11,6 +11,7 @@ import {
   usedTools,
 } from "../src/agent/conversation.js";
 import { systemPrompt } from "../src/agent/prompt.js";
+import { heartbeatCallTool } from "../src/agent/heartbeat.js";
 import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
 
 function memoryStore() {
@@ -365,6 +366,15 @@ test("a note a check-in read is kept as its path, named as read, and the reply i
   const listed = earlierTextsResult(turns).content[0].text;
   assert.match(listed, /Notes you read for this: tex\/transcripts\/2026-10-24\.md/);
   assert.doesNotMatch(listed, /Web pages you read/);
+});
+
+test("a note a check-in read comes back named, and a refused or other read does not", async () => {
+  const callTool = heartbeatCallTool(async () => ({ content: [{ type: "text", text: "ok" }] }));
+  assert.deepEqual((await callTool("read_note", { path: "todo.md" })).sources, ["read:todo.md"]);
+  assert.equal((await callTool("search_notes", { query: "x" })).sources, undefined);
+  assert.equal((await callTool("read_note", { path: "x.md", context: "@other" })).sources, undefined);
+  const failed = heartbeatCallTool(async () => ({ isError: true, content: [{ type: "text", text: "not found" }] }));
+  assert.equal((await failed("read_note", { path: "gone.md" })).sources, undefined);
 });
 
 test("every turn is told never to guess pronouns (a group chat, 2026-10-25)", () => {

@@ -292,10 +292,6 @@ async function toolRefusals(check) {
     refusals.every((result) => result.isError === true) && allowed.every((result) => result.isError !== true) &&
       JSON.stringify(calls.map((call) => call.name)) === JSON.stringify(["read_note", "search_notes", "list_notes"]),
   );
-  check(
-    "a note a check-in read comes back named, so the reply to its text can open it (2026-10-25)",
-    JSON.stringify(allowed[0].sources) === JSON.stringify(["read:todo.md"]) && allowed[1].sources === undefined && refusals[4].sources === undefined,
-  );
 }
 
 export async function runAgentHeartbeatChecks(check) {
@@ -443,11 +439,8 @@ export async function runAgentHeartbeatChecks(check) {
     check(
       "a texted check-in joins the texting conversation, so a reply has it in front of it",
       conversation.turns?.at(-2)?.text === CHECK_IN_QUESTION &&
-        conversation.turns?.at(-1)?.text?.includes("tex-chaos-scale.png"),
-    );
-    check(
-      "...with the notes it read kept beside it, by path (2026-10-25: \"what whatsapp note\")",
-      JSON.stringify(conversation.turns?.at(-1)?.sources) === JSON.stringify([`read:${today}`, `read:${brandingNote}`]),
+        conversation.turns?.at(-1)?.text?.includes("tex-chaos-scale.png") && // with the notes it read, by path (2026-10-25: "what whatsapp note")
+        JSON.stringify(conversation.turns?.at(-1)?.sources) === JSON.stringify([`read:${today}`, `read:${brandingNote}`]),
     );
     const prompt = JSON.stringify(model.requests[0]);
     check(
