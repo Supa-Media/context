@@ -439,7 +439,8 @@ export async function runAgentHeartbeatChecks(check) {
     check(
       "a texted check-in joins the texting conversation, so a reply has it in front of it",
       conversation.turns?.at(-2)?.text === CHECK_IN_QUESTION &&
-        conversation.turns?.at(-1)?.text?.includes("tex-chaos-scale.png"),
+        conversation.turns?.at(-1)?.text?.includes("tex-chaos-scale.png") && // with the notes it read, by path (2026-10-25: "what whatsapp note")
+        JSON.stringify(conversation.turns?.at(-1)?.sources) === JSON.stringify([`read:${today}`, `read:${brandingNote}`]),
     );
     const prompt = JSON.stringify(model.requests[0]);
     check(

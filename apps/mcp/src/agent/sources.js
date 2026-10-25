@@ -36,9 +36,18 @@
   `note:<path>`: a name in the workspace the turn already wrote to, never
   what is in it.
 */
+/*
+  AND THE NOTES A CHECK-IN READ (2026-10-25). A check-in texted "the WhatsApp
+  note says tomorrow at 1 pm" about a fitting; asked "what whatsapp note",
+  the reply turn searched for one, found none, took the check-in back and
+  asked the person to paste the tailor's text. The check-in had read a day of
+  their own texts with Tex, and nothing kept which note. So a note a check-in
+  read is kept as `read:<path>`, the same kind of name `note:` is.
+*/
 import { EMAIL_ID_PREFIX, parseEmailId } from "../tools/emailRead.js";
 
 export const NOTE_SOURCE_PREFIX = "note:";
+export const READ_SOURCE_PREFIX = "read:";
 const NOTE_PATH = /^[^\s/][^\n]{0,240}$/;
 
 /** At most this many addresses an answer, and this long each. */
@@ -51,8 +60,9 @@ const SECRET_PARAM = /token|key|secret|sig|auth|code|session|pass|otp|ticket|non
 /** An address (or an email's id) as an answer keeps it, or null when it is neither. */
 export function sourceAddress(raw) {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 2000) return null;
-  if (raw.startsWith(NOTE_SOURCE_PREFIX)) {
-    const path = raw.slice(NOTE_SOURCE_PREFIX.length);
+  const prefix = [NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX].find((name) => raw.startsWith(name));
+  if (prefix !== undefined) {
+    const path = raw.slice(prefix.length);
     return NOTE_PATH.test(path) && !path.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ? raw : null;
   }
   if (raw.startsWith(EMAIL_ID_PREFIX)) {
@@ -86,6 +96,11 @@ export function sourcesOf(value) {
 /** Whether a kept source is a note the answer wrote. */
 export function isNoteSource(source) {
   return typeof source === "string" && source.startsWith(NOTE_SOURCE_PREFIX);
+}
+
+/** Whether a kept source is a note a check-in read. */
+export function isReadSource(source) {
+  return typeof source === "string" && source.startsWith(READ_SOURCE_PREFIX);
 }
 
 /** Whether a kept source is an email's id rather than a web address. */

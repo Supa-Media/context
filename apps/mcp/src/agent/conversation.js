@@ -25,7 +25,7 @@
 
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
-import { NOTE_SOURCE_PREFIX, isNoteSource, sourcesOf } from "./sources.js";
+import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
 const CONVERSATIONS = {
@@ -186,11 +186,13 @@ export function earlierTextsResult(history) {
   const lines = history.map((turn) => {
     const read = turn.role === "assistant" ? sourcesOf(turn.sources) : [];
     const notes = read.filter(isNoteSource);
-    const pages = read.filter((source) => !isNoteSource(source));
+    const looked = read.filter(isReadSource);
+    const pages = read.filter((source) => !isNoteSource(source) && !isReadSource(source));
     return [
       `${turn.role === "user" ? "They" : "You"}: ${turn.text}`,
       ...(pages.length > 0 ? [`(Web pages you read for this: ${pages.join(", ")})`] : []),
       ...(notes.length > 0 ? [`(Notes you wrote for this: ${notes.map((note) => note.slice(NOTE_SOURCE_PREFIX.length)).join(", ")})`] : []),
+      ...(looked.length > 0 ? [`(Notes you read for this: ${looked.map((note) => note.slice(READ_SOURCE_PREFIX.length)).join(", ")})`] : []),
     ].join("\n");
   });
   return { content: [{ type: "text", text: lines.join("\n\n") }] };

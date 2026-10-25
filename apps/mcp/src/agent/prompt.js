@@ -7,7 +7,7 @@
 
 import { PICTURES_LINE } from "./outgoingPictures.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
-import { NOTE_SOURCE_PREFIX, isEmailSource, isNoteSource } from "./sources.js";
+import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
@@ -82,6 +82,10 @@ export const OTHER_ROUTES_LINE =
  * said it had not checked notes it claimed to know, and could not say which
  * model it was).
  */
+/** A name says nothing about pronouns, so a guess can misgender a real person; the name or "they" never does. */
+export const PRONOUNS_LINE =
+  "Never guess anyone's pronouns, from a name or anything else: use their name or they/them, unless they or their notes say which pronouns they use.";
+
 const GROUND_RULES = [
   // "In this conversation" includes earlier texts whose lookups are not shown
   // (`conversation.js`): read narrowly, this rule had the model take back its
@@ -97,6 +101,8 @@ const GROUND_RULES = [
   // themselves that Tex has the access and capability to do."
   DO_IT_YOURSELF_LINE,
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
+  // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
+  PRONOUNS_LINE,
 ];
 
 /**
@@ -246,21 +252,28 @@ function usedLine(used) {
     "What you did for those earlier texts (not shown, but it happened):",
     ...answers.map(({ question, tools, sources }) => {
       const kept = Array.isArray(sources) ? sources : [];
-      const pages = kept.filter((source) => !isEmailSource(source) && !isNoteSource(source));
+      const pages = kept.filter(isPageSource);
       const emails = kept.filter(isEmailSource);
       const notes = kept.filter(isNoteSource).map((source) => source.slice(NOTE_SOURCE_PREFIX.length));
+      const read = kept.filter(isReadSource).map((source) => source.slice(READ_SOURCE_PREFIX.length));
       return [
         `- "${question}": you used ${tools.join(", ")}.`,
         ...(pages.length > 0 ? [`Web pages you read: ${pages.join(", ")}.`] : []),
         ...(emails.length > 0 ? [`Emails you found: ${emails.join(", ")}.`] : []),
         ...(notes.length > 0 ? [`Notes you wrote or changed: ${notes.join(", ")}.`] : []),
+        ...(read.length > 0 ? [`Notes you read for it: ${read.join(", ")}.`] : []),
       ].join(" ");
     }),
     "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
-    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some((source) => !isEmailSource(source) && !isNoteSource(source))) ? [SOURCES_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isPageSource)) ? [SOURCES_LINE] : []),
     ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isEmailSource)) ? [EMAILS_LINE] : []),
     ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isNoteSource)) ? [NOTES_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isReadSource)) ? [READ_LINE] : []),
   ].join("\n");
+}
+
+function isPageSource(source) {
+  return !isEmailSource(source) && !isNoteSource(source) && !isReadSource(source);
 }
 
 /**
@@ -289,6 +302,15 @@ const NOTES_LINE =
 const EMAILS_LINE =
   "Those emails are still in their Gmail: fetch an id to read one again, and pass it as forward to send it on. " +
   "Never ask them to forward or find an email you already found.";
+
+/**
+ * The notes a check-in read (`sources.js`): asked "what whatsapp note", the
+ * reply turn searched for a note by that name, found none, and took the
+ * check-in back (2026-10-25). The check-in had read a day of their own texts.
+ */
+const READ_LINE =
+  "Those notes are what that text was based on: asked where something came from, fetch that exact path and say what it says, " +
+  "and if it doesn't back the text up, say so plainly and correct it from what it does say. Never hunt for a source by the name the text gave it.";
 
 export function systemPrompt(
   place,

@@ -147,3 +147,24 @@ a long turn shows the typing bubble until it has something, and progress lines
 are for real milestones (a sign-in link, a step done) only. Tests: "a long turn
 sends no fixed 'on it' text while it works" (`sendblueThreads.test.ts`) and
 "Tex is never told to text that it is on it" (`agentProgress.test.mjs`).
+
+### A check-in keeps the notes it read
+
+2026-10-25: a check-in texted "the WhatsApp note says tomorrow at 1 pm" about a
+fitting and offered to move the calendar event. Asked "what whatsapp note", the
+reply turn searched for a note by that name, found none, took the check-in back
+and asked the person to paste the tailor's text. The check-in had read the day
+before's texts with Tex, where an early time had since been settled, and the
+history kept only its tools' names. Now every note a check-in reads is kept
+beside its text as `read:<path>` (`heartbeatCallTool`, `sources.js`), the reply
+is told to open that exact path and say what it says, and the check-in is told
+to state only what it read and can point to: a detail from their texts is what
+they told Tex, "tomorrow" there means that text's day, and a later text wins.
+A model can still misread a note; what this fixes is that the reply can check.
+Tests: "...with the notes it read kept beside it, by path"
+(`agentHeartbeat.test.mjs`) and "a note a check-in read is kept as its path"
+(`agentConversation.test.mjs`).
+
+Same day, a group chat: asked to roast Seyi, Tex called Seyi "her". Every turn
+now carries `PRONOUNS_LINE` (`prompt.js`): the name or they/them unless they or
+their notes say otherwise. Test: "every turn is told never to guess pronouns".
