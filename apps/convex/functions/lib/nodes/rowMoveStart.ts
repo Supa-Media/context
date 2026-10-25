@@ -45,6 +45,7 @@ import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFol
 import { clearanceOf } from "../clearance";
 import { handedEtagAt, rowEtagFor } from "./handedVersion";
 import { carryRowHistory } from "./rowHistory";
+import { queueLinkRepair } from "./linkRepair";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
 export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boolean): Error {
@@ -219,6 +220,8 @@ async function settleRowMove(
   await carryRowHistory(store, moved.files);
   const etag = moved.kind === "file" ? ((await handedEtagAt(store, to)) ?? moved.etag) : undefined;
   await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
+  // The links to what moved, and inside it, follow behind the move (`linkRepair.ts`); forwarding sends them on meanwhile.
+  await queueLinkRepair(ctx, workspaceId, moved.files, now);
   if (moved.kind === "folder") await remapFolderIcons(store, from, to);
   else await remapIcons(store, [{ from, to }]);
   if (args.projection) {

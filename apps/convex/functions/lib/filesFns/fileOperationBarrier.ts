@@ -74,6 +74,7 @@ import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
 import { hideOldCopiesPass, readOldCopyTexts } from "../oldCopies/hiding";
+import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 
@@ -491,6 +492,14 @@ export async function runFileOperationHandler(
   }
   if (args.operation.kind === "readOldCopies") {
     return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, keyStore ?? store, args.operation.paths) };
+  }
+  // A queued move's links (`lib/nodes/linkRepair.ts`): the notes it rewrote are told to the tree as any write is.
+  if (args.operation.kind === "repairLinks") {
+    const written = recordWrites(store);
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const result = await repairLinks(ctx, args.workspaceId, store, clearance, args.operation.pairs);
+    if (written.size > 0) await announceTreeChange(ctx, store, args, { paths: [...written], narrows: false }, result, null);
+    return result;
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {

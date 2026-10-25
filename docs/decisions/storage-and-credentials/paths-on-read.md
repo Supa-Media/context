@@ -36,11 +36,12 @@ existing workspaces that is confirmed finished in production before the next
 stage relies on it:
 
 1. Editing history filed by note id (below).
-2. Links bound to note ids, current paths filled in on read and on export; a
-   move rewrites no other note.
+2. Links follow a move in the background (below): the move does no per-note
+   link work.
 3. Pins, recents, routines, shares and the change log keyed by id.
 4. Rows stop storing `path`; paths are built on read, and a move or rename is
-   one row patch. The paged-move machinery (`rowMoves`, `drawnMoves`,
+   one row patch. The link table points at note ids then, since it has no path
+   to point at. The paged-move machinery (`rowMoves`, `drawnMoves`,
    `throughRowMoves`) goes with it.
 
 What a "simplification" would cost: storing any path as truth again brings
@@ -100,3 +101,42 @@ the erase, the backfill), `apps/mcp/test/collaborationByNoteId.test.mjs` for
 the route's forward and its `canSee`, and
 `apps/convex/__tests__/collaborationFiling.test.ts` for the backfill's lease,
 position and report.
+
+## Links follow a move in the background
+
+*Stage 2, built 2026-10-25* (`apps/convex/functions/linkRepairs.ts`,
+`functions/lib/nodes/linkRepair.ts`).
+
+- A keyed move queues the files it carried (`linkRepairs`, a page of
+  `REPAIR_PAIRS` to an entry) when its rows have moved, and answers. A pass
+  takes a workspace's entries oldest first, one pass per workspace at a time
+  (a lease on the entry it holds), and runs each through the credential
+  barrier as the `repairLinks` operation: the console's `rewriteReferences`,
+  reading only the notes the link facts name. An entry that fails waits for
+  the half-hourly cron; after `REPAIR_ATTEMPTS` it is dropped, and the
+  forwarding ledger the move wrote keeps sending old links on, as it does
+  until the pass lands.
+- **Why not paths filled in on read.** That was the first plan for this
+  stage. A note's text is a collaboration document that every editor, the
+  search index, the website and the export all read; showing other text than
+  it holds means every one of them learning to rewrite, and an editor typing
+  over text it was never sent. A rewrite in the note itself, behind the move,
+  keeps one text for everyone. What a move costs is unchanged by it, which is
+  what the owner asked for: the move is the rows.
+- **The pass runs as the owner,** so a private note's link follows too, which
+  a member's move never reached. Nothing about what was rewritten goes back to
+  the person who moved, so the count is no inference channel. A link is never
+  pointed at a name narrower than its own note (`reachableRenames` in
+  `fileOps/references.ts`, the gateway's rule): a `team` note's link to a note
+  moved into a private folder keeps its old name.
+- Before this a move in the app did not rewrite links at all (the console's
+  `rewriteReferences` was no longer called), and a move through the gateway
+  rewrote them in the request, the read of every note that could hold one.
+  Both now go through the queue. There is nothing new stored to backfill;
+  links an earlier app move left stale still forward to where the note went.
+
+What a "simplification" would cost: rewriting links in the request again
+makes a move's time grow with the notes that point into it, and an agent's
+move time out. `apps/convex/__tests__/nodes/linkRepair.test.ts` fails for the
+queueing, the narrowing rule and the queue's lease and attempts, and
+`apps/mcp/test/keyedFolderMove.test.mjs` for a gateway move writing a note.

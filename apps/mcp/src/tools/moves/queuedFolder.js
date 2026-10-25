@@ -23,9 +23,6 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { renameCollaboration } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
-import { loadPrivacyState } from "../../privacy/state.js";
-import { referencesLine } from "../../moves/objects.js";
-import { rewriteReferencesAfterMove } from "./references.js";
 
 /**
  * A keyed row move's collaboration half: each note the row move renamed carries
@@ -39,32 +36,13 @@ async function carryRowedCollaboration(store, answer, source, destination, priva
 }
 
 /**
- * A keyed row move's links: every link to a moved note, and every relative
- * link inside one, pointed at where it is now (`references.js`), as a move
- * the old way does. Run after the collaboration half, so a rewrite lands on
- * each note's history at its new name. The rules are read again, since the
- * row move carried them; where they cannot be, the caller's are used. A
- * rewrite that cannot run is reported as not done, never as a failed move:
- * the rows have moved, and the forwarding record still sends old links on.
- *
- * `pairs` are the notes and files that moved, each `{from, to}`; `null` (an
- * older control plane, which named only a folder's root) is not rewritten.
+ * A keyed row move's links: the control plane queues them when the rows move
+ * (`apps/convex/functions/linkRepairs.ts`) and rewrites every link to a moved
+ * note, and every relative link inside one, behind the move, as the owner. The
+ * move does no per-note link work, and the forwarding record sends an old link
+ * on until the rewrite lands.
  */
-async function rewriteRowedLinks(store, scope, privacy, pairs) {
-  if (!Array.isArray(pairs)) return { notes: 0, links: 0, capped: false };
-  let { rules, overrides } = privacy ?? {};
-  try {
-    const fresh = await loadPrivacyState(store);
-    if (fresh.error === undefined) ({ rules, overrides } = fresh);
-  } catch {
-    // The caller's rules, read before the move, are what this request was judged by.
-  }
-  try {
-    return await rewriteReferencesAfterMove(store, scope, rules ?? [], overrides ?? new Map(), new Map(pairs.map((pair) => [pair.from, pair.to])));
-  } catch {
-    return { notes: 0, links: 0, capped: true };
-  }
-}
+const FOLLOWING_LINE = "\nreferences: updated in the background (old links forward to the new path meanwhile)";
 
 /** Whether a folder named `a` and one named `b` are the same or one holds the other. */
 function nested(a, b) {
@@ -121,9 +99,8 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
   await carryRowedCollaboration(store, answer, source, destination, privacy);
-  const references = await rewriteRowedLinks(store, scope, privacy, [{ from: source, to: destination }]);
   await recordChange(store, "move_note", scope, [source, destination], { rowed: true });
-  return withActivityHint(toolText(`moved note: ${source} → ${destination}` + referencesLine(references)), {
+  return withActivityHint(toolText(`moved note: ${source} → ${destination}` + FOLLOWING_LINE), {
     moves: [{ from: source, to: destination }],
   });
 }
@@ -175,10 +152,9 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
   const pairs = moves.map((move) => ({ from: move.source, to: move.destination }));
   // Each moved note's collaboration history follows it (`keyedCollaboration.js`).
   await renameCollaboration(store, Array.isArray(answer.moves) ? answer.moves : pairs, { rules, overrides });
-  const references = await rewriteRowedLinks(store, scope, { rules, overrides }, pairs);
   await recordChange(store, "move_notes", scope, pairs.flatMap((pair) => [pair.from, pair.to]), { count: pairs.length, rowed: true });
   return withActivityHint(
-    toolText(`moved notes: ${pairs.length}\n` + pairs.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + referencesLine(references)),
+    toolText(`moved notes: ${pairs.length}\n` + pairs.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + FOLLOWING_LINE),
     { moves: pairs },
   );
 }
@@ -200,12 +176,10 @@ export async function startQueuedFolderMove(store, scope, source, destination, p
   }
   const count = Number.isInteger(answer.count) ? answer.count : 0;
   await carryRowedCollaboration(store, answer, source, destination, privacy);
-  // A keyed row move names the notes and files it moved; their links follow here. A queued copy rewrites its own when done.
-  const references = answer.rowed === true ? await rewriteRowedLinks(store, scope, privacy, Array.isArray(answer.moved) ? answer.moved : null) : null;
   await recordChange(store, "move_folder", scope, [source, destination], { count, queued: true });
   // A keyed row move copies nothing, so there is no storage catching up to say.
   const note = answer.rowed === true
-    ? "Every app shows it at the new name now." + referencesLine(references)
+    ? "Every app shows it at the new name now." + FOLLOWING_LINE
     : "Every app shows it at the new name now; storage finishes copying in the background, and links to it are rewritten when that is done.";
   return withActivityHint(
     toolText(`moved folder: ${source}/ → ${destination}/ (${count} objects)\n` + note),

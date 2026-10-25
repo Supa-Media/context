@@ -27,6 +27,7 @@ import type { WorkspaceGraphResult } from "../fileOps/graph";
 import type { Visibility } from "../privacy";
 import type { WorkspaceRole } from "../workspaceAuth";
 import type { HidePass, OldCopyText } from "../oldCopies/hiding";
+import type { LinkRepairResult } from "../nodes/linkRepair";
 import type { ContextPluginRow, ManagedInstalls, PluginInventory } from "./pluginValidators";
 
 /**
@@ -168,6 +169,8 @@ export type FileOperation =
   | { kind: "hideOldCopies"; cursor?: string }
   /** Hidden old copies' text for the owner's Download as folders (`lib/oldCopies/hiding.ts`); run by the barrier. */
   | { kind: "readOldCopies"; paths: string[] }
+  /** A queued move's links followed (`lib/nodes/linkRepair.ts`); run by the barrier. */
+  | { kind: "repairLinks"; pairs: { from: string; to: string }[] }
   | { kind: "delete"; path: string; confirmation: string }
   /**
    * Rows mode: the activity line a tier change records on the file path, for a change written to the rows
@@ -388,6 +391,7 @@ export type OperationResult =
   /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
   | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
   | HidePass
+  | LinkRepairResult
   | { kind: "oldCopyTexts"; results: OldCopyText[] }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
