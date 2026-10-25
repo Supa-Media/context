@@ -34,6 +34,13 @@
  * 10. `usernameOf` reading only a `user` name claim, which almost nobody has.
  *     → "a person with no claimed name is named by their personal workspace"
  *     fails: `people: []`.
+ 11. The scores note's replace retry writing with the conflict's raw bucket
+     etag. → "every review of the day lands…" fails in the collaborative
+     shape: the first rewrite makes the note a collaboration document, which
+     refuses the raw etag as a base, so the third review conflicts.
+ 12. `rebuildScoresNote` filing without `replace`. → "a day's scores note is
+     rebuilt by hand…" fails: the existing note conflicts and the lost row
+     stays missing.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -194,19 +201,55 @@ describe("what a review may carry", () => {
     await drainScheduled(t);
   }
 
-  test.each(["files", "rows", "moved"])("every review of the day lands in the day's scores note, not only the first (%s)", async (shape) => {
+  /** Production's bucket: conditional writes, so a rewritten note is edited as a collaboration document. */
+  async function collaborative(t: TestConvex) {
+    await t.run(async (ctx) => {
+      for (const binding of await ctx.db.query("storageBindings").collect()) {
+        await ctx.db.patch(binding._id, { capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true } });
+      }
+    });
+  }
+
+  test.each(["files", "rows", "moved", "collaborative"])("every review of the day lands in the day's scores note, not only the first (%s)", async (shape) => {
     const { t, pinned } = await world();
     if (shape !== "files") await judgedByRows(t, pinned, shape === "moved");
+    if (shape === "collaborative") await collaborative(t);
     vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid alice@example.invalid");
     expect(await review(t, { reason: "ended", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
     expect(await review(t, { reason: "ended", scores: { ...SCORES, goal: 9 }, words: WORDS })).toEqual({ review: { filed: "full" } });
+    // The third is the one that stopped on 2026-10-24 and 25: the second rewrite of a note the first rewrite started editing collaboratively.
+    expect(await review(t, { reason: "ended", scores: { ...SCORES, goal: 8 }, words: WORDS })).toEqual({ review: { filed: "full" } });
+    expect(await review(t, { reason: "ended", scores: { ...SCORES, goal: 7 }, words: WORDS })).toEqual({ review: { filed: "full" } });
     const paths = await notesIn(t, pinned);
-    expect(reviews(paths)).toHaveLength(2);
+    expect(reviews(paths)).toHaveLength(4);
     const days = scoreNotes(paths);
     expect(days).toHaveLength(1);
     const note = await readNote(t, pinned, days[0]!);
     expect(note).toContain("| 4 | 3 | 5 | 6 | 2 |");
     expect(note).toContain("| 9 | 3 | 5 | 6 | 2 |");
+    expect(note).toContain("| 8 | 3 | 5 | 6 | 2 |");
+    expect(note).toContain("| 7 | 3 | 5 | 6 | 2 |");
+  });
+
+  test("a day's scores note is rebuilt by hand from every row the day kept", async () => {
+    const { t, pinned } = await world();
+    await judgedByRows(t, pinned, true);
+    await collaborative(t);
+    await review(t, { reason: "ended", scores: SCORES });
+    await review(t, { reason: "ended", scores: { ...SCORES, goal: 9 } });
+    // A row whose note write was lost, as the days that stopped on 2026-10-24 and 25 kept them.
+    const day = await t.run(async (ctx) => {
+      const [first] = await ctx.db.query("texReviewScores").collect();
+      await ctx.db.insert("texReviewScores", { ...SCORES, goal: 1, day: first!.day, at: first!.at + 1, kind: "one", reason: "ended", who: "staff" });
+      return first!.day;
+    });
+    const [path] = scoreNotes(await notesIn(t, pinned));
+    expect(await readNote(t, pinned, path!)).not.toContain("| 1 | 3 | 5 | 6 | 2 |");
+    expect(await t.action(internal.functions.texReviewScoresRebuild.rebuildScoresNote, { day })).toEqual({ rows: 3, written: true });
+    const note = await readNote(t, pinned, path!);
+    for (const goal of [4, 9, 1]) expect(note).toContain(`| ${goal} | 3 | 5 | 6 | 2 |`);
+    expect(await t.action(internal.functions.texReviewScoresRebuild.rebuildScoresNote, { day: "2001-01-01" })).toEqual({ rows: 0, written: false });
+    await expect(t.action(internal.functions.texReviewScoresRebuild.rebuildScoresNote, { day: "../x" })).rejects.toThrow();
   });
 
   test("a scores note somebody opened to every account is not rewritten", async () => {
