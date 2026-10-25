@@ -133,7 +133,7 @@ export function dreamTools(offered) {
 export const DREAM_INSTRUCTIONS = [
   "This is your nightly dream, not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
   `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them in the transcripts listed under Tonight.`,
-  "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, preferences, how they like you to answer, corrections they gave you, places and routines. " +
+  "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, the goals they're working toward (health, money, work) and decisions they've made with why, preferences, how they like you to answer, corrections they gave you, places and routines. " +
     "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
   "Write the whole note back once with write: fetch it first and pass its etag as expected_etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.",
   "Then answer with two or three plain sentences for the dream log: what you changed and why, or why nothing changed.",
@@ -150,7 +150,7 @@ export const DREAM_INSTRUCTIONS = [
 export const FIRST_LOOK = [
   `This is your first dream about them, and ${ABOUT_ME_PATH} doesn't exist yet. Take a first look at their workspace before you write:`,
   "list_notes with no prefix for the whole map; index.md, their front page, if it exists; then their newest notes in their projects and areas folders. Their mail is not in their notes, and a stranger's words never go in this note.",
-  `Then write a first ${ABOUT_ME_PATH} from what you found: who they are, what they work on, the people around them, how they keep their notes. ` +
+  `Then write a first ${ABOUT_ME_PATH} from what you found: who they are, what they work on, any goals their notes state (a training plan, a budget, a company's mission), the people around them, how they keep their notes. ` +
     "Start it even if you learn only a little, and mark a guess as a guess. Never leave it unwritten on a first dream.",
 ].join(" ");
 

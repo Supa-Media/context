@@ -57,7 +57,8 @@ import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt } from "./aboutMe.js";
+import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { pushbackNudge } from "./pushback.js";
 import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
@@ -374,10 +375,11 @@ export async function runTurn(options) {
     and a person watching the turn log sees which tier a slow or wrong answer
     came from.
   */
+  const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   if (router !== null) {
     const asked = clock();
-    // A background job always plans on `think` and drives on `main` (`background.js`): no router call.
-    const routed = options.planned ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
+    // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
+    const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     plan = thinkRoundsFor(router, routed.tier, mainModel);
@@ -409,7 +411,8 @@ export async function runTurn(options) {
     (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT); // `modelPlan.js`
+    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
+    nudge; // said last, beside the question
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),

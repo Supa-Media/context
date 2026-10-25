@@ -217,5 +217,6 @@ test/fileParts.test.mjs
 test/calendarRetry.test.mjs
 test/agentSlowMoves.test.mjs
 test/movesInsideAnotherWorkspace.test.mjs
+test/agentPushback.test.mjs
 test/collaborationByNoteId.test.mjs
 test/agentRoutineWhen.test.mjs

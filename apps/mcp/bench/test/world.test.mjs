@@ -324,7 +324,8 @@ test("a routed setup records the tier first on the tools line and reports the mo
   };
   const world = await createWorld(bench, "Maya", ROUTED_SETUP, { gatewayFetch, ai: fakeAi() });
   try {
-    const thought = await world.text("Should I move the trip, given the dentist clash?");
+    // Not opening with "should I", which skips the router for the thinking model (`pushback.js`).
+    const thought = await world.text("Is moving the trip worth it, given the dentist clash?");
     assert.equal(thought.tools[0]?.tool, "router: think (0.90)", JSON.stringify(thought.tools));
     assert.equal(thought.model, "anthropic/claude-opus-5-5", "priced as the model that answered");
     assert.equal(seen.at(-1), "claude-opus-5-5");

@@ -32,6 +32,7 @@ import { meterEach, meterParts } from "./modelPlan.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { keepSentFiles, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
+import { withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
@@ -595,7 +596,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
-    const { answer: told, pictures } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : turn.answer);
+    // A flattering opener ("You're so right!") comes off first (`pushback.js`).
+    const { answer: told, pictures } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)

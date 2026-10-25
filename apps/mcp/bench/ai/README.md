@@ -54,6 +54,11 @@ this folder: it is public, like the rest of the repository.
   cancelling). Run it with `--test handback`. A site page with `captcha: 2`
   or `captcha: always` stands behind a bot check, so the gateway's captcha
   tries run for real (`bench/sites.mjs`).
+- `tests/pushback.md`: Tex's point of view (decided by the owner
+  2026-10-25, `docs/decisions/texting-assistant/pushback.md`): six cases
+  where it raises a goal or trade-off once, stays quiet, makes a small change
+  with the cost beside it, gives an honest take, or agrees without flattery.
+  Run it with `--test pushback`. Maya's goals are in her `tex/about-me.md`.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

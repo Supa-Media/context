@@ -8,6 +8,7 @@
 import { PICTURES_LINE } from "./outgoingPictures.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, isEmailSource, isNoteSource } from "./sources.js";
+import { OPINION_LINE } from "./pushback.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -151,7 +152,7 @@ export const ACTIONS_LINE =
  * runs at once after such an answer too (`memoryNudge.js`).
  */
 export const REMEMBER_LINE =
-  "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference), " +
+  "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference, a goal they're working toward, a decision they've made and why), " +
   "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
 
 /**
@@ -310,6 +311,8 @@ export function systemPrompt(
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
         ACTIONS_LINE,
+        // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
+        OPINION_LINE,
         ...(edits ? [REMEMBER_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
