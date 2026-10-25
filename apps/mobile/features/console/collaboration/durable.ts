@@ -4,6 +4,7 @@ import { openStore } from "../../offline/store";
 import { createSharedDoc, fromBase64, toBase64, type SharedDoc } from "../presence/sharedDoc";
 import { applyTextDiff } from "./textEdits";
 import { DRAFT_WAIT_MS, documentIdOf, holdsDocument, type Recovery } from "./offlineDraft";
+import { closeNote, openNote } from "./noteLease";
 
 export { textEdits } from "./textEdits";
 
@@ -95,6 +96,8 @@ export interface DurableControllerOptions {
    * `adoptGeneration`.
    */
   onRestart?: () => void;
+  /** Sending a closed note's unsent typing, not an editor's; see `closedNotes.ts`. */
+  background?: true;
 }
 
 interface Persisted {
@@ -171,6 +174,8 @@ export class DurableCollaborationController {
   private reading: Promise<void> | null = null;
   private readAgain = false;
   private readonly liveListeners = new Set<(frame: LiveUpdate) => void>();
+  /** The record this editor holds against a background send; see `noteLease.ts`. */
+  private leased: string | null = null;
 
   constructor(options: DurableControllerOptions) {
     this.options = options;
@@ -269,6 +274,11 @@ export class DurableCollaborationController {
     const from = this.key;
     this.options = { ...this.options, path };
     this.key = scopedKeyFor("collaboration", this.options.scope, this.options.workspaceId, path);
+    if (this.leased !== null) {
+      closeNote(this.leased);
+      this.leased = this.key;
+      void openNote(this.key);
+    }
     void this.persist().then((saved) => {
       if (saved) return this.store.remove(from).catch(() => {});
     });
@@ -359,6 +369,10 @@ export class DurableCollaborationController {
   }
 
   async start(): Promise<void> {
+    if (this.options.background !== true) {
+      this.leased = this.key;
+      await openNote(this.key);
+    }
     let raw: string | null = null;
     try {
       raw = await this.store.get(this.key);
@@ -419,8 +433,15 @@ export class DurableCollaborationController {
     this.doc.destroy();
   }
 
+  /** Resolves once every save this controller started has landed. */
+  settled(): Promise<void> {
+    return this.persistChain;
+  }
+
   private halt(): void {
     this.stopped = true;
+    if (this.leased !== null) closeNote(this.leased);
+    this.leased = null;
     this.liveListeners.clear();
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     if (this.repairTimer !== null) clearTimeout(this.repairTimer);

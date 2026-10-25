@@ -283,3 +283,26 @@ twice. Why not wait: an offline phone is exactly who the cursor is for.
 `apps/mobile/__tests__/durableOfflineDraft.test.ts` fails if a failed read
 reports an empty note, if typing offline is dropped, or if a draft is merged
 against a version other than the one on screen.
+
+## A closed shared note's unsent typing is sent without opening it
+
+A shared note's unsent typing (Yjs updates the bucket has not confirmed, or an
+offline draft) lives in its durable record, and only that note's controller
+sends it. The controller lived only while the editor had the note open, so an
+edit made offline in a note that was then closed stayed on the phone until
+somebody opened that note again.
+
+Now every launch and reconnection runs the same controller with no editor for
+each record that has something to send, one note at a time
+(`apps/mobile/features/console/collaboration/closedNotes.ts`). There is no
+second write path. A record has one writer at a time (`noteLease.ts`): a note
+the editor has open is skipped, and opening a note the background is sending
+stops that send and waits for its last save before the editor reads the
+record. Repeating a send cut off mid-request is safe, because the gateway keeps
+a replacement by its base and text and a Yjs update applied twice counts once.
+An older draft kept for review (a recovery not marked as an offline draft) is
+left for the editor.
+
+`apps/mobile/__tests__/durableClosedNotes.test.ts` fails if a closed note's
+draft or updates wait for it to be opened, if an open note is sent from the
+background, or if opening a note does not take it from the background sender.

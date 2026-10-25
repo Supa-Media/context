@@ -62,6 +62,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Permissions, stable identity, and verification are release gates
 - A live connection recovers on its own, and only the control plane says no
 - A shared note takes typing before its document arrives
+- A closed shared note's unsent typing is sent without opening it
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
