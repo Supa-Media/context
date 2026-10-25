@@ -8,8 +8,8 @@ describe("the tapback fits the text", () => {
   });
 
   it("cares when something hard happened, and never laughs at it", () => {
-    expect(["🫂", "❤️‍🩹"]).toContain(ackEmoji("my grandma is in the hospital, can you move my meetings tomorrow"));
-    expect(["🫂", "❤️‍🩹"]).toContain(ackEmoji("rough day. what's left on my list"));
+    expect(["🫂", "❤️\u200D🩹"]).toContain(ackEmoji("my grandma is in the hospital, can you move my meetings tomorrow"));
+    expect(["🫂", "❤️\u200D🩹"]).toContain(ackEmoji("rough day. what's left on my list"));
   });
 
   it("laughs along, is warm to a thanks, and celebrates good news", () => {
@@ -20,7 +20,7 @@ describe("the tapback fits the text", () => {
 
   it("fits the errand (Dev2, 2026-10-25: not 👀 on everything)", () => {
     expect(ackEmoji("make me a flyer for the picnic")).toBe("🎨");
-    expect(ackEmoji("the website is down")).toBe("🧑‍💻");
+    expect(ackEmoji("the website is down")).toBe("🧑\u200D💻");
     expect(ackEmoji("remind me at 9 to call Sam")).toBe("⏰");
     expect(ackEmoji("move my 3pm meeting to thursday")).toBe("🗓️");
     expect(["🔎", "🕵️"]).toContain(ackEmoji("can you find the lucky strike email"));
@@ -42,7 +42,7 @@ describe("the tapback fits the text", () => {
 
   it("never taps a gendered person: Tex doesn't know who is reading", () => {
     for (const text of ["fix the site", "find my passport photo", "track down that email", "the app crashed"]) {
-      expect(ackEmoji(text)).not.toMatch(/‍[♀♂]/u);
+      expect(ackEmoji(text)).not.toMatch(/\u200D[♀♂]/u);
     }
   });
 });

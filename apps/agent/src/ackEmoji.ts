@@ -32,7 +32,7 @@ const RULES: readonly Rule[] = [
   // Something hard happened to them: care, never a smile.
   {
     test: /\b(sick|ill|hospital|funeral|passed away|died|rough (day|week)|stressed|exhausted|overwhelmed|anxious|sad|heartbroken|bad news)\b|😢|😞|💔/i,
-    emoji: ["🫂", "❤️‍🩹"],
+    emoji: ["🫂", "❤️\u200D🩹"],
   },
   { test: /\b(lol|lmao|haha+|hehe)\b|😂|🤣|😭|💀/i, emoji: ["😂", "😭", "💀"] },
   { test: /\b(thanks?|thank you|thx|ty|appreciate (it|you)|you'?re the best|lifesaver)\b|🙏/i, emoji: ["🫶", "🥰"] },
@@ -44,7 +44,7 @@ const RULES: readonly Rule[] = [
     test: /\b(flyer|poster|logo|design|draw|sketch|picture|photo|image|pic|illustrat\w*|colou?rs?|blue|red|green|anime|cartoon)\b/i,
     emoji: ["🎨"],
   },
-  { test: /\b(code|coding|bug|website|site|deploy|app|api|script|github|domain|dns)\b/i, emoji: ["🧑‍💻"] },
+  { test: /\b(code|coding|bug|website|site|deploy|app|api|script|github|domain|dns)\b/i, emoji: ["🧑\u200D💻"] },
   { test: /\b(remind|reminder|don'?t let me forget|wake me)\b/i, emoji: ["⏰"] },
   {
     test: /\b(calendar|schedule|reschedule|meeting|invite|appointment|move my|block (off|out)|free (on|at)|availability)\b/i,
