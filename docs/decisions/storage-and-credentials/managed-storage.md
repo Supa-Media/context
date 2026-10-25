@@ -528,10 +528,16 @@ read it again. Since 2026-09-29 the switch-over schedules catch-up passes at 1,
 read the old bucket for files changed since the last check began, less a
 two-minute clock margin, and bring them across with one rule: a file in the new
 bucket is never overwritten and never deleted. A missing file is created
-create-only. A file that differs is kept beside it as
+create-only. A note that differs is kept beside it as a note of its own,
 `name (saved during the move).ext`, because telling which side is newer means
-trusting two providers' clocks against ours. A deletion in the old bucket is
-not carried. `.context/` plumbing is created when missing and otherwise left.
+trusting two providers' clocks against ours. Since notes are stored by id
+(2026-10-25), that copy is a new note id with its own key and a tree row beside
+the original's, carrying the original's access in the same mutation
+(`functions/moveCatchUpRows.ts`): a copy under a raw key with no row would be a
+file nobody can open, which is the late edit lost after all. A late version of a
+note no live row holds is not carried. A deletion in the old bucket is not
+carried. Every key that is not an id key, `.context/` plumbing and the frozen
+path copies alike, is created when missing and otherwise left.
 
 A write fence was the alternative, and it was turned down: a refused writer
 here loses data. The email worker rejects mail it cannot store for good (it must,

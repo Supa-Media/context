@@ -122,23 +122,37 @@ export const adoptKeyed = internalMutation({
     at: v.number(),
   },
   returns: adoptResultValidator,
-  handler: async (ctx, { workspaceId, path: asked, noteId, key, etag, size, at }) => {
-    const refused = { adopted: false as const, taken: null };
-    const path = await keyedPathOf(ctx.db, workspaceId, asked);
-    if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return refused;
-    if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
-
-    await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));
-    const row = await nodeAt(ctx.db, workspaceId, path);
-    if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
-      await markNestedSiteWrite(ctx, workspaceId, path);
-      return { adopted: true as const };
-    }
-    const taken = row === null ? null : entryOf(row);
-    return { adopted: false as const, taken: taken === null ? null : { ...taken, path: asked } };
-  },
+  handler: async (ctx, args) => await adoptKeyedRow(ctx, args),
 });
+
+/** `adoptKeyed`'s rule, for a mutation that gives a note its row as one step of its own (`moveCatchUpRows.ts`). */
+export async function adoptKeyedRow(
+  ctx: MutationCtx,
+  { workspaceId, path: asked, noteId, key, etag, size, at }: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    noteId: string;
+    key: string;
+    etag: string;
+    size?: number;
+    at: number;
+  },
+): Promise<{ adopted: true } | { adopted: false; taken: NoteEntry | null }> {
+  const refused = { adopted: false as const, taken: null };
+  const path = await keyedPathOf(ctx.db, workspaceId, asked);
+  if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
+  if (!(await keyedWorkspace(ctx.db, workspaceId))) return refused;
+  if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
+
+  await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));
+  const row = await nodeAt(ctx.db, workspaceId, path);
+  if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
+    await markNestedSiteWrite(ctx, workspaceId, path);
+    return { adopted: true as const };
+  }
+  const taken = row === null ? null : entryOf(row);
+  return { adopted: false as const, taken: taken === null ? null : { ...taken, path: asked } };
+}
 
 /**
  * Records the key's new version of a keyed note: `etag` and `size` of the key,

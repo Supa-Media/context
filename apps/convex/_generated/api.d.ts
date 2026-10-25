@@ -67,6 +67,7 @@ import type * as functions_invitations from "../functions/invitations.js";
 import type * as functions_managedHandoff from "../functions/managedHandoff.js";
 import type * as functions_handoffEmail from "../functions/handoffEmail.js";
 import type * as functions_moveCatchUp from "../functions/moveCatchUp.js";
+import type * as functions_moveCatchUpRows from "../functions/moveCatchUpRows.js";
 import type * as functions_managedEncryption from "../functions/managedEncryption.js";
 import type * as functions_managedErasure from "../functions/managedErasure.js";
 import type * as functions_managedProvisioning from "../functions/managedProvisioning.js";
@@ -234,6 +235,7 @@ declare const fullApi: ApiFromModules<{
   "functions/managedHandoff": typeof functions_managedHandoff;
   "functions/handoffEmail": typeof functions_handoffEmail;
   "functions/moveCatchUp": typeof functions_moveCatchUp;
+  "functions/moveCatchUpRows": typeof functions_moveCatchUpRows;
   "functions/managedEncryption": typeof functions_managedEncryption;
   "functions/managedErasure": typeof functions_managedErasure;
   "functions/managedProvisioning": typeof functions_managedProvisioning;

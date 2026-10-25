@@ -9,7 +9,9 @@
  * for files changed since the last check began and bring them across, and the
  * one rule they never break is that a file in the new bucket is never
  * overwritten or deleted: when both sides changed, the old side's version is
- * kept beside it as `name (saved during the move).ext`.
+ * kept beside it as a note of its own, `name (saved during the move).ext`: a
+ * new note id, its own key, and a row beside the original's. A note's name is
+ * its tree row, so a copy kept under a raw key with no row would be invisible.
  *
  * ## Sabotage record
  *
@@ -20,16 +22,23 @@
  * LastModified as old skipped a late write, failing the undated test. Letting
  * a deletion marker through deleted the new bucket's note, failing the
  * deletion test. Sending the create without `absent` overwrote a file created
- * between the read and the write, failing the race test.
+ * between the read and the write, failing the race test. Keeping the late
+ * version at a raw `(saved during the move)` key instead of a new id with a
+ * row left the beside note with no row, failing "both sides changed".
+ * Passing over a beside name that already holds these bytes wrote a second
+ * copy on the second pass, failing "running again adds nothing".
  */
 
 import { describe, expect, test } from "vitest";
 import {
-  catchUpCopyKey,
+  besideName,
   catchUpObject,
   catchUpPage,
+  noteIdOfKey,
+  type CatchUpRows,
   type CatchUpStore,
 } from "../functions/lib/moveCatchUp";
+import { idKeyFor, isNoteId } from "../functions/lib/nodes/noteIds";
 
 const BEFORE = Date.UTC(2026, 8, 29, 12, 0);
 const SINCE = Date.UTC(2026, 8, 29, 12, 10);
@@ -103,11 +112,57 @@ function bucket(initial: Record<string, [string, number] | [string, number, stri
 
 const CAP = 1024 * 1024;
 
-async function run(source: ReturnType<typeof bucket>, target: ReturnType<typeof bucket>) {
+const PLAN_ID = "0190a000-0000-7000-8000-0000000000a1";
+const PLAN = idKeyFor(PLAN_ID, "projects/plan.md");
+
+/**
+ * A tree with the production rule for beside names: one row per path, keyed
+ * at its storage key. `adopt` refuses a name a row already holds.
+ */
+function tree(initial: Record<string, string> = { "projects/plan.md": PLAN }) {
+  const rows = new Map(Object.entries(initial));
+  const adopted: { path: string; key: string; original: string }[] = [];
+  let beforeAdopt: ((path: string) => void) | undefined;
+  const api: CatchUpRows = {
+    async besideOf(key) {
+      const path = [...rows.entries()].find(([, held]) => held === key)?.[0];
+      if (path === undefined) return null;
+      const slots = Array.from({ length: 20 }, (_, index) => {
+        const held = rows.get(besideName(path, index + 1));
+        return held === undefined ? ({ free: true } as const) : ({ free: false, key: held } as const);
+      });
+      return { path, slots };
+    },
+    async adopt(copy) {
+      beforeAdopt?.(copy.path);
+      if (rows.has(copy.path) || ![...rows.values()].includes(copy.original)) return false;
+      if (copy.key !== idKeyFor(copy.noteId, copy.path) || !isNoteId(copy.noteId)) return false;
+      rows.set(copy.path, copy.key);
+      adopted.push({ path: copy.path, key: copy.key, original: copy.original });
+      return true;
+    },
+  };
+  return {
+    api,
+    rows,
+    adopted,
+    keyAt: (path: string) => rows.get(path) ?? null,
+    onAdopt(hook: (path: string) => void) {
+      beforeAdopt = hook;
+    },
+  };
+}
+
+async function run(
+  source: ReturnType<typeof bucket>,
+  target: ReturnType<typeof bucket>,
+  rows: ReturnType<typeof tree> = tree(),
+) {
   const page = await source.store.list({});
   return catchUpPage({
     source: source.store,
     target: target.store,
+    rows: rows.api,
     objects: page.objects,
     since: SINCE,
     byteCap: CAP,
@@ -117,10 +172,20 @@ async function run(source: ReturnType<typeof bucket>, target: ReturnType<typeof 
 
 describe("the name a late version is kept under", () => {
   test("sits beside the note, numbered after the first", () => {
-    expect(catchUpCopyKey("1-projects/plan.md", 1)).toBe("1-projects/plan (saved during the move).md");
-    expect(catchUpCopyKey("1-projects/plan.md", 2)).toBe("1-projects/plan (saved during the move 2).md");
-    expect(catchUpCopyKey("notes.v2/README", 1)).toBe("notes.v2/README (saved during the move)");
-    expect(catchUpCopyKey(".hidden", 1)).toBe(".hidden (saved during the move)");
+    expect(besideName("projects/plan.md", 1)).toBe("projects/plan (saved during the move).md");
+    expect(besideName("projects/plan.md", 2)).toBe("projects/plan (saved during the move 2).md");
+    expect(besideName("notes.v2/README", 1)).toBe("notes.v2/README (saved during the move)");
+    expect(besideName(".hidden", 1)).toBe(".hidden (saved during the move)");
+  });
+
+  test("only an id key names a note", () => {
+    expect(noteIdOfKey(PLAN)).toBe(PLAN_ID);
+    expect(noteIdOfKey(`files/${PLAN_ID}.png`)).toBe(PLAN_ID);
+    expect(noteIdOfKey(`files/${PLAN_ID}`)).toBe(PLAN_ID);
+    expect(noteIdOfKey("projects/plan.md")).toBeNull();
+    expect(noteIdOfKey(`notes/${PLAN_ID} (saved during the move).md`)).toBeNull();
+    expect(noteIdOfKey(`notes/sub/${PLAN_ID}.md`)).toBeNull();
+    expect(noteIdOfKey("notes/not-an-id.md")).toBeNull();
   });
 });
 
@@ -132,24 +197,69 @@ describe("catching up after the switch", () => {
     expect(target.read("0-inbox/late.md")).toBe("written late");
   });
 
-  test("both sides changed: the new bucket's file is kept and the late one sits beside it", async () => {
-    const source = bucket({ "plan.md": ["late edit in the old bucket", AFTER] });
-    const target = bucket({ "plan.md": ["edit made after the switch", AFTER] });
-    await expect(run(source, target)).resolves.toMatchObject({ copied: 0, keptBeside: 1 });
-    expect(target.read("plan.md")).toBe("edit made after the switch");
-    expect(target.read("plan (saved during the move).md")).toBe("late edit in the old bucket");
+  test("both sides changed: the new bucket's note is kept and the late one is a note beside it", async () => {
+    const source = bucket({ [PLAN]: ["late edit in the old bucket", AFTER] });
+    const target = bucket({ [PLAN]: ["edit made after the switch", AFTER] });
+    const rows = tree();
+    await expect(run(source, target, rows)).resolves.toMatchObject({ copied: 0, keptBeside: 1 });
+    expect(target.read(PLAN)).toBe("edit made after the switch");
+    // The late version is a note someone can open: a row beside the original, keyed at a new id of its own.
+    const copyKey = rows.keyAt("projects/plan (saved during the move).md");
+    expect(copyKey).toMatch(/^notes\/[0-9a-f-]{36}\.md$/);
+    expect(copyKey).not.toBe(PLAN);
+    expect(target.read(copyKey!)).toBe("late edit in the old bucket");
+    expect(rows.adopted).toEqual([{ path: "projects/plan (saved during the move).md", key: copyKey, original: PLAN }]);
+    expect([...target.objects.keys()].some((key) => key.includes("saved during the move"))).toBe(false);
+  });
+
+  test("an attachment's late version keeps its extension under its new id", async () => {
+    const photo = idKeyFor(PLAN_ID, "projects/photo.png");
+    const source = bucket({ [photo]: ["late pixels", AFTER, "application/octet-stream"] });
+    const target = bucket({ [photo]: ["new pixels", AFTER, "application/octet-stream"] });
+    const rows = tree({ "projects/photo.png": photo });
+    await run(source, target, rows);
+    const copyKey = rows.keyAt("projects/photo (saved during the move).png");
+    expect(copyKey).toMatch(/^files\/[0-9a-f-]{36}\.png$/);
+    expect(target.read(copyKey!)).toBe("late pixels");
+  });
+
+  test("a late version of a note no live row holds is not carried", async () => {
+    const source = bucket({ [PLAN]: ["late edit of a note trashed since", AFTER] });
+    const target = bucket({ [PLAN]: ["what the new bucket has", AFTER] });
+    const rows = tree({});
+    await expect(run(source, target, rows)).resolves.toMatchObject({ keptBeside: 0, noRow: 1 });
+    expect(target.writes).toEqual([]);
+  });
+
+  test("a path key that differs is left: nothing reads a frozen path copy", async () => {
+    const source = bucket({ "projects/plan.md": ["late path copy", AFTER] });
+    const target = bucket({ "projects/plan.md": ["frozen copy", AFTER] });
+    await expect(run(source, target)).resolves.toMatchObject({ copied: 0, keptBeside: 0 });
+    expect(target.writes).toEqual([]);
+  });
+
+  test("a beside name taken between the look and the row is never overwritten", async () => {
+    const source = bucket({ [PLAN]: ["late", AFTER] });
+    const target = bucket({ [PLAN]: ["new side", AFTER] });
+    const rows = tree();
+    rows.onAdopt((path) => {
+      if (!rows.rows.has(path)) rows.rows.set(path, "notes/someone-else.md");
+    });
+    await expect(run(source, target, rows)).resolves.toMatchObject({ keptBeside: 0, failed: 1 });
+    expect(rows.keyAt("projects/plan (saved during the move).md")).toBe("notes/someone-else.md");
+    expect(rows.adopted).toEqual([]);
   });
 
   test("a file changed only after the switch, in the new bucket, is left alone", async () => {
-    const source = bucket({ "plan.md": ["what the move verified", BEFORE] });
-    const target = bucket({ "plan.md": ["edited after the switch", AFTER] });
+    const source = bucket({ [PLAN]: ["what the move verified", BEFORE] });
+    const target = bucket({ [PLAN]: ["edited after the switch", AFTER] });
     await expect(run(source, target)).resolves.toMatchObject({ copied: 0, keptBeside: 0, checked: 0 });
     expect(target.writes).toEqual([]);
   });
 
   test("an identical file is not written again", async () => {
-    const source = bucket({ "plan.md": ["same", AFTER] });
-    const target = bucket({ "plan.md": ["same", BEFORE] });
+    const source = bucket({ [PLAN]: ["same", AFTER] });
+    const target = bucket({ [PLAN]: ["same", BEFORE] });
     await expect(run(source, target)).resolves.toMatchObject({ copied: 0, keptBeside: 0, checked: 1 });
     expect(target.writes).toEqual([]);
   });
@@ -163,24 +273,25 @@ describe("catching up after the switch", () => {
 
   test("a deletion in the old bucket never deletes or overwrites in the new one", async () => {
     const source = bucket({
-      "plan.md": ["", AFTER, "application/x-context-logical-tombstone"],
+      [PLAN]: ["", AFTER, "application/x-context-logical-tombstone"],
     });
-    const target = bucket({ "plan.md": ["still here", BEFORE] });
+    const target = bucket({ [PLAN]: ["still here", BEFORE] });
     await expect(run(source, target)).resolves.toMatchObject({ copied: 0, keptBeside: 0 });
-    expect(target.read("plan.md")).toBe("still here");
+    expect(target.read(PLAN)).toBe("still here");
     expect(target.writes).toEqual([]);
     expect(target.deletes).toEqual([]);
   });
 
   test("a file created in the new bucket between the read and the write is not overwritten", async () => {
-    const source = bucket({ "plan.md": ["late in the old bucket", AFTER] });
+    const source = bucket({ [PLAN]: ["late in the old bucket", AFTER] });
     const target = bucket();
+    const rows = tree();
     target.onCreate((key) => {
-      if (key === "plan.md" && !target.objects.has(key)) target.set(key, "someone got there first", AFTER);
+      if (key === PLAN && !target.objects.has(key)) target.set(key, "someone got there first", AFTER);
     });
-    await run(source, target);
-    expect(target.read("plan.md")).toBe("someone got there first");
-    expect(target.read("plan (saved during the move).md")).toBe("late in the old bucket");
+    await run(source, target, rows);
+    expect(target.read(PLAN)).toBe("someone got there first");
+    expect(target.read(rows.keyAt("projects/plan (saved during the move).md")!)).toBe("late in the old bucket");
   });
 
   test("Context's own plumbing is copied when missing and never duplicated", async () => {
@@ -196,17 +307,19 @@ describe("catching up after the switch", () => {
   });
 
   test("running again adds nothing, and a second late version gets the next name", async () => {
-    const source = bucket({ "plan.md": ["late one", AFTER] });
-    const target = bucket({ "plan.md": ["new side", AFTER] });
-    await run(source, target);
-    await run(source, target);
-    expect(target.writes).toEqual(["plan (saved during the move).md"]);
+    const source = bucket({ [PLAN]: ["late one", AFTER] });
+    const target = bucket({ [PLAN]: ["new side", AFTER] });
+    const rows = tree();
+    await run(source, target, rows);
+    await run(source, target, rows);
+    expect(rows.adopted.map((copy) => copy.path)).toEqual(["projects/plan (saved during the move).md"]);
+    expect(target.writes).toHaveLength(1);
 
-    source.set("plan.md", "late two", AFTER + 1);
-    await run(source, target);
-    expect(target.read("plan (saved during the move).md")).toBe("late one");
-    expect(target.read("plan (saved during the move 2).md")).toBe("late two");
-    expect(target.read("plan.md")).toBe("new side");
+    source.set(PLAN, "late two", AFTER + 1);
+    await run(source, target, rows);
+    expect(target.read(rows.keyAt("projects/plan (saved during the move).md")!)).toBe("late one");
+    expect(target.read(rows.keyAt("projects/plan (saved during the move 2).md")!)).toBe("late two");
+    expect(target.read(PLAN)).toBe("new side");
   });
 
   test("a file too large to move is counted and left in the old bucket", async () => {
@@ -217,6 +330,7 @@ describe("catching up after the switch", () => {
       catchUpPage({
         source: source.store,
         target: target.store,
+        rows: tree().api,
         objects: page.objects,
         since: SINCE,
         byteCap: 16,
@@ -241,6 +355,7 @@ describe("catching up after the switch", () => {
       catchUpPage({
         source: source.store,
         target: failing,
+        rows: tree().api,
         objects: page.objects,
         since: SINCE,
         byteCap: CAP,
@@ -254,7 +369,7 @@ describe("catching up after the switch", () => {
     const source = bucket();
     const target = bucket();
     await expect(
-      catchUpObject({ source: source.store, target: target.store, key: "gone.md", byteCap: CAP }),
+      catchUpObject({ source: source.store, target: target.store, rows: tree().api, key: PLAN, byteCap: CAP }),
     ).resolves.toBe("gone");
   });
 });
