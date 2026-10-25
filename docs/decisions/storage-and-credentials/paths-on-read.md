@@ -276,3 +276,35 @@ name a live row refuses moves over names nothing holds.
 count dropped, the link entry dropped and the rules check dropped, and checks
 that no row beneath the root changes and that links follow a folder moved
 twice to its newest name.
+
+## The flip
+
+*Stage 4d, built 2026-10-25* (`apps/convex/functions/treeFlips.ts`,
+`functions/lib/nodes/flipCheck.ts`).
+
+- A keyed workspace builds its paths from parents once a walk of its rows,
+  in stored-path order a page at a time, finds every live row at the path
+  its parents spell and the tree finding that row, and no other, at it. The
+  walk that ends clean sets `nodeTrees.paths` in its last transaction, unless
+  a row move is in flight then: a paged move carries its rows a page at a
+  time and would stop halfway once paths are built, so the workspace waits
+  for the next tick. A walk that finds anything out of place is walked again
+  from the next tick; nothing here sets it right (the parent check does).
+- A stored-path move keeps every row it carries where its parents put it, so
+  a move during the walk leaves a row behind the walk's position as right as
+  it was, and one clean walk is enough.
+- Gone rows whose built path differs are counted, not waited on: nothing
+  reads a gone row's name as where a live note is.
+- An unkeyed workspace never flips: its notes are read at their paths, so
+  moving a folder must move their bytes, which only stored paths do. A file
+  written by path after keying is left to the move, which refuses to carry
+  it (above).
+- A cron starts the walks every half hour; the `Tree paths` workflow starts
+  them at once, for at most `limit` workspaces, and reports counts only.
+
+What a "simplification" would cost: flipping on the parent check alone
+trusts a check that never asked whether the tree finds the row it checked,
+so one of two live rows at a name vanishes; flipping with a move in flight
+leaves its last pages at the old name.
+`apps/convex/__tests__/nodes/treeFlips.test.ts` fails for a flip after a
+mismatch, after two live rows at a name, and with a row move in flight.
