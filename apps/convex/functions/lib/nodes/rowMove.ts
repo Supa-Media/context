@@ -49,6 +49,7 @@ import { followFolderSettings } from "./settingsFollow";
 import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
 import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
 import { nodeAt, nodePaths, pathsBuilt } from "./paths";
+import { applyBuiltMove } from "./builtMove";
 
 /**
  * Live rows one row move renames in one transaction, the name itself included.
@@ -197,8 +198,10 @@ export async function applyRowMove(
   if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
 
   // Built paths (`paths.ts`): the moved row alone changes, and what is beneath follows it, however much there is.
-  const built = await pathsBuilt(ctx.db, ws);
-  const max = built ? Number.POSITIVE_INFINITY : (args.maxRows ?? ROW_MOVE_MAX);
+  if (await pathsBuilt(ctx.db, ws)) {
+    return await applyBuiltMove(ctx, { workspaceId: ws, from, to, now, trash, before, mirror, expectedEtag: args.expectedEtag, plannedFiles: args.plannedFiles });
+  }
+  const max = args.maxRows ?? ROW_MOVE_MAX;
   // `subtreeOf` counts the rows beneath; the name is one of the `max`, so `max - 1` of them may sit beneath it.
   const subtree = await subtreeOf(ctx.db, ws, from, max - 1);
   if (subtree.root === null) return refuse("not_found");
@@ -253,23 +256,8 @@ export async function applyRowMove(
   const parentId = await standFolders(ctx, ws, ancestors, now);
   const oldParent = root.parentId;
 
-  if (built) {
-    await ctx.db.patch(root._id, {
-      observedAt: now,
-      parentId,
-      name: nameOf(to),
-    });
-  } else {
-    await ctx.db.patch(root._id, {
-      path: to,
-      observedAt: now,
-      parentId,
-      name: nameOf(to),
-    });
-    const below = pairs.filter((pair) => pair.row._id !== root._id);
-    for (const pair of below)
-      await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
-  }
+  await ctx.db.patch(root._id, { path: to, observedAt: now, parentId, name: nameOf(to) });
+  for (const pair of pairs) if (pair.row._id !== root._id) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
   const files = pairs.filter((pair) => pair.row.kind === "file");
   await followMovedFiles(ctx, ws, files, trash, before);
 

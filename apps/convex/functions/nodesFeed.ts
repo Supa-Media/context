@@ -66,7 +66,15 @@ async function feedPrivacy(
   mirror: PrivacyMirror | null,
   moves: FeedMove[],
 ): Promise<string | null> {
-  return feedToken(mirror, movesMark(moves), await rowsVersionOf(ctx, workspaceId));
+  // A folder moved on built paths renames everything beneath it with no log row, so the count of them is in
+  // the token too, and a device walks after one (`builtMove.ts`).
+  const tree = await ctx.db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const folders = tree?.folderMoves ?? 0;
+  const marks = [movesMark(moves), folders === 0 ? "" : `f${folders}`].filter((mark) => mark !== "").join(".");
+  return feedToken(mirror, marks, await rowsVersionOf(ctx, workspaceId));
 }
 
 /** The access rows' version while rows judge the workspace, else `undefined`. */

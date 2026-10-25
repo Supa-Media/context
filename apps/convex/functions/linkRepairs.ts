@@ -16,6 +16,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { expandFolder } from "./lib/nodes/folderLinks";
 
 /** Files one entry carries: a page of a move, well inside one rewrite's reach. */
 export const REPAIR_PAIRS = 200;
@@ -64,7 +65,10 @@ export const claim = internalMutation({
   handler: async (ctx, { workspaceId, now }) => {
     const queue = await queueOf(ctx, workspaceId);
     if (queue.some((entry) => leased(entry, now))) return null;
-    for (const entry of queue) {
+    for (const queued of queue) {
+      // A folder moved on built paths names its row, not its files: its next page becomes the entry taken now.
+      const entry = queued.folder === undefined ? queued : await expandFolder(ctx, queued, now);
+      if (entry === null) continue;
       if (entry.attempts >= REPAIR_ATTEMPTS) {
         console.warn(JSON.stringify({ event: "linkRepairs.dropped", workspaceId, files: entry.pairs.length, error: entry.error ?? null }));
         await ctx.db.delete(entry._id);

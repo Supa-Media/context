@@ -32,6 +32,7 @@ import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { hidesBeneath } from "./builtJudge";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
@@ -129,12 +130,19 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   // The refusal says nothing of what is hidden, so it does not show that anything is. Plumbing (a dot
   // segment, such as a mail pass's attachment list) is hidden from every caller alike, so it hides nothing
   // from this one and goes with its folder.
+  // On built paths a folder's files are not listed: the rules beneath it say whether any is hidden, and the
+  // place it lands says where every one of them lands (`hiddenBeneath`).
+  const folderBuilt = plan.built && plan.kind === "folder" && !plan.listed;
   const seen = planned.files.filter((key) => !isPlumbing(key));
-  if (seen.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  if (
+    seen.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+    (folderBuilt && (await hidesBeneath(ctx, workspaceId, from, clearance, state)))
+  ) {
     throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
   }
   const pairs = planned.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
   assertMoveDestinationsVisible(pairs.filter((pair) => !isPlumbing(pair.source)), clearance, state);
+  if (folderBuilt) assertDestinationsVisible([to], clearance, state.rules, state.overrides);
 
   // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
   // narrowing on its own row, which the move then carries (`narrowMove`). The file's own rules are left alone.
@@ -158,7 +166,7 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
     to,
     privacyEtag: carried.etag,
     // A chunked move judges each page's rows itself; within the cap the mutation checks the very files judged here.
-    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    ...(plan.tooLarge || folderBuilt ? {} : { plannedFiles: planned.files }),
     chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
     now,
     ...(expectedEtag === undefined ? {} : { expectedEtag }),

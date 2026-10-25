@@ -171,6 +171,11 @@ export const nodeTables = {
      * names, so a move patches the moved row alone; absent, the stored `path`. Flipped with no row move in flight.
      */
     paths: v.optional(v.literal("built")),
+    /**
+     * Folder moves made on built paths. A device's feed token carries it (`nodesFeed.ts`): such a move renames
+     * everything beneath the folder with no change-log row, so a device walks after one.
+     */
+    folderMoves: v.optional(v.number()),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
       v.object({

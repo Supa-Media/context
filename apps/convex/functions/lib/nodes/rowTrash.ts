@@ -30,6 +30,7 @@ import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import { TRASH_ROOT, type FileStore } from "../fileOps/store";
 import { catchUpKeyedRows } from "./rowCatchUp";
 import { canSee } from "../privacy";
+import { hidesBeneath } from "./builtJudge";
 import { refusal } from "./rowMoveStart";
 import { carryRowHistory } from "./rowHistory";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
@@ -100,7 +101,12 @@ export async function startRowTrash(
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the trash was not made.");
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot be trashed as one step: the row move takes all of it.
-  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  // On built paths a folder's files are not listed: the rules beneath it say whether any is hidden (`hiddenBeneath`).
+  const folderBuilt = plan.built && plan.kind === "folder" && !plan.listed;
+  if (
+    planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+    (folderBuilt && (await hidesBeneath(ctx, workspaceId, path, clearance, state)))
+  ) {
     throw new FileOpError("CONFLICT", "That folder cannot be moved to the trash in one step.");
   }
 
@@ -116,7 +122,7 @@ export async function startRowTrash(
       from: path,
       to,
       privacyEtag: null,
-      ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+      ...(plan.tooLarge || folderBuilt ? {} : { plannedFiles: planned.files }),
       chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
       now,
       trash: true,
@@ -137,7 +143,11 @@ export async function startRowTrash(
     ? planned.files.map((key) => ({ from: key, to: `${to}${key.slice(path.length)}` }))
     : await pagesOf(ctx, workspaceId, store, { id: answer.chunked, to, state: "moving" }, path);
   await carryRowHistory(store, moves);
-  if (args.projection) await followInProjection(store, { written: [], gone: moves.map((pair) => pair.from) }, args.projection);
+  if (args.projection) {
+    // A folder trashed on built paths lists no files: the search index follows the folder itself into the trash.
+    const change = folderBuilt ? { written: [], gone: [], moved: [[path, to]] } : { written: [], gone: moves.map((pair) => pair.from) };
+    await followInProjection(store, change, args.projection);
+  }
   return { from: path, to, paths: [to], queued: moves.length, rowed: true };
 }
 
@@ -167,7 +177,7 @@ export async function restoreRowTrash(
     from: trash,
     to: path,
     privacyEtag: null,
-    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    ...(plan.tooLarge || (plan.built && !plan.listed) ? {} : { plannedFiles: planned.files }),
     // The caller judged the trash as a whole; a page judges nothing that comes out of the trash.
     chunk: { scope: "private", grantedNames: [] },
     now,

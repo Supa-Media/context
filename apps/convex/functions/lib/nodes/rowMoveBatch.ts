@@ -25,7 +25,8 @@ import { remapIcons } from "@context/shared/src/folderIcons.cjs";
 import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
-import { assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { hidesBeneath } from "./builtJudge";
 import type { MoveResult } from "../fileOps/moving";
 import { loadPrivacyState, type PrivacyState } from "../fileOps/privacyState";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
@@ -51,6 +52,8 @@ interface Planned {
   kind: "file" | "folder";
   files: string[];
   rows: number;
+  /** A folder on built paths: its files are not listed, and the rules beneath it are judged (`hiddenBeneath`). */
+  builtFolder: boolean;
 }
 
 /** The refusal a batch's throw carries (`nodeRowMoves.rowMoveBatch`): which move, and why. */
@@ -92,7 +95,7 @@ export async function startRowMoveBatch(
     if (plan.kind === null) throw notFound();
     if (plan.tooLarge) throw refusal("too_large", move.to, true);
     if (plan.unkeyed) throw refusal("unkeyed", move.to, true);
-    planned.push({ move, kind: plan.kind, files: plan.files, rows: plan.rows });
+    planned.push({ move, kind: plan.kind, files: plan.files, rows: plan.rows, builtFolder: plan.built && plan.kind === "folder" && !plan.listed });
   }
   if (planned.reduce((sum, entry) => sum + entry.rows, 0) > ROW_MOVE_MAX) {
     throw new FileOpError("FOLDER_TOO_LARGE", "These moves hold too many notes to make in one step. Make them in smaller batches.");
@@ -104,7 +107,10 @@ export async function startRowMoveBatch(
     const { move } = entry;
     if (!canSee(move.from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
     // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
-    if (entry.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+    if (
+      entry.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+      (entry.builtFolder && (await hidesBeneath(ctx, workspaceId, move.from, clearance, state)))
+    ) {
       throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
     }
     assertMoveDestinationsVisible(
@@ -112,6 +118,7 @@ export async function startRowMoveBatch(
       clearance,
       state,
     );
+    if (entry.builtFolder) assertDestinationsVisible([move.to], clearance, state.rules, state.overrides);
   }
 
   // Each move's rules go to its new name before any row moves, as one move's do; a batch that fails takes them back.
@@ -149,11 +156,11 @@ export async function startRowMoveBatch(
   try {
     await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveBatch, {
       workspaceId,
-      moves: planned.map(({ move, files }, index) => ({
+      moves: planned.map(({ move, files, builtFolder }, index) => ({
         from: move.from,
         to: move.to,
         ...(expectations[index] === undefined ? {} : { expectedEtag: expectations[index] }),
-        plannedFiles: files,
+        ...(builtFolder ? {} : { plannedFiles: files }),
       })),
       privacyEtag,
       now,

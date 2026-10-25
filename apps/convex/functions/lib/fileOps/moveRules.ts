@@ -9,6 +9,8 @@
 import {
   type PrivacyRule,
   type Visibility,
+  isPlumbing,
+  readsAsGuest,
   effectiveVisibility,
   narrowerVisibility,
   hasOverride,
@@ -256,4 +258,28 @@ export function rulesAfterFolderMove(
       ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
       : rule,
   );
+}
+
+/**
+ * The settings beneath the folder `from` that hide what they cover from this caller, judged from the rules
+ * alone: what a move on built paths asks of a folder too big to list (`builtMove.ts`), instead of judging every
+ * file it carries. A file's visibility is its own setting or its nearest folder's, so with `from` itself
+ * visible a file beneath it is hidden only where a setting beneath `from` hides it. The caller asks which of
+ * these still name a live row (`nodeRowMoves.liveAmong`): a rule left at a name nothing holds hides nothing.
+ * Plumbing is hidden from every caller alike, and goes with its folder.
+ */
+export function hiddenBeneath(
+  from: string,
+  clearance: Clearance,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): string[] {
+  if (clearance.scope === "private") return [];
+  const beneath = (path: string) => path.startsWith(`${from}/`) && !isPlumbing(path);
+  // As `canSee` answers a path whose setting is `visibility`.
+  const reaches = (visibility: Visibility) =>
+    visibility === "team" ? !readsAsGuest(clearance.names) : visibility !== "private" && clearance.names.has(visibility);
+  const hidden = rules.filter((rule) => beneath(rule.prefix) && !reaches(rule.vis)).map((rule) => rule.prefix);
+  for (const [key, visibility] of overrides) if (beneath(key) && !reaches(visibility)) hidden.push(key);
+  return hidden;
 }

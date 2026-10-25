@@ -23,7 +23,8 @@ import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { privacyEtagOf } from "./lib/nodes/readerRules";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
-import { nodeAt, nodePaths } from "./lib/nodes/paths";
+import { liveNodeAt, nodeAt, nodePaths, pathsBuilt } from "./lib/nodes/paths";
+import { HIDDEN_ASKED } from "./lib/nodes/builtJudge";
 
 const refusalValidator = v.union(
   v.literal("not_keyed"),
@@ -71,13 +72,23 @@ export const plan = internalQuery({
     rows: v.number(),
     unkeyed: v.boolean(),
     tooLarge: v.boolean(),
+    /** The workspace builds its paths (`lib/nodes/paths.ts`): a move of any size is one row change. */
+    built: v.boolean(),
+    /**
+     * `files` names every live file beneath. On built paths a folder of more than `ROW_MOVE_MAX` rows is not
+     * listed: the caller judges what is beneath it from the rules (`builtJudge.ts`).
+     */
+    listed: v.boolean(),
   }),
   handler: async (ctx, { workspaceId, from }) => {
     if (!(await keyedWorkspace(ctx.db, workspaceId))) {
-      return { keyed: false, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: false };
+      return { keyed: false, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: false, built: false, listed: true };
     }
+    const built = await pathsBuilt(ctx.db, workspaceId);
     const subtree = await subtreeOf(ctx.db, workspaceId, from, ROW_MOVE_MAX - 1);
-    if (subtree.root === null) return { keyed: true, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over };
+    if (subtree.root === null) return { keyed: true, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over && !built, built, listed: !subtree.over };
+    // On built paths a folder too big to list moves as one row all the same; its files are not named.
+    if (built && subtree.over) return { keyed: true, kind: subtree.root.kind, files: [], rows: 1, unkeyed: false, tooLarge: false, built, listed: false };
     const rows = [subtree.root, ...subtree.below];
     const files = rows.filter((row) => row.kind === "file");
     return {
@@ -87,7 +98,19 @@ export const plan = internalQuery({
       rows: rows.length,
       unkeyed: files.some((row) => row.storageKey === undefined),
       tooLarge: subtree.over,
+      built,
+      listed: true,
     };
+  },
+});
+
+/** Whether a live row stands at any of `paths` (`builtJudge.ts`): a setting there still hides something. */
+export const liveAmong = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, paths }) => {
+    for (const path of paths.slice(0, HIDDEN_ASKED)) if ((await liveNodeAt(ctx.db, workspaceId, path)) !== null) return true;
+    return paths.length > HIDDEN_ASKED;
   },
 });
 
