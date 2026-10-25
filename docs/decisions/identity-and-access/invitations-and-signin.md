@@ -310,14 +310,16 @@ Self-hosters get the same gate; their `ADMIN_EMAILS` are admitted, and
 
 ### The App Store review phone is an alias, never proof of phone ownership
 
-The owner requested the reserved fictional number `+12025550123` and code
-`000000` for App Store review on 2026-10-15. On 2026-10-25 the owner moved the
-code into secrets: the phone now takes the deployment's `REVIEWER_SIGNIN_CODE`,
-the same code as the reviewer's email sign-in, because a public `000000`
-opened the reviewer account to anyone reading this repository, and a CASA scan
-reports any hardcoded credential. App Store review notes give that code. The existing dedicated reviewer
-account holds the sample workspace. Phone sign-in resolves only that account's
-verified primary email, never provisions an account, and refuses conflicting
+The owner requested the reserved fictional number `+12025550123` for App Store
+review on 2026-10-15. On 2026-10-25 the owner kept the code already supplied to
+Apple instead of editing App Store Connect. The deployment reads that value
+from `APP_REVIEW_SIGNIN_CODE`, independently of `REVIEWER_SIGNIN_CODE` for the
+directory reviewer's email. Both come from the vault; no code is embedded in
+the provider. Without a separate App Store code, the phone retains the
+directory-code fallback. A malformed override disables the phone alias.
+The existing dedicated reviewer account holds the sample workspace. Phone
+sign-in resolves only that account's verified primary email, never provisions
+an account, and refuses conflicting
 phone assignments. It is enabled only where the directory reviewer is already
 configured. The existing directory email code remains unchanged.
 

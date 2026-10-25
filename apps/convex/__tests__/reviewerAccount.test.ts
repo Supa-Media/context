@@ -38,11 +38,27 @@ describe("no fixed sign-in code lives in this public repository", () => {
     expect(testAccountEmail({ TEST_ACCOUNT_SIGNIN_CODE: " 582046 " })).toEqual([{ email: TEST_ACCOUNT_EMAIL, code: "582046" }]);
   });
 
-  test("the App Store review phone takes the reviewer's code and never 000000", () => {
+  test("the App Store review phone defaults to the directory reviewer's code", () => {
     const env = { REVIEWER_SIGNIN_CODE: "482913" };
     expect(appReviewPhoneCodeMatches("482913", env)).toBe(true);
     expect(appReviewPhoneCodeMatches("000000", env)).toBe(false);
     expect(appReviewPhoneCodeMatches("482913", {})).toBe(false);
+  });
+
+  test("the submitted App Store code can stay separate from the directory code", () => {
+    const env = { REVIEWER_SIGNIN_CODE: "482913", APP_REVIEW_SIGNIN_CODE: " 000000 " };
+    expect(appReviewPhoneCodeMatches("000000", env)).toBe(true);
+    expect(appReviewPhoneCodeMatches("482913", env)).toBe(false);
+    expect(reviewerTestEmail(env)[0]?.code).toBe("482913");
+  });
+
+  test("an invalid App Store override disables the alias rather than using another code", () => {
+    for (const code of ["12345", "1234567", "abcdef"]) {
+      const env = { REVIEWER_SIGNIN_CODE: "482913", APP_REVIEW_SIGNIN_CODE: code };
+      expect(appReviewPhoneCodeMatches(code, env)).toBe(false);
+      expect(appReviewPhoneCodeMatches("482913", env)).toBe(false);
+    }
+    expect(appReviewPhoneCodeMatches("000000", { APP_REVIEW_SIGNIN_CODE: "000000" })).toBe(false);
   });
 
   test("auth.ts writes no six-digit code", () => {

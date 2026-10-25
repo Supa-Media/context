@@ -347,7 +347,23 @@ describe("limits", () => {
 describe("the App Store review phone", () => {
   const phone = "+12025550123";
   const REVIEW_CODE = "482913";
-  beforeEach(() => vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE));
+  beforeEach(() => {
+    vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE);
+    vi.stubEnv("APP_REVIEW_SIGNIN_CODE", "");
+  });
+
+  test("keeps a separately configured submitted code scoped to the review alias", async () => {
+    vi.stubEnv("APP_REVIEW_SIGNIN_CODE", "000000");
+    const t = setupTest();
+    const reviewer = await createUser(t, "connector-review@supa.media");
+    await kayla(t);
+    expect(await start(t, phone)).toEqual({ status: "sent", phone });
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
+    expect((await signIn(t, phone, "000000")).tokens).toBeTruthy();
+    expect(calls).toEqual([]);
+    expect((await signIn(t, KAYLA_PHONE, "000000")).tokens).toBeNull();
+    expect(await sessionUsers(t)).toEqual([reviewer]);
+  });
 
   test("opens only the existing reviewer account without SMS or an email gate", async () => {
     const t = setupTest();
