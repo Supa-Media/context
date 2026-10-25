@@ -22,6 +22,7 @@
     "build:production": "eas build --profile production"
   },
   "dependencies": {
+    "@auth/core": "^0.41.3",
     "@codemirror/autocomplete": "^6",
     "@codemirror/commands": "^6",
     "@codemirror/lang-css": "^6",
@@ -39,7 +40,7 @@
     "@context/meetings": "workspace:*",
     "@context/obsidian-runtime": "workspace:*",
     "@context/shared": "workspace:*",
-    "@convex-dev/auth": "^0.0.90",
+    "@convex-dev/auth": "^0.0.96",
     "@excalidraw/excalidraw": "0.18.1",
     "@expo/metro-runtime": "~6.1.2",
     "@lezer/common": "^1",

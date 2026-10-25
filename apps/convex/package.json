@@ -9,9 +9,10 @@
     "dev": "convex dev"
   },
   "dependencies": {
+    "@auth/core": "^0.41.3",
     "@context/obsidian-runtime": "workspace:*",
     "@context/shared": "workspace:*",
-    "@convex-dev/auth": "^0.0.90",
+    "@convex-dev/auth": "^0.0.96",
     "@resvg/resvg-wasm": "^2.6.2",
     "@supa-media/convex": "^1.11.0",
     "convex": "^1.31.3",
