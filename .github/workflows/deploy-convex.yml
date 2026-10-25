@@ -193,6 +193,11 @@ jobs:
           # in with (`functions/lib/reviewerAccount.ts`). Absent is a working
           # state: no reviewer provider is registered.
           REVIEWER_SIGNIN_CODE: ${{ secrets.REVIEWER_SIGNIN_CODE }}
+          # The production CUJ account's six-digit code
+          # (`functions/lib/testAccount.ts`). Never committed: a code in this
+          # public repository signs anybody in. Absent is a working state: the
+          # account signs in by a code mailed to its inbox.
+          TEST_ACCOUNT_SIGNIN_CODE: ${{ secrets.TEST_ACCOUNT_SIGNIN_CODE }}
           # Where in-app feedback reports go (`functions/feedback.ts`): the
           # app's own Sentry DSN, now read by the control plane, which checks
           # a report and counts it against the day's ten before sending it on.
@@ -254,7 +259,7 @@ jobs:
             STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
             TURNSTILE_SECRET_KEY \
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-            REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
+            REVIEWER_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL

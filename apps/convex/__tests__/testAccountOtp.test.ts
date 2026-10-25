@@ -29,7 +29,10 @@ import { setupTest, type TestConvex } from "./fixtures.helpers";
  */
 
 const TEST_EMAIL = "agentseyi@agentmail.to";
-const TEST_CODE = "000000";
+// The CUJ provider reads its code from the deployment when `auth.ts` loads,
+// which in this file is the first `setupTest()` call — after this line.
+const TEST_CODE = "582046";
+process.env.TEST_ACCOUNT_SIGNIN_CODE = TEST_CODE;
 
 const ENV_KEYS = [
   "TEST_OTP_EMAIL",
@@ -100,9 +103,13 @@ async function requestThenVerifyScoped(t: TestConvex, email: string, code: strin
 }
 
 describe("the framework-scoped production CUJ provider", () => {
-  test("the canonical Seyi test account signs in with six zeroes", async () => {
+  test("the canonical Seyi test account signs in with the deployment's code", async () => {
     const result = await requestThenVerifyScoped(setupTest(), TEST_EMAIL, TEST_CODE);
     expect(result.tokens).not.toBeNull();
+  });
+
+  test("the public six zeroes no longer open it", async () => {
+    await expect(requestThenVerifyScoped(setupTest(), TEST_EMAIL, "000000")).rejects.toThrow(/Could not verify code/);
   });
 
   test("the same known code cannot sign in any other address", async () => {

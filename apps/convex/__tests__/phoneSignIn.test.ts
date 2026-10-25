@@ -346,18 +346,26 @@ describe("limits", () => {
 
 describe("the App Store review phone", () => {
   const phone = "+12025550123";
-  beforeEach(() => vi.stubEnv("REVIEWER_SIGNIN_CODE", "482913"));
+  const REVIEW_CODE = "482913";
+  beforeEach(() => vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE));
 
   test("opens only the existing reviewer account without SMS or an email gate", async () => {
     const t = setupTest();
     const reviewer = await createUser(t, "connector-review@supa.media");
     const other = await kayla(t);
     expect(await start(t, "+1 (202) 555-0123")).toEqual({ status: "sent", phone });
-    expect((await signIn(t, phone, "000000")).tokens).toBeTruthy();
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeTruthy();
     expect(await sessionUsers(t)).toEqual([reviewer]);
     expect(await sessionUsers(t)).not.toContain(other);
     expect(calls).toEqual([]);
     expect(await asUser(t, reviewer).query(api.functions.phoneCheck.myPhoneCheck, {})).toMatchObject({ needsEmail: false, required: false });
+  });
+
+  test("refuses the old public 000000", async () => {
+    const t = setupTest();
+    await createUser(t, "connector-review@supa.media");
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect(await sessionUsers(t)).toEqual([]);
   });
 
   test("refuses other codes even if Twilio would approve them", async () => {
@@ -370,7 +378,7 @@ describe("the App Store review phone", () => {
   test("the fixed code never authenticates another phone", async () => {
     const t = setupTest();
     await kayla(t);
-    expect((await signIn(t, KAYLA_PHONE, "000000")).tokens).toBeNull();
+    expect((await signIn(t, KAYLA_PHONE, REVIEW_CODE)).tokens).toBeNull();
     expect(await sessionUsers(t)).toEqual([]);
   });
 
@@ -378,7 +386,7 @@ describe("the App Store review phone", () => {
     const t = setupTest();
     const other = await kayla(t);
     await t.run(ctx => ctx.db.patch(other, { phone, phoneVerificationTime: 1 }));
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
     expect(await sessionUsers(t)).toEqual([]);
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(1);
   });
@@ -388,10 +396,10 @@ describe("the App Store review phone", () => {
     const reviewer = await createUser(t, "connector-review@supa.media");
     vi.stubEnv("REVIEWER_SIGNIN_CODE", "");
     expect((await start(t, phone)).status).toBe("unavailable");
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
-    vi.stubEnv("REVIEWER_SIGNIN_CODE", "482913");
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
+    vi.stubEnv("REVIEWER_SIGNIN_CODE", REVIEW_CODE);
     await t.run(ctx => ctx.db.patch(reviewer, { emailVerificationTime: undefined }));
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
     expect(calls).toEqual([]);
   });
 
@@ -401,7 +409,7 @@ describe("the App Store review phone", () => {
     const other = await kayla(t);
     await t.run(ctx => ctx.db.insert("phoneLinks", { userId: other, phone, linkedAt: 1 }));
     expect((await start(t, phone)).status).toBe("paused");
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
     expect(await sessionUsers(t)).toEqual([]);
   });
 
@@ -409,6 +417,6 @@ describe("the App Store review phone", () => {
     const t = setupTest();
     await createUser(t, "connector-review@supa.media");
     for (let i = 0; i < 10; i++) expect((await signIn(t, phone, "999999")).tokens).toBeNull();
-    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect((await signIn(t, phone, REVIEW_CODE)).tokens).toBeNull();
   });
 });
