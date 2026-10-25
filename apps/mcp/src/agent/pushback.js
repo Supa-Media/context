@@ -53,7 +53,7 @@ export function withoutFlattery(answer) {
   these gets it, so an ordinary ask carries nothing extra.
 */
 const OPINION = /^\s*(?:i\s+think|i\s+feel\s+like|i\s+reckon|imo\b|should\s+(?:we|i)\b|what\s+if\s+we|maybe\s+we\s+should|let'?s\s+(?:rewrite|redo|rebuild|switch|skip|drop|cut|scrap|move\s+to))/i;
-const GOAL_ASK = /\b(?:order|buy|get\s+me|book|spend|rewrite|switch|skip|drop|cut|cancel|scrap)\b/i;
+const GOAL_ASK = /\b(?:order|buy|get\s+me|book|spend|savings|budget|rewrite|switch|skip|drop|cut|cancel|scrap)\b/i;
 
 /** The words added at the end of a turn's instructions for this text, or "". */
 export function pushbackNudge(question, goals = []) {

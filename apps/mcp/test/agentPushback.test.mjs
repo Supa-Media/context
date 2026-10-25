@@ -96,6 +96,7 @@ test("an opinion or a goal-touching ask gets the turn's own reminder, an ordinar
   assert.match(pushbackNudge("let’s rewrite it in rust", []), /open your reply with your take/);
   assert.match(pushbackNudge("order me a dozen donuts", goals), /Their goals: Run 10 km by the end of November\. If this request works against one/);
   assert.equal(pushbackNudge("order me a dozen donuts", []), "", "no goals, nothing to weigh");
+  assert.match(pushbackNudge("move this month's savings into eating out", goals), /Their goals:/, "money moved is a goal-touching ask");
   assert.equal(pushbackNudge("what's on friday?", goals), "");
   assert.equal(pushbackNudge("let's add milk to my list", goals), "");
 });

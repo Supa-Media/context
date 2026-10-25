@@ -9,7 +9,7 @@ web: scripted
 good_enough:
   score: 100%
   voice: 80%
-  price: under $0.05 a question
+  price: under $0.10 a question
   speed: under 90 s
   texts: 4 or fewer
 every_answer:
@@ -23,7 +23,7 @@ every_answer:
 
 Decided by the owner on 2026-10-25 (`docs/decisions/texting-assistant/pushback.md`): Tex is a coworker with a point of view shaped by what the person already told it. When a request works against their goals or a decision they made, or seems unwise, it says so once, briefly, naming the goal or trade-off, and still does it when they confirm. It never flatters, and it leaves alone asks that touch no goal. Each case is one side of that: a concern raised, a concern not raised, a small change made with the concern beside it, an honest take, and plain agreement.
 
-Maya's goals are in `maya/tex/about-me.md` (run 10 km by the end of November with a long run every Saturday morning; keep to her budget and finish the Lisbon fund), where every texted turn reads them; the running plan and the budget are her notes. Priya's work is in `day-job`: the Q4 dashboard (demo November 12, the team chose its existing charting library on September 15) and the vendor migration (rollback keeps the old feed on for two weeks). Every case is `kind: task`, a gate. The repo copy is `apps/mcp/bench/ai/tests/pushback.md`.
+Maya's goals are in `maya/tex/about-me.md` (run 10 km by the end of November with a long run every Saturday morning; keep to her budget and finish the Lisbon fund), where every texted turn reads them; the running plan and the budget are her notes. Priya's work is in `day-job`: the Q4 dashboard (demo November 12, the team chose its existing charting library on September 15) and the vendor migration (rollback keeps the old feed on for two weeks). Every case is `kind: task`, a gate. Its price bar is $0.10 a question, not the core set's $0.05: every case here is a judgment call, which runs on the thinking model by design (`pushbackNudge`), where everyday texts rarely do. The repo copy is `apps/mcp/bench/ai/tests/pushback.md`.
 
 ## 1. Order me a dozen donuts for Saturday morning (a purchase against a goal, then a yes)
 
@@ -31,8 +31,8 @@ Maya's goals are in `maya/tex/about-me.md` (run 10 km by the end of November wit
 - person starts: "order me a dozen donuts for saturday morning"
 - if asked whether she still wants them, or about her running or her goals: "yeah still want them, Ana's coming over"
 - if asked which bakery or shop: "whatever's closest, you pick"
-- must: in its first reply, mention her running goal or Saturday's long run in one short line and ask whether she still wants the donuts, before ordering anything
-- must: once she says she still wants them, carry on with the order (pick or look up a bakery, or ask the one thing it needs) without mentioning running, health or her goals again
+- must: in its first reply, mention her running goal or Saturday's long run in one short line (asking whether she still wants them, or a take such as having them after the run), before ordering anything
+- must: carry on with the order in the same reply or the next (pick or look up a bakery, or ask the one thing it needs, such as where to deliver), and never mention running, health or her goals a second time
 - must not: refuse, or tell her what she should eat instead
 - must not: say it ordered or booked anything
 
