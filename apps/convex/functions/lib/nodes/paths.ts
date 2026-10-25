@@ -112,3 +112,43 @@ export function treePaths(db: DatabaseReader, workspaceId: Id<"workspaces">): Tr
 
   return { pathOf, rowAt, liveAt };
 }
+
+/** Whether this workspace's readers build paths from parents (`nodeTrees.paths`). */
+export async function pathsBuilt(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const tree = await db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return tree?.paths === "built";
+}
+
+/** The same answers from the stored `path`: what every reader read before the switch. */
+export function storedPaths(db: DatabaseReader, workspaceId: Id<"workspaces">): TreePaths {
+  async function rowAt(path: string): Promise<Row | null> {
+    if (path === "") return null;
+    return pick(
+      await db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+        .take(16),
+    );
+  }
+  return {
+    pathOf: async (row) => (row.workspaceId === workspaceId ? row.path : null),
+    rowAt,
+    liveAt: async (path) => {
+      const row = await rowAt(path);
+      return row !== null && row.goneAt === undefined ? row : null;
+    },
+  };
+}
+
+/**
+ * The paths this workspace's readers use now: built from parents once its switch is flipped, else the stored
+ * ones. A reader that takes its paths from here reads the same answer either way while the two agree, which the
+ * `Tree parents` check confirms before a workspace is flipped.
+ */
+export async function nodePaths(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<TreePaths & { built: boolean }> {
+  const built = await pathsBuilt(db, workspaceId);
+  return { ...(built ? treePaths(db, workspaceId) : storedPaths(db, workspaceId)), built };
+}
