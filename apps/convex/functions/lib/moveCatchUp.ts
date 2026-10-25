@@ -217,7 +217,9 @@ async function keepBeside(
     const written = await createExactly(target, copyKey, bytes);
     // A fresh id's key is never taken; if it somehow is, the next name gets another id.
     if (written === null) continue;
-    if (await rows.adopt({ original: key, path, noteId, key: copyKey, etag: written.etag ?? "", size: bytes.byteLength })) {
+    // A row needs the version its key holds; without one the next pass tries again.
+    if (!written.etag) throw new Error("NO_ETAG");
+    if (await rows.adopt({ original: key, path, noteId, key: copyKey, etag: written.etag, size: bytes.byteLength })) {
       return "kept_beside";
     }
     // Taken between the look and the write, or the original went: look again from the start of the names.
