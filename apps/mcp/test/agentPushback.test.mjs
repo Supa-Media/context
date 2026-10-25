@@ -87,3 +87,28 @@ test("the goals in their about-me are named back after it, so a request is weigh
   assert.ok(!/Their goals right now/.test(aboutMePrompt("# About Maya\n\n- Likes tea.\n", { edits: false })), "no Goals heading, no line");
   assert.deepEqual(goalsIn("## My goals\n1. Ship the app\n### Later\n- not this"), ["Ship the app"]);
 });
+
+test("an opinion or a goal-touching ask gets the turn's own reminder, an ordinary ask none", async () => {
+  const { pushbackNudge } = await import("../src/agent/pushback.js");
+  const goals = ["Run 10 km by the end of November."];
+  assert.match(pushbackNudge("i think we should hold the demo", []), /open your reply with your take/);
+  assert.match(pushbackNudge("Should we skip the rollback?", []), /open your reply with your take/);
+  assert.match(pushbackNudge("let’s rewrite it in rust", []), /open your reply with your take/);
+  assert.match(pushbackNudge("order me a dozen donuts", goals), /Their goals: Run 10 km by the end of November\. If this request works against one/);
+  assert.equal(pushbackNudge("order me a dozen donuts", []), "", "no goals, nothing to weigh");
+  assert.equal(pushbackNudge("what's on friday?", goals), "");
+  assert.equal(pushbackNudge("let's add milk to my list", goals), "");
+});
+
+test("a texted turn's instructions end with that reminder", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.model.install([{ text: "Agreed, sign-off first." }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "i think we should hold the demo until sign-off", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    const system = JSON.stringify(world.model.requests[0].system);
+    assert.match(system, /Their text is an opinion or a \\"should\\"/);
+  } finally {
+    world.restore();
+  }
+});

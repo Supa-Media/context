@@ -57,7 +57,8 @@ import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt } from "./aboutMe.js";
+import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { pushbackNudge } from "./pushback.js";
 import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
@@ -409,7 +410,8 @@ export async function runTurn(options) {
     (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT); // `modelPlan.js`
+    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
+    (texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""); // said last, beside the question (`pushback.js`)
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),

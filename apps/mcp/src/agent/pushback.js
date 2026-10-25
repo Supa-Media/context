@@ -43,3 +43,27 @@ export function withoutFlattery(answer) {
   if (rest === "") return answer;
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
+
+/*
+  The turn's own reminder, said last so it sits next to the question. The
+  standing line above was not enough on its own: in the first two bench
+  rounds (gh-77, gh-80) Haiku went straight to finding a donut shop with her
+  running goal named back to it, and logged "I think we should hold the demo"
+  as a to-do without saying whether it agreed. Only a text shaped like one of
+  these gets it, so an ordinary ask carries nothing extra.
+*/
+const OPINION = /^\s*(?:i\s+think|i\s+feel\s+like|i\s+reckon|imo\b|should\s+(?:we|i)\b|what\s+if\s+we|maybe\s+we\s+should|let'?s\s+(?:rewrite|redo|rebuild|switch|skip|drop|cut|scrap|move\s+to))/i;
+const GOAL_ASK = /\b(?:order|buy|get\s+me|book|spend|rewrite|switch|skip|drop|cut|cancel|scrap)\b/i;
+
+/** The words added at the end of a turn's instructions for this text, or "". */
+export function pushbackNudge(question, goals = []) {
+  const text = String(question ?? "").replace(/[‘’]/g, "'");
+  const lines = [];
+  if (OPINION.test(text)) {
+    lines.push("Their text is an opinion or a \"should\": open your reply with your take, saying plainly whether you agree and why from their notes, before you do or offer anything else.");
+  }
+  if (Array.isArray(goals) && goals.length > 0 && GOAL_ASK.test(text)) {
+    lines.push(`Their goals: ${goals.join(" ")} If this request works against one, your first line names it in a few words and, when it costs money or is hard to undo, asks whether they still want it; then carry on with the job.`);
+  }
+  return lines.length > 0 ? `\n\n${lines.join(" ")}` : "";
+}
