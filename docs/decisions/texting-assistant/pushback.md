@@ -48,6 +48,8 @@ cut corners, it should say what that costs and why, and still do the job.
   bench rounds on Haiku alone went straight to the errand (a donut shop, a
   to-do for "I think we should hold the demo"); the owner's model split puts
   the thinking on Opus. Only texts of that shape, so the share stays small.
+  Such a text costs about $0.15 (gh-86, gh-87) against an everyday text's
+  $0.01 to $0.02; the core set's price does not move.
 - **Said by the build.** `OPINION_LINE` (`agent/pushback.js`) is added to
   every texted turn in `prompt.js`, whatever the production setup's words,
   because it is a rule the owner set, not a matter of voice.
@@ -72,3 +74,4 @@ then a yes, a small ask with no pushback, a small change made with the cost
 beside it, a rewrite that undoes a decision, an honest take on cutting a
 corner, plain agreement), each a gate, with `no_flattery` and `not_preachy`
 graded on every answer. Maya's goals sit in her `tex/about-me.md` fixture.
+Run gh-87 (commit baa23a6) passed all six.
