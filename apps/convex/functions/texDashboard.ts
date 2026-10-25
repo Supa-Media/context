@@ -6,10 +6,12 @@
  *
  * Two locks on every call, both checked here and never by the page: the
  * caller is staff, and the caller is a member of the pinned context the notes
- * live in, so the desk shows nobody a note their own membership would not.
- * Reads and writes then go through `runFileOperation` at the clearance
- * `authorizeFileAccess` gives that membership, as any other read of theirs
- * would; an action writes only with an editor's role.
+ * live in. Membership is who may ask, never what they may see: `canSee` over
+ * the workspace's rules decides that, here as in every other listing, so the
+ * desk shows nobody a note their own membership would not. Reads and writes
+ * then go through `runFileOperation` at the clearance `authorizeFileAccess`
+ * gives that membership, as any other read of theirs would; an action writes
+ * only with an editor's role.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -21,6 +23,11 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalQuery, query, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
+import { clearanceOf } from "./lib/clearance";
+import { resolveFileAccess } from "./lib/filesFns/access";
+import { canSee } from "./lib/privacy";
+import { readerView } from "./lib/nodes/readerRules";
+import { audienceOfNames } from "./lib/pinnedReaders";
 import { toConvexError } from "./lib/adminFns/errors";
 import {
   STATUS_AFTER,
@@ -52,13 +59,28 @@ async function deskOf(ctx: QueryCtx) {
   return { ok: true as const, userId, workspaceId: pinned._id, folders };
 }
 
+/**
+ * What this member may see, as any listing judges it: their clearance from
+ * live membership, over the rules the rows hold. A query has to ask
+ * `resolveFileAccess` itself, which is what it is there for — a reactive
+ * query cannot `runQuery`, and this is the same body `authorizeFileAccess`
+ * answers with, so the listing and the read beside it cannot disagree.
+ */
+async function deskVisibility(ctx: QueryCtx, userId: Id<"users">, workspaceId: Id<"workspaces">): Promise<(path: string) => boolean> {
+  const access = await resolveFileAccess(ctx, { actorUserId: userId, workspaceId, minimum: "member" });
+  const clearance = clearanceOf(access.scope, access.grantedNames);
+  const { judged } = await readerView(ctx, workspaceId, audienceOfNames(clearance.names));
+  return (path: string) => canSee(path, access.scope, judged.rules, judged.overrides, clearance.names);
+}
+
 export const triage = query({
   args: {},
   returns: texTriageValidator,
   handler: async (ctx): Promise<TexTriage> => {
     const desk = await deskOf(ctx);
     if (!desk.ok) return { available: false, reason: desk.reason };
-    return { available: true, slug: PINNED_CONTEXT_SLUG, ...(await triageRows(ctx.db, desk.workspaceId, desk.folders)) };
+    const visible = await deskVisibility(ctx, desk.userId, desk.workspaceId);
+    return { available: true, slug: PINNED_CONTEXT_SLUG, ...(await triageRows(ctx.db, desk.workspaceId, desk.folders, visible)) };
   },
 });
 
