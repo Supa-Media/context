@@ -31,6 +31,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, drainScheduled } from "./fixtures.helpers";
 import { GUIDE, OLD_BUG, PLAN, migrate, pinnedWorld, setRow, type PinnedWorld } from "./pinnedReaders.helpers";
 import { applyTreeObservation } from "./fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -41,10 +42,7 @@ afterEach(() => {
 
 async function rowAt(w: PinnedWorld, path: string, workspaceId: Id<"workspaces"> = w.pinned): Promise<Doc<"nodes">> {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspaceId, path);
     if (row === null) throw new Error(`no row at ${path}`);
     return row;
   });
@@ -174,8 +172,7 @@ describe("no other workspace", () => {
      
     });
     await w.t.run(async (ctx) => {
-      const at = (path: string) =>
-        ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", acme).eq("path", path)).unique();
+      const at = (path: string) => treeNodeAt(ctx.db, acme, path);
       const team = await at("team.md");
       const members = await at("members.md");
       await ctx.db.patch(team!._id, { access: { base: "team" } });

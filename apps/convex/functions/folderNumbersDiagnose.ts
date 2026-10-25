@@ -17,6 +17,7 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { TRASH_ROOT } from "./lib/fileOps/store";
 import type { DatabaseReader } from "../_generated/server";
+import { located, nodeAt, nodePaths } from "./lib/nodes/paths";
 
 /** Rows read under one numbered folder: past the biggest Inbox, a bound on the query. */
 const SCAN = 12_000;
@@ -125,15 +126,12 @@ async function filesUnder(
   let folders = 0;
   let scanned = 0;
   const prefix = `${path}/`;
-  for await (const below of db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) =>
-      q.eq("workspaceId", workspaceId).gt("path", prefix),
-    )) {
-    if (!below.path.startsWith(prefix)) break;
-    if (scanned >= SCAN) return { files, unkeyed, unkeyedWhere, folders, capped: true };
+  const whole = await (
+    await nodePaths(db, workspaceId)
+  ).below(path, (below) => {
+    if (scanned >= SCAN) return false;
     scanned += 1;
-    if (below.goneAt !== undefined) continue;
+    if (below.goneAt !== undefined) return;
     if (below.kind === "folder") folders += 1;
     else {
       files += 1;
@@ -142,8 +140,8 @@ async function filesUnder(
         if (unkeyedWhere.length < UNKEYED_SHOWN) unkeyedWhere.push(unkeyedShape(below.path, prefix, below, now));
       }
     }
-  }
-  return { files, unkeyed, unkeyedWhere, folders, capped: false };
+  });
+  return { files, unkeyed, unkeyedWhere, folders, capped: !whole };
 }
 
 async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
@@ -155,7 +153,9 @@ async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
         q.eq("workspaceId", workspaceId).eq("role", role),
       )
       .take(JOB_ROWS_SHOWN);
-    for (const row of rows) {
+    for (const found of rows) {
+      const row = await located(db, found);
+      if (row === null) continue;
       const parent =
         row.parentId === undefined ? null : await db.get(row.parentId);
       jobs.push({
@@ -176,12 +176,7 @@ async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
 async function plainRowsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
   const rows = [];
   for (const path of MAIN_ROLES as readonly string[]) {
-    const row = await db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        q.eq("workspaceId", workspaceId).eq("path", path),
-      )
-      .first();
+    const row = await nodeAt(db, workspaceId, path);
     if (row === null) continue;
     rows.push({
       path,
@@ -260,7 +255,8 @@ export const page = internalQuery({
             other._id !== row._id &&
             other.name.toLowerCase() === plain.toLowerCase(),
         );
-        const under = await filesUnder(ctx.db, workspaceId, row.path);
+        // A top-level row's path is its name.
+        const under = await filesUnder(ctx.db, workspaceId, row.name);
         numbered.push({
           name: row.name,
           role: row.role ?? null,

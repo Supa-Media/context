@@ -17,6 +17,10 @@ import { checkParents, folderOf } from "../../functions/lib/nodes/parentCheck";
 import { PARENTS_LEASE_MS } from "../../functions/treeParents";
 import { keyedFixture, rowOf } from "./keyedFixture.helpers";
 import type { Fixture } from "./moveFixture.helpers";
+import { storedPathsOnly } from "./treeRows.helpers";
+
+// Paged moves and the parent check that sets parents from stored paths exist only on stored paths.
+storedPathsOnly();
 
 async function stateOf(f: Fixture) {
   return await f.t.run(async (ctx) =>

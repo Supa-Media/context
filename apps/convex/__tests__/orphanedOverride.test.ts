@@ -47,6 +47,7 @@ import { type FileStore, restoreTrashedPath, trashPath, writeFile } from "../fun
 import { PRIVACY_KEY, canSee, parsePrivacyManifest } from "../functions/lib/privacy";
 import { type KeyedBucket, keyedBucket, liveAt, textAt } from "./fileOps/keyedFixture.fileops1.helpers";
 import { setFolderVisibility, setVisibility } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 async function bucket(): Promise<KeyedBucket> {
   // A folder's access lives on its row, so the folder a test opens to the team holds a note before it does.
@@ -59,10 +60,7 @@ async function bucket(): Promise<KeyedBucket> {
 /** The token a row naming a group carries in the rendered rules: `@#<noteId>` of the row itself. */
 async function groupTokenOf(f: KeyedBucket, path: string): Promise<string> {
   const noteId = await f.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .collect();
+    const rows = [await treeNodeAt(ctx.db, f.workspaceId, path)].flatMap((row) => (row === null ? [] : [row]));
     return rows.find((row) => row.goneAt === undefined)?.noteId;
   });
   if (noteId === undefined) throw new Error(`no live row at ${path}`);

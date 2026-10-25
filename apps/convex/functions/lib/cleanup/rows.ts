@@ -19,6 +19,7 @@ import type { DatabaseReader } from "../../../_generated/server";
 import { COPY_SCAN } from "../nodes/noteIds";
 import { cleanupKey } from "../../../../mcp/src/moves/cleanupKeys.js";
 import { nodeAt } from "../noteIds/state";
+import { nodePaths } from "../nodes/paths";
 
 /**
  * Whether a storage key is the id key of this note, whatever the extension:
@@ -96,17 +97,20 @@ export interface ReadingPage {
  * but no note id counts too: nothing can say it is the id key.
  */
 export async function readingPathsPage(db: DatabaseReader, workspaceId: Id<"workspaces">, after: string | undefined): Promise<ReadingPage> {
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
   let readingPaths = 0;
   let read = 0;
-  for await (const row of rows) {
+  let next: string | undefined;
+  await (
+    await nodePaths(db, workspaceId)
+  ).walk("", after, (row) => {
     read += 1;
     if (row.kind === "file" && row.goneAt === undefined && row.storageKey !== undefined) {
       if (row.noteId === undefined || !storageKeyIsIdKey(row.storageKey, row.noteId)) readingPaths += 1;
     }
-    if (read >= COPY_SCAN) return { readingPaths, next: row.path, done: false };
-  }
-  return { readingPaths, done: true };
+    if (read >= COPY_SCAN) {
+      next = row.path;
+      return false;
+    }
+  });
+  return next === undefined ? { readingPaths, done: true } : { readingPaths, next, done: false };
 }

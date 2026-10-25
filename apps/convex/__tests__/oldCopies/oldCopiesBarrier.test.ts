@@ -14,6 +14,8 @@ import { memoryS3 } from "../storeStub.helpers";
 import { CHANNEL_FOLDERS } from "../../functions/lib/oldCopies/folders";
 import { COPIES, OWN, SEEDED } from "./oldCopies.helpers";
 import { renderPrivacyManifest } from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { rowsAsRead } from "../nodes/treeRows.helpers";
 
 const deployments: TestConvex[] = [];
 
@@ -67,7 +69,7 @@ async function boundWorkspace() {
 
 async function livePaths(t: TestConvex, workspaceId: Id<"workspaces">): Promise<string[]> {
   return await t.run(async (ctx) =>
-    (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect())
+    (await rowsAsRead(ctx, workspaceId))
       .filter((row) => row.goneAt === undefined)
       .map((row) => row.path),
   );
@@ -118,8 +120,13 @@ test("copies still read at their path, left under 0-inbox by a rename of the Inb
     expect(live).toContain(`${OLD_COPIES_ROOT}/${path}`);
   }
   // Pinned where its bytes are, so the owner's Download still reads it.
-  const day = await t.run(async (ctx) =>
-    await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", `${OLD_COPIES_ROOT}/${COPIES.days[0]}`)).unique(),
+  const day = await t.run(
+    async (ctx) =>
+      await treeNodeAt(
+        ctx.db,
+        workspaceId,
+        `${OLD_COPIES_ROOT}/${COPIES.days[0]}`,
+      ),
   );
   expect(day?.storageKey).toBe(COPIES.days[0]);
   const read = await t.action(internal.functions.files.runFileOperation, {

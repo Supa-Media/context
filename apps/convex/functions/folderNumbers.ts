@@ -18,6 +18,7 @@ import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { type FolderNumbersCounts, dropFolderNumbersIn, folderNumbersPlanValidator, planFolderNumbers } from "./lib/nodes/folderNumbers";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
+import { rowsAfter } from "./lib/nodes/paths";
 
 const DEFAULT_PAGE = 25;
 /** Rows under a folder read per pin page: well inside one mutation's reads. */
@@ -39,12 +40,7 @@ export const pinPage = internalMutation({
   args: { workspaceId: v.id("workspaces"), folder: v.string(), after: v.optional(v.string()) },
   returns: v.object({ pinned: v.array(v.id("nodes")), next: v.union(v.string(), v.null()) }),
   handler: async (ctx, { workspaceId, folder, after }) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        q.eq("workspaceId", workspaceId).gt("path", after ?? `${folder}/`).lt("path", `${folder}0`),
-      )
-      .take(PIN_SCAN);
+    const rows = await rowsAfter(ctx.db, workspaceId, folder, after, PIN_SCAN);
     const pinned = await pinUnkeyed(ctx, rows);
     return { pinned, next: rows.length < PIN_SCAN ? null : rows[rows.length - 1].path };
   },

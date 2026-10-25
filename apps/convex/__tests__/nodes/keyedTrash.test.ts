@@ -29,8 +29,15 @@ import { startRowTrash } from "../../functions/lib/nodes/rowTrash";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, listed, start, type Fixture } from "./moveFixture.helpers";
 import { bigFolder, bytesOf, keyedFixture, liveAt, logOf, rowOf, treeOf } from "./keyedFixture.helpers";
+import { storedPathsOnly } from "./treeRows.helpers";
 
-type Moved = { kind: "moved"; from: string; to: string; paths: string[]; queued?: number };
+type Moved = {
+  kind: "moved";
+  from: string;
+  to: string;
+  paths: string[];
+  queued?: number;
+};
 
 /**
  * The store a keyed workspace's operations read in rows mode: `privacy.md` answers with the rows' rules, as the
@@ -143,7 +150,6 @@ describe("trashing a note or folder in a keyed workspace moves its rows", () => 
 
     expect(await treeOf(f)).toEqual(before);
   });
-
 });
 
 describe("the trash destination", () => {
@@ -179,6 +185,8 @@ describe("the trash destination", () => {
 });
 
 describe("the row cap on a trash", { timeout: 60_000 }, () => {
+  // A cap exists only on stored paths: a built-path move of any size is one row change.
+  storedPathsOnly();
   test("a folder of exactly the cap in rows, the folder included, is trashed whole", async () => {
     const f = await keyedFixture();
     await bigFolder(f, "2-areas/big", 499);

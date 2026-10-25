@@ -16,6 +16,7 @@ import { accessVersionOf } from "./lib/nodes/accessRows";
 import { privacyEtagOf, rulesForReaders } from "./lib/nodes/readerRules";
 import type { Audience } from "./lib/nodes/rowAccess";
 import { INDEX_KEY } from "./lib/scaffold/store";
+import { nodeAt } from "./lib/nodes/paths";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -106,10 +107,7 @@ export const scaffoldFolderDefaults = internalMutation({
     // the root where no folder default reaches: it is opened to the workspace by name, as the scaffold always did.
     const targets = kind === "shared" ? [...paths, INDEX_KEY] : paths;
     for (const path of targets) {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-        .unique();
+      const row = await nodeAt(ctx.db, workspaceId, path);
       if (row === null || row.access !== undefined) continue;
       const grants = await ctx.db
         .query("nodeAccess")

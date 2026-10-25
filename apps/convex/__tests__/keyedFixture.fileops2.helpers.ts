@@ -32,6 +32,7 @@ import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { seedTreeFromStore } from "./treeSeeding.helpers";
 import { consoleIdLayoutHooks } from "../functions/lib/noteIds/consoleLayer";
 import { withIdLayout } from "../../mcp/src/store/idLayout.js";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 /** The schema-typed test instance (`convexTest(schema, modules)`), as `fixture()` in `moveFixture.helpers.ts` takes it. */
 function makeTest() {
@@ -152,10 +153,9 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
 /** The live row at `path`, or `null`. */
 export async function liveRowAt(k: KeyedBucket, path: string) {
   return await k.t.run(async (c) => {
-    const rows = await c.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", k.ws).eq("path", path))
-      .collect();
+    const rows = [await treeNodeAt(c.db, k.ws, path)].flatMap((row) =>
+      row === null ? [] : [row],
+    );
     return rows.find((row) => row.goneAt === undefined) ?? null;
   });
 }

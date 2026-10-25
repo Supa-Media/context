@@ -18,6 +18,7 @@ import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { migrationPaused } from "./lib/nodes/pause";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { nodePaths } from "./lib/nodes/paths";
 
 /** Rows one `listLive` call returns at most. */
 const LIST_CAP = 2_000;
@@ -53,7 +54,7 @@ export const bound = internalQuery({
 });
 
 /**
- * Live file rows in path order, from just after `after`. Capped at
+ * Live file rows in the tree's order (`TreePaths.walk`), from just after `after`. Capped at
  * `LIST_CAP`; `cursor` is the last path returned when there may be more.
  */
 export const listLive = internalQuery({
@@ -64,13 +65,17 @@ export const listLive = internalQuery({
   }),
   handler: async (ctx, { workspaceId, after, limit }) => {
     const size = Math.max(1, Math.min(Math.floor(limit), LIST_CAP));
-    const query = ctx.db.query("nodes").withIndex("by_workspace_path", (q) => {
-      const scoped = q.eq("workspaceId", workspaceId);
-      return after === undefined ? scoped : scoped.gt("path", after);
-    });
-    const rows: { path: string; etag?: string; size?: number; uploaded?: number; noteId?: string }[] = [];
-    for await (const doc of query) {
-      if (doc.kind !== "file" || doc.goneAt !== undefined) continue;
+    const rows: {
+      path: string;
+      etag?: string;
+      size?: number;
+      uploaded?: number;
+      noteId?: string;
+    }[] = [];
+    await (
+      await nodePaths(ctx.db, workspaceId)
+    ).walk("", after, (doc) => {
+      if (doc.kind !== "file" || doc.goneAt !== undefined) return;
       rows.push({
         path: doc.path,
         etag: doc.etag,
@@ -78,8 +83,8 @@ export const listLive = internalQuery({
         uploaded: doc.uploaded,
         ...(doc.noteId === undefined ? {} : { noteId: doc.noteId }),
       });
-      if (rows.length >= size) break;
-    }
+      return rows.length < size;
+    });
     const cursor = rows.length >= size ? rows[rows.length - 1].path : null;
     return { rows, cursor };
   },

@@ -14,6 +14,7 @@ import {
   type KeyedBucket,
 } from "./keyedFixture.fileops1.helpers";
 import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 /* -------------------------------------------------------------------------- */
 /*                      a destination you cannot see                          */
@@ -286,10 +287,7 @@ describe("a destination the caller cannot see", () => {
     await f.t.run((ctx) => ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 }));
     await f.store.put("2-areas/open.md", "# Open\n");
     await f.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "2-areas/open.md"))
-        .unique();
+      const row = await treeNodeAt(ctx.db, f.workspaceId, "2-areas/open.md");
       await ctx.db.patch(row!._id, { access: { base: "team" } });
     });
 

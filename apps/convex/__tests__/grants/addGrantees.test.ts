@@ -12,15 +12,13 @@
 import { describe, expect, test, vi } from "vitest";
 import { internal } from "../../_generated/api";
 import { noteIdOf, PLAN, PLAN_MARKER, readByNoteId, setListFor, world, attachEmail } from "./outsider.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 vi.setConfig({ testTimeout: 30_000 });
 
 async function grantsOn(w: Awaited<ReturnType<typeof world>>, path: string) {
   return await w.t.run(async (ctx) => {
-    const node = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", path))
-      .unique();
+    const node = await treeNodeAt(ctx.db, w.ws, path);
     return await ctx.db
       .query("nodeAccess")
       .withIndex("by_node", (q) => q.eq("nodeId", node!._id))

@@ -13,6 +13,7 @@ import type { Id } from "../_generated/dataModel";
 import { PARA_FOLDERS, renderFolderReadme } from "../functions/lib/scaffold";
 import type { TestConvex } from "./fixtures.helpers";
 import type { MemoryS3 } from "./storeStub.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 /** The live note paths the tree names, sorted. Folders are not notes, so they are left out. */
 export async function notePaths(t: TestConvex, workspaceId: Id<"workspaces">): Promise<string[]> {
@@ -35,12 +36,7 @@ export async function bodyAtPath(
   backend: MemoryS3,
   path: string,
 ): Promise<string | undefined> {
-  const row = await t.run((ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique(),
-  );
+  const row = await t.run((ctx) => treeNodeAt(ctx.db, workspaceId, path));
   if (row?.storageKey === undefined) return undefined;
   return backend.objects.get(row.storageKey)?.body;
 }

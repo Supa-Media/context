@@ -23,6 +23,7 @@ import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { privacyEtagOf } from "./lib/nodes/readerRules";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
+import { nodeAt, nodePaths } from "./lib/nodes/paths";
 
 const refusalValidator = v.union(
   v.literal("not_keyed"),
@@ -111,10 +112,7 @@ export const kindAt = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(v.literal("file"), v.literal("folder"), v.null()),
   handler: async (ctx, { workspaceId, path }) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     return row === null || row.goneAt !== undefined ? null : row.kind;
   },
 });
@@ -124,16 +122,16 @@ export const childNames = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.array(v.string()),
   handler: async (ctx, { workspaceId, path }) => {
-    const folder = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const folder = await nodeAt(ctx.db, workspaceId, path);
     if (folder === null || folder.goneAt !== undefined || folder.kind !== "folder") return [];
     const rows = await ctx.db
       .query("nodes")
       .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", folder._id))
       .take(ROW_MOVE_MAX);
-    return rows.filter((row) => row.goneAt === undefined).map((row) => row.name).sort();
+    return rows
+      .filter((row) => row.goneAt === undefined)
+      .map((row) => row.name)
+      .sort();
   },
 });
 
@@ -336,21 +334,20 @@ export const planPage = internalQuery({
   args: { workspaceId: v.id("workspaces"), from: v.string(), after: v.optional(v.string()) },
   returns: v.object({ files: v.array(v.string()), unkeyed: v.boolean(), next: v.union(v.string(), v.null()) }),
   handler: async (ctx, { workspaceId, from, after }) => {
-    const prefix = `${from}/`;
-    const lower = after !== undefined && after.startsWith(prefix) ? after : prefix;
     const files: string[] = [];
     let unkeyed = false;
     let last: string | null = null;
     let scanned = 0;
-    for await (const row of ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", lower))) {
-      if (!row.path.startsWith(prefix)) return { files, unkeyed, next: null };
-      if (scanned >= PLAN_PAGE) return { files, unkeyed, next: last };
+    const whole = await (
+      await nodePaths(ctx.db, workspaceId)
+    ).walk(from, after, (row) => {
+      if (scanned >= PLAN_PAGE) return false;
       scanned += 1;
       last = row.path;
-      if (row.goneAt !== undefined || row.kind !== "file") continue;
+      if (row.goneAt !== undefined || row.kind !== "file") return;
       files.push(row.path);
       if (row.storageKey === undefined) unkeyed = true;
-    }
-    return { files, unkeyed, next: null };
+    });
+    return { files, unkeyed, next: whole ? null : last };
   },
 });

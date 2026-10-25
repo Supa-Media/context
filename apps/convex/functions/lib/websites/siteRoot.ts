@@ -17,6 +17,7 @@ import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
 import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import { liveRowsDoing } from "../nodes/folderJobs";
+import { nodeAt } from "../nodes/paths";
 
 /** Whether `path` is written under the website's default name. */
 export function namesWebsite(path: string): boolean {
@@ -33,10 +34,7 @@ export function namesWebsite(path: string): boolean {
 export async function siteRoot(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<string> {
   const [held] = await liveRowsDoing(db, workspaceId, "website", 1);
   if (held === undefined || held.path === DEFAULT_WEBSITE_ROOT) return DEFAULT_WEBSITE_ROOT;
-  const named = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", DEFAULT_WEBSITE_ROOT))
-    .unique();
+  const named = await nodeAt(db, workspaceId, DEFAULT_WEBSITE_ROOT);
   if (named !== null && named.goneAt === undefined && named.kind === "folder") return DEFAULT_WEBSITE_ROOT;
   return held.path;
 }

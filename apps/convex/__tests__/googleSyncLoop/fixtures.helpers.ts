@@ -45,6 +45,7 @@ import { withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { gmailRetry } from "../../../mcp/src/communications/gmail/api.js";
 import { consoleIdLayoutHooks } from "../../functions/lib/noteIds/consoleLayer";
 import { bridge } from "../nodes/moveFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 // Gmail's rate-limit retries wait seconds in production; a test waits none.
 gmailRetry.sleep = async () => {};
@@ -415,11 +416,8 @@ export async function noteBody(
   backend: MemoryS3,
   path: string,
 ): Promise<string | null> {
-  const row = await t.run(async (ctx) =>
-    await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique(),
+  const row = await t.run(
+    async (ctx) => await treeNodeAt(ctx.db, workspaceId, path),
   );
   if (row === null || row.goneAt !== undefined) return null;
   return backend.snapshot()[row.storageKey ?? path] ?? null;

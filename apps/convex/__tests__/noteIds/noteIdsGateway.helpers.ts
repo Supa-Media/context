@@ -14,6 +14,7 @@ import type { Id } from "../../_generated/dataModel";
 import { setupTest } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { translateMirror } from "../seededRules.helpers";
+import { parentRows } from "../nodes/treeRows.helpers";
 
 export type T = ReturnType<typeof convexTest>;
 
@@ -125,6 +126,8 @@ export async function patchRow(t: T, workspaceId: Id<"workspaces">, path: string
     const row = rows.find((node) => node.workspaceId === workspaceId && node.path === path) ?? null;
     if (row === null) throw new Error("fixture row missing");
     await ctx.db.patch(row._id, fields as never);
+    // A path patched by hand: the row's parents say it too, as a real move leaves them.
+    if ("path" in fields) await parentRows(ctx, workspaceId);
   });
 }
 

@@ -6,6 +6,7 @@ import { MAX_ROUTINES_PER_WORKSPACE } from "../functions/lib/routines/model";
 import { routinePathsOf } from "../functions/lib/routines/sync";
 import { asUser, copyTree } from "./fixtures.helpers";
 import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, rowAt, rows, runPendingScans, signal } from "./routines.helpers";
+import { parentRows } from "./nodes/treeRows.helpers";
 
 /**
  * ROUTINES IN TEX'S OWN FOLDER: `tex/routines/<how-often>/<name>.md`.
@@ -186,6 +187,7 @@ describe("Tex's folder nested anywhere (owner, 2026-10-18)", () => {
     // The folder doing Tex's job, as "Use this folder as… Tex" writes it.
     await f.t.run(async (ctx) => {
       await ctx.db.insert("nodes", { workspaceId: f.workspaceId, path: "Life/Assistant", name: "Assistant", kind: "folder", role: "tex", observedAt: 1 });
+      await parentRows(ctx, f.workspaceId);
     });
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [TEX_DAILY] });
     expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([TEX_DAILY]);

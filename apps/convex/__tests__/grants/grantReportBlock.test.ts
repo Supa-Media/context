@@ -26,6 +26,7 @@ import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { asUser, captureError, errorCode } from "../fixtures.helpers";
 import { noteIdOf, PLAN, PLAN_MARKER, readByNoteId, refusalOf, SALARIES, setListFor, world, type World } from "./outsider.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -159,12 +160,7 @@ describe("blocking the granter takes their grant away from the blocker", () => {
     await setListFor(w, PLAN, [{ kind: "user", userId: w.kola, role: "view" }]);
     const noteId = await noteIdOf(w, PLAN);
     // A second grant on the same row, written by a person Kola has not blocked.
-    const node = await w.t.run(async (ctx) =>
-      ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN))
-        .unique(),
-    );
+    const node = await w.t.run(async (ctx) => treeNodeAt(ctx.db, w.ws, PLAN));
     await w.t.run((ctx) =>
       ctx.db.insert("nodeAccess", {
         workspaceId: w.ws,

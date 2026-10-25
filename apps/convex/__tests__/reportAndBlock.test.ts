@@ -39,6 +39,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { parentRows } from "./nodes/treeRows.helpers";
 
 const DSN = "https://0123456789abcdef0123456789abcdef@o1.ingest.example.invalid/42";
 const NOTE = "1-projects/beneath-the-chaos.md";
@@ -303,6 +304,7 @@ describe("reporting", () => {
         props: JSON.stringify({ properties: { title: SECRET_TITLE }, heading: SECRET_TITLE }),
       });
       await ctx.db.insert("workspaceMembers", { workspaceId: atlas, userId: lk, role: "member", joinedAt: 1 });
+      await parentRows(ctx, atlas);
     });
 
     await report(t, lk, { kind: "share", token });

@@ -24,6 +24,7 @@ import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
 import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { OWNER, fixture, type Fixture } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, liveAt, rowOf, treeOf } from "./keyedFixture.helpers";
+import { parentRows } from "./treeRows.helpers";
 
 const KEEP = "1-projects/keep.md";
 
@@ -82,6 +83,7 @@ async function addNewFolder(f: Fixture, path: string, extra?: string): Promise<v
       });
       f.store.seed(`notes/${NOTE_ID(902)}.md`, "# Typed\n");
     }
+    await parentRows(ctx, f.ws);
   });
   f.store.seed(`notes/${NOTE_ID(901)}.md`, renderNewFolderAbout(path));
   // This store has no id layer, so Undo's read of the about note's words, by name, reads the path.

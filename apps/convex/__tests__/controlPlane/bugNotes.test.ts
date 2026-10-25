@@ -69,6 +69,7 @@ import {
 } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { renderPrivacyManifestForFolders } from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const DSN = "https://0123456789abcdef0123456789abcdef@o1.ingest.example.invalid/42";
 const TEXTS = "Them: find my avocado note\n\nTex: I couldn't find a note about avocados.";
@@ -255,10 +256,7 @@ describe("bug reports by text, as notes in the pinned context", () => {
     // Alice reaches the pinned context through the pin alone: no membership, no names.
     expect(await sees(alice)).toBe(false);
     const base = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
-        .unique();
+      const row = await treeNodeAt(ctx.db, pinned, path!);
       return row?.access?.base;
     });
     expect(base).toBe("private");
@@ -297,10 +295,7 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(seen.kind === "visiblePaths" && seen.paths).toEqual([path]);
     expect(await sees(alice)).toBe(false);
     const state = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
-        .unique();
+      const row = await treeNodeAt(ctx.db, pinned, path!);
       const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
       const audited = (await ctx.db.query("auditEvents").withIndex("by_workspace", (q) => q.eq("workspaceId", pinned)).collect())
         .filter((event) => event.action === "access.base");

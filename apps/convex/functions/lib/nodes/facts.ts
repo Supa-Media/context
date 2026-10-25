@@ -38,6 +38,7 @@ import type { DatabaseReader, DatabaseWriter } from "../../../_generated/server"
 import { expiredBefore, seqAt } from "./log";
 import { CONTACTS_FOLDER, asInboxKey } from "../../../../../packages/communications/src/protocol.js";
 import { hasReview, isExempt, LONG_NOTE_LINES } from "../../../../mcp/src/chaos/rubric.js";
+import { nodeAt } from "./paths";
 
 /** Notes one fill pass reads from the bucket. */
 export const FACT_FILL_NOTES = 200;
@@ -179,10 +180,7 @@ export function chaosExtraOf(path: string, props: string | null | undefined): Ch
 
 /** A note's live row, or `null` when it is not in the tree. */
 export async function liveNode(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string) {
-  const row = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  const row = await nodeAt(db, workspaceId, path);
   return row === null || row.goneAt !== undefined || row.kind !== "file" ? null : row;
 }
 

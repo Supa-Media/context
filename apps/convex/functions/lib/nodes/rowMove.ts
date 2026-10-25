@@ -48,6 +48,7 @@ import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
 import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
+import { nodeAt, nodePaths, pathsBuilt } from "./paths";
 
 /**
  * Live rows one row move renames in one transaction, the name itself included.
@@ -96,12 +97,13 @@ export interface Subtree {
   over: boolean;
 }
 
-/** The row at exactly `path`, live or not. Paths are unique within a workspace. */
-export async function rowAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+/** The row at exactly `path`, live where one is, else a gone one (`paths.ts`), asked afresh. */
+export async function rowAt(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(db, workspaceId, path);
 }
 
 /**
@@ -115,27 +117,26 @@ export async function subtreeOf(
   from: string,
   max: number,
 ): Promise<Subtree> {
-  const exact = await rowAt(db, workspaceId, from);
-  const root = exact !== null && exact.goneAt === undefined ? exact : null;
-  const prefix = `${from}/`;
+  const paths = await nodePaths(db, workspaceId);
+  const root = await paths.liveAt(from);
   const below: Doc<"nodes">[] = [];
-  for await (const doc of db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
-    if (!doc.path.startsWith(prefix)) break;
-    if (doc.goneAt !== undefined) continue;
+  const whole = await paths.below(from, (doc) => {
+    if (doc.goneAt !== undefined) return;
     below.push(doc);
-    if (below.length > max) return { root, below, over: true };
-  }
-  return { root, below, over: false };
+    return below.length <= max;
+  });
+  return { root, below, over: !whole };
 }
 
 /** Whether any live row sits beneath `path`: a destination that is not free even though nothing sits at it. */
-export async function liveUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<boolean> {
-  const prefix = `${path}/`;
-  for await (const doc of db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
-    if (!doc.path.startsWith(prefix)) return false;
-    if (doc.goneAt === undefined) return true;
-  }
-  return false;
+export async function liveUnder(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<boolean> {
+  return !(await (
+    await nodePaths(db, workspaceId)
+  ).below(path, (doc) => doc.goneAt !== undefined));
 }
 
 /** Whether a row's etag is `expected`, or its pre-flip path etag while it still holds that key's version (`keyedFrom`). */
@@ -195,7 +196,9 @@ export async function applyRowMove(
   if (invalidMove(from, to)) return refuse("invalid");
   if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
 
-  const max = args.maxRows ?? ROW_MOVE_MAX;
+  // Built paths (`paths.ts`): the moved row alone changes, and what is beneath follows it, however much there is.
+  const built = await pathsBuilt(ctx.db, ws);
+  const max = built ? Number.POSITIVE_INFINITY : (args.maxRows ?? ROW_MOVE_MAX);
   // `subtreeOf` counts the rows beneath; the name is one of the `max`, so `max - 1` of them may sit beneath it.
   const subtree = await subtreeOf(ctx.db, ws, from, max - 1);
   if (subtree.root === null) return refuse("not_found");
@@ -250,9 +253,23 @@ export async function applyRowMove(
   const parentId = await standFolders(ctx, ws, ancestors, now);
   const oldParent = root.parentId;
 
-  await ctx.db.patch(root._id, { path: to, observedAt: now, parentId, name: nameOf(to) });
-  const below = pairs.filter((pair) => pair.row._id !== root._id);
-  for (const pair of below) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
+  if (built) {
+    await ctx.db.patch(root._id, {
+      observedAt: now,
+      parentId,
+      name: nameOf(to),
+    });
+  } else {
+    await ctx.db.patch(root._id, {
+      path: to,
+      observedAt: now,
+      parentId,
+      name: nameOf(to),
+    });
+    const below = pairs.filter((pair) => pair.row._id !== root._id);
+    for (const pair of below)
+      await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
+  }
   const files = pairs.filter((pair) => pair.row.kind === "file");
   await followMovedFiles(ctx, ws, files, trash, before);
 

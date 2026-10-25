@@ -33,6 +33,8 @@ import { rulesForReaders } from "../../functions/lib/nodes/readerRules";
 import { setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { NOTE_ID, keyedFixture } from "./keyedFixture.helpers";
 import { listed, type Fixture } from "./moveFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { parentRows } from "./treeRows.helpers";
 
 async function setRowsMode(f: Fixture): Promise<void> {
   await f.t.run(async (ctx) => {
@@ -81,12 +83,7 @@ async function waitingOf(f: Fixture) {
 }
 
 async function nodeAt(f: Fixture, path: string) {
-  return await f.t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", path))
-      .unique(),
-  );
+  return await f.t.run(async (ctx) => treeNodeAt(ctx.db, f.ws, path));
 }
 
 async function stateOf(f: Fixture) {
@@ -202,7 +199,14 @@ describe("a private base asked before the row exists", () => {
     await askFor(f, NEW, "private");
     // A row born without the seam: nothing applies the waiting entry to it.
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodes", { workspaceId: f.ws, path: NEW, name: "new.md", kind: "file", observedAt: 1 });
+      await ctx.db.insert("nodes", {
+        workspaceId: f.ws,
+        path: NEW,
+        name: "new.md",
+        kind: "file",
+        observedAt: 1,
+      });
+      await parentRows(ctx, f.ws);
     });
     expect(await setBase(f, NEW, "team")).toMatchObject({ ok: true });
     expect(await waitingOf(f)).toEqual([]);

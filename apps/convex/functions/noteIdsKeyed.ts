@@ -31,6 +31,7 @@ import { canonicalJobPath } from "./lib/nodes/folderJobs";
 import { movingRowMoves, throughRowMoves } from "./lib/nodes/rowMoveChunks";
 import { markNestedSiteWrite } from "./lib/websites/routeChangeAt";
 import type { DatabaseReader } from "../_generated/server";
+import { located } from "./lib/nodes/paths";
 
 /**
  * The row a keyed path is looked up at: a built-in folder's default name reaches the folder doing that job
@@ -80,7 +81,9 @@ async function noteIdHeldElsewhere(ctx: MutationCtx, workspaceId: Id<"workspaces
     .query("nodes")
     .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
     .take(2);
-  return holders.some((row) => row.path !== path);
+  for (const row of holders)
+    if ((await located(ctx.db, row))?.path !== path) return true;
+  return false;
 }
 
 /** A seam observation of one keyed row, at `at`. */

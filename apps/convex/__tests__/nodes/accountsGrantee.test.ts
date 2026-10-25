@@ -24,7 +24,15 @@ import type { MutationCtx } from "../../_generated/server";
 import { accessRowsOf } from "../../functions/lib/nodes/accessRows";
 import { refreshSnapshot } from "../../functions/lib/nodes/accessBackfill";
 import { setAccessRow } from "../../functions/lib/nodes/setAccess";
-import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "../fixtures.helpers";
+import {
+  asUser,
+  createUser,
+  createWorkspace,
+  setupTest,
+  type TestConvex,
+} from "../fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -51,6 +59,7 @@ async function world() {
           observedAt: 1,
         });
       }
+      await parentRows(ctx, workspaceId);
     }
   });
   return { t, staff, pinned, acme };
@@ -79,9 +88,17 @@ function tier(w: World, workspaceId: Id<"workspaces">, to: "private" | "team", e
 
 async function stateOf(t: TestConvex, workspaceId: Id<"workspaces">) {
   return await t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", NOTE)).unique();
-    const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
-    return { access: row?.access, grants: grants.map((grant) => `${grant.granteeKind}:${grant.role}`).sort() };
+    const row = await treeNodeAt(ctx.db, workspaceId, NOTE);
+    const grants = await ctx.db
+      .query("nodeAccess")
+      .withIndex("by_node", (q) => q.eq("nodeId", row!._id))
+      .collect();
+    return {
+      access: row?.access,
+      grants: grants
+        .map((grant) => `${grant.granteeKind}:${grant.role}`)
+        .sort(),
+    };
   });
 }
 
@@ -125,7 +142,7 @@ describe("granting nothing outside the pinned workspace", () => {
     const w = await world();
     for (const workspaceId of [w.acme, w.pinned]) {
       await w.t.run(async (ctx) => {
-        const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", NOTE)).unique();
+        const row = await treeNodeAt(ctx.db, workspaceId, NOTE);
         await ctx.db.patch(row!._id, { access: { base: "private" } });
         await ctx.db.insert("nodeAccess", { workspaceId, nodeId: row!._id, granteeKind: "accounts", role: "view", at: 1, source: "owner" });
         await refreshSnapshot(ctx as unknown as MutationCtx, workspaceId);

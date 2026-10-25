@@ -27,6 +27,7 @@ import type { FileStore } from "../../functions/lib/fileOps/store";
 import { assertNotProtectedFolder } from "../../functions/lib/fileOps/nameTwins";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
 import { keyedFixture } from "./keyedFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 /** A live folder row at `path`, its parent row already there. */
 async function addFolder(f: Fixture, path: string, role?: string): Promise<void> {
@@ -54,11 +55,8 @@ async function addFolder(f: Fixture, path: string, role?: string): Promise<void>
 
 /** The live row at `path`, as the database holds it. */
 async function rowOf(f: Fixture, path: string): Promise<Doc<"nodes">> {
-  const row = await f.t.run(async (ctx) =>
-    await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", path))
-      .unique(),
+  const row = await f.t.run(
+    async (ctx) => await treeNodeAt(ctx.db, f.ws, path),
   );
   return row!;
 }

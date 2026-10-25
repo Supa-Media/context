@@ -23,6 +23,7 @@ import {
   copyTree,
 } from "./fixtures.helpers";
 import { renderPrivacyManifest } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 export interface Fixture {
   t: TestConvex;
@@ -64,10 +65,7 @@ export async function publishWebsiteFolder(
   await copyTree(t, workspaceId);
   // A site with no page yet has no `website` row, so there is no folder to set: the console answers "does not exist".
   const folder = await t.run((ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "website"))
-      .unique(),
+    treeNodeAt(ctx.db, workspaceId, "website"),
   );
   if (folder === null) return;
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
@@ -81,10 +79,7 @@ export async function publish(f: Fixture): Promise<void> {
   // A site needs a page in its folder before the folder can be published: a home page the caller has not written is written here.
   await copyTree(f.t, f.workspaceId);
   const folder = await f.t.run((ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "website"))
-      .unique(),
+    treeNodeAt(ctx.db, f.workspaceId, "website"),
   );
   if (folder === null) await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
   await publishWebsiteFolder(f.t, f.owner, f.workspaceId);

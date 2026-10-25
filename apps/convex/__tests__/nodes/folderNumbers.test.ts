@@ -28,6 +28,7 @@ import { runMoveOperation } from "../../functions/lib/nodes/moveBarrier";
 import { dropFolderNumbersIn } from "../../functions/lib/nodes/folderNumbers";
 import { fixture, type Fixture } from "./moveFixture.helpers";
 import { keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
+import { parentRows } from "./treeRows.helpers";
 
 const moveFor = (f: Fixture) => async (from: string, to: string) =>
   await runMoveOperation(f.ctx, { workspaceId: f.ws, scope: "private", operation: { kind: "nodesMoveStart", from, to } }, f.store);
@@ -51,8 +52,8 @@ async function folder(f: Fixture, path: string, parent?: string, role?: string):
 
 async function unkeyedFile(f: Fixture, path: string, parent: string): Promise<Id<"nodes">> {
   const parentId = (await rowOf(f, parent))._id;
-  return await f.t.run(async (ctx) =>
-    await ctx.db.insert("nodes", {
+  return await f.t.run(async (ctx) => {
+    const id = await ctx.db.insert("nodes", {
       workspaceId: f.ws,
       path,
       parentId,
@@ -60,8 +61,11 @@ async function unkeyedFile(f: Fixture, path: string, parent: string): Promise<Id
       kind: "file",
       etag: "e",
       observedAt: 1,
-    } as never),
-  );
+    } as never);
+    // A folder between the parent and the file is given its row, as the tree always holds one.
+    await parentRows(ctx, f.ws);
+    return id;
+  });
 }
 
 async function roleAt(f: Fixture, path: string): Promise<string | undefined> {

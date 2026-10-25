@@ -35,6 +35,7 @@ import { recordRouteChangeAtHandler } from "../websites/routeChangeAt";
 import { treeAudiences } from "../treeAudiences";
 import { stampTreeAudiences } from "../../treeSignals";
 import { rulesForReaders } from "./readerRules";
+import { nodeAt } from "./paths";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
@@ -204,10 +205,7 @@ async function setPendingAccess(
  */
 export async function pendPrivateArrivals(ctx: MutationCtx, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<boolean> {
   for (const path of paths) {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     if (row !== null) continue;
     const state = await ctx.db
       .query("nodeAccessState")
@@ -238,10 +236,7 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   const listed = args.grantees === undefined || args.grantees === "inherit" ? 0 : args.grantees.length;
   if (listed > MAX_GRANTEES) return { ok: false, code: "INVALID" };
 
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  const row = await nodeAt(ctx.db, workspaceId, path);
 
   const state = await ctx.db
     .query("nodeAccessState")
@@ -368,10 +363,7 @@ export async function narrowRowForMove(
   // `narrowerVisibility` of two tiers is the narrower one; a move narrows only where it would widen.
   const carry = tierOf(narrowerVisibility(was, there) ?? "private");
   if (carry === there) return;
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", from))
-    .unique();
+  const row = await nodeAt(ctx.db, workspaceId, from);
   if (row === null || row.access?.base === carry) return;
   await ctx.db.patch(row._id, { access: { base: carry } });
   await refreshSnapshot(ctx, workspaceId);

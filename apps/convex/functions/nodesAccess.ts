@@ -30,6 +30,7 @@ import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
 import { privacyEtagOf } from "./lib/nodes/readerRules";
+import { nodeAt } from "./lib/nodes/paths";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 type RawGrantee =
@@ -177,10 +178,7 @@ export const keepActivityPrivate = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", ACTIVITY_PATH))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, ACTIVITY_PATH);
     if (row === null || row.access?.base !== "team") return null;
     await ctx.db.patch(row._id, { access: { base: "private" } });
     await refreshSnapshot(ctx, workspaceId);
@@ -220,12 +218,13 @@ export const consoleAccess = internalMutation({
   ),
   handler: async (ctx, args) => {
     // The console changes what is in the tree: a path with no row does not exist, so nothing waits for one.
-    const exists = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-      .unique();
-    if (exists === null) return { ok: false as const, code: "NOT_FOUND" as const };
-    const rules = renderAccess(await scanAccessRows(ctx, args.workspaceId), "member");
+    const exists = await nodeAt(ctx.db, args.workspaceId, args.path);
+    if (exists === null)
+      return { ok: false as const, code: "NOT_FOUND" as const };
+    const rules = renderAccess(
+      await scanAccessRows(ctx, args.workspaceId),
+      "member",
+    );
     const inherited = visibilityOf(args.path, rules.rules) as string;
     const actor = { userId: args.actorUserId, role: "owner" as const };
 
@@ -335,10 +334,7 @@ export const ensureFolderDefault = internalMutation({
     }),
   ),
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-      .unique();
+    const row = await nodeAt(ctx.db, args.workspaceId, args.path);
     const actor = { userId: args.actorUserId, role: "owner" as const };
     if (row === null) {
       const state = await ctx.db

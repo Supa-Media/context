@@ -25,6 +25,8 @@ import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "../controlPlane
 import { fixture } from "../files/fixtures.helpers";
 import { asUser } from "../fixtures.helpers";
 import { ADMIN, boundWorkspace, user } from "../noteIds/noteIds.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -86,17 +88,13 @@ async function addRows(t: T, ws: Id<"workspaces">, paths: string[]): Promise<voi
       const kind = raw.endsWith("/") || !last.includes(".") ? "folder" : "file";
       await ctx.db.insert("nodes", { workspaceId: ws, path, name: last, kind, observedAt: 1 });
     }
+    await parentRows(ctx, ws);
   });
 }
 
 
 async function rowAt(t: T, ws: Id<"workspaces">, path: string) {
-  return await t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path))
-      .unique(),
-  );
+  return await t.run(async (ctx) => treeNodeAt(ctx.db, ws, path));
 }
 
 async function grantsOn(t: T, ws: Id<"workspaces">, path: string) {
@@ -295,6 +293,7 @@ describe("the gateway's setAccess op", () => {
           observedAt: now,
         });
       }
+      await parentRows(ctx, tenants.aliceWs);
     });
     return tenants;
   }

@@ -23,7 +23,11 @@ import {
 } from "./routines.helpers";
 import type { Id } from "../_generated/dataModel";
 import { routinePathsTouched } from "../functions/lib/routines/changes";
-import type { FileOperation, OperationResult } from "../functions/lib/filesFns/operationTypes";
+import type {
+  FileOperation,
+  OperationResult,
+} from "../functions/lib/filesFns/operationTypes";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 /**
  * ROUTINES: KEEPING THE CONTROL PLANE'S ROWS A DESCRIPTION OF THE BUCKET.
@@ -384,13 +388,12 @@ describe("which console operations touch routines/", () => {
 });
 
 /** The key a note's bytes live at: its tree row's `storageKey`, which is `notes/<noteId>.md` once keyed. */
-async function storageKeyAt(t: TestConvex, workspaceId: Id<"workspaces">, path: string): Promise<string> {
-  const row = await t.run((ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique(),
-  );
+async function storageKeyAt(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<string> {
+  const row = await t.run((ctx) => treeNodeAt(ctx.db, workspaceId, path));
   return row?.storageKey ?? "";
 }
 

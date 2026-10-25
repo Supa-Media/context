@@ -21,6 +21,7 @@ import { requireFolderPath } from "./lib/fileOps/paths";
 import { toConvexError } from "./lib/filesFns/operationErrors";
 import { FileOpError } from "./lib/fileOps/errors";
 import type { Visibility } from "./lib/privacy";
+import { nodeAt } from "./lib/nodes/paths";
 
 /** Folders one call may order: past any real level, a bound on the writes. */
 export const FOLDER_ORDER_MAX = 200;
@@ -35,19 +36,13 @@ export const write = internalMutation({
   handler: async (ctx, { workspaceId, parent, folders }) => {
     let parentId: Id<"nodes"> | undefined;
     if (parent !== "") {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", parent))
-        .unique();
+      const row = await nodeAt(ctx.db, workspaceId, parent);
       if (row === null || row.goneAt !== undefined || row.kind !== "folder") return 0;
       parentId = row._id;
     }
     let written = 0;
     for (const [index, path] of folders.entries()) {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-        .unique();
+      const row = await nodeAt(ctx.db, workspaceId, path);
       if (row === null || row.goneAt !== undefined || row.kind !== "folder" || row.parentId !== parentId) continue;
       const order = index * ORDER_STEP;
       if (row.order !== order) await ctx.db.patch(row._id, { order });
@@ -67,7 +62,10 @@ export const set = action({
       const prefix = parent === "" ? "" : `${parent}/`;
       if (args.folders.length > FOLDER_ORDER_MAX) throw new FileOpError("PATH_INVALID", "That is too many folders to order at once.");
       const folders = args.folders.map((path) => requireFolderPath(path));
-      if (new Set(folders).size !== folders.length || folders.some((path) => !path.startsWith(prefix) || path.slice(prefix.length).includes("/") || path === parent)) {
+      if (
+        new Set(folders).size !== folders.length ||
+        folders.some((path) => !path.startsWith(prefix) || path.slice(prefix.length).includes("/") || path === parent)
+      ) {
         throw new FileOpError("PATH_INVALID", "Each folder must sit directly in the folder being ordered, once.");
       }
       const actorUserId = await callerId(ctx);

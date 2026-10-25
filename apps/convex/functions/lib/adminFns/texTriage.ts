@@ -20,6 +20,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import { BUG_FOLDER, DEFAULT_AREAS_FOLDER } from "../feedback/bugNote";
 import { reviewFolder } from "../feedback/texReviewNote";
+import { rowsBelow } from "../nodes/paths";
 
 /** The name the triage agent answers to in note mail. */
 export const TRIAGE_AGENT = "triage";
@@ -238,13 +239,23 @@ export function themeRowOf(path: string, props: string | undefined): ThemeRow {
  * workspace's rules that every listing applies" — so the caller hands in that
  * judgement and this listing applies it like any other.
  */
-export async function notesUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, folder: string, visible: (path: string) => boolean) {
-  const rows = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gte("path", `${folder}/`).lt("path", `${folder}/\uffff`))
-    .order("desc")
-    .take(TRIAGE_ROWS);
-  return rows.filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.endsWith(".md") && visible(row.path));
+export async function notesUnder(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  folder: string,
+  visible: (path: string) => boolean,
+) {
+  // Newest first: reports and reviews are named with their stamp.
+  const rows = (await rowsBelow(db, workspaceId, folder))
+    .sort((a, b) => (a.path < b.path ? 1 : a.path > b.path ? -1 : 0))
+    .slice(0, TRIAGE_ROWS);
+  return rows.filter(
+    (row) =>
+      row.kind === "file" &&
+      row.goneAt === undefined &&
+      row.path.endsWith(".md") &&
+      visible(row.path),
+  );
 }
 
 /** Everything on the desk the caller may see, from the rows alone. */

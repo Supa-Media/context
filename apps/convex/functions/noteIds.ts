@@ -24,6 +24,7 @@ import { planGroup, renameSnapshotId, sharedGroupsPage, copyStateOf } from "./li
 import { copyRowOf, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
+import { nodePaths } from "./lib/nodes/paths";
 
 const diagnosisValidator = v.object({
   checkedAt: v.number(),
@@ -150,13 +151,19 @@ export const pathsForNoteIds = internalQuery({
   returns: v.array(v.object({ noteId: v.string(), path: v.string() })),
   handler: async (ctx, { workspaceId, noteIds }) => {
     const found: Array<{ noteId: string; path: string }> = [];
+    const paths = await nodePaths(ctx.db, workspaceId);
     for (const noteId of noteIds) {
       const holders = await ctx.db
         .query("nodes")
         .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
         .collect();
-      const live = holders.filter((row) => row.kind === "file" && row.goneAt === undefined && !isPlumbing(row.path));
-      if (live.length === 1) found.push({ noteId, path: live[0]!.path });
+      const live: string[] = [];
+      for (const row of holders) {
+        if (row.kind !== "file" || row.goneAt !== undefined) continue;
+        const path = await paths.pathOf(row);
+        if (path !== null && !isPlumbing(path)) live.push(path);
+      }
+      if (live.length === 1) found.push({ noteId, path: live[0]! });
     }
     return found;
   },

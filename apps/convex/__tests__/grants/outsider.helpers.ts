@@ -33,6 +33,7 @@ import {
   setupTest,
   type TestConvex,
 } from "../fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 export const PLAN = "1-projects/plan.md";
 export const SECRET = "1-projects/private/secret.md";
@@ -148,10 +149,7 @@ async function observeRows(t: TestConvex, workspace: Id<"workspaces">, paths: st
 /** The node row at a path, from the tree. */
 export async function nodeOf(w: World, path: string, workspace = w.ws): Promise<Doc<"nodes">> {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspace).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspace, path);
     if (row === null) throw new Error(`no row at ${path}`);
     return row;
   });

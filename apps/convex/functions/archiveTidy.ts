@@ -21,6 +21,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, type QueryCtx } from "../_generated/server";
 import { isArchiveStamp } from "@context/shared/src/archiveMirror.cjs";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
+import { nodeAt } from "./lib/nodes/paths";
 
 const WORKSPACE_PAGE = 20;
 /** Passes one workspace's tidy makes in a row (one date folder each) before leaving the rest to the next hour. */
@@ -30,10 +31,7 @@ const PASSES = 100;
 async function owesTidy(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   const archive = (await folderJobsOf(ctx.db, workspaceId)).jobs.archive;
   if (archive === null) return false;
-  const folder = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", archive))
-    .unique();
+  const folder = await nodeAt(ctx.db, workspaceId, archive);
   if (folder === null || folder.goneAt !== undefined) return false;
   // Date folders' names start with the year's digits: only those are read.
   const named = await ctx.db

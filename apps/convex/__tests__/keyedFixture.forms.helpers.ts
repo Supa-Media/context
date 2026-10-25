@@ -26,7 +26,13 @@ import {
   createWorkspace,
   setupTest,
 } from "./fixtures.helpers";
-import { FORM_BLOCK, FORM_NOTE, RESPONSES, type Fixture } from "./forms.helpers";
+import {
+  FORM_BLOCK,
+  FORM_NOTE,
+  RESPONSES,
+  type Fixture,
+} from "./forms.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 export { FORM_BLOCK, FORM_NOTE, RESPONSES, type Fixture, rewriteForm, submit } from "./forms.helpers";
 
@@ -97,10 +103,9 @@ export async function fixture(options: MemoryS3Options & { conditionalWrite?: bo
 /** The `nodes` row that is live at `path`, or `undefined`. */
 async function liveRowAt(f: Fixture, path: string) {
   const rows = await f.t.run(async (ctx) =>
-    await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .collect(),
+    [await treeNodeAt(ctx.db, f.workspaceId, path)].flatMap((row) =>
+      row === null ? [] : [row],
+    ),
   );
   return rows.find((row) => row.goneAt === undefined);
 }

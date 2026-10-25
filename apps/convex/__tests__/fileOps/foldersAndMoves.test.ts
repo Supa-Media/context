@@ -16,7 +16,12 @@ import {
   rowRulesOf,
   textAt,
 } from "./keyedFixture.fileops1.helpers";
-import { setFolderVisibility, setVisibility, renderPrivacyManifestForFolders } from "../seededRules.helpers";
+import {
+  setFolderVisibility,
+  setVisibility,
+  renderPrivacyManifestForFolders,
+} from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 /** The rules a keyed bucket's rows give a reader: the answer `canSee` is asked with. */
 const manifestOf = rowRulesOf;
@@ -256,10 +261,7 @@ describe("moving and renaming", () => {
     const f = await keyedBucket(PARA_SEEDS);
     await f.t.run((ctx) => ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 }));
     await f.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "1-projects/pay.md"))
-        .unique();
+      const row = await treeNodeAt(ctx.db, f.workspaceId, "1-projects/pay.md");
       await ctx.db.patch(row!._id, { access: { base: "private" } });
     });
     await movePath(f.store, {

@@ -22,6 +22,7 @@ import { clearanceOf } from "./lib/clearance";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { listingValidator } from "./lib/filesFns/validators";
 import { listFolderFromNodes, treeServesNow } from "./lib/nodes/listing";
+import { nodeAt } from "./lib/nodes/paths";
 
 /** One folder's contents at the caller's clearance, or `null` while the tree does not serve. */
 export const listFolder = query({
@@ -74,10 +75,7 @@ export const editedAt = internalQuery({
   handler: async (ctx, { workspaceId, paths }) =>
     await Promise.all(
       paths.slice(0, EDITED_AT_CAP).map(async (path) => {
-        const row = await ctx.db
-          .query("nodes")
-          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-          .first();
+        const row = await nodeAt(ctx.db, workspaceId, path);
         return row === null || row.goneAt !== undefined || row.kind !== "file" ? null : (row.uploaded ?? null);
       }),
     ),

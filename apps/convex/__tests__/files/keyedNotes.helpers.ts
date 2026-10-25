@@ -11,6 +11,7 @@
 import type { Id } from "../../_generated/dataModel";
 import type { TestConvex } from "../fixtures.helpers";
 import type { MemoryS3 } from "../storeStub.helpers";
+import { nodeAt } from "../../functions/lib/nodes/paths";
 
 export interface NoteBucket {
   t: TestConvex;
@@ -20,15 +21,10 @@ export interface NoteBucket {
 
 /** The live `nodes` row a path names, or `null`. */
 export async function rowAtPath(bucket: NoteBucket, path: string) {
-  return await bucket.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        q.eq("workspaceId", bucket.workspaceId).eq("path", path),
-      )
-      .collect();
-    return rows[0] ?? null;
-  });
+  // Where the tree says the note is (`paths.ts`), as the product reads it.
+  return await bucket.t.run(
+    async (ctx) => await nodeAt(ctx.db, bucket.workspaceId, path),
+  );
 }
 
 /** The key a note's bytes sit at: its row's `storageKey`, or `null` when no row names the path. */

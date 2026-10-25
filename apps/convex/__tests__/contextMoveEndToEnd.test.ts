@@ -37,6 +37,8 @@ import {
   pair as pairOf,
   writeAs,
 } from "./contextMove.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { rowsAsRead } from "./nodes/treeRows.helpers";
 
 // Durable lifecycle writes add real SigV4/crypto requests per note. Keep this
 // multi-batch integration test bounded without the unit-suite 5-second ceiling.
@@ -47,7 +49,7 @@ import {
 /** The access setting of every live row in a workspace that carries one: `path` to its base tier. */
 async function accessRowsOf(t: TestConvex, workspaceId: Id<"workspaces">): Promise<Record<string, string>> {
   return await t.run(async (ctx) => {
-    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect();
+    const rows = await rowsAsRead(ctx, workspaceId);
     const access: Record<string, string> = {};
     for (const row of rows) {
       if (row.goneAt === undefined && row.access !== undefined) access[row.path] = row.access.base;
@@ -57,9 +59,13 @@ async function accessRowsOf(t: TestConvex, workspaceId: Id<"workspaces">): Promi
 }
 
 /** The row at `path` in a workspace, live or gone, or `null`. */
-async function rowAt(t: TestConvex, workspaceId: Id<"workspaces">, path: string) {
-  return await t.run(async (ctx) =>
-    (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path)).first()) ?? null,
+async function rowAt(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  path: string,
+) {
+  return await t.run(
+    async (ctx) => (await treeNodeAt(ctx.db, workspaceId, path)) ?? null,
   );
 }
 

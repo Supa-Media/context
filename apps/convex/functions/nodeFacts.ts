@@ -39,6 +39,7 @@ import {
   propsPredate,
   writeFacts,
 } from "./lib/nodes/facts";
+import { rowsAfter } from "./lib/nodes/paths";
 
 /** Rows of the tree one walk step looks through. */
 const WALK_ROWS = 2_000;
@@ -141,12 +142,7 @@ export const due = internalQuery({
     };
 
     if (!state.ready) {
-      const rows = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) =>
-          state.after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", state.after),
-        )
-        .take(WALK_ROWS);
+      const rows = await rowsAfter(ctx.db, workspaceId, "", state.after, WALK_ROWS);
       let last: string | undefined;
       for (const row of rows) {
         last = row.path;
@@ -156,7 +152,12 @@ export const due = internalQuery({
       const finished = rows.length < WALK_ROWS && last === rows[rows.length - 1]?.path;
       const next: FactState = finished
         ? { ready: true, seq: state.startSeq ?? state.seq }
-        : { ready: false, seq: state.seq, ...(last === undefined ? {} : { after: last }), ...(state.startSeq === undefined ? {} : { startSeq: state.startSeq }) };
+        : {
+            ready: false,
+            seq: state.seq,
+            ...(last === undefined ? {} : { after: last }),
+            ...(state.startSeq === undefined ? {} : { startSeq: state.startSeq }),
+          };
       // A finished walk goes on to the log it noted the head of.
       return { notes, next, more: true };
     }
@@ -189,12 +190,7 @@ export const due = internalQuery({
     let upgrading = false;
     if (state.upgrade !== undefined && !stopped) {
       const from = state.upgrade;
-      const page = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) =>
-          from === "" ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", from),
-        )
-        .take(WALK_ROWS);
+      const page = await rowsAfter(ctx.db, workspaceId, "", from === "" ? undefined : from, WALK_ROWS);
       let last: string | undefined;
       for (const row of page) {
         if (notes.length >= FACT_FILL_NOTES) break;
@@ -416,9 +412,7 @@ export const propsAt = internalQuery({
  */
 export const propsNow = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
-  returns: v.array(
-    v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) }),
-  ),
+  returns: v.array(v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) })),
   handler: async (ctx, { workspaceId, paths }) => {
     if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
     const found = [];

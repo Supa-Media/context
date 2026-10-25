@@ -200,3 +200,34 @@ workspace.
   no row move in flight; after it a move patches the moved row and nothing
   else, and nothing reads a stored path again. Workspaces flip one at a time
   and the stored column goes once every one has.
+
+## Every reader asks the tree, not the stored column
+
+*Stage 4b, built 2026-10-25* (`apps/convex/functions/lib/nodes/paths.ts`).
+
+- No function outside `paths.ts` finds a row by its stored path. (The
+  `by_workspace_path` index is still read for "any row at all" and for a
+  purge of every row, which no path decides, and by the paged move and the
+  parent check, which exist only on stored paths.) An exact name goes through `nodeAt` and `liveNodeAt`; a folder's
+  contents through `below`, `rowsBelow` and `removalPage`; a resumable page
+  through `walk`, `rows` and `rowsAfter`; and a row found some other way (by
+  note id, by role, by parent) through `located` or `pathOf`. Each answers
+  from the stored column or from parents, by the workspace's switch.
+- **A row handed out carries its built path in `path`.** So code that reads
+  `row.path` after finding a row is right in either mode, and needs no
+  change when the column goes.
+- **Walk order.** Built mode walks depth first by name, stored mode in byte
+  order of the path; both resume after the last path read, so a cursor from
+  one page is good for the next in the same mode. A removal deletes files
+  first and folders only from a walk that read the whole subtree
+  (`removalPage`), so no page leaves a row whose parent is gone.
+- **The suite runs both ways.** `CONTEXT_TREE_PATHS=built` makes every
+  workspace build its paths (it is a test switch: production sets it
+  nowhere, and `deployEnv.test.ts` says why it is exempt). Tests that seed
+  rows by hand give them parents (`parentRows`); tests of what only stored
+  paths have (paged moves, their cap, the parent check) run on stored paths
+  either way (`storedPathsOnly`, `onStoredPaths`).
+
+What a "simplification" would cost: one reader left on the stored column
+shows a moved note at its old name, or misses it, the moment a workspace
+flips. Running the suite with `CONTEXT_TREE_PATHS=built` fails for each.

@@ -100,7 +100,9 @@ export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"wor
   if (!keyed) return { keyed, renames: [], twins: [] };
   const candidates = new Map<string, Doc<"nodes">>();
   for (const row of await liveChildren(db, workspaceId, undefined)) {
-    if (row.kind === "folder" && plainFolderName(row.name) !== null) candidates.set(row._id, row);
+    // A top-level row's path is its name.
+    if (row.kind === "folder" && plainFolderName(row.name) !== null)
+      candidates.set(row._id, { ...row, path: row.name });
   }
   for (const role of ROW_ROLES) {
     for (const row of await liveRowsDoing(db, workspaceId, role, 4)) {

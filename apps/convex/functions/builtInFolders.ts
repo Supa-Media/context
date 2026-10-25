@@ -30,6 +30,7 @@ import { type FileErrorCode, FileOpError, notFound } from "./lib/fileOps/errors"
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { decideJobChange, isRefusal, surveyFolders } from "./lib/nodes/folderJobSettings";
 import type { Visibility } from "./lib/privacy";
+import { nodeAt } from "./lib/nodes/paths";
 
 /** Add the folder for `role` ("clients", "teams", "products", or a main role) under its fixed name. */
 export const add = action({
@@ -74,11 +75,10 @@ export const writeJob = internalMutation({
   returns: v.union(v.null(), v.object({ code: v.string(), message: v.string() })),
   handler: async (ctx, { workspaceId, job, path }) => {
     const rowAt = async (at: string) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", at))
-        .unique();
-      return row !== null && row.goneAt === undefined && row.kind === "folder" ? row : null;
+      const row = await nodeAt(ctx.db, workspaceId, at);
+      return row !== null && row.goneAt === undefined && row.kind === "folder"
+        ? row
+        : null;
     };
     const target = path === null ? null : await rowAt(path);
     const jobs = await folderJobsOf(ctx.db, workspaceId);

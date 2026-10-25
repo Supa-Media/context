@@ -30,6 +30,7 @@ import { invitationForCaller } from "../invitations/forCaller";
 import { findName } from "../nameClaims";
 import { shareStillStands } from "../shares/standing";
 import { getMembership } from "../workspaceAuth";
+import { nodeAt } from "../nodes/paths";
 
 /**
  * Strings, not `v.id`, on purpose: a malformed id would otherwise fail the
@@ -122,10 +123,7 @@ export async function resolveReportTarget(
       if ((await getMembership(ctx, workspaceId, userId)) === null) return UNRESOLVED;
       const ids: Record<string, string> = { workspaceId };
       // The note's stable id, never its path: a name is the owner's words.
-      const node = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", target.path))
-        .first();
+      const node = await nodeAt(ctx.db, workspaceId, target.path);
       if (node?.noteId !== undefined) ids.noteId = node.noteId;
       return { resolved: true, ids, personId: null };
     }

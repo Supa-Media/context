@@ -34,6 +34,7 @@ import { bugFolder } from "./lib/feedback/bugNote";
 import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { rowsAfter } from "./lib/nodes/paths";
 
 /** A pass whose last page ran this recently is in flight: the cron leaves it alone. Two cron periods. */
 export const PINNED_ACCOUNTS_IN_FLIGHT_MS = 30 * 60 * 1000;
@@ -94,12 +95,7 @@ export const page = internalMutation({
       return null;
     }
     const size = Math.max(1, Math.min(pageSize ?? PINNED_ACCOUNTS_PAGE, PINNED_ACCOUNTS_PAGE));
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        after === null ? q.eq("workspaceId", pinned._id) : q.eq("workspaceId", pinned._id).gt("path", after),
-      )
-      .take(size);
+    const rows = await rowsAfter(ctx.db, pinned._id, "", after ?? undefined, size);
     await stamp(ctx, { pinnedAccountsPageAt: Date.now() });
     const bugs = await bugRootOf(ctx, pinned._id);
     let changed = false;
@@ -138,9 +134,12 @@ function under(path: string, roots: readonly string[]): boolean {
 }
 
 async function ownGrants(ctx: MutationCtx, row: Doc<"nodes">): Promise<Doc<"nodeAccess">[]> {
-  return (await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect()).filter(
-    (grant) => grant.source !== "share",
-  );
+  return (
+    await ctx.db
+      .query("nodeAccess")
+      .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+      .collect()
+  ).filter((grant) => grant.source !== "share");
 }
 
 /** Pass 1: a `team` row outside the bug reports gets the `accounts` view grant, once. */
