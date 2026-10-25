@@ -233,45 +233,40 @@ test("a note created at a trashed note's name does not inherit that note's histo
   assert.equal(oldState.text, trashed.text, "the trashed note's history is left untouched");
 });
 
-test("a trash that carried the heads fences the name, and a new note there starts fresh", async () => {
+test("a trash carries nothing: the history stays filed by the note's id, and a new note at the name starts fresh", async () => {
   const store = new KeyedStore();
   store.noteIds.set("from.md", ID_A);
-  const trashed = await editedNote(store, "from.md", "# Plan\n\nCarried.\n");
+  const trashed = await editedNote(store, "from.md", "# Plan\n\nKept by id.\n");
   moveKeyedRow(store, "from.md", TRASH);
-  assert.equal((await renameDocument(store, "from.md", TRASH, { internalTrash: true })).renamed, true);
+  store.putCount = 0;
+  assert.equal((await renameDocument(store, "from.md", TRASH, { internalTrash: true })).renamed, false);
+  assert.equal(store.putCount, 0, "nothing is carried for a head filed by id");
   store.seedNote("from.md", "# New\n");
   store.noteIds.set("from.md", ID_B);
 
   const opened = await readDocument(store, "from.md");
 
   assert.notEqual(opened.documentId, trashed.documentId);
-  assert.equal(store.headAt(TRASH).documentId, trashed.documentId, "the trashed note's head is at its trash location");
+  assert.equal(store.noteHead(ID_A).documentId, trashed.documentId, "the trashed note's head is still filed by its id");
 });
 
-test("a trashed then restored note keeps its history and its id", async () => {
+test("a trashed then restored note keeps its history and its id, with no rename either way", async () => {
   const store = new KeyedStore();
   store.noteIds.set("from.md", ID_A);
   const note = await editedNote(store, "from.md", "# Plan\n\nKept.\n");
   moveKeyedRow(store, "from.md", TRASH);
-  const trashed = await renameDocument(store, "from.md", TRASH, { internalTrash: true });
-  assert.equal(trashed.renamed, true);
-  assert.equal(trashed.documentId, note.documentId);
+  moveKeyedRow(store, TRASH, "elsewhere/back.md", ID_A);
 
-  moveKeyedRow(store, TRASH, "from.md", ID_A);
-  const restored = await renameDocument(store, TRASH, "from.md", { internalTrash: true });
-  assert.equal(restored.renamed, true);
-
-  const after = await readDocument(store, "from.md");
+  const after = await readDocument(store, "elsewhere/back.md");
   assert.equal(after.documentId, note.documentId);
   assert.equal(after.text, note.text);
-  assert.equal(store.headAt("from.md").noteId, ID_A);
-  assert.equal(store.headAt(TRASH).status, "moved", "the trash location is fenced once the note is back");
+  assert.equal(store.headAt("elsewhere/back.md").noteId, ID_A);
 });
 
-test("a rename that fails before it claims the name leaves the note's history where it was, for a restore to find", async () => {
+test("a path head (made before heads were filed by id) that a trash failed to carry is found again on restore", async () => {
   const store = new KeyedStore();
-  store.noteIds.set("from.md", ID_A);
   const note = await editedNote(store, "from.md", "# Plan\n\nUnclaimed.\n");
+  assert.equal(store.noteHead(ID_A), null, "made at the path, with no id");
   moveKeyedRow(store, "from.md", TRASH);
   let failed = false;
   store.beforePut = (key) => {
@@ -282,17 +277,18 @@ test("a rename that fails before it claims the name leaves the note's history wh
 
   await assert.rejects(() => renameDocument(store, "from.md", TRASH, { internalTrash: true }), CollaborationError);
   assert.equal(failed, true, "the failure was exercised");
+  store.beforePut = undefined;
 
-  // The row is in the trash either way. The head never moved, so restoring the row finds the history.
+  // The row is back, now with an id: its path head is filed under that id on the first read.
   moveKeyedRow(store, TRASH, "from.md", ID_A);
   const restored = await readDocument(store, "from.md");
   assert.equal(restored.documentId, note.documentId);
   assert.equal(restored.text, note.text);
+  assert.equal(store.noteHead(ID_A).documentId, note.documentId, "filed by id");
 });
 
-test("a rename that fails before the claim does not let a new note at the name take the history", async () => {
+test("a path head a failed trash left behind is not taken by a new note at the name", async () => {
   const store = new KeyedStore();
-  store.noteIds.set("from.md", ID_A);
   const note = await editedNote(store, "from.md", "# Plan\n\nStill mine.\n");
   moveKeyedRow(store, "from.md", TRASH);
   store.beforePut = (key) => {

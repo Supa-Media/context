@@ -251,3 +251,58 @@ went out with no log entry and could be repeated. Widening this to every
 reader needs those etag comparisons to accept the starting etag too.
 `apps/mcp/test/readNoteCost.test.mjs` counts a check-in's reads and fails if a
 read starts a document or costs more than 11 subrequests.
+
+## A shared note takes typing before its document arrives
+
+A note opens in durable mode when its version is a `c2.` one, and the device
+must not invent Yjs character identities of its own, so the editor used to
+stay read-only until the gateway's first read handed it the document. On a
+phone with no connection that read never comes, and on a weak one it can take
+the whole request timeout: a note never opened on that phone showed its words
+and no cursor (Dev2, 2026-10-25). The same wait reported the note's text as
+`""` whenever the first read failed or the phone was offline, and the editor
+drew the note blank a moment after it opened.
+
+Now, with nothing of the document on the device, the note takes typing at once
+offline and after `DRAFT_WAIT_MS` online, as an **offline draft**: whole text,
+never Yjs updates, kept in the controller's record against the `c2.` version
+on screen when typing started (`apps/mobile/features/console/collaboration/offlineDraft.ts`).
+When the gateway answers it goes as the exact-base replacement an older
+offline draft already took, which diffs that version to the draft and applies
+the result to the document as it is now, so other people's edits made
+meanwhile are merged rather than overwritten. Typing during that request is
+sent next, against the version that answered, and the editor binds to the
+document only once the controller is ready (native and web alike). Before
+then the controller reports the text the editor opened with, never the empty
+document, and a kept record whose snapshot is an empty document no longer
+opens the note ready.
+
+Why not seed a local document from the text: two devices doing that would
+each mint identities for the same words, and the merge would hold the note
+twice. Why not wait: an offline phone is exactly who the cursor is for.
+`apps/mobile/__tests__/durableOfflineDraft.test.ts` fails if a failed read
+reports an empty note, if typing offline is dropped, or if a draft is merged
+against a version other than the one on screen.
+
+## A closed shared note's unsent typing is sent without opening it
+
+A shared note's unsent typing (Yjs updates the bucket has not confirmed, or an
+offline draft) lives in its durable record, and only that note's controller
+sends it. The controller lived only while the editor had the note open, so an
+edit made offline in a note that was then closed stayed on the phone until
+somebody opened that note again.
+
+Now every launch and reconnection runs the same controller with no editor for
+each record that has something to send, one note at a time
+(`apps/mobile/features/console/collaboration/closedNotes.ts`). There is no
+second write path. A record has one writer at a time (`noteLease.ts`): a note
+the editor has open is skipped, and opening a note the background is sending
+stops that send and waits for its last save before the editor reads the
+record. Repeating a send cut off mid-request is safe, because the gateway keeps
+a replacement by its base and text and a Yjs update applied twice counts once.
+An older draft kept for review (a recovery not marked as an offline draft) is
+left for the editor.
+
+`apps/mobile/__tests__/durableClosedNotes.test.ts` fails if a closed note's
+draft or updates wait for it to be opened, if an open note is sent from the
+background, or if opening a note does not take it from the background sender.

@@ -29,7 +29,6 @@ import {
   MAX_RETRIES,
   SCHEMA_VERSION,
   fail,
-  headKey,
   put,
   randomId,
   requireSupported,
@@ -45,6 +44,7 @@ import {
   writeStructural,
 } from "./records.js";
 import { scrubStructural } from "./purge.js";
+import { headKeyAt } from "./address.js";
 
 /** A name a head may be claimed for: nothing there, or a name a document moved away from. */
 function claimable(head) {
@@ -65,6 +65,9 @@ export async function renameDocument(store, from, to, options = {}) {
   if (!lifecyclePath(from, internal) || !lifecyclePath(to, internal) || from === to) {
     throw fail("INELIGIBLE_DOCUMENT", "rename paths must be distinct Markdown notes");
   }
+  // Both names file to one head: the note's history is filed by its id (`address.js`), so it is already
+  // where the note is, and there is nothing to carry. Fencing "the old name" here would fence the note.
+  if ((await headKeyAt(store, from)) === (await headKeyAt(store, to))) return { renamed: false, reason: "already" };
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     const head = await readHead(store, from);
     if (head === null) return { renamed: false, reason: "no_document" };
@@ -133,6 +136,11 @@ export async function recoverRename(store, operationId, attempt = 0) {
 
   const stateKey = op.stateKey;
   const ids = { documentId: op.documentId, generation: op.generation };
+  if ((await headKeyAt(store, op.from)) === (await headKeyAt(store, op.to))) {
+    // A rename journaled before the note's history was filed by its id: the head is the note's now, at both
+    // names. Only the state's freeze, and the journal, are left to settle.
+    return settleFiledRename(store, opRecord);
+  }
   const stateRecord = await readState(store, { stateKey, ...ids });
   if (!stateRecord) throw fail("CORRUPT_STATE", "renamed document state is missing");
   let state = stateRecord.value;
@@ -166,7 +174,7 @@ export async function recoverRename(store, operationId, attempt = 0) {
         source: op.from,
         ...(op.noteId === undefined ? {} : { noteId: op.noteId }),
       };
-      const claimed = await put(store, await headKey(op.to), JSON.stringify(prepared), toHead ? { etagMatches: toHead.etag } : { absent: true });
+      const claimed = await put(store, await headKeyAt(store, op.to), JSON.stringify(prepared), toHead ? { etagMatches: toHead.etag } : { absent: true });
       if (!claimed) return again();
       toHead = { ...prepared, etag: claimed.etag };
     } else if (toHead.status === "prepared") {
@@ -230,4 +238,18 @@ async function abortRename(store, opRecord, reason, state, stateEtag) {
   }
   await updateStructural(store, { ...op, phase: "aborted", abortedReason: reason }, opRecord.etag);
   throw fail("DESTINATION_EXISTS", reason);
+}
+
+/** A journaled rename whose two names now file to one head: unfreeze the state and complete the journal. */
+async function settleFiledRename(store, opRecord) {
+  const op = opRecord.value;
+  const stateRecord = await readState(store, { stateKey: op.stateKey, documentId: op.documentId, generation: op.generation });
+  if (stateRecord && stateRecord.value.structural?.operationId === op.operationId) {
+    const unfrozen = { ...stateRecord.value, structural: null };
+    const written = await put(store, op.stateKey, JSON.stringify(unfrozen), { etagMatches: stateRecord.etag });
+    if (!written) throw fail("CONCURRENT_WRITE", "document changed while its rename settled");
+  }
+  await updateStructural(store, { ...op, phase: "complete" }, opRecord.etag);
+  await scrubStructural(store, op.operationId);
+  return { renamed: false, reason: "already", documentId: op.documentId, generation: op.generation };
 }

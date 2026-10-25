@@ -426,12 +426,24 @@ export function LiveEditor({
   );
 
   const collaboration = presence?.collaboration;
+  /** Whether the guest was last handed an offline draft (`offlineDraft.ts`). */
+  const drafting = useRef(false);
 
   // Durable mode sends only the canonical Yjs snapshot. Before it arrives the
   // host keeps the guest read-only, so the native replica cannot seed a second
   // identity or produce updates against an unknown base. Legacy surfaces keep
   // the original full-text bridge.
   useEffect(() => {
+    if (collaboration?.mode === "durable" && collaboration.ready !== true && collaboration.drafting === true) {
+      // An offline draft (`offlineDraft.ts`): plain text, editable, until the
+      // shared document arrives and the branch below binds it.
+      bridge.setDoc(value, "");
+      // Once, on the way in: it re-sends `editable`, and this runs per keystroke.
+      if (!drafting.current) bridge.setCrdtMode(false);
+      drafting.current = true;
+      return;
+    }
+    drafting.current = false;
     if (collaboration?.mode === "durable") {
       bridge.setCrdtMode(true);
       // Recovery may expose the collaboration record before its canonical

@@ -382,6 +382,23 @@ crons.interval(
  */
 crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
 
+/**
+ * File each workspace's editing history by note id (`functions/collaborationFiling.ts`), so a move never
+ * carries a head again. Bucket-reaching, so its two paragraphs: it holds no decision, since every head is
+ * copied create-only and a filed one is fenced, so a page run twice files nothing twice; it only decides
+ * when to look, and a done workspace is never looked at again.
+ */
+crons.interval("file editing history by note id", { minutes: 30 }, internal.functions.collaborationFiling.fileDue, {});
+
+/**
+ * Rewrite the links to notes a move carried (`functions/linkRepairs.ts`) wherever entries wait with no pass
+ * running; a move starts its own pass, so this picks up one that stopped or failed. Bucket-reaching, so its two
+ * paragraphs: it holds no decision, since the move that queued the entry was already decided, and each pass
+ * re-asks at the moment it writes everything that could have changed: the rules are read again, a referrer is
+ * read again before it is written, and a link is never pointed at a name narrower than its own note.
+ */
+crons.interval("follow moved notes' links", { minutes: 30 }, internal.functions.linkRepairs.repairDue, {});
+
 /** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
 crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
 

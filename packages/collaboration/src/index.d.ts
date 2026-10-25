@@ -123,4 +123,18 @@ export function renameDocument(
  * the trash is emptied in a keyed workspace: its document state, revisions,
  * journals and the head at `path`. Reads and writes no Markdown.
  */
-export function eraseDocument(store: ContextStore, path: string): Promise<{ erased: boolean; documentId?: string }>;
+/** `noteId`: the id the trashed note's row had, so its head filed by id is erased too. `path` may be null then. */
+export function eraseDocument(
+  store: ContextStore,
+  path: string | null,
+  options?: { noteId?: string },
+): Promise<{ erased: boolean; documentId?: string }>;
+/** The note id a document was made for, or `null` when nothing records it. */
+export function noteOfDocument(store: ContextStore, documentId: string): Promise<string | null>;
+/** File one page of the bucket's path heads by note id (the backfill). */
+export function fileHeadsByNote(
+  store: ContextStore,
+  options?: { cursor?: string; limit?: number },
+): Promise<{ cursor: string | null; done: boolean; filed: number; left: number }>;
+/** Whether `path` still holds a live head filed at the name (before heads were filed by note id). One read. */
+export function pathHeadLive(store: ContextStore, path: string): Promise<boolean>;

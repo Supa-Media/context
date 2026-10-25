@@ -1,0 +1,45 @@
+# Ask production how far the backfill that files editing history by note id
+# has got (`apps/convex/functions/collaborationFiling.ts`), and optionally
+# start the next passes now rather than at the next half-hour tick.
+#
+# Manual only. `report` answers with counts and fixed labels, never a
+# workspace, a path or a time: this repository is public, and so is this
+# job's log.
+name: Collaboration filing
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Start passes for every workspace not yet filed, then report"
+        type: boolean
+        default: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Start passes
+        if: ${{ inputs.start }}
+        run: npx convex run functions/collaborationFiling:fileDue
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Report
+        run: npx convex run functions/collaborationFiling:report
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

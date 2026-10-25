@@ -15,6 +15,7 @@ import {
 } from "@context/collaboration";
 import {
   collaborationErrorResponse,
+  collaborationDocumentPath,
   collaborationHead,
   collaborationIdentityFromRequest,
   MAX_COLLABORATION_NOTE_BYTES,
@@ -125,6 +126,12 @@ export async function handleCollaboration(request, store, session, origin) {
       const head = await collaborationHead(store, effectivePath);
       if (head?.status === "moved" && (!present || requestedDocumentId === head.documentId)) {
         destination = normalizePath(head.destination);
+      }
+      // An update for a document this name no longer holds: its history is filed by its note's id, so the
+      // note's name now is where it went. Judged below like any destination.
+      if (!destination && requestedDocumentId && head?.documentId !== requestedDocumentId) {
+        const found = await collaborationDocumentPath(store, requestedDocumentId);
+        if (found !== null && found !== effectivePath) destination = normalizePath(found);
       }
       if (!destination && present) break;
       try {

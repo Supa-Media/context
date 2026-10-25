@@ -10,7 +10,6 @@ import {
   SCHEMA_VERSION,
   documentKey,
   fail,
-  headKey,
   put,
   randomId,
   readObject,
@@ -28,6 +27,7 @@ import {
 } from "./records.js";
 import { assertEligible, isEncryptedEnvelope } from "./admission.js";
 import { recoverStructural } from "./structuralRecovery.js";
+import { headKeyAt, noteIdOf, recordDocumentNote } from "./address.js";
 
 /**
  * The note id of the live row at `path`, when the store can say (a keyed
@@ -37,9 +37,7 @@ import { recoverStructural } from "./structuralRecovery.js";
  * note's history (`notes-by-id.md`).
  */
 export async function rowNoteId(store, path) {
-  if (typeof store?.noteIdAt !== "function") return null;
-  const noteId = await store.noteIdAt(path);
-  return typeof noteId === "string" && noteId !== "" ? noteId : null;
+  return await noteIdOf(store, path);
 }
 
 async function initialize(store, path, note, head, noteId = null) {
@@ -97,8 +95,9 @@ async function initialize(store, path, note, head, noteId = null) {
     status: "active",
     ...(noteId === null ? {} : { noteId }),
   };
-  const writtenHead = await put(store, await headKey(path), JSON.stringify(candidate), { absent: true });
+  const writtenHead = await put(store, await headKeyAt(store, path), JSON.stringify(candidate), { absent: true });
   if (!writtenHead) return null;
+  if (noteId !== null) await recordDocumentNote(store, documentId, noteId);
 
   // A legacy writer can mutate Markdown between our first read and claiming the
   // head. Re-read before creating the document state and refuse that race.
@@ -125,8 +124,9 @@ async function recreateGeneration(store, path, note, tombstone, noteId = null) {
     status: "active",
     ...(noteId === null ? {} : { noteId }),
   };
-  const written = await put(store, await headKey(path), JSON.stringify(candidate), { etagMatches: tombstone.etag });
+  const written = await put(store, await headKeyAt(store, path), JSON.stringify(candidate), { etagMatches: tombstone.etag });
   if (!written) return load(store, path);
+  if (noteId !== null) await recordDocumentNote(store, documentId, noteId);
   return initialize(store, path, note, { ...candidate, etag: written.etag }, noteId);
 }
 
@@ -210,7 +210,9 @@ async function adoptUnstampedHead(store, path, head, noteId) {
   const accepted = stored ? [stored.value?.text, stored.value?.pending?.text] : [head.initialText];
   if (accepted.includes(note.text)) {
     const { etag, ...fields } = head;
-    const written = await put(store, await headKey(path), JSON.stringify({ ...fields, noteId }), { etagMatches: etag });
+    const { byNote: _byNote, ...stored } = fields;
+    const written = await put(store, await headKeyAt(store, path), JSON.stringify({ ...stored, noteId }), { etagMatches: etag });
+    if (written) await recordDocumentNote(store, head.documentId, noteId);
     // A head that changed meanwhile is read again; one refused while unchanged would be refused forever.
     if (!written && (await readHead(store, path))?.etag === etag) throw fail("CORRUPT_STATE", "collaboration path head could not record its note id");
     return load(store, path);

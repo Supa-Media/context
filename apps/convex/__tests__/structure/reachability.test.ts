@@ -234,11 +234,11 @@ describe("no public function can reach a storage secret", () => {
         // mutations and from themselves; the pages record counts, times and fixed labels, never a key.
         "functions.noteIdsCleanupRun.runCount",
         "functions.noteIdsCleanupRun.runDelete",
-        // Emptying the trash's bucket half (`functions/trashEmptying.ts`, `lib/trash/erase.ts`). Scheduled
-        // only by `trash.emptyDue` (the daily cron) for a keyed workspace owed an erasure; it removes the
-        // id keys and history the control plane already erased in `trash.claimErasure`, and records
-        // fixed labels on failure, never a key or a byte.
+        // Two cron-scheduled bucket passes that return no credential and record ids, counts and fixed labels only:
+        // emptying the trash (`trashEmptying.ts`, from `trash.emptyDue`, for erasures `trash.claimErasure` made) and
+        // filing editing history by note id (`collaborationFiling.ts`, from `fileDue` and itself).
         "functions.trashEmptying.eraseWorkspace",
+        "functions.collaborationFiling.fileWorkspace",
         // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
         // file operation and hands it to lib/fileOps.ts, which never sees the
         // credential. internalAction, and the only member of

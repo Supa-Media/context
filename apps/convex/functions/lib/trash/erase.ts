@@ -27,6 +27,16 @@ export interface EraseOutcome {
 /** The bucket, opened for one workspace, or `null` when it has none connected. */
 export type OpenStore = () => Promise<FileStore | null>;
 
+/** The note ids of the Markdown keys an erasure removes (`notes/<noteId>.md`): only a note has editing history. */
+export function historyIdsOf(keys: readonly string[]): string[] {
+  const ids: string[] = [];
+  for (const key of keys) {
+    const match = /^notes\/([A-Za-z0-9-]{1,128})\.md$/.exec(key);
+    if (match) ids.push(match[1]!);
+  }
+  return ids;
+}
+
 function codeOf(error: unknown): string {
   const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
   return typeof code === "string" && /^[A-Z_]{1,40}$/.test(code) ? code : "ERASE_FAILED";
@@ -59,7 +69,11 @@ export async function eraseWorkspaceTrash(ctx: ActionCtx, workspaceId: Id<"works
   for (const erasure of pending) {
     try {
       for (const key of erasure.keys) await store.delete(key);
-      if (collaborationSupported(store)) for (const path of erasure.histories) await eraseDocument(store, path);
+      if (collaborationSupported(store)) {
+        for (const path of erasure.histories) await eraseDocument(store, path);
+        // A note's history is filed by its id (`packages/collaboration/src/address.js`), and the id is its key's.
+        for (const noteId of historyIdsOf(erasure.keys)) await eraseDocument(store, null, { noteId });
+      }
       await ctx.runMutation(internal.functions.trash.finishErasure, { id: erasure.id });
       finished += 1;
     } catch (error) {

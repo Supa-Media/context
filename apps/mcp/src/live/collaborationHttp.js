@@ -5,7 +5,7 @@
  * authorizes through the privacy engine, stays beside it.
  */
 
-import { supported as collaborationSupported } from "@context/collaboration";
+import { noteOfDocument, supported as collaborationSupported } from "@context/collaboration";
 import { json } from "../http/responses.js";
 
 // Collaboration carries a bounded JSON envelope around a bounded Yjs update.
@@ -30,15 +30,52 @@ export const MAX_COLLABORATION_NOTE_BYTES = 4 * 1024 * 1024;
  */
 export async function collaborationHead(store, path) {
   if (!collaborationSupported(store) || !globalThis.crypto?.subtle) return null;
+  // Filed by the note's id where the row has one (`packages/collaboration/src/address.js`). Read only:
+  // a head still filed at the name is answered from there until the engine files it on its next read.
+  let noteId = null;
+  if (typeof store.noteIdAt === "function") {
+    try {
+      noteId = await store.noteIdAt(path);
+    } catch {
+      noteId = null;
+    }
+  }
+  if (typeof noteId === "string" && /^[A-Za-z0-9-]{1,128}$/.test(noteId)) {
+    const filed = await headObject(store, `.context/collaboration/v1/heads/notes/${noteId}.json`);
+    if (filed) return { ...filed, path };
+  }
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
   const hash = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  const object = await store.get(`.context/collaboration/v1/heads/${hash}.json`);
+  const atName = await headObject(store, `.context/collaboration/v1/heads/${hash}.json`);
+  // A head filed by id since is not the name's any more.
+  return atName?.migrated === true ? null : atName;
+}
+
+async function headObject(store, key) {
+  const object = await store.get(key);
   if (!object) return null;
   try {
     const head = JSON.parse(await object.text());
     return head && typeof head === "object" ? head : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the note a collaborative document belongs to lives now, for an update
+ * whose name no longer holds that document (the note moved, and its history,
+ * filed by note id, went with it). `null` when the document records no note,
+ * or the note has no live row. The caller judges whether the asker may see
+ * the answer before it is used.
+ */
+export async function collaborationDocumentPath(store, documentId) {
+  if (!collaborationSupported(store) || typeof store?.pathOfNoteId !== "function") return null;
+  try {
+    const noteId = await noteOfDocument(store, documentId);
+    return noteId === null ? null : await store.pathOfNoteId(noteId);
   } catch {
     return null;
   }
