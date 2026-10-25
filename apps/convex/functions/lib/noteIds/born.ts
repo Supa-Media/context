@@ -31,7 +31,8 @@ export async function keyIfBornEmpty(ctx: MutationCtx, workspaceId: Id<"workspac
   const now = Date.now();
   // Its tree is whole from the start: a keyed workspace is never swept (`nodeSweepDue`), so nothing else would say so,
   // and an unready tree answers every reader "loading".
-  await ctx.db.insert("nodeTrees", { workspaceId, status: "ready", dirty: false, files: 0, sweptAt: now });
+  // Born on built paths: there is nothing to walk before the switch (`treeFlips.ts`).
+  await ctx.db.insert("nodeTrees", { workspaceId, status: "ready", dirty: false, files: 0, sweptAt: now, paths: "built" });
   await ctx.db.insert("noteIdCopies", {
     workspaceId,
     status: "done",

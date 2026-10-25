@@ -299,6 +299,8 @@ twice to its newest name.
   moving a folder must move their bytes, which only stored paths do. A file
   written by path after keying is left to the move, which refuses to carry
   it (above).
+- A workspace born keyed (`keyIfBornEmpty`) is born on built paths: it has
+  no rows to walk. One keyed later by the cron is flipped by the next walk.
 - A cron starts the walks every half hour; the `Tree paths` workflow starts
   them at once, for at most `limit` workspaces, and reports counts only.
 
