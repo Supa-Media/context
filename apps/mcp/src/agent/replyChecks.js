@@ -17,6 +17,9 @@
  *      with "The email is already waiting for your 👍 above": pointing back at
  *      the ask that was waiting instead of answering the text in front of it.
  *
+ * Since added: figures read off a picture (`figuresFromPicture`), and a
+ * calendar try claimed with no calendar_event call (`claimsCalendarTry`).
+ *
  * Each is something the gateway can see for itself, so each sends the model
  * one more round with a notice (`claimCheck.js` `check`, once per kind), and
  * an answer still empty after it is replaced with a line that says so
@@ -113,6 +116,26 @@ export const FIGURES_NOTICE =
   "Never give a figure the picture doesn't show. If every figure checks out, send your answer again as it was.";
 
 /**
+ * "I tried again and Google Calendar refused it" with no calendar_event call
+ * in the turn (@shyoh, 2026-10-25: asked to mark a birthday, Tex's last turn
+ * called only earlier_texts and write_note, and said it had tried again).
+ */
+const SAYS_IT_TRIED =
+  /\b(?:I(?:'ve| have)?\s+(?:just\s+|also\s+|now\s+)?(?:tried|retried|re-tried|attempted)|(?:tried|trying)\s+(?:it\s+|that\s+|this\s+)?again|another\s+(?:try|attempt|go)|(?:Google(?:\s+Calendar)?|(?:the|your)\s+calendar)\s+(?:still\s+|again\s+)?(?:refused|rejected|declined|won't take|wouldn't take|didn't take|failed))\b/i;
+const CALENDAR_WORDS = /\b(?:calendar|google|event)\b/i;
+
+/** Whether the answer says it tried a calendar change when no calendar_event call was made this turn. */
+export function claimsCalendarTry(answer, steps = []) {
+  const said = String(answer ?? "").replace(/[‘’]/g, "'");
+  return SAYS_IT_TRIED.test(said) && CALENDAR_WORDS.test(said) && !steps.some((step) => step.name === "calendar_event");
+}
+
+export const TRY_CLAIM_NOTICE =
+  "Before this goes: your answer says you tried the calendar change, but you didn't call calendar_event in this turn. " +
+  "Call calendar_event now with the change they asked for, then answer with what it really said: done, or Google's reason in plain words. " +
+  "Never say you tried something you didn't call, and never promise to keep trying later.";
+
+/**
  * The check for one turn: `{ question, waiting, pictures }` from the turn, `steps` as
  * `claimCheck.js` records them. Answers a notice, each kind once, or null.
  */
@@ -125,6 +148,7 @@ export function replyChecks({ question, waiting = false, pictures = false }) {
     ["ask", (answer) => pointsAtWaitingAsk(answer, waiting), ASK_NOTICE],
     ["picture", (answer) => asksPastPicture(answer, pictures), PICTURE_NOTICE],
     ["figures", (answer, steps) => figuresFromPicture(answer, pictures, steps), FIGURES_NOTICE],
+    ["tried", (answer, steps) => claimsCalendarTry(answer, steps), TRY_CLAIM_NOTICE],
   ];
   return (answer, steps = []) => {
     for (const [kind, fails, notice] of checks) {

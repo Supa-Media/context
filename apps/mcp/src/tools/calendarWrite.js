@@ -279,7 +279,10 @@ export const REFUSED = {
   ambiguous: "Not changed: more than one event has exactly that title and start, and nothing else tells them apart here. Say so in one line.",
   has_guests: "Not changed: that event has guests now, who would be told. Call calendar_event again and the person is asked first.",
   not_configured: "Not changed: this Context deployment does not change calendars.",
-  unavailable: "Not changed: Google Calendar did not take the change just now. Nothing was changed; it can be asked for again.",
+  unavailable:
+    "Not changed: Google Calendar did not take the change. Tell them in one short line what Google said, in plain words, " +
+    "and that it isn't on their calendar. Send it again at most once, and only by calling calendar_event; never say you tried again unless you called it, " +
+    "and never promise to keep trying later.",
 };
 
 /**
@@ -316,11 +319,18 @@ export async function toolCalendarEvent(store, args) {
 /**
  * What a refusal tells the model. A read-only calendar names the accounts
  * Google said can only be read, so a person with two hears which one needs
- * the reconnect (@blessing, 2026-10-23).
+ * the reconnect (@blessing, 2026-10-23); one Google refused carries what
+ * Google said.
  */
 export function refusalFor(answer) {
   const said = REFUSED[answer?.refused] ?? REFUSED.unavailable;
   const accounts = Array.isArray(answer?.accounts) ? answer.accounts : [];
+  // Google's own reason (@shyoh, 2026-10-25: a birthday refused "several times" with nothing to say why).
+  const google = answer?.google;
+  if (Number.isInteger(google?.status)) {
+    const why = [`HTTP ${google.status}`, ...(google.reason ? [google.reason] : [])].join(", ");
+    return `${said} Google said (${why})${google.message ? `: ${google.message}` : "."}`;
+  }
   if (answer?.refused !== "calendar_read_only" || accounts.length === 0) return said;
   return `${said} The account${accounts.length === 1 ? "" : "s"} to reconnect: ${accounts.join(", ")}.`;
 }

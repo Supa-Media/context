@@ -26,6 +26,11 @@
  * moments (`createdEventId`), so the same event asked for again is Google's
  * 409 and answered as the one already there (`existing`); one the person
  * deleted since holds that id still, cancelled, so it is added afresh.
+ *
+ * A refusal Google gave carries what Google said (`google`: status, reason,
+ * message), so Tex tells the person the real reason rather than "try again"
+ * (@shyoh, 2026-10-25: a birthday refused "several times", every one the 400
+ * of an id Google does not take).
  */
 
 import { internal } from "../../../_generated/api";
@@ -71,11 +76,33 @@ async function findEvent(accessToken: string, change: CalendarChange, check: boo
 }
 
 const BASE32HEX = "0123456789abcdefghijklmnopqrstuv";
+/** Google's rule for an event id a create names (Calendar API, Events: insert). */
+export const GOOGLE_EVENT_ID = /^[0-9a-v]{5,1024}$/;
+
+export type GoogleSaid = { status: number; reason?: string; message?: string };
+
+/**
+ * What Google said when it refused, for the person to hear: the status, its
+ * reason code, and its message cut to one short line. Only the status and
+ * reason are logged, since a message can quote the event.
+ */
+export async function googleSaid(response: Response): Promise<GoogleSaid> {
+  const body = (await response.json().catch(() => null)) as { error?: { message?: unknown; errors?: Array<{ reason?: unknown }> } } | null;
+  const reason = body?.error?.errors?.[0]?.reason;
+  const message = body?.error?.message;
+  return {
+    status: response.status,
+    ...(typeof reason === "string" && /^[A-Za-z]{1,40}$/.test(reason) ? { reason } : {}),
+    ...(typeof message === "string" && message.trim() !== ""
+      ? { message: message.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]+/g, " ").trim().slice(0, 200) }
+      : {}),
+  };
+}
 
 /**
  * The Google event id a create asks for: the same calendar, title (any case
  * or spacing), start and end always give the same one, in the base32hex
- * Google takes. Nothing of the event can be read back from it.
+ * Google takes (`GOOGLE_EVENT_ID`). Nothing of the event can be read back from it.
  */
 export async function createdEventId(connectionId: string, change: CalendarChange): Promise<string> {
   const title = change.title.trim().replace(/\s+/g, " ").toLowerCase();
@@ -83,7 +110,10 @@ export async function createdEventId(connectionId: string, change: CalendarChang
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
   let bits = 0;
   let value = 0;
-  let id = "ctx";
+  // Google takes 5 to 1,024 of base32hex's own characters (0-9, a-v) and
+  // nothing else: a prefix like "ctx" ("x" is past "v") made every create a
+  // 400 (@shyoh, 2026-10-25).
+  let id = "";
   for (const byte of digest.subarray(0, 20)) {
     value = (value << 8) | byte;
     bits += 8;
@@ -220,11 +250,23 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
         const meet = change.meet ? meetLink(event) : null;
         return json({ ok: true, calendar: writer.address, existing: true, ...(meet !== null ? { meet } : {}) });
       }
-      if (event !== null) response = await send(createRequest(change, null));
+      // Deleted (cancelled, or gone: Google keeps a deleted id taken either way): added afresh under an id of Google's.
+      // A read that failed otherwise may hide the event still there, so nothing more is sent.
+      log({ outcome: "id_taken", action: change.action, status: there.status });
+      if (event !== null || there.status === 404 || there.status === 410) response = await send(createRequest(change, null));
+    } else if (response.status === 400 && eventId !== null) {
+      // An id Google will not take must never cost the event: the same create goes once more without one.
+      const said = await googleSaid(response);
+      log({ outcome: "id_refused", action: change.action, status: said.status, ...(said.reason ? { reason: said.reason } : {}) });
+      response = await send(createRequest(change, null));
     }
     log({ outcome: response.ok ? "changed" : "http_error", action: change.action, status: response.status });
     if (response.status === 403 && change.action !== "create") return json({ ok: false, refused: "not_organizer" });
-    if (!response.ok) return json({ ok: false, refused: "unavailable" });
+    if (!response.ok) {
+      const said = await googleSaid(response);
+      log({ outcome: "google_refused", action: change.action, status: said.status, ...(said.reason ? { reason: said.reason } : {}) });
+      return json({ ok: false, refused: "unavailable", google: said });
+    }
     const meet = change.meet || change.edit?.meet ? meetLink(await response.json().catch(() => null)) : null;
     return json({ ok: true, calendar: writer.address, ...(meet !== null ? { meet } : {}) });
   } catch {

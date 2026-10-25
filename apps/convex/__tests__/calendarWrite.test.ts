@@ -21,6 +21,12 @@
  *     makes one event" fails.
  *  6. The 409 answered as existing whatever its status. → "an event they
  *     deleted is added again" fails.
+ *  7. `createdEventId` given a prefix outside base32hex (the "ctx" of
+ *     2026-10-24, "x" being past "v"). → "the id asked for is one Google
+ *     takes" and the whole-day birthday fail.
+ *  8. The 400 for an id, or the 409 of one deleted and gone, answered without
+ *     a second send. → "an id Google refuses never costs the event" and "an
+ *     event deleted and gone from a read is added again" fail.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -28,6 +34,7 @@ import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding 
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { CALENDAR_WRITE_HOURLY_LIMIT, CALENDAR_WRITE_SCOPE, readCalendarChange } from "../functions/lib/calendarWrite";
+import { GOOGLE_EVENT_ID } from "../functions/lib/gatewayRoutes/calendarWrite";
 
 const realFetch = globalThis.fetch;
 
@@ -116,7 +123,7 @@ describe("changing the person's own calendar", () => {
     expect(calls[0]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none");
     expect(calls[0]!.auth).toBe("Bearer ya29.fake-access-token");
     expect(calls[0]!.body).toEqual({
-      id: expect.stringMatching(/^ctx[0-9a-v]{32}$/),
+      id: expect.stringMatching(/^[0-9a-v]{32}$/),
       summary: "Dentist",
       start: { dateTime: CREATE.start },
       end: { dateTime: CREATE.end },
@@ -258,7 +265,7 @@ describe("changing the person's own calendar", () => {
   test("a Google failure is reported, not called done", async () => {
     calendar([], 500);
     const { t, aliceWs } = await connected();
-    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "unavailable" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "unavailable", google: { status: 500 } });
   });
 });
 
@@ -295,8 +302,13 @@ describe("what a change may be", () => {
   });
 });
 
-/** Google Calendar keeping the events created with an id: a second create of one is 409, as Google answers it. */
-function keepingCalendar() {
+/**
+ * Google Calendar keeping the events created with an id, as Google answers
+ * it: an id outside 5 to 1,024 of base32hex (0-9, a-v) is a 400, a second
+ * create of one is 409 even once it is deleted, and with `forget` a deleted
+ * event is gone from a read (404) rather than shown cancelled.
+ */
+function keepingCalendar({ forget = false } = {}) {
   const made = new Map<string, { status: string }>();
   const calls: Array<{ method: string; url: string; body: Record<string, unknown> | null }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -306,13 +318,17 @@ function keepingCalendar() {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     calls.push({ method, url, body });
     if (method === "POST") {
+      if (body?.id !== undefined && !/^[0-9a-v]{5,1024}$/.test(String(body.id))) {
+        return new Response(JSON.stringify({ error: { code: 400, message: "Invalid resource id value.", errors: [{ reason: "invalid" }] } }), { status: 400 });
+      }
       const id = typeof body?.id === "string" ? body.id : `auto${made.size}`;
-      if (made.has(id)) return new Response(JSON.stringify({ error: { code: 409 } }), { status: 409 });
+      if (made.has(id)) return new Response(JSON.stringify({ error: { code: 409, message: "The requested identifier already exists." } }), { status: 409 });
       made.set(id, { status: "confirmed" });
       return new Response(JSON.stringify({ id }), { status: 200 });
     }
     const id = decodeURIComponent(url.split("/events/")[1]?.split("?")[0] ?? "");
     const event = made.get(id);
+    if (forget && event?.status === "cancelled") return new Response("{}", { status: 404 });
     return event ? new Response(JSON.stringify({ id, ...event }), { status: 200 }) : new Response("{}", { status: 404 });
   });
   return { made, calls };
@@ -348,5 +364,70 @@ describe("a create is safe to send again", () => {
     expect(made.size).toBe(2);
     expect(calls.at(-1)!.method).toBe("POST");
     expect(calls.at(-1)!.body?.id).toBeUndefined();
+  });
+
+  test("the id asked for is one Google takes", async () => {
+    const { calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0]!.body?.id)).toMatch(GOOGLE_EVENT_ID);
+  });
+
+  test("a whole-day event is added, once, under an id Google takes (@shyoh, 2026-10-25: a birthday)", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    const birthday = { action: "create", title: "Tabi's birthday", start: "2026-10-25", end: "2026-10-26" };
+    expect(await change(t, ACCESS_A, aliceWs, birthday)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls[0]!.body).toMatchObject({ summary: "Tabi's birthday", start: { date: "2026-10-25" }, end: { date: "2026-10-26" } });
+    expect(await change(t, ACCESS_A, aliceWs, birthday)).toEqual({ ok: true, calendar: "alice@gmail.example", existing: true });
+    expect(made.size).toBe(1);
+  });
+
+  test("an event deleted and gone from a read is added again", async () => {
+    const { made, calls } = keepingCalendar({ forget: true });
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    for (const event of made.values()) event.status = "cancelled";
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(made.size).toBe(2);
+    expect(calls.at(-1)!.body?.id).toBeUndefined();
+  });
+
+  test("an id Google refuses never costs the event: it goes again without one", async () => {
+    keepingCalendar();
+    const inner = globalThis.fetch;
+    const ids: unknown[] = [];
+    // Google tightening its id rule tomorrow: every id refused.
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith("https://www.googleapis.com/calendar/") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        ids.push(body.id);
+        if (body.id !== undefined) return new Response(JSON.stringify({ error: { code: 400, message: "Invalid resource id value." } }), { status: 400 });
+      }
+      return await inner(input, init);
+    });
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBeUndefined();
+  });
+});
+
+describe("a refusal says Google's reason", () => {
+  test("Google's status, reason and message come back with the refusal", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://www.googleapis.com/calendar/")) return await realFetch(input, init);
+      const error = { code: 403, message: "Calendar usage limits exceeded.\u202e", errors: [{ reason: "quotaExceeded" }] };
+      return new Response(JSON.stringify({ error }), { status: 403 });
+    });
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({
+      ok: false,
+      refused: "unavailable",
+      google: { status: 403, reason: "quotaExceeded", message: "Calendar usage limits exceeded." },
+    });
   });
 });
