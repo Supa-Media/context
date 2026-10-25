@@ -18,6 +18,9 @@
  *     "a member who only views may read a report but not act on it" fails.
  *  4. `withStatus` appending a second `status:` line. → "sending a report to
  *     triage…" fails: the old status is still there.
+ *  5. `notesUnder` ignoring its `visible` predicate. → "a member on the desk
+ *     is not listed a report their own membership cannot open" fails: the
+ *     held-back report is listed, heading and all.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -40,6 +43,9 @@ const USER_BUG = "areas/tex-bugs/user/2026-10-23 0900 blank reply def456.md";
 const REVIEW = "areas/tex-reviews/2026-10-24 1830 calm 2 0a1b2c.md";
 const THEME = "areas/tex-reviews/themes/note-saves-time-out.md";
 const SCORES = "areas/tex-reviews/scores/2026-10-24.md";
+/** A report the owner held back by name: on the desk, but not for every member of the context. */
+const PRIVATE_BUG = "areas/tex-bugs/team/2026-10-22 0800 card number in a text ghi789.md";
+const PRIVATE_HEADING = "Card number pasted into a text";
 
 let backend: MemoryS3;
 
@@ -69,10 +75,17 @@ async function world() {
   backend.seed(THEME, "---\nstatus: shipped\nsignals: [try_again]\ntasks: notes\nprs: [\"#2154\"]\nmerged: 2026-10-24\nfix_thread: Fix Tex note saves timing out\n---\n\n# Note saves time out\n");
   backend.seed("areas/tex-reviews/themes/README.md", "# Named problems\n");
   backend.seed("areas/tex-bugs/README.md", "# Bugs\n");
+  backend.seed(PRIVATE_BUG, `---\nstatus: open\nreporter: user\ntexts: shared\n---\n\n# ${PRIVATE_HEADING}\n`);
   backend.seed(SCORES, "---\nday: 2026-10-24\n---\n\n# Scores\n");
   backend.seed("areas/secret.md", "# Not on the desk\n");
   await seedStorageBinding(t, { workspaceId: pinned, boundBy: staff, bucket: PINNED_BUCKET });
   await readIntoTree(t, pinned);
+  // The desk's folders are the team's to read, which is what puts staff on them at all...
+  for (const folder of ["areas/tex-bugs", "areas/tex-reviews"]) {
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: folder, visibility: "team" });
+  }
+  // ...and one report held back by name, by the owner, through the product.
+  await asUser(t, staff).action(api.functions.files.setNoteVisibility, { workspaceId: pinned, path: PRIVATE_BUG, visibility: "private" });
   return { t, staff, otherStaff, alice, pinned };
 }
 
@@ -86,7 +99,7 @@ describe("what the desk lists", () => {
     const { t, staff } = await world();
     const desk = await asUser(t, staff).query(api.functions.texDashboard.triage, {});
     if (!desk.available) throw new Error(`desk unavailable: ${desk.reason}`);
-    expect(desk.bugs.map((bug) => bug.path).sort()).toEqual([BUG, USER_BUG]);
+    expect(desk.bugs.map((bug) => bug.path).sort()).toEqual([PRIVATE_BUG, BUG, USER_BUG].sort());
     const bug = desk.bugs.find((row) => row.path === BUG)!;
     expect(bug).toMatchObject({ status: "open", reporter: "team", textsShared: true, title: "Calendar made two events", filed: Date.UTC(2026, 9, 24, 12) });
     expect(desk.reviews.map((review) => review.path)).toEqual([REVIEW]);
@@ -101,6 +114,24 @@ describe("what the desk lists", () => {
     const { t, otherStaff } = await world();
     expect(await asUser(t, otherStaff).query(api.functions.texDashboard.triage, {})).toEqual({ available: false, reason: "not_a_member" });
     await expect(asUser(t, otherStaff).action(api.functions.texDashboard.readNote, { path: BUG })).rejects.toThrow();
+  });
+
+  test("a member on the desk is not listed a report their own membership cannot open", async () => {
+    const { t, staff, otherStaff, pinned } = await world();
+    // Staff, and on the context, but a member rather than an owner: the second lock passes and `canSee` still decides.
+    await addMember(t, pinned, otherStaff, "member", staff);
+    const desk = await asUser(t, otherStaff).query(api.functions.texDashboard.triage, {});
+    if (!desk.available) throw new Error(`desk unavailable: ${desk.reason}`);
+    expect(desk.bugs.map((bug) => bug.path).sort()).toEqual([BUG, USER_BUG]);
+    // Not its path, and not the heading the row carries either.
+    expect(JSON.stringify(desk)).not.toContain(PRIVATE_HEADING);
+    expect(JSON.stringify(desk)).not.toContain(PRIVATE_BUG);
+    // The read already refused them; it is the listing beside it that has to agree.
+    await expect(asUser(t, otherStaff).action(api.functions.texDashboard.readNote, { path: PRIVATE_BUG })).rejects.toThrow();
+    // And the owner is not filtered by the same change.
+    const owner = await asUser(t, staff).query(api.functions.texDashboard.triage, {});
+    if (!owner.available) throw new Error(`desk unavailable: ${owner.reason}`);
+    expect(owner.bugs.map((bug) => bug.path)).toContain(PRIVATE_BUG);
   });
 
   test("a member who is not staff is refused", async () => {

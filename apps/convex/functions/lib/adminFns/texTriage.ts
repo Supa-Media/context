@@ -229,22 +229,30 @@ export function themeRowOf(path: string, props: string | undefined): ThemeRow {
   };
 }
 
-/** The live notes under a folder, at any depth: the last `TRIAGE_ROWS` by name, which is by date for stamped names. */
-export async function notesUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, folder: string) {
+/**
+ * The live notes under a folder, at any depth: the last `TRIAGE_ROWS` by name,
+ * which is by date for stamped names, and only those `visible` admits.
+ *
+ * A row says nothing about who may see it — the `nodes` schema is explicit
+ * that visibility "is decided when served, by the same `canSee` over the
+ * workspace's rules that every listing applies" — so the caller hands in that
+ * judgement and this listing applies it like any other.
+ */
+export async function notesUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, folder: string, visible: (path: string) => boolean) {
   const rows = await db
     .query("nodes")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gte("path", `${folder}/`).lt("path", `${folder}/\uffff`))
     .order("desc")
     .take(TRIAGE_ROWS);
-  return rows.filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.endsWith(".md"));
+  return rows.filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.endsWith(".md") && visible(row.path));
 }
 
-/** Everything on the desk, from the rows alone. */
-export async function triageRows(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders) {
+/** Everything on the desk the caller may see, from the rows alone. */
+export async function triageRows(db: DatabaseReader, workspaceId: Id<"workspaces">, folders: TriageFolders, visible: (path: string) => boolean) {
   // Reports and reviews are named with their stamp; a folder's own README or about note is not one.
-  const bugs = (await notesUnder(db, workspaceId, folders.bugs)).filter((row) => stampOf(row.path) !== null).map((row) => bugRowOf(row.path, row.props));
-  const themes = (await notesUnder(db, workspaceId, folders.themes)).filter((row) => !ABOUT_NOTES.has(row.name.toLowerCase())).map((row) => themeRowOf(row.path, row.props));
-  const reviews = (await notesUnder(db, workspaceId, folders.reviews))
+  const bugs = (await notesUnder(db, workspaceId, folders.bugs, visible)).filter((row) => stampOf(row.path) !== null).map((row) => bugRowOf(row.path, row.props));
+  const themes = (await notesUnder(db, workspaceId, folders.themes, visible)).filter((row) => !ABOUT_NOTES.has(row.name.toLowerCase())).map((row) => themeRowOf(row.path, row.props));
+  const reviews = (await notesUnder(db, workspaceId, folders.reviews, visible))
     .filter((row) => !row.path.startsWith(`${folders.themes}/`) && !row.path.startsWith(`${folders.reviews}/scores/`))
     .filter((row) => stampOf(row.path) !== null)
     .map((row) => reviewRowOf(row.path, row.props));
