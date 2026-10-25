@@ -27,7 +27,10 @@ import { THREE_WORD_LIST, threeWords } from "../functions/lib/threeWords";
  *  - let a member (not owner or editor) bind in `mayOpenToGuests`: "only an owner or editor" fails;
  *  - drop the guest-group comparison in `groupStillShares`: "a demoted binder" and "back to an ordinary chat" fail;
  *  - meter the tagger instead of the binder: "usage counts against the binder" fails;
- *  - drop the once-only check in `ensureChatFolderGrant` and `withChatFolders`: "carries the group's grant for real, once" fails.
+ *  - drop the once-only check in `ensureChatFolderGrant` and `withChatFolders`: "carries the group's grant for real, once" fails;
+ *  - drop the `viaChat` check in `syncGroupRows`: "an owner's row is never touched" fails;
+ *  - drop the `shared` check in `syncFolderPeople`: "took it from the chat's people too" fails;
+ *  - call `unsyncChatPeople` nowhere in `clearGuests`: "guest mode off takes back" fails.
  */
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -326,6 +329,131 @@ describe("a guest grant lives only as long as the chat may", () => {
     const ordinary = await turn(t, ADA, [ADA, BO, LINE]);
     expect(ordinary.guest).toBeUndefined();
     expect((await resolves(t, ordinary.accessToken as string))?.workspaces[0]?.grantedNames).toBeUndefined();
+  });
+});
+
+describe("people joining and leaving are kept in the group and on the folder", () => {
+  const CAROL = "+15555550122";
+
+  async function groupRows(t: T) {
+    return await t.run(async (ctx) => await ctx.db.query("workspaceGroupMembers").collect());
+  }
+
+  async function folderGrants(t: T, studio: Id<"workspaces">, folder: string) {
+    return await t.run(async (ctx) => {
+      const row = await nodeAt(ctx.db, studio, folder);
+      const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
+      return grants.map((grant) => [grant.granteeKind, grant.granteeUserId ?? grant.granteeGroupId, grant.role]);
+    });
+  }
+
+  /** Guest mode on in @studio with its folder's row in place, so the folder has had the group's grant. */
+  async function tripWithFolder(t: T, participants: string[]) {
+    const { bo, ada, studio } = await trip(t);
+    const on = await turn(t, BO, participants, use("studio"));
+    const guest = on.guest as { folder: string; group: string };
+    await seedTreeRows(t, studio, [`${guest.folder}/flights.md`]);
+    const groupId = await t.run(async (ctx) => (await ctx.db.query("workspaceGroups").withIndex("by_name", (q) => q.eq("name", guest.group)).unique())!._id);
+    return { bo, ada, studio, folder: guest.folder, groupId };
+  }
+
+  test("a member in the chat is in its group while there, and an owner's row is never touched", async () => {
+    const t = setupTest();
+    const { bo, ada, groupId } = await tripWithFolder(t, [ADA, BO, FRIEND, LINE]);
+    await turn(t, FRIEND, [ADA, BO, FRIEND, LINE]);
+    const rows = await groupRows(t);
+    expect(rows.map((row) => row.userId).sort()).toEqual([ada.userId, bo.userId].sort());
+    expect(rows.every((row) => row.groupId === groupId && row.viaChat !== undefined)).toBe(true);
+    // Ada leaves the chat: her row goes, Bo's stays.
+    await turn(t, FRIEND, [BO, FRIEND, LINE]);
+    expect((await groupRows(t)).map((row) => row.userId)).toEqual([bo.userId]);
+
+    // A row the owner adds is the owner's: leaving the chat doesn't take it.
+    const studioId = rows[0]!.workspaceId;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceGroupMembers", { groupId, workspaceId: studioId, userId: ada.userId, addedBy: bo.userId, addedAt: 1 });
+    });
+    await turn(t, FRIEND, [ADA, BO, FRIEND, LINE]);
+    await turn(t, FRIEND, [BO, FRIEND, LINE]);
+    const kept = (await groupRows(t)).find((row) => row.userId === ada.userId);
+    expect(kept).toBeDefined();
+    expect(kept?.viaChat).toBeUndefined();
+  });
+
+  test("someone with an account who isn't a member is named on the folder to edit, and only while in the chat", async () => {
+    const t = setupTest();
+    const carol = await texter(t, "carol", CAROL);
+    const { studio, folder, groupId } = await tripWithFolder(t, [BO, CAROL, LINE]);
+    await turn(t, CAROL, [BO, CAROL, LINE]);
+    expect(await folderGrants(t, studio, folder)).toEqual(
+      expect.arrayContaining([["group", groupId, "edit"], ["user", carol.userId, "edit"]]),
+    );
+    // A group row would reach nothing for her, so none is written.
+    expect((await groupRows(t)).some((row) => row.userId === carol.userId)).toBe(false);
+    // Not a member, so nothing else of the workspace.
+    expect(await t.run(async (ctx) => await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", studio).eq("userId", carol.userId)).unique())).toBeNull();
+    // No phone number is kept for her.
+    expect(JSON.stringify(await t.run(async (ctx) => await ctx.db.query("textGroups").collect()))).not.toContain(CAROL);
+
+    await turn(t, BO, [BO, LINE, FRIEND]);
+    expect(await folderGrants(t, studio, folder)).toEqual([["group", groupId, "edit"]]);
+  });
+
+  test("a guest with no account is named on the first tag after they link", async () => {
+    const t = setupTest();
+    const { studio, folder, groupId } = await tripWithFolder(t, [BO, FRIEND, LINE]);
+    await turn(t, FRIEND, [BO, FRIEND, LINE]);
+    expect(await folderGrants(t, studio, folder)).toEqual([["group", groupId, "edit"]]);
+    const fay = await texter(t, "fay", FRIEND);
+    await turn(t, FRIEND, [BO, FRIEND, LINE]);
+    expect(await folderGrants(t, studio, folder)).toContainEqual(["user", fay.userId, "edit"]);
+  });
+
+  test("an owner who took the folder from the chat's group took it from the chat's people too", async () => {
+    const t = setupTest();
+    const carol = await texter(t, "carol", CAROL);
+    const { bo, studio, folder } = await tripWithFolder(t, [BO, CAROL, LINE]);
+    await turn(t, CAROL, [BO, CAROL, LINE]);
+    await t.run(async (ctx) => {
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: folder, base: "inherit", grantees: [{ kind: "user", userId: carol.userId, role: "edit" }], kind: "folder", actor: { userId: bo.userId, role: "owner" } });
+    });
+    await turn(t, CAROL, [BO, CAROL, LINE]);
+    expect(await folderGrants(t, studio, folder)).toEqual([]);
+    expect(carol.userId).toBeDefined();
+  });
+
+  test("a grantee the owner named stays when the chat's people change", async () => {
+    const t = setupTest();
+    const carol = await texter(t, "carol", CAROL);
+    const { bo, ada, studio, folder, groupId } = await tripWithFolder(t, [BO, CAROL, LINE]);
+    await turn(t, CAROL, [BO, CAROL, LINE]);
+    await t.run(async (ctx) => {
+      await setAccessRow(ctx as MutationCtx, {
+        workspaceId: studio,
+        path: folder,
+        base: "inherit",
+        grantees: [{ kind: "group", groupId, role: "edit" }, { kind: "user", userId: carol.userId, role: "edit" }, { kind: "user", userId: ada.userId, role: "view" }],
+        kind: "folder",
+        actor: { userId: bo.userId, role: "owner" },
+      });
+    });
+    await turn(t, BO, [BO, LINE]);
+    expect(await folderGrants(t, studio, folder)).toEqual(expect.arrayContaining([["group", groupId, "edit"], ["user", ada.userId, "view"]]));
+    expect((await folderGrants(t, studio, folder)).some((grant) => grant[1] === carol.userId)).toBe(false);
+  });
+
+  test("guest mode off takes back what the chat added", async () => {
+    const t = setupTest();
+    const carol = await texter(t, "carol", CAROL);
+    const { ada, studio, folder, groupId } = await tripWithFolder(t, [ADA, BO, CAROL, LINE]);
+    await turn(t, CAROL, [ADA, BO, CAROL, LINE]);
+    expect((await groupRows(t)).length).toBe(2);
+    expect(await folderGrants(t, studio, folder)).toContainEqual(["user", carol.userId, "edit"]);
+    const back = await turn(t, ADA, [ADA, BO, LINE], use("studio"));
+    expect(back.guest).toBeUndefined();
+    expect(await groupRows(t)).toEqual([]);
+    expect(await folderGrants(t, studio, folder)).toEqual([["group", groupId, "edit"]]);
+    expect(ada.userId).toBeDefined();
   });
 });
 

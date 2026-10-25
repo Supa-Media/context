@@ -51,6 +51,11 @@ export const membershipTables = {
     userId: v.id("users"),
     addedBy: v.id("users"),
     addedAt: v.number(),
+    /**
+     * Added because the person is in a Tex guest chat of this group (`lib/textGroupGuestSync.ts`), and removed when
+     * they are no longer in it. A row without it is the owner's and the chat never touches it.
+     */
+    viaChat: v.optional(v.id("textGroups")),
   })
     .index("by_group", ["groupId"])
     .index("by_group_user", ["groupId", "userId"])

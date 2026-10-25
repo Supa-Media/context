@@ -36,6 +36,12 @@ export const textGroupTables = {
     guestToken: v.optional(v.string()),
     /** The folder's row has been given the group's grant once; from then on the row is the owner's to change. */
     guestFolderGranted: v.optional(v.boolean()),
+    /**
+     * The accounts in the chat who aren't members of the workspace, named on the chat's folder row to edit so they
+     * reach it in the app, and taken off it when they leave the chat (`lib/textGroupGuestSync.ts`). Account ids only,
+     * never a phone number.
+     */
+    guestFolderUsers: v.optional(v.array(v.id("users"))),
     lastSeenAt: v.number(),
   })
     .index("by_key", ["groupKey"])
