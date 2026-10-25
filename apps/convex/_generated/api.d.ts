@@ -18,6 +18,7 @@ import type * as functions_accountDeletion from "../functions/accountDeletion.js
 import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
+import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
 import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_billingWindDown from "../functions/billingWindDown.js";
@@ -226,6 +227,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
+  "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
   "functions/billingWindDown": typeof functions_billingWindDown;
