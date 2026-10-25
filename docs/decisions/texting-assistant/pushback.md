@@ -40,6 +40,14 @@ cut corners, it should say what that costs and why, and still do the job.
   (`withoutFlattery`, `route.js`), because a prompt asks and code makes sure.
   A plain "You're right, it's at 3:30" stays: acknowledging a correction is
   not flattery.
+- **A text that asks for judgment runs on the thinking model.** An opinion
+  or a "should" ("I think we should…", "should we skip…", "let's rewrite…"),
+  or a buy/rewrite/skip-style ask while about-me names goals, gets one
+  reminder line at the end of the turn's instructions and goes to the setup's
+  `think` model without asking the router (`pushbackNudge`, `turn.js`). Three
+  bench rounds on Haiku alone went straight to the errand (a donut shop, a
+  to-do for "I think we should hold the demo"); the owner's model split puts
+  the thinking on Opus. Only texts of that shape, so the share stays small.
 - **Said by the build.** `OPINION_LINE` (`agent/pushback.js`) is added to
   every texted turn in `prompt.js`, whatever the production setup's words,
   because it is a rule the owner set, not a matter of voice.

@@ -453,6 +453,14 @@ test("a text the router calls lookup stays on the main model", async () => {
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
 });
 
+test("a texted \"should we\" asks for Tex's judgment, so it runs on the thinking model without asking the router (pushback.js)", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2-should" });
+  const ai = fakeAi([clefSays("lookup")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE, { question: "should we skip the rollback to save time?", conversation: "texts" });
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5");
+  assert.equal(ai.calls.length, 0, "the router is not asked");
+});
+
 test("a think pick under the default cutoff clears a setup's lower one, and the trace keeps the confidence", async () => {
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ROUTED_FRONT}\n  route_at: 0.3`), etag: "r2-wide" });
   const ai = fakeAi([clefSays("think", 0.4)]);

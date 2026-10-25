@@ -375,10 +375,11 @@ export async function runTurn(options) {
     and a person watching the turn log sees which tier a slow or wrong answer
     came from.
   */
+  const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   if (router !== null) {
     const asked = clock();
-    // A background job always plans on `think` and drives on `main` (`background.js`): no router call.
-    const routed = options.planned ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
+    // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
+    const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     plan = thinkRoundsFor(router, routed.tier, mainModel);
@@ -411,7 +412,7 @@ export async function runTurn(options) {
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces) +
     (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
-    (texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""); // said last, beside the question (`pushback.js`)
+    nudge; // said last, beside the question
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
