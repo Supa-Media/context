@@ -28,6 +28,7 @@ import type * as functions_chaosScore from "../functions/chaosScore.js";
 import type * as functions_chatProduct from "../functions/chatProduct.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
 import type * as functions_collaborationFiling from "../functions/collaborationFiling.js";
+import type * as functions_linkRepairs from "../functions/linkRepairs.js";
 import type * as functions_collect from "../functions/collect.js";
 import type * as functions_contentReports from "../functions/contentReports.js";
 import type * as functions_contextMoves from "../functions/contextMoves.js";
@@ -242,6 +243,7 @@ declare const fullApi: ApiFromModules<{
   "functions/chaosScore": typeof functions_chaosScore;
   "functions/chatProduct": typeof functions_chatProduct;
   "functions/collaborationFiling": typeof functions_collaborationFiling;
+  "functions/linkRepairs": typeof functions_linkRepairs;
   "functions/collect": typeof functions_collect;
   "functions/cloudflare": typeof functions_cloudflare;
   "functions/contentReports": typeof functions_contentReports;

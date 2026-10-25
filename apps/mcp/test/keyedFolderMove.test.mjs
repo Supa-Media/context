@@ -2,13 +2,14 @@
  * `move_folder` in a keyed workspace (`tools/moves/keyedFolder.js`): the folder
  * moves as rows in the control plane, every nested folder and note kept as
  * itself, never copied or flattened by path; a dry run answers from the tree;
- * and the links to and inside the moved notes follow them.
+ * and the move writes no note: the links to and inside the moved notes follow
+ * behind it, queued by the control plane (`apps/convex/functions/linkRepairs.ts`).
  *
  * Sabotage, each run as a temporary local edit and reverted, and each failing here:
  *  - put the old keyed refusal back in `toolMoveFolder`: every case here is refused;
  *  - let a keyed real move fall through to the move in one go: the declined case writes bytes;
  *  - drop the hidden-note check from the dry run: the preflight says ok to a move the control plane refuses;
- *  - drop `rewriteRowedLinks` from the folder answer: the link cases keep their old targets.
+ *  - put `rewriteRowedLinks` back in the keyed answers: the link cases see notes written by the move.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -121,37 +122,31 @@ test("a keyed folder moves as rows: every nested folder and note arrives as itse
   assert.ok(!made.objects.has("5-archive/cache.md") && !made.objects.has("5-archive/speed-plan.md"));
   // The note that holds no link is the very object it was: the same version, so the same note.
   assert.equal(made.objects.get(`${ARCHIVED}/decisions/caching/cache.md`).etag, bodies[`${SOURCE}/decisions/caching/cache.md`]);
-  // The only bytes written are link repairs, never a copy of a moved note.
-  for (const [op, key] of noteWrites(made.writes)) {
-    assert.equal(op, "put");
-    assert.ok(!key.startsWith(`${SOURCE}/`), key);
-  }
+  // No note is written: not a copy of a moved note, and not a link repair either.
+  assert.deepEqual(noteWrites(made.writes), []);
 });
 
-test("links to the moved notes and relative links inside them follow the folder", async () => {
+test("a keyed folder move leaves its links to the control plane, and writes no note for them", async () => {
   const made = workspace(PROJECT);
   rowMovingControlPlane(made);
+  const before = made.objects.get("2-areas/status.md").body;
 
   const answer = await toolMoveFolder(made.store, "private", [], new Map(), SOURCE, ARCHIVED, false);
 
-  assert.match(answer.content[0].text, /references: \d+ links? updated in \d+ notes?/);
-  // A note outside points at the new name.
-  assert.match(made.objects.get("2-areas/status.md").body, /\(\.\.\/5-archive\/1-projects\/context-ci-cd\/index\.md\)/);
-  // A link out of the moved folder needs one more `../`; a link inside it is unchanged.
-  const run = made.objects.get(`${ARCHIVED}/runs/2026-10-01.md`).body;
-  assert.match(run, /\(\.\.\/index\.md\)/);
-  assert.match(run, /\(\.\.\/\.\.\/\.\.\/\.\.\/4-resources\/rules\.md\)/);
-  assert.match(made.objects.get(`${ARCHIVED}/index.md`).body, /\(runs\/2026-10-01\.md\) and \[\[speed-plan\]\]/);
+  assert.match(answer.content[0].text, /references: updated in the background \(old links forward to the new path meanwhile\)/);
+  // The note pointing in is untouched by the move: the control plane's queue rewrites it.
+  assert.equal(made.objects.get("2-areas/status.md").body, before);
+  assert.deepEqual(noteWrites(made.writes), []);
 });
 
-test("a keyed note move updates the links to it too", async () => {
+test("a keyed note move leaves its links to the control plane too", async () => {
   const made = workspace(PROJECT);
   rowMovingControlPlane(made);
 
   const answer = await toolMoveNote(made.store, "private", [], new Map(), `${SOURCE}/index.md`, "2-areas/ci-cd.md", undefined);
 
-  assert.match(answer.content[0].text, /moved note: .* → 2-areas\/ci-cd\.md\nreferences: /);
-  assert.match(made.objects.get("2-areas/status.md").body, /\(\.\/ci-cd\.md\)/);
+  assert.match(answer.content[0].text, /moved note: .* → 2-areas\/ci-cd\.md\nreferences: updated in the background/);
+  assert.deepEqual(noteWrites(made.writes), []);
 });
 
 test("a keyed dry run lists every note where it will land, from the tree, and moves nothing", async () => {

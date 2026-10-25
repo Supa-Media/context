@@ -31,6 +31,7 @@ import { loadPrivacyState, type PrivacyState } from "../fileOps/privacyState";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import { catchUpKeyedRows } from "./rowCatchUp";
+import { queueLinkRepair } from "./linkRepair";
 import { rowEtagFor } from "./handedVersion";
 import { PRIVACY_KEY, canSee } from "../privacy";
 import { type AddedRules, carryPrivacy, releasePrivacy } from "./movePrivacy";
@@ -169,6 +170,13 @@ export async function startRowMoveBatch(
     { now },
   );
   await remapIcons(store, planned.map(({ move }) => ({ from: move.from, to: move.to })));
+  // The links follow behind the moves (`linkRepair.ts`).
+  await queueLinkRepair(
+    ctx,
+    workspaceId,
+    planned.flatMap(({ move, files }) => files.map((file) => ({ from: file, to: move.to + file.slice(move.from.length) }))),
+    now,
+  );
   if (args.projection) {
     await followInProjection(
       store,

@@ -2,6 +2,7 @@ import { defineSchema } from "convex/server";
 import { supaAuthTables } from "@supa-media/convex/schema";
 import { workspaceTables } from "./functions/lib/schema/workspaces";
 import { collaborationFilingTables } from "./functions/lib/schema/collaborationFiling";
+import { linkRepairTables } from "./functions/lib/schema/linkRepairs";
 import { obsidianPluginTables } from "./functions/lib/schema/obsidianPlugins";
 import { membershipTables } from "./functions/lib/schema/membership";
 import { shareTables } from "./functions/lib/schema/shares";
@@ -136,6 +137,7 @@ const schema = defineSchema({
   ...searchTimingTables,
   ...trashTables,
   ...collaborationFilingTables,
+  ...linkRepairTables,
   ...oldCopiesTables,
   ...meaningTables,
   ...routineTables,
