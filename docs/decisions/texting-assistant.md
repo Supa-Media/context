@@ -221,6 +221,8 @@ Tex's own jobs, each with its record:
   and Google accounts, told on every turn Tex answers for them.
 - [Saving notes](./texting-assistant/saving-notes.md): a note they ask for is saved
   at once, a non-secret code included, in the subfolder their folders say.
+- [Pushback](./texting-assistant/pushback.md): a point of view from their goals and
+  decisions, said once in a line, the job still done; never flattery.
 - [Runtime](./texting-assistant/runtime.md): the conversation as a log of
   exchanges, a thread's texts read that thread, tapbacks answered or noted,
   check-ins wait for ten quiet minutes.
