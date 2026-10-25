@@ -15,6 +15,8 @@
  *     time" fails.
  *   The "picture" check dropped from `replyChecks` → "an answer that asks them
  *     something past a picture" fails.
+ *   The "tried" check dropped from `replyChecks` → "a calendar try said with
+ *     no calendar_event call…" fails.
  *   `route.js` choosing the setup's fallback without `pictureFallback` → "a
  *     picture turn whose model fails…" in `agentProduction.test.mjs` fails.
  */
@@ -125,4 +127,30 @@ test("figures about a picture are checked against it once, whether it came with 
   assert.equal(check("Messages is your top app at 1h 34m."), FIGURES_NOTICE);
   assert.equal(check("Messages is your top app at 1h 34m."), null, "once a turn");
   assert.match(FIGURES_NOTICE, /Never give a figure the picture doesn't show/);
+});
+
+test("a calendar try said with no calendar_event call gets one more round, and a retry on a schedule is a promise to keep (@shyoh, 2026-10-25)", async () => {
+  const { TRY_CLAIM_NOTICE, claimsCalendarTry } = await import("../src/agent/replyChecks.js");
+  // The review's own turn: earlier_texts and write_note, then a retry claimed.
+  const steps = [
+    { name: "earlier_texts", ok: true },
+    { name: "write_note", ok: true },
+  ];
+  const said = "I tried again and Google Calendar refused it. I'll keep trying every hour through Monday.";
+  assert.equal(claimsCalendarTry(said, steps), true);
+  assert.equal(claimsCalendarTry("Google Calendar refused it again.", steps), true);
+  assert.equal(claimsCalendarTry(said, [...steps, { name: "calendar_event", ok: false }]), false, "it did call it");
+  assert.equal(claimsCalendarTry("I tried the new ramen place, it's great.", []), false, "not the calendar");
+  const check = claimCheck({ question: "Mark today as tabi's birthday on my calendar" });
+  const wrapped = check.wrap(async () => ({ content: [{ type: "text", text: "ok" }] }));
+  await wrapped("earlier_texts", {});
+  await wrapped("write_note", { path: "areas/people/tabi.md" });
+  assert.equal(await check.check(said), TRY_CLAIM_NOTICE);
+
+  assert.equal(promisesLater("I'll keep trying every hour through Monday."), true);
+  assert.equal(promisesLater("I'll keep trying."), true);
+  assert.equal(promisesLater("I'll try it again tomorrow morning."), true);
+  assert.equal(promisesLater("I'll check every morning for new invoices."), true);
+  assert.equal(promisesLater("I'll try again once you reconnect."), false, "their later");
+  assert.equal(promisesLater("Tried it again and it's on your calendar."), false, "not a promise");
 });

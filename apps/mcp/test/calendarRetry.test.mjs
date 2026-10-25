@@ -17,6 +17,7 @@
  *     Google" fails.
  *   `toolCalendarEvent`'s catch answering `REFUSED.unavailable` → "a change
  *     with no answer in time is never told as failed" fails.
+ *   `refusalFor` ignoring `google` → "a refusal says what Google said" fails.
  */
 
 import assert from "node:assert/strict";
@@ -62,4 +63,21 @@ test("a change with no answer in time is never told as failed", async () => {
   assert.equal(textOf(result), NO_ANSWER);
   assert.match(NO_ANSWER, /may have been made/);
   assert.doesNotMatch(NO_ANSWER, /Nothing was changed/);
+});
+
+test("a refusal says what Google said, and never invites a promise to keep trying (@shyoh, 2026-10-25)", async () => {
+  const methods = createCalendarMethods({
+    async post() {
+      return { ok: false, refused: "unavailable", google: { status: 400, reason: "invalid", message: "Invalid resource id value.\u202e" } };
+    },
+  });
+  const answer = await methods.changePersonCalendar("token", "ws", CREATE);
+  assert.deepEqual(answer, { ok: false, refused: "unavailable", google: { status: 400, reason: "invalid", message: "Invalid resource id value." } });
+  const told = textOf(await toolCalendarEvent({ calendar: { change: async () => answer } }, CREATE));
+  assert.match(told, /Google said \(HTTP 400, invalid\): Invalid resource id value\./);
+  assert.match(told, /never promise to keep trying/);
+  assert.match(told, /never say you tried again unless you called it/);
+  // Nothing passed off as Google's words that isn't a status.
+  const odd = await createCalendarMethods({ post: async () => ({ ok: false, refused: "unavailable", google: { status: "x", message: "hi" } }) }).changePersonCalendar("t", "w", CREATE);
+  assert.deepEqual(odd, { ok: false, refused: "unavailable" });
 });

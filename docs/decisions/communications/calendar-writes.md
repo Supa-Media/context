@@ -188,3 +188,30 @@ The cost: asking for the very same event twice on purpose makes one, which is
 what the person meant in every case we have seen. Undo: send creates without
 `id`; `apps/convex/__tests__/calendarWrite.test.ts` "a create is safe to send
 again" and `apps/mcp/test/calendarRetry.test.mjs` fail.
+
+## The id is base32hex, and a refusal says Google's reason (@shyoh, 2026-10-25)
+
+Asked to mark a birthday, Tex said Google Calendar refused it several times,
+then claimed a retry it never called and promised to "keep trying every hour
+through Monday". Every create since the section above shipped had been
+refused: the id began "ctx", and Google takes only 5 to 1,024 characters of
+base32hex (0-9, a-v), so "x" made each one a 400. The test stub took any id,
+so nothing caught it. Now:
+
+- `createdEventId` is base32hex alone, and the test calendar refuses an id
+  the way Google does (`GOOGLE_EVENT_ID`).
+- A 400 for a create sent with an id is sent once more without one, so a
+  rule Google tightens never costs the event; a 409 whose event is cancelled
+  or gone (a deleted id stays taken) is added afresh the same way.
+- A refusal carries what Google said (`google`: status, reason, message cut
+  to one line); the tool tells the model to say it in plain words, send it
+  again at most once and only by calling it, and never promise to keep
+  trying. Only the status and reason are logged.
+- An answer that says it tried a calendar change with no `calendar_event`
+  call in the turn gets one more round (`claimsCalendarTry` in
+  `apps/mcp/src/agent/replyChecks.js`), and "I'll keep trying every hour" is
+  a promise to keep like any other (`RETRY_PROMISE` in `otherRoutes.js`).
+
+Undo: put a prefix outside base32hex back, or drop the second send;
+`apps/convex/__tests__/calendarWrite.test.ts` "the id asked for is one Google
+takes" and "an id Google refuses never costs the event" fail.

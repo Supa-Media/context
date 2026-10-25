@@ -36,6 +36,15 @@ const READ_TIMEOUT_MS = 25_000;
  */
 export const CHANGE_TIMEOUT_MS = 30_000;
 
+/** What Google said when it refused a change (`gatewayRoutes/calendarWrite.ts`), checked again here: a status, a reason code, one short line. */
+function googleSaid(said) {
+  if (!Number.isInteger(said?.status) || said.status < 100 || said.status > 599) return {};
+  const reason = typeof said.reason === "string" && /^[A-Za-z]{1,40}$/.test(said.reason) ? said.reason : null;
+  const message =
+    typeof said.message === "string" ? said.message.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]+/g, " ").trim().slice(0, 200) : "";
+  return { google: { status: said.status, ...(reason !== null ? { reason } : {}), ...(message !== "" ? { message } : {}) } };
+}
+
 export function createCalendarMethods({ post }) {
   return {
     /**
@@ -68,7 +77,7 @@ export function createCalendarMethods({ post }) {
       const accounts = refused === "calendar_read_only" && Array.isArray(answer?.accounts)
         ? answer.accounts.filter((address) => typeof address === "string" && /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(address)).slice(0, 5)
         : [];
-      return { ok: false, refused, ...(accounts.length > 0 ? { accounts } : {}) };
+      return { ok: false, refused, ...(accounts.length > 0 ? { accounts } : {}), ...googleSaid(answer?.google) };
     },
   };
 }

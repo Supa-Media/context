@@ -94,6 +94,12 @@ const PROMISE =
  */
 const TIMED_PROMISE =
   /\b(?:I'll|I will|I'm going to|I am going to)\b[^.!?\n]{0,240}?\b(?:within|in)(?:\s+(?:the next|the|about|around))?\s+(?:\d+|a few|a couple of)(?:\s*(?:-|\u2013|to)\s*\d+)?\s*(?:minutes?|mins?|hours?|hrs?)\b/i;
+/**
+ * "I'll keep trying every hour through Monday" (@shyoh, 2026-10-25): a promise
+ * to retry on a schedule, which nothing in the turn had set up.
+ */
+const RETRY_PROMISE =
+  /\b(?:I'll|I will|I'm going to|I am going to)\s+(?:keep\s+(?:trying|retrying|checking|at it)|(?:try|retry|check)(?:\s+(?:it|that|this))?\s+again\b[^.!?\n]{0,80}?\b(?:later|tomorrow|tonight|every|each|hourly|until|through)\b|(?:try|retry|check)\b[^.!?\n]{0,80}?\b(?:every|each)\s+(?:\d+\s+|few\s+)?(?:minutes?|hours?|days?|morning|night)\b)/i;
 /** A later that's theirs or Tex's in-turn work: "once you say yes", "when you're back". */
 const THEIR_LATER = /\b(?:once|when|after|if)\s+you\b|\byes\b|\u{1F44D}/iu;
 
@@ -101,7 +107,7 @@ const THEIR_LATER = /\b(?:once|when|after|if)\s+you\b|\byes\b|\u{1F44D}/iu;
 export function promisesLater(answer) {
   return words(answer)
     .split(/\n+|(?<=[.!?])\s+/)
-    .some((sentence) => (PROMISE.test(sentence) || TIMED_PROMISE.test(sentence)) && !THEIR_LATER.test(sentence));
+    .some((sentence) => (PROMISE.test(sentence) || TIMED_PROMISE.test(sentence) || RETRY_PROMISE.test(sentence)) && !THEIR_LATER.test(sentence));
 }
 
 /** The calls that keep a promise to text later: a job, a delegated job, or a routine written. */
