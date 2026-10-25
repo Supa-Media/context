@@ -352,3 +352,22 @@ test("a written note is kept as its path, and a path that climbs or names nothin
     assert.equal(sourceAddress(bad), null, bad);
   }
 });
+
+test("a note a check-in read is kept as its path, named as read, and the reply is told to open it rather than hunt (2026-10-25)", () => {
+  assert.equal(sourceAddress("read:tex/transcripts/2026-10-24.md"), "read:tex/transcripts/2026-10-24.md");
+  for (const bad of ["read:", "read:../secret.md", "read:/abs.md", "read:a\nb"]) assert.equal(sourceAddress(bad), null, bad);
+  const used = [{ question: "(Not a text from them…", tools: ["read_note"], sources: ["read:tex/transcripts/2026-10-24.md"] }];
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.ok(prompt.includes("you used read_note. Notes you read for it: tex/transcripts/2026-10-24.md."), prompt);
+  assert.match(prompt, /fetch that exact path/);
+  assert.doesNotMatch(prompt, /Web pages you read|name the page's address|Notes you wrote or changed/);
+  const turns = [{ role: "user", text: "(check-in)" }, { role: "assistant", text: "Your fitting moved.", sources: ["read:tex/transcripts/2026-10-24.md"] }];
+  const listed = earlierTextsResult(turns).content[0].text;
+  assert.match(listed, /Notes you read for this: tex\/transcripts\/2026-10-24\.md/);
+  assert.doesNotMatch(listed, /Web pages you read/);
+});
+
+test("every turn is told never to guess pronouns (a group chat, 2026-10-25)", () => {
+  for (const texting of [true, false]) assert.match(systemPrompt(null, { texting }), /Never guess anyone's pronouns.*they\/them/);
+  assert.match(systemPrompt(null, { texting: true, notes: { prompt: "You are Tex." } }), /Never guess anyone's pronouns/);
+});

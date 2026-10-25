@@ -15,7 +15,7 @@ export function conversationTurns(bucket) {
     if (entry.legacy) return entry.turns;
     return [
       { role: "user", text: entry.question, ...(entry.thread ? { thread: entry.thread } : {}) },
-      { role: "assistant", text: entry.answer, ...(entry.tainted ? { tainted: true } : {}), ...(entry.tools ? { tools: entry.tools } : {}) },
+      { role: "assistant", text: entry.answer, ...(entry.tainted ? { tainted: true } : {}), ...(entry.tools ? { tools: entry.tools } : {}), ...(entry.sources ? { sources: entry.sources } : {}) },
     ];
   });
 }
