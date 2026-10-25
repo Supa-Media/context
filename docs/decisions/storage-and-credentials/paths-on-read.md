@@ -231,3 +231,45 @@ workspace.
 What a "simplification" would cost: one reader left on the stored column
 shows a moved note at its old name, or misses it, the moment a workspace
 flips. Running the suite with `CONTEXT_TREE_PATHS=built` fails for each.
+
+## A folder move is one row change
+
+*Stage 4c, built 2026-10-25* (`apps/convex/functions/lib/nodes/builtMove.ts`).
+
+- On built paths a move patches the moved row's parent and name and writes no
+  row beneath it, in one transaction, whatever the folder holds: no cap, no
+  pages, no move in flight. Only the root's name can be taken at the
+  destination, since everything beneath keeps its name beneath it.
+- **A folder of up to `ROW_MOVE_MAX` rows is still read**, and what followed
+  each file follows it at once: the caller judges each file and the mutation
+  checks the files it judged, link facts follow, and the change log names
+  each file at both names. Reading a small folder is cheap, and it keeps the
+  exact per-file judgement and the device feed's small catch-ups.
+- **A bigger folder is not read at all.**
+  - The caller judges it from the rules: the settings beneath it that hide
+    what they cover from this caller (`hiddenBeneath`), counted only where a
+    live row still stands (`builtJudge.ts`, `nodeRowMoves.liveAmong`). With
+    the folder itself visible, a file beneath it is hidden only where such a
+    setting hides it. A hidden empty folder refuses too, which the per-file
+    check let through; that is the safer side.
+  - Its links follow in the background: one `linkRepairs` entry names the
+    moved row and where it was, and each pass turns the next page of the
+    files now beneath that row into pairs for the rewrite, moving their link
+    facts in the same transaction (`folderLinks.ts`). The row is followed by
+    id, so a folder moved again first sends its old links to the newest name.
+  - The change log writes nothing. `nodeTrees.folderMoves` counts these moves
+    and the feed token carries it, so a device walks after one, as it did
+    after a paged move.
+  - A trash leaves links where they were, as before, and the search index
+    follows the folder itself into the trash.
+- Every file beneath a big folder was keyed before the workspace built its
+  paths (the flip's precondition, stage 4d), so the mutation does not look.
+
+What a "simplification" would cost: reading every row of a big folder again
+brings back a move whose time grows with the folder, which is what the owner
+asked to be rid of; judging it by rules without asking which settings still
+name a live row refuses moves over names nothing holds.
+`apps/convex/__tests__/nodes/builtFolderMove.test.ts` fails for the feed
+count dropped, the link entry dropped and the rules check dropped, and checks
+that no row beneath the root changes and that links follow a folder moved
+twice to its newest name.
