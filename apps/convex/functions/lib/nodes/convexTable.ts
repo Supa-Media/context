@@ -17,6 +17,7 @@ import { readerMirror } from "./readerRules";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 import { newNoteId } from "./noteIds";
 import { applyPendingAccess } from "./pendingAccess";
+import { pathsBuilt, storedPaths, treePaths, type TreePaths } from "./paths";
 
 /**
  * The fields a patch may set. A key passed as `undefined` clears the field
@@ -36,10 +37,11 @@ const PATCHABLE = [
   "keyedFrom",
 ] as const;
 
-function toStored(doc: Doc<"nodes">): StoredNode {
+/** A row as the table hands it out, at the path it was found at (`paths.ts`), not the one it stores. */
+function toStored(doc: Doc<"nodes">, path: string): StoredNode {
   return {
     id: doc._id,
-    path: doc.path,
+    path,
     parentId: doc.parentId,
     name: doc.name,
     kind: doc.kind,
@@ -77,6 +79,11 @@ export function convexNodeTable(
     return nodeId;
   };
   const writer = ctx as MutationCtx;
+  // Whether this workspace's paths are built from parents or stored, read on the first lookup. Each lookup walks
+  // afresh: this table writes, and a walk remembered from before a write would answer from before it.
+  let built: Promise<boolean> | null = null;
+  const pathsNow = async (): Promise<TreePaths> =>
+    (await (built ??= pathsBuilt(ctx.db, workspaceId))) ? treePaths(ctx.db, workspaceId) : storedPaths(ctx.db, workspaceId);
   // What the writer knew of who could see each key before it left: a gone row narrows to it.
   const knewBefore = new Map<string, Set<string>>();
   for (const entry of left) {
@@ -128,11 +135,8 @@ export function convexNodeTable(
 
   return {
     async byPath(path) {
-      const doc = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-        .unique();
-      return doc === null ? null : toStored(doc);
+      const doc = await (await pathsNow()).rowAt(path);
+      return doc === null ? null : toStored(doc, path);
     },
 
     async insert(node) {

@@ -166,6 +166,11 @@ export const nodeTables = {
     /** Retired: the gathered edits live on `nodeTreeEdits` now. Read once by `flushEdits`, never written. */
     edits: v.optional(v.array(v.string())),
     editsDueAt: v.optional(v.number()),
+    /**
+     * Where this workspace's readers take a row's path from (`lib/nodes/paths.ts`): `built` from its parents and
+     * names, so a move patches the moved row alone; absent, the stored `path`. Flipped with no row move in flight.
+     */
+    paths: v.optional(v.literal("built")),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
       v.object({

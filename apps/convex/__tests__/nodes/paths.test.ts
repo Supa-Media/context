@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import type { Doc, Id } from "../../_generated/dataModel";
-import { treePaths } from "../../functions/lib/nodes/paths";
+import { nodePaths, treePaths } from "../../functions/lib/nodes/paths";
 import { keyedFixture, rowOf } from "./keyedFixture.helpers";
 import type { Fixture } from "./moveFixture.helpers";
 
@@ -125,5 +125,33 @@ describe("paths built from parents", () => {
       expect(await paths.pathOf((await ctx.db.get(keep._id))!)).toBeNull();
       expect(await paths.pathOf((await ctx.db.get(pic._id))!)).toBeNull();
     });
+  });
+
+  test("the switch says which source a reader gets, and the two agree until a row moves alone", async () => {
+    const f = await keyedFixture();
+    const launch = await rowOf(f, "1-projects/launch");
+    const resources = await rowOf(f, "3-resources");
+    const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
+    const flip = async (built: boolean) =>
+      await f.t.run(async (ctx) => {
+        const tree = (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique())!;
+        await ctx.db.patch(tree._id, { paths: built ? "built" : undefined });
+      });
+    const answers = async () =>
+      await f.t.run(async (ctx) => {
+        const paths = await nodePaths(ctx.db, f.ws);
+        return { built: paths.built, deep: await paths.pathOf((await ctx.db.get(deep._id))!), at: (await paths.liveAt("1-projects/launch/sub/deep.md"))?._id ?? null };
+      });
+
+    expect(await answers()).toEqual({ built: false, deep: "1-projects/launch/sub/deep.md", at: deep._id });
+    await flip(true);
+    expect(await answers()).toEqual({ built: true, deep: "1-projects/launch/sub/deep.md", at: deep._id });
+
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(launch._id, { parentId: resources._id });
+    });
+    expect(await answers()).toEqual({ built: true, deep: "3-resources/launch/sub/deep.md", at: null });
+    await flip(false);
+    expect(await answers()).toEqual({ built: false, deep: "1-projects/launch/sub/deep.md", at: deep._id });
   });
 });
