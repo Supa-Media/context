@@ -25,6 +25,7 @@ import { newNoteId } from "./nodes/noteIds";
 import { nodeAt } from "./nodes/paths";
 import { granteeInputOf, setAccessRow, type GranteeInput } from "./nodes/setAccess";
 import { threeWords } from "./threeWords";
+import { unsyncChatPeople } from "./textGroupGuestSync";
 import { getMembership } from "./workspaceAuth";
 
 /** Where a guest chat's folder goes: beside, never under, the ordinary chats' memory notes in `tex/groups/` (`apps/mcp/src/agent/groupMemoryNote.js`), whose first note shares that folder only while nothing under it has a setting. */
@@ -72,6 +73,8 @@ export async function bindGuestChat(
     .query("workspaceGroups")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
     .take(MAX_GROUPS_PER_WORKSPACE);
+  // A chat moving to another workspace leaves its old group as it found it.
+  if (kept !== null) await unsyncChatPeople(ctx, chat);
   if (groups.length >= MAX_GROUPS_PER_WORKSPACE) return null;
 
   for (let attempt = 0; attempt < NAME_TRIES; attempt += 1) {
@@ -94,6 +97,7 @@ export async function bindGuestChat(
       guestFolder: folder,
       guestToken: newNoteId(),
       guestFolderGranted: undefined,
+      guestFolderUsers: undefined,
     });
     await recordAudit(ctx, {
       workspaceId: workspace._id,
@@ -134,7 +138,15 @@ export async function guestBinder(ctx: QueryCtx, chat: Doc<"textGroups">): Promi
 /** Guest mode off: the chat answers as an ordinary group again. The group and folder are left for the owner. */
 export async function clearGuests(ctx: MutationCtx, chat: Doc<"textGroups">): Promise<void> {
   if (chat.guestGroupId === undefined && chat.guestFolder === undefined && chat.guestToken === undefined) return;
-  await ctx.db.patch(chat._id, { guestGroupId: undefined, guestFolder: undefined, guestToken: undefined, guestFolderGranted: undefined });
+  // What the chat added for its people goes with it (`textGroupGuestSync.ts`).
+  await unsyncChatPeople(ctx, chat);
+  await ctx.db.patch(chat._id, {
+    guestGroupId: undefined,
+    guestFolder: undefined,
+    guestToken: undefined,
+    guestFolderGranted: undefined,
+    guestFolderUsers: undefined,
+  });
 }
 
 /**

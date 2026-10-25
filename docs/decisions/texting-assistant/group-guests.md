@@ -20,6 +20,17 @@ blocker. They proposed guest mode, and chose every default below on
   against the global names table like any group name.
 - **Everyone in the chat is a guest of the chat**, accounts or not. People
   joining and leaving the chat join and leave it with no step from anyone.
+  Each tag brings the workspace in line with who is in the chat
+  (`textGroupGuestSync.ts`): a workspace member in it is put in the chat's
+  group (a row marked `viaChat`, taken out when they leave; a row the owner
+  added is never touched), and someone with an account who isn't a member is
+  named on the chat's folder row to edit, so the app shows them that folder
+  and nothing else of the workspace (a group row would reach nothing for
+  them, and membership is an invitation, which is the owner's). Someone with
+  no account is named at the first tag after they link a phone. Only account
+  ids are written, never a number, and an owner who takes the folder from the
+  group takes it from the chat's people too. Guest mode off takes back what
+  the chat added.
 - **Tex reads and writes only what is shared with the chat's group.** The
   chat's grant reads that workspace as a guest (`READS_AS_GUEST`): it holds
   the names of the rows granted to the group and nothing else, so `team`
@@ -87,5 +98,6 @@ tier hands their whole workspace to whoever is in the chat; dropping the
 guest marker from the grant's names lets a reader that judges by names see
 `team`; letting a guest's yes count lets anybody in the chat send from the
 binder's Gmail; turning guest mode on for anyone who asks lets a member open
-a workspace they can't share. `apps/convex/__tests__/textGroupGuests.test.ts`
+a workspace they can't share; syncing people without the `viaChat` mark
+takes away rows the owner added. `apps/convex/__tests__/textGroupGuests.test.ts`
 and `apps/mcp/test/agentGroupGuests.test.mjs` fail if any is reversed.

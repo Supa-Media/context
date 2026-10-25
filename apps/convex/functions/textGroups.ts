@@ -9,6 +9,7 @@ import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
+import { syncChatPeople } from "./lib/textGroupGuestSync";
 import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, type GuestInfo } from "./lib/textGroupGuests";
 
 /**
@@ -38,6 +39,8 @@ import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLa
  * The participant list is never stored: it arrives with each message (the
  * Worker sends the union of the webhook's list and Sendblue's own), and is
  * resolved again each time. The chat is named by a hash of its line and id.
+ * A guest chat writes who is in it only as accounts: group rows and folder
+ * grantees (`lib/textGroupGuestSync.ts`), never a phone number.
  */
 
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -277,16 +280,22 @@ async function guestTurn(
   await ensureChatFolderGrant(ctx, chat, binder);
   const names: { phone: string; handle: string }[] = [];
   const guests: { phone: string; label: string }[] = [];
+  const people = { members: [] as Id<"users">[], outsiders: [] as Id<"users">[] };
   let taggerMember = false;
   for (const phone of others) {
     const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
     if (userId !== null && (await getMembership(ctx, workspace._id, userId)) !== null) {
       names.push({ phone, handle: await handleOf(ctx, userId) });
+      people.members.push(userId);
       if (phone === args.sender) taggerMember = true;
     } else {
       guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
+      if (userId !== null) people.outsiders.push(userId);
     }
   }
+  // Who is here now, in the chat's group and on its folder (`lib/textGroupGuestSync.ts`).
+  const current = await ctx.db.get(chat._id);
+  if (current !== null) await syncChatPeople(ctx, current, binder, people);
   const actor = taggerMember && senderUser !== null ? senderUser : binder;
   const minted = args.mint && args.command === undefined;
   if (minted) {
