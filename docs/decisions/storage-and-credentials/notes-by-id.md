@@ -260,11 +260,11 @@ starts a new generation once, and an offline editor on the old one cannot
 reattach; the Markdown is never overwritten. `test/rename.mjs` fails if the
 check is skipped or stamps without comparing.
 
-**Open:** collaboration heads are still path-keyed. They record the note id
-they were made for, so a name cannot pass one note's history to another, but
-keying the heads by note id would remove the carry entirely. The rename gap in
-the section above is the other open item for a workspace with live
-collaborative notes.
+**Superseded 2026-10-25:** heads are filed by note id
+([paths-on-read](./paths-on-read.md#editing-history-is-filed-by-note-id)), so
+a move no longer carries them, and the rename gap and the
+`COLLABORATION_RENAME_MAX` gap above apply only to heads the backfill has not
+filed yet.
 
 ## A move into another workspace, when either end is keyed
 

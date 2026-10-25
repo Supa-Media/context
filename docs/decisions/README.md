@@ -38,6 +38,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
 - A move between the owner's own buckets is a third direction, and never touches the old one
+- [The tree is parent pointers, and note files need not work outside Context](./storage-and-credentials/paths-on-read.md) (2026-10-25)
+- [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id

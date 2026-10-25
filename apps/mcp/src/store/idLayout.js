@@ -171,7 +171,8 @@ export class NotKeyed extends Error {
  * `lookup(paths)` answers `{keyed, notes}` as `noteIdLookup` does. `wrote(record)`
  * reports a write, `adopt(note)` asks for a new keyed row and `removed(note)`
  * retires one; each is bound by the caller to one request's session, so this
- * module holds no credential. All four are required.
+ * module holds no credential. All four are required. `resolve(noteIds)`, as
+ * `noteIdResolve` answers it, is optional: without it no note is found by id.
  *
  * Everything else delegates: the wrapper is the store's own object with the
  * same prototype and descriptors, so non-enumerable properties are carried
@@ -183,10 +184,11 @@ export class NotKeyed extends Error {
  *   wrote: (record: {path: string, key: string, etag: string, keyed?: boolean, size?: number, at?: number}) => Promise<unknown>,
  *   adopt: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
  *   removed: (note: {path: string, key: string, at: number}) => Promise<unknown>,
+ *   resolve?: (noteIds: string[]) => Promise<{paths?: Record<string, string|null>}>,
  *   now?: () => number,
  * }} hooks
  */
-export function withIdLayout(store, { lookup, wrote, adopt, removed, now = Date.now } = {}) {
+export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: resolveIds, now = Date.now } = {}) {
   if (!store) return store;
   if (typeof lookup !== "function" || typeof wrote !== "function" || typeof adopt !== "function" || typeof removed !== "function") {
     // Without all four a write could neither create nor retire a row: refused outright, never a path store.
@@ -265,6 +267,18 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, now = Date.
     if (!mirroredPath(path)) return null;
     const { entry } = await resolve(path);
     return keyedEntry(entry) && typeof entry.noteId === "string" ? entry.noteId : null;
+  };
+
+  /**
+   * The name note `noteId` has now, or `null` (no live row, or no `resolve` hook): how a collaborative
+   * client that holds only a document id finds its note after a move (`collaborationRoute.js`). The
+   * caller judges whether the asker may see that name.
+   */
+  wrapped.pathOfNoteId = async (noteId) => {
+    if (typeof resolveIds !== "function" || typeof noteId !== "string" || noteId === "") return null;
+    const answer = await resolveIds([noteId]);
+    const path = answer?.paths?.[noteId];
+    return typeof path === "string" && path !== "" ? path : null;
   };
 
   /** A write to a keyed note: its key, compared against the key's version, then reported. */

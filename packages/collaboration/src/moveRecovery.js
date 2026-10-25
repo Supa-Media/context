@@ -1,6 +1,7 @@
 /** Resuming, or rolling back, a journaled move. */
 
-import { MAX_RETRIES, SCHEMA_VERSION, fail, headKey, put, readObject } from "./storage.js";
+import { MAX_RETRIES, SCHEMA_VERSION, fail, put, readObject } from "./storage.js";
+import { headKeyAt } from "./address.js";
 import {
   identityHead,
   putHead,
@@ -74,7 +75,7 @@ export async function recoverMove(store, operationId, attempt = 0) {
       operationId,
       source: op.from,
     };
-    const created = await put(store, await headKey(op.to), JSON.stringify(prepared), returning || vacated ? { etagMatches: destinationHead.etag } : { absent: true });
+    const created = await put(store, await headKeyAt(store, op.to), JSON.stringify(prepared), returning || vacated ? { etagMatches: destinationHead.etag } : { absent: true });
     if (!created) return retry();
   } else if (destinationHead.documentId !== op.documentId || destinationHead.status !== "prepared" && destinationHead.status !== "active") {
     return abortMove(store, opRecord, "destination path is already owned by another document");
@@ -166,9 +167,9 @@ function ownsPreparedMoveHead(head, op) {
 /** Remove only a move's proven copy before releasing its prepared destination head. */
 async function cleanupAbortedMoveDestination(store, op) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
-    const destinationHeadObject = await readObject(store, await headKey(op.to));
+    const destinationHeadObject = await readObject(store, await headKeyAt(store, op.to));
     if (destinationHeadObject?.text === retirementMarker(op.operationId)) {
-      if (!await retireMoveObject(store, await headKey(op.to), destinationHeadObject.etag, op.operationId)) continue;
+      if (!await retireMoveObject(store, await headKeyAt(store, op.to), destinationHeadObject.etag, op.operationId)) continue;
       return;
     }
     let destinationHead = await readHead(store, op.to);
@@ -190,7 +191,7 @@ async function cleanupAbortedMoveDestination(store, op) {
 
     destinationHead = await readHead(store, op.to);
     if (!ownsPreparedMoveHead(destinationHead, op)) return;
-    if (await retireMoveObject(store, await headKey(op.to), destinationHead.etag, op.operationId)) return;
+    if (await retireMoveObject(store, await headKeyAt(store, op.to), destinationHead.etag, op.operationId)) return;
   }
   throw fail("CONCURRENT_WRITE", "move abort cleanup could not settle the destination");
 }

@@ -90,14 +90,29 @@ export class KeyedStore {
     this.rows.delete(from);
   }
 
-  /** The collaboration head recorded at `path`, read from the bucket's own objects. */
+  /**
+   * The live collaboration head recorded for `path`, read from the bucket's own objects: the one filed by
+   * the note id of the row there, when it has one, else the head filed at the name. A path head fenced as
+   * `migrated` (its document is filed by note id now) is not the name's head.
+   */
   headAt(path) {
+    const noteId = this.noteIds.get(path);
+    if (noteId !== undefined) {
+      const filed = this.objects.get(`.context/collaboration/v1/heads/notes/${noteId}.json`);
+      if (filed) return JSON.parse(filed.text);
+    }
     for (const [key, object] of this.objects) {
-      if (!key.startsWith(".context/collaboration/v1/heads/")) continue;
+      if (!key.startsWith(".context/collaboration/v1/heads/") || key.startsWith(".context/collaboration/v1/heads/notes/")) continue;
       const head = JSON.parse(object.text);
-      if (head.path === path) return head;
+      if (head.path === path && head.migrated !== true) return head;
     }
     return null;
+  }
+
+  /** The head filed under note `noteId`, or `null`. */
+  noteHead(noteId) {
+    const object = this.objects.get(`.context/collaboration/v1/heads/notes/${noteId}.json`);
+    return object ? JSON.parse(object.text) : null;
   }
 }
 

@@ -296,6 +296,9 @@ function idLayoutHooks(layout, session, controlPlane) {
     wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
     adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
     removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
+    ...(typeof controlPlane.noteIdResolve === "function"
+      ? { resolve: (noteIds) => controlPlane.noteIdResolve(session.accessToken, session.workspaceId, noteIds) }
+      : {}),
   };
 }
 

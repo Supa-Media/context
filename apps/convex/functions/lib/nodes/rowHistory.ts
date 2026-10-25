@@ -5,14 +5,16 @@
  * were; without this the old name stays active, and a note created there later
  * opens the trashed note's live document.
  *
- * It runs after the row change, once per Markdown note the change moved, and
+ * Since 2026-10-25 a note's history is filed by its note id, so this carries
+ * only heads still filed at the old name (made before then, not yet reached by
+ * the backfill). It runs after the row change, once per Markdown note the change moved, and
  * is best-effort: a rename that fails leaves the row change standing. Nothing
  * here reads or writes a note's bytes (`renameDocument` touches heads and
  * state only). Per-note identity is checked when the name is next opened, so a
  * failed carry cannot attach a new note to the old history.
  */
 
-import { renameDocument, supported as collaborationSupported } from "@context/collaboration";
+import { pathHeadLive, renameDocument, supported as collaborationSupported } from "@context/collaboration";
 import type { FileStore } from "../fileOps/store";
 
 export interface HistoryMove {
@@ -30,6 +32,9 @@ export async function carryRowHistory(store: FileStore, moves: readonly HistoryM
   for (const move of moves) {
     if (!move.from.endsWith(".md") || !move.to.endsWith(".md")) continue;
     try {
+      // A note filed by its id (`packages/collaboration/src/address.js`) keeps its history through the move:
+      // only a head still filed at the old name is carried, and asking costs one read.
+      if (!(await pathHeadLive(store, move.from))) continue;
       await renameDocument(store, move.from, move.to, { internalTrash: true });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "ERROR";
