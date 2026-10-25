@@ -255,7 +255,7 @@ export async function restoreDocument(store, path, options = {}) {
   if (!head || head.status !== "deleted") throw fail("NOT_DELETED", "document is not a tombstone");
   const stateRecord = await readState(store, head);
   if (!stateRecord) throw fail("RESTORE_UNAVAILABLE", "deleted document history is no longer retained");
-  const state = validateState(stateRecord.value, { documentId: head.documentId, generation: head.generation }, path);
+  const state = validateState(stateRecord.value, { documentId: head.documentId, generation: head.generation, byNote: head.byNote }, path);
   assertExpectedRevision(state, options.expectedEtag);
   if (await readObject(store, path)) throw fail("CONFLICT", "restore path was recreated by another writer");
   const retainedRevision = await readRevision(store, state.documentId, state.revision);

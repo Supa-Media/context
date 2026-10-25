@@ -7,7 +7,6 @@ import {
   SCHEMA_VERSION,
   documentKey,
   fail,
-  headKey,
   isObject,
   parseJson,
   put,
@@ -17,6 +16,7 @@ import {
   structuralKey,
 } from "./storage.js";
 import { docFromSnapshot } from "./ydoc.js";
+import { adoptPathHead, headAddress } from "./address.js";
 
 export function stateObject({ documentId, generation, path, text, rawMarkdownEtag, revision = "r0", pending = null, legacyRawEtag, legacyRevision = "r0", deferredUpdates = [], structural = null }) {
   return {
@@ -40,7 +40,9 @@ export function validateState(state, head, path) {
   if (
     state.schemaVersion !== SCHEMA_VERSION ||
     state.kind !== "document" ||
-    state.path !== path ||
+    // A head filed by note id (`address.js`) follows its note through every move, and the state keeps the
+    // name it was made at; its identity is the note id, checked when the head was read.
+    (head.byNote !== true && state.path !== path) ||
     state.documentId !== head.documentId ||
     state.generation !== head.generation ||
     typeof state.text !== "string" ||
@@ -61,21 +63,26 @@ export function validateState(state, head, path) {
 }
 
 export async function readHead(store, path) {
-  const object = await readObject(store, await headKey(path));
+  const { key, noteId } = await headAddress(store, path);
+  let object = await readObject(store, key);
+  if (!object && noteId !== null) object = await adoptPathHead(store, path, noteId);
   if (!object) return null;
   const head = parseJson(object.text, "path head");
   if (
     head.schemaVersion !== SCHEMA_VERSION ||
-    head.path !== path ||
+    (noteId === null && head.path !== path) ||
     typeof head.documentId !== "string" ||
     typeof head.generation !== "string" ||
     typeof head.stateKey !== "string" ||
     head.stateKey !== documentKey(head.documentId) ||
     (head.noteId !== undefined && (typeof head.noteId !== "string" || head.noteId === "")) ||
+    (noteId !== null && head.noteId !== undefined && head.noteId !== noteId) ||
     !["active", "moving", "prepared", "moved", "deleting", "deleted", "restoring", "sealing", "sealed"].includes(head.status || "active")
   ) {
     throw fail("CORRUPT_STATE", "collaboration path head is invalid");
   }
+  // A head filed by note id is read at whatever name the note has now: every write after this names it there.
+  if (noteId !== null) return { ...head, path, status: head.status || "active", etag: object.etag, byNote: true };
   return { ...head, status: head.status || "active", etag: object.etag };
 }
 
@@ -217,5 +224,6 @@ export function makeResult(state, revision) {
 }
 
 export async function putHead(store, path, head, expectedEtag) {
-  return put(store, await headKey(path), JSON.stringify(head), { etagMatches: expectedEtag });
+  const { byNote: _byNote, etag: _etag, ...stored } = head;
+  return put(store, (await headAddress(store, path)).key, JSON.stringify(stored), { etagMatches: expectedEtag });
 }

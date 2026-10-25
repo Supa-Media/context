@@ -2,12 +2,16 @@
  * Carrying a moved note's collaboration history to its new name, after a keyed
  * row move (`docs/decisions/storage-and-credentials/notes-by-id.md`).
  *
- * The control plane has already moved the rows; this is the engine's half. It
- * runs once per moved file, in the request that moved it, so the open editor's
- * next save lands at the new name rather than on a head the row no longer
- * serves. It is best-effort and bounded:
+ * The control plane has already moved the rows; this is the engine's half.
+ * Since 2026-10-25 a note's history is filed by its note id
+ * (`packages/collaboration/src/address.js`), so a move leaves it where it is
+ * and there is nothing to carry. What is left here is for a head still filed
+ * at the old name (made before that, and not yet reached by the backfill):
+ * it runs once per moved file, in the request that moved it, and is
+ * best-effort and bounded:
  *
- *  - A file with no collaboration state costs one read and nothing else.
+ *  - A file whose old name holds no live path head costs one read and nothing
+ *    else: no control-plane lookup, no write.
  *  - A rename that fails after the new name is claimed leaves the row move
  *    standing and the rename journaled: the next read of the new name finishes
  *    it. A failure before the claim leaves the old head still active and the new
@@ -19,7 +23,7 @@
  *    could see the old name, not necessarily the new one, and a move can narrow.
  */
 
-import { renameDocument, supported as collaborationSupported } from "@context/collaboration";
+import { pathHeadLive, renameDocument, supported as collaborationSupported } from "@context/collaboration";
 import { canSee } from "../privacy/engine.js";
 import { announceMovedToPresence } from "../live/presence.js";
 
@@ -29,6 +33,13 @@ import { announceMovedToPresence } from "../live/presence.js";
  * the open gap `notes-by-id.md` names.
  */
 export const COLLABORATION_RENAME_MAX = 500;
+
+/**
+ * Moves this small tell each moved note's room where it went even when its history is filed by id and
+ * nothing was carried, so an open editor follows. A bigger move's rooms learn it when they reconnect: a
+ * room is a request each, and a folder of any size must stay one row change.
+ */
+export const ANNOUNCE_MOVES_MAX = 50;
 
 /**
  * Carry each moved note's collaboration state from its old name to its new one.
@@ -43,12 +54,15 @@ export const COLLABORATION_RENAME_MAX = 500;
 export async function renameCollaboration(store, moved, privacy, { carried = false } = {}) {
   const answer = { renamed: 0, failed: [] };
   if (!collaborationSupported(store) || !Array.isArray(moved)) return answer;
+  const announceAll = moved.length <= ANNOUNCE_MOVES_MAX;
   for (const pair of moved.slice(0, COLLABORATION_RENAME_MAX)) {
     if (typeof pair?.from !== "string" || typeof pair?.to !== "string") continue;
     if (!pair.from.endsWith(".md") || !pair.to.endsWith(".md")) continue;
     try {
-      if (!carried && (await renameDocument(store, pair.from, pair.to)).renamed !== true) continue;
-      answer.renamed += 1;
+      // Only a head still filed at the old name needs carrying; a note filed by id has its history already.
+      const renamed = carried || ((await pathHeadLive(store, pair.from)) && (await renameDocument(store, pair.from, pair.to)).renamed === true);
+      if (renamed) answer.renamed += 1;
+      else if (!announceAll) continue;
       // Shown to the room only where every team member may see the new name; otherwise members are told it moved, not where.
       const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides) ? pair.to : null;
       await announceMovedToPresence(store, pair.from, shownTo).catch(() => {});

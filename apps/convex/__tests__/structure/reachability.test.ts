@@ -239,6 +239,11 @@ describe("no public function can reach a storage secret", () => {
         // id keys and history the control plane already erased in `trash.claimErasure`, and records
         // fixed labels on failure, never a key or a byte.
         "functions.trashEmptying.eraseWorkspace",
+        // Filing editing history by note id (`functions/collaborationFiling.ts`). Scheduled only by
+        // `collaborationFiling.fileDue` (the half-hour cron, and the staff workflow that runs it) and by
+        // itself; it lists and copies the bucket's collaboration heads and records a listing position,
+        // counts and fixed labels, never a path or a byte.
+        "functions.collaborationFiling.fileWorkspace",
         // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
         // file operation and hands it to lib/fileOps.ts, which never sees the
         // credential. internalAction, and the only member of

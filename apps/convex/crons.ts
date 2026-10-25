@@ -382,6 +382,14 @@ crons.interval(
  */
 crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
 
+/**
+ * File each workspace's editing history by note id (`functions/collaborationFiling.ts`), so a move never
+ * carries a head again. Bucket-reaching, so its two paragraphs: it holds no decision, since every head is
+ * copied create-only and a filed one is fenced, so a page run twice files nothing twice; it only decides
+ * when to look, and a done workspace is never looked at again.
+ */
+crons.interval("file editing history by note id", { minutes: 30 }, internal.functions.collaborationFiling.fileDue, {});
+
 /** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
 crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
 
