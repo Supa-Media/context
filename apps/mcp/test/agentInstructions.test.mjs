@@ -229,8 +229,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23).
   // and from 12,000 when a note they ask for is saved, and filed in the subfolder that fits (prompt.js, SAVING_LINE, 2026-10-24; 12,244 then).
   // and from 12,500 when they were told a reorganize they ask for is theirs to do at once (prompt.js, REORGANIZE_LINE, 2026-10-25).
-  // and from 13,000 when they were told to push back once on a request against their goals, and never flatter (pushback.js, OPINION_LINE, 2026-10-25).
-  assert.ok(system.length < 13_500, `system was ${system.length} characters`);
+  // and from 13,000 when they were told to push back once on a request against their goals, and never flatter (pushback.js, OPINION_LINE, 2026-10-25; 13,647 then).
+  assert.ok(system.length < 14_000, `system was ${system.length} characters`);
 });
 
 test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {

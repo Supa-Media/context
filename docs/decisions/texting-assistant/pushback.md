@@ -16,11 +16,18 @@ cut corners, it should say what that costs and why, and still do the job.
   where every turn sees them: `REMEMBER_LINE` keeps a goal or decision the
   moment it is said, and the nightly dream (`DREAM_INSTRUCTIONS`,
   `FIRST_LOOK`, and `@context-lc ai/production/dream.md`, which replaces the
-  built-in words) writes the goals its notes and texts state. No new store
+  built-in words) writes the goals its notes and texts state, under a Goals
+  heading. The lines under that heading are named back after the note on
+  every turn ("Their goals right now: …", `goalsIn` in `agent/aboutMe.js`):
+  the first bench round (gh-77) showed a goal in the middle of the note
+  passed over when a donut order arrived. No new store
   and no new model call: a goal Tex has to search for on every ask is a goal
   it will miss.
-- **What Tex does with it.** When a request works against one of those or
-  seems unwise, it says so once in a line, naming the goal or the trade-off.
+- **What Tex does with it.** Before acting on a request to buy, change,
+  rewrite, skip or cut something, it checks it against those. When it works
+  against one or seems unwise, the reply's first line names the trade-off,
+  and a big change gets "what's it for?". A "should we" opens with Tex's take
+  and changes nothing.
   It still does the job: something small or easy to undo at once, with that
   line beside it; something costly or hard to undo (a purchase, a big
   rewrite) waits for their go, the same line the hand-back rule already draws

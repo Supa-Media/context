@@ -29,7 +29,7 @@ test("every texted turn is told to have a point of view, a production setup's ow
   // The line names where the point of view comes from, and that it still does the job.
   assert.match(OPINION_LINE, /tex\/about-me\.md/);
   assert.match(OPINION_LINE, /mission/);
-  assert.match(OPINION_LINE, /Still do it/);
+  assert.match(OPINION_LINE, /still do it/);
   assert.match(OPINION_LINE, /Never flatter/);
 });
 
@@ -76,4 +76,14 @@ test("a texted answer's flattering opener never reaches them", async () => {
   } finally {
     world.restore();
   }
+});
+
+test("the goals in their about-me are named back after it, so a request is weighed against them", async () => {
+  const { aboutMePrompt, goalsIn } = await import("../src/agent/aboutMe.js");
+  const note = "# About Maya\n\n## Goals\n- Run 10 km by the end of November.\n- Keep to her budget.\n\n## Life\n- Lives with a cat.\n";
+  assert.deepEqual(goalsIn(note), ["Run 10 km by the end of November.", "Keep to her budget."]);
+  const said = aboutMePrompt(note, { edits: false });
+  assert.match(said, /Their goals right now: Run 10 km by the end of November\. Keep to her budget\. Weigh every request/);
+  assert.ok(!/Their goals right now/.test(aboutMePrompt("# About Maya\n\n- Likes tea.\n", { edits: false })), "no Goals heading, no line");
+  assert.deepEqual(goalsIn("## My goals\n1. Ship the app\n### Later\n- not this"), ["Ship the app"]);
 });
