@@ -1,6 +1,7 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, appReviewPhoneEnabled, reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
@@ -65,7 +66,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     // A ten-digit code comes only from opening a link Tex texted
     // (`functions/textSignIn.ts`) and is checked against those alone.
     check: async (phone, code, ctx) => {
-      if (phone === APP_REVIEW_PHONE) return appReviewPhoneEnabled() && code === "000000" ? "approved" : "wrong";
+      if (phone === APP_REVIEW_PHONE) return appReviewPhoneCodeMatches(code) ? "approved" : "wrong";
       if (code.length === SIGN_IN_CODE_LENGTH) return await checkLinkCode(ctx as never, phone, code);
       return await checkCode(ctx as never, phone, code);
     },
@@ -108,13 +109,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // Dedicated production CUJ identity. The framework registers a separate
   // provider that refuses every other address; this is not the global dev
   // bypass and cannot change the ordinary customer email provider. The
-  // connector-directory reviewer gets a provider of its own the same way,
-  // with a code that lives only in the deployment's environment (the CUJ
-  // code above is public).
-  testEmail: [
-    { email: "agentseyi@agentmail.to", code: "000000" },
-    ...reviewerTestEmail(),
-  ],
+  // connector-directory reviewer gets a provider of its own the same way.
+  // Both codes live only in the deployment's environment
+  // (`TEST_ACCOUNT_SIGNIN_CODE`, `REVIEWER_SIGNIN_CODE`); unset, neither
+  // provider exists.
+  testEmail: [...testAccountEmail(), ...reviewerTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is

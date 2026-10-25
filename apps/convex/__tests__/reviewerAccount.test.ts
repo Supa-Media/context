@@ -1,7 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
-import { isProductionTestAccount } from "../functions/lib/testAccount";
-import { REVIEWER_EMAIL, reviewerTestEmail } from "../functions/lib/reviewerAccount";
+import { isProductionTestAccount, TEST_ACCOUNT_EMAIL, testAccountEmail } from "../functions/lib/testAccount";
+import { appReviewPhoneCodeMatches, REVIEWER_EMAIL, reviewerTestEmail } from "../functions/lib/reviewerAccount";
 
 describe("the directory reviewer's sign-in", () => {
   test("is off unless the deployment holds a code", () => {
@@ -25,5 +26,27 @@ describe("the directory reviewer's sign-in", () => {
 
   test("carries none of the CUJ account's privileges", () => {
     expect(isProductionTestAccount({ email: REVIEWER_EMAIL, emailVerificationTime: 1 })).toBe(false);
+  });
+});
+
+describe("no fixed sign-in code lives in this public repository", () => {
+  test("the CUJ account's code comes from the deployment, or there is no provider", () => {
+    expect(testAccountEmail({})).toEqual([]);
+    for (const code of ["000000", "12345", "abcdef"]) {
+      expect(testAccountEmail({ TEST_ACCOUNT_SIGNIN_CODE: code })).toEqual([]);
+    }
+    expect(testAccountEmail({ TEST_ACCOUNT_SIGNIN_CODE: " 582046 " })).toEqual([{ email: TEST_ACCOUNT_EMAIL, code: "582046" }]);
+  });
+
+  test("the App Store review phone takes the reviewer's code and never 000000", () => {
+    const env = { REVIEWER_SIGNIN_CODE: "482913" };
+    expect(appReviewPhoneCodeMatches("482913", env)).toBe(true);
+    expect(appReviewPhoneCodeMatches("000000", env)).toBe(false);
+    expect(appReviewPhoneCodeMatches("482913", {})).toBe(false);
+  });
+
+  test("auth.ts writes no six-digit code", () => {
+    const source = readFileSync(new URL("../auth.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/code\s*(:|===)\s*"\d{6}"/);
   });
 });

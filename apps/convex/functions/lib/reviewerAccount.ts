@@ -16,7 +16,7 @@ import type { QueryCtx } from "../../_generated/server";
  * customer's sign-in down with it.
  *
  * The account holds no privileges: `isProductionTestAccount` names only the
- * CUJ address.
+ * CUJ address. The App Store review phone signs in with the same code.
  */
 
 export const REVIEWER_EMAIL = "connector-review@supa.media";
@@ -41,6 +41,17 @@ export const APP_REVIEW_PHONE = "+12025550123";
 
 export function appReviewPhoneEnabled(): boolean {
   return reviewerTestEmail().length === 1;
+}
+
+/**
+ * Does `code` open the App Store review phone? Only the deployment's own
+ * `REVIEWER_SIGNIN_CODE`: the phone used to take a public `000000`, which
+ * opened the reviewer account to anyone who read this file (owner,
+ * 2026-10-25).
+ */
+export function appReviewPhoneCodeMatches(code: string, env: Environment = process.env): boolean {
+  const reviewer = reviewerTestEmail(env)[0];
+  return reviewer !== undefined && code === reviewer.code;
 }
 
 /** Resolve only the existing, verified primary reviewer identity. Never provision. */
