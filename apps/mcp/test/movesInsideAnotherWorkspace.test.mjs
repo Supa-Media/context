@@ -13,7 +13,9 @@
  * ## Sabotage record
  *
  *   `anyWidens` answering false for every move
- *     → "a move to where more people read it there is still judged" fails
+ *     → "a folder moved to where more people read it there is still judged" fails
+ *   `anyWidens` measuring a note by its new folder alone (no `narrowerVisibility`)
+ *     → "a private note moved into a team folder there lands private" fails
  *   the `elsewhere && !published` shortcut removed from `move_note`
  *     → "a note moved inside another workspace is an ordinary write there" fails
  */
@@ -61,18 +63,33 @@ test("a folder moved inside another workspace is an ordinary write there", async
   assert.equal(widening?.elsewhereOnly, true);
 });
 
-test("a move to where more people read it there is still judged", async () => {
-  const one = await wideningOf("move_note", { source: "notes/private.md", destination: "projects/x/private.md" }, options);
-  assert.equal(one?.elsewhereOnly, undefined);
-  assert.match(one?.summary ?? "", /into @supa/);
+test("a private note moved into a team folder there lands private, so it is not judged (2026-10-25, second refusal)", async () => {
+  // The @supa case: the note held back by an exact override, its new folder open to the team.
+  const held = async () => ({
+    rules: [
+      { prefix: "", vis: "private" },
+      { prefix: "projects", vis: "team" },
+    ],
+    overrides: new Map([["projects/backlog/inbox/google-approval/casa.md", "private"]]),
+  });
+  const one = await wideningOf(
+    "move_note",
+    { source: "projects/backlog/inbox/google-approval/casa.md", destination: "projects/google-oauth/casa/casa.md" },
+    { into, privacy: held, writes: true },
+  );
+  assert.equal(one?.elsewhereOnly, true);
   const batch = await wideningOf(
     "move_notes",
-    { moves: [{ source: "projects/a/one.md", destination: "projects/b/one.md" }, { source: "notes/p.md", destination: "projects/p.md" }] },
+    { moves: [{ source: "notes/p.md", destination: "projects/p.md" }, { source: "projects/a/one.md", destination: "projects/b/one.md" }] },
     options,
   );
-  assert.notEqual(batch?.elsewhereOnly, true);
+  assert.equal(batch?.elsewhereOnly, true);
+});
+
+test("a folder moved to where more people read it there is still judged", async () => {
   const folder = await wideningOf("move_folder", { source: "notes/drafts", destination: "projects/drafts" }, options);
   assert.notEqual(folder?.elsewhereOnly, true);
+  assert.match(folder?.summary ?? "", /into @supa/);
 });
 
 test("a move asked to publish, or between two workspaces, is still judged", async () => {

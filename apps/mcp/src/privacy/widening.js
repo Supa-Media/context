@@ -11,7 +11,7 @@
  * (2026-10-18) for the person's own words, read by a judge, to decide them.
  */
 
-import { effectiveVisibility, visibilityOf } from "./engine.js";
+import { effectiveVisibility, narrowerVisibility, visibilityOf } from "./engine.js";
 import { normalizePath } from "../notes/paths.js";
 import { describePeople, parsePeople } from "../tools/notePeople.js";
 import { oneLine } from "./egress.js";
@@ -39,6 +39,13 @@ function hostOf(url) {
  * Whether any of these moves lands where more people can read it than can
  * now, by the addressed workspace's own manifest. A folder is read by its
  * folder rules alone, as `move_folder` carries them.
+ *
+ * A note is read as it will read after the move: the narrower of what it is
+ * and what its new folder grants, which is what `move_note` and
+ * `move_notes` install (`narrowerVisibility`). Measuring the new folder alone
+ * judged a private note moved into a team folder as published, though it
+ * lands private; that refused Tex's reorganize in @supa a second time, after
+ * the first fix (2026-10-25, "yes move them").
  */
 async function anyWidens(privacy, moves, { folders = false } = {}) {
   const { rules, overrides } = await privacy();
@@ -46,7 +53,11 @@ async function anyWidens(privacy, moves, { folders = false } = {}) {
     const at = normalizePath(path) ?? "";
     return folders ? visibilityOf(at, rules) : effectiveVisibility(at, rules, overrides);
   };
-  return moves.some((move) => widensVisibility(reads(move?.source), reads(move?.destination)));
+  return moves.some((move) => {
+    const from = reads(move?.source);
+    const to = reads(move?.destination);
+    return widensVisibility(from, folders ? to : narrowerVisibility(from, to));
+  });
 }
 
 /** The widest of several audiences. */

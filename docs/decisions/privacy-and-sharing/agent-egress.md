@@ -106,7 +106,11 @@ another workspace, which takes its own path (`moves/acrossContexts.js`) and
 carries the note's visibility with it. Nor a move *inside* another workspace
 (`move_note`, `move_notes` or `move_folder` addressed with `context` alone, not
 asked to publish) whose every destination that workspace's own manifest reads
-no wider than its source: it is a relocation there, an ordinary write. Judging
+no wider than its source: it is a relocation there, an ordinary write. A note
+is read as it lands, the narrower of what it is and what its new folder
+grants, since that is what the move installs (`narrowMove` on keyed rows);
+measuring the folder alone refused the same reorganize a second time
+(2026-10-25, a private note bound for a team folder). Judging
 it as a move "into" the workspace refused Tex every move of a reorganize the
 owner asked for in their own shared workspace (2026-10-24); the owner said yes
 to this exception on 2026-10-25. A destination that reads wider there, a
