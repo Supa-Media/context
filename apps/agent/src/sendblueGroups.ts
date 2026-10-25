@@ -184,7 +184,10 @@ export async function reactInGroup(fetcher: Fetch, keys: SendblueKeys, chat: { l
   } catch {
     // costs only the tapback
   }
-  if (status === null || status < 200 || status >= 300) console.log(JSON.stringify({ event: "sendblue_group_reaction", outcome: "refused", status }));
+  if (status !== null && status >= 200 && status < 300) return;
+  console.log(JSON.stringify({ event: "sendblue_group_reaction", outcome: "refused", status }));
+  // An emoji the line refuses still leaves the chat a sign it landed, as in a 1:1 (`line.ts`).
+  if (reaction !== "like") await reactInGroup(fetcher, keys, chat, messageHandle, "like");
 }
 
 /**

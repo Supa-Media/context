@@ -42,6 +42,7 @@ import { prepareAttachments, type ImagesLike } from "./attachments";
 import { MAX_INBOUND_ATTACHMENTS, type InboundAttachment } from "./inbound";
 import { textsWithExact } from "./format";
 import { tapbackText, type Reaction } from "./reactions";
+import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
@@ -374,8 +375,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
-  // The same tapback for every tagger, linked or not, so it says nothing about who they are.
-  if (command === null && message.reaction === undefined) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
+  // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
+  if (command === null && message.reaction === undefined) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
