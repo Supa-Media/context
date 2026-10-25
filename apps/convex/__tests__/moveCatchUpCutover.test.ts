@@ -11,7 +11,10 @@
  * ## Sabotage record
  *
  * Skipping the status patch at cutover left the binding `unverified`, failing
- * the first test. Looking back from the switch instead of from the last
+ * the first test. Keeping a late version at a raw `(saved during the move)`
+ * key left it with no tree row, failing "bring a late write". Giving the copy
+ * its row without the original's access left a private note's late version
+ * readable by the team, failing "keeps a private note's access". Looking back from the switch instead of from the last
  * check's start failed both `since` tests. Dropping the binding-id check let a
  * pass run against a bucket the workspace had since left, failing "stops when
  * the workspace moved again". Not stamping `passStartedAt` at either start of
@@ -26,6 +29,8 @@ import { fakeS3 } from "./fakeS3.helpers";
 import { FAKE_STORAGE, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { managedBucketName } from "../functions/lib/managedStorage";
+import { idKeyFor } from "../functions/lib/nodes/noteIds";
+import { ensureCopyRow } from "../functions/lib/noteIds/state";
 import {
   CATCH_UP_CLOCK_MARGIN_MS,
   CATCH_UP_PASS_DELAYS_MS,
@@ -209,29 +214,67 @@ async function switchedOver() {
   return { ...setup, args };
 }
 
+const PLAN_ID = "0190a000-0000-7000-8000-0000000000b1";
+const PLAN_PATH = "projects/plan.md";
+const PLAN = idKeyFor(PLAN_ID, PLAN_PATH);
+const BESIDE = "projects/plan (saved during the move).md";
+
+/** The workspace keyed, as every production workspace is, with one note's row at its id key. */
+async function keyedWithPlan(t: ReturnType<typeof setupTest>, workspaceId: Id<"workspaces">) {
+  await t.run(async (ctx) => {
+    const copies = await ensureCopyRow(ctx, workspaceId);
+    await ctx.db.patch(copies._id, { keyedAt: 1 });
+  });
+  const adopted = await t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, {
+    workspaceId,
+    path: PLAN_PATH,
+    noteId: PLAN_ID,
+    key: PLAN,
+    etag: "e-plan",
+    at: Date.now() - 60_000,
+  });
+  expect(adopted).toEqual({ adopted: true });
+}
+
+async function liveRow(t: ReturnType<typeof setupTest>, workspaceId: Id<"workspaces">, path: string) {
+  const found = await t.query(internal.functions.noteIdsKeyed.notesFor, { workspaceId, paths: [path] });
+  return found.notes[0] ?? null;
+}
+
 describe("the passes after a switch-over", () => {
   test("bring a late write in the old bucket across, and keep the new side's edits", async () => {
     const { t, workspaceId, args } = await switchedOver();
+    await keyedWithPlan(t, workspaceId);
     const now = Date.now();
     const s3 = fakeS3({
       [managedBucketName(workspaceId)]: {
-        "0-inbox/late.md": ["arrived by email after the last check", now],
-        "plan.md": ["late edit in the old bucket", now],
-        "old.md": ["long settled", now - 24 * 60 * 60_000],
+        [PLAN]: ["late edit in the old bucket", now],
+        "notes/0190a000-0000-7000-8000-0000000000b2.md": ["arrived by email after the last check", now],
+        "notes/0190a000-0000-7000-8000-0000000000b3.md": ["long settled", now - 24 * 60 * 60_000],
       },
       [FAKE_STORAGE.bucket]: {
-        "plan.md": ["edit made after the switch", now],
-        "old.md": ["long settled, then edited after the switch", now],
+        [PLAN]: ["edit made after the switch", now],
+        "notes/0190a000-0000-7000-8000-0000000000b3.md": ["long settled, then edited after the switch", now],
       },
     });
     await t.action(internal.functions.moveCatchUp.runMoveCatchUp, args);
-    expect(s3.read(FAKE_STORAGE.bucket, "0-inbox/late.md")).toBe("arrived by email after the last check");
-    expect(s3.read(FAKE_STORAGE.bucket, "plan.md")).toBe("edit made after the switch");
-    expect(s3.read(FAKE_STORAGE.bucket, "plan (saved during the move).md")).toBe(
-      "late edit in the old bucket",
+    expect(s3.read(FAKE_STORAGE.bucket, "notes/0190a000-0000-7000-8000-0000000000b2.md")).toBe(
+      "arrived by email after the last check",
     );
-    expect(s3.read(FAKE_STORAGE.bucket, "old.md")).toBe("long settled, then edited after the switch");
-    expect(s3.read(FAKE_STORAGE.bucket, "old (saved during the move).md")).toBeNull();
+    expect(s3.read(FAKE_STORAGE.bucket, PLAN)).toBe("edit made after the switch");
+    // The late version is a note of its own: a row beside the original, keyed at a new id.
+    const beside = await liveRow(t, workspaceId, BESIDE);
+    expect(beside).toMatchObject({ path: BESIDE, state: "keyed" });
+    const besideKey = (beside as { key: string }).key;
+    expect(besideKey).toMatch(/^notes\/[0-9a-f-]{36}\.md$/);
+    expect(besideKey).not.toBe(PLAN);
+    expect(s3.read(FAKE_STORAGE.bucket, besideKey)).toBe("late edit in the old bucket");
+    expect(
+      s3.requests.some((request) => request.includes("saved") && request.startsWith("PUT")),
+    ).toBe(false);
+    expect(s3.read(FAKE_STORAGE.bucket, "notes/0190a000-0000-7000-8000-0000000000b3.md")).toBe(
+      "long settled, then edited after the switch",
+    );
     // Nothing is ever written to, or deleted from, the old bucket.
     expect(
       s3.requests.filter(
@@ -243,6 +286,43 @@ describe("the passes after a switch-over", () => {
     const [next] = await catchUpJobs(t);
     expect(next?.args[0]).toMatchObject({ pass: 1, since: args.since });
     expect(next?.scheduledTime).toBe(args.cutoverAt + CATCH_UP_PASS_DELAYS_MS[1]!);
+
+    // The next pass finds the copy it kept and adds nothing.
+    await t.action(internal.functions.moveCatchUp.runMoveCatchUp, { ...args, pass: 1 });
+    expect(await liveRow(t, workspaceId, "projects/plan (saved during the move 2).md")).toBeNull();
+  });
+
+  test("keeps a private note's access on its late version", async () => {
+    const { t, owner, workspaceId, args } = await switchedOver();
+    await keyedWithPlan(t, workspaceId);
+    const friend = await createUser(t, "catchup-friend@example.invalid");
+    await expect(
+      t.mutation(internal.functions.nodesAccess.setAccess, {
+        workspaceId,
+        path: PLAN_PATH,
+        base: "private",
+        grantees: [{ kind: "user", userId: friend, role: "view" }],
+        actor: { userId: owner, role: "owner" },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    const now = Date.now();
+    fakeS3({
+      [managedBucketName(workspaceId)]: { [PLAN]: ["late private edit", now] },
+      [FAKE_STORAGE.bucket]: { [PLAN]: ["private edit after the switch", now] },
+    });
+    await t.action(internal.functions.moveCatchUp.runMoveCatchUp, args);
+    const rows = await t.run(async (ctx) => {
+      const nodes = await ctx.db.query("nodes").collect();
+      const copy = nodes.find((row) => row.path === BESIDE && row.goneAt === undefined);
+      const grants = copy === undefined
+        ? []
+        : await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", copy._id)).collect();
+      return { copy, grants };
+    });
+    expect(rows.copy?.access).toEqual({ base: "private" });
+    expect(rows.grants.map((grant) => [grant.granteeKind, grant.granteeUserId, grant.role, grant.source])).toEqual([
+      ["user", friend, "view", "owner"],
+    ]);
   });
 
   test("stops when the workspace moved again", async () => {
