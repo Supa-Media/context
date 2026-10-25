@@ -391,6 +391,12 @@ crons.interval("keep the id copy of each file current", { minutes: 15 }, interna
 crons.interval("file editing history by note id", { minutes: 30 }, internal.functions.collaborationFiling.fileDue, {});
 
 /**
+ * Check that every keyed workspace's rows say their paths through their parents (`functions/treeParents.ts`),
+ * setting a parent or a name right from the stored path. Rows only; a done workspace is not looked at again.
+ */
+crons.interval("check tree parents", { minutes: 30 }, internal.functions.treeParents.checkDue, {});
+
+/**
  * Rewrite the links to notes a move carried (`functions/linkRepairs.ts`) wherever entries wait with no pass
  * running; a move starts its own pass, so this picks up one that stopped or failed. Bucket-reaching, so its two
  * paragraphs: it holds no decision, since the move that queued the entry was already decided, and each pass
