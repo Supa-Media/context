@@ -262,8 +262,11 @@ flips. Running the suite with `CONTEXT_TREE_PATHS=built` fails for each.
     after a paged move.
   - A trash leaves links where they were, as before, and the search index
     follows the folder itself into the trash.
-- Every file beneath a big folder was keyed before the workspace built its
-  paths (the flip's precondition, stage 4d), so the mutation does not look.
+- A file still read at its path (no key; written by path after keying, such
+  as a mail pass's attachment list) refuses a move that would carry it, big
+  folder or small, since its bytes would stay behind. A big folder finds
+  such files by key rather than by reading itself: there are few, and past
+  `UNKEYED_ASKED` of them in the workspace the move refuses.
 
 What a "simplification" would cost: reading every row of a big folder again
 brings back a move whose time grows with the folder, which is what the owner

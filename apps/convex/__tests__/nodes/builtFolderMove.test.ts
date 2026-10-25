@@ -7,7 +7,8 @@
  * Sabotage, each run as a temporary local edit and reverted, and each failing here:
  *  - drop `countFolderMove`: the feed count does not move ("touches no row beneath it");
  *  - drop `queueFolderLinks`: no link entry ("its links follow");
- *  - answer no hidden settings from `hidesBeneath`: a member moves a folder holding a private one.
+ *  - answer no hidden settings from `hidesBeneath`: a member moves a folder holding a private one;
+ *  - answer no from `unkeyedBeneath`: a file still read at its path moves without its bytes.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -111,6 +112,24 @@ describe("a folder too big to list moves as one row", { timeout: 120_000 }, () =
     expect(await liveAt(f, "1-projects/secret")).toBe(true);
 
     await start(f, FROM, TO, TEAM);
+    expect(await liveAt(f, `${TO}/n3.md`)).toBe(true);
+  });
+
+  test("a file beneath it still read at its path refuses the move, as in a small folder", async () => {
+    const f = await bigTree();
+    const root = await rowOf(f, FROM);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("nodes", { workspaceId: f.ws, path: `${FROM}/mail.pdf`, parentId: root._id, name: "mail.pdf", kind: "file", observedAt: 1 });
+    });
+    await expect(start(f, FROM, TO)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await liveAt(f, `${FROM}/mail.pdf`)).toBe(true);
+
+    // One elsewhere does not.
+    await f.t.run(async (ctx) => {
+      const row = await nodeAt(ctx.db, f.ws, `${FROM}/mail.pdf`);
+      await ctx.db.patch(row!._id, { parentId: undefined, name: "mail.pdf" });
+    });
+    await start(f, FROM, TO);
     expect(await liveAt(f, `${TO}/n3.md`)).toBe(true);
   });
 

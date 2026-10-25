@@ -12,7 +12,7 @@
  *  - the caller judges what is beneath it from the rules beneath it (`builtJudge.ts`);
  *  - its links and link facts follow in the background, a page at a time (`folderLinks.ts`);
  *  - the change log writes nothing, and a device walks after it (`folderMoves`, in the feed token);
- *  - every file beneath was keyed before the workspace built its paths (`paths-on-read.md`, the flip).
+ *  - a file beneath still read at its path refuses it, as in a small one, found by key (`unkeyedBeneath`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -26,7 +26,7 @@ import { archiveMoveRefusal } from "./archiveTwins";
 import { claimJobBeforeMove, jobOfRow } from "./folderJobs";
 import { queueFolderLinks } from "./folderLinks";
 import type { Rules } from "./log";
-import { liveNodeAt, nodeAt } from "./paths";
+import { liveNodeAt, nodeAt, treePaths } from "./paths";
 import { overlapsRowMove } from "./rowMoveChunks";
 import {
   ROW_MOVE_MAX,
@@ -88,6 +88,27 @@ async function listedBeneath(
   return subtree.over ? { rows: [root], whole: false } : { rows: [root, ...subtree.below], whole: true };
 }
 
+/** Live files still read at their path a big folder's move asks after; past this many it refuses. */
+export const UNKEYED_ASKED = 200;
+
+/**
+ * Whether a live file beneath `from` is still read at its path, with no key: a move would leave its bytes
+ * behind. Such a file is written by path after keying (a mail pass's attachment list), so a workspace on built
+ * paths can gain one at any time; they are few, and found by key, not by reading the folder. Past
+ * `UNKEYED_ASKED` of them the answer is yes: a move that cannot tell refuses.
+ */
+async function unkeyedBeneath(ctx: MutationCtx, ws: Id<"workspaces">, from: string): Promise<boolean> {
+  const unkeyed = await ctx.db
+    .query("nodes")
+    .withIndex("by_workspace_storageKey", (q) => q.eq("workspaceId", ws).eq("storageKey", undefined))
+    .filter((q) => q.and(q.eq(q.field("kind"), "file"), q.eq(q.field("goneAt"), undefined)))
+    .take(UNKEYED_ASKED + 1);
+  if (unkeyed.length > UNKEYED_ASKED) return true;
+  const paths = treePaths(ctx.db, ws);
+  for (const row of unkeyed) if ((await paths.pathOf(row))?.startsWith(`${from}/`)) return true;
+  return false;
+}
+
 /**
  * A gone row kept at the name, beside the moved one, keeps no setting: the stored-path move removed it with
  * its setting and grants, and a setting left at the name would judge the live row that now holds it.
@@ -127,7 +148,7 @@ export async function applyBuiltMove(ctx: MutationCtx, args: BuiltMoveArgs): Pro
       if (live.length !== planned.length || live.some((path, index) => path !== planned[index])) return refuse("changed");
     }
     if (files.some((row) => row.storageKey === undefined)) return refuse("unkeyed");
-  }
+  } else if (await unkeyedBeneath(ctx, ws, from)) return refuse("unkeyed");
 
   // Only the root's name can be taken: what is beneath it keeps its name beneath it.
   const held = await nodeAt(ctx.db, ws, to);
