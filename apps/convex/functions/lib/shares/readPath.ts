@@ -552,23 +552,28 @@ export async function readShortLinkHandler(
   collecting: boolean;
   editableInContext: string | null;
 }> {
-  // A website file owns its public path before the compatibility link does.
-  // Re-check here as well as in the address resolver so a client cannot race
-  // or bypass the website-first decision by calling this action directly.
-  const website = await ctx.runQuery(
-    internal.functions.websites.websiteAddressPlan,
-    { handle: args.handle, routePath: `/${args.slug}` },
-  );
-  if (website.kind === "website") throw shareUnavailable();
-
-  const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
-    handle: args.handle,
-    slug: args.slug,
-  });
+  const token = await shortLinkTokenFor(ctx, args.handle, args.slug);
   if (token === null) throw shareUnavailable();
 
   return await ctx.runAction(api.functions.shares.readSharedNote, {
     token,
     ...(args.path === undefined ? {} : { path: args.path }),
   });
+}
+
+/** The token a short link names, or `null` when it names none (or a website page owns the address). */
+export async function shortLinkTokenFor(
+  ctx: ActionCtx,
+  handle: string,
+  slug: string,
+): Promise<string | null> {
+  // A website file owns its public path before the compatibility link does.
+  // Re-check here as well as in the address resolver so a client cannot race
+  // or bypass the website-first decision by calling this action directly.
+  const website = await ctx.runQuery(
+    internal.functions.websites.websiteAddressPlan,
+    { handle, routePath: `/${slug}` },
+  );
+  if (website.kind === "website") return null;
+  return await ctx.runQuery(internal.functions.shares.shortLinkToken, { handle, slug });
 }

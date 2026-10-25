@@ -400,3 +400,20 @@ the owner named. And `noteUrl` still returns a `context://` URI: an unlisted
 link now exists, but this connection is not told which notes have one, and
 putting a real URL there would republish somebody's deliberate hand-off into
 every search result.
+
+### A link shows the pictures its note embeds, and no other object
+
+Decided 2026-10-25, after Dev2 shared a note with pasted screenshots and the
+link drew every one as "Not in this bucket". The share page now asks
+`readSharedImage` (`apps/convex/functions/lib/shares/images.ts`) with the link,
+the note on screen and the picture's leaf. The server reads that note through
+`readSharedNoteHandler` unchanged, so every rule about what the link reaches
+decides first, and then serves the picture only when the note's text embeds it
+outside code (`publishedImageLeaves`, the rule a published page uses). A picture
+in the store the note does not embed, one another note embeds, and one a note
+names only inside code are the same refusal as a revoked link.
+
+The simplification it refuses: letting a link read any `paste-….png` by leaf.
+Leaves are content hashes, not secrets, and one copied out of one shared note
+would open every other picture whose name leaked. `shareImages.test.ts` fails if
+the embed check is dropped.

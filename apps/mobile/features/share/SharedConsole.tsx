@@ -77,6 +77,7 @@ export function SharedConsole({
   signedIn,
   onOpen,
   onSignIn,
+  loadImage,
   report,
 }: {
   note: SharedNote;
@@ -85,6 +86,8 @@ export function SharedConsole({
   onOpen: (path: string) => void;
   /** Sign in, and come back to this address. */
   onSignIn: () => void;
+  /** A picture the note embeds, read through the link (`sharedImages.ts`). */
+  loadImage?: (target: string) => Promise<string | null>;
   /** The page's "Report" link, drawn in a corner. */
   report?: ReactNode;
 }) {
@@ -101,8 +104,9 @@ export function SharedConsole({
         onOpen(path);
         return true;
       },
+      ...(loadImage === undefined ? {} : { loadImage }),
     }),
-    [base, note, onOpen],
+    [base, loadImage, note, onOpen],
   );
 
   const linkFor = useCallback(

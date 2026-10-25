@@ -42,6 +42,7 @@ import { noteHref } from "../console/nav";
 import { PLATFORM_ORIGIN } from "../site/host";
 import { NoteBody } from "./NoteBody";
 import { SharedConsole } from "./SharedConsole";
+import { sharedImageLoader } from "./sharedImages";
 import { ReportPageLink, currentAddress } from "../report/ReportLink";
 import { loginHref } from "../auth/redirect";
 import { ShareForm, collectAddress, type CollectAddress } from "./ShareForm";
@@ -105,6 +106,7 @@ export function ShareScreen({
 
   const readSharedNote = useAction(api.functions.shares.readSharedNote);
   const readShortLink = useAction(api.functions.shares.readShortLink);
+  const readSharedImage = useAction(api.functions.shares.readSharedImage);
   const [note, setNote] = useState<ShareResult>(undefined);
 
   /** The URL to come back to, at whichever address this page was opened. */
@@ -197,6 +199,23 @@ export function ShareScreen({
     else router.push(href);
   }, [hrefFor, router, site]);
 
+  // The pictures the note on screen embeds, asked for through the same link (`sharedImages.ts`).
+  const shortHandle = shortLink?.handle;
+  const shortSlug = shortLink?.slug;
+  const imageCache = useMemo(() => new Map<string, string>(), [token, shortHandle, shortSlug]);
+  const notePath = view.kind === "ready" ? view.note.path : null;
+  const entryPath = view.kind === "ready" ? view.note.entryPath : null;
+  const loadImage = useMemo(() => {
+    const address =
+      shortHandle !== undefined && shortSlug !== undefined
+        ? { handle: shortHandle, slug: shortSlug }
+        : token === null
+          ? null
+          : { token };
+    if (address === null || notePath === null || entryPath === null) return async () => null;
+    return sharedImageLoader(readSharedImage, address, notePath, entryPath, imageCache);
+  }, [entryPath, imageCache, notePath, readSharedImage, shortHandle, shortSlug, token]);
+
   /**
    * Leave the share page for the console, where the note is editable.
    *
@@ -268,6 +287,7 @@ export function ShareScreen({
         signedIn={auth.isAuthenticated}
         onOpen={open}
         onSignIn={signIn}
+        loadImage={loadImage}
         report={report}
       />
     );

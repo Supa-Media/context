@@ -69,12 +69,15 @@ const WRITE_MARKERS = [
  * and delegates, rather than reimplementing anything about what a share
  * reaches.
  *
+ * `readSharedImage` is a third read: the pictures the note on screen embeds,
+ * which the server answers only after reading that note through the link.
+ *
  * The list stays a list of *reads*. What this file defends is that a page
  * somebody arrived at on a link cannot write, and a second read at a second
  * address does not weaken it — but a third entry that is not a read would,
  * which is why the names are enumerated rather than matched by a prefix.
  */
-const ALLOWED_ACTIONS = ["readSharedNote", "readShortLink", "submitThroughLink"];
+const ALLOWED_ACTIONS = ["readSharedNote", "readShortLink", "readSharedImage", "submitThroughLink"];
 
 /**
  * The one write, and what makes it the only one that could be here.
