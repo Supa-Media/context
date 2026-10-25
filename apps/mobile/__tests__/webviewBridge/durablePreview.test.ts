@@ -141,6 +141,31 @@ describe("a durable note while its snapshot loads", () => {
     expect(guest.view.state.doc.toString()).toBe("durable words");
   });
 
+  /*
+    Dev2, 2026-10-25: offline, "the cursor just doesn't show up". A durable
+    note with no snapshot on the device becomes an offline draft
+    (`offlineDraft.ts`), and the host hands the guest the same words as an
+    editable document. The words equal the preview, so the bridge must not
+    skip them as an echo: the guest has to leave durable mode to take typing.
+  */
+  test("an offline draft over the preview's own words is editable", () => {
+    const { host, mount, changes, updates } = harness();
+    host.setEditable(true);
+    host.setDoc("same words");
+    host.setCrdtMode(true);
+    host.setCrdtSnapshot(null);
+    host.setCrdtPreview("same words");
+    const guest = mount();
+    expect(guest.view.state.readOnly).toBe(true);
+
+    host.setDoc("same words", "");
+    host.setCrdtMode(false);
+    expect(guest.view.state.doc.toString()).toBe("same words");
+    expect(guest.view.state.readOnly).toBe(false);
+    expect(changes).toEqual([]);
+    expect(updates).toEqual([]);
+  });
+
   test("a legacy (non-durable) note is not touched by a preview", () => {
     const { host, mount } = harness();
     host.setDoc("legacy words");

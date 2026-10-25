@@ -29,6 +29,8 @@ export function useNoteRoom(options: {
   conflicted: boolean;
   /** The note as this device has it, for the one client that seeds the room. */
   textForSeed: () => string;
+  /** The version `textForSeed` is, so typing can start before the first read (`offlineDraft.ts`). */
+  etagForSeed?: () => string | null;
   legacyDraft?: () => { baseline: string; desired: string; baseEtag?: string | null } | undefined;
   /** A tool wrote the open note; move this editor onto the version it left. */
   onExternalWrite: (written: { path: string; etag: string | null }) => void;
@@ -63,6 +65,7 @@ export function useNoteRoom(options: {
     path,
     scope: options.scope ?? "team",
     initialText: options.textForSeed,
+    initialEtag: options.etagForSeed,
     legacyDraft: options.legacyDraft,
     editable: options.canEdit === true,
     enabled: options.durable === true && !drawing && !options.conflicted,

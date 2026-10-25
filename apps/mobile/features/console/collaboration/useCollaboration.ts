@@ -17,6 +17,8 @@ export interface UseCollaborationOptions {
   path: string | null;
   scope: CacheScope;
   initialText: () => string;
+  /** The version `initialText` is; see `initialEtag` in `durable.ts`. */
+  initialEtag?: () => string | null;
   legacyDraft?: () => { baseline: string; desired: string; baseEtag?: string | null } | undefined;
   editable: boolean;
   enabled?: boolean;
@@ -43,6 +45,7 @@ const emptyState: DurableCollaboration = {
   documentId: null,
   text: "",
   revision: "",
+  drafting: false,
   onChange: () => {},
   onVersionedChange: () => {},
   onUpdate: () => false,
@@ -187,6 +190,8 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       path,
       scope: options.scope,
       initialText: options.initialText(),
+      // Read when typing starts: see `base` in `durable.ts`.
+      base: () => ({ text: callbacks.current.initialText(), etag: callbacks.current.initialEtag?.() ?? null }),
       legacyDraft: options.legacyDraft?.(),
       transport,
       online: () => typeof navigator === "undefined" || navigator.onLine !== false,
@@ -206,6 +211,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
         setState({
           mode: "durable",
           ready: nextState.ready,
+          drafting: nextState.drafting,
           status: nextState.status,
           pending: nextState.pending,
           etag: nextState.etag,
@@ -277,7 +283,10 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
   const current = controller.current;
   const subscribeLiveUpdates = useCallback((listener: (frame: LiveUpdate) => void) =>
     current?.subscribeLiveUpdates(listener) ?? (() => {}), [current]);
-  const message = state.recovery === undefined ? statusMessage(state.status) : "An older offline draft needs review before it can sync.";
+  // An offline draft typed here is not one to review: it says where it is, like any edit.
+  const message = state.recovery === undefined || (state.recovery.offline === true && state.status !== "error")
+    ? statusMessage(state.status)
+    : "An older offline draft needs review before it can sync.";
   return useMemo(
     () => {
       if (!active || current === null) return undefined;
