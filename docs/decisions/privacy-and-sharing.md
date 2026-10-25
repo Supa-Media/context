@@ -167,3 +167,7 @@ Moved to [The share dialog writes a list and its base together](./privacy-and-sh
 ### In the pinned workspace, `team` means its members, and All Context users is its own grant
 
 Moved to [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md#in-the-pinned-workspace-team-means-its-members-and-all-context-users-is-its-own-grant-decided-by-the-owner-2026-10-19). It supersedes "`team` is shown as All Context users", from the same morning.
+
+### A link shows the pictures its note embeds, and no other object
+
+Moved to [A link shows the pictures its note embeds, and no other object](./privacy-and-sharing/link-previews-and-audience.md#a-link-shows-the-pictures-its-note-embeds-and-no-other-object).

@@ -114,6 +114,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A share link's preview may carry a title; nothing else's may
 - A folder link may also name two or three things inside it
 - An unlisted share is the third audience, and it is one row rather than a tier
+- A link shows the pictures its note embeds, and no other object (2026-10-25)
 - `privacy.md` is generated, and the console can generate a fresh one
 - The visibility tier is displayed, never stored
 - The audit trail's `details` are allow-listed

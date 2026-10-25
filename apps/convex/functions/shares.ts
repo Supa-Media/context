@@ -44,6 +44,7 @@ import * as mint from "./lib/shares/mint";
 import * as linkRow from "./lib/shares/linkRow";
 import * as manage from "./lib/shares/manage";
 import * as shortLinks from "./lib/shares/shortLinks";
+import * as sharedImages from "./lib/shares/images";
 import * as gatewayLinks from "./lib/shares/gatewayLinks";
 import * as recipients from "./lib/shares/recipients";
 import * as previews from "./lib/shares/previews";
@@ -425,6 +426,13 @@ export const readSharedNote = action({
   args: validators.readSharedNoteArgs,
   returns: validators.readSharedNoteReturns,
   handler: readPath.readSharedNoteHandler,
+});
+
+/** A picture the shared note embeds: see `./lib/shares/images.ts`. */
+export const readSharedImage = action({
+  args: sharedImages.readSharedImageArgs,
+  returns: sharedImages.readSharedImageReturns,
+  handler: sharedImages.readSharedImageHandler,
 });
 
 /* -------------------------------------------------------------------------- */
