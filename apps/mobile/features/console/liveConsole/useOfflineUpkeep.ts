@@ -4,6 +4,8 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { forgetDepartedContexts } from "../../offline/forget";
 import { useBackgroundDrain } from "../../offline/useBackgroundDrain";
+import { useSendClosedNotes } from "../collaboration/useSendClosedNotes";
+import { MCP_ENDPOINT } from "../placeholderData";
 import { useMirrorSync } from "../../offline/useMirrorSync";
 import { useNodeFeed } from "../../offline/useNodeFeed";
 import { useMirrorStatuses } from "../../offline/mirrorStatus";
@@ -66,6 +68,8 @@ export function useOfflineUpkeep({
     [archiveEntryAction, createDirectoryAction, moveEntryAction, trashEntryAction],
   );
   useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo, op: sendQueuedOpTo });
+  // The same for shared notes: typing a closed note left on the device, in any context.
+  useSendClosedNotes(MCP_ENDPOINT);
 
   /*
     Every note of every context this person can reach, on the device, kept in
