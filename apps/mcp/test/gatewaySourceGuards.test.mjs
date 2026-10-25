@@ -245,9 +245,9 @@ test("a gateway module that queries the v1 index also narrows it first", () => {
 /*
   Every `node:test` file is run. `test/run.mjs` runs only what `test/unit.list`
   names, so a file nobody added there passed nothing in CI while reading as
-  coverage: twenty-five of them did, until 2026-10-21. `keyedCollabRename.test.mjs` fails on
-  `main` as it stands and is left out by name until it is fixed, so the gap is
-  written down instead of hidden.
+  coverage: twenty-five of them did, until 2026-10-21. A file that fails on
+  `main` is left out by name in `KNOWN_FAILING` until it is fixed, so the gap is
+  written down instead of hidden (none today).
 */
 /*
   The Mail checker reads a kept turn as the person who asked. A group's kept
@@ -279,7 +279,7 @@ test("a texted turn gives a held send long enough to be checked and held", () =>
   }
 });
 
-const KNOWN_FAILING = new Set(["test/keyedCollabRename.test.mjs"]);
+const KNOWN_FAILING = new Set([]);
 
 test("every node:test file is listed in test/unit.list", () => {
   const ROOT = fileURLToPath(new URL("../", import.meta.url));

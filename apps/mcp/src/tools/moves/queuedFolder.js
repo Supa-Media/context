@@ -21,18 +21,18 @@ import { recordChange } from "../../activity/record.js";
 import { canSee, hasOverride, visibilityOf } from "../../privacy/engine.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
-import { renameCollaboration } from "../../moves/keyedCollaboration.js";
+import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 
 /**
- * A keyed row move's collaboration half: each note the row move renamed carries
- * its history to the new name (`keyedCollaboration.js`). The answer names those
- * files; an answer without them (an older control plane) carries only the root.
+ * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
+ * The history is filed by note id, so nothing is carried. An answer that names no files (an older control
+ * plane) tells only the root's room.
  */
-async function carryRowedCollaboration(store, answer, source, destination, privacy) {
+async function announceRowedMoves(store, answer, source, destination, privacy) {
   if (answer.rowed !== true) return;
   const moved = Array.isArray(answer.moved) ? answer.moved : [{ from: source, to: destination }];
-  await renameCollaboration(store, moved, privacy, { carried: answer.historyCarried === true });
+  await announceMoves(store, moved, privacy);
 }
 
 /**
@@ -98,7 +98,7 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
     const message = typeof answer.message === "string" ? answer.message : "the move was refused";
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
-  await carryRowedCollaboration(store, answer, source, destination, privacy);
+  await announceRowedMoves(store, answer, source, destination, privacy);
   await recordChange(store, "move_note", scope, [source, destination], { rowed: true });
   return withActivityHint(toolText(`moved note: ${source} → ${destination}` + FOLLOWING_LINE), {
     moves: [{ from: source, to: destination }],
@@ -150,8 +150,8 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
   const pairs = moves.map((move) => ({ from: move.source, to: move.destination }));
-  // Each moved note's collaboration history follows it (`keyedCollaboration.js`).
-  await renameCollaboration(store, Array.isArray(answer.moves) ? answer.moves : pairs, { rules, overrides });
+  // Each moved note's open editor is told where it went (`keyedCollaboration.js`).
+  await announceMoves(store, Array.isArray(answer.moves) ? answer.moves : pairs, { rules, overrides });
   await recordChange(store, "move_notes", scope, pairs.flatMap((pair) => [pair.from, pair.to]), { count: pairs.length, rowed: true });
   return withActivityHint(
     toolText(`moved notes: ${pairs.length}\n` + pairs.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + FOLLOWING_LINE),
@@ -175,7 +175,7 @@ export async function startQueuedFolderMove(store, scope, source, destination, p
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
   const count = Number.isInteger(answer.count) ? answer.count : 0;
-  await carryRowedCollaboration(store, answer, source, destination, privacy);
+  await announceRowedMoves(store, answer, source, destination, privacy);
   await recordChange(store, "move_folder", scope, [source, destination], { count, queued: true });
   // A keyed row move copies nothing, so there is no storage catching up to say.
   const note = answer.rowed === true

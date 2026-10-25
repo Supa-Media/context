@@ -1,29 +1,29 @@
 /**
- * A keyed move carries the note's collaboration history to its new name
- * (`docs/decisions/storage-and-credentials/notes-by-id.md`, "Moves in a keyed
- * workspace are row changes"): the row moves, the bytes stay at their id key,
- * the engine's heads and state follow the name, and the old name's live room
- * is told where the note went.
+ * A keyed move leaves a note's collaboration history where it is, filed by the
+ * note's id (`docs/decisions/storage-and-credentials/paths-on-read.md`, "Editing
+ * history is filed by note id"): the row moves, the bytes stay at their id key,
+ * nothing under `.context/collaboration/` is written, the new name finds the
+ * same document, and the old name's live room is told where the note went.
  *
  * Sabotage, each confirmed to fail a case here:
- *  - drop the `renameCollaboration` call in `startKeyedNoteMove` and the open
- *    editor's identity is left at the old name (the first case fails);
- *  - rename every note in a folder, history or not, and the no-history case writes collaboration state;
- *  - let a failed rename fail the row move, and the refused-name case reports a failure;
- *  - skip the presence notice and the old room is never told the note moved.
+ *  - file heads by path again (`headAddress` ignores the id): the moved note opens a new document;
+ *  - put a `renameDocument` call back in `announceMoves`: the moves write collaboration state;
+ *  - skip the presence notice: the old room is never told the note moved;
+ *  - send the new name whatever the rules: the narrowing case names a private folder to the room.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { commitUpdate, readDocument, renameDocument } from "@context/collaboration";
+import { readDocument } from "@context/collaboration";
 import { toolMoveNote } from "../src/tools/moves/note.js";
 import { toolMoveFolder } from "../src/tools/moves/folder.js";
+import { ANNOUNCE_MOVES_MAX } from "../src/moves/keyedCollaboration.js";
 
 /**
  * A keyed workspace's bucket: notes at id keys, reached by path through rows,
  * with plumbing (`.context/…`) at its own keys. `startQueuedMove` makes the
  * row change the control plane makes, and copies nothing.
  */
-function keyedRows(files, { overwriteRows = false, controlPlaneCarries = false } = {}) {
+function keyedRows(files) {
   const rows = new Map();
   const objects = new Map();
   const writes = [];
@@ -43,6 +43,11 @@ function keyedRows(files, { overwriteRows = false, controlPlaneCarries = false }
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     keyedLayout: true,
     actor: { workspaceId: "ws-1" },
+    // The id of the note at a name, as the id layer answers it (`store/idLayout.js`): its key's number.
+    async noteIdAt(path) {
+      const key = rows.get(path);
+      return key === undefined ? null : `0190a000-0000-7000-8000-${key.replace(/\D/g, "").padStart(12, "0")}`;
+    },
     presenceRooms: {
       idFromName: (name) => name,
       get: (name) => ({
@@ -108,14 +113,9 @@ function keyedRows(files, { overwriteRows = false, controlPlaneCarries = false }
       }
       if (moved.length === 0) return { queued: false };
       for (const pair of moved) {
-        if (!overwriteRows && rows.has(pair.to)) return { queued: false, error: "DESTINATION_EXISTS", message: "taken" };
+        if (rows.has(pair.to)) return { queued: false, error: "DESTINATION_EXISTS", message: "taken" };
         rows.set(pair.to, rows.get(pair.from));
         rows.delete(pair.from);
-      }
-      if (controlPlaneCarries) {
-        // The control plane carries each note's history with its row (`nodes/rowHistory.ts`) and says so.
-        for (const pair of moved) await renameDocument(store, pair.from, pair.to, { internalTrash: true }).catch(() => {});
-        return { queued: true, count: moved.length, rowed: true, historyCarried: true, moved };
       }
       return { queued: true, count: moved.length, rowed: true, moved };
     },
@@ -128,30 +128,23 @@ const TEAM_BOTH = [
   { prefix: "2-areas", vis: "team" },
 ];
 
-test("a keyed note move carries its collaboration history to the new name, and the old room is told", async () => {
+const collaborationWrites = (made) => made.writes.filter(([, key]) => key.startsWith(".context/collaboration/"));
+
+test("a keyed note move writes no collaboration state, the new name opens the same history, and the old room is told", async () => {
   const made = keyedRows({ "1-projects/a.md": { body: "# A\n", etag: "e0" } });
   const opened = await readDocument(made.store, "1-projects/a.md");
+  made.writes.length = 0;
 
   const answer = await toolMoveNote(made.store, "private", TEAM_BOTH, new Map(), "1-projects/a.md", "2-areas/a.md");
 
   assert.match(answer.content[0].text, /moved note: 1-projects\/a\.md → 2-areas\/a\.md/);
+  assert.deepEqual(collaborationWrites(made), [], "the move carries nothing");
   const after = await readDocument(made.store, "2-areas/a.md");
   assert.equal(after.documentId, opened.documentId, "the note keeps its identity under the new name");
-  await assert.rejects(() => readDocument(made.store, "1-projects/a.md"), (error) => error.code === "MOVED" && error.destination === "2-areas/a.md");
   assert.deepEqual(made.rooms.map((room) => [room.url, room.body]), [
     ["https://presence.invalid/moved", { to: "2-areas/a.md" }],
   ]);
   assert.ok(made.rooms[0].name.includes("1-projects%2Fa.md"), "the notice goes to the room the old name had");
-});
-
-test("history the control plane already carried is not renamed again, and the old room is still told", async () => {
-  const made = keyedRows({ "1-projects/a.md": { body: "# A\n", etag: "e0" } }, { controlPlaneCarries: true });
-  const opened = await readDocument(made.store, "1-projects/a.md");
-
-  await toolMoveNote(made.store, "private", TEAM_BOTH, new Map(), "1-projects/a.md", "2-areas/a.md");
-
-  assert.equal((await readDocument(made.store, "2-areas/a.md")).documentId, opened.documentId);
-  assert.deepEqual(made.rooms.map((room) => room.body), [{ to: "2-areas/a.md" }]);
 });
 
 test("a move that narrows the note does not tell the old room where it went, but still closes its members", async () => {
@@ -165,53 +158,35 @@ test("a move that narrows the note does not tell the old room where it went, but
   assert.deepEqual(made.rooms.map((room) => room.body), [{ to: null }]);
 });
 
-test("a note with no collaboration history moves without writing any collaboration state", async () => {
-  const made = keyedRows({ "1-projects/a.md": { body: "# A\n", etag: "e0" } });
-
-  await toolMoveNote(made.store, "private", [], new Map(), "1-projects/a.md", "2-areas/a.md");
-
-  // The activity record is written under `.context/audit/`; collaboration state is what must not be written.
-  assert.deepEqual(made.writes.filter(([, key]) => key.startsWith(".context/collaboration/")), []);
-  assert.deepEqual(made.rooms, []);
-});
-
-test("a rename refused by another document's name leaves the row move standing and the old history where it was", async () => {
-  const made = keyedRows({
-    "2-areas/a.md": { body: "# Theirs\n", etag: "e1" },
-    "1-projects/a.md": { body: "# Mine\n", etag: "e2" },
-  }, { overwriteRows: true });
-  const mine = await readDocument(made.store, "1-projects/a.md");
-  const theirs = await readDocument(made.store, "2-areas/a.md");
-
-  const answer = await toolMoveNote(made.store, "private", [], new Map(), "1-projects/a.md", "2-areas/a.md");
-
-  assert.match(answer.content[0].text, /moved note: /, "the row move is what the control plane did, and it stands");
-  assert.notEqual(mine.documentId, theirs.documentId);
-  assert.deepEqual(made.rooms, [], "nothing moved in the engine, so no room is told");
-  const state = JSON.parse(made.objects.get(`.context/collaboration/v1/documents/${mine.documentId}.json`).body);
-  assert.equal(state.path, "1-projects/a.md");
-  assert.equal(state.structural, null);
-});
-
-test("a folder move renames the history of the notes that have it, and no others", async () => {
+test("a folder move writes no collaboration state, every note keeps its history, and each old room is told", async () => {
   const made = keyedRows({
     "1-projects/launch/has.md": { body: "# Has\n", etag: "e1" },
     "1-projects/launch/plain.md": { body: "# Plain\n", etag: "e2" },
   });
   const had = await readDocument(made.store, "1-projects/launch/has.md");
+  made.writes.length = 0;
 
   const rules = [{ prefix: "1-projects", vis: "team" }, { prefix: "3-resources", vis: "team" }];
   const answer = await toolMoveFolder(made.store, "private", rules, new Map(), "1-projects/launch", "3-resources/launch", false);
 
   assert.match(answer.content[0].text, /moved folder: 1-projects\/launch\//);
-  const carried = await readDocument(made.store, "3-resources/launch/has.md");
-  assert.equal(carried.documentId, had.documentId);
-  // Only the note with history has collaboration heads: its old fence and its new head. The plain note has none.
-  const heads = [...made.objects.keys()].filter((key) => key.startsWith(".context/collaboration/v1/heads/"));
-  assert.equal(heads.length, 2);
-  assert.deepEqual(made.rooms.map((room) => room.body), [{ to: "3-resources/launch/has.md" }]);
-  await assert.rejects(
-    () => commitUpdate(made.store, "1-projects/launch/has.md", { documentId: had.documentId, update: had.update }),
-    (error) => error.code === "MOVED",
-  );
+  assert.deepEqual(collaborationWrites(made), []);
+  assert.equal((await readDocument(made.store, "3-resources/launch/has.md")).documentId, had.documentId);
+  assert.deepEqual(made.rooms.map((room) => room.body).sort((a, b) => a.to.localeCompare(b.to)), [
+    { to: "3-resources/launch/has.md" },
+    { to: "3-resources/launch/plain.md" },
+  ]);
+});
+
+test("a move of more notes than are announced tells no room, and still carries nothing", async () => {
+  const files = Object.fromEntries(Array.from({ length: ANNOUNCE_MOVES_MAX + 1 }, (_, n) => [`1-projects/big/n${n}.md`, { body: `# N${n}\n`, etag: `e${n}` }]));
+  const made = keyedRows(files);
+  const opened = await readDocument(made.store, "1-projects/big/n0.md");
+  made.writes.length = 0;
+
+  await toolMoveFolder(made.store, "private", TEAM_BOTH, new Map(), "1-projects/big", "2-areas/big", false);
+
+  assert.deepEqual(made.rooms, []);
+  assert.deepEqual(collaborationWrites(made), []);
+  assert.equal((await readDocument(made.store, "2-areas/big/n0.md")).documentId, opened.documentId);
 });

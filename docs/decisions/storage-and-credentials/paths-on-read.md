@@ -91,9 +91,12 @@ folder may be before its move is paged or refused.
 - **Emptying the trash** erases a note's id-filed head and history by the id
   in its key (`historyIdsOf`), since its row is gone by then.
 
-**Still to go in this stage:** once the backfill reports every workspace done,
-the carry and `renameDocument`'s callers are removed, and moves do no
-per-note collaboration work at all.
+**The carry is gone** (2026-10-25, after the backfill reported every keyed
+workspace done in production): a move calls no `renameDocument`, and the
+gateway only tells the rooms of a small move where their notes went
+(`announceMoves`). A trash and a restore still carry a head left at a path
+(`rowHistory.ts`): a note trashed before this stage has its history at its
+trash name, and Restore brings it back.
 
 What a "simplification" would cost: filing heads by path again makes every
 move carry each note's history and strands an offline editor whenever the

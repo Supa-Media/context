@@ -220,3 +220,4 @@ test/movesInsideAnotherWorkspace.test.mjs
 test/agentPushback.test.mjs
 test/collaborationByNoteId.test.mjs
 test/agentRoutineWhen.test.mjs
+test/keyedCollabRename.test.mjs

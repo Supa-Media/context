@@ -44,7 +44,6 @@ import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFollow";
 import { clearanceOf } from "../clearance";
 import { handedEtagAt, rowEtagFor } from "./handedVersion";
-import { carryRowHistory } from "./rowHistory";
 import { queueLinkRepair } from "./linkRepair";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
@@ -215,9 +214,8 @@ async function settleRowMove(
 ): Promise<MoveResult> {
   const { workspaceId, store, from, to, now } = args;
   if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
-  // A renamed note keeps its collaboration history under its new name, as a trash does (`rowHistory.ts`), so the
-  // version it was handed before the move is still the one a read of the new name hands out.
-  await carryRowHistory(store, moved.files);
+  // A note's collaboration history is filed by its note id, so nothing follows the move: the new name finds it, and
+  // the version it was handed before the move is still the one a read of the new name hands out.
   const etag = moved.kind === "file" ? ((await handedEtagAt(store, to)) ?? moved.etag) : undefined;
   await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
   // The links to what moved, and inside it, follow behind the move (`linkRepair.ts`); forwarding sends them on meanwhile.
