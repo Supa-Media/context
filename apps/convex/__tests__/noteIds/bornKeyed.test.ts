@@ -60,6 +60,8 @@ describe("a new workspace", () => {
     // Its tree serves at once: a keyed workspace is never swept, so nothing else would make it ready.
     const tree = await t.run(async (ctx) => (await ctx.db.query("nodeTrees").collect()).find((tree) => tree.workspaceId === ws) ?? null);
     expect(tree?.status).toBe("ready");
+    // And it builds its paths from parents from the start: there is nothing for the flip to walk.
+    expect(tree?.paths).toBe("built");
   });
 
   test("bound to a bucket its owner brings is keyed at once too: files already there are not picked up", async () => {
