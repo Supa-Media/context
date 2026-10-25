@@ -38,7 +38,9 @@ stage relies on it:
 1. Editing history filed by note id (below).
 2. Links follow a move in the background (below): the move does no per-note
    link work.
-3. Pins, recents, routines, shares and the change log keyed by id.
+3. Every row's parent and name are its path (below): the backfill that makes
+   `parentId` and `name` say exactly what `path` says, checked in production
+   before anything builds a path from them.
 4. Rows stop storing `path`; paths are built on read, and a move or rename is
    one row patch. The link table points at note ids then, since it has no path
    to point at. The paged-move machinery (`rowMoves`, `drawnMoves`,
@@ -140,3 +142,38 @@ makes a move's time grow with the notes that point into it, and an agent's
 move time out. `apps/convex/__tests__/nodes/linkRepair.test.ts` fails for the
 queueing, the narrowing rule and the queue's lease and attempts, and
 `apps/mcp/test/keyedFolderMove.test.mjs` for a gateway move writing a note.
+
+## Every row's parent and name are its path
+
+*Stage 3, built 2026-10-25* (`apps/convex/functions/treeParents.ts`,
+`functions/lib/nodes/parentCheck.ts`).
+
+- Stage 4 builds a row's path from its parent and its name, so before then
+  every live row of every keyed workspace must already say, through them,
+  the path it stores. A check walks each keyed workspace's rows in path order
+  a page at a time and sets `parentId` and `name` from the stored path, which
+  is the truth until stage 4: the parent is the live folder row at the path's
+  folder (none at the top level), the name is the last segment (`""` for a
+  folder marker). A walk that set anything right is walked again from the
+  next half-hourly tick, because a move during it can carry a row behind its
+  position; a walk that sets nothing right is the workspace done.
+- A live row whose folder holds no live folder row, and a path more than one
+  live row holds, are counted and never guessed at. The `Tree parents`
+  workflow reports them; stage 4 waits for both to be zero, or for each to be
+  understood and fixed first.
+- **Revised plan for what points at a note.** The first plan keyed pins,
+  recents, routines, shares and the change log by id in this stage. Shares
+  already follow `entryNoteId`. Pins, recents, folder icons and routines are
+  followed per move by a read of the places under the moved name
+  (`placesFollow.ts`, `remapIcons`), which costs what those few rows cost and
+  not what the folder holds, and works the same once paths are built: they
+  stay as they are. The change log writes two rows per file a move carries;
+  in stage 4 a folder move writes one, and a device that hears of it walks,
+  as it already does for a paged move (`movesMark`).
+
+What a "simplification" would cost: building paths from parents before this
+is done shows a note at a path it is not at, or not at all, and a move then
+moves the wrong rows. `apps/convex/__tests__/nodes/treeParents.test.ts` fails
+for a walk marked done after a repair, a duplicate path pointed at as if it
+were right, an orphan pointed at a gone folder, and two chains on one
+workspace.

@@ -176,6 +176,7 @@ import type * as functions_meetingSummary from "../functions/meetingSummary.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
 import type * as functions_searchTimings from "../functions/searchTimings.js";
 import type * as functions_trash from "../functions/trash.js";
+import type * as functions_treeParents from "../functions/treeParents.js";
 import type * as functions_trashEmptying from "../functions/trashEmptying.js";
 import type * as functions_trashedNotes from "../functions/trashedNotes.js";
 import type * as functions_oldCopies from "../functions/oldCopies.js";
@@ -383,6 +384,7 @@ declare const fullApi: ApiFromModules<{
   "functions/agentTurns": typeof functions_agentTurns;
   "functions/searchTimings": typeof functions_searchTimings;
   "functions/trash": typeof functions_trash;
+  "functions/treeParents": typeof functions_treeParents;
   "functions/trashEmptying": typeof functions_trashEmptying;
   "functions/trashedNotes": typeof functions_trashedNotes;
   "functions/oldCopies": typeof functions_oldCopies;
