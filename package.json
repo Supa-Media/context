@@ -27,6 +27,10 @@
   "pnpm": {
     "patchedDependencies": {
       "@convex-dev/auth": "patches/@convex-dev__auth.patch"
+    },
+    "overrides": {
+      "dompurify@<3.4.17": "^3.4.17",
+      "lodash-es@<4.18.0": "^4.18.1"
     }
   }
 }

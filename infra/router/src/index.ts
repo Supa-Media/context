@@ -32,17 +32,10 @@ import connectSlackCard from "./og-connect-slack.png";
 import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a Google link (og-google-connect.source.html)
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
+import { withSecurityHeaders } from "./securityHeaders";
 
-export interface Env {
-  /** Optional legacy upstream for self-hosted configurations without Static Assets. */
-  EXPO_ORIGIN?: string;
-  /** Cloudflare Static Assets binding. Staging uses it before production cuts over. */
-  ASSETS?: Fetcher;
-  /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
-  CONVEX_ORIGIN?: string;
-  HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
-  TEXTS_SIMULATOR?: Fetcher; // staging only (`textsSimulator.ts`)
-}
+export type { Env } from "./env";
+import type { Env } from "./env";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -53,6 +46,12 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
+    return withSecurityHeaders(await platformResponse(request, url, env, ctx));
+  },
+};
+
+/** Everything a platform host answers; `fetch` hardens it (`securityHeaders.ts`). */
+async function platformResponse(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
     const simulator = textsSimulatorResponse(request, url, env);
     if (simulator !== null) return await simulator;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
@@ -68,8 +67,7 @@ export default {
       return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx, url);
     }
     return await respond(decision, request, env, ctx);
-  },
-};
+}
 
 async function respond(
   decision: RouteDecision,
