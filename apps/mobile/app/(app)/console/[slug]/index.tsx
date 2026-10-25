@@ -137,6 +137,8 @@ export default function ContextBrowseRoute() {
       socket on every keystroke.
     */
     textForSeed: () => data.files.editor.draft,
+    // The version that text is, so a note opened offline takes typing as a draft.
+    etagForSeed: () => data.files.editor.etag,
     legacyDraft: () => legacyDraftFor(data.files.editor),
     /*
       An MCP client wrote this note while it was open. Presence has already

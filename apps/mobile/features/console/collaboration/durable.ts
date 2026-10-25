@@ -2,6 +2,10 @@ import * as Y from "yjs";
 import { scopedKeyFor, type CacheScope } from "../../offline/keys";
 import { openStore } from "../../offline/store";
 import { createSharedDoc, fromBase64, toBase64, type SharedDoc } from "../presence/sharedDoc";
+import { applyTextDiff } from "./textEdits";
+import { DRAFT_WAIT_MS, documentIdOf, holdsDocument, type Recovery } from "./offlineDraft";
+
+export { textEdits } from "./textEdits";
 
 export type DurableStatus =
   | "loading"
@@ -23,8 +27,14 @@ export interface DurableCollaboration {
   documentId: string | null;
   text: string;
   revision: string;
-  recovery?: { baseline: string; desired: string; baseEtag?: string | null };
+  recovery?: Recovery;
   legacyAdopted?: { path: string; text: string; baseEtag: string };
+  /**
+   * Not ready, and taking typing anyway: an offline draft over the version on
+   * screen (`offlineDraft.ts`). The editor is editable as plain text, and binds
+   * to the shared document once `ready`.
+   */
+  drafting?: boolean;
   /** Apply a local Yjs update received from a native guest replica. */
   onUpdate: (documentId: string, update: string) => boolean;
   onChange: (text: string) => void;
@@ -61,10 +71,20 @@ export interface DurableControllerOptions {
   path: string;
   scope: CacheScope;
   initialText: string;
+  /**
+   * What the editor is showing now, and the version it is: a draft typed
+   * before the first read is merged against it. Asked when typing starts, not
+   * when the note opens, since a cached copy can be replaced by the bucket's
+   * newer one in between, and a draft based on the older version would undo
+   * whatever changed since.
+   */
+  base?: () => { text: string; etag: string | null };
+  /** How long the first read may take before typing is taken as a draft; `DRAFT_WAIT_MS`. */
+  draftWaitMs?: number;
   legacyDraft?: { baseline: string; desired: string; baseEtag?: string | null };
   transport: CollaborationTransport;
   onText: (text: string) => void;
-  onState: (state: { status: DurableStatus; pending: number; etag: string | null; documentId: string | null; ready: boolean; text: string; recovery?: { baseline: string; desired: string; baseEtag?: string | null }; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => void;
+  onState: (state: { status: DurableStatus; pending: number; etag: string | null; documentId: string | null; ready: boolean; drafting: boolean; text: string; recovery?: Recovery; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => void;
   online?: () => boolean;
   store?: ReturnType<typeof openStore>;
   now?: () => number;
@@ -83,145 +103,10 @@ interface Persisted {
   etag: string | null;
   snapshot: string;
   pending: { id: string; update: string }[];
-  recovery?: { baseline: string; desired: string; baseEtag?: string | null };
+  recovery?: Recovery;
 }
 
 const RETRIES = [500, 1500, 5000];
-
-type TextEdit = { kind: "insert"; at: number; text: string } | { kind: "delete"; at: number; count: number };
-
-/**
- * Compute an edit script against the exact text represented by a Yjs
- * snapshot. A common-prefix/suffix replacement is tempting here, but repeated
- * text and a peer insertion in the middle make that replacement delete the
- * wrong Yjs items. Myers' shortest edit script keeps the operation anchored to
- * the snapshot's item IDs when its update is applied to the live document.
- */
-export function textEdits(from: string, to: string): TextEdit[] {
-  if (from === to) return [];
-  // Y.Text indexes strings in UTF-16 code units, but diffing individual code
-  // units can split a surrogate pair (😀 -> 😎 would preserve the high half
-  // and replace only the low half). Diff by code point, then convert each
-  // edit's coordinate/count back to UTF-16 for Yjs.
-  const allFrom = Array.from(from);
-  const allTo = Array.from(to);
-  /*
-    **The unchanged ends are set aside before the search, not instead of it.**
-
-    The search costs the length times the size of the edit, and keeps one
-    frontier per step, so a paste of a few thousand characters held the page
-    for seconds (5 KB: ~1.7 s, 10 KB: ~12 s) inside the keystroke that made
-    it. Every edit a person makes touches one place, so trimming what both
-    sides share at the start and at the end leaves the search only the part
-    that changed, and a paste becomes one insert. The shared start is exactly
-    the diagonal the search would have walked first; the shared end only
-    picks, among equally short scripts, the one that keeps the text after
-    the edit. Whatever is left in the middle still goes through Myers, so the
-    warning above about a wholesale replacement still holds.
-  */
-  let head = 0;
-  while (head < allFrom.length && head < allTo.length && allFrom[head] === allTo[head]) head += 1;
-  let tail = 0;
-  while (
-    tail < allFrom.length - head &&
-    tail < allTo.length - head &&
-    allFrom[allFrom.length - 1 - tail] === allTo[allTo.length - 1 - tail]
-  ) tail += 1;
-  const offset = allFrom.slice(0, head).join("").length;
-  const fromPoints = allFrom.slice(head, allFrom.length - tail);
-  const toPoints = allTo.slice(head, allTo.length - tail);
-  const n = fromPoints.length;
-  const m = toPoints.length;
-  // Only one side left: a plain insert or delete, with nothing to search.
-  if (n === 0) return [{ kind: "insert", at: offset, text: toPoints.join("") }];
-  if (m === 0) return [{ kind: "delete", at: offset, count: fromPoints.join("").length }];
-  const max = n + m;
-  let vector = new Map<number, number>([[1, 0]]);
-  const trace: Map<number, number>[] = [];
-  let endDepth = max;
-  for (let depth = 0; depth <= max; depth += 1) {
-    trace.push(new Map(vector));
-    for (let diagonal = -depth; diagonal <= depth; diagonal += 2) {
-      const down = diagonal === -depth || (diagonal !== depth && (vector.get(diagonal - 1) ?? -1) < (vector.get(diagonal + 1) ?? -1));
-      let x = down ? (vector.get(diagonal + 1) ?? 0) : (vector.get(diagonal - 1) ?? 0) + 1;
-      let y = x - diagonal;
-      while (x < n && y < m && fromPoints[x] === toPoints[y]) {
-        x += 1;
-        y += 1;
-      }
-      vector.set(diagonal, x);
-      if (x >= n && y >= m) {
-        endDepth = depth;
-        break;
-      }
-    }
-    if (endDepth === depth) break;
-  }
-
-  const primitive: ({ kind: "equal"; text: string } | { kind: "insert"; text: string } | { kind: "delete"; text: string })[] = [];
-  let x = n;
-  let y = m;
-  for (let depth = endDepth; depth > 0; depth -= 1) {
-    // trace[depth] is the frontier before this depth was expanded. The
-    // initial frontier is trace[0], and each later entry was captured at the
-    // start of that depth's iteration.
-    const previous = trace[depth];
-    const diagonal = x - y;
-    const down = diagonal === -depth || (diagonal !== depth && (previous.get(diagonal - 1) ?? -1) < (previous.get(diagonal + 1) ?? -1));
-    const previousDiagonal = down ? diagonal + 1 : diagonal - 1;
-    const previousX = previous.get(previousDiagonal) ?? 0;
-    const previousY = previousX - previousDiagonal;
-    while (x > previousX && y > previousY) {
-      primitive.push({ kind: "equal", text: fromPoints[x - 1] });
-      x -= 1;
-      y -= 1;
-    }
-    if (x === previousX) {
-      primitive.push({ kind: "insert", text: toPoints[previousY] ?? "" });
-    } else {
-      primitive.push({ kind: "delete", text: fromPoints[previousX] ?? "" });
-    }
-    x = previousX;
-    y = previousY;
-  }
-  while (x > 0 && y > 0) {
-    primitive.push({ kind: "equal", text: fromPoints[x - 1] });
-    x -= 1;
-    y -= 1;
-  }
-  primitive.reverse();
-
-  const edits: TextEdit[] = [];
-  let at = offset;
-  for (const part of primitive) {
-    if (part.kind === "equal") {
-      at += part.text.length;
-    } else if (part.kind === "delete") {
-      const previous = edits[edits.length - 1];
-      if (previous?.kind === "delete" && previous.at === at) previous.count += part.text.length;
-      else edits.push({ kind: "delete", at, count: part.text.length });
-    } else {
-      const previous = edits[edits.length - 1];
-      if (previous?.kind === "insert" && previous.at === at) previous.text += part.text;
-      else edits.push({ kind: "insert", at, text: part.text });
-      at += part.text.length;
-    }
-  }
-  return edits;
-}
-
-function applyTextDiff(target: Y.Text, from: string, to: string): void {
-  const edits = textEdits(from, to);
-  target.doc?.transact(() => {
-    // Edits are expressed in the target text's current coordinate space. The
-    // script walks from left to right, so earlier inserts/deletes are already
-    // reflected in the later positions.
-    for (const edit of edits) {
-      if (edit.kind === "delete") target.delete(edit.at, edit.count);
-      else target.insert(edit.at, edit.text);
-    }
-  });
-}
 
 function validRecord(value: unknown): value is Persisted {
   if (!value || typeof value !== "object") return false;
@@ -266,6 +151,11 @@ export class DurableCollaborationController {
   private readonly doc: SharedDoc;
   private record = emptyRecord();
   private readyState = false;
+  /** Whether this note may take typing before it is ready; see `offlineDraft.ts`. */
+  private draftable = false;
+  private draftTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the document holds anything from the server or the device's record, so a save keeps it. */
+  private seeded = false;
   private statusState: DurableStatus = "loading";
   private persistChain: Promise<void> = Promise.resolve();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,11 +187,12 @@ export class DurableCollaborationController {
       mode: "durable",
       ready: this.readyState,
       status: this.statusState,
-      pending: this.record.pending.length,
+      pending: this.pendingCount(),
       etag: this.record.etag,
       documentId: this.record.documentId,
-      text: this.record.recovery?.desired ?? this.doc.markdown(),
+      text: this.shownText(),
       revision: this.doc.snapshot(),
+      drafting: this.drafting(),
       ...(this.record.recovery === undefined ? {} : { recovery: this.record.recovery }),
       onUpdate: (documentId, update) => this.applyLocalUpdate(documentId, update),
       shared: this.doc,
@@ -485,6 +376,8 @@ export class DurableCollaborationController {
     }
     if (this.record.recovery !== undefined) {
       this.readyState = false;
+      // An offline draft from an earlier visit goes on taking typing.
+      this.armDraft(true);
       if (this.options.online?.() === false) this.emit("offline");
       else await this.replaceRecovery();
       this.scheduleRepair();
@@ -504,12 +397,15 @@ export class DurableCollaborationController {
         this.emit("error");
       }
     }
-    if (this.record.snapshot !== "") {
-      this.doc.applyRemote(this.record.snapshot);
+    if (holdsDocument(this.record.snapshot)) {
+      this.applyServer(this.record.snapshot);
       this.readyState = true;
       this.emit("local");
       this.options.onText(this.doc.markdown());
     }
+    // Nothing of the shared document on this device: the note takes typing
+    // offline at once, and on a slow link once the read has had its moment.
+    this.armDraft(this.options.online?.() === false);
     if (this.options.online?.() === false) {
       this.emit("offline");
     } else {
@@ -529,6 +425,95 @@ export class DurableCollaborationController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     if (this.repairTimer !== null) clearTimeout(this.repairTimer);
     if (this.holdTimer !== null) clearTimeout(this.holdTimer);
+    if (this.draftTimer !== null) clearTimeout(this.draftTimer);
+  }
+
+  private applyServer(update: string): void {
+    this.doc.applyRemote(update);
+    this.seeded = true;
+  }
+
+  /**
+   * The words this note is, for the editor. Before the shared document has
+   * anything in it, that is the text the editor opened with, never the empty
+   * document: a failed first read used to report `""`, and the editor drew
+   * the note blank a moment after it opened.
+   */
+  private shownText(): string {
+    return this.record.recovery?.desired ??
+      (this.seeded ? this.doc.markdown() : this.options.base?.().text ?? this.options.initialText);
+  }
+
+  /** Updates waiting for the bucket, an offline draft counted as one. */
+  private pendingCount(): number {
+    return this.record.pending.length + (this.record.recovery?.offline === true ? 1 : 0);
+  }
+
+  /** Whether typing before the first read can become an offline draft: see `offlineDraft.ts`. */
+  private mayDraft(): boolean {
+    const kept = this.record.recovery;
+    if (kept !== undefined && kept.offline !== true) return false;
+    if (this.options.legacyDraft !== undefined || this.options.canWrite?.() === false) return false;
+    const documentId = documentIdOf(kept?.baseEtag ?? this.options.base?.().etag);
+    return documentId !== null && (this.record.documentId === null || this.record.documentId === documentId);
+  }
+
+  private drafting(): boolean {
+    return this.draftable && !this.readyState && !this.stopped &&
+      this.statusState !== "revoked" && this.statusState !== "unavailable";
+  }
+
+  /** Take typing now, or once the first read has had `draftWaitMs`. */
+  private armDraft(now: boolean): void {
+    if (this.readyState || this.draftable || !this.mayDraft()) return;
+    if (now) {
+      if (this.draftTimer !== null) clearTimeout(this.draftTimer);
+      this.draftTimer = null;
+      this.draftable = true;
+      return;
+    }
+    if (this.draftTimer !== null) return;
+    this.draftTimer = setTimeout(() => {
+      this.draftTimer = null;
+      if (this.stopped || this.readyState || !this.mayDraft()) return;
+      this.draftable = true;
+      this.emit(this.statusState);
+    }, this.options.draftWaitMs ?? DRAFT_WAIT_MS);
+  }
+
+  /**
+   * Typing before the shared document is here: kept whole, against the
+   * version it was typed on, and sent as a replacement when it can be.
+   */
+  private draft(text: string): void {
+    if (!this.drafting() || this.options.canWrite?.() === false) return;
+    const kept = this.record.recovery;
+    const base = kept === undefined ? this.options.base?.() : undefined;
+    if (kept === undefined ? base === undefined || text === base.text : text === kept.desired) return;
+    const baseEtag = kept?.baseEtag ?? base?.etag ?? null;
+    if (documentIdOf(baseEtag) === null) return;
+    this.record.documentId ??= documentIdOf(baseEtag);
+    this.record.recovery = { baseline: kept?.baseline ?? base!.text, desired: text, baseEtag, offline: true };
+    const persisted = this.persist();
+    this.emit("storing");
+    this.options.onText(text);
+    void persisted.then((ok) => {
+      if (!ok || this.stopped || this.record.recovery?.desired !== text) return;
+      if (this.options.online?.() === false) {
+        this.emit("offline");
+        return;
+      }
+      this.emit("local");
+      this.scheduleDraftSend();
+    });
+  }
+
+  private scheduleDraftSend(): void {
+    if (this.draftTimer !== null || this.stopped || this.held) return;
+    this.draftTimer = setTimeout(() => {
+      this.draftTimer = null;
+      void this.readRemote();
+    }, 600);
   }
 
   private id(): string {
@@ -540,18 +525,20 @@ export class DurableCollaborationController {
     this.statusState = effective;
     this.options.onState({
       status: effective,
-      pending: this.record.pending.length,
+      pending: this.pendingCount(),
       etag: this.record.etag,
       documentId: this.record.documentId,
       ready: this.readyState,
-      text: this.record.recovery?.desired ?? this.doc.markdown(),
+      drafting: this.drafting(),
+      text: this.shownText(),
       ...(legacyAdopted === undefined ? {} : { legacyAdopted }),
       ...(this.record.recovery === undefined ? {} : { recovery: this.record.recovery }),
     });
   }
 
   private persist(): Promise<boolean> {
-    this.record.snapshot = this.doc.snapshot();
+    // Only a document that holds something: see `holdsDocument`.
+    if (this.seeded) this.record.snapshot = this.doc.snapshot();
     const value = JSON.stringify(this.record);
     const operation = this.persistChain.then(async () => {
       try {
@@ -596,7 +583,7 @@ export class DurableCollaborationController {
         this.emit("error");
         return;
       }
-      if (response.update) this.doc.applyRemote(response.update);
+      if (response.update) this.applyServer(response.update);
       if (response.applied === false || response.pendingDependencies === true) {
         if (!(await this.persist())) return;
         this.emit("error");
@@ -606,13 +593,24 @@ export class DurableCollaborationController {
       // generation. A response from a recreated note must never consume an
       // old offline draft.
       const adopted = recovery;
-      this.record.recovery = undefined;
+      const typedSince = this.record.recovery === recovery ? undefined : this.record.recovery;
       this.record.documentId = response.documentId;
       this.record.etag = response.etag;
+      if (typedSince !== undefined) {
+        // Typed while this draft was on its way: sent next, against the
+        // version that just answered, before the editor binds.
+        this.record.recovery = { ...typedSince, baseline: response.text, baseEtag: response.etag };
+        if (!(await this.persist())) return;
+        this.emit("syncing");
+        void this.readRemote();
+        return;
+      }
+      this.record.recovery = undefined;
       this.readyState = true;
       this.options.onText(this.doc.markdown());
       if (!(await this.persist())) return;
-      this.emit(this.record.pending.length > 0 ? "syncing" : "saved", {
+      // An offline draft was never in the legacy queue, so there is nothing to adopt there.
+      this.emit(this.record.pending.length > 0 ? "syncing" : "saved", adopted.offline === true ? undefined : {
         path: this.options.path,
         text: adopted.desired,
         baseEtag: expectedBaseEtag,
@@ -630,13 +628,22 @@ export class DurableCollaborationController {
   }
 
   private change(text: string): void {
-    if (this.stopped || !this.readyState || text === this.doc.markdown()) return;
+    if (this.stopped) return;
+    if (!this.readyState) {
+      this.draft(text);
+      return;
+    }
+    if (text === this.doc.markdown()) return;
     this.applyText(text);
   }
 
   /** Derive an update from the exact rendered Yjs snapshot, then apply it to now. */
   private changeFromSnapshot(baseSnapshot: string, text: string): string | void {
-    if (this.stopped || !this.readyState) return;
+    if (this.stopped) return;
+    if (!this.readyState) {
+      this.draft(text);
+      return;
+    }
     try {
       const base = new Y.Doc();
       Y.applyUpdate(base, fromBase64(baseSnapshot));
@@ -734,10 +741,16 @@ export class DurableCollaborationController {
         await this.adoptGeneration(response);
         return;
       }
+      if (this.record.recovery !== undefined) {
+        // Typing began while this read was out (`draft`): it goes next, as a
+        // replacement against the version it was typed on.
+        this.readAgain = true;
+        return;
+      }
       this.record.documentId = response.documentId;
       // On a cold start, only the server's Yjs update may establish IDs.
       // response.text is presentation data and must never seed the CRDT.
-      if (response.update) this.doc.applyRemote(response.update);
+      if (response.update) this.applyServer(response.update);
       const coldStart = this.record.snapshot === "" && this.record.pending.length === 0;
       this.readyState = true;
       if (coldStart && this.options.legacyDraft !== undefined) {
@@ -758,6 +771,7 @@ export class DurableCollaborationController {
       this.emit(this.record.pending.length > 0 ? "syncing" : "saved");
       this.scheduleFlush();
     } catch (error) {
+      this.armDraft(true);
       if (this.isRevoked(error)) this.emit("revoked");
       else if (this.isUnavailable(error)) this.emit("unavailable");
       else this.emit(this.record.pending.length > 0 || this.isRetryable(error) ? "offline" : "error");
@@ -801,7 +815,7 @@ export class DurableCollaborationController {
         return;
       }
       if (response.pendingDependencies === true || response.applied === false) {
-        if (response.update) this.doc.applyRemote(response.update);
+        if (response.update) this.applyServer(response.update);
           this.record.etag = response.etag;
           if (!(await this.persist())) return;
           this.options.onText(this.doc.markdown());
@@ -811,7 +825,7 @@ export class DurableCollaborationController {
       }
       this.record.pending = this.record.pending.filter((one) => !batch.some((sent) => sent.id === one.id));
       this.record.documentId = response.documentId;
-      if (response.update) this.doc.applyRemote(response.update);
+      if (response.update) this.applyServer(response.update);
       this.record.etag = response.etag;
       if (!(await this.persist())) {
         this.record.pending = [

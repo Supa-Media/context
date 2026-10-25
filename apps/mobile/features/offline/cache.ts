@@ -498,8 +498,9 @@ export async function waitingOnDevice(
       const raw = await store.get(key);
       try {
         const value: unknown = raw === null ? null : JSON.parse(raw);
-        const pending = value && typeof value === "object" ? (value as { pending?: unknown }).pending : null;
-        if (Array.isArray(pending) && pending.length > 0) total.pending += 1;
+        const row = value && typeof value === "object" ? (value as { pending?: unknown; recovery?: { offline?: unknown } }) : null;
+        // Typing kept as an offline draft is unsent work too (`offlineDraft.ts`).
+        if ((Array.isArray(row?.pending) && row.pending.length > 0) || row?.recovery?.offline === true) total.pending += 1;
       } catch {
         // A malformed collaboration record is not counted as unsent work;
         // the controller keeps its in-memory queue and clearance deletes it.
