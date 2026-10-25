@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { ackEmoji } from "./ackEmoji";
 import type { Fetch } from "./clients";
 import { accept, ACKNOWLEDGE_AFTER_MS, drain, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -99,7 +100,7 @@ describe("a text Tex is still working on is acknowledged", () => {
     // Sending the tapback can clear the bubble, so it is asked for again at once.
     const early = await answered(message("mh_early", "email her"), ACKNOWLEDGE_AFTER_MS + 5_000);
     expect(early.filter((c) => c.path === "/api/send-typing-indicator")).toHaveLength(3);
-    expect(reactions(calls).map((c) => c.body)).toEqual([{ from_number: LINE, message_handle: "mh_long", reaction: "👀" }]);
+    expect(reactions(calls).map((c) => c.body)).toEqual([{ from_number: LINE, message_handle: "mh_long", reaction: ackEmoji("email her") }]);
     const at = calls.findIndex((c) => c.path === "/api/send-reaction");
     expect(calls[at + 1]?.path).toBe("/api/send-typing-indicator");
     // Read and the bubble come first, the tapback only once the turn has run a while.
@@ -124,7 +125,7 @@ describe("a text Tex is still working on is acknowledged", () => {
 
   it("a refused emoji falls back to a thumbs-up, and the answer still goes", async () => {
     const calls = await answered(message("mh_refused", "email her"), 60_000, 422);
-    expect(reactions(calls).map((c) => c.body.reaction)).toEqual(["👀", "like"]);
+    expect(reactions(calls).map((c) => c.body.reaction)).toEqual([ackEmoji("email her"), "like"]);
     expect(calls.some((c) => c.path === "/api/send-message" && c.body.content === "answer to email her")).toBe(true);
   });
 });

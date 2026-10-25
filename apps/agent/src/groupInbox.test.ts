@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, GROUP_TEXT_WAIT_MS, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
-import { parseSendblueGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
+import { parseSendblueGroup, reactInGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
+import { ackEmoji } from "./ackEmoji";
 import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
@@ -32,6 +33,7 @@ type World = {
   control: Record<string, unknown>[];
   asks: Record<string, unknown>[];
   reactions: number;
+  reacted: string[];
   members: (string[] | null)[] | null;
 };
 
@@ -57,6 +59,7 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
     }
     if (path === "/api/send-reaction") {
       world.reactions++;
+      world.reacted.push(body.reaction);
       return Response.json({});
     }
     if (path === "/agent-texts/group") {
@@ -84,7 +87,7 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
   };
 }
 
-const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, members });
+const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, reacted: [], members });
 
 describe("what wakes Tex in a group", () => {
   it("its name opening or closing the message, or in a question", () => {
@@ -319,6 +322,9 @@ describe("a group's queue", () => {
     expect(asked.conversation).toBeUndefined();
     expect(JSON.stringify(asked)).not.toContain(ADA.slice(1));
     expect(w.reactions).toBe(1);
+    // The tapback fits the words, as in a 1:1, not 👀 on every tag (Dev2, 2026-10-25).
+    expect(w.reacted).toEqual([ackEmoji("Tex, what's on the setlist?")]);
+    expect(["🤔", "🧐"]).toContain(w.reacted[0]);
     expect((await storage.list({ prefix: "gpending:" })).size).toBe(0);
   });
 
@@ -544,5 +550,18 @@ describe("the group chat of 2026-10-21", () => {
     expect(w.sends.map((sent) => sent.content)).toEqual([
       `That isn't a workspace everyone in this chat shares. You all share @supa, @context-lc. Say "Tex use @supa" to pick one.`,
     ]);
+  });
+});
+
+describe("a group tapback the line refuses", () => {
+  it("falls back to a like, once", async () => {
+    const sent: string[] = [];
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      const reaction = JSON.parse(String(init.body)).reaction as string;
+      sent.push(reaction);
+      return new Response("{}", { status: reaction === "like" ? 200 : 422 });
+    }) as unknown as Fetch;
+    await reactInGroup(fetcher, { apiKey: "k", apiSecret: "s" } as never, { line: LINE }, "h_in", "🫡");
+    expect(sent).toEqual(["🫡", "like"]);
   });
 });
