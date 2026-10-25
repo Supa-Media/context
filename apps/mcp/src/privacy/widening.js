@@ -35,6 +35,20 @@ function hostOf(url) {
   }
 }
 
+/**
+ * Whether any of these moves lands where more people can read it than can
+ * now, by the addressed workspace's own manifest. A folder is read by its
+ * folder rules alone, as `move_folder` carries them.
+ */
+async function anyWidens(privacy, moves, { folders = false } = {}) {
+  const { rules, overrides } = await privacy();
+  const reads = (path) => {
+    const at = normalizePath(path) ?? "";
+    return folders ? visibilityOf(at, rules) : effectiveVisibility(at, rules, overrides);
+  };
+  return moves.some((move) => widensVisibility(reads(move?.source), reads(move?.destination)));
+}
+
 /** The widest of several audiences. */
 function widest(audiences) {
   return audiences.reduce((a, b) => (AUDIENCE_RANK[b] > AUDIENCE_RANK[a] ? b : a));
@@ -201,9 +215,24 @@ async function classify(name, args, { into, privacy }) {
       is team-visible here lands team-visible there, and "team" there is
       other people. Which workspace is decided by where the call lands, not
       by which of its arguments the model chose to spell.
+
+      The one exception is a call addressed with `context` alone, not asked to
+      publish, whose every move stays inside that workspace and, read by that
+      workspace's own manifest, lets nobody new see the note: it is the same
+      relocation as one at home, an ordinary write there, and is not judged
+      (`elsewhereOnly`). Judging it as a move "into" the workspace refused Tex
+      every move in its owner's own shared workspace (2026-10-24, "merge all
+      the efforts into 1 coherent project folder"): the judge read "move X
+      into @supa" as sharing, which nothing asked for. The owner said yes to
+      this exception (2026-10-25). A move whose destination reads wider there
+      is still judged as before.
     */
     case "move_note": {
       const published = a.confirm_team_publish === true;
+      if (elsewhere && !published && a.destination_context === undefined && a.source_context === undefined &&
+          !(await anyWidens(privacy, [a]))) {
+        return null;
+      }
       if (elsewhere || a.destination_context !== undefined || a.source_context !== undefined) {
         const where = into ?? a.destination_context ?? "its own workspace";
         return { audience: "team", summary: `move ${a.source} into ${where}${published ? ", published to its team" : ""}`, publishes: published };
@@ -218,6 +247,7 @@ async function classify(name, args, { into, privacy }) {
     }
     case "move_notes": {
       const published = a.confirm_team_publish === true;
+      if (elsewhere && !published && Array.isArray(a.moves) && !(await anyWidens(privacy, a.moves))) return null;
       if (elsewhere) return { audience: "team", summary: `move notes into ${into}${published ? ", published to its team" : ""}`, publishes: published };
       if (!published) return null;
       const { rules, overrides } = await privacy();
@@ -236,6 +266,7 @@ async function classify(name, args, { into, privacy }) {
     }
     case "move_folder": {
       const published = a.confirm_team_publish === true;
+      if (elsewhere && !published && !(await anyWidens(privacy, [a], { folders: true }))) return null;
       if (elsewhere) {
         return {
           audience: "team",
