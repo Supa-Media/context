@@ -1,0 +1,60 @@
+# Ask production how far the switch of every keyed workspace to paths built
+# from parents has got (`apps/convex/functions/treeFlips.ts`), and optionally
+# start the next walks now rather than at the next half-hour tick, for at most
+# `limit` workspaces.
+#
+# Manual only. `report` answers with counts, never a workspace, a path or a
+# time: this repository is public, and so is this job's log.
+name: Tree paths
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Start the walk for workspaces not yet flipped, then report"
+        type: boolean
+        default: false
+      limit:
+        description: "Start at most this many workspaces (empty: all)"
+        type: string
+        default: ""
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Start walks
+        if: ${{ inputs.start }}
+        run: |
+          if [ -n "$LIMIT" ]; then
+            case "$LIMIT" in *[!0-9]*) echo "limit must be a whole number" >&2; exit 1;; esac
+            npx convex run functions/treeFlips:flipDue "{\"limit\": $LIMIT}"
+          else
+            npx convex run functions/treeFlips:flipDue
+          fi
+        env:
+          LIMIT: ${{ inputs.limit }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Wait for the walks
+        if: ${{ inputs.start }}
+        run: sleep 60
+
+      - name: Report
+        run: npx convex run functions/treeFlips:report
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

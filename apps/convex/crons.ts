@@ -397,6 +397,12 @@ crons.interval("file editing history by note id", { minutes: 30 }, internal.func
 crons.interval("check tree parents", { minutes: 30 }, internal.functions.treeParents.checkDue, {});
 
 /**
+ * Switch every keyed workspace to paths built from parents (`functions/treeFlips.ts`) once a walk finds every
+ * row where its parents put it and no row move is in flight. Rows only; a flipped workspace is not looked at again.
+ */
+crons.interval("build tree paths", { minutes: 30 }, internal.functions.treeFlips.flipDue, {});
+
+/**
  * Rewrite the links to notes a move carried (`functions/linkRepairs.ts`) wherever entries wait with no pass
  * running; a move starts its own pass, so this picks up one that stopped or failed. Bucket-reaching, so its two
  * paragraphs: it holds no decision, since the move that queued the entry was already decided, and each pass
