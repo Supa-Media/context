@@ -4,6 +4,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
+import { scheduleSignupAlert } from "./signupAlerts";
 import { hasConfirmedPhone } from "./lib/phoneCheck";
 import { attachedEmailsOf } from "./lib/signInEmails";
 import { MAX_DISPLAY_NAME_LENGTH } from "./lib/workspaces/constants";
@@ -90,6 +91,7 @@ export const finishSetup = mutation({
     await ctx.db.patch(userId, { name });
     const slug = await availableSlug(ctx, name);
     const created = await createWorkspaceHandler(ctx, userId, { slug, displayName: name, kind: "personal" });
+    await scheduleSignupAlert(ctx, { kind: "handle", userId });
     return { slug: created.slug };
   },
 });

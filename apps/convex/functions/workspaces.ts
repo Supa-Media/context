@@ -13,6 +13,7 @@
  * comments are the what and the why of each function's contract.
  */
 
+import { scheduleSignupAlert } from "./signupAlerts";
 import { v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import type { Id } from "../_generated/dataModel";
@@ -131,7 +132,13 @@ export const createWorkspace = mutation({
     workspaceId: v.id("workspaces"),
     slug: v.string(),
   }),
-  handler: async (ctx, args) => createWorkspaceHandler(ctx, (await requireAuthId(ctx)) as Id<"users">, args),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const created = await createWorkspaceHandler(ctx, userId, args);
+    // The handle step of onboarding: staff hear the handle at once.
+    if (args.kind === "personal") await scheduleSignupAlert(ctx, { kind: "handle", userId });
+    return created;
+  },
 });
 
 /* -------------------------------------------------------------------------- */

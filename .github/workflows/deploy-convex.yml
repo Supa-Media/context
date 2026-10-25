@@ -235,6 +235,10 @@ jobs:
           # the support address the Terms and /support name. Public, not a
           # secret. Unset sends no mail; reports still list in /admin.
           REPORTS_EMAIL: context@supa.media
+          # Where signup alerts go (`functions/signupAlerts.ts`): the team
+          # inbox, not each staff member who switched them on (Dev2,
+          # 2026-10-25). Unset mails each subscriber, as a self-hoster gets.
+          SIGNUP_ALERTS_EMAIL: context@supa.media
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -265,7 +269,7 @@ jobs:
             REVIEWER_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
-            STORAGE_MOVER_ORIGIN REPORTS_EMAIL
+            STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

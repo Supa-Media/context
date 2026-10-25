@@ -1,15 +1,16 @@
 /**
  * The staff signup alert: "New on the waitlist: …" or "New account: …".
  *
- * The address is in the subject because that is the whole point of the mail;
- * it reaches staff only, who see the same address in the console.
+ * Who signed up is in the subject because that is the whole point of the
+ * mail: the address or phone for the waitlist, the handle (else phone, else
+ * email) for an account, and the handle once it is picked. It reaches staff only, who see the same in the console.
  */
 
 import { escapeHtml } from "./invitationEmail";
 
 export type SignupAlertFacts =
   | { kind: "waitlist"; email: string; source: string; useFor: string | null }
-  | { kind: "account"; email: string | null };
+  | { kind: "account" | "handle"; handle: string | null; phone: string | null; email: string | null };
 
 const WHERE: Record<string, string> = {
   homepage: "the homepage",
@@ -17,19 +18,43 @@ const WHERE: Record<string, string> = {
   staff: "the staff console",
 };
 
+/**
+ * A new account by what it has: its handle first, since people sign up with a
+ * phone and add an email later, then the phone and the email.
+ */
+function accountName(facts: { handle: string | null; phone: string | null; email: string | null }) {
+  const known = [facts.handle === null ? null : `@${facts.handle}`, facts.phone, facts.email].filter(
+    (part): part is string => part !== null && part.length > 0,
+  );
+  return { title: known[0] ?? "no handle yet", all: known };
+}
+
 export function renderSignupAlert(facts: SignupAlertFacts, consoleUrl: string) {
-  const who = facts.email ?? "Somebody without an email address";
-  const subject =
-    facts.kind === "waitlist" ? `New on the waitlist: ${facts.email}` : `New account: ${facts.email ?? "no email"}`;
-  const lines =
-    facts.kind === "waitlist"
-      ? [
-          `${who} joined the waitlist from ${WHERE[facts.source] ?? facts.source}.`,
-          ...(facts.useFor !== null ? [`They'd use it for: "${facts.useFor}"`] : []),
-          "Let them in from the Waitlist tab in the staff console.",
-        ]
-      : [`${who} just created a Context.LC account.`];
-  const footer = "You get these because you turned on signup alerts in the staff console's Waitlist tab. Turn them off there.";
+  let subject: string;
+  let lines: string[];
+  if (facts.kind === "waitlist") {
+    subject = `New on the waitlist: ${facts.email}`;
+    lines = [
+      `${facts.email} joined the waitlist from ${WHERE[facts.source] ?? facts.source}.`,
+      ...(facts.useFor !== null ? [`They'd use it for: "${facts.useFor}"`] : []),
+      "Let them in from the Waitlist tab in the staff console.",
+    ];
+  } else {
+    const account = accountName(facts);
+    const who = account.all.join(" · ");
+    if (facts.kind === "handle") {
+      subject = `New handle: ${account.title}`;
+      lines = [`${who} just picked their handle.`];
+    } else {
+      subject = `New account: ${account.title}`;
+      lines = [
+        account.all.length > 0
+          ? `${who} just created a Context.LC account.`
+          : "Somebody just created a Context.LC account and has not picked a handle yet.",
+      ];
+    }
+  }
+  const footer = "Signup alerts are on in the staff console's Waitlist tab. Turn them off there.";
   const text = [...lines.flatMap((line) => [line, ""]), "Staff console:", consoleUrl, "", footer].join("\n");
 
   const font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
