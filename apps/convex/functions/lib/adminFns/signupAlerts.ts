@@ -5,6 +5,12 @@
 
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { AdminActor } from "../admin";
+import { teamInbox } from "../../signupAlerts";
+
+/** Where the alerts land: the team inbox when one is set, else the caller. */
+function destination(actor: AdminActor): string {
+  return teamInbox() ?? actor.email;
+}
 
 async function subscription(ctx: QueryCtx, actor: AdminActor) {
   return ctx.db
@@ -14,7 +20,7 @@ async function subscription(ctx: QueryCtx, actor: AdminActor) {
 }
 
 export async function getSignupAlertsHandler(ctx: QueryCtx, actor: AdminActor) {
-  return { on: (await subscription(ctx, actor)) !== null, email: actor.email };
+  return { on: (await subscription(ctx, actor)) !== null, email: destination(actor) };
 }
 
 export async function setSignupAlertsHandler(ctx: MutationCtx, actor: AdminActor, on: boolean) {
@@ -23,5 +29,5 @@ export async function setSignupAlertsHandler(ctx: MutationCtx, actor: AdminActor
     await ctx.db.insert("signupAlertSubscribers", { userId: actor.userId, createdAt: Date.now() });
   }
   if (!on && existing !== null) await ctx.db.delete(existing._id);
-  return { on, email: actor.email };
+  return { on, email: destination(actor) };
 }

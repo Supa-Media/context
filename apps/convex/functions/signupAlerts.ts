@@ -3,10 +3,19 @@
  * brand-new account (Dev2, 2026-10-03).
  *
  * Opt-in per staff member, from the console's Waitlist tab, so a deployment
- * never mails anybody who did not ask — a self-hoster's included. The address
- * is the subscriber's own verified sign-in address, read when the mail goes
- * out and checked against `ADMIN_EMAILS` then, so taking somebody off staff
- * also takes them off this.
+ * never mails anybody who did not ask — a self-hoster's included. With
+ * `SIGNUP_ALERTS_EMAIL` set, the mail goes to that one team inbox instead of
+ * to each subscriber (Dev2, 2026-10-25: context@supa.media in production);
+ * the switch still decides whether alerts go out at all. Unset, the address is
+ * each subscriber's own verified sign-in address, read when the mail goes out
+ * and checked against `ADMIN_EMAILS` then, so taking somebody off staff also
+ * takes them off this.
+ *
+ * Every alert goes out the moment it happens (Dev2, 2026-10-25: "make sure
+ * the emails are immediate"). People sign up with a phone and pick their
+ * handle a step later, so a new account is named by its phone, and a second
+ * alert names the handle when it is picked in the app. Signing up by text
+ * picks both at once, so that is one alert with the handle in it.
  *
  * Bounded, because a stranger can trigger the waitlist half: at most
  * `SIGNUP_ALERTS_PER_HOUR` alerts across the deployment. Past that the signup
@@ -18,6 +27,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type MutationCtx } from "../_generated/server";
 import { isAdminEmail } from "./lib/admin";
+import { ownedPersonalWorkspace } from "./lib/accountSetup";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { renderSignupAlert, type SignupAlertFacts } from "./lib/signupAlertEmail";
@@ -26,12 +36,22 @@ export const SIGNUP_ALERTS_PER_HOUR = 60;
 const SIGNUP_ALERT_WINDOW_MS = 60 * 60 * 1000;
 /** Staff are a handful; this is a ceiling, not a page size. */
 const MAX_SUBSCRIBERS = 50;
+/** The one team inbox every alert goes to, when set. */
+export const SIGNUP_ALERTS_EMAIL_ENV_VAR = "SIGNUP_ALERTS_EMAIL";
+
+export function teamInbox(): string | null {
+  const address = process.env[SIGNUP_ALERTS_EMAIL_ENV_VAR]?.trim().toLowerCase() ?? "";
+  return address.includes("@") ? address : null;
+}
 
 const alertValidator = v.union(
   v.object({ kind: v.literal("waitlist"), waitlistId: v.id("waitlist") }),
   v.object({ kind: v.literal("account"), userId: v.id("users") }),
+  v.object({ kind: v.literal("handle"), userId: v.id("users") }),
 );
-type Alert = { kind: "waitlist"; waitlistId: Id<"waitlist"> } | { kind: "account"; userId: Id<"users"> };
+type Alert =
+  | { kind: "waitlist"; waitlistId: Id<"waitlist"> }
+  | { kind: "account" | "handle"; userId: Id<"users"> };
 
 /**
  * Queue one alert, from inside the mutation that made the signup, so it is
@@ -62,7 +82,12 @@ export const facts = internalQuery({
       recipients: v.array(v.string()),
       facts: v.union(
         v.object({ kind: v.literal("waitlist"), email: v.string(), source: v.string(), useFor: v.union(v.string(), v.null()) }),
-        v.object({ kind: v.literal("account"), email: v.union(v.string(), v.null()) }),
+        v.object({
+          kind: v.union(v.literal("account"), v.literal("handle")),
+          handle: v.union(v.string(), v.null()),
+          phone: v.union(v.string(), v.null()),
+          email: v.union(v.string(), v.null()),
+        }),
       ),
     }),
   ),
@@ -76,8 +101,18 @@ export const facts = internalQuery({
     } else {
       const user = await ctx.db.get(alert.userId);
       if (user === null) return null;
-      about = { kind: "account", email: typeof user.email === "string" ? user.email : null };
+      // The handle is the personal workspace's slug.
+      const personal = await ownedPersonalWorkspace(ctx, alert.userId);
+      if (alert.kind === "handle" && personal === null) return null;
+      about = {
+        kind: alert.kind,
+        handle: personal?.slug ?? null,
+        phone: typeof user.phone === "string" ? user.phone : null,
+        email: typeof user.email === "string" ? user.email : null,
+      };
     }
+    const inbox = teamInbox();
+    if (inbox !== null) return { recipients: [inbox], facts: about };
     const recipients = new Set<string>();
     for (const sub of await ctx.db.query("signupAlertSubscribers").take(MAX_SUBSCRIBERS)) {
       const user = await ctx.db.get(sub.userId);

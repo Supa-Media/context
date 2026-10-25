@@ -8,6 +8,11 @@
  * nobody else does, a returning sign-in is not a signup, and somebody taken off
  * `ADMIN_EMAILS` stops getting them without anyone switching them off.
  *
+ * Dev2 (2026-10-25): with `SIGNUP_ALERTS_EMAIL` set they all go to that one
+ * team inbox, at once, and a new account is named by its handle or phone,
+ * not "no email": people sign up with a phone, pick a handle a step later,
+ * and add an email after that. Picking the handle is its own alert.
+ *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted; counts are failures in this file.
@@ -16,14 +21,17 @@
  *   recipients not re-checked against `ADMIN_EMAILS`                   1
  *   `setSignupAlerts` without `requireAdmin`                           1
  *   rate limit ignored                                                 1
+ *   team inbox ignored (subscribers mailed)                            2
+ *   account alert held back (not immediate)                            1
+ *   no handle alert from `createWorkspace`                             1
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
-import { SIGNUP_ALERTS_PER_HOUR } from "../functions/signupAlerts";
+import { SIGNUP_ALERTS_EMAIL_ENV_VAR, SIGNUP_ALERTS_PER_HOUR } from "../functions/signupAlerts";
 import { asUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const STAFF = "staff@context.invalid";
@@ -37,7 +45,9 @@ const ENV_KEYS = [
   "SITE_URL",
   "CONVEX_SITE_URL",
   "JWT_PRIVATE_KEY",
+  SIGNUP_ALERTS_EMAIL_ENV_VAR,
 ] as const;
+const TEAM_INBOX = "team@context.invalid";
 
 interface Mail {
   to: string;
@@ -54,6 +64,7 @@ beforeEach(async () => {
   previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
   process.env[ADMIN_EMAILS_ENV_VAR] = `${STAFF}, ${OTHER_STAFF}`;
   delete process.env[OPEN_SIGNUP_ENV_VAR];
+  delete process.env[SIGNUP_ALERTS_EMAIL_ENV_VAR];
   process.env.RESEND_API_KEY = "re_fake_key_for_tests";
   process.env.APP_ORIGIN = ORIGIN;
   process.env.SITE_URL = ORIGIN;
@@ -86,7 +97,7 @@ afterEach(() => {
 });
 
 function alertsTo(address: string): Mail[] {
-  return mailbox.filter((mail) => mail.to === address && /^New (on the waitlist|account): /.test(mail.subject));
+  return mailbox.filter((mail) => mail.to === address && /^New (on the waitlist|account|handle): /.test(mail.subject));
 }
 
 async function seedUser(t: TestConvex, email: string): Promise<Id<"users">> {
@@ -213,5 +224,77 @@ describe("a new account", () => {
     mailbox = [];
     await signIn(t, "maya@acme.test");
     expect(alertsTo(STAFF)).toHaveLength(0);
+  });
+
+  test("a phone signup is named by its phone at once, and by its handle the moment it picks one", async () => {
+    const t = setupTest();
+    await subscribedStaff(t);
+    const userId = await t.run(async (ctx) =>
+      ctx.db.insert("users", { phone: "+15555550123", phoneVerificationTime: Date.now() } as never),
+    );
+    await t.action(internal.functions.signupAlerts.send, { alert: { kind: "account", userId } });
+    expect(alertsTo(STAFF).map((m) => m.subject)).toEqual(["New account: +15555550123"]);
+    expect(alertsTo(STAFF)[0]!.html).not.toContain("no email");
+
+    mailbox = [];
+    await asUser(t, userId).mutation(api.functions.workspaces.createWorkspace, {
+      slug: "maya",
+      displayName: "Maya",
+      kind: "personal",
+    });
+    await drainScheduled(t);
+    const [alert, ...rest] = alertsTo(STAFF);
+    expect(rest).toHaveLength(0);
+    expect(alert!.subject).toBe("New handle: @maya");
+    expect(alert!.text).toContain("@maya · +15555550123 just picked their handle.");
+  });
+
+  test("an account made with its handle already in place names the handle", async () => {
+    const t = setupTest();
+    await subscribedStaff(t);
+    const userId = await t.run(async (ctx) =>
+      ctx.db.insert("users", { phone: "+15555550123", phoneVerificationTime: Date.now() } as never),
+    );
+    await asUser(t, userId).mutation(api.functions.workspaces.createWorkspace, {
+      slug: "maya",
+      displayName: "Maya",
+      kind: "personal",
+    });
+    await drainScheduled(t);
+    mailbox = [];
+    await t.action(internal.functions.signupAlerts.send, { alert: { kind: "account", userId } });
+    expect(alertsTo(STAFF).map((m) => m.subject)).toEqual(["New account: @maya"]);
+  });
+
+  test("a shared workspace is not a handle", async () => {
+    const t = setupTest();
+    const as = await subscribedStaff(t);
+    await as.mutation(api.functions.workspaces.createWorkspace, { slug: "team-space", displayName: "Team", kind: "shared" });
+    await drainScheduled(t);
+    expect(alertsTo(STAFF)).toHaveLength(0);
+  });
+});
+
+describe("the team inbox", () => {
+  test("gets every alert once, instead of each subscriber", async () => {
+    process.env[SIGNUP_ALERTS_EMAIL_ENV_VAR] = ` ${TEAM_INBOX.toUpperCase()} `;
+    const t = setupTest();
+    const as = await subscribedStaff(t);
+    await subscribedStaff(t, OTHER_STAFF);
+    expect(await as.query(api.functions.admin.getSignupAlerts, {})).toEqual({ on: true, email: TEAM_INBOX });
+
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" });
+    await drainScheduled(t);
+    expect(alertsTo(TEAM_INBOX).map((m) => m.subject)).toEqual(["New on the waitlist: jon@studio.test"]);
+    expect(alertsTo(STAFF)).toHaveLength(0);
+    expect(alertsTo(OTHER_STAFF)).toHaveLength(0);
+  });
+
+  test("still needs somebody to have switched alerts on", async () => {
+    process.env[SIGNUP_ALERTS_EMAIL_ENV_VAR] = TEAM_INBOX;
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" });
+    await drainScheduled(t);
+    expect(alertsTo(TEAM_INBOX)).toHaveLength(0);
   });
 });
