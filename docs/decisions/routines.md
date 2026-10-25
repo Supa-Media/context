@@ -320,3 +320,15 @@ owner's private reach never stands in for an editor.
 never the bucket" (no GET during a scan) and "a routine whose front matter
 the tree has not read yet waits, and keeps its writer". Removing either the
 facts hook or the writer hold turns the second one red.
+
+## A reminder written by text is told when it texts (a review of a chat, 2026-10-25)
+
+"Remind me to respond to elizabeth tmrw 5pm" got "Will do." after one
+write_note, and nothing showed a reminder would come. Every routine Tex
+writes by text is now read the way the scheduler reads it, and the write's
+result says the first moment it texts in the person's zone ("Sunday,
+October 25 at 5:00 pm, tomorrow"), or why it won't (a line it can't read, a
+time already gone, paused), so a wrong day is fixed before Tex answers
+(`apps/mcp/src/agent/routineWhen.js`). The reply stays "Will do." unless the
+owner decides otherwise. Undo: drop `withRunTime` from `textingWrites.js`;
+`agentRoutineWhen.test.mjs` fails.

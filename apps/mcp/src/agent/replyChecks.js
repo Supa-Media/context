@@ -93,6 +93,25 @@ export const PICTURE_NOTICE =
   "a screenshot of a chat, an email, a ticket or a receipt often already answers it (a time agreed, a place, a name, an amount). " +
   "If it does, use what it shows and don't ask. If it doesn't, send your answer again as it was.";
 
+/** "1h 37m", "46m", "$12.50", "30%", "2,017", "7:30": a figure, as a screenshot shows one. */
+const FIGURE = /\b\d+\s?(?:h|hr|hrs|hours?|m|min|mins|minutes?)\b|[$£€]\s?\d|\b\d+(?:\.\d+)?\s?%|\b\d{1,3}(?:,\d{3})+\b|\b\d+[:.]\d{2}\b|\b\d{2,}\b/i;
+
+/**
+ * Figures in an answer about a picture: one sent with this text, or one read
+ * back with read_image this turn (a review of a chat, 2026-10-25: asked about
+ * a Screen Time screenshot, Tex quoted category totals that weren't in it,
+ * then took them back when the next screenshot came).
+ */
+export function figuresFromPicture(answer, pictures, steps = []) {
+  const looked = pictures === true || steps.some((step) => step.ok && step.name === "read_image");
+  return looked && FIGURE.test(String(answer ?? ""));
+}
+
+export const FIGURES_NOTICE =
+  "Before this goes: your answer gives figures about a picture. Check each one against the picture now. Keep only the figures you can read in it, " +
+  "say that a sum you worked out is yours (\"those add up to 3h 51m\"), and say plainly what the picture doesn't show instead of filling it in. " +
+  "Never give a figure the picture doesn't show. If every figure checks out, send your answer again as it was.";
+
 /**
  * The check for one turn: `{ question, waiting, pictures }` from the turn, `steps` as
  * `claimCheck.js` records them. Answers a notice, each kind once, or null.
@@ -105,6 +124,7 @@ export function replyChecks({ question, waiting = false, pictures = false }) {
     ["notes", (answer, steps) => blamesNotes(answer, steps), NOTES_NOTICE],
     ["ask", (answer) => pointsAtWaitingAsk(answer, waiting), ASK_NOTICE],
     ["picture", (answer) => asksPastPicture(answer, pictures), PICTURE_NOTICE],
+    ["figures", (answer, steps) => figuresFromPicture(answer, pictures, steps), FIGURES_NOTICE],
   ];
   return (answer, steps = []) => {
     for (const [kind, fails, notice] of checks) {

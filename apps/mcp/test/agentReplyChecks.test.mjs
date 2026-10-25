@@ -112,3 +112,17 @@ test("an answer that asks them something past a picture they sent looks at it ag
   assert.equal(asksPastPicture("Added the fitting, Sunday 3 pm.", true), false);
   assert.equal(asksPastPicture("What time?", false), false, "no picture");
 });
+
+test("figures about a picture are checked against it once, whether it came with the text or was read again", async () => {
+  const { FIGURES_NOTICE, figuresFromPicture } = await import("../src/agent/replyChecks.js");
+  const read = [{ name: "read_image", ok: true }];
+  // The review's own line: category totals the screenshot didn't show.
+  assert.equal(figuresFromPicture("The category totals show it: Social 1h 37m, Travel 1h 6m, Information & Reading 46m.", false, read), true);
+  assert.equal(figuresFromPicture("Not bugged, it's today's total.", true), false, "no figure");
+  assert.equal(figuresFromPicture("Messages is 1h 34m.", false, []), false, "no picture this turn");
+  assert.equal(figuresFromPicture("Messages is 1h 34m.", false, [{ name: "read_image", ok: false }]), false, "a read that failed showed nothing");
+  const check = replyChecks({ question: "is my screentime bugged?", pictures: true });
+  assert.equal(check("Messages is your top app at 1h 34m."), FIGURES_NOTICE);
+  assert.equal(check("Messages is your top app at 1h 34m."), null, "once a turn");
+  assert.match(FIGURES_NOTICE, /Never give a figure the picture doesn't show/);
+});
