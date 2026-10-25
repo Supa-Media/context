@@ -35,6 +35,8 @@ import { bridge } from "../nodes/moveFixture.helpers";
 import { setupTest, createUser, seedTreeFromStore, type TestConvex } from "../fixtures.helpers";
 import type { RawRow } from "../nodes/keyedFixture.helpers";
 import type { PrivacyRule, Visibility } from "../../functions/lib/privacy";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { rowsAsRead } from "../nodes/treeRows.helpers";
 
 export interface KeyedBucket {
   t: TestConvex;
@@ -49,10 +51,9 @@ export interface KeyedBucket {
 /** The live row a path names, or `null`. */
 export async function rowAt(f: KeyedBucket, path: string): Promise<RawRow | null> {
   return await f.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .collect();
+    const rows = [await treeNodeAt(ctx.db, f.workspaceId, path)].flatMap(
+      (row) => (row === null ? [] : [row]),
+    );
     const live = rows.find((row) => row.goneAt === undefined) ?? null;
     return live as RawRow | null;
   });
@@ -80,10 +81,7 @@ export async function bytesAt(f: KeyedBucket, path: string): Promise<Uint8Array 
 /** Every live note's path, sorted. Folders are not notes and are left out. */
 export async function livePaths(f: KeyedBucket): Promise<string[]> {
   return await f.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId))
-      .collect();
+    const rows = await rowsAsRead(ctx, f.workspaceId);
     return rows
       .filter((row) => row.kind === "file" && row.goneAt === undefined)
       .map((row) => row.path)
@@ -314,10 +312,7 @@ export const PARA_SEEDS: Record<string, string> = {
 /** Every live row (file or folder) at or under `prefix`, sorted: "is anything left here?" */
 export async function liveRowsUnder(f: KeyedBucket, prefix: string): Promise<string[]> {
   return await f.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId))
-      .collect();
+    const rows = await rowsAsRead(ctx, f.workspaceId);
     return rows
       .filter((row) => row.goneAt === undefined && (row.path === prefix || row.path.startsWith(`${prefix}/`)))
       .map((row) => row.path)

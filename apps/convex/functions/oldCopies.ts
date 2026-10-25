@@ -44,6 +44,7 @@ import { folderJobsOf } from "./lib/nodes/folderJobs";
 import type { HidePass } from "./lib/oldCopies/hiding";
 import { isPlumbing } from "./lib/privacy";
 import { dropLinks, removeRow } from "./trash";
+import { located, nodeAt, nodePaths, removalPage } from "./lib/nodes/paths";
 
 /** Rows one pass looks at. */
 const ROW_PAGE = 300;
@@ -267,9 +268,12 @@ export const candidatePage = internalQuery({
       .query("nodes")
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
       .paginate({ cursor, numItems: ROW_PAGE });
+    const paths = await nodePaths(ctx.db, workspaceId);
     const rows = [];
-    for (const row of page.page) {
-      if (row.goneAt !== undefined || isPlumbing(row.path)) continue;
+    for (const found of page.page) {
+      const row =
+        found.goneAt === undefined ? await located(ctx.db, found, paths) : null;
+      if (row === null || isPlumbing(row.path)) continue;
       if (moving.some((prefix) => row.path.startsWith(prefix))) continue;
       const verdict = rowVerdict(row, folders);
       if (verdict === null) continue;
@@ -294,10 +298,7 @@ export const hideRows = internalMutation({
     for (const path of paths) {
       if (isPlumbing(path)) continue;
       // A copy still read at its path is pinned there first, as the folder hide does (`folders.ts`).
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-        .unique();
+      const row = await nodeAt(ctx.db, workspaceId, path);
       const pinned = row === null ? [] : await pinUnkeyed(ctx, [row]);
       const answer = await applyRowMove(ctx, { workspaceId, from: path, to: `${OLD_COPIES_ROOT}/${path}`, privacyEtag: null, now, trash: true });
       if (answer.ok) moved.push(...answer.files);
@@ -425,13 +426,24 @@ export const erasePage = internalMutation({
   handler: async (ctx, { workspaceId }) => {
     const record = await hideRecord(ctx, workspaceId);
     if (record === null || record.state !== "deleting") return null;
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", `${OLD_COPIES_ROOT}/`).lt("path", `${OLD_COPIES_ROOT}0`))
-      .take(ERASE_PAGE);
-    const files = rows.filter((row) => row.kind === "file" && row.goneAt === undefined);
-    const keys = files.flatMap((row) => (row.storageKey === undefined ? [] : [row.storageKey]));
-    const histories = files.filter((row) => row.path.endsWith(".md")).map((row) => row.path);
+    const page = await removalPage(
+      ctx.db,
+      workspaceId,
+      OLD_COPIES_ROOT,
+      ERASE_PAGE,
+    );
+    const rows = page.whole
+      ? [...page.files, ...page.folders.reverse()]
+      : page.files;
+    const files = rows.filter(
+      (row) => row.kind === "file" && row.goneAt === undefined,
+    );
+    const keys = files.flatMap((row) =>
+      row.storageKey === undefined ? [] : [row.storageKey],
+    );
+    const histories = files
+      .filter((row) => row.path.endsWith(".md"))
+      .map((row) => row.path);
     for (const row of rows) await removeRow(ctx, row);
     for (const row of files) await dropLinks(ctx, workspaceId, row.path.slice(OLD_COPIES_ROOT.length + 1));
     if (keys.length > 0 || histories.length > 0) {
@@ -445,14 +457,13 @@ export const erasePage = internalMutation({
         attempts: 0,
       });
     }
-    if (rows.length === ERASE_PAGE) {
-      await ctx.scheduler.runAfter(0, internal.functions.oldCopies.erasePage, { workspaceId });
+    if (!page.whole) {
+      await ctx.scheduler.runAfter(0, internal.functions.oldCopies.erasePage, {
+        workspaceId,
+      });
       return null;
     }
-    const root = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", OLD_COPIES_ROOT))
-      .unique();
+    const root = await nodeAt(ctx.db, workspaceId, OLD_COPIES_ROOT);
     if (root !== null) await removeRow(ctx, root);
     await ctx.db.patch(record._id, { state: "deleted", deletedAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.functions.trashEmptying.eraseWorkspace, { workspaceId });
@@ -470,15 +481,19 @@ export const exportPaths = internalQuery({
   returns: v.union(v.null(), v.array(v.string())),
   handler: async (ctx, { workspaceId }) => {
     const paths: string[] = [];
-    const rows = ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", `${OLD_COPIES_ROOT}/`).lt("path", `${OLD_COPIES_ROOT}0`));
-    for await (const row of rows) {
-      if (row.kind !== "file" || row.goneAt !== undefined || !row.path.endsWith(".md")) continue;
-      if (paths.length >= EXPORT_MAX) return null;
+    const whole = await (
+      await nodePaths(ctx.db, workspaceId)
+    ).below(OLD_COPIES_ROOT, (row) => {
+      if (
+        row.kind !== "file" ||
+        row.goneAt !== undefined ||
+        !row.path.endsWith(".md")
+      )
+        return;
+      if (paths.length >= EXPORT_MAX) return false;
       paths.push(row.path.slice(OLD_COPIES_ROOT.length + 1));
-    }
-    return paths;
+    });
+    return whole ? paths : null;
   },
 });
 
@@ -510,11 +525,13 @@ export const heldRows = internalQuery({
     const held: { path: string; key: string }[] = [];
     for (const path of paths) {
       if (!path.startsWith(`${OLD_COPIES_ROOT}/`)) continue;
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-        .unique();
-      if (row !== null && row.kind === "file" && row.goneAt === undefined && row.storageKey !== undefined) {
+      const row = await nodeAt(ctx.db, workspaceId, path);
+      if (
+        row !== null &&
+        row.kind === "file" &&
+        row.goneAt === undefined &&
+        row.storageKey !== undefined
+      ) {
         held.push({ path, key: row.storageKey });
       }
     }

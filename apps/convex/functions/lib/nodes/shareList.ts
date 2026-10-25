@@ -21,6 +21,7 @@ import { personalWorkspaceOf } from "../faces/people";
 import { getMembership } from "../workspaceAuth";
 import { accessVersionOf } from "./accessRows";
 import { MAX_DOMAINS_PER_WORKSPACE } from "../../workspaceDomains";
+import { nodeAt } from "./paths";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 
@@ -74,11 +75,12 @@ export const shareListValidator = v.union(
 export type ShareEntry = Infer<typeof shareEntryValidator>;
 export type ShareList = Infer<typeof shareListValidator>;
 
-async function rowAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+async function rowAt(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(ctx.db, workspaceId, path);
 }
 
 async function listOf(ctx: QueryCtx, row: Doc<"nodes">): Promise<Doc<"nodeAccess">[]> {

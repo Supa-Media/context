@@ -42,6 +42,7 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 import { renderPrivacyManifest } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -196,11 +197,8 @@ describe("a person editing in the console", { timeout: 60_000 }, () => {
       path: "1-projects/week-two.md",
       text: BODY,
     });
-    const row = await f.t.run(async (ctx) =>
-      await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", ACTIVITY_PATH))
-        .unique(),
+    const row = await f.t.run(
+      async (ctx) => await treeNodeAt(ctx.db, f.workspaceId, ACTIVITY_PATH),
     );
     expect(row?.access).toEqual({ base: "private" });
     await expect(

@@ -56,6 +56,8 @@ describe("the access scan", () => {
                         collect: () => Promise<unknown[]>;
                       }
                     )(...args);
+                    // Only the tree's rows are counted; the switch's own row (`pathsBuilt`) is read as it is.
+                    if (table !== "nodes") return indexed;
                     return {
                       ...indexed,
                       collect: async () => {

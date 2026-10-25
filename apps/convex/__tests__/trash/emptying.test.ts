@@ -26,6 +26,7 @@ import { eraseWorkspaceTrash } from "../../functions/lib/trash/erase";
 import { TRASH_KEEP_MS } from "../../functions/lib/trash/bin";
 import { OWNER, fixture, type Fixture } from "../nodes/moveFixture.helpers";
 import { keyedFixture, liveAt, rowOf } from "../nodes/keyedFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const DAY = 24 * 60 * 60 * 1000;
 type Moved = { kind: "moved"; from: string; to: string };
@@ -96,10 +97,14 @@ describe("the Trash page lists what is in the trash", () => {
   test("with privacy on rows, a note private by its own row stays hidden once its row is in the trash", async () => {
     const f = await keyedFixture();
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 });
-      const folder = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects")).unique();
+      await ctx.db.insert("nodeMigration", {
+        paused: false,
+        accessSource: "rows",
+        updatedAt: 1,
+      });
+      const folder = await treeNodeAt(ctx.db, f.ws, "1-projects");
       await ctx.db.patch(folder!._id, { access: { base: "team" } });
-      const keep = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects/keep.md")).unique();
+      const keep = await treeNodeAt(ctx.db, f.ws, "1-projects/keep.md");
       await ctx.db.patch(keep!._id, { access: { base: "private" } });
     });
     await trash(f, "1-projects/keep.md");

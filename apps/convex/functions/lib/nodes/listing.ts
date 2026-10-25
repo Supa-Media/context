@@ -24,7 +24,13 @@ import { childrenThroughMoves } from "./moveOverlay";
 import { drawnMoves } from "./rowMoveChunks";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 import { folderJobsOf } from "./folderJobs";
-import { compareListingEntries, isRowRole, jobAt, type RowRole } from "@context/shared/src/folderRoles.cjs";
+import {
+  compareListingEntries,
+  isRowRole,
+  jobAt,
+  type RowRole,
+} from "@context/shared/src/folderRoles.cjs";
+import { nodeAt } from "./paths";
 
 export { readMirror };
 
@@ -56,11 +62,9 @@ async function childrenOf(
 ): Promise<{ rows: Doc<"nodes">[]; more: boolean }> {
   let parentId: Id<"nodes"> | undefined;
   if (folder !== "") {
-    const node = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", folder))
-      .unique();
-    if (node === null || node.kind !== "folder" || node.goneAt !== undefined) return { rows: [], more: false };
+    const node = await nodeAt(ctx.db, workspaceId, folder);
+    if (node === null || node.kind !== "folder" || node.goneAt !== undefined)
+      return { rows: [], more: false };
     parentId = node._id;
   }
   const rows: Doc<"nodes">[] = [];
@@ -70,17 +74,22 @@ async function childrenOf(
   for await (const row of children) {
     if (row.goneAt !== undefined) continue;
     if (rows.length === NODE_LISTING_ROWS) return { rows, more: true };
-    rows.push(row);
+    // At the path it is at: the folder's, and its own name.
+    rows.push({
+      ...row,
+      path: folder === "" ? row.name : `${folder}/${row.name}`,
+    });
   }
   return { rows, more: false };
 }
 
 /** The row at one bucket key, live or gone. */
-async function rowAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+async function rowAt(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(ctx.db, workspaceId, path);
 }
 
 /**

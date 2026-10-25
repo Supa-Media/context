@@ -27,6 +27,7 @@ import { OLD_COPIES_ROOT } from "../fileOps/store";
 import { folderJobsOf } from "../nodes/folderJobs";
 import { applyRowMove, rowAt, type RowMoveRefusal } from "../nodes/rowMove";
 import { dayOf } from "./classify";
+import { rowsBelow } from "../nodes/paths";
 
 /** The Inbox folders the mail, calendar, chat, contacts and iMessage passes wrote into. */
 export const CHANNEL_FOLDERS = ["calendar", "contacts", "email", "google-chat", "imessage"] as const;
@@ -62,10 +63,7 @@ export async function unpin(ctx: MutationCtx, pinned: readonly Id<"nodes">[]): P
 
 /** The live rows under `folder`. */
 async function rowsUnder(ctx: MutationCtx, workspaceId: Id<"workspaces">, folder: string): Promise<Doc<"nodes">[]> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", `${folder}/`).lt("path", `${folder}0`))
-    .collect();
+  return await rowsBelow(ctx.db, workspaceId, folder);
 }
 
 /** What is in `rows`, counted as the Settings page counts it. */

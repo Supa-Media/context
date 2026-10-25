@@ -17,6 +17,8 @@ import schema from "../../schema";
 import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
 import { asUser, addMember, createWorkspace } from "../fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -54,6 +56,7 @@ async function world() {
         observedAt: 1,
       });
     }
+    await parentRows(ctx, ws);
   });
   return { t, ws, owner, member, kola, stranger, ownerB, leads };
 }
@@ -74,7 +77,7 @@ function save(w: World, path: string, grantees: Array<Record<string, unknown>>, 
 
 async function accessOn(w: World, path: string) {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", path)).unique();
+    const row = await treeNodeAt(ctx.db, w.ws, path);
     return row?.access;
   });
 }
@@ -151,8 +154,16 @@ describe("writing a list and its base together", () => {
     expect(nobody).toEqual(stranger);
     // A list here already names them (an outsider grant made before), so the dialog can send it back by id.
     await w.t.run(async (ctx) => {
-      const folder = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", FOLDER)).unique();
-      await ctx.db.insert("nodeAccess", { workspaceId: w.ws, nodeId: folder!._id, granteeKind: "user", granteeUserId: w.stranger, role: "view", at: 1, source: "owner" });
+      const folder = await treeNodeAt(ctx.db, w.ws, FOLDER);
+      await ctx.db.insert("nodeAccess", {
+        workspaceId: w.ws,
+        nodeId: folder!._id,
+        granteeKind: "user",
+        granteeUserId: w.stranger,
+        role: "view",
+        at: 1,
+        source: "owner",
+      });
     });
     expect(await save(w, PLAN, [{ userId: w.stranger, role: "view" }])).toMatchObject({ ok: true });
     const answer = await list(w, w.owner, PLAN);

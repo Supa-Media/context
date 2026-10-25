@@ -66,6 +66,7 @@ import {
   errorCode,
   setupTest,
 } from "./fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -228,10 +229,7 @@ async function fixture(rule: { folder: string; name: string }): Promise<Fixture>
  */
 async function grantsAt(f: Fixture, path: string): Promise<{ groupId?: string; userId?: string; role: string }[]> {
   return await f.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, f.workspaceId, path);
     if (row === null) return [];
     const grants = await ctx.db
       .query("nodeAccess")
@@ -469,10 +467,7 @@ describe("a granted name is intersected with live membership", () => {
       workspace check in `grantedNamesFor`, `outsider` reads the folder through the other workspace's group.
     */
     await f.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "2-areas"))
-        .unique();
+      const row = await treeNodeAt(ctx.db, f.workspaceId, "2-areas");
       if (row === null) throw new Error("no 2-areas row");
       await ctx.db.insert("nodeAccess", {
         workspaceId: f.workspaceId,

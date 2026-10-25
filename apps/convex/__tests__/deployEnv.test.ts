@@ -66,6 +66,9 @@ const SET_ELSEWHERE: Record<string, string> = {
   CONTEXT_PRICING:
     "absent is free (owner, 2026-10-20); pricing comes back only when someone sets it to `on` " +
     "by hand, so a deploy must never be able to start charging",
+  CONTEXT_TREE_PATHS:
+    "the test suite's way to build every workspace's paths from parents (`lib/nodes/paths.ts`); " +
+    "a deployment flips workspaces one at a time on their own rows, never all at once from the environment",
   FREE_MANAGED_STORAGE:
     "an emergency brake set by hand to exactly `disabled`; normal production is on when " +
     "the managed account is configured, and a deploy must not silently disable existing signup",

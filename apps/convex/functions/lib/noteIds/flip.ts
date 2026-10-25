@@ -18,6 +18,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { isPlumbing } from "../privacy";
 import { COPY_SCAN, copyMatches, idKeyFor } from "../nodes/noteIds";
+import { nodePaths } from "../nodes/paths";
 
 /** Live file rows one flip page keys at most. */
 export const FLIP_PAGE = 200;
@@ -70,9 +71,7 @@ export async function flipPage(
   after: string | undefined,
   leftBefore: boolean,
 ): Promise<FlipPage> {
-  const rows = ctx.db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
+  const rows = (await nodePaths(ctx.db, workspaceId)).rows("", after);
   let flipped = 0;
   let read = 0;
   let left = leftBefore;

@@ -30,6 +30,8 @@ import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
 import { asUser, addMember, captureError, createUser, createWorkspace, errorCode, setupTest } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -59,6 +61,7 @@ async function world() {
         observedAt: 1,
       });
     }
+    await parentRows(ctx, ws);
   });
   return { t, ws, owner, member, kola };
 }
@@ -89,7 +92,7 @@ function tier(w: World, to: "private" | "team", members?: boolean) {
 
 async function accessOn(w: World) {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN)).unique();
+    const row = await treeNodeAt(ctx.db, w.ws, PLAN);
     return row?.access;
   });
 }

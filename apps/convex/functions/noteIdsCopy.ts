@@ -35,6 +35,7 @@ import {
   keyedCheckItemValidator,
   refusedValidator,
 } from "./lib/noteIds/validators";
+import { rowsAfter } from "./lib/nodes/paths";
 
 /** One page of the copy pass, then whatever comes next (`lib/noteIds/copyPass.ts`). */
 export const run = internalAction({
@@ -162,12 +163,13 @@ export const backfill = internalMutation({
   args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, { workspaceId, after }): Promise<null> => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-      )
-      .take(BACKFILL_BATCH);
+    const rows = await rowsAfter(
+      ctx.db,
+      workspaceId,
+      "",
+      after,
+      BACKFILL_BATCH,
+    );
     for (const row of rows) {
       if (row.noteId === undefined) await ctx.db.patch(row._id, { noteId: newNoteId() });
     }

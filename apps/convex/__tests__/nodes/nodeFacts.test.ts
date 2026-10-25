@@ -34,7 +34,14 @@ import { runFactFill } from "../../functions/lib/nodes/factFill";
 import { ManagedEncryptionError } from "../../../mcp/src/store/managedEncryption.js";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { applyTreeObservation } from "../fixtures.helpers";
-import { factCtx, fillAll, observeBucket, tester, workspace } from "./facts.helpers";
+import {
+  factCtx,
+  fillAll,
+  observeBucket,
+  tester,
+  workspace,
+} from "./facts.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 type Bucket = MemoryStore & FileStore;
 
@@ -67,13 +74,12 @@ async function linksOf(t: ReturnType<typeof tester>, workspaceId: Id<"workspaces
   return page.rows.map((row: string[]) => row.join(" ")).sort();
 }
 
-async function rowOf(t: ReturnType<typeof tester>, workspaceId: Id<"workspaces">, path: string) {
-  return await t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique(),
-  );
+async function rowOf(
+  t: ReturnType<typeof tester>,
+  workspaceId: Id<"workspaces">,
+  path: string,
+) {
+  return await t.run(async (ctx) => treeNodeAt(ctx.db, workspaceId, path));
 }
 
 describe("the facts fill", () => {

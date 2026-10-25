@@ -17,6 +17,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import schema from "../schema";
+import { nodePaths } from "../functions/lib/nodes/paths";
 import { modules } from "../test.setup";
 import type { FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
@@ -124,10 +125,21 @@ export function seamsOf(f: KeyedLinks): void {
 /** Every live and gone row of the workspace, sorted by path. */
 export async function rowsOf(f: KeyedLinks): Promise<RowLive[]> {
   return await f.t.run(async (ctx) => {
-    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws)).collect();
-    return rows
-      .map((row) => ({
-        path: row.path,
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws))
+      .collect();
+    // Where the tree says each row is (`paths.ts`); one no chain reaches shows as `?<stored path>`.
+    const paths = await nodePaths(ctx.db, f.ws);
+    const placed = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        path: (await paths.pathOf(row)) ?? `?${row.path}`,
+      })),
+    );
+    return placed
+      .map(({ row, path }) => ({
+        path,
         live: row.goneAt === undefined,
         noteId: row.noteId,
         storageKey: row.storageKey,

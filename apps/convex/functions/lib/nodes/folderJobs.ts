@@ -36,6 +36,7 @@ import {
 } from "@context/shared/src/folderRoles.cjs";
 import { MEETINGS_FOLDER } from "../../../../../packages/meetings/src/paths.js";
 import { TRASH_ROOT } from "../fileOps/store";
+import { located, nodeAt, nodePaths } from "./paths";
 
 function lastSegment(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -60,7 +61,10 @@ async function liveRootFolders(db: DatabaseReader, workspaceId: Id<"workspaces">
     .query("nodes")
     .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", undefined))
     .take(ROOT_ROWS);
-  return rows.filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row));
+  // A top-level row's path is its name.
+  return rows
+    .map((row) => ({ ...row, path: row.name }))
+    .filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row));
 }
 
 /** Rows read past for one job's live folders: gone and trashed ones, before a bound on the loop ends it. */
@@ -81,8 +85,10 @@ export async function liveRowsDoing(
 ): Promise<Doc<"nodes">[]> {
   const rows: Doc<"nodes">[] = [];
   let scanned = 0;
-  for await (const row of db.query("nodes").withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))) {
-    if (row.kind === "folder" && row.goneAt === undefined && !inTrash(row)) rows.push(row);
+  const paths = await nodePaths(db, workspaceId);
+  for await (const held of db.query("nodes").withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))) {
+    const row = held.kind === "folder" && held.goneAt === undefined ? await located(db, held, paths) : null;
+    if (row !== null && !inTrash(row)) rows.push(row);
     scanned += 1;
     if (rows.length >= limit || scanned >= JOB_ROWS_SCANNED) break;
   }
@@ -138,10 +144,7 @@ export async function canonicalJobPath(db: DatabaseReader, workspaceId: Id<"work
   const slash = path.indexOf("/");
   const first = slash < 0 ? path : path.slice(0, slash);
   if (first === "" || jobOfName(first) === null) return path;
-  const there = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", first))
-    .unique();
+  const there = await nodeAt(db, workspaceId, first);
   if (there !== null && there.goneAt === undefined && there.kind === "folder" && there.parentId === undefined) return path;
   return jobPath(await folderJobsOf(db, workspaceId), path);
 }
@@ -169,7 +172,8 @@ export async function roleForNewFolder(
   if (!top) {
     // A sweep makes folders by the thousand: only one named as the meetings setting's last segment reads on.
     const workspace = await db.get(workspaceId as Id<"workspaces">);
-    const setting = typeof workspace?.meetingsFolder === "string" && workspace.meetingsFolder !== "" ? workspace.meetingsFolder : MEETINGS_FOLDER;
+    const setting =
+      typeof workspace?.meetingsFolder === "string" && workspace.meetingsFolder !== "" ? workspace.meetingsFolder : MEETINGS_FOLDER;
     if (lastSegment(node.path) !== lastSegment(setting.replace(/\/+$/, ""))) return undefined;
     // One indexed read more: a meetings folder that exists ends it.
     const meetings = await db

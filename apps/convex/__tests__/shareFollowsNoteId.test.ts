@@ -35,6 +35,7 @@ import {
   copyTree,
 } from "./fixtures.helpers";
 import { renderPrivacyManifest } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -167,10 +168,7 @@ async function shareRow(f: Fixture, token: string) {
 
 async function noteIdAt(f: Fixture, path: string): Promise<string | undefined> {
   return await f.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, f.workspaceId, path);
     return row?.noteId;
   });
 }
@@ -278,10 +276,7 @@ describe("the id carries the link", () => {
     const token = await teamLink(f);
     const id = await noteIdAt(f, ENTRY);
     await f.t.run(async (ctx) => {
-      const other = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", LINKED))
-        .unique();
+      const other = await treeNodeAt(ctx.db, f.workspaceId, LINKED);
       await ctx.db.patch(other!._id, { noteId: id });
     });
     const result = await read(f, f.lk, token);

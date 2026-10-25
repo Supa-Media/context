@@ -52,6 +52,7 @@ import {
   world,
   type World,
 } from "./outsider.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -253,10 +254,7 @@ describe("the candidate row is never trusted on its own", () => {
     await grantUser(w, SALARIES, w.bob);
     // Then a grant row is written straight into the table, past the derivation that keeps the snapshot.
     await w.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN))
-        .unique();
+      const row = await treeNodeAt(ctx.db, w.ws, PLAN);
       if (row === null) throw new Error("no plan row");
       await ctx.db.insert("nodeAccess", {
         workspaceId: w.ws,

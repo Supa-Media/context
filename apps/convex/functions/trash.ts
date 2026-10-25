@@ -42,6 +42,7 @@ import {
   trashedItemOf,
   type StampFolder,
 } from "./lib/trash/bin";
+import { nodeAt, removalPage } from "./lib/nodes/paths";
 
 /** Things one Trash page lists: soonest erased first, and `more` past it. */
 export const LIST_MAX = 200;
@@ -158,11 +159,12 @@ export async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<vo
 }
 
 /** Links a trashed note left at its own name (a trash leaves them there, for Restore), when nothing lives there now. */
-export async function dropLinks(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string): Promise<void> {
-  const holder = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+export async function dropLinks(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<void> {
+  const holder = await nodeAt(ctx.db, workspaceId, path);
   if (holder !== null && holder.goneAt === undefined) return;
   for (const link of await ctx.db
     .query("nodeLinks")
@@ -189,14 +191,28 @@ export const claimErasure = internalMutation({
     const now = Date.now();
     const due: StampFolder | undefined = (await stampFolders(ctx.db, workspaceId)).find((stamp) => stamp.eraseAt <= now);
     if (due === undefined) return null;
-    const rows = await rowsUnder(ctx.db, workspaceId, due.folder);
-    const item = await trashedItemOf(ctx.db, workspaceId, due, rows);
-    const files = rows.filter((row) => row.kind === "file" && row.goneAt === undefined);
-    const keys = files.flatMap((row) => (row.storageKey === undefined ? [] : [row.storageKey]));
-    const histories = files.filter((row) => row.path.endsWith(".md")).map((row) => row.path);
+    // Files first, and the folders once nothing is left beneath them (`removalPage`).
+    const page = await removalPage(ctx.db, workspaceId, due.folder, GROUP_SCAN);
+    const item = await trashedItemOf(ctx.db, workspaceId, due, [
+      ...page.folders,
+      ...page.files,
+    ]);
+    const rows = page.whole
+      ? [...page.files, ...page.folders.reverse()]
+      : page.files;
+    const files = rows.filter(
+      (row) => row.kind === "file" && row.goneAt === undefined,
+    );
+    const keys = files.flatMap((row) =>
+      row.storageKey === undefined ? [] : [row.storageKey],
+    );
+    const histories = files
+      .filter((row) => row.path.endsWith(".md"))
+      .map((row) => row.path);
     for (const row of rows) await removeRow(ctx, row);
-    for (const row of files) await dropLinks(ctx, workspaceId, row.path.slice(due.folder.length + 1));
-    if (rows.length < GROUP_SCAN) await removeRow(ctx, due.row);
+    for (const row of files)
+      await dropLinks(ctx, workspaceId, row.path.slice(due.folder.length + 1));
+    if (page.whole) await removeRow(ctx, due.row);
 
     const path = item?.path ?? due.folder;
     const erasure = await ctx.db.insert("trashErasures", {

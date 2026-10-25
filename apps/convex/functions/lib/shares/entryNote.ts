@@ -25,6 +25,7 @@ import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { ledgerOf, ledgerRows } from "../smallData/forwarding";
 import { forwardPath } from "../../../../mcp/src/forwarding.js";
 import { keyedWorkspace } from "../noteIds/keyedState";
+import { located, nodeAt } from "../nodes/paths";
 
 /** Rows one stamping pass reads. */
 export const STAMP_PAGE = 200;
@@ -35,15 +36,8 @@ const ID_ROWS_READ = 16;
  * The stable id of the live row at `path`, note or folder, or `undefined` when
  * there is none (or it has no id yet). What a mint stamps on the share.
  */
-export async function entryNoteIdAt(
-  db: DatabaseReader,
-  workspaceId: Id<"workspaces">,
-  path: string,
-): Promise<string | undefined> {
-  const row = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+export async function entryNoteIdAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<string | undefined> {
+  const row = await nodeAt(db, workspaceId, path);
   if (row === null || row.goneAt !== undefined) return undefined;
   return row.noteId;
 }
@@ -80,13 +74,14 @@ export async function liveEntryOf(
   if (!(await keyedWorkspace(db, share.workspaceId))) return minted;
   const rows = await db
     .query("nodes")
-    .withIndex("by_workspace_noteId", (q) =>
-      q.eq("workspaceId", share.workspaceId).eq("noteId", share.entryNoteId as string),
-    )
+    .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", share.workspaceId).eq("noteId", share.entryNoteId as string))
     .take(ID_ROWS_READ);
   const kind = share.entryKind === "folder" ? "folder" : "file";
   const live = rows.filter((row) => row.goneAt === undefined && row.kind === kind);
-  return live.length === 1 ? { path: live[0].path, byId: true } : minted;
+  if (live.length !== 1) return minted;
+  // Where the note is now, from its parents: the name the share follows it to.
+  const at = await located(db, live[0]);
+  return at === null ? minted : { path: at.path, byId: true };
 }
 
 export const stampEntryNoteIdsArgs = { cursor: v.optional(v.union(v.string(), v.null())) };
@@ -114,10 +109,7 @@ export async function stampEntryNoteIdsPage(
   for (const share of page.page) {
     if (share.status !== "active") continue;
     const path = forwardPath(ledgerOf(await ledgerRows(ctx.db, share.workspaceId)), share.entryPath) ?? share.entryPath;
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", share.workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, share.workspaceId, path);
     if (row === null || row.goneAt !== undefined || row.noteId === undefined) continue;
     if (row.kind !== (share.entryKind === "folder" ? "folder" : "file")) continue;
     await ctx.db.patch(share._id, { entryNoteId: row.noteId });

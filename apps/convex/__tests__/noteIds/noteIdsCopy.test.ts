@@ -129,12 +129,13 @@ describe("rows and backfill", () => {
   test("the backfill gives rows that predate ids one, a batch at a time, and keeps the ones they have", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "legacy");
+    // At the top level, so each row's path is its name in either source of paths (`paths.ts`).
     const existing = await t.run(async (ctx) => {
       const now = Date.now();
       for (let index = 0; index < 510; index += 1) {
         await ctx.db.insert("nodes", {
           workspaceId: ws,
-          path: `legacy/p${String(index).padStart(4, "0")}.md`,
+          path: `p${String(index).padStart(4, "0")}.md`,
           name: `p${String(index).padStart(4, "0")}.md`,
           kind: "file",
           etag: "e",
@@ -143,7 +144,7 @@ describe("rows and backfill", () => {
       }
       return await ctx.db.insert("nodes", {
         workspaceId: ws,
-        path: "legacy/keeper.md",
+        path: "keeper.md",
         name: "keeper.md",
         kind: "file",
         etag: "e",
@@ -157,8 +158,15 @@ describe("rows and backfill", () => {
     );
     // The first batch took the first 500 rows in path order: `keeper.md` and p0000 to p0498.
     expect(missingAfterFirst).toBe(11);
-    await t.mutation(internal.functions.noteIdsCopy.backfill, { workspaceId: ws, after: "legacy/p0498.md" });
-    const all = await t.run(async (ctx) => (await ctx.db.query("nodes").collect()).filter((row) => row.workspaceId === ws));
+    await t.mutation(internal.functions.noteIdsCopy.backfill, {
+      workspaceId: ws,
+      after: "p0498.md",
+    });
+    const all = await t.run(async (ctx) =>
+      (await ctx.db.query("nodes").collect()).filter(
+        (row) => row.workspaceId === ws,
+      ),
+    );
     expect(all.every((row) => row.noteId !== undefined)).toBe(true);
     expect((await t.run((ctx) => ctx.db.get(existing)))?.noteId).toBe("0190c0de-0000-7000-8000-00000000beef");
   });

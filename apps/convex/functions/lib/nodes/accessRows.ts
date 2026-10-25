@@ -15,6 +15,7 @@ import { pinnedContextWorkspace } from "../pinnedContext";
 import { withPendingPrivate } from "./pendingAccess";
 import type { AccessRow, Grantee } from "./rowAccess";
 import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
+import { located, nodePaths } from "./paths";
 
 function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
   if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
@@ -47,6 +48,7 @@ export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces"
       .collect();
     for (const row of set) rows.set(row._id, row);
   }
+  const paths = await nodePaths(ctx.db, workspaceId);
   const grants = await ctx.db
     .query("nodeAccess")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -63,8 +65,16 @@ export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces"
       if (row !== null && row.workspaceId === workspaceId) rows.set(row._id, row);
     }
   }
+  // Each at the path it is at now; a row its parents spell no path for is reached by no reader, and judges nothing.
+  const placed: Doc<"nodes">[] = [];
+  for (const row of rows.values()) {
+    const at = await located(ctx.db, row, paths);
+    if (at !== null) placed.push(at);
+  }
   // In path order, as the tree's index gave them before.
-  const ordered = [...rows.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const ordered = placed.sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
   const out: AccessRow[] = [];
   for (const row of ordered) {
     const grantees = granteesByNode.get(row._id) ?? [];

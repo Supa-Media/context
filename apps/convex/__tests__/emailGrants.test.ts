@@ -27,6 +27,7 @@ import { modules } from "../test.setup";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { asUser, addMember, createWorkspace } from "./fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -87,10 +88,7 @@ async function emailGrant(w: World, email: string, workspace = w.ws, who = w.own
 
 async function noteTokenOf(w: World, workspace = w.ws): Promise<string> {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspace).eq("path", PLAN))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspace, PLAN);
     if (row === null) throw new Error(`no row at ${PLAN}`);
     return `#${row.noteId ?? row._id}`;
   });

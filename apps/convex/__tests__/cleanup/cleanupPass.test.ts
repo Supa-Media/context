@@ -36,7 +36,14 @@ import { runCountChain, runDeleteChain } from "../../functions/lib/cleanup/pass"
 import { GATE_CLOSED_LABEL } from "../../functions/lib/cleanup/gate";
 import { runCleanupDeletePage, runCleanupListPage } from "../../../mcp/src/moves/cleanupPage.js";
 import { errorCode } from "../fixtures.helpers";
-import { ADMIN, boundWorkspace, tester, user, type T } from "../noteIds/noteIds.helpers";
+import {
+  ADMIN,
+  boundWorkspace,
+  tester,
+  user,
+  type T,
+} from "../noteIds/noteIds.helpers";
+import { parentRows } from "../nodes/treeRows.helpers";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -160,9 +167,14 @@ async function setCopy(t: T, ws: Id<"workspaces">, copy: { keyedAt?: number; cle
 }
 
 /** A live file row: `storageKey` is the key its bytes live at, and `noteId` its id. */
-async function fileRow(t: T, ws: Id<"workspaces">, path: string, extra: { noteId?: string; storageKey?: string; goneAt?: number } = {}) {
-  await t.run((ctx) =>
-    ctx.db.insert("nodes", {
+async function fileRow(
+  t: T,
+  ws: Id<"workspaces">,
+  path: string,
+  extra: { noteId?: string; storageKey?: string; goneAt?: number } = {},
+) {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("nodes", {
       workspaceId: ws,
       path,
       name: path.slice(path.lastIndexOf("/") + 1),
@@ -170,8 +182,9 @@ async function fileRow(t: T, ws: Id<"workspaces">, path: string, extra: { noteId
       etag: `etag-${path}`,
       observedAt: 1,
       ...extra,
-    }),
-  );
+    });
+    await parentRows(ctx, ws);
+  });
 }
 
 async function cleanupOf(t: T, ws: Id<"workspaces">) {

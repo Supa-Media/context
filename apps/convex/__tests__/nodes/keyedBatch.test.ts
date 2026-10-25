@@ -21,7 +21,15 @@ import { startRowMoveBatch } from "../../functions/lib/nodes/rowMoveBatch";
 import { runMoveOperation } from "../../functions/lib/nodes/moveBarrier";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, listed, type Fixture } from "./moveFixture.helpers";
-import { bigFolder, bytesOf, keyedFixture, liveAt, rowOf, treeOf } from "./keyedFixture.helpers";
+import {
+  bigFolder,
+  bytesOf,
+  keyedFixture,
+  liveAt,
+  rowOf,
+  treeOf,
+} from "./keyedFixture.helpers";
+import { storedPathsOnly } from "./treeRows.helpers";
 
 type Move = { from: string; to: string; expectedEtag?: string };
 
@@ -126,6 +134,8 @@ describe("a batch that one move cannot make true changes nothing", () => {
 });
 
 describe("the batch's row cap is the sum over its moves", () => {
+  // A cap exists only on stored paths: a built-path move of any size is one row change.
+  storedPathsOnly();
   test("two folders, each within the cap, that together exceed it are refused as too large, and nothing moves", async () => {
     const f = await keyedFixture();
     await bigFolder(f, "2-areas/a", 300, 1000);

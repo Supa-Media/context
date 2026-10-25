@@ -16,6 +16,7 @@ import { keyedBucket } from "../keyedFixture.fileops2.helpers";
 import { setFolderVisibility, setVisibility, renderPrivacyManifest } from "../seededRules.helpers";
 import { rowRulesIn } from "./keyedFixture.fileops1.helpers";
 import { internal } from "../../_generated/api";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 /** The folder rule a prefix carries in the rows, or `undefined`. */
 async function folderRuleOf(k: { t: Parameters<typeof rowRulesIn>[0]; ws: Parameters<typeof rowRulesIn>[1] }, prefix: string) {
@@ -29,10 +30,9 @@ async function folderRuleOf(k: { t: Parameters<typeof rowRulesIn>[0]; ws: Parame
  */
 async function groupTokenOf(k: { t: Parameters<typeof rowRulesIn>[0]; ws: Parameters<typeof rowRulesIn>[1] }, path: string): Promise<string> {
   const noteId = await k.t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", k.ws).eq("path", path))
-      .collect();
+    const rows = [await treeNodeAt(ctx.db, k.ws, path)].flatMap((row) =>
+      row === null ? [] : [row],
+    );
     return rows.find((row) => row.goneAt === undefined)?.noteId;
   });
   if (noteId === undefined) throw new Error(`no live note row at ${path}`);

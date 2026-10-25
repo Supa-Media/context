@@ -31,6 +31,8 @@ import { handleMoverPage } from "../../mcp/src/moves/mover.js";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { rowsAsRead } from "./nodes/treeRows.helpers";
 
 export const MOVER = "https://mover.example.invalid";
 
@@ -227,8 +229,11 @@ export async function liveFilesUnder(
   prefix: string,
 ): Promise<Doc<"nodes">[]> {
   return await t.run(async (ctx) =>
-    (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).filter(
-      (row) => row.kind === "file" && row.goneAt === undefined && row.path.startsWith(prefix),
+    (await rowsAsRead(ctx, workspaceId)).filter(
+      (row) =>
+        row.kind === "file" &&
+        row.goneAt === undefined &&
+        row.path.startsWith(prefix),
     ),
   );
 }
@@ -240,11 +245,10 @@ export async function liveFileAt(
   path: string,
 ): Promise<Doc<"nodes"> | null> {
   return await t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
-    return row !== null && row.kind === "file" && row.goneAt === undefined ? row : null;
+    const row = await treeNodeAt(ctx.db, workspaceId, path);
+    return row !== null && row.kind === "file" && row.goneAt === undefined
+      ? row
+      : null;
   });
 }
 

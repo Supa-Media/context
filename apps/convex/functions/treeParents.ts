@@ -18,6 +18,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { checkParents } from "./lib/nodes/parentCheck";
+import { pathsBuilt } from "./lib/nodes/paths";
 
 /** Rows one page reads. */
 export const PARENT_PAGE = 300;
@@ -86,6 +87,17 @@ export const checkWorkspace = internalMutation({
     // Another chain holds it: its lease is newer than the one this page was handed.
     if (state.leaseAt !== undefined && state.leaseAt !== now && held(state, now)) return null;
     const at = Date.now();
+    // Built paths read parents as the truth, and a moved folder's rows keep the path they had: set from that, they
+    // would point every row beneath it back at where the folder was. There is nothing left for this check to do.
+    if (await pathsBuilt(ctx.db, workspaceId)) {
+      await ctx.db.patch(state._id, {
+        done: true,
+        after: undefined,
+        leaseAt: undefined,
+        updatedAt: at,
+      });
+      return null;
+    }
     const page = await checkParents(ctx, workspaceId, state.after, PARENT_PAGE);
     const repaired = page.repairedNames + page.repairedParents;
     const walk = {

@@ -11,6 +11,7 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { COPY_LEASE_MS, COPY_SCAN, copyIsFresh, idKeyFor, newNoteId, tooLarge, type NoteIdItem } from "../nodes/noteIds";
+import { nodeAt as treeNodeAt, nodePaths } from "../nodes/paths";
 
 export type CopyRow = Doc<"noteIdCopies">;
 export type NodeDoc = Doc<"nodes">;
@@ -63,11 +64,7 @@ export function leaseHeld(row: CopyRow, now: number): boolean {
  * first page scheduled. A pass already holding its lease is left alone unless
  * `force` (a restart), since its page will finish and carry on from there.
  */
-export async function beginCopyPass(
-  ctx: MutationCtx,
-  workspaceId: Id<"workspaces">,
-  options: { force: boolean },
-): Promise<boolean> {
+export async function beginCopyPass(ctx: MutationCtx, workspaceId: Id<"workspaces">, options: { force: boolean }): Promise<boolean> {
   const now = Date.now();
   const row = await ensureCopyRow(ctx, workspaceId);
   if (!options.force && leaseHeld(row, now)) return false;
@@ -100,10 +97,7 @@ export async function logSeq(db: DatabaseReader, workspaceId: Id<"workspaces">):
 }
 
 export async function nodeAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<NodeDoc | null> {
-  return await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  return await treeNodeAt(db, workspaceId, path);
 }
 
 /** The pages of live files one scan reads: its items, the rows it cannot copy, and where it stopped. */
@@ -132,10 +126,15 @@ export async function scanCopies(
   after: string | undefined,
   limit: number,
 ): Promise<CopyScan> {
-  const scan: CopyScan = { items: [], refused: [], files: 0, fresh: 0, unidentified: 0, done: true };
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
+  const scan: CopyScan = {
+    items: [],
+    refused: [],
+    files: 0,
+    fresh: 0,
+    unidentified: 0,
+    done: true,
+  };
+  const rows = (await nodePaths(db, workspaceId)).rows("", after);
   let read = 0;
   let last: string | undefined;
   for await (const row of rows) {
@@ -147,7 +146,13 @@ export async function scanCopies(
       else if (copyIsFresh(row)) scan.fresh += 1;
       else if (tooLarge(row.size)) scan.refused.push({ noteId: row.noteId, reason: "too_large" });
       else if (row.etag === undefined) scan.refused.push({ noteId: row.noteId, reason: "no_etag" });
-      else scan.items.push({ path: row.path, key: idKeyFor(row.noteId, row.path), etag: row.etag, ...(row.size === undefined ? {} : { size: row.size }) });
+      else
+        scan.items.push({
+          path: row.path,
+          key: idKeyFor(row.noteId, row.path),
+          etag: row.etag,
+          ...(row.size === undefined ? {} : { size: row.size }),
+        });
     }
     if (scan.items.length >= limit || read >= COPY_SCAN) {
       scan.done = false;
@@ -177,9 +182,7 @@ export async function scanCopiedFiles(
   limit: number,
 ): Promise<CheckScan> {
   const scan: CheckScan = { items: [], keyed: [], done: true };
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
+  const rows = (await nodePaths(db, workspaceId)).rows("", after);
   let read = 0;
   let last: string | undefined;
   for await (const row of rows) {

@@ -13,6 +13,7 @@ import { describe, expect, test } from "vitest";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { nodePaths, treePaths } from "../../functions/lib/nodes/paths";
 import { keyedFixture, rowOf } from "./keyedFixture.helpers";
+import { onStoredPaths } from "./treeRows.helpers";
 import type { Fixture } from "./moveFixture.helpers";
 
 async function allRows(f: Fixture): Promise<Doc<"nodes">[]> {
@@ -93,6 +94,7 @@ describe("paths built from parents", () => {
     const launch = await rowOf(f, "1-projects/launch");
     const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
     const keep = await rowOf(f, "1-projects/keep.md");
+    const pic = await rowOf(f, "1-projects/launch/pic.png");
     const other = await f.t.run(async (ctx) => {
       const ws = await ctx.db.insert("workspaces", {
         slug: "other",
@@ -114,7 +116,6 @@ describe("paths built from parents", () => {
       await ctx.db.patch(launch._id, { parentId: sub._id });
       await ctx.db.patch(keep._id, { parentId: other as Id<"nodes"> });
     });
-    const pic = await rowOf(f, "1-projects/launch/pic.png");
     await f.t.run(async (ctx) => {
       await ctx.db.patch(pic._id, { parentId: gone });
     });
@@ -127,31 +128,57 @@ describe("paths built from parents", () => {
     });
   });
 
-  test("the switch says which source a reader gets, and the two agree until a row moves alone", async () => {
-    const f = await keyedFixture();
-    const launch = await rowOf(f, "1-projects/launch");
-    const resources = await rowOf(f, "3-resources");
-    const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
-    const flip = async (built: boolean) =>
-      await f.t.run(async (ctx) => {
-        const tree = (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique())!;
-        await ctx.db.patch(tree._id, { paths: built ? "built" : undefined });
+  test("the switch says which source a reader gets, and the two agree until a row moves alone", () =>
+    onStoredPaths(async () => {
+      const f = await keyedFixture();
+      const launch = await rowOf(f, "1-projects/launch");
+      const resources = await rowOf(f, "3-resources");
+      const deep = await rowOf(f, "1-projects/launch/sub/deep.md");
+      const flip = async (built: boolean) =>
+        await f.t.run(async (ctx) => {
+          const tree = (await ctx.db
+            .query("nodeTrees")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws))
+            .unique())!;
+          await ctx.db.patch(tree._id, { paths: built ? "built" : undefined });
+        });
+      const answers = async () =>
+        await f.t.run(async (ctx) => {
+          const paths = await nodePaths(ctx.db, f.ws);
+          return {
+            built: paths.built,
+            deep: await paths.pathOf((await ctx.db.get(deep._id))!),
+            at:
+              (await paths.liveAt("1-projects/launch/sub/deep.md"))?._id ??
+              null,
+          };
+        });
+
+      expect(await answers()).toEqual({
+        built: false,
+        deep: "1-projects/launch/sub/deep.md",
+        at: deep._id,
       });
-    const answers = async () =>
-      await f.t.run(async (ctx) => {
-        const paths = await nodePaths(ctx.db, f.ws);
-        return { built: paths.built, deep: await paths.pathOf((await ctx.db.get(deep._id))!), at: (await paths.liveAt("1-projects/launch/sub/deep.md"))?._id ?? null };
+      await flip(true);
+      expect(await answers()).toEqual({
+        built: true,
+        deep: "1-projects/launch/sub/deep.md",
+        at: deep._id,
       });
 
-    expect(await answers()).toEqual({ built: false, deep: "1-projects/launch/sub/deep.md", at: deep._id });
-    await flip(true);
-    expect(await answers()).toEqual({ built: true, deep: "1-projects/launch/sub/deep.md", at: deep._id });
-
-    await f.t.run(async (ctx) => {
-      await ctx.db.patch(launch._id, { parentId: resources._id });
-    });
-    expect(await answers()).toEqual({ built: true, deep: "3-resources/launch/sub/deep.md", at: null });
-    await flip(false);
-    expect(await answers()).toEqual({ built: false, deep: "1-projects/launch/sub/deep.md", at: deep._id });
-  });
+      await f.t.run(async (ctx) => {
+        await ctx.db.patch(launch._id, { parentId: resources._id });
+      });
+      expect(await answers()).toEqual({
+        built: true,
+        deep: "3-resources/launch/sub/deep.md",
+        at: null,
+      });
+      await flip(false);
+      expect(await answers()).toEqual({
+        built: false,
+        deep: "1-projects/launch/sub/deep.md",
+        at: deep._id,
+      });
+    }));
 });

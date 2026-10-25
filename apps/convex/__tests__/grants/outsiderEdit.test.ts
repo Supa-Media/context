@@ -36,6 +36,7 @@ import {
   world,
   type World,
 } from "./outsider.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -142,10 +143,7 @@ describe("what edit never reaches", () => {
     expect(note.text).toContain(PLAN_MARKER);
     // Even with a version in hand, read some other way, the write is refused.
     const etag = await w.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN))
-        .unique();
+      const row = await treeNodeAt(ctx.db, w.ws, PLAN);
       return row?.etag as string;
     });
     await expectCode(save(w, w.kola, { path: PLAN }, "# Plan\n\nnope\n", etag), "SHARE_UNAVAILABLE");

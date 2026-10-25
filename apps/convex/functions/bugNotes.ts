@@ -37,6 +37,7 @@ import { recordAudit } from "./lib/audit";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { guestNamesIn, pinReadersAreGuests } from "./lib/pinnedReaders";
 import { getMembership } from "./lib/workspaceAuth";
+import { nodeAt } from "./lib/nodes/paths";
 
 export const destination = internalQuery({
   args: { userId: v.id("users") },
@@ -95,10 +96,7 @@ export const shareWithTeam = internalMutation({
     const answer = await setAccessRow(ctx, { workspaceId, path, base: "team", grantees: [], actor });
     if (!answer.ok) return false;
     // A base is not a list, so `setAccessRow` records nothing for it; the trail still says Tex opened this one.
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: actor.userId,

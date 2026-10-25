@@ -29,6 +29,7 @@ import type { Visibility } from "../privacy";
 import { resolveHandle, type Grant } from "./accessBackfill";
 import { setAccessRow, MAX_GRANTEES, type GranteeInput, type Role } from "./setAccess";
 import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
+import { nodeAt } from "./paths";
 
 /** One entry the owner names. Exactly one of `handle`, `userId`, `groupId`, `email`, `members` or `accounts`. */
 export interface GranteeRequest {
@@ -155,10 +156,7 @@ export async function setGranteesHandler(
     return { ok: false, code: "NOT_FOUND" };
   }
 
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-    .unique();
+  const row = await nodeAt(ctx.db, args.workspaceId, args.path);
   if (row === null) return { ok: false, code: "NOT_FOUND" };
 
   if (args.grantees.length > MAX_GRANTEES) return { ok: false, code: "INVALID" };

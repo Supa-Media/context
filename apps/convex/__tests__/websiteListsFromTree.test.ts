@@ -9,7 +9,14 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, readIntoTree } from "./fixtures.helpers";
-import { bodyKeyOf, fixture, pressPublish, publish, writeNote } from "./website.helpers";
+import {
+  bodyKeyOf,
+  fixture,
+  pressPublish,
+  publish,
+  writeNote,
+} from "./website.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 // Each test keys a workspace and runs the tree to its end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
@@ -84,10 +91,11 @@ describe("public list blocks read the tree", () => {
     await readIntoTree(f.t, f.workspaceId);
     // Facts as a fill before the flags wrote them, and a fill state from then.
     await f.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "website/posts/old.md"))
-        .unique();
+      const row = await treeNodeAt(
+        ctx.db,
+        f.workspaceId,
+        "website/posts/old.md",
+      );
       const props = JSON.parse(row!.props!) as Record<string, unknown>;
       delete props.site;
       await ctx.db.patch(row!._id, { props: JSON.stringify(props) });

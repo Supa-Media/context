@@ -27,6 +27,11 @@ import { canSee } from "../../functions/lib/privacy";
 import { listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
 import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { storedPathsOnly } from "./treeRows.helpers";
+
+// Paged moves and the parent check that sets parents from stored paths exist only on stored paths.
+storedPathsOnly();
 
 type Fixture = Awaited<ReturnType<typeof keyedFixture>>;
 
@@ -37,10 +42,7 @@ const TO = "3-resources/big";
 /** `FROM` under `1-projects` with a subfolder and `FILES` keyed files, every row with its real parent. */
 async function bigTree(f: Fixture): Promise<void> {
   await f.t.run(async (ctx) => {
-    const parent = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects"))
-      .unique();
+    const parent = await treeNodeAt(ctx.db, f.ws, "1-projects");
     const folder = await ctx.db.insert("nodes", {
       workspaceId: f.ws,
       noteId: NOTE_ID(5000),
@@ -287,10 +289,7 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     const id = await begin(f);
     const last = `n${String(FILES - 1).padStart(4, "0")}.md`;
     await f.t.run(async (ctx) => {
-      const parent = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", TO))
-        .unique();
+      const parent = await treeNodeAt(ctx.db, f.ws, TO);
       await ctx.db.insert("nodes", {
         workspaceId: f.ws,
         noteId: NOTE_ID(9_999),

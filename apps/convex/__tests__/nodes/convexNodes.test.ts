@@ -16,6 +16,7 @@ import { modules } from "../../test.setup";
 import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
 import { translateMirror } from "../seededRules.helpers";
 import { seedTreeRows } from "../fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 async function workspace(t: ReturnType<typeof convexTest>, slug: string): Promise<Id<"workspaces">> {
   return await t.run(async (ctx) => {
@@ -95,10 +96,7 @@ describe("nodes: tenant isolation", () => {
     const beta = await workspace(t, "cross-b");
     await seedTreeRows(t, beta, [{ path: "b.md", etag: "v" }]);
     const betaNode = await t.run(async (ctx) => {
-      const doc = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", beta).eq("path", "b.md"))
-        .unique();
+      const doc = await treeNodeAt(ctx.db, beta, "b.md");
       return doc?._id as string;
     });
 

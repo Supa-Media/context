@@ -12,6 +12,7 @@ import type { Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, gatewayPost } from "./fixtures.helpers";
 import { danglingWorkspaceId, registerClient, seedConnectedClient, token } from "./controlPlane/fixtures.helpers";
 import { pair, type Pair } from "./contextMove.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 const ACCESS = token("mover");
 const OWNER_PRIVATE = ["context:read", "context:write", "context:private"];
@@ -36,10 +37,7 @@ async function across(p: Pair, over: Record<string, unknown> = {}) {
 
 async function liveAt(p: Pair, workspaceId: Id<"workspaces">, path: string) {
   return await p.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspaceId, path);
     return row !== null && row.goneAt === undefined ? row : null;
   });
 }

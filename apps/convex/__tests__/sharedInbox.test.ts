@@ -24,6 +24,8 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { parentRows } from "./nodes/treeRows.helpers";
 
 async function scenario(t: TestConvex) {
   const ana = await createUser(t, "ana@example.invalid");
@@ -53,13 +55,11 @@ async function setTier(
   // A grant on a path with no tree row waits as pending, and is not rendered until the row exists. A folder
   // the tree has not seen yet is given its row first, as a bucket listing would have done.
   await t.run(async (ctx) => {
-    const existing = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const existing = await treeNodeAt(ctx.db, workspaceId, path);
     if (existing === null && kind === "folder") {
       await ctx.db.insert("nodes", { workspaceId, path, name: path.split("/").pop()!, kind: "folder", observedAt: 1 });
     }
+    await parentRows(ctx, workspaceId);
   });
   const answer = await t.mutation(internal.functions.nodesAccess.setAccess, {
     workspaceId,
@@ -140,7 +140,13 @@ describe("what @shared lists", () => {
         props: JSON.stringify({ properties: { title: "Launch week plan" }, heading: "Plan" }),
       });
       // Sealed: no props, so no title.
-      await ctx.db.insert("nodes", { ...row, workspaceId: atlas, path: "1-projects/sealed.md", name: "sealed.md" });
+      await ctx.db.insert("nodes", {
+        ...row,
+        workspaceId: atlas,
+        path: "1-projects/sealed.md",
+        name: "sealed.md",
+      });
+      for (const workspaceId of [anaOwn, atlas]) await parentRows(ctx, workspaceId);
     });
     // The rules these notes are shared under. A title is re-derived against
     // the access rows (`lib/shares/inboxTitle.ts`), so a fixture without them
@@ -189,6 +195,7 @@ describe("what @shared lists", () => {
         name: "review.md",
         props: JSON.stringify({ properties: {}, heading: "Pay review: LK, below band" }),
       });
+      await parentRows(ctx, anaOwn);
     });
     const titleNow = async () => {
       const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});

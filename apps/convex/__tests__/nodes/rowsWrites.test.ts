@@ -29,6 +29,7 @@ import { bodyAtPath } from "../files/keyedNotes.helpers";
 import { OWNER, drain, fixture, listed, type Fixture } from "./moveFixture.helpers";
 import { keyedFixture, privacyEtag } from "./keyedFixture.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 async function setRowsMode(f: Fixture): Promise<void> {
   await f.t.run(async (ctx) => {
@@ -52,12 +53,7 @@ async function setBase(f: Fixture, path: string, base: "private" | "team" | "inh
 }
 
 async function nodeAt(f: Fixture, path: string) {
-  return await f.t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", path))
-      .unique(),
-  );
+  return await f.t.run(async (ctx) => treeNodeAt(ctx.db, f.ws, path));
 }
 
 const batch = (f: Fixture, moves: { from: string; to: string }[]) =>

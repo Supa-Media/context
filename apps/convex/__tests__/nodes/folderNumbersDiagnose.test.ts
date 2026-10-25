@@ -7,6 +7,7 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import { keyedFixture, rowOf } from "./keyedFixture.helpers";
+import { parentRows } from "./treeRows.helpers";
 
 describe("the stuck-rename report", () => {
   test("a numbered folder left beside its plain twin is reported with what is under it", async () => {
@@ -41,6 +42,7 @@ describe("the stuck-rename report", () => {
           observedAt: 1,
         } as never);
       }
+      await parentRows(ctx, f.ws);
       await ctx.db.insert("rowMoves", {
         workspaceId: f.ws,
         from: "1-projects",

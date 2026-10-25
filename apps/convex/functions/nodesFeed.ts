@@ -49,17 +49,11 @@ import {
   type CurrentFile,
   type FeedMove,
 } from "./lib/nodes/log";
+import { nodeAt } from "./lib/nodes/paths";
 
 /** The keyed moves every listing draws already (`moving`), as the feed reads them. */
 async function feedMoves(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<FeedMove[]> {
   return (await movingRowMoves(ctx.db, workspaceId)).map((row) => ({ id: row._id, from: row.from, to: row.to }));
-}
-
-async function nodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
 }
 
 /**
@@ -179,7 +173,7 @@ export const changes = internalQuery({
     const skip = (path: string) => underPendingMove(path, moves);
     for (const row of rows) {
       if (row.gone || current.has(row.path) || skip(row.path)) continue;
-      const node = await nodeAt(ctx, args.workspaceId, row.path);
+      const node = await nodeAt(ctx.db, args.workspaceId, row.path);
       current.set(
         row.path,
         node === null || node.kind !== "file" || node.goneAt !== undefined
@@ -202,7 +196,7 @@ export const changes = internalQuery({
     if (page.since === null) return full;
     const live = new Set<string>();
     for (const folder of page.unsettled) {
-      const node = await nodeAt(ctx, args.workspaceId, folder);
+      const node = await nodeAt(ctx.db, args.workspaceId, folder);
       if (node !== null && node.kind === "folder" && node.goneAt === undefined) live.add(folder);
     }
     const settled = settleFolders(page, live, clearance, rules);

@@ -28,6 +28,8 @@ import { markNestedSiteWrite } from "../functions/lib/websites/routeChangeAt";
 import { realSitePath, siteNameOf } from "../functions/lib/websites/siteRoot";
 import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, type Fixture } from "./website.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { parentRows } from "./nodes/treeRows.helpers";
 
 // Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
@@ -57,18 +59,14 @@ async function nested(earlier = 0): Promise<Fixture> {
   await owner.action(api.functions.files.setDirectoryVisibility, { workspaceId: f.workspaceId, path: ROOT, visibility: "team" });
   await owner.action(api.functions.files.setNoteVisibility, { workspaceId: f.workspaceId, path: `${ROOT}/held.md`, visibility: "private" });
   await f.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", ROOT))
-      .unique();
+    const row = await treeNodeAt(ctx.db, f.workspaceId, ROOT);
     await ctx.db.patch(row!._id, { role: "website" });
     for (let index = 0; index < earlier; index += 1) {
-      const old = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", `Aold${index}`))
-        .unique();
+      const old = await treeNodeAt(ctx.db, f.workspaceId, `Aold${index}`);
       await ctx.db.patch(old!._id, index === 0 ? { role: "website", path: ".context/trash/1/website" } : { role: "website", goneAt: 1 });
     }
+    // The trashed one's parents say where its path now is, as a real trash leaves them.
+    await parentRows(ctx, f.workspaceId);
     await ctx.db.insert("websiteStates", {
       workspaceId: f.workspaceId,
       state: "enabled",
@@ -102,8 +100,7 @@ async function stale(f: Fixture): Promise<boolean> {
   return state!.routeGeneration !== state!.routeReconciledGeneration;
 }
 
-const open = (f: Fixture, routePath: string) =>
-  f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath });
+const open = (f: Fixture, routePath: string) => f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath });
 
 describe("the website's name and its folder", () => {
   test("a page under website/ is the same page in the folder wherever it is", () => {

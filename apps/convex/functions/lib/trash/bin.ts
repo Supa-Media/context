@@ -24,6 +24,7 @@ import type { DatabaseReader } from "../../../_generated/server";
 import { TRASH_ROOT } from "../fileOps/store";
 import { PrivacyOverrides, type PrivacyRule, type Visibility } from "../privacy";
 import type { Rules } from "../nodes/log";
+import { nodeAt, rowsAfter } from "../nodes/paths";
 
 export const TRASH_KEEP_DAYS = 30;
 const DAY = 24 * 60 * 60 * 1000;
@@ -69,10 +70,7 @@ export interface StampFolder {
 
 /** The live stamp folders of a workspace's trash, oldest first. A folder whose name is not a stamp is left alone. */
 export async function stampFolders(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<StampFolder[]> {
-  const root = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", TRASH_ROOT))
-    .unique();
+  const root = await nodeAt(db, workspaceId, TRASH_ROOT);
   if (root === null) return [];
   const children = await db
     .query("nodes")
@@ -83,18 +81,20 @@ export async function stampFolders(db: DatabaseReader, workspaceId: Id<"workspac
     if (row.goneAt !== undefined || row.kind !== "folder") continue;
     const at = stampTimeOf(row.name);
     if (at === null) continue;
-    folders.push({ row, folder: row.path, at, eraseAt: eraseAtOf(at) });
+    const folder = `${TRASH_ROOT}/${row.name}`;
+    folders.push({
+      row: { ...row, path: folder },
+      folder,
+      at,
+      eraseAt: eraseAtOf(at),
+    });
   }
   return folders.sort((a, b) => a.at - b.at || a.folder.localeCompare(b.folder));
 }
 
 /** Every row under a stamp folder (not the folder itself), live or not, in path order. */
 export async function rowsUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, folder: string): Promise<Doc<"nodes">[]> {
-  // `0` is the character after `/`: the range is exactly the keys under `<folder>/`.
-  return await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gte("path", `${folder}/`).lt("path", `${folder}0`))
-    .take(GROUP_SCAN);
+  return await rowsAfter(db, workspaceId, folder, undefined, GROUP_SCAN);
 }
 
 export interface TrashedItem {
@@ -117,7 +117,12 @@ export async function trashedItemOf(
   const live = rows.filter((row) => row.goneAt === undefined);
   const events = await db
     .query("auditEvents")
-    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId).gte("at", stamp.at).lte("at", stamp.at + TRAIL_WINDOW))
+    .withIndex("by_workspace_at", (q) =>
+      q
+        .eq("workspaceId", workspaceId)
+        .gte("at", stamp.at)
+        .lte("at", stamp.at + TRAIL_WINDOW),
+    )
     .take(200);
   for (const event of events) {
     if (event.action !== "file.archive" || event.details?.trash !== true) continue;
@@ -134,7 +139,8 @@ export async function trashedItemOf(
 function fromRows(folder: string, live: readonly Doc<"nodes">[]): TrashedItem | null {
   const files = live.filter((row) => row.kind === "file");
   if (files.length === 0) return null;
-  if (files.length === 1) return { trash: files[0].path, path: files[0].path.slice(folder.length + 1), kind: "file", actorUserId: undefined };
+  if (files.length === 1)
+    return { trash: files[0].path, path: files[0].path.slice(folder.length + 1), kind: "file", actorUserId: undefined };
   const parts = files.map((row) => row.path.split("/"));
   let shared = 0;
   while (parts.every((segments) => segments.length - 1 > shared && segments[shared] === parts[0][shared])) shared += 1;
