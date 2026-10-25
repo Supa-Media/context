@@ -193,6 +193,9 @@ jobs:
           # in with (`functions/lib/reviewerAccount.ts`). Absent is a working
           # state: no reviewer provider is registered.
           REVIEWER_SIGNIN_CODE: ${{ secrets.REVIEWER_SIGNIN_CODE }}
+          # The code already supplied to App Store review can remain stable
+          # independently of the directory reviewer's email code.
+          APP_REVIEW_SIGNIN_CODE: ${{ secrets.APP_REVIEW_SIGNIN_CODE }}
           # The production CUJ account's six-digit code
           # (`functions/lib/testAccount.ts`). Never committed: a code in this
           # public repository signs anybody in. Absent is a working state: the
@@ -259,7 +262,7 @@ jobs:
             STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
             TURNSTILE_SECRET_KEY \
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
-            REVIEWER_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
+            REVIEWER_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL
