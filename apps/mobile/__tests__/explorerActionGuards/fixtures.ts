@@ -435,6 +435,7 @@ export function browser(
 export function mount(
   canEdit: boolean,
   over: Partial<FileBrowser> = {},
+  props: { onShare?: (path: string) => void } = {},
 ): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
@@ -455,6 +456,7 @@ export function mount(
           onOpenPinned: (path: string) => calls.props.push({ name: "onOpenPinned", args: [path] }),
           onOverlayChange: (open: boolean) =>
             calls.props.push({ name: "onOverlayChange", args: [open] }),
+          ...props,
         }),
       ),
     );

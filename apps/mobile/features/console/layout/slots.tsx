@@ -164,6 +164,7 @@ export function consoleExplorer({
   setTreeOverlay,
   switcherProps,
   router,
+  setBarDialog,
 }: {
   browsing: boolean;
   data: ConsoleData;
@@ -174,6 +175,8 @@ export function consoleExplorer({
   setTreeOverlay: Dispatch<SetStateAction<boolean>>;
   switcherProps: ComponentProps<typeof SwitcherMenu>;
   router: ConsoleRouter;
+  /** The console's dialogs, where right-click Share goes: one share sheet for the tree, the toolbar and the keys. */
+  setBarDialog: Dispatch<SetStateAction<Dialog>>;
 }) {
   return (
     browsing ? (
@@ -217,6 +220,7 @@ export function consoleExplorer({
           tabs.pin(path);
         }}
         onOverlayChange={setTreeOverlay}
+        onShare={(path) => setBarDialog({ kind: "share", path })}
         /*
           You, at the foot of the column: the account button, and behind it
           the workspaces, Settings and Sign out. Discord's shape, which the

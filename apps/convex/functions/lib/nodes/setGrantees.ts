@@ -1,7 +1,7 @@
 /**
  * The owner's list on one row, named by the people and groups they choose (`nodesAccess.setGrantees`).
  *
- * Each entry names exactly one of: a handle (`@name`, a group of this workspace or one of its members), a
+ * Each entry names exactly one of: a handle (`@name`, a group of this workspace or any person's own name), a
  * group's id, an email (anyone, inside the workspace or not, with an account or not), or `members` (every real
  * member of this workspace, never a pin reader: the dialog's Members position), or `accounts` (every signed-in
  * Context account, the dialog's All Context users, held only in the pinned workspace).
@@ -11,7 +11,7 @@
  *
  * A handle that names nobody, a handle or id of a group of another workspace, a malformed email, a deleted
  * account: all answer `GRANTEE_NOT_FOUND`, with nothing else in the answer, and nothing is written. Otherwise the
- * answer is an oracle for whether a name exists anywhere on the platform. The row itself is checked first, and
+ * answer says why, and an id or an address would become an oracle. The row itself is checked first, and
  * a path with no row is `NOT_FOUND` whatever the list says.
  *
  * ## Who may ask
@@ -96,10 +96,9 @@ export async function resolveEntry(
     if (grant.kind === "group") return { kind: "group", groupId: grant.groupId, role };
     // A name can outlive its account: a deleted person is nobody, the same as a name nobody holds.
     if ((await ctx.db.get(grant.userId)) === null) return null;
-    // By handle, only a member of this workspace: the owner already sees who those are, so the answer
-    // reveals nothing new. Someone outside is named by email, which is stored whether or not an account
-    // holds it, so no answer here says whether a handle exists anywhere else on the platform.
-    if ((await getMembership(ctx, workspaceId, grant.userId)) === null) return null;
+    // By handle, a member or anyone outside (decided by the owner, 2026-10-25: "share by @seyi"). Whether a
+    // handle is held was never a secret — `names.checkNameAvailable` answers it to any signed-in person — and
+    // the list shows an outsider by that handle only, never their name or address (`shareList.ts`).
     return { kind: "user", userId: grant.userId, role };
   }
   if (entry.userId !== undefined) {

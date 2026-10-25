@@ -116,6 +116,33 @@ describe("what the field offers", () => {
   });
 });
 
+describe("someone outside, by their @name", () => {
+  test("a picked @name is written as that handle, beside what the list already holds", () => {
+    const pick = pickOf({ kind: "handle", key: "@seyi", label: "@seyi", handle: "seyi" });
+    expect(pick).toEqual({ kind: "handle", handle: "seyi" });
+    expect(addGrant(LIST, pick!, "edit").grantees).toEqual([
+      { groupId: "g1", role: "edit" },
+      { userId: "u1", role: "view" },
+      { email: "pat@example.test", role: "view" },
+      { handle: "@seyi", role: "edit" },
+    ]);
+  });
+
+  test("an outsider the list shows by @name counts as reaching it, so the field does not offer them again", () => {
+    const listed: GrantList = {
+      ...LIST,
+      grantees: [...LIST.grantees, { kind: "user", userId: "u9", label: "@seyi", member: false, role: "view" }],
+    };
+    expect([...reachingOf(listed, []).reachingHandles]).toEqual(["seyi"]);
+  });
+
+  test("the sentence beside Share says where they find it", () => {
+    expect(grantLine({ kind: "handle", key: "@seyi", label: "@seyi", handle: "seyi" }, "view", "@acme")).toBe(
+      "@seyi can read it, and finds it under Shared with me. You can take it back.",
+    );
+  });
+});
+
 describe("the visibility control on a note with a list", () => {
   test("a list's token is not a group rule: the control may change it, starting from what the dialog showed", () => {
     const { scopeGuard } = require("../features/console/files/fileBrowser/useShareScope") as typeof import("../features/console/files/fileBrowser/useShareScope");

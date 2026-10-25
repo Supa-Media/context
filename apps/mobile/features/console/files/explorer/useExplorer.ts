@@ -34,6 +34,7 @@ export function useExplorer({
   files,
   contextLabel,
   onOpenPinned,
+  onShare,
   onOverlayChange,
   pickProp,
   onPickChange,
@@ -44,6 +45,7 @@ export function useExplorer({
   files: FileBrowser;
   contextLabel: string;
   onOpenPinned: ExplorerProps["onOpenPinned"];
+  onShare?: ExplorerProps["onShare"];
   onOverlayChange: ExplorerProps["onOverlayChange"];
   pickProp: ExplorerProps["pick"];
   onPickChange: ExplorerProps["onPickChange"];
@@ -64,7 +66,19 @@ export function useExplorer({
   */
   const descending = useListingOrder();
   const [query, setQuery] = useState("");
-  const [dialog, setDialog] = useState<Dialog>(null);
+  const [dialog, setOwnDialog] = useState<Dialog>(null);
+  /*
+    Share goes to the console's one share sheet where there is one (`onShare`), so the tree's right-click opens
+    the same sheet, with the same people and groups, as the toolbar and the keyboard. Every other dialog is the
+    tree's own.
+  */
+  const setDialog = useCallback(
+    (next: Dialog) => {
+      if (next !== null && next.kind === "share" && onShare !== undefined) onShare(next.path);
+      else setOwnDialog(next);
+    },
+    [onShare],
+  );
   const [menu, setMenu] = useState<MenuState>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [ownPick, setOwnPick] = useState<TreePick>(NO_PICK);
@@ -132,7 +146,7 @@ export function useExplorer({
     contexts share a label and the unresolved fallback cannot alias one.
   */
   useEffect(() => {
-    setDialog(null);
+    setOwnDialog(null);
     setMenu(null);
     setRefusal(null);
     setPicked(NO_PICK);
@@ -326,7 +340,7 @@ export function useExplorer({
       ...(onOpenPinned === undefined ? {} : { openPinned: onOpenPinned }),
       inheritedOf: (path) => inheritedOf(files, path),
     }),
-    [files, contextLabel, select, onOpenPinned],
+    [files, contextLabel, select, setDialog, onOpenPinned],
   );
 
   const runAction = useCallback(

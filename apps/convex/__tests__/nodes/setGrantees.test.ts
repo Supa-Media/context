@@ -17,6 +17,7 @@ import schema from "../../schema";
 import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
 import { setAccessRow } from "../../functions/lib/nodes/setAccess";
+import { outsiderGrantsFor } from "../../functions/lib/grants/outsider";
 import { asUser, addMember, createWorkspace } from "../fixtures.helpers";
 
 const makeTest = () => convexTest(schema, modules);
@@ -122,12 +123,22 @@ describe("the owner's list: who may set it, and what it writes", () => {
     expect(await accessOn(w.t, w.ws, PLAN)).toEqual({ base: "team" });
   });
 
-  test("someone outside the workspace is not named by handle: the answer is the one an unclaimed handle gets", async () => {
+  test("someone outside the workspace is named by their @handle, and the note reaches them as a guest", async () => {
     const w = await world();
-    const outsider = await setGrantees(w, w.owner, PLAN, [{ handle: "ana", role: "view" }]);
-    const nobody = await setGrantees(w, w.owner, PLAN, [{ handle: "nobody-holds-this", role: "view" }]);
-    expect(outsider).toEqual({ ok: false, code: "GRANTEE_NOT_FOUND" });
-    expect(nobody).toEqual(outsider);
+    expect(await setGrantees(w, w.owner, PLAN, [{ handle: "@ana", role: "view" }])).toMatchObject({ ok: true });
+    const grants = await grantsOn(w.t, w.ws, PLAN);
+    expect(grants.map((grant) => `${grant.granteeKind}|${grant.granteeUserId}|${grant.role}`)).toEqual([`user|${w.ana}|view`]);
+    // The outsider path is what opens it for her: she is not a member, and the guest rendering names her.
+    const reached = await w.t.run(async (ctx) => await outsiderGrantsFor(ctx as never, w.ana));
+    expect(reached.map((grant) => grant.path)).toContain(PLAN);
+  });
+
+  test("a handle nobody holds is still the one refusal, and nothing is written", async () => {
+    const w = await world();
+    expect(await setGrantees(w, w.owner, PLAN, [{ handle: "nobody-holds-this", role: "view" }])).toEqual({
+      ok: false,
+      code: "GRANTEE_NOT_FOUND",
+    });
     expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 

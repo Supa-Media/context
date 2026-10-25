@@ -194,6 +194,7 @@ export function ShareDialog({
       : {
           ...reachingOf(grants.list, owners.map((owner) => owner.userId)),
           inviteDetail: `Not in ${handle}. They can open it once they sign in with this email`,
+          handleDetail: `Not in ${handle}. They find it under Shared with me`,
         };
   const domain =
     grants === undefined

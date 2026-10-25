@@ -63,7 +63,9 @@ export interface GrantWrite {
 export type GrantPick =
   | { kind: "member"; userId: string; label: string }
   | { kind: "group"; group: string; label: string }
-  | { kind: "email"; email: string };
+  | { kind: "email"; email: string }
+  /** Someone outside the workspace by their `@name`, without the `@`; the server resolves it on write. */
+  | { kind: "handle"; handle: string };
 
 /** A stable key for an entry, used for React keys, menus and matching a pick against the list. */
 export function grantKey(entry: GrantEntry): string {
@@ -134,8 +136,18 @@ export function holds(list: GrantList, pick: GrantPick): boolean {
   return list.grantees.some((entry) => {
     if (pick.kind === "member") return entry.kind === "user" && entry.userId === pick.userId;
     if (pick.kind === "group") return entry.kind === "group" && entry.name === pick.group;
+    if (pick.kind === "handle") return outsiderHandleOf(entry) === pick.handle;
     return entry.kind === "email" && entry.email.toLowerCase() === pick.email.toLowerCase();
   });
+}
+
+/**
+ * The `@name` an outsider on the list is shown by (`shareList.ts` labels one with their handle, never their
+ * name), without the `@`; `undefined` for anybody else.
+ */
+export function outsiderHandleOf(entry: GrantEntry): string | undefined {
+  if (entry.kind !== "user" || entry.member || !entry.label.startsWith("@")) return undefined;
+  return entry.label.slice(1).toLowerCase();
 }
 
 /**
@@ -149,7 +161,9 @@ export function addGrant(list: GrantList, pick: GrantPick, role: GrantRole): Gra
       ? { userId: pick.userId, role }
       : pick.kind === "group"
         ? { handle: `@${pick.group}`, role }
-        : { email: pick.email, role };
+        : pick.kind === "handle"
+          ? { handle: `@${pick.handle}`, role }
+          : { email: pick.email, role };
   // Re-adding somebody changes their role rather than listing them twice.
   const without = holds(list, pick)
     ? list.grantees.filter((entry) => !matchesPick(entry, pick)).map(requestOf)
@@ -160,6 +174,7 @@ export function addGrant(list: GrantList, pick: GrantPick, role: GrantRole): Gra
 function matchesPick(entry: GrantEntry, pick: GrantPick): boolean {
   if (pick.kind === "member") return entry.kind === "user" && entry.userId === pick.userId;
   if (pick.kind === "group") return entry.kind === "group" && entry.name === pick.group;
+  if (pick.kind === "handle") return outsiderHandleOf(entry) === pick.handle;
   return entry.kind === "email" && entry.email.toLowerCase() === pick.email.toLowerCase();
 }
 
@@ -205,7 +220,7 @@ export function typedEmail(query: string): string | null {
 /** What the server's refusal means, in the dialog's words. */
 export function grantProblem(code: string): string {
   if (code === "GRANTEE_NOT_FOUND") {
-    return "Nobody here goes by that name. To share with someone outside the workspace, type their email.";
+    return "Nobody goes by that name. Check the @name, or type their email instead.";
   }
   if (code === "FORBIDDEN") return "Only owners can change who this is shared with.";
   if (code === "INVALID") return "That list is too long. A note can be shared with up to 100 people and groups.";

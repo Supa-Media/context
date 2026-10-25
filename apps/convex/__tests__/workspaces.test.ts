@@ -404,4 +404,18 @@ describe("listMembers", () => {
     ]);
     expect(members.find((m) => m.userId === bob)?.role).toBe("editor");
   });
+
+  test("carries each member's own @handle, so the share field can find them by it", async () => {
+    const t = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const bob = await createUser(t, "bob@example.invalid");
+    const workspaceId = await createWorkspace(t, alice, "shared-context", { kind: "shared" });
+    await createWorkspace(t, bob, "bobby", { kind: "personal" });
+    await addMember(t, workspaceId, bob, "member", alice);
+
+    const members = await asUser(t, alice).query(api.functions.workspaces.listMembers, { workspaceId });
+    // Bob's personal workspace is his handle; Alice holds none, and the shared context's slug is not hers.
+    expect(members.find((m) => m.userId === bob)?.handle).toBe("bobby");
+    expect(members.find((m) => m.userId === alice)?.handle).toBeUndefined();
+  });
 });
