@@ -177,3 +177,23 @@ moves the wrong rows. `apps/convex/__tests__/nodes/treeParents.test.ts` fails
 for a walk marked done after a repair, a duplicate path pointed at as if it
 were right, an orphan pointed at a gone folder, and two chains on one
 workspace.
+
+## Paths built from parents: the switch
+
+*Stage 4, started 2026-10-25* (`apps/convex/functions/lib/nodes/paths.ts`).
+
+- `treePaths` builds a row's path from its parents and names (`pathOf`) and
+  finds the row at a path by walking down from the top (`rowAt`, `liveAt`),
+  remembering the folders one request has walked. A chain that loops, leaves
+  the workspace, or reaches a missing parent has no path, never a wrong one.
+  Every reader that leaves the stored `path` goes through it.
+- **Why one switch per workspace, not reader by reader.** While stored paths
+  are read, a folder bigger than one transaction moves its root first and
+  its rows a page at a time, and readers and writers fold names through the
+  move in flight (`throughRowMoves`, `moveOverlay.ts`). A writer that found
+  rows by built path during such a move would make a second folder row at a
+  name whose old row has not moved yet. So the readers and writers that use
+  built paths run together, behind a per-workspace switch flipped only with
+  no row move in flight; after it a move patches the moved row and nothing
+  else, and nothing reads a stored path again. Workspaces flip one at a time
+  and the stored column goes once every one has.
