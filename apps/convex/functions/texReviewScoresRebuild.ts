@@ -44,13 +44,19 @@ export const dayScores = internalQuery({
   },
 });
 
+type DayScores = {
+  destination: Parameters<typeof fileTeamNote>[1] & { folder: string };
+  rows: Parameters<typeof renderScoresNote>[1];
+};
+
 /** `{ rows, written }`: how many rows the day has, and whether its note now shows them. */
 export const rebuildScoresNote = internalAction({
   args: { day: v.string() },
   returns: v.object({ rows: v.number(), written: v.boolean() }),
-  handler: async (ctx, { day }) => {
+  handler: async (ctx, { day }): Promise<{ rows: number; written: boolean }> => {
     if (!DAY.test(day)) throw new Error("day must be YYYY-MM-DD");
-    const found = await ctx.runQuery(internal.functions.texReviewScoresRebuild.dayScores, { day });
+    // Typed here: an action that reads its own module through `internal` is otherwise circular.
+    const found: DayScores | null = await ctx.runQuery(internal.functions.texReviewScoresRebuild.dayScores, { day });
     if (found === null || found.rows.length === 0) return { rows: found?.rows.length ?? 0, written: false };
     const written = await fileTeamNote(
       ctx,
