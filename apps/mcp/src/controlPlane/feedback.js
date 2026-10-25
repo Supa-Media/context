@@ -2,6 +2,9 @@
  * Problem reports an agent files with `report_problem`.
  */
 
+/** How long filing a review may take; it runs after the answer has gone, so nobody waits on it. */
+export const TEX_REVIEW_FILE_TIMEOUT_MS = 25_000;
+
 export function createFeedbackMethods({ post }) {
   return {
     /**
@@ -37,7 +40,8 @@ export function createFeedbackMethods({ post }) {
     },
 
     async fileTexReview(accessToken, review) {
-      const parsed = await post("/gateway/tex-review", { accessToken, ...review });
+      // Filing writes the day's scores note and the review note, each a note save: longer than a lookup.
+      const parsed = await post("/gateway/tex-review", { accessToken, ...review }, { timeoutMs: TEX_REVIEW_FILE_TIMEOUT_MS });
       const filed = parsed?.review?.filed;
       return filed === "full" || filed === "scores" ? filed : null;
     },

@@ -251,8 +251,11 @@ async function writeMark(store, key, mark) {
  * was then never written and the next review scored the same turns again
  * (2026-10-24, an urgent review at 19:00 and the quiet one at 19:37). Stopped
  * half way, a review now costs its own scores rather than counting turns twice.
- * A review that ran to the end and filed nothing puts the old mark back, so
- * the next one reads these turns; a mark that cannot be written files nothing.
+ * A review the control plane answered with "nothing filed" puts the old mark
+ * back, so the next one reads these turns; one whose filing never answered
+ * keeps it, since filing writes notes and can outlast the call while still
+ * landing (01:26 and 02:31 on 2026-10-25). A mark that cannot be written
+ * files nothing.
  */
 export async function reviewConversation({ env, store, session, controlPlane, history, key, reason, after = [], request = requestViaGateway, log = (line) => console.log(line) }) {
   if (env?.TEX_REVIEW !== "on") return null;
@@ -283,6 +286,9 @@ export async function reviewConversation({ env, store, session, controlPlane, hi
     log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed: null }));
     return null;
   }
+  // A filing that never answered (timed out, cut off) may well have landed: its turns stay marked. Only a
+  // control plane that answered "nothing filed" gives them back, or the next review scores them again.
+  let answered = true;
   const filed = await controlPlane
     .fileTexReview(session.accessToken, {
       reason,
@@ -293,8 +299,11 @@ export async function reviewConversation({ env, store, session, controlPlane, hi
       texts: turns.filter((turn) => turn.role === "user").length,
       ...(tier === "full" ? { words: { ...review.words, transcript } } : {}),
     })
-    .catch(() => null);
-  if (filed === null) await unclaim();
+    .catch(() => {
+      answered = false;
+      return null;
+    });
+  if (filed === null && answered) await unclaim();
   // Numbers only: never anybody's words.
   log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed, ...review.scores, task: review.task, signals: review.signals }));
   return filed;

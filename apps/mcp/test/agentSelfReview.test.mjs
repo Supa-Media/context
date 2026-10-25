@@ -26,12 +26,18 @@
  *     filed nothing leaves its turns for the next one" fails.
  *  7. Asking the model when the mark could not be written. → "a mark that
  *     cannot be written files nothing" fails.
+ *  8. Putting the old mark back when the filing threw (timed out), as #2153
+ *     did. → "a filing that timed out keeps its turns marked" fails: the
+ *     second review reads the teapot again.
+ *  9. Filing on the default 8 s control-plane timeout. → "filing a review
+ *     waits longer than a lookup" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { appendConversation } from "../src/agent/conversation.js";
+import { createFeedbackMethods, TEX_REVIEW_FILE_TIMEOUT_MS } from "../src/controlPlane/feedback.js";
 import { handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
 
 const ENV = { TEX_REVIEW: "on", AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "gw-fake", AI_GATEWAY_TOKEN: "fake-token-0123456789abcdef" };
@@ -172,6 +178,27 @@ test("a review that filed nothing leaves its turns for the next one", async () =
   assert.equal(await run({ ...plane("scores"), fileTexReview: async () => null }), null);
   assert.equal(await run(plane("scores")), "scores");
   assert.match(model.asked[1].messages[0].text, /avocado/);
+});
+
+test("a filing that timed out keeps its turns marked: it may have landed", async () => {
+  const store = memoryStore();
+  let history = await texted(store, ["what is this teapot", "A cast iron teapot."]);
+  const model = road(JSON.stringify({ scores: SCORES }));
+  const timedOut = { ...plane("scores"), fileTexReview: async () => { throw new Error("timed out"); } };
+  const run = (h, control) => reviewConversation({ env: ENV, store, session: SESSION, controlPlane: control, history: h, key: "texts", reason: "ended", request: model.request, log: () => {} });
+  assert.equal(await run(history, timedOut), null);
+  history = [...history, { role: "user", text: "and the banana one?" }, { role: "assistant", text: "Found it too." }];
+  assert.equal(await run(history, plane("scores")), "scores");
+  assert.match(model.asked[1].messages[0].text, /banana/);
+  assert.doesNotMatch(model.asked[1].messages[0].text, /teapot/);
+});
+
+test("filing a review waits longer than a lookup", async () => {
+  const calls = [];
+  const methods = createFeedbackMethods({ post: async (path, body, options) => (calls.push(options), { review: { filed: "scores" } }) });
+  assert.equal(await methods.fileTexReview("tok-fake", { reason: "ended" }), "scores");
+  assert.equal(calls[0]?.timeoutMs, TEX_REVIEW_FILE_TIMEOUT_MS);
+  assert.ok(TEX_REVIEW_FILE_TIMEOUT_MS >= 20_000);
 });
 
 test("a mark that cannot be written files nothing", async () => {
