@@ -135,7 +135,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/design/tokens/colors.ts": "92b0e95c68ae693605f0972b90f6b6a89800b39c167dcdfb0a898f4e04730d3e",
   "apps/mobile/features/voice/dictation.ts": "29495a2188a79f0eaa8d2b64d862eca0892f1edd4da6394474015d66d2223e6b",
   "packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
-  "packages/drawings/src/excalidraw.js": "d190b7c15675c34e0ad07b8d83a4766c1cdc661b50322f5e6112be5084ac9e1b",
+  "packages/drawings/src/excalidraw.js": "ee42dbc80d383f49b5a5e635355236da0ff5dee8950b1b55d2fd73f0a6ab6519",
   "packages/drawings/src/index.js": "451d7003cf2dea1669a0aba7164a15401e03b0dd087c89055a471b2612044dd9",
   "packages/drawings/src/lzstring.js": "8c1c9e3bb2f221e0debbfa29229da5759edfb57050cac1424850a7ea9a35166d",
   "packages/drawings/src/scaffold.js": "e79a24748f10a678bf9a3a2fbcf046d140fd58c90dfafd631ca33806a51edc82",
