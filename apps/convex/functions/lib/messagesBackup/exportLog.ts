@@ -13,6 +13,7 @@
 
 import { BACKUP_PREFIX } from "../../../../../packages/communications/src/backup.js";
 import { BACKUP_LOG_PREFIX, LOG_PAGE_OBJECTS, readLogPage } from "../../../../../packages/communications/src/backupLog.js";
+import { recentReads, recordRead } from "../../../../../packages/communications/src/backupReads.js";
 import type { FileStore } from "../fileOps/store";
 
 export { LOG_PAGE_OBJECTS };
@@ -21,7 +22,19 @@ export const MESSAGES_BACKUP_PREFIX: string = BACKUP_PREFIX;
 /** Keys one erase page deletes at most. */
 export const ERASE_PAGE_KEYS = 500;
 
-export type MessagesBackupOperation = { kind: "readMessagesLog"; after?: string } | { kind: "eraseMessagesBackup"; after?: string };
+export type MessagesBackupOperation =
+  | { kind: "readMessagesLog"; after?: string }
+  | { kind: "eraseMessagesBackup"; after?: string }
+  | { kind: "readMessagesReads" };
+
+/** Who read the backup, newest first: a name, a kind of read, and when (`backupReads.js`). */
+export interface MessagesReadsPage {
+  kind: "messagesReads";
+  reads: { at: number; who: string; how: string }[];
+}
+
+/** How the console's own download (Download as folders) is named in the read history: "You downloaded the backup". */
+export const CONSOLE_DOWNLOAD_READER = "You";
 
 export interface MessagesLogPage {
   kind: "messagesLog";
@@ -38,12 +51,18 @@ export interface MessagesErasedPage {
 }
 
 export function isMessagesBackupOperation(operation: { kind: string }): operation is MessagesBackupOperation {
-  return operation.kind === "readMessagesLog" || operation.kind === "eraseMessagesBackup";
+  return operation.kind === "readMessagesLog" || operation.kind === "eraseMessagesBackup" || operation.kind === "readMessagesReads";
 }
 
-export async function runMessagesBackupOperation(store: FileStore, operation: MessagesBackupOperation): Promise<MessagesLogPage | MessagesErasedPage> {
+export async function runMessagesBackupOperation(
+  store: FileStore,
+  operation: MessagesBackupOperation,
+): Promise<MessagesLogPage | MessagesErasedPage | MessagesReadsPage> {
+  if (operation.kind === "readMessagesReads") return { kind: "messagesReads", reads: await recentReads(store) };
   if (operation.kind === "readMessagesLog") {
     const page = (await readLogPage(store, operation.after)) as { objects: { key: string; text: string }[]; next: string | null };
+    // A download's first page, when there is a backup to read, is written down as one read, for Who reads them.
+    if (operation.after === undefined && page.objects.length > 0) await recordRead(store, { who: CONSOLE_DOWNLOAD_READER, how: "downloaded" });
     return { kind: "messagesLog", ...page };
   }
   return await eraseMessagesBackupPage(store, operation.after);

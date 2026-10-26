@@ -10,14 +10,16 @@
  *  - erase the whole `.context/` prefix: other plumbing goes too;
  *  - leave `texts_fts` out of the erase: the index still finds the words;
  *  - drop the prefix check on `after`: a page reads notes after a chosen key;
- *  - answer `next: null` after the first page: the second page is never read.
+ *  - answer `next: null` after the first page: the second page is never read;
+ *  - record every page of a download as a read: the history shows two;
+ *  - drop the owner check in `recentReads`: a member reads who read the texts.
  */
 
 import { createRequire } from "node:module";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { ERASE_PAGE_KEYS, LOG_PAGE_OBJECTS, MESSAGES_BACKUP_PREFIX, MESSAGES_LOG_PREFIX } from "../../functions/lib/messagesBackup/exportLog";
+import { CONSOLE_DOWNLOAD_READER, ERASE_PAGE_KEYS, LOG_PAGE_OBJECTS, MESSAGES_BACKUP_PREFIX, MESSAGES_LOG_PREFIX } from "../../functions/lib/messagesBackup/exportLog";
 import { TEXTS_ERASE_STATEMENTS } from "../../functions/messagesExport";
 import { TEXTS_STATEMENTS } from "../../../mcp/src/communications/textsIndex.js";
 import { FAKE_STORAGE, addMember, asUser, createUser, createWorkspace, drainScheduled, seedStorageBinding, setupTest, type TestConvex } from "../fixtures.helpers";
@@ -145,4 +147,29 @@ test("the index is emptied by statements that run on a database that never had i
     expect(db.prepare("SELECT COUNT(*) AS n FROM texts_fts").get()).toEqual({ n: 0 });
     expect(db.prepare("SELECT key FROM index_state").all()).toEqual(filled ? [{ key: "search_other" }] : []);
   }
+});
+
+test("Who reads them: the owner's download is written down once, and only the owner reads the history", async () => {
+  const f = await backedUp(LOG_PAGE_OBJECTS + 3);
+  const first = await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId, after: first.next ?? undefined });
+  await f.member.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  const reads = await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId });
+  expect(reads.map(({ who, how }) => ({ who, how }))).toEqual([{ who: CONSOLE_DOWNLOAD_READER, how: "downloaded" }]);
+  expect(await f.member.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
+});
+
+test("Who reads them: a download with no backup to read is not a read", async () => {
+  const f = await backedUp(0);
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
+});
+
+test("Delete the backup takes its read history with it", async () => {
+  const f = await withBackup();
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toHaveLength(1);
+  await f.owner.action(api.functions.messagesExport.deleteBackup, { workspaceId: f.workspaceId });
+  await drainScheduled(f.t);
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
 });

@@ -9,7 +9,7 @@
 import type { FolderNotesResult } from "./folderNotes";
 import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
-import type { MessagesErasedPage, MessagesLogPage } from "../messagesBackup/exportLog";
+import type { MessagesErasedPage, MessagesLogPage, MessagesReadsPage } from "../messagesBackup/exportLog";
 import type {
   ContextMoveExport,
   ContextMoveImport,
@@ -174,6 +174,8 @@ export type FileOperation =
   | { kind: "readMessagesLog"; after?: string }
   /** A page of the Messages backup deleted, when its owner deletes it (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
   | { kind: "eraseMessagesBackup"; after?: string }
+  /** Who read the Messages backup, for Settings › Messages (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
+  | { kind: "readMessagesReads" }
   /** A queued move's links followed (`lib/nodes/linkRepair.ts`); run by the barrier. */
   | { kind: "repairLinks"; pairs: { from: string; to: string }[] }
   | { kind: "delete"; path: string; confirmation: string }
@@ -400,6 +402,7 @@ export type OperationResult =
   | { kind: "oldCopyTexts"; results: OldCopyText[] }
   | MessagesLogPage
   | MessagesErasedPage
+  | MessagesReadsPage
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */

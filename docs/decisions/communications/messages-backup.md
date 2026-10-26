@@ -170,6 +170,20 @@ than only what came after; anywhere else, the second ask says a Mac still
 backing up goes on copying new texts. Nothing else under `.context/` is
 touched.
 
+**Who reads them is a history kept beside the backup, of who and what kind,
+never what.** Each search, list or read of the texts by an AI client, and the
+first page of each download (the Mac app's, or the owner's Download as
+folders, shown as "You"), writes one small record under
+`.context/messages/imessage/reads/<yyyy>/<mm>/` (`backupReads.js`): the
+client's name as it registered, cleaned to one plain line, a kind from a
+closed set (searched, listed, read, downloaded) and when. No query, no
+conversation, no person texted. It lives in the person's own bucket rather
+than the control plane, for the reason usage counters carry no query: what a
+person's AIs read is theirs. It sits under the backup, so Delete the backup
+takes it too. A read that cannot be written down is still answered; a
+refused read writes nothing. Settings › Messages lists the newest five from
+the last two months, for the owner only (`messagesExport.recentReads`).
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -191,6 +205,9 @@ the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
 page, never outside the log; Delete the backup erases every page and nothing
 else, and empties the index), `apps/mobile/__tests__/messagesDownload.test.ts`
-(a short log puts nothing in unsaid), `backupTranscript.test.mjs`, and
+(a short log puts nothing in unsaid), `backupTranscript.test.mjs`,
+`backupReads.test.mjs` and the read test in `apps/mcp/test/texts.test.mjs`
+(who and what kind, never what; one read per download; none for a refusal),
+and
 `apps/desktop/test/messagesDownload.test.mjs` (nothing written before the
 log is read, no broken links, a new folder, no path outside it).

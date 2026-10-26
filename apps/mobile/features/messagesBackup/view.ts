@@ -147,3 +147,22 @@ export function downloadLine(result: MessagesBackupDownload): string {
   if (result.notCopied === 0) return saved;
   return `${saved} ${plural(result.notCopied, "file was", "files were")} never copied, so ${result.notCopied === 1 ? "it is" : "they are"} named instead.`;
 }
+
+/** One read in the read history (board 2, "Who reads them"), finished from the closed set of kinds. */
+export interface BackupRead {
+  at: number;
+  who: string;
+  how: string;
+}
+
+const READ_PHRASES: Record<string, string> = {
+  searched: "searched your texts",
+  listed: "looked through your conversations",
+  read: "read a conversation",
+  downloaded: "downloaded the backup",
+};
+
+/** "Claude searched your texts · 2 hours ago": who, what kind of read, and when, never what was read. */
+export function readLine(read: BackupRead, now: number): string {
+  return `${read.who} ${READ_PHRASES[read.how] ?? "read your texts"} · ${ago(read.at, now)}`;
+}

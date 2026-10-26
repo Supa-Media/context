@@ -13,11 +13,17 @@ jest.mock("react-native-safe-area-context", () => ({
 
 // Every action the page runs, by the arguments it was given (Delete the backup's is the one that matters).
 const actionCalls: unknown[] = [];
+let mockReads: { at: number; who: string; how: string }[] = [];
 
 jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
   useConvex: () => ({}),
-  useAction: () => async (args: unknown) => void actionCalls.push(args),
+  // The read history answers from `mockReads`; every other action is recorded.
+  useAction: (ref: unknown) => async (args: unknown) =>
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require("convex/server") as typeof import("convex/server")).getFunctionName(ref as never).endsWith("recentReads")
+      ? mockReads
+      : void actionCalls.push(args),
   useQuery: () => undefined,
   useMutation: () => async () => undefined,
 }));
@@ -44,6 +50,7 @@ import { has, installShell, mount, resetDesktop, teardownDesktop } from "./fixtu
  *   Download not saying what it saved                                       1
  *   Delete the backup deleting on the first press                           1
  *   Delete the backup not turning this Mac's backup off first               1
+ *   the read history not drawn in Who reads them                            1
  *   (the phase and outdated rows are in `messagesBackupView.test.ts`)
  */
 
@@ -242,6 +249,23 @@ describe("Settings › Messages", () => {
     await settle();
     expect(actionCalls).toEqual([{ workspaceId: "ws_mine" }]);
     mounted.unmount();
+  });
+
+  test("who reads them: the newest reads, by name and kind, never what was read", async () => {
+    mockReads = [
+      { at: Date.now() - 2 * 3_600_000, who: "Claude", how: "searched" },
+      { at: Date.now() - 3 * 86_400_000, who: "You", how: "downloaded" },
+    ];
+    const mounted = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+    const lines = [...mounted.container.querySelectorAll('[data-testid="messages-read"]')].map((line) => line.textContent);
+    expect(lines).toEqual(["Claude searched your texts \u00b7 2 hours ago", "You downloaded the backup \u00b7 3 days ago"]);
+    mounted.unmount();
+    mockReads = [];
+    const none = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+    expect(has(none.container, "messages-reads-none")).toBe(true);
+    none.unmount();
   });
 
   test("an account with no workspace of its own has nowhere to keep texts", async () => {

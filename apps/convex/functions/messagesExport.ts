@@ -22,7 +22,7 @@ import { TEXTS_STATE, TEXTS_STATEMENTS } from "../../mcp/src/communications/text
 import { recordAudit } from "./lib/audit";
 import { searchDatabaseClient } from "./lib/fastSearchFns/client";
 import { callerId } from "./lib/filesFns/access";
-import type { MessagesErasedPage, MessagesLogPage } from "./lib/messagesBackup/exportLog";
+import type { MessagesErasedPage, MessagesLogPage, MessagesReadsPage } from "./lib/messagesBackup/exportLog";
 
 const pageValidator = v.object({
   objects: v.array(v.object({ key: v.string(), text: v.string() })),
@@ -114,5 +114,28 @@ export const eraseBackupPage = internalAction({
       }
     }
     return null;
+  },
+});
+
+const readValidator = v.object({ at: v.number(), who: v.string(), how: v.string() });
+
+/** Who read the backup lately, newest first, for Settings › Messages › Who reads them; nothing for anyone but the owner. */
+export const recentReads = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(readValidator),
+  handler: async (ctx, { workspaceId }): Promise<(typeof readValidator.type)[]> => {
+    const actorUserId = await callerId(ctx);
+    try {
+      await ctx.runQuery(internal.functions.files.authorizeFileAccess, { actorUserId, workspaceId, minimum: "owner" });
+    } catch (error) {
+      if (error instanceof ConvexError) return [];
+      throw error;
+    }
+    const page = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "readMessagesReads" },
+    })) as MessagesReadsPage;
+    return page.reads;
   },
 });

@@ -13,6 +13,7 @@
 
 import { chatsFor, listTextChats, namesFor, readTextChat, searchTexts } from "../communications/textsRead.js";
 import { textsCatchUp, textsClientOf } from "../communications/textsIndex.js";
+import { recordRead } from "../../../../packages/communications/src/backupReads.js";
 import { toolError, toolText } from "./results.js";
 
 export const TEXTS_ID_PREFIX = "texts:";
@@ -71,6 +72,11 @@ async function open(store) {
   }
 }
 
+/** Written down for Settings › Messages › Who reads them (`backupReads.js`): who, and what kind of read, never what. */
+async function noted(store, how) {
+  await recordRead(store, { who: store.texts?.reader, how });
+}
+
 const STILL_INDEXING = "Older texts are still being indexed, so this may not reach back to the start.";
 
 export async function toolSearchTexts(store, args = {}) {
@@ -87,6 +93,7 @@ export async function toolSearchTexts(store, args = {}) {
     return toolError(TEXTS_REFUSED.unavailable);
   }
   if (found.refused) return toolError(found.refused);
+  await noted(store, "searched");
   const chats = await chatsFor(opened.client, found.messages.map((m) => m.chat));
   const names = await namesFor(opened.client, [...found.messages.map((m) => m.from), ...[...chats.values()].flatMap((c) => c.members ?? [])]);
   const lines = found.messages.map((record) => `- ${lineOf(record, names)} — in ${chatTitle(chats.get(record.chat), names)} [${TEXTS_ID_PREFIX}${record.chat}]`);
@@ -103,6 +110,7 @@ export async function toolListTexts(store, args = {}) {
   } catch {
     return toolError(TEXTS_REFUSED.unavailable);
   }
+  await noted(store, "listed");
   const names = await namesFor(opened.client, chats.flatMap(({ chat }) => chat.members ?? []));
   const lines = chats.map(({ chat, last }) => `- ${chatTitle(chat, names)}${last ? ` · last ${new Date(last).toISOString().slice(0, 10)}` : ""} [${TEXTS_ID_PREFIX}${chat.id}]`);
   const head = lines.length === 0 ? "No texts are backed up yet." : "Their conversations, most recent first:";
@@ -125,6 +133,7 @@ export async function toolReadTexts(store, args = {}) {
     return toolError(TEXTS_REFUSED.unavailable);
   }
   if (read.chat === null && read.records.length === 0) return toolError("No conversation has that id.");
+  await noted(store, "read");
   const names = await namesFor(opened.client, [...(read.chat?.members ?? []), ...read.records.map((r) => r.from)]);
   const lines = read.records.map((record) => `- ${lineOf(record, names)}`);
   const head = `${chatTitle(read.chat, names)}: the newest ${lines.length} within those dates, oldest first. Pass before with the first date to read earlier.`;
