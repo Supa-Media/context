@@ -67,6 +67,26 @@ test("the pattern is a whole-name match: * any run, ? one character, no folders"
   assert.equal(namePattern(""), null);
 });
 
+test("the pattern takes sets and alternatives, so a quarter of dated notes is one pattern", () => {
+  const quarter = namePattern("run-log-2026-{01,02,03}-*");
+  assert.ok(quarter.test("run-log-2026-02-14-17.md") && !quarter.test("run-log-2026-04-01-30.md"));
+  assert.ok(namePattern("run-log-2026-0[1-3]-*").test("run-log-2026-03-31.md"));
+  assert.ok(!namePattern("run-log-2026-0[!1-3]-*").test("run-log-2026-03-31.md"));
+  assert.ok(namePattern("a(b)+c.md").test("a(b)+c.md"), "regex characters outside a set or alternative are literal");
+  assert.equal(namePattern("run-{01,02"), null);
+  assert.equal(namePattern("run-[01"), null);
+});
+
+test("a bare into is a subfolder of the folder the notes are in", async () => {
+  const session = sessionOver(PATHS.slice(0, 3));
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "*", into: "coverage" });
+
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.ok(session.moves()[0].args.moves.every((move) => move.destination.startsWith(`${FOLDER}/coverage/`)));
+});
+
 test("move_notes by name moves only the notes directly in the folder whose names match, 100 a batch, each logged", async () => {
   const session = sessionOver(PATHS);
   const guard = housekeepingCallTool(session.dispatch);
