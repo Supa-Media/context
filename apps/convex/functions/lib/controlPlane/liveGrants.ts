@@ -189,6 +189,7 @@ export async function contextsForGrant(
     role: string;
     kind: "personal" | "shared";
     grantedNames?: string[];
+    setupOnly?: true;
   }>
 > {
   const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
@@ -208,8 +209,12 @@ export async function contextsForGrant(
     own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
   }
   // A group chat's grant reaches its one workspace and nothing else: not the
-  // tagger's other memberships, not their personal workspace, not the pin.
+  // tagger's other memberships, not their personal workspace. The pin comes
+  // back marked `setupOnly`: the gateway never lists or addresses it, and
+  // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
+  // already runs on (`apps/mcp/src/agent/production.js`).
   if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
+    const setup = await groupSetupRow(ctx, live, own.workspaceId);
     // A guest chat's reads only what is shared with its group, as a guest reads (`lib/nodes/chatFolders.ts`).
     const chatGroupId = live.grant.texGroup?.guestGroupId;
     if (chatGroupId !== undefined) {
@@ -218,9 +223,9 @@ export async function contextsForGrant(
       // Never more than an editor's hand there, whoever opened it: an owner's tools (visibility, links) stay theirs.
       const role = own.role === "owner" ? "editor" : own.role;
       const grantedNames = chatNamesOf(chatGroupId, chatGroup.name, await accessRowsOf(ctx, own.workspaceId));
-      return [{ ...own, role, grantedNames }];
+      return [{ ...own, role, grantedNames }, ...setup];
     }
-    return [own];
+    return [own, ...setup];
   }
 
   const memberships = await ctx.db
@@ -277,4 +282,21 @@ export async function contextsForGrant(
   }
 
   return rows;
+}
+
+/**
+ * The pin for a group chat's grant, as a row the gateway may open only to read
+ * Tex's setup, or nothing: no pin on this deployment, or the chat's own
+ * workspace is the pin (then the setup is read there already).
+ */
+async function groupSetupRow(ctx: QueryCtx, live: LiveGrant, own: Id<"workspaces">) {
+  const pinned = await pinnedContextRow(ctx, new Set([own]));
+  if (pinned === null) return [];
+  const names = (await pinReaderNames(ctx, pinned.workspaceId, live.grant.userId)) ?? [];
+  return [{ ...pinned, ...(names.length === 0 ? {} : { grantedNames: names }), setupOnly: true as const }];
+}
+
+/** The rows a clearance may act on: never the setup-only pin of a group chat's grant. */
+export function addressable<T extends { setupOnly?: true }>(rows: T[]): T[] {
+  return rows.filter((row) => row.setupOnly !== true);
 }
