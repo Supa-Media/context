@@ -249,3 +249,31 @@ stand on an earlier turn's failure, which is the behaviour this replaces.
 
 **Tests.** `apps/mcp/test/agentBrowserUntried.test.mjs`, sabotage record in
 its header.
+
+## Research is finished when the figure asked for is there (2026-10-26)
+
+A group's self-review caught a background job asked for three dinner options
+at about $10 a person for 30 people texting "finished" with only the mains
+priced ("Next step is pricing the sides"), and the next turn, after "catering
+only", listing caterers to check and ending "I can write these up if you
+want". Stopping at a plan for the looking that was asked for is a hand-back
+(H12): looking up a published menu or price is Tex's, and only contacting
+someone (an email, a call, a quote request) waits for a yes.
+
+So an answer that says part of the ask is still missing, names its own next
+step, or offers to keep looking gets one more round telling Tex to do it now
+(`apps/mcp/src/agent/stopsShort.js`, through `claimCheck.js`). A background
+job whose final answer still stops short is not done: the gateway marks it
+`unfinished`, keeps it out of the conversation, and the Worker
+(`apps/agent/src/jobRun.ts`) runs another part shown that answer to finish,
+up to the job's last part, which texts what it has with the missing part
+named. The job prompt says finished means every figure counted, and the
+start-job tool asks the one question that changes the brief (cook, or have
+it catered?) before starting, rather than guessing. Removing the `unfinished`
+carry-on would let a job text "finished" with half the answer again.
+
+**Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
+`apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
+`apps/agent/src/jobs.test.ts`; hand-back bench case 9
+(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`).
+Sabotage records in the tests' headers.

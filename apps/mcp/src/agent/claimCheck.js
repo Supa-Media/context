@@ -455,7 +455,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       };
     },
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
-    unfinished: (answer) => unfinishedJob(job, answer),
+    unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
       const shaped = shape(answer, steps);
       if (shaped !== null) return shaped;

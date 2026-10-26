@@ -19,6 +19,8 @@
  *     stops short gets one more round, once" fails.
  *  4. `unfinishedJob` ignoring `MAX_JOB_ATTEMPTS`. → "a job's last part is
  *     never unfinished" fails.
+ *  5. `claimCheck`'s `unfinished` without `!held`. → "a job's answer
+ *     holding an ask for their yes always goes out" fails.
  */
 
 import assert from "node:assert/strict";
@@ -72,6 +74,7 @@ test("a finished answer, a fair ask or a step only someone else can take is not 
     "Do you want to cook, or have it catered?",
     "The table is booked for 7 pm; the restaurant emails a confirmation within the hour.",
     "Added smoke alarm battery to your to-do list.",
+    "Your order is placed; next step is the courier picking it up at 6.",
   ]) {
     assert.equal(stopsShort(said), false, said);
   }
@@ -97,6 +100,12 @@ test("a job's last part is never unfinished", () => {
   assert.equal(unfinishedJob({ attempt: 1 }, "Three caterers at $8.50, $9.50 and $10 a person, all in."), false);
   assert.equal(claimCheck({ question: "x", job: { attempt: 1 } }).unfinished(DINNER_JOB), true);
   assert.equal(claimCheck({ question: "x" }).unfinished(DINNER_JOB), false);
+});
+
+test("a job's answer holding an ask for their yes always goes out", async () => {
+  const watch = claimCheck({ question: "x", job: { attempt: 1 } });
+  await watch.wrap(async () => ({ held: true, content: [{ type: "text", text: "Held for their yes." }] }))("send_email", {});
+  assert.equal(watch.unfinished(DINNER_JOB), false);
 });
 
 test("a job that stopped short is told so in its next part", () => {

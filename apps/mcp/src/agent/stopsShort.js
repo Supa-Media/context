@@ -28,7 +28,7 @@ const LOOKING = String.raw`(?:priced|costed|checked|confirmed|compared|researche
 
 /** It says a piece of what was asked is still missing, or names its own next step. */
 const SHORT = [
-  /\b(?:the |my |our )?next steps? (?:is|are|would be|will be|here is|from here is)\b/i,
+  /\bnext steps? (?:is|are|would be|will be|from here is)\s+(?:to\s+)?(?:price|pricing|cost|costing|check|checking|compare|comparing|research|researching|look|looking|find|finding|get|getting|confirm|confirming|call|calling|ask|asking|reach|reaching)\b/i,
   new RegExp(String.raw`(?:\bnot|n't)\s+(?:been\s+|yet\s+)?${LOOKING}\s+(?:\w+\s+){0,3}?yet\b`, "i"),
   new RegExp(String.raw`(?:\bnot|n't)\s+(?:been\s+)?yet\s+${LOOKING}\b`, "i"),
   /\bno (?:price|prices|pricing|cost|costs|quote|quotes|figure|figures|total|totals) (?:\w+\s+){0,3}?yet\b/i,
