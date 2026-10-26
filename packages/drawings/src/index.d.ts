@@ -59,7 +59,7 @@ export interface Drawing {
   /** Null exactly when `unreadable` is not null. */
   elements: DrawingElement[] | null;
   appState: Record<string, unknown> | null;
-  /** True when the element list was cut at `MAX_ELEMENTS`. */
+  /** True when the element list was cut at `MAX_ELEMENTS`, or the file at `MAX_DRAWING_CHARS`. */
   truncated: boolean;
   unreadable: DrawingUnreadable;
   payloadChars: number;

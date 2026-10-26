@@ -50,6 +50,25 @@ export async function runSearchIndexerChecks(check) {
   }
 
   {
+    // Closing hashes are stripped by a linear scan, with the same output as the
+    // regex it replaced (`/[ \t]+#+$/` on the trimmed heading text).
+    const regexStrip = (line) => line.trim().replace(/[ \t]+#+$/, "").trim();
+    const headings = ["Title ##", "Title", "###", "C#", "a #b #", "Tab\t#", "x  # ##", "F# notes", "Mixed \t ###", "#hash", "trailing #  "];
+    for (const h of headings) {
+      check(`closing hashes strip as before: ${JSON.stringify(h)}`, extractFields("n/x.md", `# ${h}\n`).title === regexStrip(h));
+    }
+    // A long run of spaces (and of hashes) used to take seconds.
+    const spaces = "a" + " ".repeat(50000) + "x";
+    const spacesAndHashes = "a" + " ".repeat(50000) + "#".repeat(50000) + "x";
+    for (const [text, expected] of [[spaces, spaces], [spacesAndHashes, spacesAndHashes], ["a " + "#".repeat(50000), "a"]]) {
+      const started = performance.now();
+      const fields = extractFields("n/slow.md", `# ${text}\n`);
+      const ms = performance.now() - started;
+      check(`a pathological heading is stripped in under 250 ms (took ${Math.round(ms)} ms)`, ms < 250 && fields.title === expected);
+    }
+  }
+
+  {
     const content =
       "---\n" +
       "tags: [Project-X, planning]\n" +

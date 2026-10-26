@@ -42,6 +42,19 @@ const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
 const MDLINK_RE = /\[([^\]]*)\]\(([^)\s]+)(?:[ \t]+"[^"]*")?\)/g;
 const LINK_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
+/**
+ * `Title ##` -> `Title`: an optional closing run of `#` after a space or tab.
+ * A scan from the end, because the regex it replaces (`/[ \t]+#+$/`) retried
+ * from every space and took quadratic time on a long run of spaces.
+ */
+function stripClosingHashes(text) {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "#") end -= 1;
+  if (end === text.length || end === 0 || (text[end - 1] !== " " && text[end - 1] !== "\t")) return text;
+  while (end > 0 && (text[end - 1] === " " || text[end - 1] === "\t")) end -= 1;
+  return text.slice(0, end);
+}
+
 /** `'x'` / `"x"` → `x`; anything else passed through trimmed. */
 function unquote(raw) {
   const t = raw.trim();
@@ -188,7 +201,7 @@ export function extractFields(path, content) {
 
   const headingTexts = [];
   for (const m of rest.matchAll(HEADING_TEXT_RE)) {
-    const text = m[1].trim().replace(/[ \t]+#+$/, "").trim();
+    const text = stripClosingHashes(m[1].trim()).trim();
     headingTexts.push(text);
   }
   const basename = path.slice(path.lastIndexOf("/") + 1);
