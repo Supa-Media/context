@@ -625,8 +625,9 @@ async function sendPicture(storage: InboxStorage, deps: GroupDeps, message: Grou
     if (url === null) throw new ServiceError("sendblue", 400);
     await sendGroupMedia(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, url, message.messageId);
   } catch (error) {
-    const status = (error as { status?: number | null }).status;
-    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
+    // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
+    // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.
+    log("picture_failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "host");
     await say(storage, deps, message, PICTURE_FAILED);
   }
 }

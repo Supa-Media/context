@@ -81,3 +81,27 @@ export const VISUAL_TOO =
   "And the answer is a list they'd read better as a picture: when you answer, send it as one of your cards (send with action " +
   "draw_visual, the template that fits, every item and figure you have), then ONE line of 25 words at most and [picture N] on its " +
   "own line. Never repeat the list in words.";
+
+/** They asked for a picture outright: "make a graphic for this", "can you draw it", "send me a chart". */
+const ASKS_FOR_A_PICTURE = /\b(?:make|draw|send|give|create|turn (?:it|this|that) into|show (?:me|us)|can (?:i|we) (?:get|have)|do)\b[^.?!\n]{0,40}\b(?:graphics?|pictures?|visuals?|charts?|diagrams?|infographics?|images?|cards?|one[- ]pagers?)\b/i;
+/** An answer that says a picture is coming with it. */
+const SAYS_A_PICTURE = /\b(?:here(?:'|’)?s|here is|attached|sent you|sending)\b[^.\n]{0,30}\b(?:graphic|picture|visual|chart|diagram|infographic|image|card|one[- ]pager|one[- ]page version)\b/i;
+
+/**
+ * Whether this answer owes a picture it has none of: they asked for one
+ * outright, or the answer says "here's the graphic", and nothing drawn this
+ * turn worked. (A drawing that worked goes with the answer even when the
+ * answer forgot to name it: `outgoingPictures.js`.)
+ */
+export function owesAPicture(answer, { question = "", steps = [] } = {}) {
+  if (typeof answer !== "string") return false;
+  if (steps.some((step) => DRAWN.has(step.name) && step.ok)) return false;
+  // A picture it names ("[picture 1]", one read from a note or a page) goes with the answer.
+  if (/^\s*\[picture [^\]\n]+\]\s*$/im.test(answer)) return false;
+  return ASKS_FOR_A_PICTURE.test(question) || SAYS_A_PICTURE.test(answer.replace(/[‘’]/g, "'"));
+}
+
+export const OWED_PICTURE_NOTICE =
+  "That answer has no picture with it: nothing was drawn this turn, so nothing would be sent, yet they asked for one or your words say one is there. " +
+  "Draw it now: call send with action draw_visual and the template that fits (board, plan, steps, system or compare for an idea or a project; " +
+  "places or option for places and choices), then reply with ONE line and [picture N] on its own line. If drawing fails, say so in a few words and give the answer in words.";
