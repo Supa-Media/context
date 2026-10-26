@@ -233,7 +233,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 14,000 when they were told to ask the one brief-changing question and price the whole figure (prompt.js, RESEARCH_LINE, 2026-10-26; 14,278 then).
   // and from 14,500 when they were told when to answer with a designed card and keep the words to one line (visuals/index.js, VISUALS_LINE, 2026-10-26; 15,189 then).
   // and from 15,500 when asked-for options carry the fact that decides each, and a card that won't draw leaves the words (RESEARCH_LINE, VISUALS_LINE, 2026-10-26; 15,576 then).
-  assert.ok(system.length < 16_000, `system was ${system.length} characters`);
+  // and from 16,000 when they were told one name can be two people and where a lesson for Tex goes (SAME_NAME_LINE, LESSONS_LINE, 2026-10-26; 16,120 then).
+  assert.ok(system.length < 16_500, `system was ${system.length} characters`);
 });
 
 test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {

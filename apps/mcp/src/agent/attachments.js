@@ -173,10 +173,11 @@ export async function hearVoiceMessages(attachments, transcribe, callerId) {
 
 /** Whether a text carries a data file (a CSV, a spreadsheet) bigger than a glance: a turn worth planning on the thinking model. */
 export function carriesData(attachments) {
-  return attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && DATA_FILE.test(attachment.name) && attachment.text.length > 2_000);
+  return attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && !attachment.carried && DATA_FILE.test(attachment.name) && attachment.text.length > 2_000);
 }
 
 const isPicture = (attachment) => typeof attachment.data === "string" && IMAGE_TYPES.has(attachment.mediaType);
+const isPdf = (attachment) => typeof attachment.data === "string" && attachment.mediaType === PDF;
 
 /** Whether a turn came with a picture. */
 export const carriesPictures = (attachments) => attachments.some(isPicture);
@@ -192,7 +193,8 @@ export const seesPictures = (model) => typeof model === "string" && model.starts
  * Opus, Opus after Haiku), and only with none on the blind one.
  */
 export function pictureFallback(fallback, models, attachments) {
-  if (fallback === null || seesPictures(fallback) || !attachments.some(isPicture)) return fallback;
+  // A PDF too: the fallback that is blind to pictures is blind to a document's pages (`plainAttachmentText`).
+  if (fallback === null || seesPictures(fallback) || !attachments.some((attachment) => isPicture(attachment) || isPdf(attachment))) return fallback;
   const seeing = [...new Set(models.filter(seesPictures))];
   if (seeing.length === 0) return fallback;
   return (failed) => seeing.find((model) => model !== failed) ?? fallback;
@@ -202,6 +204,11 @@ export function pictureFallback(fallback, models, attachments) {
 function describe(attachments) {
   const lines = attachments.map((attachment, index) => {
     const n = index + 1;
+    // A file an earlier text kept, shown again (`carryKeptFiles`, `keptFiles.js`).
+    if (attachment.carried) {
+      const rest = attachment.length ? ` Its first ${attachment.text.length} of ${attachment.length} characters are shown; the rest: read_file with path "${attachment.kept.id}@${attachment.text.length}".` : "";
+      return `${n}. ${attachment.name}: a file they sent earlier in this chat, kept as ${attachment.kept.id} and shown above again so you can read it now.${rest}`;
+    }
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
     if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above.`;
     if (attachment.mediaType === PDF) return `${n}. ${attachment.name}: a PDF, shown above.`;
@@ -211,12 +218,24 @@ function describe(attachments) {
       ? `${n}. ${attachment.name}: a file of ${length} characters; only the first ${MAX_TEXT_CHARS} are shown above.${attachment.kept ? ` The rest: read_file with path "${attachment.kept.id}@${MAX_TEXT_CHARS}".` : ""}`
       : `${n}. ${attachment.name}: a file, its text shown above.`;
   });
-  const kept = attachments.filter((attachment) => attachment.kept);
-  const data = attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && DATA_FILE.test(attachment.name));
+  const kept = attachments.filter((attachment) => attachment.kept && !attachment.carried);
+  const carried = attachments.some((attachment) => attachment.carried);
+  const sentNow = attachments.length - attachments.filter((attachment) => attachment.carried).length;
+  const data = attachments.some((attachment) => typeof attachment.text === "string" && !attachment.heard && !attachment.carried && DATA_FILE.test(attachment.name));
   const pictures = attachments.filter(isPicture);
+  const opening =
+    sentNow === 0
+      ? "Files from earlier in this chat, shown again:"
+      : `They sent ${sentNow === 1 ? "this attachment" : `these ${sentNow} attachments`} with this text${carried ? ", and files from earlier in this chat are shown again" : ""}:`;
   return [
-    `They sent ${attachments.length === 1 ? "this attachment" : `these ${attachments.length} attachments`} with this text:`,
+    opening,
     ...lines,
+    ...(carried
+      ? [
+          "A file shown again is one you can read right now: what you said from it earlier stands, and you never say it won't open or load, never take back what you read in it, " +
+            "and never ask them to paste, copy or send its text again.",
+        ]
+      : []),
     ...(pictures.length > 0
       ? [
           "Look at the pictures before anything else: a screenshot of a chat, an email, a ticket or a receipt is them showing you what's settled. " +
@@ -281,7 +300,9 @@ export function plainAttachmentText(attachments, text) {
  */
 export const MAX_SAVED_VOICE_CHARS = 2000;
 
-export function attachmentsLine(attachments, kept = []) {
+export function attachmentsLine(all, kept = []) {
+  // A file shown again was sent with an earlier text, which already names it.
+  const attachments = all.filter((attachment) => !attachment.carried);
   if (attachments.length === 0) return "";
   const where = new Map(kept.map((picture) => [picture.index, picture]));
   const names = attachments.map((attachment, index) => {

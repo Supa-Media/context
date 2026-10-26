@@ -30,7 +30,7 @@ import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach, meterParts } from "./modelPlan.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
-import { keepSentFiles, withKeptFiles } from "./keptFiles.js";
+import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
 import { withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
@@ -170,8 +170,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     }
     if (supervision !== null) question = supervision.question;
   }
-  // What came with the question (`attachments.js`). A routine's run has none.
-  const { attachments: sent, refusal } = turnAttachments(body.attachments, runner);
+  const { attachments: sent, refusal } = turnAttachments(body.attachments, runner); // what came with the question (`attachments.js`); a routine's run has none
   if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
   if (question.length === 0 && sent.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
@@ -241,8 +240,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
-  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs (`keptFiles.js`).
-  const attachments = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
+  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
+  const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
   const offered = await grantedToolsFor(session, store);
 
@@ -290,6 +289,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       : null;
   // A group chat remembers in its own file, never the tagger's texts; its turns are other people's words, so untrusted (`groupTurn.js`).
   const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await readConversation(store, conversation);
+  const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -475,7 +475,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         timeZone,
         question,
         quoted: quoted.words,
-        attachments,
+        attachments: fresh, // what came with this text, never a file shown again
         routine: runner ? routine.path : null,
       })
     : null;
@@ -484,7 +484,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await standingForwardTools(store, routine.path, offered)), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, pictures: carriesPictures(attachments), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
