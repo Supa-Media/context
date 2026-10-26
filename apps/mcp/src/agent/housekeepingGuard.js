@@ -30,7 +30,8 @@
  *     the run names a pattern and the gateway lists and moves the notes, a
  *     hundred a batch, each batch through every check above. Writing out
  *     ~360 moves by hand spent a run's whole budget on one timed-out call
- *     (@seyi, 2026-10-26).
+ *     (@seyi, 2026-10-26). A pattern whose notes are all one family (the
+ *     500s, one month) takes the whole family (`widened`).
  */
 
 import { mightWiden } from "../privacy/egress.js";
@@ -243,13 +244,16 @@ async function matchedMoves(dispatch, folder, pattern, into) {
 }
 
 /**
- * A note name's family: up to and including its first digit, so `log-581.md`
+ * A note name's family: up to its first digit and that digit, so `log-581.md`
  * and `log-613.md` are `log-5` and `log-6` (the 500s and the 600s go to
- * different folders) and every dated `passes-2026-…` note is `passes-2`.
+ * different folders), and a dated name up to its month, so
+ * `coverage-2026-09-18b.md` is `coverage-2026-09` (a month is one folder).
  */
-function stemOf(name) {
+export function familyOf(name) {
   const cut = name.search(/\d/);
-  return cut <= 0 ? null : name.slice(0, cut + 1);
+  if (cut <= 0) return null;
+  const month = /^\d{4}-\d{2}(?!\d)/.exec(name.slice(cut));
+  return name.slice(0, cut) + (month ? month[0] : name[cut]);
 }
 
 /** Families this size or bigger still in a folder are named back to the run. */
@@ -268,7 +272,7 @@ export function leftHint(folder, left) {
   if (left.length === 0) return `${folder}/ has no other notes directly in it.`;
   const families = new Map();
   for (const name of left) {
-    const stem = stemOf(name);
+    const stem = familyOf(name);
     if (stem !== null) families.set(stem, (families.get(stem) ?? 0) + 1);
   }
   const big = [...families].filter(([, count]) => count >= FAMILY_MIN).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -276,6 +280,29 @@ export function leftHint(folder, left) {
   if (big.length === 0) return `${head}.`;
   const named = big.map(([stem, count]) => `${stem}* (${count})`).join(", ");
   return `${head}. Whole families, one call each (match the pattern, into where they belong): ${named}.`;
+}
+
+/**
+ * A move by name whose notes are all one family takes the rest of that family
+ * too. A run that names a slice (`log-56*`, `coverage-2026-09-1*`) means the
+ * family: on 2026-10-26 a real run spent a round and a model turn on each ten
+ * notes of a crowded folder and moved 50 to 80 a run. A pattern that spans
+ * families, or a family split by something other than its name, is taken as
+ * written.
+ */
+function widened({ moves, left }, into) {
+  const families = new Set(moves.map((move) => familyOf(move.source.slice(move.source.lastIndexOf("/") + 1))));
+  const [family] = families;
+  if (families.size !== 1 || family === null) return { moves, left, family: null };
+  const joining = left.filter((name) => familyOf(name) === family);
+  if (joining.length === 0) return { moves, left, family: null };
+  const folder = moves[0].source.slice(0, moves[0].source.lastIndexOf("/"));
+  return {
+    moves: [...moves, ...joining.map((name) => ({ source: `${folder}/${name}`, destination: `${into}/${name}` }))],
+    left: left.filter((name) => familyOf(name) !== family),
+    family,
+    joined: joining.length,
+  };
 }
 
 /** The etags a dry run's plan names, by source (`- a.md (etag X) → b.md`). */
@@ -390,14 +417,16 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
     }
     if (into === folder) return refuse("into must be a different folder from folder.");
-    const { moves, left } = await matchedMoves(dispatch, folder, pattern, into);
+    const matched = await matchedMoves(dispatch, folder, pattern, into);
+    const { moves, left, family, joined } = widened(matched, into);
+    const taken = family === null ? "" : `, and the ${joined} other ${family}* notes with them`;
     if (moves.length === 0) {
       return refused(`No note directly in ${folder}/ has a name matching ${given.match}. Nothing moved. ${leftHint(folder, left)}`);
     }
     if (given.dry_run === true) {
       const shown = moves.slice(0, 10).map((move) => `- ${move.source}`);
       const more = moves.length > shown.length ? [`- and ${moves.length - shown.length} more`] : [];
-      return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match and would go into ${into}/\n${[...shown, ...more].join("\n")}\n${leftHint(folder, left)}` }] };
+      return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match${taken} and would go into ${into}/\n${[...shown, ...more].join("\n")}\n${leftHint(folder, left)}` }] };
     }
     let moved = 0;
     let slowest = 0;
@@ -448,7 +477,7 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
     return {
       content: [{
         type: "text",
-        text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}); links follow them. ${leftHint(folder, left)}`,
+        text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}${taken}); links follow them. ${leftHint(folder, left)}`,
       }],
     };
   }
