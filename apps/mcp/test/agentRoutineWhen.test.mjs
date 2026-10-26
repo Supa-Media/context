@@ -50,7 +50,7 @@ test("a time already gone, a line it can't read, and a paused one each say it wo
 test("a reminder written by text is told when it texts; any other write is not", async () => {
   const writeTools = [{ name: "write_note", inputSchema: { type: "object", properties: { path: {}, content: {}, expected_etag: {}, context: {} } } }];
   const callTool = async (name) => (name === "list_notes" ? { content: [{ type: "text", text: "" }] } : { content: [{ type: "text", text: "Saved." }] });
-  const call = textingAwareCallTool(callTool, writeTools, { timeZone: ZONE });
+  const call = textingAwareCallTool(callTool, writeTools, { timeZone: ZONE, now: () => NOW });
   const told = textOf(await call("write_note", { path: PATH, content: REMINDER }));
   assert.match(told, /^Saved\.\nIt first texts them Sunday, October 25 at 5:00 pm/);
   assert.equal(textOf(await call("write_note", { path: "todo.md", content: "- [ ] Elizabeth" })), "Saved.");

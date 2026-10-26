@@ -144,6 +144,8 @@ export function jobOf(value) {
           .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
       : [],
     draft: typeof value.draft === "string" ? value.draft.trim().slice(0, MAX_DRAFT) : "",
+    // The draft stopped short of what they asked (`stopsShort.js`), rather than being overtaken by a text of theirs.
+    unfinished: value.unfinished === true,
   };
 }
 
@@ -192,7 +194,9 @@ const TOOL = {
     "Hand a long task to a background job, so you stay free for their other texts and several things run at once: research " +
     "across many sources, a multi-step task on a site, anything that takes more than a handful of tool calls. The job runs on its " +
     "own with the same access as you, writes the result where it belongs and texts it to them when done. Never for a quick " +
-    "answer or a single note you can write now, and never for something already in the background list.",
+    "answer or a single note you can write now, and never for something already in the background list. When one fact only they " +
+    "know would change what the job does (do they want to cook, or have it catered? which city?), ask that one question first and " +
+    "start the job on their answer; anything you can find or safely assume goes in the brief instead.",
   inputSchema: {
     type: "object",
     properties: {
@@ -201,7 +205,12 @@ const TOOL = {
         type: "string",
         description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
       },
-      done_when: { type: "string", description: "What finished looks like, in one line: \"a note comparing five competitors in @supa projects/tex/\"." },
+      done_when: {
+        type: "string",
+        description:
+          "What finished looks like, in one line, with every figure they asked for: \"a note comparing five competitors in @supa projects/tex/\", " +
+          "\"three caterers with the full cost per person, sides and drinks included\".",
+      },
     },
     required: ["title", "brief"],
   },
@@ -338,12 +347,19 @@ export function jobPrompt(job) {
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
       : "") +
-    (job.draft
+    (job.draft && job.unfinished
+      ? "\nYour last part ended with this answer, which was never sent because it stopped short of what they asked (a part still missing, " +
+        `a next step named, or an offer to look further):\n<<<\n${job.draft}\n>>>\n` +
+        "Do that missing part now and build on the rest: keep its figures unless you find a mistake. Your answer replaces it, so it is the one result they get."
+      : job.draft
       ? "\nYour last part ended with this answer, which was never sent because they texted more before it went out:\n<<<\n" +
         `${job.draft}\n>>>\n` +
         "Build on it rather than starting over: keep its figures unless their newer text changes them or you find a mistake, and when one changes, " +
         "say which and why in one line. Your answer replaces it, so it is the one result they get."
       : "") +
+    "\nFinished means what they asked for is there in full: every figure counted (a cost per person covers everything it is meant to, " +
+    "sides and drinks included), not part of it with a next step named. Looking up published menus and prices is yours to do; only " +
+    "contacting someone waits for their yes." +
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
     "before you finish, even if some of it is unfinished, and say what's missing in it. End with the result in a few lines and the " +
     "note's link: that is what gets texted to them. No progress texts unless something needs them, like a sign-in link."

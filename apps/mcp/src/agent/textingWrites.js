@@ -170,7 +170,7 @@ function refusalFor(name, args) {
  * fields their mirrored schemas name, on paths outside plumbing. Every other
  * tool passes through untouched.
  */
-export function textingAwareCallTool(callTool, writeTools, { timeZone = null } = {}) {
+export function textingAwareCallTool(callTool, writeTools, { timeZone = null, now = Date.now } = {}) {
   const accepted = new Map(writeTools.map((tool) => [tool.name, Object.keys(tool.inputSchema?.properties ?? {})]));
   return (name, args) => {
     const fields = accepted.get(name);
@@ -183,15 +183,15 @@ export function textingAwareCallTool(callTool, writeTools, { timeZone = null } =
     const done = name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)
       ? Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result))
       : Promise.resolve(callTool(name, given));
-    return done.then((result) => withRunTime(withWrittenNotes(result, given), given, timeZone));
+    return done.then((result) => withRunTime(withWrittenNotes(result, given), given, timeZone, now()));
   };
 }
 
 /** A routine written: when it first texts them, or why it won't (`routineWhen.js`). */
-function withRunTime(result, args, timeZone) {
+function withRunTime(result, args, timeZone, now) {
   if (!result || typeof result !== "object" || result.isError === true || result.held === true) return result;
   if (!isRoutineFilePath(args.path)) return result;
-  const when = routineWhen(args.path, args.content, timeZone);
+  const when = routineWhen(args.path, args.content, timeZone, now);
   if (when === null) return result;
   return { ...result, content: [...(result.content ?? []), { type: "text", text: when.text }] };
 }

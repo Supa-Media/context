@@ -483,7 +483,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, waiting: setAside.length > 0, pictures: carriesPictures(attachments), judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, pictures: carriesPictures(attachments), judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
@@ -613,7 +613,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
-    const replaced = job !== null && steer !== null && (await steer.pending());
+    const replaced = (job !== null && steer !== null && (await steer.pending())) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await afterAnswer(steer.clear());
     // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
@@ -651,7 +651,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
-      ...(turn.exhausted ? { exhausted: true } : {}),
+      ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
     });
   } catch (error) {
     if (opened !== null) await afterAnswer(opened.close());
