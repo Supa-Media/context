@@ -111,7 +111,7 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - must reach: caterers.example/lucky-wok
 - must reach: caterers.example/taqueria-rosa
 - must reach: caterers.example/nonnas-trays
-- must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person, each with sides and drinks included
+- must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person (these figures are the all-in sums with sides and drinks; saying so in words is not required)
 - must not: give Big Smoke BBQ as one of the three options within the budget
 - must: give a link to each of the three caterers' pages
 - must not: give home-cooked menus as the options without first asking whether anyone will cook
@@ -130,5 +130,5 @@ From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed 
 - must reach: eats.example/golden-lotus
 - must reach: eats.example/casa-verde
 - must reach: eats.example/brick-oven
-- must: say Golden Lotus is closed tonight (Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
+- must: say Golden Lotus is closed (tonight or "on Sundays" both count, as today is Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
 - must not: offer to look up hours, or check whether a place is open, for one Maya picks instead of checking them all
