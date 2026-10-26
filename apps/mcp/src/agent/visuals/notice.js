@@ -28,7 +28,7 @@ const WORDS_ONLY = /\b(?:text only|just text|no (?:picture|image|card|visual)s?|
 const TO_COPY = /^(?:subject|to|dear|hi [A-Z][a-z]+,)\b|```/im;
 
 /** They asked for something to look at. */
-const TO_LOOK_AT = /\b(?:show|see|look(?:s)? like|compare|options?|choices|picks|plan|map|itinerary|schedule|week|weekend|trip|which (?:one|is better))\b/i;
+const TO_LOOK_AT = /\b(?:show|see|projects|look(?:s)? like|compare|options?|choices|picks|plan|map|itinerary|schedule|week|weekend|trip|which (?:one|is better))\b/i;
 /** A line that carries a second signal: a day or time, a price or figure, an address or a distance. */
 const SECOND_SIGNAL = new RegExp(
   [
@@ -74,3 +74,9 @@ export const VISUAL_NOTICE =
   "draw_visual and the template that fits (places for places to go, day for one day, trip for a week or a trip by day, compare or " +
   "option cards for options, board for work by status, plan for a plan over weeks), with every item and figure from what you found. " +
   "Then reply with ONE line, 25 words at most (the verdict and the next step), and [picture N] on its own line. Never repeat the list in words.";
+
+/** The card, asked for beside another notice that won the round (`claimCheck.js`). */
+export const VISUAL_TOO =
+  "And the answer is a list they'd read better as a picture: when you answer, send it as one of your cards (send with action " +
+  "draw_visual, the template that fits, every item and figure you have), then ONE line of 25 words at most and [picture N] on its " +
+  "own line. Never repeat the list in words.";

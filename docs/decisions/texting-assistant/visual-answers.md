@@ -144,3 +144,18 @@ an https link on context.lc and nothing else. The IPA check
 (`scripts/validate-ios-ipa.cjs`) requires it embedded once, with its id,
 extension point and the host's exact version. It reaches people with the next
 native build and App Store release, which stay separate explicit actions.
+
+## A card rides along with any other notice (2026-10-26, afternoon)
+
+Dev2's lunch question ("show me some lunch options around me, average prices
+as well") still came back as words after the prompt section went live. The
+transcript showed why: the first answer was a priced list of five places, but
+another check sent it back first for its missing prices, the card notice never
+got a round, and the hand-back judge's H8 notice ("say how to undo it") then
+turned the reply into one place and "I didn't change anything, so there's
+nothing to undo". So when any other notice wins a round and the answer is a
+list a card should carry, the card ask is added to that notice (once a turn);
+every hand-back notice now says to send the whole answer again, not only the
+new part; H8 says a lookup needs no word about undoing; and a list of projects
+counts as something to look at (a board). Test:
+`apps/mcp/test/agentVisualNotice.test.mjs`.

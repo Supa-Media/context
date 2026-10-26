@@ -13,12 +13,15 @@
  *     fails.
  *   the second-signal filter replaced by `return true` → "a to-do list stays
  *     words" fails.
+ *   `check` returning `firstNotice(answer)` alone → "a list sent back for
+ *     another reason carries the card too" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { VISUAL_NOTICE, wantsACard } from "../src/agent/visuals/notice.js";
+import { VISUAL_NOTICE, VISUAL_TOO, wantsACard } from "../src/agent/visuals/notice.js";
+import { noticeFor } from "../src/agent/handbackJudge.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 
 const WEEK = [
@@ -75,4 +78,41 @@ test("a to-do list stays words; a list with days, prices or places, or one they 
   const caterers = "Lugo's, $18 a head, 4.8 stars\nBlend, $22 a head, 4.6 stars\nIndia Passage, $15 a head, 4.4 stars";
   assert.equal(wantsACard(caterers, { question: "which caterer" }), true);
   assert.equal(wantsACard("Book the van\nCancel the internet\nPack the kitchen", { question: "show me what's left before the move" }), true);
+});
+
+// Dev2's lunch turn of 2026-10-26: the list of places went back for its
+// missing prices, the card never got its round, and the answer came home as
+// one place in words, ending "nothing to undo" (the H8 notice's own words).
+const LUNCH = [
+  "A few lunch spots near you:",
+  "",
+  "Hibino LIC, bento about $12",
+  "Sapps, 3 rolls for $15 Mon to Thu",
+  "Dai Hachi Sushi, bento about $15",
+  "Ramen Spot, bowls $18 to $20",
+  "",
+  "Want me to look up Yumpling's prices too?",
+].join("\n");
+
+test("a list sent back for another reason carries the card too, once", async () => {
+  // A stop-short answer: its own notice wins the round, and the card rides along.
+  const short = claimCheck({ question: "Can you show me some lunch options around me average prices as well", visuals: () => true });
+  const first = await short.check(`${LUNCH}\n\nNext step is pricing the rest.`);
+  assert.notEqual(first, VISUAL_NOTICE);
+  assert.ok(first.endsWith(VISUAL_TOO), "the card rides along with the other notice");
+  const again = await short.check(`${LUNCH}\n\nNext step is pricing the rest.`);
+  assert.ok(again === null || !again.includes(VISUAL_TOO), "asked once only");
+  // A turn that cannot draw is never asked to.
+  const blind = claimCheck({ question: "Can you show me some lunch options", visuals: () => false });
+  const plain = await blind.check(`${LUNCH}\n\nNext step is pricing the rest.`);
+  assert.ok(plain === null || !plain.includes(VISUAL_TOO));
+});
+
+test("the hand-back notice keeps the whole answer and never makes a lookup about undoing", () => {
+  assert.match(noticeFor("H8"), /a lookup changes nothing/);
+  assert.match(noticeFor("H12"), /whole answer again/);
+});
+
+test("a list of projects is a board", () => {
+  assert.equal(wantsACard("Context private beta\nTex\nGoogle OAuth verification\nPortal onboarding", { question: "what are the projects in supa rn" }), true);
 });
