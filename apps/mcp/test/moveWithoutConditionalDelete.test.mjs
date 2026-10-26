@@ -29,8 +29,8 @@
  *     the source survives, and no destination is created;
  *  3. a store with **neither** conditional still refuses, naming both, because
  *     "degrade honestly" is the rule and there is no safe move without one;
- *  4. a cross-workspace move works, and leaves the owner's own copy under
- *     `.context/trash/` — the one move whose destination is a different bucket;
+ *  4. (a move into another workspace is the control plane's engine now, which
+ *     writes through its own adapter: `crossContext/moveNote.test.mjs`);
  *  4b. `archive_note` is copy-then-delete too, and its delete was unconditional
  *     before this change: it now takes the same guard, and still archives on a
  *     bucket that can enforce neither conditional;
@@ -163,18 +163,6 @@ async function callToolOnce(env, tokenValue, name, args = {}) {
 }
 
 const textOf = (result) => result?.content?.[0]?.text || "";
-
-function collaborationHeads(bucket) {
-  return [...bucket]
-    .filter(([key]) => key.startsWith(".context/collaboration/v1/heads/"))
-    .flatMap(([, value]) => {
-      try {
-        return [JSON.parse(value.body)];
-      } catch {
-        return [];
-      }
-    });
-}
 
 export async function runMoveWithoutConditionalDeleteChecks(check) {
   const s3 = createS3Backend(S3_ENDPOINT);
@@ -371,42 +359,6 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   check(
     "...and its note is left exactly where it was",
     unsafe.get("1-projects/nope.md")?.body === "NOPE-MARKER"
-  );
-
-  /* ----------------------- 4. across two workspaces ----------------------- */
-
-  primary.set("1-projects/handover.md", { body: "HANDOVER-MARKER", etag: "p3" });
-  const across = await callTool(env, TOKEN_OWNER, "move_note", {
-    source: "1-projects/handover.md",
-    destination: "1-projects/handover.md",
-    source_context: "@r2like",
-    destination_context: "@second",
-  });
-  check(
-    "a cross-workspace move works with no conditional delete on either side",
-    !across?.isError && /moved/i.test(textOf(across))
-  );
-  check(
-    "...and the note is in the other workspace's bucket",
-    second.get("1-projects/handover.md")?.body === "HANDOVER-MARKER"
-  );
-  check(
-    "...and out of the first one",
-    (await callTool(env, TOKEN_OWNER, "read_note", {
-      path: "1-projects/handover.md",
-      context: "@r2like",
-    }))?.isError === true
-  );
-  const handoverHead = collaborationHeads(primary).find(
-    (head) => head.path === "1-projects/handover.md",
-  );
-  check(
-    "...leaving a recoverable collaboration tombstone in the source workspace",
-    handoverHead?.status === "deleted" && typeof handoverHead.documentId === "string"
-  );
-  check(
-    "...whose identity still names the note it came from",
-    handoverHead?.path === "1-projects/handover.md"
   );
 
   /* ------------------------ 4b. archive is a move too --------------------- */

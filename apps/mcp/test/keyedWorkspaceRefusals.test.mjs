@@ -244,11 +244,11 @@ test("a folder move with no control plane refuses a keyed workspace before listi
   }
 });
 
-test("a move across workspaces refuses when either side is keyed, before reading the source", async () => {
+test("a move across workspaces with no control plane refuses before reading the source", async () => {
   const source = await keyedWorkspace();
   const destination = await keyedWorkspace({ keyed: false });
   const session = { scope: "private", workspaceId: WORKSPACE };
-  const result = await toolMoveNoteAcrossContexts(source.store, session, destination.store, session, PATH, "0-inbox/a.md", undefined, true);
+  const result = await toolMoveNoteAcrossContexts(source.store, session, session, PATH, "0-inbox/a.md", undefined);
   assert.equal(result.content[0].text, KEYED_PATH_REFUSAL);
   assert.deepEqual(writes(source.raw), []);
   assert.deepEqual(writes(destination.raw), []);
