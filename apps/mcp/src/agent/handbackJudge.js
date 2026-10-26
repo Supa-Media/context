@@ -77,13 +77,14 @@ export function readAsks(text) {
  * Whether an answer may ask them something at all: only these are judged.
  * An answer that sends them to look themselves, or says it can't tell them,
  * is judged with no question mark in it (2026-10-23: "You can also check it
- * yourself in the Planning Center app" went unjudged for want of one).
+ * yourself in the Planning Center app" went unjudged for want of one, and on
+ * 2026-10-26 "so check that in Planning Center" did too).
  */
 export function mayAsk(answer) {
   const said = String(answer ?? "");
   return (
     /\?/.test(said) ||
-    /\b(?:you(?:'ll| will)? (?:need|have) to|can you|could you|please|let me know|text me|reply|send me|tell me|tap|open (?:this|the) link|yourself|you can (?:also |always |still )?(?:check|see|find|look|view|open|go)|(?:can't|cannot|couldn't|could not) (?:yet )?(?:tell|say|check|confirm)|if you(?:'d)? (?:want|like)|want me to|happy to|next steps? (?:is|are|would be))\b/i.test(said.replace(/[\u2018\u2019]/g, "'"))
+    /\b(?:you(?:'ll| will)? (?:need|have) to|can you|could you|please|let me know|text me|reply|send me|tell me|tap|open (?:this|the) link|yourself|you can (?:also |always |still )?(?:check|see|find|look|view|open|go)|(?:^|[.,;:!]\s*|\b(?:so|just|then)\s+)check (?:that|it|this|there)\b|(?:can't|cannot|couldn't|could not) (?:yet )?(?:tell|say|check|confirm)|if you(?:'d)? (?:want|like)|want me to|happy to|next steps? (?:is|are|would be))\b/i.test(said.replace(/[\u2018\u2019]/g, "'"))
   );
 }
 
