@@ -3,7 +3,7 @@
  * session or a storage binding, and asking whether a turn may spend the
  * built-in model.
  */
-import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createSessionMethods({ post, required }) {
   return {
@@ -138,7 +138,11 @@ export function createSessionMethods({ post, required }) {
      * @returns {Promise<{ok: true, moves: {from: string, to: string}[]}|{ok: false, error: string, message: string}>}
      */
     async startMoveBatch(accessToken, expectedWorkspaceId, moves) {
-      return required(await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }), "move");
+      return required(
+        // The control plane moves every row before it answers: longer than a lookup.
+        await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }, { timeoutMs: CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS }),
+        "move"
+      );
     },
 
     /**
