@@ -97,10 +97,10 @@ export const HOUSEKEEPING_INSTRUCTIONS = [
     "2. Project statuses. Where the inbox or a project's own notes show its status changed (started, blocked, finished), update the `status:` front matter to match, using words the workspace already uses.",
     "3. Contacts. Two contact pages that share an email address, phone number or handle are one person: merge them into the fuller page (keep every identifier and every activity link, and anything the person typed), then archive the other. Two pages that only share a name are never merged: add `review: Possible duplicate of <path>?` to the front matter of the newer one instead.",
     "4. Thin folders. A folder holding one note (besides about.md) should not be a folder: move the note up into the folder above. A folder holding only its about.md goes to the archive. Two notes that are one topic can share a folder with a third.",
-    "5. Crowded folders. More than 10 items is chaos: group them into 2 to 5 subfolders by clear themes (dated or numbered runs together), with move_many, up to 100 moves a call. Only where the themes are obvious from the names.",
+    "5. Crowded folders. More than 10 items is chaos: group them into 2 to 5 subfolders by clear themes (dated or numbered runs together). Only where the themes are obvious from the names. Move a theme by its names in one call, however many notes: move_many with args { folder, match, into } (match is a name pattern, * for any run of characters, like `report-2026-09-*`), never by writing the moves out one by one. A whole folder moves in one step with move_folder.",
     "6. The inbox keeps about three months. Inbox notes older than that move to the archive under the same folder names they had in the inbox.",
   ].join("\n"),
-  "Rules: read before you rewrite, and pass the etag. A rewrite changes front matter or merges duplicates and never cuts text. Never touch tex/, routines/, website/ or the notes at the top of the workspace. Never change who can see anything. If a move is refused by a rule, don't retry it another way; if a tool is simply not available here, use the one that is. Stop when there is nothing you are sure of left.",
+  "Rules: read before you rewrite, and pass the etag. A rewrite changes front matter or merges duplicates and never cuts text. Never touch tex/, routines/, website/ or the notes at the top of the workspace. Never change who can see anything. If a move is refused by a rule, don't retry it another way; if a tool is simply not available here, use the one that is. Every move is logged with its undo, so there is no need for a dry run first. Say only what the tools answered: a move that timed out may still finish, so call it that, and never call a move a dry run unless you set dry_run. Stop when there is nothing you are sure of left.",
 ].join("\n\n");
 
 /**
@@ -143,7 +143,7 @@ function changeLine(change) {
 }
 
 /** One run's part of the day's log. */
-export function housekeepingEntry({ now, timeZone, model, changes, before, after, why, events }) {
+export function housekeepingEntry({ now, timeZone, model, changes, before, after, why, events, dryRuns = 0, running = 0 }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
   const score = before === null && after === null ? "No chaos score yet" : `Chaos ${shownScore(before)} → ${shownScore(after)} of 100`;
   lines.push(`_${score}${model ? `, on ${model}` : ""}._`, "", "### What changed", "");
@@ -152,6 +152,11 @@ export function housekeepingEntry({ now, timeZone, model, changes, before, after
   } else {
     for (const change of changes) lines.push(`- ${changeLine(change)}. To undo: ${undoLine(change)}.`);
   }
+  // What the gateway saw, beside the model's own account: a log once called a timed-out move a dry run.
+  if (running > 0) {
+    lines.push("", `_${running === 1 ? "One change was" : `${running} changes were`} still running when this run ended. It may have landed since; this log does not list it._`);
+  }
+  if (dryRuns > 0) lines.push("", `_${dryRuns === 1 ? "One dry run" : `${dryRuns} dry runs`}, which moved nothing._`);
   const said = String(why ?? "").trim();
   if (said) lines.push("", "### Why", "", said.length > MAX_WHY_CHARS ? `${said.slice(0, MAX_WHY_CHARS)}…` : said);
   const steps = events.map(eventLines).filter(Boolean);
@@ -271,7 +276,9 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const after = changes.length > 0 ? chaosFrom(await healthOf(dispatch)) : before;
   const outcome = changes.length > 0 ? "tidied" : turn === null ? "failed" : "unchanged";
   const now = Date.now();
-  const entry = housekeepingEntry({ now, timeZone, model: turn?.model ?? null, changes, before, after, why: turn?.answer ?? "", events });
+  const entry = housekeepingEntry({
+    now, timeZone, model: turn?.model ?? null, changes, before, after, why: turn?.answer ?? "", events, dryRuns: guard.dryRuns, running: guard.running,
+  });
   const logged = await appendLogEntry(dispatch, housekeepingPath(now, timeZone), entry, heading(now, timeZone));
   console.log(
     JSON.stringify({
@@ -282,6 +289,7 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       outcome,
       changes: changes.length,
       refusals: guard.refusals,
+      running: guard.running,
       before,
       after,
       logged,
