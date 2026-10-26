@@ -368,11 +368,15 @@ const linkValidator = v.object({ kind: v.union(v.literal("path"), v.literal("nam
 /**
  * One note's link rows, for `related_notes` (`lib/nodes/neighbors.ts` resolves
  * them): what it links to, and the notes linking to its path or its bare name.
- * Unfiltered, like `candidates`; the caller judges every path. Every row is
- * read, as `candidates` reads them: a cap counted over rows the reader may not
- * see would tell them how many such notes link here. `null` until the facts
- * have read every note once.
+ * Unfiltered, like `candidates`; the caller judges every path. Each side
+ * reads at most `NEIGHBOR_READ_ROWS`, and a side past it answers like any
+ * other: a cap the answer reported, or a read that failed at a query limit,
+ * would tell a reader how many notes they may not see link here. `null` until
+ * the facts have read every note once.
  */
+// lean: a hub past this many links on one side loses the rest silently; paging in the action, filtered as it goes, is the upgrade.
+export const NEIGHBOR_READ_ROWS = 4_000;
+
 export const neighbors = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(
@@ -391,12 +395,12 @@ export const neighbors = internalQuery({
     const outgoing = await ctx.db
       .query("nodeLinks")
       .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId).eq("source", path))
-      .collect();
+      .take(NEIGHBOR_READ_ROWS);
     const pointing = (target: string, kind: "path" | "name") =>
       ctx.db
         .query("nodeLinks")
         .withIndex("by_workspace_target", (q) => q.eq("workspaceId", workspaceId).eq("target", target).eq("kind", kind))
-        .collect();
+        .take(NEIGHBOR_READ_ROWS);
     const byPath = await pointing(path, "path");
     const byName = await pointing(bareNameOf(path), "name");
     const row = await liveNode(ctx.db, workspaceId, path);
