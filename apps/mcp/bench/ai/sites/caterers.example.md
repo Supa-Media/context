@@ -14,7 +14,7 @@ directory, so the prices are only found by opening the pages.
 
 ## https://caterers.example/
 title: Neighborhood Catering Directory
-text: Drop-off catering for groups of 20 to 60, delivered on weeknights.
+text: Drop-off catering for groups of 20 to 60, delivered on weeknights across Riverside and the towns around it. Every caterer listed here delivers to Riverside.
 - link: Lucky Wok Catering -> https://caterers.example/lucky-wok
 - link: Taqueria Rosa -> https://caterers.example/taqueria-rosa
 - link: Nonna's Trays -> https://caterers.example/nonnas-trays

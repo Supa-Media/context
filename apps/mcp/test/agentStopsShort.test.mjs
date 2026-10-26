@@ -138,6 +138,7 @@ test("a pick made before the one question that changes the search goes back once
     "If you'd rather have it catered, tell me which town and I'll find three places.";
   assert.ok(picksBeforeAsking(cooked));
   assert.ok(picksBeforeAsking("That's if you're cooking it yourselves. If you'd rather order in, tell me the town and I'll find places."));
+  assert.ok(picksBeforeAsking("I'd cook it yourselves. $300 a week easily covers big trays. If you'd rather have it catered, which town is it in?"));
   for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
     assert.equal(picksBeforeAsking(fine), false, fine);
   }

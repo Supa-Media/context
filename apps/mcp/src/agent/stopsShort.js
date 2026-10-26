@@ -86,11 +86,12 @@ export function unfinishedJob(job, answer) {
 /*
   A pick made for them, with the question that changes the search left for
   the end: "I'd cook it ... If you'd rather have it catered, tell me which
-  town and I'll find three places" (hand-back bench case 9, gh-94 to gh-96,
-  2026-10-26, after the prompt already said to ask first). The open question
+  town and I'll find three places", or "... which town is it in?" (hand-back
+  bench case 9, gh-94 to gh-97, 2026-10-26, after the prompt already said to
+  ask first). The open question
   is the whole reply until they answer it.
 */
-const ASKS_LAST = /\bif you(?:'d| would) rather\b[^.?!\n]{0,80}\b(?:tell me|let me know|text me|say so)\b/i;
+const ASKS_LAST = /\bif you(?:'d| would) rather\b[^.?!\n]{0,80}(?:\b(?:tell me|let me know|text me|say so)\b|\?)/i;
 
 /** Whether an answer picks for them and leaves the question that changes it to its last line. */
 export function picksBeforeAsking(answer) {
