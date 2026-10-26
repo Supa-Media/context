@@ -14,8 +14,9 @@ const ROLES = new Set(["owner", "editor", "member"]);
 const PRIVACY_FILES = new Set(["privacy.md", "privacy-rules.md"]);
 // Template folders live here. It is not a workspace.
 const BANK = "_bank";
-// A folder's fluff file says how many filler notes to write there.
-const FLUFF_FILE = "fluff.md";
+// A folder's fluff file says how many filler notes to write there; a folder with
+// several kinds of filler has one fluff-<kind>.md for each.
+const FLUFF_FILE = /^fluff(-[a-z0-9-]+)?\.md$/;
 
 // Read the people table: "| Maya | maya (personal) | owner |" rows.
 export function parsePeople(raw) {
@@ -258,7 +259,7 @@ export async function readBenchFolder(dir) {
     const mail = [];
     for (const rel of await listMarkdown(base)) {
       const text = await readFile(join(base, rel), "utf8");
-      if (rel === FLUFF_FILE || rel.endsWith(`/${FLUFF_FILE}`)) {
+      if (FLUFF_FILE.test(rel.slice(rel.lastIndexOf("/") + 1))) {
         // A fluff file describes notes; it is never one.
         const label = `workspaces/${entry.name}/${rel}`;
         const parsed = parseFluff(text, label);
