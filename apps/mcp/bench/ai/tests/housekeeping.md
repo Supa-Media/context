@@ -73,3 +73,17 @@ Today is 17 October. The May and early June notes are past three months; the 14 
 - must file: tomas/todo.md under tomas/todo.md
 - must file: tomas/3-resources/woodworking/joinery.md under tomas/3-resources/woodworking/
 - must: keep the line it would text to one plain sentence about what it changed
+
+## 7. A crowded folder is grouped by its names
+
+Tomas logs every run as its own note: `2-areas/running/` holds 240 dated run logs beside the two notes he reads. The run logs go together into one subfolder of running, in one move by name rather than hundreds written out; shoes and races stay where they are.
+
+- kind: task
+- must not file: tomas/2-areas/running/run-log-2026-03-01.md under tomas/2-areas/running/run-log-2026-03-01.md
+- must file: tomas/2-areas/running/run-log-2026-03-01.md under tomas/2-areas/running/
+- must not file: tomas/2-areas/running/run-log-2026-06-17-121.md under tomas/2-areas/running/run-log-2026-06-17-121.md
+- must file: tomas/2-areas/running/run-log-2026-06-17-121.md under tomas/2-areas/running/
+- must not file: tomas/2-areas/running/run-log-2026-10-14-240.md under tomas/2-areas/running/run-log-2026-10-14-240.md
+- must file: tomas/2-areas/running/run-log-2026-10-14-240.md under tomas/2-areas/running/
+- must file: tomas/2-areas/running/shoes.md under tomas/2-areas/running/shoes.md
+- must file: tomas/2-areas/running/races.md under tomas/2-areas/running/races.md
