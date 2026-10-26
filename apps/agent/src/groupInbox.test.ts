@@ -239,6 +239,19 @@ describe("a group's queue", () => {
     expect(w.sends.every((sent) => (sent.reply_to as { message_handle?: string } | undefined)?.message_handle === "h_in")).toBe(true);
   });
 
+  it("a picture that can't be hosted is said once, and the turn is never answered again (Tex Devs, 2026-10-26)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const picture = { name: "card.png", mediaType: "image/png", data: btoa("png") };
+    await acceptGroup(storage, message("Tex can you make a graphic for this instead of this wall of text"), 0);
+    const failing = { ...deps(w, { agent: { answer: "Here's the one-pager.", pictures: [picture] } }), hostPicture: async () => { throw new Error("cannot host this picture"); } };
+    await drainGroup(storage, failing);
+    await drainGroup(storage, failing);
+    expect(w.asks).toHaveLength(1);
+    expect(w.sends.map((sent) => sent.content ?? sent.media_url)).toEqual(["Here's the one-pager.", "I couldn't send that picture just now."]);
+    expect(await storage.list({ prefix: "gpending:" })).toEqual(new Map());
+  });
+
   it("answers \"Tex turn this guy into a cat\" with the picture it came with (2026-10-23)", async () => {
     const storage = new MemoryStorage();
     const w = world();
