@@ -356,15 +356,32 @@ export async function narrowRowForMove(
   from: string,
   to: string,
 ): Promise<void> {
-  const rows = await scanAccessRows(ctx, workspaceId);
-  const { rules, overrides } = renderAccess(rows, "member");
-  const was = tierOf(effectiveVisibility(from, rules, overrides));
-  const there = tierOf(visibilityOf(to, rules));
-  // `narrowerVisibility` of two tiers is the narrower one; a move narrows only where it would widen.
-  const carry = tierOf(narrowerVisibility(was, there) ?? "private");
-  if (carry === there) return;
-  const row = await nodeAt(ctx.db, workspaceId, from);
-  if (row === null || row.access?.base === carry) return;
-  await ctx.db.patch(row._id, { access: { base: carry } });
-  await refreshSnapshot(ctx, workspaceId);
+  await narrowRowsForMoves(ctx, workspaceId, [{ from, to }]);
+}
+
+/**
+ * `narrowRowForMove` for each move in turn, in one transaction. The rows are read once and read again only after a
+ * move narrowed one, so each move is judged by the rules the moves before it left, as one call a move judged them,
+ * without a scan of the workspace's rows per note (a batch of 20 read them 20 times, 2026-10-26).
+ */
+export async function narrowRowsForMoves(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  moves: readonly { from: string; to: string }[],
+): Promise<void> {
+  let judged: ReturnType<typeof renderAccess> | null = null;
+  for (const { from, to } of moves) {
+    judged ??= renderAccess(await scanAccessRows(ctx, workspaceId), "member");
+    const { rules, overrides } = judged;
+    const was = tierOf(effectiveVisibility(from, rules, overrides));
+    const there = tierOf(visibilityOf(to, rules));
+    // `narrowerVisibility` of two tiers is the narrower one; a move narrows only where it would widen.
+    const carry = tierOf(narrowerVisibility(was, there) ?? "private");
+    if (carry === there) continue;
+    const row = await nodeAt(ctx.db, workspaceId, from);
+    if (row === null || row.access?.base === carry) continue;
+    await ctx.db.patch(row._id, { access: { base: carry } });
+    await refreshSnapshot(ctx, workspaceId);
+    judged = null;
+  }
 }

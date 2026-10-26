@@ -71,7 +71,11 @@ function rowsMirror({ rules, overrides }: Rules): PrivacyMirror {
  * access version, so a grant (which changes no rendered rule) also refuses a move that was judged before it.
  */
 export async function privacyEtagOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<string> {
-  const mirror = await readerMirror(ctx, workspaceId);
+  return await privacyEtagFrom(ctx, workspaceId, await readerMirror(ctx, workspaceId));
+}
+
+/** `privacyEtagOf` from a mirror already read in this transaction, so the rows are rendered once. */
+export async function privacyEtagFrom(ctx: QueryCtx, workspaceId: Id<"workspaces">, mirror: PrivacyMirror): Promise<string> {
   return `${mirror.etag}.${await accessVersionOf(ctx, workspaceId)}`;
 }
 
