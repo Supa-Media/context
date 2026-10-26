@@ -266,6 +266,8 @@ export function createControlPlaneStub(options = {}) {
         ...(namesFor(membership.workspaceId) === undefined
           ? {}
           : { grantedNames: namesFor(membership.workspaceId) }),
+        // A group chat's pin, as the control plane marks it (`liveGrants.ts`).
+        ...(membership.setupOnly === true ? { setupOnly: true } : {}),
       });
     }
     return rows;

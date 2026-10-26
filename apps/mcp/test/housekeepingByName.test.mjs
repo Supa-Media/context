@@ -24,6 +24,8 @@
  *     → "a long batch's line still shows dry_run" fails.
  *  6. `housekeepingEntry` ignoring `running`.
  *     → "the log says a change still running…" fails.
+ *  7. stopping at a batch the control plane could not start, rather than halving it.
+ *     → "a batch the control plane could not start goes again in halves…" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -118,6 +120,25 @@ test("a long move by name starts no batch the slowest so far would not finish in
   assert.notEqual(first.isError, true);
   assert.match(first.content[0].text, /^moved 40 of 230 notes .* the other 190 are still in .* Send the same move again/);
   assert.deepEqual(session.moves().map((call) => call.args.moves.length), [20, 20]);
+});
+
+test("a batch the control plane could not start goes again in halves, and the rest at the size that moved", async () => {
+  const unstarted = { isError: true, content: [{ type: "text", text: "could not start the moves right now; try again in a moment" }] };
+  const session = sessionOver(PATHS, (args) => (args.moves.length > 10 ? unstarted : { content: [{ type: "text", text: "moved" }] }));
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.match(result.content[0].text, /moved 230 notes/);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [20, ...Array(23).fill(10)]);
+  assert.equal(guard.changes.length, 230);
+
+  const never = sessionOver(PATHS, () => unstarted);
+  const stopped = await housekeepingCallTool(never.dispatch).callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+  assert.equal(stopped.isError, true);
+  assert.match(stopped.content[0].text, /^moved 0 of 230 notes .* then stopped: could not start the moves/);
+  assert.deepEqual(never.moves().map((call) => call.args.moves.length), [20, 10, 5]);
 });
 
 test("a batch that asks for versions is planned first and sent again with the versions its plan names", async () => {

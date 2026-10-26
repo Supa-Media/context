@@ -166,7 +166,7 @@ other people's words are in its history.
   login of its own, such as a shared email, saved in the workspace for
   everyone. A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
-  ([vault](./vault.md), "A card pays only on the person's yes, each time").
+  ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and
@@ -303,6 +303,23 @@ brings back "I can't edit that from this chat"; re-showing a shown ask buries
 every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
 `apps/mcp/test/agentGroupActions.test.mjs`,
 `apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+
+### The setup never loaded until 2026-10-26
+
+The setup lives in the pin (`@context-lc`), and a group grant reaches its one
+workspace and not the pin (`contextsForGrant`), so `readPinnedNote` found no
+pin and returned nothing. Every group turn from 2026-10-23 to 2026-10-26 ran on
+the built-in words: 5 pages a turn, no picture section, none of the setup's
+rules. Dev2's team-night-out ask hit "this turn's limit on page reads". The
+test passed because its fake group grant was a member of the pin.
+
+The control plane now returns the pin on a group grant marked `setupOnly`.
+The gateway keeps that row out of `workspaces`, so no tool argument, URL or
+orient listing reaches it. It honours the row for the group client only, and
+`sessionForSetup` opens it read-only for `production.js` alone. Note mail and
+live presence refuse it (`addressable`). The fixture now has the real shape.
+Tests: `apps/mcp/test/groupSetupReach.test.mjs`,
+`apps/convex/__tests__/textGroups.test.ts` ("Tex's setup in a group chat").
 
 ## What wakes Tex, and what it remembers it did (the group chat of 2026-10-23)
 

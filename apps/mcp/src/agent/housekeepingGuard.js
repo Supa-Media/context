@@ -159,6 +159,15 @@ function archivedTo(result) {
 const MATCH_BATCH = 20;
 
 /**
+ * A batch the control plane could not start, said in no more words than that,
+ * is sent again in halves down to this size: on 2026-10-26 a batch of 20 in a
+ * big workspace failed that way every time while batches of 10 and 15 moved,
+ * and a call that stopped at the first failure moved nothing.
+ */
+const MATCH_BATCH_MIN = 5;
+const UNSTARTED = /could not start the moves right now/;
+
+/**
  * How long a move by name may run, inside move_notes' own limit
  * (`slowMoves.js`, 60 s): a batch is started only when the slowest one so far
  * would still end inside it, and past it the call answers with what moved and
@@ -344,8 +353,9 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
     }
     let moved = 0;
     let slowest = 0;
+    let size = MATCH_BATCH;
     const began = now();
-    for (let start = 0; start < moves.length; start += MATCH_BATCH) {
+    for (let start = 0; start < moves.length; ) {
       if (start > 0 && now() - began + slowest > matchBudgetMs) {
         return {
           content: [{
@@ -355,7 +365,7 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
           }],
         };
       }
-      const batch = moves.slice(start, start + MATCH_BATCH);
+      const batch = moves.slice(start, start + size);
       const sent = now();
       let result = await callTool("move_notes", { moves: batch });
       if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
@@ -365,11 +375,17 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
           ? plan
           : await callTool("move_notes", { moves: batch.map((move) => ({ ...move, expected_source_etag: etags.get(move.source) })) });
       }
+      if (result?.isError === true && size > MATCH_BATCH_MIN && UNSTARTED.test(textOf(result))) {
+        // Nothing in the batch moved: the same notes go again, half as many at a time, and so do the rest.
+        size = Math.max(MATCH_BATCH_MIN, Math.ceil(size / 2));
+        continue;
+      }
       if (result?.isError === true) {
         const said = textOf(result).split("\n")[0];
         return { isError: true, content: [{ type: "text", text: `moved ${moved} of ${moves.length} notes into ${into}/, then stopped: ${said}` }] };
       }
       moved += batch.length;
+      start += batch.length;
       slowest = Math.max(slowest, now() - sent);
     }
     return { content: [{ type: "text", text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}); links follow them` }] };

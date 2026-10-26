@@ -32,6 +32,7 @@ import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } fr
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
 import { MAX_SCANNED, snapshot } from "./reading";
 import { isCheckoutPaymentFrame } from "./paymentFrames";
+import { pickExpirySource } from "./cardMenus";
 import { COVERED_PRESS, SET_DIRECTLY, closePopup, coveredSource, domClickSource, typedOrSet } from "./popups";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 
@@ -354,7 +355,7 @@ async function docOf(page: BrowsePage, ref: number): Promise<Doc | null> {
  */
 async function fieldIs(page: Doc, ref: number, field: FillField): Promise<"input" | "select" | null> {
   // A card's expiry month or year may be a menu; every other part is a box a person types into.
-  const menu = field === "cc-exp-month" || field === "cc-exp-year";
+  const menu = field === "cc-exp-month" || field === "cc-exp-year" || field === "cc-exp";
   const types = field === "password" ? ["password"] : field === "username" ? ["text", "email", "tel"] : ["text", "tel", "number", "password"];
   return await page.evaluate<"input" | "select" | null>(`(() => {
     const el = document.querySelector('${selector(ref)}');
@@ -364,27 +365,6 @@ async function fieldIs(page: Doc, ref: number, field: FillField): Promise<"input
     const type = (el.getAttribute("type") || "text").toLowerCase();
     return ${JSON.stringify(types)}.includes(type) ? "input" : null;
   })()`);
-}
-
-/**
- * Pick a card's expiry month or year in a menu: the option whose value or
- * words are that number ("08", "8", "08 - August", "2029", "29").
- */
-function pickExpirySource(ref: number, value: string): string {
-  return `(() => {
-    const el = document.querySelector('${selector(ref)}');
-    const want = ${JSON.stringify(value)};
-    const n = String(Number(want));
-    const short = want.length === 4 ? want.slice(2) : null;
-    const lead = (s) => (String(s).trim().match(/^\d+/) || [""])[0];
-    const hit = (s) => { const d = lead(s); return d !== "" && (d === want || String(Number(d)) === n || (short !== null && d === short)); };
-    const option = el && [...el.options].find((o) => hit(o.value) || hit(o.innerText));
-    if (!option) return false;
-    el.value = option.value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  })()`;
 }
 
 /**
@@ -677,7 +657,7 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       if (box === null) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
       if (isCardField(step.field)) await doc.evaluate(`document.querySelector('${selector(step.ref)}').setAttribute("data-context-card", "")`);
       if (box === "select") {
-        if (!(await doc.evaluate<boolean>(pickExpirySource(step.ref, step.value)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
+        if (!(await doc.evaluate<boolean>(pickExpirySource(step.ref, step.value, step.field)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
         return ok;
       }
       const at = (await where(doc)).origin;

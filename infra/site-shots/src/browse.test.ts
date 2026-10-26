@@ -120,14 +120,20 @@ function fakePage(start = "https://shop.example.com/") {
         state.hidden += 1;
         return undefined as T;
       }
-      const pick = source.match(/data-tex-ref="(\d+)"[\s\S]*const want = "(\d+)"/);
-      if (pick && source.includes("el.options")) {
+      // An expiry menu runs the page's own source against a menu of these options (./cardMenus.ts).
+      const pick = source.match(/data-tex-ref="(\d+)"[\s\S]*names = \["jan"/);
+      if (pick) {
         const ref = Number(pick[1]);
-        const want = pick[2];
-        const found = (state.options[ref] ?? []).find((o) => o === want || String(Number(o)) === String(Number(want)) || (want.length === 4 && o === want.slice(2)));
-        if (found === undefined) return false as T;
-        state.selected[ref] = found;
-        return true as T;
+        const el = {
+          tagName: "SELECT",
+          value: "",
+          options: (state.options[ref] ?? []).map((o) => ({ value: o, innerText: o, textContent: o, disabled: false })),
+          dispatchEvent: () => true,
+        };
+        const run = new Function("document", "Event", `return ${source};`);
+        const picked = run({ querySelector: () => el }, class {});
+        if (picked) state.selected[ref] = el.value;
+        return picked as T;
       }
       const cleared = source.match(/data-tex-ref="(\d+)"[\s\S]*dispatchEvent\(new Event\("input"/);
       if (cleared) state.typed[Number(cleared[1])] = "";
