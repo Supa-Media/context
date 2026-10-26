@@ -53,7 +53,8 @@ export function createTreeMethods({ post }) {
      * The tree's facts for this grant (`/gateway/tree/facts`): a move's link
      * candidates (`{ ask: "links", sources, names }`) or the chaos score's
      * extras and history (`{ ask: "chaos", today? }`), notes' props
-     * (`{ ask: "props", paths }`), or, for a writer, which names are taken
+     * (`{ ask: "props", paths }`), one note's links and backlinks
+     * (`{ ask: "neighbors", path }`, `../tools/related.js`), or, for a writer, which names are taken
      * and how many notes there are (`{ ask: "names", paths?, count? }`,
      * `../tree/names.js`). `{ served: false }`
      * where the tree does not serve it, and for every refusal.
@@ -70,6 +71,7 @@ export function createTreeMethods({ post }) {
           ...(Array.isArray(request?.sources) ? { sources: request.sources } : {}),
           ...(Array.isArray(request?.names) ? { names: request.names } : {}),
           ...(Array.isArray(request?.paths) ? { paths: request.paths } : {}),
+          ...(typeof request?.path === "string" ? { path: request.path } : {}),
           ...(request?.today ? { today: request.today } : {}),
           ...(request?.count === true ? { count: true } : {}),
           // Last, so nothing in the request can stand in for the person's token.

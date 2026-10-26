@@ -36,6 +36,10 @@
  *   entry is judged by the folder rule a listing uses, a note's by `canSee`.
  *   The ledger lives in Convex since 2026-10-14; nothing reads the bucket's
  *   `.context/forwarding.json`, which is written from it.
+ * - `ask: "neighbors"` with `path`: that note's links and backlinks, for
+ *   `related_notes` (`neighbors.ts`), every one a note this reader may see.
+ *   A seed they may not see answers exactly what an absent one does.
+ *   `neighbors: null` until the facts have read every note once.
  *
  */
 
@@ -44,18 +48,21 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { loadPrivacyState } from "../fileOps";
 import { json } from "../gatewayAuth";
-import { canSee } from "../privacy";
+import { canSee, isPlumbing } from "../privacy";
 import { clearanceOf } from "../clearance";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { GATEWAY_PATH_LENGTH } from "./gatewayManifest";
 import { MOVE_RENAMES_CAP, PROPS_AT_PATHS, dayOf } from "./facts";
-import { NO_BUCKET, servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, servedKeys, servedMoves, servedNodesStore } from "./manifestStore";
+import { logicalPath as queuedLogicalPath } from "./movePaths";
 import { namesFor } from "./gatewayNames";
+import { resolveNeighbors } from "./neighbors";
+import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 
 const NOT_SERVED = { served: false } as const;
 
 /** What a request may ask for. */
-const ASKS = new Set(["links", "chaos", "props", "forwarding", "jobs"]);
+const ASKS = new Set(["links", "chaos", "props", "forwarding", "jobs", "neighbors"]);
 
 /** Notes one props request may name: one `propsAt` query's worth. */
 export const PROPS_REQUEST_PATHS = PROPS_AT_PATHS;
@@ -89,7 +96,8 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
   const sources = body.ask === "links" ? pathList(body.sources, MOVE_RENAMES_CAP) : [];
   const names = body.ask === "links" ? pathList(body.names, MOVE_RENAMES_CAP) : [];
   const paths = body.ask === "props" ? pathList(body.paths, PROPS_REQUEST_PATHS) : [];
-  if (sources === null || names === null || paths === null) return NOT_SERVED;
+  const seed = body.ask === "neighbors" ? pathList([body.path], 1)?.[0] : "";
+  if (sources === null || names === null || paths === null || seed === undefined) return NOT_SERVED;
   try {
     const reader = await ctx.runQuery(internal.functions.nodesGateway.readClearance, {
       hashedAccessToken: await hashToken(accessToken),
@@ -115,6 +123,39 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
         served: true,
         candidates: { pointing: found.pointing.filter(visible), unparsed: found.unparsed.filter(visible) },
       };
+    }
+
+    if (body.ask === "neighbors") {
+      const rows = await ctx.runQuery(internal.functions.nodeFacts.neighbors, { workspaceId: reader.workspaceId, path: seed });
+      if (rows === null) return { served: true, neighbors: null };
+      // Link rows name the keys they were read at, and a queued move shows those notes elsewhere
+      // already (`moveOverlay.ts`): every key at the name the tree shows now, as the map draws it.
+      const queued = servedMoves(served);
+      const logical = (path: string) => (queued.length === 0 ? path : queuedLogicalPath(path, queued));
+      // Asked either way, so a hidden seed costs what a visible one does.
+      const notes = new Set<string>();
+      for (const key of await servedKeys(served)) {
+        if (isIndexableNote(key) && !isPlumbing(key) && visible(key) && visible(logical(key))) notes.add(logical(key));
+      }
+      if (!notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
+      // Short only where a move touches the seed or a note this reader sees: a move anywhere else
+      // in the workspace, a private folder's included, must not change their answer.
+      const touched = (path: string) => logical(path) !== path && notes.has(logical(path));
+      const moving =
+        !rows.present ||
+        [...rows.byPath, ...rows.byName].some(touched) ||
+        rows.links.some((link) => link.kind === "path" && touched(link.target));
+      const found = resolveNeighbors(
+        seed,
+        {
+          links: rows.links.map((link) => (link.kind === "path" ? { ...link, target: logical(link.target) } : link)),
+          byPath: rows.byPath.map(logical),
+          byName: rows.byName.map(logical),
+        },
+        notes,
+      );
+      // Only the seed's own state and moves among notes this reader may see.
+      return { served: true, neighbors: { ...found, complete: rows.current && !moving } };
     }
 
     if (body.ask === "forwarding") {

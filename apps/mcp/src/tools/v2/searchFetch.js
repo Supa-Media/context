@@ -154,6 +154,9 @@ export function translateFetch(call, app = {}) {
     if (a.image !== undefined) {
       return target(label, a, { name: "read_image", action: "image", fixed: { note }, copy: ["image"] });
     }
+    if (a.related === true) {
+      return target(label, a, { name: "related_notes", action: "related", fixed: { path: note }, copy: ["limit"], consumed: ["related"] });
+    }
     if (a.lists === true) {
       return target(label, a, { name: "evaluate_lists", action: "lists", fixed: { path: note }, consumed: ["lists"] });
     }

@@ -1,5 +1,5 @@
 /**
- * `search_notes`, then the tools that move notes: `archive_note`, `move_note`, `move_notes`, `move_folder`.
+ * `search_notes` and `related_notes`, then the tools that move notes: `archive_note`, `move_note`, `move_notes`, `move_folder`.
  *
  * Part of `baseToolDefinitions` (`../schemas.js`), which concatenates these
  * families in the order the list has always had; moved verbatim.
@@ -30,6 +30,26 @@ export function searchAndMoveToolDefinitions() {
           },
         },
         required: ["query"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "related_notes",
+      title: "Related notes",
+      description:
+        "The notes around one note, each with why: the notes it links to (linked_from_here), the " +
+        "notes that link to it (links_here), and notes whose text is like its title and headings " +
+        "(related_text). Linked notes come first. Use it after reading a note, to find what the " +
+        "user wrote nearby before asking them, and before writing, to find notes worth linking. " +
+        "A line saying the answer may be incomplete means some links or text could not be read yet.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note to start from, as read_note takes it" },
+          limit: { type: "integer", description: "How many related notes to return: 1 to 25, default 10" },
+        },
+        required: ["path"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
