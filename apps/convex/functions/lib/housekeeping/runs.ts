@@ -9,7 +9,7 @@
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
-import type { MutationCtx } from "../../../_generated/server";
+import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
 import { applyTexJobGrant, endTexJobGrant, ensureTexJobClient, texJobWorkspace, type MintedToken } from "../texJobs";
@@ -157,15 +157,12 @@ export async function armLinkedHousekeepingHandler(ctx: MutationCtx): Promise<nu
 /** What `runHousekeepingNowHandler` did, as a code: the workflow prints it, and nothing else. */
 export type HousekeepingNow = "due" | "running" | "not_armed" | "unknown_name";
 
-/**
- * Bring one person's next run forward to now, by their handle or their
- * personal workspace's slug, for the manual "Tex housekeeping now" workflow:
- * a fix to housekeeping is verified on a real run without waiting for 9am
- * (2026-10-26). The next Cron tick claims it as it claims any due run, every
- * check asked again there. A run already handed out is left to finish.
- */
-export async function runHousekeepingNowHandler(ctx: MutationCtx, args: { name: string }): Promise<HousekeepingNow> {
-  const valid = validateName(args.name.replace(/^@/, ""));
+/** One person's housekeeping row by their handle or personal workspace's slug, or why there is none. */
+async function housekeepingRowByName(
+  ctx: QueryCtx,
+  name: string,
+): Promise<Doc<"texHousekeeping"> | "not_armed" | "unknown_name"> {
+  const valid = validateName(name.replace(/^@/, ""));
   if (!valid.ok) return "unknown_name";
   const claim = await ctx.db
     .query("names")
@@ -184,9 +181,39 @@ export async function runHousekeepingNowHandler(ctx: MutationCtx, args: { name: 
     .query("texHousekeeping")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .first();
-  if (row === null) return "not_armed";
+  return row ?? "not_armed";
+}
+
+/**
+ * Bring one person's next run forward to now, by their handle or their
+ * personal workspace's slug, for the manual "Tex housekeeping now" workflow:
+ * a fix to housekeeping is verified on a real run without waiting for 9am
+ * (2026-10-26). The next Cron tick claims it as it claims any due run, every
+ * check asked again there. A run already handed out is left to finish.
+ */
+export async function runHousekeepingNowHandler(ctx: MutationCtx, args: { name: string }): Promise<HousekeepingNow> {
+  const row = await housekeepingRowByName(ctx, args.name);
+  if (typeof row === "string") return row;
   const now = Date.now();
   if (leaseIsLive(row, now)) return "running";
   await ctx.db.patch(row._id, { nextRunAt: now, updatedAt: now });
   return "due";
+}
+
+/**
+ * How that run went, for the same workflow to wait on: `running` while it is
+ * due or leased, else the last run's outcome code and when it started. Only
+ * the closed list of codes, never what it read or changed (2026-10-26: a run
+ * forced twice on a real workspace changed nothing, and its log is the
+ * person's own, so the workflow had no way to say whether it ran at all).
+ */
+export async function housekeepingNowStatusHandler(
+  ctx: QueryCtx,
+  args: { name: string },
+): Promise<{ status: string; lastRunAt: number | null }> {
+  const row = await housekeepingRowByName(ctx, args.name);
+  if (typeof row === "string") return { status: row, lastRunAt: null };
+  const now = Date.now();
+  const pending = leaseIsLive(row, now) || (row.nextRunAt !== null && row.nextRunAt !== undefined && row.nextRunAt <= now);
+  return { status: pending ? "running" : (row.lastOutcome ?? "never_ran"), lastRunAt: row.lastRunAt ?? null };
 }
