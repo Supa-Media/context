@@ -93,7 +93,7 @@ export function unfinishedJob(job, answer) {
   the open question is the whole reply until they answer it.
 */
 const WANTS_OPTIONS = /\b(?:options?|ideas?|suggest(?:ions?)?|recommend(?:ations?)?|choices)\b|\b(?:find|research|pick|choose)\b[^.?!\n]{0,40}\b(?:for|places?|spots?|caterers?|restaurants?)\b/i;
-const OTHER_ROAD = /\bif you(?:'d| would) rather\b/i;
+const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b/i;
 
 /** Whether an answer to a request for options guesses the brief and leaves the other road as an aside. */
 export function picksBeforeAsking(answer, question = "") {

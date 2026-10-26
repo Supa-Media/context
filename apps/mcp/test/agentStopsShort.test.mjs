@@ -129,6 +129,8 @@ test("asked for options with the brief open, the first reply is the one question
   assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
   // The owner's bar the same day: each caterer named with its menu link.
   assert.match(RESEARCH_LINE, /each place with its page link/);
+  // gh-100: told her to confirm the prices, and asked which Riverside when the directory said.
+  assert.match(RESEARCH_LINE, /don't ask what those pages settle .* or tell them to confirm the figures/);
 });
 
 // Sabotage record (2026-10-26): `picksBeforeAsking` always false → this test fails.
@@ -142,6 +144,8 @@ test("a pick made before the one question that changes the search goes back once
   assert.ok(picksBeforeAsking("I'd cook it yourselves. $300 a week easily covers big trays. If you'd rather have it catered, which town is it in?", asked));
   // gh-98: the aside with no question mark and no "tell me".
   assert.ok(picksBeforeAsking("I'd cook it: three trays from your list. Catering's the other option if you'd rather not cook.", asked));
+  // gh-100: "the other option" with no "if you'd rather".
+  assert.ok(picksBeforeAsking("I'd cook it yourselves. Catering is the other option, if nobody wants to cook every week. Which way do you want to go?", asked));
   for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
     assert.equal(picksBeforeAsking(fine, asked), false, fine);
   }
