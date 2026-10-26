@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_LINKS, MAX_TEXT_CHARS, READ_SOURCE, parseReadRequest, read } from "./read";
 import type { BrowserLike, PageLike } from "./shoot";
 
-function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: string }>; href?: string; fail?: boolean }) {
+function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: string }>; images?: Array<{ alt: string; src: string }>; href?: string; fail?: boolean }) {
   const calls: string[] = [];
   const browser: BrowserLike = {
     async newPage() {
@@ -14,7 +14,7 @@ function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: 
         },
         async waitForSelector() {},
         async evaluate<T>(source: string) {
-          if (source === READ_SOURCE) return { title: "Example", text: page.text ?? "Hello", links: page.links ?? [] } as T;
+          if (source === READ_SOURCE) return { title: "Example", text: page.text ?? "Hello", links: page.links ?? [], images: page.images ?? [] } as T;
           if (source === "location.href") return (page.href ?? "https://example.com/") as T;
           return undefined as T;
         },
@@ -63,9 +63,25 @@ describe("read", () => {
       text: "Line one\n\nLine two",
       truncated: false,
       links: [{ text: "Docs", href: "https://example.com/docs" }],
+      images: [],
       via: "browser",
     });
     expect(calls).toContain("browser closed");
+  });
+
+  it("hands back the page's pictures, kept the same way as without a browser", async () => {
+    const { browser } = fakeBrowser({
+      images: [
+        { alt: "Front", src: "https://cdn.example.com/dress.jpg" },
+        { alt: "Logo", src: "https://example.com/static/logo.png" },
+        { alt: "Relative", src: "/photos/back.jpg" },
+      ],
+    });
+    const page = await read(browser, "https://example.com/");
+    expect(page.images).toEqual([
+      { alt: "Front", src: "https://cdn.example.com/dress.jpg" },
+      { alt: "Relative", src: "https://example.com/photos/back.jpg" },
+    ]);
   });
 
   it("caps the text and the links", async () => {
