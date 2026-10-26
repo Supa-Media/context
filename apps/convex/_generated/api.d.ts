@@ -153,6 +153,7 @@ import type * as functions_feedback from "../functions/feedback.js";
 import type * as functions_blocks from "../functions/blocks.js";
 import type * as functions_reports from "../functions/reports.js";
 import type * as functions_messages from "../functions/messages.js";
+import type * as functions_messagesExport from "../functions/messagesExport.js";
 import type * as functions_places from "../functions/places.js";
 import type * as functions_phoneCheck from "../functions/phoneCheck.js";
 import type * as functions_signInEmails from "../functions/signInEmails.js";
@@ -363,6 +364,7 @@ declare const fullApi: ApiFromModules<{
   "functions/blocks": typeof functions_blocks;
   "functions/reports": typeof functions_reports;
   "functions/messages": typeof functions_messages;
+  "functions/messagesExport": typeof functions_messagesExport;
   "functions/places": typeof functions_places;
   "functions/phoneCheck": typeof functions_phoneCheck;
   "functions/signInEmails": typeof functions_signInEmails;
