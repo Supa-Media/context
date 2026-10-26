@@ -190,6 +190,27 @@ export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chat
   await sendMessage(fetcher, keys, chatId, { media_url: url }, replyTo);
 }
 
+/**
+ * Several pictures as one swipeable set (docs: Carousel messaging, V2 lines
+ * only, 2 to 20 https addresses). Threaded like any message, and sent plain
+ * when Sendblue refuses the thread. A line that has no carousels refuses with
+ * a 400 too, which the caller answers by sending them one by one.
+ */
+export async function sendSendblueCarousel(fetcher: Fetch, keys: SendblueKeys, chatId: string, urls: string[], replyTo?: string): Promise<void> {
+  const plain = { ...chatOf(chatId), media_urls: urls.slice(0, MAX_CAROUSEL) };
+  if (replyTo) {
+    const threaded = await sendCall(fetcher, keys, { ...plain, reply_to: { message_handle: replyTo } }, "/api/send-carousel");
+    if (threaded.status >= 200 && threaded.status < 300) return;
+    if (threaded.status !== 400) throw new ServiceError("sendblue", threaded.status);
+    logRefused("sendblue_carousel_thread", threaded.status);
+  }
+  const sent = await sendCall(fetcher, keys, plain, "/api/send-carousel");
+  if (sent.status < 200 || sent.status >= 300) throw new ServiceError("sendblue", sent.status);
+}
+
+/** Sendblue's most pictures in one carousel. */
+export const MAX_CAROUSEL = 20;
+
 /** The "…" bubble. Best effort and quick; never throws. */
 export async function startSendblueTyping(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<void> {
   let status: number | null = null;

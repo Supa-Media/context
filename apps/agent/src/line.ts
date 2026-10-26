@@ -14,6 +14,7 @@ import {
   parseSendblueChat,
   markSendblueRead,
   reactSendblue,
+  sendSendblueCarousel,
   sendSendblueMedia,
   sendSendblueText,
   shareSendblueProfile,
@@ -31,6 +32,8 @@ export interface Line {
    */
   sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<string | undefined>;
   sendMedia(chatId: string, media: Media, idempotencyKey: string, replyTo?: string): Promise<void>;
+  /** Pictures by address as one swipeable set, where the line has carousels (Sendblue); absent elsewhere. */
+  sendCarousel?(chatId: string, urls: string[], replyTo?: string): Promise<void>;
   /** A picture's bytes made sendable: an uploaded attachment, or an address the line fetches. */
   uploadPicture(picture: Picture): Promise<Media>;
   startTyping(chatId: string): Promise<void>;
@@ -87,6 +90,7 @@ function sendblueLine(deps: LineDeps): Line {
       if (!("url" in media)) throw new ServiceError("sendblue", 400);
       await sendSendblueMedia(fetch, keys(), chatId, media.url, replyTo);
     },
+    sendCarousel: (chatId, urls, replyTo) => sendSendblueCarousel(fetch, keys(), chatId, urls, replyTo),
     uploadPicture: async (picture) => {
       if (!deps.hostPicture) throw new ServiceError("sendblue", null);
       return { url: await deps.hostPicture(picture) };

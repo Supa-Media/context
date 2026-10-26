@@ -4,7 +4,7 @@
  * tickets. Each takes the model's data and returns the card's inner HTML.
  */
 
-import { DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo } from "./kit.js";
+import { DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
 
 /** Options ranked against a limit: catering quotes, phone plans, anything with one number that decides. */
 export function compare(data, theme) {
@@ -187,5 +187,43 @@ ${items
 <div style="flex-grow: 1"></div>
 ${facts.length ? `<div style="display: grid; grid-template-columns: repeat(${facts.length}, minmax(0, 1fr)); gap: 10px">${facts.map((f) => `<div style="background: #1A2A44; border-radius: 12px; padding: 12px 14px"><div style="font-size: 13px; color: #A9B6CB">${esc(f.label, 18)}</div><div style="font-size: 22px; font-weight: 800">${esc(f.value, 14)}</div></div>`).join("")}</div>` : ""}`,
     { background: "#0F1B2D", ink: "#F1F4F9", gap: 18 },
+  );
+}
+
+/**
+ * One option on its own card, for a set of them sent as one swipeable
+ * carousel: a big photo, its number ("2 of 4") so they can answer "the 2nd
+ * one", the price and up to four facts.
+ */
+export function option(data, theme) {
+  const c = theme === "dark" ? DARK : LIGHT;
+  const facts = list(data.facts, 4);
+  const index = num(data.index);
+  const of = num(data.of);
+  const number = index !== null ? `${clamp(Math.round(index), 1, 99)}${of !== null ? ` of ${clamp(Math.round(of), 1, 99)}` : ""}` : "";
+  const pick = data.pick === true;
+  const badge = number
+    ? `<div style="position: absolute; top: 14px; left: 14px; font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 999px; background: ${c.ink}; color: ${c.bg}">${esc(number, 10)}</div>`
+    : "";
+  const tag = pick || data.tag
+    ? `<div style="position: absolute; top: 14px; right: 14px; font-size: 14px; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: ${c.accent}; color: #FFFFFF">${esc(data.tag || "Tex's pick", 20)}</div>`
+    : "";
+  // With no photo, the slot carries the option's initial, so the card never looks unfinished.
+  const first = typeof data.name === "string" ? data.name.trim().charAt(0) : "";
+  const initial = photoUrl(data.photo) === null && first
+    ? `<div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: Fraunces, Georgia, serif; font-size: 160px; font-weight: 700; color: rgba(22,22,26,0.28)">${esc(first, 2)}</div>`
+    : "";
+  return page(
+    `${photo(data.photo, { height: data.photo ? 380 : 320, radius: 20, tone: TONES[((index ?? 1) - 1 + TONES.length) % TONES.length], label: data.source ? `photo · ${esc(data.source, 24)}` : "", extra: badge + tag + initial })}
+${data.kicker ? `<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${c.muted}">${esc(data.kicker, 60)}</div>` : ""}
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-top: -8px">
+<div style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -0.02em; min-width: 0">${esc(data.name, 40)}</div>
+<div style="text-align: right; flex-shrink: 0"><div style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 36px; font-weight: 800; color: ${pick ? c.accent : c.ink}">${esc(data.price, 12)}</div>${data.price_note ? `<div style="font-size: 14px; color: ${c.muted}">${esc(data.price_note, 24)}</div>` : ""}</div>
+</div>
+${facts.length ? `<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">${facts.map((f) => `<div style="background: ${c.surface}; border: 1px solid ${c.line}; border-radius: 12px; padding: 10px 14px"><div style="font-size: 13px; color: ${c.muted}">${esc(f.label, 20)}</div><div style="font-size: 19px; font-weight: 700">${esc(f.value, 24)}</div></div>`).join("")}</div>` : ""}
+${data.note ? `<div style="font-size: 17px; line-height: 1.35; color: ${c.body}">${esc(data.note, 120)}</div>` : ""}
+<div style="flex-grow: 1"></div>
+${footer(c, number ? `Reply ${clamp(Math.round(index), 1, 99)} for more on this one` : "")}`,
+    { background: c.bg, ink: c.ink, gap: 16 },
   );
 }

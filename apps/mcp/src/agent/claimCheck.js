@@ -46,6 +46,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
+import { VISUAL_NOTICE, wantsACard } from "./visuals/notice.js";
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
@@ -388,7 +389,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null }) {
+export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null, visuals = () => false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -415,6 +416,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   let shortNoticed = false;
   let askFirstNoticed = false;
   let keptPromise = false;
+  // A list texted as words that a card should have carried (`visuals/notice.js`).
+  let cardNoticed = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -498,6 +501,10 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       if (!laterNoticed && !keptPromise && promisesLater(answer)) {
         laterNoticed = true;
         return LATER_NOTICE;
+      }
+      if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
+        cardNoticed = true;
+        return VISUAL_NOTICE;
       }
       if (noticed) return judgeOnce(answer);
       const notice =

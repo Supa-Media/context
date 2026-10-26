@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
+import { outgoingPictures, sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { DRAW_TOOL, MAKE_TOOL, pictureMaker, withDrawnImages, withPictureMaker } from "../src/agent/pictureMaker.js";
 import { VISUALS_LINE, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
 import { esc, photoUrl } from "../src/agent/visuals/kit.js";
@@ -50,6 +50,7 @@ function siteShots() {
 
 /** One filled example per template: what the approved artboard showed. */
 const EXAMPLES = {
+  option: { index: 2, of: 3, kicker: "Generals · catering for 30", name: "Lugo's", price: "$230", price_note: "$7.67 a person", photo: "https://cdn.lugos.example/tray.jpg", source: "Lugo's", facts: [{ label: "Serves", value: "30" }, { label: "Delivery", value: "Free, by 11" }], note: "Halal on request", tag: "Closest" },
   compare: { kicker: "NYCG Generals · catering for 30", title: "All three fit the $300 budget", limit: 300, items: [{ name: "Blend LIC", value: 225, display: "$225" }, { name: "Lugo's", value: 230, display: "$230" }, { name: "India Passage", value: 290, display: "$290" }] },
   gallery: { style: "editorial", title: "Three that fit the brief", items: [{ name: "Wrap midi", price: "$128", pick: true }, { name: "Slip dress", price: "$98" }] },
   versus: { title: "B wins 4 of 6", items: [{ name: "Bed-Stuy" }, { name: "Crown Heights" }], rows: [{ label: "Rent", a: "$2,650", b: "$2,800", better: "a" }] },
@@ -74,7 +75,7 @@ test("every template draws from its example, at 1200x1500, with its words on the
     assert.equal(built.error, undefined, template);
     assert.equal(built.width, 1200);
     assert.equal(built.height, 1500);
-    assert.ok(built.html.includes(esc(EXAMPLES[template].title ?? EXAMPLES[template].total)), `${template} shows its title`);
+    assert.ok(built.html.includes(esc(EXAMPLES[template].title ?? EXAMPLES[template].total ?? EXAMPLES[template].name)), `${template} shows its title`);
     assert.doesNotMatch(built.html, /undefined|NaN|\[object Object\]/, `${template} has no holes`);
   }
 });
@@ -204,7 +205,8 @@ test("a page Tex opens lists its pictures, so a visual answer can show the thing
 test("the texted prompt says when to draw: two signals, one line, the card in the note", () => {
   assert.match(VISUALS_LINE, /Two or more/);
   assert.match(VISUALS_LINE, /25 words at most/);
-  assert.match(VISUALS_LINE, /save with write and args: \{ images: \[\{ name: 'card\.png', data: 'picture:N' \}\] \}/);
+  assert.match(VISUALS_LINE, /write with args \{ images: \[\{ name: 'card\.png', data: 'picture:N' \}\] \}/);
+  assert.match(VISUALS_LINE, /one swipeable set/);
   assert.match(VISUALS_LINE, /Never draw for a yes or no/);
 });
 
@@ -234,6 +236,47 @@ test("a texted turn draws a card, texts one line, and keeps the card in the note
     assert.ok(note, "the note was written");
     assert.match(note[1], /!\[\[[^\]]+\.png\]\]/, "the note embeds the stored card");
     assert.ok(bodies.some(([key]) => key.endsWith(".png")), "the card's bytes are stored beside it");
+  } finally {
+    world.restore();
+  }
+});
+
+test("a set of option cards is numbered on each card, and the saved conversation knows which was which", async () => {
+  const card = buildVisual({ template: "option", data: EXAMPLES.option }).html;
+  assert.match(card, />2 of 3</);
+  assert.match(card, /Reply 2 for more on this one/);
+  const outgoing = outgoingPictures({ enabled: true });
+  const call = outgoing.wrap(async () => ({ content: [{ type: "image", mimeType: "image/png", data: CARD_PNG }] }));
+  for (const [i, name] of ["Blend LIC", "Lugo's", "India [Passage]"].entries()) {
+    await call(VISUAL_TOOL, { template: "option", data: { index: i + 1, of: 3, name } });
+  }
+  const { pictures, captions } = outgoing.take("All 3 fit. Reply a number for more.\n[picture 1]\n[picture 2]\n[picture 3]");
+  assert.equal(pictures.length, 3);
+  assert.equal(
+    sentPicturesLine(pictures, captions),
+    "[Sent 3 pictures as one swipeable set with this answer: 1. Blend LIC; 2. Lugo's; 3. India Passage.]",
+  );
+  assert.equal(sentPicturesLine(pictures.slice(0, 1)), "[Sent a picture with this answer.]");
+});
+
+test("a texted list that drew nothing goes back once, and comes out as a card and one line", async () => {
+  const { createEgressWorld, request, TOKEN_TEXTS } = await import("./agentEgressFixtures.mjs");
+  const { VISUAL_NOTICE } = await import("../src/agent/visuals/notice.js");
+  const world = await createEgressWorld();
+  try {
+    const shots = siteShots();
+    const env = { ...world.env, SITE_SHOTS: shots.SITE_SHOTS };
+    const days = { kicker: "This week", title: "Light week, Sunday is the big one", days: [{ name: "Mon", stops: [{ time: "1:30", what: "Joemo" }] }, { name: "Sun", stops: [{ time: "3 PM", what: "Bethesda party" }] }] };
+    world.model.install([
+      { text: "Light week.\n\nMon: Joemo 1:30, Austin 6:30\nTue: AJ 4, Kansi 6\nWed: Fast, all day\nSun: Bethesda party, 3 to 5" },
+      { toolCalls: [{ name: "send", args: { action: VISUAL_TOOL, args: { template: "trip", data: days } } }] },
+      { text: "Light week, Sunday in Bethesda is the big one.\n\n[picture 1]" },
+    ]);
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "What does my week look like", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.ok(JSON.stringify(world.model.requests[1]).includes(VISUAL_NOTICE.slice(0, 60)), "the list went back with the card notice");
+    assert.equal(asked.body.answer, "Light week, Sunday in Bethesda is the big one.");
+    assert.equal(asked.body.pictures?.length, 1);
   } finally {
     world.restore();
   }
