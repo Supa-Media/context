@@ -4,7 +4,7 @@
  * tickets. Each takes the model's data and returns the card's inner HTML.
  */
 
-import { DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
+import { CARD_HEIGHT, DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
 
 /** Options ranked against a limit: catering quotes, phone plans, anything with one number that decides. */
 export function compare(data, theme) {
@@ -146,24 +146,43 @@ export function places(data, theme) {
   const c = theme === "dark" ? DARK : LIGHT;
   const items = list(data.items, 4);
   const colors = [c.accent, c.warm, c.good, c.plum];
-  const size = items.length > 3 ? 104 : 128;
-  return page(
-    `${heading(c, data.kicker, data.title, { size: 38 })}
-<div style="display: flex; flex-direction: column; gap: 14px; flex-grow: 1">${items
-      .map(
-        (item, i) => `<div style="display: flex; gap: 16px; align-items: center; background: ${c.surface}; border: 1px solid ${item.pick === true ? colors[i] : c.line}; border-radius: 18px; padding: 12px">
-<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, {
-          height: size,
-          tone: TONES[i % TONES.length],
-          extra: `<div style="position: absolute; top: 8px; left: 8px; width: 30px; height: 30px; border-radius: 15px; background: ${colors[i]}; color: #FFFFFF; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center">${i + 1}</div>`,
-        })}</div>
-<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0"><div style="font-size: 22px; font-weight: 700">${esc(item.name, 28)}</div><div style="font-size: 16px; color: ${c.muted}">${esc(item.detail, 50)}</div>${item.note ? `<div style="font-size: 15px; font-weight: 600; color: ${colors[i]}">${esc(item.note, 40)}</div>` : ""}</div>
-<div style="text-align: right; flex-shrink: 0; padding-right: 6px"><div style="font-size: 24px; font-weight: 800">${esc(item.distance, 10)}</div><div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label || "away", 12)}</div></div></div>`,
-      )
-      .join("")}</div>
+  // No photo, no slot: an empty coloured block reads as a picture that failed (owner, 2026-10-26).
+  const size = 112;
+  const rows = items.map((item, i) => {
+    const pic = photoUrl(item.photo);
+    const logo = photoUrl(item.logo);
+    const badge = `<div style="width: 28px; height: 28px; border-radius: 14px; background: ${colors[i]}; color: #FFFFFF; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div>`;
+    const chips = [
+      [item.cuisine, c.accentSoft, c.accentInk],
+      [item.price, c.goodSoft, c.good],
+      [item.pick === true ? item.tag || "Tex's pick" : item.tag, c.warmSoft, c.warmInk],
+    ]
+      .filter(([text]) => typeof text === "string" && text.trim() !== "")
+      .map(([text, bg, ink]) => `<div style="font-size: 14px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: ${bg}; color: ${ink}">${esc(text, 40)}</div>`)
+      .join("");
+    const lines = [item.detail, [item.hours, item.address].filter((part) => typeof part === "string" && part.trim() !== "").join(" · ")]
+      .filter((line) => typeof line === "string" && line.trim() !== "")
+      .map((line) => `<div style="font-size: 15px; line-height: 1.3; color: ${c.body}">${esc(line, 140)}</div>`)
+      .join("");
+    const distance = typeof item.distance === "string" && item.distance.trim() !== "";
+    return `<div style="display: flex; gap: 14px; align-items: flex-start; background: ${c.surface}; border: ${item.pick === true ? `2px solid ${colors[i]}` : `1px solid ${c.line}`}; border-radius: 18px; padding: 14px">
+${pic ? `<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, { height: size, radius: 12, tone: c.track })}</div>` : ""}
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="display: flex; align-items: center; gap: 10px">${badge}${logo ? `<div style="width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; background: url('${logo}') center / contain no-repeat"></div>` : ""}<div style="font-size: 22px; line-height: 1.15; font-weight: 700">${esc(item.name, 60)}</div></div>
+${chips ? `<div style="display: flex; flex-wrap: wrap; gap: 6px">${chips}</div>` : ""}${lines}${item.note ? `<div style="font-size: 15px; line-height: 1.3; font-weight: 600; color: ${colors[i]}">${esc(item.note, 140)}</div>` : ""}</div>
+${distance ? `<div style="text-align: right; flex-shrink: 0; padding-right: 4px"><div style="font-size: 22px; font-weight: 800">${esc(item.distance, 12)}</div>${item.distance_label ? `<div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label, 14)}</div>` : ""}</div>` : ""}</div>`;
+  });
+  // The card grows with what it holds rather than cutting a line short.
+  const height = clamp(170 + items.length * 150 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
+  return {
+    html: page(
+      `${heading(c, data.kicker, data.title, { size: 36 })}
+<div style="display: flex; flex-direction: column; gap: 12px; flex-grow: 1">${rows.join("")}</div>
 ${data.footer ? footer(c, data.footer) : ""}`,
-    { background: c.bg, ink: c.ink },
-  );
+      { background: c.bg, ink: c.ink, height },
+    ),
+    height,
+  };
 }
 
 /** Tickets: flights, trains, shows. Boarding-pass cards and up to three facts underneath. */
