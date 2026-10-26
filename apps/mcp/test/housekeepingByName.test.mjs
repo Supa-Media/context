@@ -28,8 +28,10 @@
  *     → "a batch the control plane could not start goes again in halves…" fails.
  *  8. planning each batch as it goes (`PLAN_BATCH` at the batch size).
  *     → "once a batch asks for versions, the notes are planned a hundred at a time…" fails.
- *  9. `leftHint` keyed on the stem before the first digit (500s and 600s one family).
+ *  9. `leftHint` keyed on the stem before the first digit (500s and 600s one family; dated names by month).
  *     → "a move by name names the families still loose…" fails.
+ * 10. `widened` returning the moves as matched.
+ *     → "a slice of one family takes the whole family…" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -328,12 +330,35 @@ test("a move by name names the families still loose in the folder, so the next c
   const text = result.content[0].text;
   assert.match(text, /moved 230 notes/);
   assert.match(text, /41 other notes are still directly in 2-areas\/apps\/context\//);
-  assert.match(text, /passes-2\* \(19\), log-5\* \(12\), log-6\* \(6\)/);
+  assert.match(text, /passes-2026-09\* \(19\), log-5\* \(12\), log-6\* \(6\)/);
   assert.doesNotMatch(text, /x\*|readme/, "a family under three, or a name with no number, is not named");
   assert.equal(guard.changes.length, 230, "nothing outside the pattern moves");
 
   const dry = await guard.callTool("move_notes", { folder: FOLDER, match: "log-5*", into: `${FOLDER}/500s`, dry_run: true });
-  assert.match(dry.content[0].text, /passes-2\* \(19\)/);
+  assert.match(dry.content[0].text, /passes-2026-09\* \(19\)/);
   const none = await guard.callTool("move_notes", { folder: FOLDER, match: "nothing-*", into: `${FOLDER}/c` });
   assert.match(none.content[0].text, /Nothing moved\. .*log-5\* \(12\)/);
+});
+
+test("a slice of one family takes the whole family; a pattern across families is taken as written", async () => {
+  const sept = Array.from({ length: 40 }, (_, i) => `${FOLDER}/coverage-2026-09-${String(10 + (i % 20)).padStart(2, "0")}${"ab"[i % 2]}-${i}.md`);
+  const oct = Array.from({ length: 5 }, (_, i) => `${FOLDER}/coverage-2026-10-0${i + 1}.md`);
+  const logs = [...Array.from({ length: 30 }, (_, i) => `${FOLDER}/log-${560 + i}.md`), ...Array.from({ length: 4 }, (_, i) => `${FOLDER}/log-${610 + i}.md`)];
+  const session = sessionOver([...sept, ...oct, ...logs]);
+  const guard = housekeepingCallTool(session.dispatch);
+  const sources = () => session.moves().slice(-1).flatMap((call) => call.args.moves.map((move) => move.source));
+
+  const month = await guard.callTool("move_notes", { folder: FOLDER, match: "coverage-2026-09-1*", into: "2026-09" });
+  assert.match(month.content[0].text, /moved 40 notes .*and the 20 other coverage-2026-09\* notes with them/);
+  assert.equal(guard.changes.length, 40);
+  assert.ok(guard.changes.every((change) => change.from.includes("coverage-2026-09-")), "October stays");
+
+  const hundreds = await guard.callTool("move_notes", { folder: FOLDER, match: "log-56*", into: "500s" });
+  assert.match(hundreds.content[0].text, /moved 30 notes/);
+  assert.ok(sources().every((source) => /log-5\d\d/.test(source)), "the 600s stay");
+
+  const across = sessionOver([...oct, ...logs]);
+  const asWritten = housekeepingCallTool(across.dispatch);
+  await asWritten.callTool("move_notes", { folder: FOLDER, match: "*-{2026-10-01,560}*", into: "mixed" });
+  assert.equal(asWritten.changes.length, 2, "one coverage note and one log: no widening");
 });
