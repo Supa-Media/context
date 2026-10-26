@@ -731,3 +731,36 @@ jobs:
       - name: Typecheck what the Convex deploy would push
         if: steps.scope.outputs.affected == 'true'
         run: pnpm exec convex typecheck
+
+  # The Messages extension (`apps/mobile/targets/context-messages`) is built
+  # only by a native release, which is a separate, hand-run step; a Swift
+  # mistake would otherwise first show up there, after the change merged.
+  # This type-checks it against the iOS SDK on every pull request that
+  # touches it, without building the app.
+  messages-extension:
+    name: The Messages extension compiles
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Does this touch the Messages extension?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            extension:
+              - "apps/mobile/targets/context-messages/**"
+              - "apps/mobile/plugins/with-context-messages.js"
+              - ".github/workflows/ci.yml"
+
+      - name: Type-check the extension against the iOS SDK
+        if: steps.changes.outputs.extension == 'true'
+        working-directory: apps/mobile/targets/context-messages
+        run: |
+          deployment=$(sed -n 's/.*IPHONEOS_DEPLOYMENT_TARGET = "\([0-9.]*\)".*/\1/p' ../../plugins/with-context-messages.js)
+          xcrun --sdk iphoneos swiftc -typecheck \
+            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -target "arm64-apple-ios${deployment}" \
+            -swift-version 5 \
+            *.swift

@@ -1,25 +1,34 @@
 import Messages
 import UIKit
 
-/// The Context card in Messages (apps/agent/src/appCards.ts): Tex texts a
-/// note's link as a card, and tapping the card opens the note. Only a link
-/// on context.lc is opened; anything else in a card's URL is ignored.
+/// The Context cards in Messages (apps/agent/src/appCards.ts, pickCard.ts).
+///
+/// A note card carries the note's link: tapping it opens the note. A pick
+/// card follows a set of option cards Tex texted and carries the options in
+/// its URL (`https://context.lc/tex/pick?p=1&o=…&o=…`): tapping it lists them,
+/// and choosing one sends the card back with `&c=<number>`, which reaches Tex
+/// as "I pick 2: …". Only links on context.lc are opened or read; anything
+/// else in a card's URL is ignored.
 final class MessagesViewController: MSMessagesAppViewController {
   private let label = UILabel()
+  private let stack = UIStackView()
+  private var pick: Pick?
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    label.text = "Tap a Context card to open the note."
+    label.text = "Tap a Context card to open it."
     label.textAlignment = .center
     label.numberOfLines = 0
     label.textColor = .secondaryLabel
-    label.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(label)
+    stack.axis = .vertical
+    stack.spacing = 10
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.addArrangedSubview(label)
+    view.addSubview(stack)
     NSLayoutConstraint.activate([
-      label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-      label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-      label.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
-      label.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
+      stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+      stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+      stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
     ])
   }
 
@@ -34,7 +43,11 @@ final class MessagesViewController: MSMessagesAppViewController {
   }
 
   private func open(_ message: MSMessage?) {
-    guard let url = message?.url, Self.isContextLink(url) else { return }
+    guard let message = message, let url = message.url, Self.isContextLink(url) else { return }
+    if let pick = Pick(url: url) {
+      show(pick, from: message)
+      return
+    }
     label.text = "Opening in Context…"
     extensionContext?.open(url) { [weak self] opened in
       if !opened {
@@ -43,8 +56,97 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
   }
 
+  // MARK: Pick cards
+
+  private func show(_ pick: Pick, from message: MSMessage) {
+    self.pick = Pick(url: pick.url, options: pick.options, texPick: pick.texPick, chosen: pick.chosen, session: message.session)
+    for old in stack.arrangedSubviews where old !== label {
+      stack.removeArrangedSubview(old)
+      old.removeFromSuperview()
+    }
+    label.text = pick.chosen.map { "You picked \(pick.options[$0 - 1]). Choose again?" } ?? "Which one?"
+    for (index, name) in pick.options.enumerated() {
+      let number = index + 1
+      let button = UIButton(type: .system)
+      var title = "\(number). \(name)"
+      if number == pick.texPick { title += "  ·  Tex's pick" }
+      if number == pick.chosen { title = "✓ " + title }
+      button.setTitle(title, for: .normal)
+      button.titleLabel?.font = .preferredFont(forTextStyle: .body)
+      button.titleLabel?.numberOfLines = 2
+      button.contentHorizontalAlignment = .leading
+      button.tag = number
+      button.addTarget(self, action: #selector(choose(_:)), for: .touchUpInside)
+      stack.addArrangedSubview(button)
+    }
+    requestPresentationStyle(.expanded)
+  }
+
+  @objc private func choose(_ sender: UIButton) {
+    guard let pick = pick, let conversation = activeConversation, let url = pick.chosenURL(sender.tag) else { return }
+    let name = pick.options[sender.tag - 1]
+    let message = MSMessage(session: pick.session ?? MSSession())
+    message.url = url
+    let layout = MSMessageTemplateLayout()
+    layout.caption = "Picked: \(name)"
+    layout.subcaption = "Option \(sender.tag) of \(pick.options.count)"
+    message.layout = layout
+    message.summaryText = "Picked \(name)"
+    conversation.send(message) { [weak self] error in
+      DispatchQueue.main.async {
+        if error == nil {
+          self?.dismiss()
+        } else {
+          self?.label.text = "That didn't send. Reply \(sender.tag) instead."
+        }
+      }
+    }
+  }
+
   static func isContextLink(_ url: URL) -> Bool {
     guard url.scheme == "https", let host = url.host?.lowercased() else { return false }
     return host == "context.lc" || host.hasSuffix(".context.lc")
+  }
+}
+
+/// A pick card's state, read from its URL: the options in order, Tex's pick
+/// and, once they chose, their choice (all numbered from 1).
+struct Pick {
+  let url: URL
+  let options: [String]
+  let texPick: Int?
+  let chosen: Int?
+  var session: MSSession?
+
+  init(url: URL, options: [String], texPick: Int?, chosen: Int?, session: MSSession?) {
+    self.url = url
+    self.options = options
+    self.texPick = texPick
+    self.chosen = chosen
+    self.session = session
+  }
+
+  init?(url: URL) {
+    guard url.path == "/tex/pick",
+      let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+    else { return nil }
+    let options = items.filter { $0.name == "o" }.compactMap { $0.value }.filter { !$0.isEmpty }.prefix(8)
+    guard options.count >= 2 else { return nil }
+    let number = { (name: String) -> Int? in
+      guard let value = items.first(where: { $0.name == name })?.value, let n = Int(value), n >= 1, n <= options.count else { return nil }
+      return n
+    }
+    self.init(url: url, options: Array(options), texPick: number("p"), chosen: number("c"), session: nil)
+  }
+
+  /// The card's URL with their choice in it, every other part kept as it was written.
+  func chosenURL(_ number: Int) -> URL? {
+    guard number >= 1, number <= options.count,
+      var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return nil }
+    var items = (components.percentEncodedQueryItems ?? []).filter { $0.name != "c" }
+    items.append(URLQueryItem(name: "c", value: String(number)))
+    components.percentEncodedQueryItems = items
+    return components.url
   }
 }
