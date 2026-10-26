@@ -59,9 +59,14 @@ export function reportCopy(message, shareTexts) {
   return `${said}\n\n${texts}`;
 }
 
+/** The group chat's client (`agent/groupTurn.js`). */
+const GROUP_CLIENT_ID = "context_texts_group";
+
 /** "file a bug", "send a bug report to the team", "report this to the developers". */
 const ASKS_TO_FILE = [
   /\b(?:file|send|submit|open|log|raise|write up|make)\b[^.?!\n]{0,30}?\b(?:bug|issue|ticket|bug report)\b/i,
+  // "File the fact that you can't see your own diagram as a bug report" (Tex Devs group, 2026-10-26).
+  /\b(?:file|submit|log|raise|report)\b[^?!\n]{0,160}?\b(?:as|into)\s+(?:an?\s+)?(?:bug|issue|ticket)s?\b/i,
   /\breport\s+(?:it|this|that)\b[^.?!\n]{0,20}\b(?:team|devs?|developers?|engineers?)\b/i,
 ];
 
@@ -84,7 +89,8 @@ export async function recentTexts(store) {
  * went, or the answer to give instead: a refusal, the sent report, or a hold.
  */
 export async function reportGate(supplied, { store, session }) {
-  const shareTexts = supplied?.share_texts === true;
+  // A group chat's report never carries texts: the tagger's own texts with Tex aren't the chat's to send, nor the chat theirs.
+  const shareTexts = supplied?.share_texts === true && session.actorClientId !== GROUP_CLIENT_ID;
   if (session.egress?.approved === true) {
     return await sendReport(store, reportMessage(supplied), shareTexts ? await recentTexts(store) : undefined);
   }

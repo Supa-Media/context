@@ -50,6 +50,7 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { fileBugNote } from "../../functions/bugNotes";
+import { filedAsBugNote } from "../../functions/lib/gatewayRoutes/feedback";
 import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedback/bugNote";
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
@@ -188,6 +189,12 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(note).toContain("Them: find my avocado note");
     expect(note).toContain('from: "@alice-handle"');
     expect(note).toContain(`reference: "${(answer.report as { eventId: string }).eventId}"`);
+  });
+
+  test("Tex in a group chat files as its tagger, as a text does; any other AI goes to Sentry", () => {
+    expect(filedAsBugNote("context_texts")).toBe(true);
+    expect(filedAsBugNote("context_texts_group")).toBe(true);
+    expect(filedAsBugNote("some_other_ai")).toBe(false);
   });
 
   test("a report without texts says so", async () => {

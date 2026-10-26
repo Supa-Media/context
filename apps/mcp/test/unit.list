@@ -32,6 +32,7 @@ test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentOpenWebBrowse.test.mjs
 test/agentProduction.test.mjs
+test/agentBugReportAsked.test.mjs
 test/groupSetupReach.test.mjs
 test/agentProgress.test.mjs
 test/agentRouterWebJobs.test.mjs

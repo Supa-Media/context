@@ -321,6 +321,27 @@ live presence refuse it (`addressable`). The fixture now has the real shape.
 Tests: `apps/mcp/test/groupSetupReach.test.mjs`,
 `apps/convex/__tests__/textGroups.test.ts` ("Tex's setup in a group chat").
 
+### What a group's Tex sent, and a bug it was asked to file (2026-10-26)
+
+The same afternoon in Tex Devs, three more slips:
+
+- **The chat's memory now keeps the cards it sent.** It kept the words and
+  never the card, so Tex answered "redo the diagram" with "the only graphic
+  I made was the Reason Network one". It now keeps the same line a text
+  keeps (`sentPicturesLine`): what each card showed.
+- **"File this as a bug" files one.** Tex wrote into a team handoff note and
+  texted "Filed." When their text asks to file a bug, a note write before
+  `report_problem` is refused, and an answer with no report goes back once
+  (`agent/bugCheck.js`). A group's report lands in the Tex bug notes as its
+  tagger's, the same as a text (`filedAsBugNote`), and never carries texts:
+  the tagger's own texts with Tex aren't the chat's to send.
+- **"The note now has a picture" needs a write that carried one**
+  (`claimsNotePicture`). Otherwise it goes back once.
+
+Tests: `apps/mcp/test/agentBugReportAsked.test.mjs`,
+`apps/mcp/test/agentGroupTurn.test.mjs` (the card in memory),
+`apps/convex/__tests__/controlPlane/bugNotes.test.ts`.
+
 ## What wakes Tex, and what it remembers it did (the group chat of 2026-10-23)
 
 "Tex turn this guy into a cat", with a picture, got no answer at all: a

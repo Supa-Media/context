@@ -46,7 +46,8 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, owesAPicture, wantsACard } from "./visuals/notice.js";
+import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
+import { BUG_NOTICE, filesABugElsewhere, writeBeforeReport } from "./bugCheck.js";
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
@@ -424,6 +425,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   // A list texted as words that a card should have carried (`visuals/notice.js`).
   let cardNoticed = false;
   let owedNoticed = false;
+  let notePictureNoticed = false;
+  let bugNoticed = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -451,8 +454,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     },
     wrap(callTool) {
       return async (name, args) => {
-        const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true });
+        // "File this as a bug": a note write waits for the report (`bugCheck.js`).
+        const refused = writeBeforeReport(question, name, args, steps);
+        const result = refused ?? (await callTool(name, args));
+        const images = args?.images ?? args?.args?.images;
+        // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
@@ -528,6 +535,16 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     if (!laterNoticed && !keptPromise && promisesLater(answer)) {
       laterNoticed = true;
       return LATER_NOTICE;
+    }
+    // "File this as a bug" answered with a note, not a report (`bugCheck.js`).
+    if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {
+      bugNoticed = true;
+      return BUG_NOTICE;
+    }
+    // "The note now has a picture" with no write that carried one.
+    if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
+      notePictureNoticed = true;
+      return NOTE_PICTURE_NOTICE;
     }
     // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
     if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {
