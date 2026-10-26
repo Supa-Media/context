@@ -127,7 +127,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args) });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "" });
           numbers.push(seen.length);
         }
       }
@@ -162,7 +162,32 @@ export function outgoingPictures({ enabled, question = "" }) {
       }
       return "";
     });
+    // A card it drew and then forgot to name still goes: "Here's the graphic" with nothing after it
+    // is the one thing worse than no card (owner's group chat, 2026-10-26).
+    if (named.size === 0) {
+      for (const picture of unnamedCards()) {
+        if (pictures.length >= MAX_PICTURES || carried + picture.data.length > MAX_PICTURE_CHARS) break;
+        carried += picture.data.length;
+        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+        captions.push(picture.caption);
+      }
+    }
     return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions };
+  };
+
+  /**
+   * The cards to send when the answer named none: the last one this turn drew,
+   * or, when that was an option card, every option card (a swipeable set), one
+   * per number. A redrawn card replaces the one before it, so only the last goes.
+   */
+  const unnamedCards = () => {
+    const drawn = seen.filter((picture) => MADE_BY.has(picture.tool));
+    const last = drawn.at(-1);
+    if (!last) return [];
+    if (last.template !== "option") return [last];
+    const byCaption = new Map();
+    for (const picture of drawn) if (picture.template === "option") byCaption.set(picture.caption || picture.name, picture);
+    return [...byCaption.values()];
   };
 
   /** Picture N a tool showed this turn, for a tool that builds on it (`pictureMaker.js`). */
@@ -182,7 +207,10 @@ export function outgoingPictures({ enabled, question = "" }) {
     return url !== null && (text.includes(ref) || text.includes(url));
   };
 
-  return { wrap, take, picture, made, vouches };
+  /** Every word the turn's tool results showed, for finding a card's photos among them (`visuals/photos.js`). */
+  const read = () => text;
+
+  return { wrap, take, picture, made, vouches, read };
 }
 
 /**

@@ -180,3 +180,30 @@ test("an address read before the model used it stays vouched when a tool repeats
   await page("browse", { url: "https://cdn.example.com/logo.png" });
   assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
 });
+
+// Tex Devs group, 2026-10-26: draw_visual worked, the answer said "Here's the one-pager" and named no
+// [picture N], so the card never went. A card the turn drew goes even when the answer forgot to name it.
+test("a drawn card the answer forgot to name still goes; a redrawn one replaces it; option cards go as a set", async () => {
+  const image = (data) => async () => ({ content: [{ type: "image", data, mimeType: "image/png" }] });
+  const one = outgoingPictures({ enabled: true });
+  await one.wrap(image("first"))("draw_visual", { template: "board", data: { title: "v1" } });
+  await one.wrap(image("second"))("draw_visual", { template: "board", data: { title: "v2" } });
+  const taken = one.take("Here's the one-pager. It's not started.");
+  assert.deepEqual(taken.pictures.map((p) => p.data), ["second"]);
+  assert.equal(taken.answer, "Here's the one-pager. It's not started.");
+
+  const set = outgoingPictures({ enabled: true });
+  for (const [i, name] of ["Lugo's", "Blend", "India Passage"].entries()) {
+    await set.wrap(image(`card${i}`))("draw_visual", { template: "option", data: { index: i + 1, of: 3, name } });
+  }
+  assert.deepEqual(set.take("Lugo's is my pick.").pictures.map((p) => p.data), ["card0", "card1", "card2"]);
+
+  // A picture only read, never drawn, still needs naming; a named one goes as named.
+  const read = outgoingPictures({ enabled: true });
+  await read.wrap(image("from-note"))("read_image", { path: "a.png" });
+  assert.deepEqual(read.take("That's the photo.").pictures, []);
+  const named = outgoingPictures({ enabled: true });
+  await named.wrap(image("a"))("draw_visual", { template: "board", data: {} });
+  await named.wrap(image("b"))("draw_visual", { template: "board", data: {} });
+  assert.deepEqual(named.take("Here.\n[picture 1]").pictures.map((p) => p.data), ["a"]);
+});

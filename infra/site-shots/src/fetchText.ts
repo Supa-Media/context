@@ -17,7 +17,7 @@
 
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
-import { MAX_LINKS, MAX_TEXT_CHARS, keepImages, type PageRead } from "./read";
+import { LOGO_SELECTORS, MAX_LINKS, MAX_TEXT_CHARS, keepImages, pickLogo, type PageRead } from "./read";
 import { publicHttpsUrl } from "./shoot";
 
 /** How long the site may take to answer before the browser is tried instead. */
@@ -229,6 +229,11 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     if (src) pictures.push({ alt: img.getAttribute("alt") ?? "", src });
     if (pictures.length >= 60) break;
   }
+  const logos = LOGO_SELECTORS.map((selector) => {
+    const found = document.querySelector(selector);
+    return found?.getAttribute("href") || found?.getAttribute("content") || "";
+  });
+  const logo = pickLogo(logos, url);
   // Not `markdown: true`: its converter (turndown) needs a DOM parser the
   // Workers runtime does not have, and fails there while passing in Node.
   const result = await Defuddle(document as unknown as Parameters<typeof Defuddle>[0], url, {
@@ -245,6 +250,7 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     truncated: text.length > MAX_TEXT_CHARS,
     links,
     images: keepImages(pictures, url),
+    ...(logo ? { logo } : {}),
     via: "html",
   };
 }

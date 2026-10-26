@@ -138,7 +138,7 @@ export default {
     }
     // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
     const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
-    if (grouped !== null) return groupWebhook(env, grouped);
+    if (grouped !== null) return groupWebhook(env, grouped, url.origin);
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
       logWebhook(line, "invalid");
@@ -238,7 +238,7 @@ function logWebhook(line: "linq" | "sendblue", outcome: "unsigned" | "invalid" |
 }
 
 /** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
-async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>): Promise<Response> {
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>, origin: string): Promise<Response> {
   if (grouped.kind === "invalid") {
     logWebhook("sendblue", "invalid");
     return new Response(null, { status: 400 });
@@ -248,7 +248,9 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     return new Response(null, { status: 200 });
   }
   const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(grouped.groupId)));
-  const result = await stub.fetch("https://inbox/group-accept", { method: "POST", body: JSON.stringify(grouped) });
+  // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
+  // served from, and every answer with a card failed after its words went out (2026-10-26).
+  const result = await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(grouped) });
   logWebhook("sendblue", "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -363,6 +365,7 @@ export class SenderInbox implements DurableObject {
       return Response.json({ told });
     }
     if (path === "/group-accept") {
+      await this.keepOrigin(request);
       const message = (await request.json()) as GroupMessage;
       return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
     }
@@ -389,10 +392,7 @@ export class SenderInbox implements DurableObject {
       if (request.method !== "GET") return new Response(null, { status: 405 });
       return serveMedia(this.state.storage, path.slice("/media/".length), Date.now());
     }
-    const origin = workerOrigin(new URL(request.url).searchParams.get("origin"));
-    if (origin !== null && (await this.state.storage.get<string>(ORIGIN_KEY)) !== origin) {
-      await this.state.storage.put(ORIGIN_KEY, origin);
-    }
+    await this.keepOrigin(request);
     const message = (await request.json()) as Message;
     const outcome = await accept(this.state.storage, message, Date.now());
     return Response.json({ outcome });
@@ -423,6 +423,14 @@ export class SenderInbox implements DurableObject {
     const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(inbox));
     const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
     return response.ok;
+  }
+
+  /** The Worker's own address, kept for pictures served back to Sendblue (`media.ts`). */
+  private async keepOrigin(request: Request): Promise<void> {
+    const origin = workerOrigin(new URL(request.url).searchParams.get("origin"));
+    if (origin !== null && (await this.state.storage.get<string>(ORIGIN_KEY)) !== origin) {
+      await this.state.storage.put(ORIGIN_KEY, origin);
+    }
   }
 
   private deps(): InboxDeps {
