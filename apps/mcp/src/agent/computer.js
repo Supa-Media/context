@@ -71,7 +71,7 @@ export const PREFETCH_CONFIDENCE = 0.6;
 /** How much of a page reaches the model. */
 const MAX_PAGE_CHARS = 12_000;
 const MAX_LINKS_SHOWN = 40;
-const MAX_IMAGES_SHOWN = 8;
+const MAX_IMAGES_SHOWN = 12;
 
 const PROVIDERS = {
   // Cloudflare's browser, and Browserbase for `browse` once its key is set.
@@ -257,6 +257,7 @@ function pageText(page) {
     body || "(no text)",
     ...(links ? ["", "Links you can open:", links] : []),
     ...(pictures ? ["", "Pictures on the page (a photo for draw_visual, or [picture <address>] to text one):", pictures] : []),
+    ...(typeof page.logo === "string" && page.logo.startsWith("https://") ? ["", `Logo (a logo for draw_visual): ${page.logo}`] : []),
   ].join("\n");
 }
 

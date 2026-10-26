@@ -207,7 +207,10 @@ export function outgoingPictures({ enabled, question = "" }) {
     return url !== null && (text.includes(ref) || text.includes(url));
   };
 
-  return { wrap, take, picture, made, vouches };
+  /** Every word the turn's tool results showed, for finding a card's photos among them (`visuals/photos.js`). */
+  const read = () => text;
+
+  return { wrap, take, picture, made, vouches, read };
 }
 
 /**

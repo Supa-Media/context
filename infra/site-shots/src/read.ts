@@ -36,6 +36,12 @@ export interface PageRead {
    * clothing"). Public https addresses only; logos and icons left out.
    */
   images?: Array<{ alt: string; src: string }>;
+  /**
+   * The site's own mark (its home-screen icon, or an `og:logo`), so a card of
+   * places can show each one's logo (owner, 2026-10-26: "didn't even fill in
+   * the dishes, or logos"). Kept apart from `images`, which leave icons out.
+   */
+  logo?: string;
   /** How it was read: the site's Markdown or HTML (`./fetchText.ts`), a file, or a browser. */
   via: "markdown" | "html" | "file" | "browser";
   /**
@@ -75,6 +81,38 @@ export function keepImages(candidates: Array<{ alt?: unknown; src?: unknown }>, 
   return kept;
 }
 
+/**
+ * The page's logo: the first candidate that is a public https address,
+ * resolved against the page. Candidates come best first (`LOGO_SOURCE`).
+ */
+export function pickLogo(candidates: unknown, base: string): string | undefined {
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (typeof candidate !== "string" || candidate.trim() === "" || candidate.startsWith("data:")) continue;
+    try {
+      const src = publicHttpsUrl(new URL(candidate.trim(), base).href);
+      if (src !== null) return src;
+    } catch {
+      // Not an address; the next one may be.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The places a page names its logo, best first, as a selector list both
+ * readers share: the home-screen icon is square and large, `og:logo` is rare
+ * but meant, and a sized icon beats a 16px favicon.
+ */
+export const LOGO_SELECTORS = [
+  'link[rel~="apple-touch-icon"]',
+  'link[rel="apple-touch-icon-precomposed"]',
+  'meta[property="og:logo"]',
+  'link[rel~="icon"][sizes="192x192"]',
+  'link[rel~="icon"][sizes="180x180"]',
+  'link[rel~="icon"][sizes="128x128"]',
+  'link[rel~="icon"][sizes="96x96"]',
+];
+
 export function parseReadRequest(body: unknown): { url: string } | null {
   if (!body || typeof body !== "object") return null;
   const url = publicHttpsUrl((body as { url?: unknown }).url);
@@ -104,7 +142,13 @@ export const READ_SOURCE = `(() => {
     images.push({ alt: img.alt || "", src: img.currentSrc || img.src });
     if (images.length >= 60) break;
   }
-  return { title: document.title || "", text, links, images };
+  const logos = [];
+  for (const selector of ${JSON.stringify(LOGO_SELECTORS)}) {
+    const found = document.querySelector(selector);
+    const value = found && (found.getAttribute("href") || found.getAttribute("content"));
+    if (value) logos.push(value);
+  }
+  return { title: document.title || "", text, links, images, logos };
 })()`;
 
 /**
@@ -118,7 +162,7 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
     const page = await browser.newPage();
     try {
       await page.goto(url, { waitUntil: "networkidle2", timeout: READ_TIMEOUT_MS });
-      const raw = await page.evaluate<{ title?: unknown; text?: unknown; links?: unknown; images?: unknown }>(READ_SOURCE);
+      const raw = await page.evaluate<{ title?: unknown; text?: unknown; links?: unknown; images?: unknown; logos?: unknown }>(READ_SOURCE);
       const finalUrl = publicHttpsUrl(await page.evaluate<string>("location.href")) ?? url;
       const text = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
       const seen = new Set<string>();
@@ -138,6 +182,7 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
         truncated: text.length > MAX_TEXT_CHARS,
         links,
         images: keepImages(Array.isArray(raw?.images) ? raw.images : [], finalUrl),
+        ...(pickLogo(raw?.logos, finalUrl) ? { logo: pickLogo(raw?.logos, finalUrl) } : {}),
         via: "browser",
       };
     } finally {

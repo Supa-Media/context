@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_LINKS, MAX_TEXT_CHARS, READ_SOURCE, parseReadRequest, read } from "./read";
 import type { BrowserLike, PageLike } from "./shoot";
 
-function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: string }>; images?: Array<{ alt: string; src: string }>; href?: string; fail?: boolean }) {
+function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: string }>; images?: Array<{ alt: string; src: string }>; logos?: unknown[]; href?: string; fail?: boolean }) {
   const calls: string[] = [];
   const browser: BrowserLike = {
     async newPage() {
@@ -14,7 +14,7 @@ function fakeBrowser(page: { text?: string; links?: Array<{ text: string; href: 
         },
         async waitForSelector() {},
         async evaluate<T>(source: string) {
-          if (source === READ_SOURCE) return { title: "Example", text: page.text ?? "Hello", links: page.links ?? [], images: page.images ?? [] } as T;
+          if (source === READ_SOURCE) return { title: "Example", text: page.text ?? "Hello", links: page.links ?? [], images: page.images ?? [], logos: page.logos ?? [] } as T;
           if (source === "location.href") return (page.href ?? "https://example.com/") as T;
           return undefined as T;
         },
@@ -82,6 +82,12 @@ describe("read", () => {
       { alt: "Front", src: "https://cdn.example.com/dress.jpg" },
       { alt: "Relative", src: "https://example.com/photos/back.jpg" },
     ]);
+  });
+
+  it("hands back the site's logo apart from its pictures: the first public https one, resolved", async () => {
+    const page = await read(fakeBrowser({ logos: ["data:image/png;base64,AA", "https://10.0.0.1/icon.png", "/apple-touch-icon.png"] }).browser, "https://example.com/");
+    expect(page.logo).toBe("https://example.com/apple-touch-icon.png");
+    expect((await read(fakeBrowser({ logos: [42, "javascript:alert(1)"] }).browser, "https://example.com/")).logo).toBeUndefined();
   });
 
   it("caps the text and the links", async () => {
