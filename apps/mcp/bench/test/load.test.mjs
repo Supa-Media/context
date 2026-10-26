@@ -289,6 +289,26 @@ test("fluff.md is read as a fluff file and never served as a note", async () => 
   }
 });
 
+test("a folder with several kinds of filler reads each fluff-<kind>.md, and fluffy.md stays a note", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/logs/fluff-a.md": "---\ncount: 2\nseed: 1\nfrom: meetings\nname: a-{n}.md\n---\n",
+    "workspaces/ws/logs/fluff-b.md": "---\ncount: 3\nseed: 2\nfrom: meetings\nname: b-{n}.md\n---\n",
+    "workspaces/ws/logs/fluffy.md": "a note\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.deepEqual(Object.keys(bench.workspaces.ws.files), ["logs/fluffy.md"]);
+    assert.deepEqual(bench.workspaces.ws.fluff.map((f) => [f.dir, f.fluff.name]).sort(), [
+      ["logs", "a-{n}.md"],
+      ["logs", "b-{n}.md"],
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("_bank holds the templates and is not a workspace", async () => {
   const dir = await benchTree({
     "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
