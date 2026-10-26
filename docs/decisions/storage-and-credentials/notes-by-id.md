@@ -505,3 +505,20 @@ id-resolved path again lets a note that moved away lend its old address's
 ledger entry to the link of the note now there. `shareFollowsNoteId.test.ts`
 fails on each ("a renamed note opens with no forwarding left", "a note that
 moved away does not lend its old path's ledger entry to the note now there").
+
+## The id layout is a constant, not a row
+
+*Decided 2026-10-26.* `/gateway/binding` answers `idLayout: "keys"` on every
+deployment. It used to read the retired `noteIdLayout` row, which only a
+deployment that ran the migration from the staff console holds. Staging and any
+new self-hosted deployment had none, so the gateway, told `keyed: true` with no
+id layer, refused every one of their workspaces as having no reachable storage
+(the staging Tex check failed this way from 2026-10-22). A staging fixture made
+before notes by id has no tree rows, so `stagingPersonas.prepare` keys it the
+way a new workspace is born (`lib/noteIds/born.ts`) and the seed writes its
+notes again.
+
+What a "simplification" would cost. Reading the row again breaks every
+deployment that never held it. `controlPlane/binding.test.ts` fails ("a context
+that has never encrypted anything has no encryptionKey key at all" checks the
+answer on a deployment with no row).

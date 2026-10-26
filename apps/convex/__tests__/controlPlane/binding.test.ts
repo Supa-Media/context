@@ -380,12 +380,16 @@ describe("/gateway/binding — the encryption key", () => {
     const text = await response.text();
     expect(response.status).toBe(200);
     expect(text).not.toContain("encryptionKey");
-    // `privacy` is the rules the rows hold for this workspace, and `keyed` is true: every workspace keeps its
-    // notes under their ids. Every answer carries both; the siblings that are optional by design (search,
-    // rotation, features) stay absent.
+    // `privacy` is the rules the rows hold for this workspace, `keyed` is true and `idLayout` is "keys": every
+    // workspace keeps its notes under their ids. Every answer carries all three, on a deployment that never held
+    // the retired layout row too (this one holds none): without `idLayout` the gateway refuses a keyed store, which
+    // left staging and every new self-hosted deployment with no reachable storage. The siblings that are optional
+    // by design (search, rotation, features) stay absent.
     const body = JSON.parse(text) as Record<string, unknown>;
+    expect(await t.run((ctx) => ctx.db.query("noteIdLayout").first())).toBeNull();
     expect(body.keyed).toBe(true);
-    expect(Object.keys(body).filter((key) => key !== "privacy" && key !== "keyed")).toEqual(["binding"]);
+    expect(body.idLayout).toBe("keys");
+    expect(Object.keys(body).filter((key) => !["privacy", "keyed", "idLayout"].includes(key))).toEqual(["binding"]);
   });
 
   test("...and asking for the binding did not create one", async () => {
