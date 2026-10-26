@@ -1,0 +1,191 @@
+/**
+ * Visual answers for choosing between things (`./index.js`): options against a
+ * budget, a gallery of photos, two things side by side, places nearby, and
+ * tickets. Each takes the model's data and returns the card's inner HTML.
+ */
+
+import { DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo } from "./kit.js";
+
+/** Options ranked against a limit: catering quotes, phone plans, anything with one number that decides. */
+export function compare(data, theme) {
+  const c = theme === "dark" ? DARK : LIGHT;
+  const items = list(data.items, 5);
+  const values = items.map((item) => num(item.value));
+  const limit = num(data.limit);
+  const top = Math.max(limit ?? 0, ...values.map((v) => v ?? 0)) || 1;
+  const best = data.lower_is_better === false ? Math.max(...values.map((v) => v ?? -Infinity)) : Math.min(...values.map((v) => v ?? Infinity));
+  const rows = items
+    .map((item, i) => {
+      const v = values[i];
+      const pick = item.pick === true || (v !== null && v === best && !items.some((other) => other.pick === true));
+      const tight = limit !== null && v !== null && limit - v >= 0 && limit - v < limit * 0.07;
+      const over = limit !== null && v !== null && v > limit;
+      const bar = pick ? c.accent : over ? c.warm : tight ? c.warm : c.grey;
+      const thumb = item.photo ? `<div style="width: 64px; flex-shrink: 0">${photo(item.photo, { height: 64, radius: 12, tone: TONES[i % TONES.length] })}</div>` : "";
+      return `<div style="background: ${c.surface}; border: ${pick ? `2px solid ${c.accent}` : `1px solid ${c.line}`}; border-radius: 18px; padding: 16px 20px; display: flex; gap: 14px; align-items: center">
+${thumb}<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px; min-width: 0"><div style="font-size: 23px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${esc(item.name, 30)}</div>
+${pick ? `<div style="flex-shrink: 0; font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: ${c.accentSoft}; color: ${c.accent}">${esc(item.tag || "Tex's pick", 20)}</div>` : ""}</div>
+<div style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 34px; font-weight: 800; letter-spacing: -0.02em; flex-shrink: 0">${esc(item.display ?? item.value, 14)}</div>
+</div>
+${v !== null ? `<div style="position: relative; height: 12px; border-radius: 6px; background: ${c.track}"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: ${pct((v / top) * 100)}; border-radius: 6px; background: ${bar}"></div>${limit !== null ? `<div style="position: absolute; top: -4px; bottom: -4px; left: ${pct((limit / top) * 100)}; width: 2px; background: ${c.ink}"></div>` : ""}</div>` : ""}
+<div style="display: flex; justify-content: space-between; gap: 12px; font-size: 16px; color: ${c.muted}"><div>${esc(item.detail, 40)}</div><div style="font-weight: 600; color: ${over ? c.warm : c.good}">${esc(item.note, 30)}</div></div>
+</div></div>`;
+    })
+    .join("\n");
+  return page(
+    `${heading(c, data.kicker, data.title, { size: 38 })}
+${data.subtitle ? `<div style="font-size: 18px; color: ${c.muted}; margin-top: -8px">${esc(data.subtitle, 80)}</div>` : ""}
+<div style="display: flex; flex-direction: column; gap: 12px; flex-grow: 1">${rows}</div>
+${footer(c, data.footer)}`,
+    { background: c.bg, ink: c.ink },
+  );
+}
+
+/** A line along the bottom, with Tex's mark. */
+export function footer(c, text) {
+  return `<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; color: ${c.muted}; border-top: 1px solid ${c.line}; padding-top: 14px">
+<div>${esc(text, 90)}</div>
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 600; flex-shrink: 0"><div style="width: 22px; height: 22px; border-radius: 11px; background: ${c.ink}; color: ${c.bg}; display: flex; align-items: center; justify-content: center; font-size: 12px">T</div>Tex</div>
+</div>`;
+}
+
+const GALLERY_STYLES = {
+  editorial: { bg: "#141414", ink: "#F4F1EA", muted: "#B9B3A8", line: "#2E2E2E", chip: "#E8C9A0", chipInk: "#141414", font: "Fraunces, Georgia, serif" },
+  warm: { bg: "#FBF6EE", ink: "#231A12", muted: "#6E5A47", line: "#E8DCCB", chip: "#231A12", chipInk: "#FBF6EE", font: "Fraunces, Georgia, serif" },
+  polaroid: { bg: "#DCE5D3", ink: "#1E2A1F", muted: "#4A5C4B", line: "#C5D1BA", chip: "#1E2A1F", chipInk: "#FFFFFF", font: "Fraunces, Georgia, serif" },
+};
+
+/**
+ * Things to look at: clothes, dishes, gifts, products. Two to four cards, a
+ * photo each. `style` picks the look: editorial (clothes), warm (food, with
+ * the pick large), polaroid (gifts).
+ */
+export function gallery(data) {
+  const style = Object.hasOwn(GALLERY_STYLES, data.style) ? data.style : "editorial";
+  const s = GALLERY_STYLES[style];
+  const items = list(data.items, style === "warm" ? 3 : 4);
+  const pickIndex = Math.max(0, items.findIndex((item) => item.pick === true));
+  const chip = (text) => `<div style="position: absolute; top: 10px; left: 10px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: ${s.chip}; color: ${s.chipInk}">${esc(text, 24)}</div>`;
+  const source = (item) => (item.source ? `photo · ${esc(item.source, 24)}` : "");
+  let body;
+  if (style === "warm") {
+    const hero = items[pickIndex];
+    const rest = items.filter((_, i) => i !== pickIndex);
+    body = `${hero ? photo(hero.photo, { height: 270, radius: 18, tone: "#D8C3A5", extra: `${hero.pick === true ? chip(hero.tag || "Tex's pick") : ""}<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 16px; border-radius: 0 0 18px 18px; background: rgba(35,26,18,0.82); color: #FBF6EE; display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><div style="display: flex; flex-direction: column; min-width: 0"><div style="font-size: 24px; font-weight: 700">${esc(hero.name, 28)}</div><div style="font-size: 14px; color: #E2D5C3">${esc(hero.note, 40)}</div></div><div style="font-family: ${s.font}; font-size: 34px; font-weight: 700; flex-shrink: 0">${esc(hero.price, 12)}</div></div>` }) : ""}
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">${rest
+      .map(
+        (item, i) => `<div style="display: flex; flex-direction: column; gap: 8px">${photo(item.photo, { height: 150, tone: TONES[(i + 4) % TONES.length], label: source(item) })}
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px"><div style="font-size: 20px; font-weight: 700">${esc(item.name, 22)}</div><div style="font-family: ${s.font}; font-size: 26px; font-weight: 700">${esc(item.price, 12)}</div></div>
+<div style="font-size: 15px; color: ${s.muted}">${esc(item.note, 40)}</div></div>`,
+      )
+      .join("")}</div>`;
+  } else if (style === "polaroid") {
+    const tilts = ["-1.5deg", "1.2deg", "1deg", "-1deg"];
+    body = `<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 22px; flex-grow: 1; padding-top: 6px">${items
+      .map(
+        (item, i) => `<div style="background: #FFFFFF; padding: 10px 10px 12px; border-radius: 4px; transform: rotate(${tilts[i]}); display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 14px rgba(30,42,31,0.16)">
+${photo(item.photo, { height: items.length > 2 ? 160 : 300, radius: 0, tone: TONES[i % TONES.length], label: source(item), extra: item.price ? `<div style="position: absolute; right: 8px; top: 8px; font-size: 16px; font-weight: 800; padding: 4px 9px; border-radius: 999px; background: #1E2A1F; color: #FFFFFF">${esc(item.price, 12)}</div>` : "" })}
+<div style="font-family: Caveat, cursive; font-size: 27px; font-weight: 700; line-height: 1">${esc(item.name, 26)}</div>
+<div style="font-size: 14px; color: ${s.muted}">${esc(item.note, 40)}</div></div>`,
+      )
+      .join("")}</div>`;
+  } else {
+    const columns = clamp(items.length, 1, 3);
+    body = `<div style="display: grid; grid-template-columns: repeat(${columns}, minmax(0, 1fr)); gap: 12px; flex-grow: 1">${items
+      .slice(0, 3)
+      .map(
+        (item, i) => `<div style="display: flex; flex-direction: column; gap: 10px">
+${photo(item.photo, { height: 330, tone: TONES[i % TONES.length], label: source(item), style: item.pick === true ? `outline: 3px solid ${s.chip}; outline-offset: -3px;` : "", extra: item.pick === true ? chip(item.tag || "Tex's pick") : "" })}
+<div style="font-family: ${s.font}; font-size: 30px; font-weight: 700">${esc(item.price, 12)}</div>
+<div style="font-size: 16px; font-weight: 600; line-height: 1.25">${esc(item.name, 40)}</div>
+<div style="font-size: 14px; color: ${s.muted}; line-height: 1.35">${esc(item.note, 60)}</div></div>`,
+      )
+      .join("")}</div>`;
+  }
+  return page(
+    `${heading({ muted: s.muted }, data.kicker, data.title, { size: 40, font: s.font, kickerColor: s.muted })}
+${body}
+${data.footer ? `<div style="font-size: 14px; color: ${s.muted}; border-top: 1px solid ${s.line}; padding-top: 12px">${esc(data.footer, 90)}</div>` : ""}`,
+    { background: s.bg, ink: s.ink, padding: "36px 32px 28px" },
+  );
+}
+
+/** Two things side by side: homes, cars, jobs. A photo each, then rows with the better side marked. */
+export function versus(data, theme) {
+  const c = theme === "dark" ? DARK : LIGHT;
+  const sides = list(data.items, 2);
+  while (sides.length < 2) sides.push({});
+  const rows = list(data.rows, 7);
+  const cell = (text, wins) => `<div style="font-size: 18px; font-weight: ${wins ? 700 : 500}; color: ${wins ? c.good : c.body}">${wins ? "✓ " : ""}${esc(text, 22)}</div>`;
+  return page(
+    `${heading(c, data.kicker, data.title, { size: 36 })}
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">${sides
+      .map(
+        (side, i) => `<div style="display: flex; flex-direction: column; gap: 8px">${photo(side.photo, {
+          height: 180,
+          tone: TONES[i + 1],
+          label: side.source ? `photo · ${esc(side.source, 20)}` : "",
+          extra: `<div style="position: absolute; top: 10px; left: 10px; width: 36px; height: 36px; border-radius: 18px; background: #16161A; color: #FFFFFF; font-weight: 800; font-size: 18px; display: flex; align-items: center; justify-content: center">${i === 0 ? "A" : "B"}</div>`,
+        })}<div style="font-size: 18px; font-weight: 700">${esc(side.name, 30)}</div></div>`,
+      )
+      .join("")}</div>
+<div style="display: flex; flex-direction: column; border: 1px solid ${c.line}; border-radius: 14px; overflow: hidden; flex-grow: 1; background: ${c.surface}">${rows
+      .map(
+        (row) => `<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; padding: 0 14px; flex-grow: 1; border-bottom: 1px solid ${c.line}">
+<div style="font-size: 15px; color: ${c.muted}; font-weight: 600">${esc(row.label, 20)}</div>${cell(row.a, row.better === "a")}${cell(row.b, row.better === "b")}</div>`,
+      )
+      .join("")}</div>`,
+    { background: c.surface === "#FFFFFF" ? "#FFFFFF" : c.bg, ink: c.ink, gap: 16 },
+  );
+}
+
+/** Places to go: restaurants, hotels, doctors. Numbered, a photo each, with how far. */
+export function places(data, theme) {
+  const c = theme === "dark" ? DARK : LIGHT;
+  const items = list(data.items, 4);
+  const colors = [c.accent, c.warm, c.good, c.plum];
+  const size = items.length > 3 ? 104 : 128;
+  return page(
+    `${heading(c, data.kicker, data.title, { size: 38 })}
+<div style="display: flex; flex-direction: column; gap: 14px; flex-grow: 1">${items
+      .map(
+        (item, i) => `<div style="display: flex; gap: 16px; align-items: center; background: ${c.surface}; border: 1px solid ${item.pick === true ? colors[i] : c.line}; border-radius: 18px; padding: 12px">
+<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, {
+          height: size,
+          tone: TONES[i % TONES.length],
+          extra: `<div style="position: absolute; top: 8px; left: 8px; width: 30px; height: 30px; border-radius: 15px; background: ${colors[i]}; color: #FFFFFF; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center">${i + 1}</div>`,
+        })}</div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0"><div style="font-size: 22px; font-weight: 700">${esc(item.name, 28)}</div><div style="font-size: 16px; color: ${c.muted}">${esc(item.detail, 50)}</div>${item.note ? `<div style="font-size: 15px; font-weight: 600; color: ${colors[i]}">${esc(item.note, 40)}</div>` : ""}</div>
+<div style="text-align: right; flex-shrink: 0; padding-right: 6px"><div style="font-size: 24px; font-weight: 800">${esc(item.distance, 10)}</div><div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label || "away", 12)}</div></div></div>`,
+      )
+      .join("")}</div>
+${data.footer ? footer(c, data.footer) : ""}`,
+    { background: c.bg, ink: c.ink },
+  );
+}
+
+/** Tickets: flights, trains, shows. Boarding-pass cards and up to three facts underneath. */
+export function tickets(data) {
+  const items = list(data.items, 3);
+  const facts = list(data.facts, 3);
+  return page(
+    `${heading({ muted: "#A9B6CB" }, data.kicker, data.title, { size: 36, kickerColor: "#A9B6CB" })}
+${items
+  .map(
+    (t) => `<div style="display: flex; background: ${t.pick === true ? "#FFFFFF" : "#E4E9F1"}; color: #16161A; border-radius: 18px; overflow: hidden; ${t.pick === true ? "outline: 3px solid #F0A35C; outline-offset: -3px;" : ""}">
+<div style="flex-grow: 1; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; color: #5F5F66; letter-spacing: 0.06em; text-transform: uppercase"><div>${esc(t.name, 26)}</div><div>${esc(t.tag ?? (t.pick === true ? "Tex's pick" : ""), 16)}</div></div>
+<div style="display: flex; align-items: center; gap: 12px"><div style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 700">${esc(t.depart, 8)}</div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2px"><div style="font-size: 13px; color: #5F5F66">${esc(t.duration, 14)}</div><div style="width: 100%; border-top: 2px dashed #9AA3B2"></div><div style="font-size: 13px; color: #5F5F66">${esc(t.stops, 16)}</div></div>
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 700">${esc(t.arrive, 8)}</div></div>
+<div style="font-size: 15px; color: #3E3E44">${esc(t.note, 60)}</div></div>
+<div style="width: 132px; flex-shrink: 0; border-left: 2px dashed #C9CED8; padding: 18px 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px"><div style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 34px; font-weight: 800">${esc(t.price, 8)}</div><div style="font-size: 13px; color: #5F5F66">${esc(t.price_label || "per person", 14)}</div></div></div>`,
+  )
+  .join("\n")}
+<div style="flex-grow: 1"></div>
+${facts.length ? `<div style="display: grid; grid-template-columns: repeat(${facts.length}, minmax(0, 1fr)); gap: 10px">${facts.map((f) => `<div style="background: #1A2A44; border-radius: 12px; padding: 12px 14px"><div style="font-size: 13px; color: #A9B6CB">${esc(f.label, 18)}</div><div style="font-size: 22px; font-weight: 800">${esc(f.value, 14)}</div></div>`).join("")}</div>` : ""}`,
+    { background: "#0F1B2D", ink: "#F1F4F9", gap: 18 },
+  );
+}

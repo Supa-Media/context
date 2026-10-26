@@ -234,6 +234,8 @@ Tex's own jobs, each with its record:
   chaos score, logging each change in `tex/housekeeping/` with how to undo it.
 - [Pictures](./texting-assistant/pictures.md): draws graphics as a page and
   makes photo edits with Nano Banana, keeping the last one for the next edit.
+- [Visual answers](./texting-assistant/visual-answers.md): fifteen designed cards
+  filled from data; at two signals the words shrink to one line and the card goes too.
 - [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.

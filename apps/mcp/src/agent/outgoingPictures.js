@@ -57,12 +57,16 @@ const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 const MAX_GIVEN = 40;
 const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 
+/** The tools whose pictures this turn made, not read: `draw_picture`, `draw_visual`, `make_picture`. */
+const MADE_BY = new Set(["draw_picture", "draw_visual", "make_picture"]);
+
 /** What the model is told on a texted turn, so it never says it can't. */
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture (a poster, an invite, " +
-  "a chart, from a page you write) or make_picture (a photo: them in an outfit, a scene). Asked for a picture, make one " +
+  "you read in a tool result. It goes as a photo after your words. To make one, send draw_visual (your designed cards: " +
+  "options, photos, plans, days, boards, charts), draw_picture (a poster, an invite, from a page you write) or make_picture " +
+  "(a photo: them in an outfit, a scene). Asked for a picture, make one " +
   "now, guessing what they left out, then offer changes; don't ask first.";
 
 /**
@@ -121,7 +125,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name });
           numbers.push(seen.length);
         }
       }
@@ -144,7 +148,7 @@ export function outgoingPictures({ enabled, question = "" }) {
         const picture = seen[Number(ref) - 1];
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
-          pictures.push(picture);
+          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
         }
         return "";
       }
@@ -156,13 +160,22 @@ export function outgoingPictures({ enabled, question = "" }) {
 
   /** Picture N a tool showed this turn, for a tool that builds on it (`pictureMaker.js`). */
   const picture = (n) => (Number.isInteger(n) && n >= 1 ? (seen[n - 1] ?? null) : null);
+  /**
+   * Picture N only if this turn drew or made it, for keeping in a note
+   * (`withDrawnImages`). A picture read out of a note stays where it was:
+   * copying it into another note would be a second way to move it.
+   */
+  const made = (n) => {
+    const found = picture(n);
+    return found !== null && MADE_BY.has(found.tool) ? found : null;
+  };
   /** Whether a web address was read in a tool result or written by the person this turn: the rule `take` applies. */
   const vouches = (ref) => {
     const url = webAddress(ref);
     return url !== null && (text.includes(ref) || text.includes(url));
   };
 
-  return { wrap, take, picture, vouches };
+  return { wrap, take, picture, made, vouches };
 }
 
 /** The line the saved conversation keeps for what was sent, so "what was that picture?" has an answer. */

@@ -76,9 +76,9 @@ const photo = (data, name = "me.jpg") => ({ name, mediaType: "image/jpeg", data 
 test("a deployment with neither the screenshot Worker nor a gateway offers no picture tools", () => {
   assert.equal(pictureMaker({}, { outgoing: outgoingPictures({ enabled: true }) }), null);
   const onlyDraw = pictureMaker(siteShots(), { outgoing: outgoingPictures({ enabled: true }) });
-  assert.deepEqual(onlyDraw.tools.map((t) => t.name), [DRAW_TOOL]);
+  assert.deepEqual(onlyDraw.tools.map((t) => t.name), ["draw_visual", DRAW_TOOL]);
   const both = pictureMaker(siteShots(), { gateway: GATEWAY, outgoing: outgoingPictures({ enabled: true }) });
-  assert.deepEqual(both.tools.map((t) => t.name), [DRAW_TOOL, MAKE_TOOL]);
+  assert.deepEqual(both.tools.map((t) => t.name), ["draw_visual", DRAW_TOOL, MAKE_TOOL]);
 });
 
 test("a drawn page loads only addresses the turn read, and their photo goes in as data", async () => {
