@@ -6,16 +6,28 @@
  * that name beside the one linking, else the one visible note carrying it.
  *
  * `visible` is every note the reader may see, at the names the tree shows
- * now. A link row names the bucket key it was read at, so a note whose row is
- * mid-move is absent from `visible` at that key and is left out rather than
- * judged at a name the reader may not see it under. Names are looked up among
+ * now, and the caller hands the rows over at those names too (a queued move
+ * folded in, `gatewayFacts.ts`), so a note is judged only where the reader
+ * sees it. Names are looked up among
  * visible notes only, so a hidden note never changes which note a name means.
+ *
+ * One asymmetry with the map: a backlink is a row naming the seed's own path
+ * or bare name, so a path link the map resolves to the seed only through the
+ * file-name fallback (it names a path that does not exist) is not one.
  */
 
 /** `1-projects/x/overview.md` → `overview`: what a bare link to it is written as. */
 export function bareNameOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
   return name.endsWith(".md") ? name.slice(0, -3) : name;
+}
+
+function decoded(target: string): string {
+  try {
+    return decodeURIComponent(target);
+  } catch {
+    return target;
+  }
 }
 
 const fileNameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -39,8 +51,12 @@ export function resolveNeighbors(seed: string, rows: NeighborRows, visible: Read
     const beside = `${folderOf(from)}${file}`;
     return visible.has(beside) ? beside : unique(file);
   };
-  const targetOf = (from: string, kind: "path" | "name", target: string) =>
-    kind === "name" ? named(from, target) : visible.has(target) ? target : unique(fileNameOf(target));
+  const targetOf = (from: string, kind: "path" | "name", target: string) => {
+    if (kind === "name") return named(from, target);
+    if (visible.has(target)) return target;
+    const plain = decoded(target);
+    return visible.has(plain) ? plain : unique(fileNameOf(plain));
+  };
 
   const links = new Set<string>();
   if (visible.has(seed)) {

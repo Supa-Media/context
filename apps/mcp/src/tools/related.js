@@ -12,8 +12,10 @@
  *
  * The seed is opened by `read_note` itself, so a note this caller may not see
  * is refused exactly as an absent one is, at the same cost, before anything
- * else is asked about it. An encrypted seed is related by its links only: its
- * headings are not sent to a search.
+ * else is asked about it; its path, text and encryption come from what that
+ * read opened, never from its printed header. An encrypted seed is related by
+ * its links only: its headings are not sent to a search. A drawing is searched
+ * by its file name.
  *
  * Nothing here throws into the response: a part that cannot answer leaves the
  * rest standing and the answer ends `may be incomplete`.
@@ -32,12 +34,7 @@ export const RELATED_QUERY_TERMS = 12;
 export async function toolRelatedNotes(store, scope, rules, overrides, args) {
   const read = await toolReadNote(store, scope, rules, overrides, args.path);
   if (read.isError) return read;
-  const opened = read.content[0].text;
-  const split = opened.indexOf("\n\n");
-  const header = split === -1 ? opened : opened.slice(0, split);
-  const body = split === -1 ? "" : opened.slice(split + 2);
-  const path = /^path: (.*)$/m.exec(header)[1];
-  const encrypted = /^encryption: v1$/m.test(header);
+  const { path, text: body, encrypted } = read.opened;
   const limit = Math.min(RELATED_MAX_LIMIT, Math.max(1, Number.isInteger(args.limit) ? args.limit : RELATED_DEFAULT_LIMIT));
   const visible = (candidate) => typeof candidate === "string" && candidate !== path && canSee(candidate, scope, rules, overrides);
 

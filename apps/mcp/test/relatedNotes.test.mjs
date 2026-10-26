@@ -167,6 +167,15 @@ test("no line terminator survives in a printed path", async () => {
   assert.ok(!answer.includes("c\nd"), JSON.stringify(answer));
 });
 
+test("a seed whose path holds a line separator is the seed, whole", async () => {
+  const seed = "1-projects/odd\u2028name.md";
+  const asked = [];
+  const store = servedStore({ ...NOTES, [seed]: "# Kubernetes rollout canary stages\n" }, {}, { asked });
+  const answer = text(await related(store, { path: seed }));
+  assert.deepEqual(asked.filter((request) => request.ask === "neighbors").map((request) => request.path), [seed]);
+  assert.ok(!answer.includes("odd"), "never its own neighbor");
+});
+
 test("a note with no neighbors says so", async () => {
   const store = servedStore(NOTES);
   assert.equal(text(await related(store, { path: "1-projects/unrelated.md" })), "(no related notes found)");

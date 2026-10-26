@@ -176,22 +176,32 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
    */
   if (isDrawingPath(path) && !opened.encrypted) {
     const drawing = parseDrawing(opened.text, path);
-    return toolText(
+    return withOpened(toolText(
       `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\n` +
         `kind: drawing\n\n${describeDrawing(drawing, { path })}\n\n` +
         "*This is a description. The drawing itself is unchanged in the bucket, and " +
         "write_note will not overwrite it with text.*"
-    );
+    ), { path, text: "", encrypted: false });
   }
   const actualText = collaboration?.text ?? opened.text;
-  return toolText(
+  return withOpened(toolText(
     `etag: ${collaboration?.etag ?? obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}${collaborationMarker}` +
       // Said out loud rather than served silently: a caller that arrived on a
       // stale address is holding one somewhere, and the next write must use
       // the path it is being given rather than the one it asked for.
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
       `${drawingEmbedLine(actualText)}${commentsLine(actualText)}${mailLine(actualText)}\n\n${actualText}`
-  );
+  ), { path, text: actualText, encrypted: opened.encrypted });
+}
+
+/**
+ * The note a successful read opened, for a tool that reads a note to work on
+ * it (`related.js`): where it resolved to, its text, and whether it was
+ * encrypted, so nothing parses the answer's header back. Not enumerable, so
+ * the answer a client receives is unchanged. A drawing hands over no text.
+ */
+function withOpened(result, note) {
+  return Object.defineProperty(result, "opened", { value: note, enumerable: false });
 }
 
 /**

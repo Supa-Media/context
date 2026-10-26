@@ -383,6 +383,43 @@ describe("POST /gateway/tree/facts", () => {
     expect(await ask()).toBe(before);
   });
 
+  test("a note mid-move is named where the tree shows it, and the answer says it may be short", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await t.run(async (ctx) =>
+      ctx.db.insert("rowMoves", {
+        workspaceId: ws,
+        from: "1-projects/later.md",
+        to: "1-projects/done/later.md",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 0,
+        left: 1,
+        now: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/done/later.md", "1-projects/secret/codes.md", "2-areas/mine.md"]);
+    expect(owner.neighbors.complete).toBe(false);
+    const moved = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "1-projects/done/later.md" });
+    expect(moved.neighbors.complete).toBe(false);
+  });
+
+  test("a percent-encoded path link names the note it spells", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await seedTreeRows(t, ws, [{ path: "1-projects/road map.md", etag: "e-road" }]);
+    await addLinks(t, ws, [["1-projects/later.md", "path", "1-projects/road%20map.md"]]);
+    const later = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "1-projects/later.md" });
+    expect(later.neighbors.links).toEqual(["1-projects/plan.md", "1-projects/road map.md"]);
+  });
+
   test("a hidden seed answers what an absent one does", async () => {
     const { t, ws } = await fixture();
     await withFacts(t, ws);

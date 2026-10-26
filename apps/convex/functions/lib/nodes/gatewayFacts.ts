@@ -53,7 +53,8 @@ import { clearanceOf } from "../clearance";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { GATEWAY_PATH_LENGTH } from "./gatewayManifest";
 import { MOVE_RENAMES_CAP, PROPS_AT_PATHS, dayOf } from "./facts";
-import { NO_BUCKET, servedKeys, servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, servedKeys, servedMoves, servedNodesStore } from "./manifestStore";
+import { logicalPath as queuedLogicalPath } from "./movePaths";
 import { namesFor } from "./gatewayNames";
 import { resolveNeighbors } from "./neighbors";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
@@ -127,14 +128,28 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     if (body.ask === "neighbors") {
       const rows = await ctx.runQuery(internal.functions.nodeFacts.neighbors, { workspaceId: reader.workspaceId, path: seed });
       if (rows === null) return { served: true, neighbors: null };
+      // Link rows name the keys they were read at, and a queued move shows those notes elsewhere
+      // already (`moveOverlay.ts`): every key at the name the tree shows now, as the map draws it.
+      const queued = servedMoves(served);
+      const logical = (path: string) => (queued.length === 0 ? path : queuedLogicalPath(path, queued));
       // Asked either way, so a hidden seed costs what a visible one does.
-      const notes = new Set((await servedKeys(served)).filter((key) => isIndexableNote(key) && !isPlumbing(key) && visible(key)));
-      if (!rows.present || !notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
-      return {
-        served: true,
-        // Only the seed's own state, which this reader may see: nothing about hidden notes reaches it.
-        neighbors: { ...resolveNeighbors(seed, rows, notes), complete: rows.current },
-      };
+      const notes = new Set<string>();
+      for (const key of await servedKeys(served)) {
+        if (isIndexableNote(key) && !isPlumbing(key) && visible(key) && visible(logical(key))) notes.add(logical(key));
+      }
+      const moving = queued.length > 0;
+      if (!notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: !moving } };
+      const found = resolveNeighbors(
+        seed,
+        {
+          links: rows.links.map((link) => (link.kind === "path" ? { ...link, target: logical(link.target) } : link)),
+          byPath: rows.byPath.map(logical),
+          byName: rows.byName.map(logical),
+        },
+        notes,
+      );
+      // Only the seed's own state and whether anything is moving, which this reader may see.
+      return { served: true, neighbors: { ...found, complete: rows.present && rows.current && !moving } };
     }
 
     if (body.ask === "forwarding") {
