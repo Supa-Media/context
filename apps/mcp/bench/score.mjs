@@ -209,6 +209,7 @@ export function failedGateLog({ key, judged, answers, questions }) {
     if (answer?.toolsLine) out.push(answer.toolsLine);
     // What the scripted browser did, refused steps included (`sites.mjs`).
     if (answer?.browser?.length) out.push(`Browser: ${answer.browser.join(" | ")}`);
+    if (answer?.mail?.length) out.push(`Mail: ${answer.mail.join(" | ")}`);
     out.push(...(answer?.changes ?? []), "");
   }
   return out.join("\n");

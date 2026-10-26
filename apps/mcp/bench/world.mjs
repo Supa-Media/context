@@ -235,8 +235,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9).
-  // Each search and read is kept as a `mail` line beside the browser's, so a
-  // result shows which searches missed an email that was there.
+  // Each search and read is kept for the result's `Mail:` line, so a result
+  // shows which searches missed an email that was there.
   const mail = bench.workspaces[own.workspace]?.mail ?? [];
   const mailEvents = [];
   if (mail.length > 0) {
@@ -576,7 +576,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
-      return [...(web ? web.events() : []), ...site.events(), ...mailEvents];
+      return [...(web ? web.events() : []), ...site.events()];
+    },
+
+    /** Each Gmail search and read this conversation made, in order (`mailbox.mjs`). */
+    mail() {
+      return [...mailEvents];
     },
 
     /** What the conversation changed in the invented workspaces, as a list. */
