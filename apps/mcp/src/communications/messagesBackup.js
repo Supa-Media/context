@@ -45,12 +45,22 @@ import { json } from "../http/responses.js";
 import { projectBatch } from "./textsIndex.js";
 import { isGroupSession } from "../agent/groupTurn.js";
 import { forgetUnsent } from "./messagesBackupFiles.js";
+import { MESSAGES_BACKUP_LOG_ROUTE } from "./messagesBackupRead.js";
 
 export { MESSAGES_BACKUP_ROUTE };
 
-/** The batch route, or any path under the file route (`messagesBackupFiles.js` parses it). */
+/** The batch route, the log route, or any path under the file route (`messagesBackupFiles.js` parses it). */
 export function isMessagesBackupPath(path) {
-  return path === MESSAGES_BACKUP_ROUTE || (typeof path === "string" && path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`));
+  return (
+    path === MESSAGES_BACKUP_ROUTE ||
+    path === MESSAGES_BACKUP_LOG_ROUTE ||
+    (typeof path === "string" && path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`))
+  );
+}
+
+/** Whether this is a read of the backup by its owner (`messagesBackupRead.js`): a GET of the log or of a file. */
+export function isMessagesBackupRead(path, method) {
+  return method === "GET" && (path === MESSAGES_BACKUP_LOG_ROUTE || (typeof path === "string" && path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`)));
 }
 
 /** Where every batch object lives. */

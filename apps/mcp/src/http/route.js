@@ -45,7 +45,8 @@ import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
-import { handleMessagesBackup, isMessagesBackupPath, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
+import { handleMessagesBackup, isMessagesBackupPath, isMessagesBackupRead, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
+import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessagesBackupLog } from "../communications/messagesBackupRead.js";
 import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
@@ -236,7 +237,8 @@ export async function route(request, env, ctx) {
       messagesBackupRoute ||
       meetingRoute
     ) {
-      if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
+      const backupRead = messagesBackupRoute && isMessagesBackupRead(path, request.method);
+      if (!meetingRoute && !approvalsRoute && !backupRead && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -679,6 +681,7 @@ export async function route(request, env, ctx) {
       if (approvalsRoute) return await handleApprovals(request, store, session);
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
+        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store) : json({ ok: false, error: "not_found" }, 404);
         if (file) return await handleMessagesBackupFile(request, store, file);
         return path === MESSAGES_BACKUP_ROUTE ? await handleMessagesBackup(request, store) : json({ ok: false, error: "not_found" }, 404);
       }
