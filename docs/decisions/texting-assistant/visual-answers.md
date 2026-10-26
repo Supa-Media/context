@@ -62,6 +62,18 @@ and they didn't ask for words only, it goes back once with the card notice.
 The model then draws and texts one line. Reverting this leaves the card to
 the model's choice, which in production meant no card.
 
+The owner then asked for the reasoning to live in the prompt, not only in a
+check for lists: the production setup (@context-lc
+`ai/production/texting-assistant.md`) now has an "Answer with a picture"
+section that sorts the cases by kind (their time, options, places, looks,
+tickets, work, money, how things fit) with the template for each, what stays
+words, and examples. The check is the floor under that section, so it was
+narrowed to match it: a list goes back only when they asked for something to
+look at (see, show, compare, options, plan, week…) or when at least half its
+lines carry a second signal (a day or time, a price or figure, an address or
+distance). A plain to-do list ("Book the van / Cancel the internet") stays
+words, as the section says.
+
 ### Option cards, sent as one swipeable set
 
 When each of 2 to 8 options needs its own photo and facts, Tex draws one

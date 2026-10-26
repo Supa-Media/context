@@ -11,6 +11,8 @@
  *   the `DRAWN` check removed → "a turn that drew already is let go" fails.
  *   claimCheck without the visuals notice → "a texted list goes back once"
  *     fails.
+ *   the second-signal filter replaced by `return true` → "a to-do list stays
+ *     words" fails.
  */
 
 import assert from "node:assert/strict";
@@ -62,4 +64,15 @@ test("a texted list goes back once with the card notice, and the next answer goe
   // A turn that cannot draw is never asked to.
   const blind = claimCheck({ question: "What does my week look like", visuals: () => false });
   assert.notEqual(await blind.check(WEEK), VISUAL_NOTICE);
+});
+
+test("a to-do list stays words; a list with days, prices or places, or one they asked to see, is a card", () => {
+  const todo = "Book the van\nCancel the internet\nPack the kitchen by Friday";
+  assert.equal(wantsACard(todo, { question: "what's left before the move" }), false);
+  assert.equal(wantsACard("Call the bank\nSend Ana the deck\nRenew the passport\nBuy a gift", { question: "what's on my list" }), false);
+  // Words like "money", "friend" and "satisfied" are not days.
+  assert.equal(wantsACard("Move money to savings\nAsk a friend about it\nGet the satisfied customer quote", { question: "what's left" }), false);
+  const caterers = "Lugo's, $18 a head, 4.8 stars\nBlend, $22 a head, 4.6 stars\nIndia Passage, $15 a head, 4.4 stars";
+  assert.equal(wantsACard(caterers, { question: "which caterer" }), true);
+  assert.equal(wantsACard("Book the van\nCancel the internet\nPack the kitchen", { question: "show me what's left before the move" }), true);
 });
