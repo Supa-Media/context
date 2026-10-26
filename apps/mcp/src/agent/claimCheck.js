@@ -46,7 +46,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { VISUAL_NOTICE, wantsACard } from "./visuals/notice.js";
+import { VISUAL_NOTICE, VISUAL_TOO, wantsACard } from "./visuals/notice.js";
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
@@ -467,77 +467,88 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
-      const shaped = shape(answer, steps);
-      if (shaped !== null) return shaped;
-      // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
-      if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
-        retryNoticed = true;
-        return BROWSER_RETRY_NOTICE;
-      }
-      // A browser it never tried this turn, said to have failed: try it first.
-      if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
-        retryNoticed = true;
-        return BROWSER_UNTRIED_NOTICE;
-      }
-      // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
-      // more exact notice, since an answer that gives up also tends to hand the looking back.
-      if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
-        routesNoticed = true;
-        const untried = untriedRoutes(steps);
-        if (untried.length > 0) return otherRoutesNotice(untried);
-      }
-      // Handing work back is checked on its own, once, beside the others: an
-      // answer that offers an email can still ask them to go and find it.
-      if (!handedBack && handsWorkBack(answer, { held })) {
-        handedBack = true;
-        return HANDBACK_NOTICE;
-      }
-      if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
-        payNoticed = true;
-        return CARD_NOTICE;
-      }
-      if (!lookNoticed && !browserTried && canBrowse() && saysNotFoundOnSite(answer)) {
-        lookNoticed = true;
-        return LOOK_ON_SITE_NOTICE;
-      }
-      if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
-        shortNoticed = true;
-        return finishNotice({ job: job !== null });
-      }
-      if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
-        askFirstNoticed = true;
-        return ASK_FIRST_NOTICE;
-      }
-      if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
-        captchaNoticed = true;
-        return CAPTCHA_NOTICE;
-      }
-      if (!laterNoticed && !keptPromise && promisesLater(answer)) {
-        laterNoticed = true;
-        return LATER_NOTICE;
-      }
-      if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
-        cardNoticed = true;
-        return VISUAL_NOTICE;
-      }
-      if (noticed) return judgeOnce(answer);
-      const notice =
-        asksToMute(question) && !keptWish
-          ? MUTE_NOTICE
-          : claimsAChange(answer) && !wrote
-            ? CLAIM_NOTICE
-            : offersAHeldChange(answer) && !held && !checkerRefused
-              ? offerNotice(offeredKinds(answer))
-              : hadWeb && !triedWeb && saysItCouldNot(answer)
-                ? TRY_NOTICE
-                : null;
-      if (notice !== null) {
-        noticed = true;
-        return notice;
-      }
-      return judgeOnce(answer);
+      const notice = firstNotice(answer);
+      // Another notice won this round, but the answer is also a list a card should carry: the card rides
+      // along, or a lunch list sent back for its missing prices comes home as words (owner, 2026-10-26).
+      if (notice === null || notice === VISUAL_NOTICE || cardNoticed || held || !visuals() || !wantsACard(answer, { question, steps })) return notice;
+      cardNoticed = true;
+      const withCard = (said) => (said === null ? VISUAL_NOTICE : `${said}\n\n${VISUAL_TOO}`);
+      return typeof notice === "string" ? withCard(notice) : Promise.resolve(notice).then(withCard);
     },
   };
+
+  /** The one notice this answer earns, before a card is added to it. */
+  function firstNotice(answer) {
+    const shaped = shape(answer, steps);
+    if (shaped !== null) return shaped;
+    // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
+    if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
+      retryNoticed = true;
+      return BROWSER_RETRY_NOTICE;
+    }
+    // A browser it never tried this turn, said to have failed: try it first.
+    if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
+      retryNoticed = true;
+      return BROWSER_UNTRIED_NOTICE;
+    }
+    // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
+    // more exact notice, since an answer that gives up also tends to hand the looking back.
+    if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
+      routesNoticed = true;
+      const untried = untriedRoutes(steps);
+      if (untried.length > 0) return otherRoutesNotice(untried);
+    }
+    // Handing work back is checked on its own, once, beside the others: an
+    // answer that offers an email can still ask them to go and find it.
+    if (!handedBack && handsWorkBack(answer, { held })) {
+      handedBack = true;
+      return HANDBACK_NOTICE;
+    }
+    if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
+      payNoticed = true;
+      return CARD_NOTICE;
+    }
+    if (!lookNoticed && !browserTried && canBrowse() && saysNotFoundOnSite(answer)) {
+      lookNoticed = true;
+      return LOOK_ON_SITE_NOTICE;
+    }
+    if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
+      shortNoticed = true;
+      return finishNotice({ job: job !== null });
+    }
+    if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
+      askFirstNoticed = true;
+      return ASK_FIRST_NOTICE;
+    }
+    if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
+      captchaNoticed = true;
+      return CAPTCHA_NOTICE;
+    }
+    if (!laterNoticed && !keptPromise && promisesLater(answer)) {
+      laterNoticed = true;
+      return LATER_NOTICE;
+    }
+    if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
+      cardNoticed = true;
+      return VISUAL_NOTICE;
+    }
+    if (noticed) return judgeOnce(answer);
+    const notice =
+      asksToMute(question) && !keptWish
+        ? MUTE_NOTICE
+        : claimsAChange(answer) && !wrote
+          ? CLAIM_NOTICE
+          : offersAHeldChange(answer) && !held && !checkerRefused
+            ? offerNotice(offeredKinds(answer))
+            : hadWeb && !triedWeb && saysItCouldNot(answer)
+              ? TRY_NOTICE
+              : null;
+    if (notice !== null) {
+      noticed = true;
+      return notice;
+    }
+    return judgeOnce(answer);
+  }
 
   /**
    * Last, and once a turn: the hand-back judge (`handbackJudge.js`) on an
