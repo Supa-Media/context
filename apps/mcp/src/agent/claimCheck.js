@@ -46,7 +46,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { VISUAL_NOTICE, VISUAL_TOO, wantsACard } from "./visuals/notice.js";
+import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
@@ -423,6 +423,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   let keptPromise = false;
   // A list texted as words that a card should have carried (`visuals/notice.js`).
   let cardNoticed = false;
+  let owedNoticed = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -527,6 +528,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     if (!laterNoticed && !keptPromise && promisesLater(answer)) {
       laterNoticed = true;
       return LATER_NOTICE;
+    }
+    // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
+    if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {
+      owedNoticed = true;
+      cardNoticed = true;
+      return OWED_PICTURE_NOTICE;
     }
     if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
       cardNoticed = true;

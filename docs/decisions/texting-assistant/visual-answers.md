@@ -159,3 +159,18 @@ every hand-back notice now says to send the whole answer again, not only the
 new part; H8 says a lookup needs no word about undoing; and a list of projects
 counts as something to look at (a board). Test:
 `apps/mcp/test/agentVisualNotice.test.mjs`.
+
+## A drawn card always goes, in groups too (2026-10-26)
+
+In the Tex Devs group, "make a graphic for this" drew a card three times and
+none arrived: the group's inbox never kept the Worker's own address, so the
+picture could not be hosted for Sendblue, and that failure threw after the
+words had gone, so the whole turn ran again until "I couldn't answer that
+one". The group accept now carries the address like a 1:1 text, and a picture
+that will not send is said once and never re-runs the turn. Two guards around
+it: a card the turn drew goes with the answer even when the answer forgot to
+name it (the last one drawn, or every option card of a set), and an answer
+that says "here's the graphic", or a turn asked outright for a graphic, with
+nothing drawn goes back once to draw it. The H8 hand-back notice no longer asks
+for any line about undoing. Tests: `apps/agent/src/groupInbox.test.ts`,
+`apps/mcp/test/agentOutgoingPictures.test.mjs`, `agentVisualNotice.test.mjs`.
