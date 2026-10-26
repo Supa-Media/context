@@ -28,6 +28,8 @@
  *     → "a batch the control plane could not start goes again in halves…" fails.
  *  8. planning each batch as it goes (`PLAN_BATCH` at the batch size).
  *     → "once a batch asks for versions, the notes are planned a hundred at a time…" fails.
+ *  9. `leftHint` keyed on the stem before the first digit (500s and 600s one family).
+ *     → "a move by name names the families still loose…" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -308,4 +310,30 @@ test("a keyed batch looks its notes up several at a time, and still moves them i
   assert.match(moved.content[0].text, /^moved notes: 40/);
   assert.equal(seen.batches.length, 1);
   assert.ok(seen.most > 1, `lookups in flight at once: ${seen.most}`);
+});
+
+test("a move by name names the families still loose in the folder, so the next call takes a whole one", async () => {
+  const loose = [
+    ...Array.from({ length: 12 }, (_, i) => `${FOLDER}/log-${581 + i}.md`),
+    ...Array.from({ length: 6 }, (_, i) => `${FOLDER}/log-${613 + i}.md`),
+    ...Array.from({ length: 19 }, (_, i) => `${FOLDER}/passes-2026-09-${21 + (i % 4)}${"abcde"[i % 5]}-${i}.md`),
+    `${FOLDER}/readme-notes.md`,
+    `${FOLDER}/x1.md`,
+    `${FOLDER}/x2.md`,
+  ];
+  const session = sessionOver([...PATHS, ...loose]);
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+  const text = result.content[0].text;
+  assert.match(text, /moved 230 notes/);
+  assert.match(text, /41 other notes are still directly in 2-areas\/apps\/context\//);
+  assert.match(text, /passes-2\* \(19\), log-5\* \(12\), log-6\* \(6\)/);
+  assert.doesNotMatch(text, /x\*|readme/, "a family under three, or a name with no number, is not named");
+  assert.equal(guard.changes.length, 230, "nothing outside the pattern moves");
+
+  const dry = await guard.callTool("move_notes", { folder: FOLDER, match: "log-5*", into: `${FOLDER}/500s`, dry_run: true });
+  assert.match(dry.content[0].text, /passes-2\* \(19\)/);
+  const none = await guard.callTool("move_notes", { folder: FOLDER, match: "nothing-*", into: `${FOLDER}/c` });
+  assert.match(none.content[0].text, /Nothing moved\. .*log-5\* \(12\)/);
 });
