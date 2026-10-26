@@ -23,7 +23,7 @@ import {
 } from "../features/console/files/jobIcons/folderJobs";
 import { setJobFoldersNow } from "../features/console/files/jobIcons/jobFoldersNow";
 import { isWebsiteFolder } from "../features/console/website/PublishWebsite";
-import { jobIconMarker, jobOfIcon } from "../features/console/files/jobIcons/marker";
+import { isNestedJobIcon, jobIconMarker, jobOfIcon } from "../features/console/files/jobIcons/marker";
 
 const folder = (path: string, over: Partial<JobEntry> = {}): JobEntry => ({
   kind: "folder",
@@ -112,6 +112,16 @@ describe("the drawn icon's marker", () => {
     for (const other of [null, undefined, "📥", ":party:", "context:tex", "context:job:", "context:job:taxes"]) {
       expect(jobOfIcon(other)).toBeNull();
     }
+  });
+
+  test("a folder inside another is marked nested, drawn in the text colour; only the top is blue (owner, 2026-10-26)", () => {
+    expect(jobOfIcon(jobIconMarker("website", true))).toBe("website");
+    expect(isNestedJobIcon(jobIconMarker("website", true))).toBe(true);
+    expect(isNestedJobIcon(jobIconMarker("website"))).toBe(false);
+    expect(isNestedJobIcon("context:job-nested:taxes")).toBe(false);
+    expect(isNestedJobIcon(null)).toBe(false);
+    // Tex's folder draws Tex himself, nested or not.
+    expect(jobIconMarker("tex", true)).toBe(jobIconMarker("tex"));
   });
 });
 

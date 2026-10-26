@@ -22,7 +22,7 @@ export declare function canGiveJob(job: string): boolean;
 export declare function canRemoveJob(job: string): boolean;
 export declare function topOnly(job: string): boolean;
 export declare function isInboxPart(path: string, inboxPath: string | null): boolean;
-export type TexPart = "attention" | "dreams" | "heartbeat" | "housekeeping" | "routines" | "skills" | "transcripts";
+export type TexPart = "attention" | "chats" | "dreams" | "groups" | "handbacks" | "heartbeat" | "housekeeping" | "routines" | "skills" | "transcripts";
 export declare const TEX_PARTS: readonly TexPart[];
 export declare function isTexPart(path: string, texPath: string | null): boolean;
 export declare function nameWords(name: string): string;

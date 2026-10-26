@@ -272,7 +272,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
       iconOf: (path: string) => {
         const job = jobs.get(path);
-        if (job !== undefined) return jobIconMarker(job);
+        if (job !== undefined) return jobIconMarker(job, path.includes("/"));
         const twin = twins.get(path);
         return (twin === undefined ? null : twinIconMarker(twin)) ?? shownIcon(tree.icons ?? {}, path);
       },

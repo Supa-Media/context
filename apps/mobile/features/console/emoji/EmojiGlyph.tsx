@@ -28,7 +28,7 @@ import { contextIconOf, contextPartOf } from "@context/shared/src/contextIcons.c
 import { Tex } from "../../chaos/Tex";
 import { ContextIcon } from "../files/contextIcons/ContextIcon";
 import { JobIcon } from "../files/jobIcons/JobIcon";
-import { jobOfIcon, twinJobOfIcon } from "../files/jobIcons/marker";
+import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../files/jobIcons/marker";
 
 import { Text } from "../../design/components/Text";
 import { useCustomEmoji } from "./context";
@@ -51,7 +51,7 @@ export function EmojiGlyph({
 }) {
   if (emoji === TEX_FIGURE_ICON) return <Tex chaos={0} size={size} testID={testID} />;
   const job = jobOfIcon(emoji);
-  if (job !== null) return <JobIcon job={job} size={size} {...(testID === undefined ? {} : { testID })} />;
+  if (job !== null) return <JobIcon job={job} size={size} nested={isNestedJobIcon(emoji)} {...(testID === undefined ? {} : { testID })} />;
   const twin = twinJobOfIcon(emoji);
   if (twin !== null) return <JobIcon job={twin} size={size} archived {...(testID === undefined ? {} : { testID })} />;
   const context = contextIconOf(emoji);

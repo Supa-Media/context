@@ -149,8 +149,11 @@ const TEX_FIGURE_ICON = "context:tex";
 const TEX_PART_ICONS = Object.freeze({
   "about-me.md": contextPartMarker("tex_about"),
   attention: contextPartMarker("tex_attention"),
+  chats: contextPartMarker("tex_chats"),
   "attention.md": contextPartMarker("tex_attention"),
   dreams: contextPartMarker("tex_dreams"),
+  groups: contextPartMarker("tex_groups"),
+  handbacks: contextPartMarker("tex_handbacks"),
   heartbeat: contextPartMarker("tex_heartbeat"),
   "heartbeat.md": contextPartMarker("tex_heartbeat"),
   housekeeping: contextPartMarker("tex_housekeeping"),

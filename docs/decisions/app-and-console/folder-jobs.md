@@ -66,7 +66,8 @@ identifying it as a special system thing, using the original names".
   then the order with the folder where it was dropped, sent only once the
   move has landed. Website is dragged like the rest (2026-10-21). Notes and
   several rows at once only nest, since notes still list by name.
-- **Built-in folders draw a hand-drawn icon in Tex blue, and nobody can change
+- **Built-in folders draw a hand-drawn icon in Tex blue (in the text colour
+  when nested inside another folder, owner 2026-10-26), and nobody can change
   it** for now: the app draws the job's icon over any emoji a row holds and
   offers no way to set one on a built-in folder. The owner may later offer a
   set to pick from. The icon follows the job, so Projects always looks like

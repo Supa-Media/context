@@ -78,7 +78,7 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
   const iconOf = useCallback(
     (path: string) => {
       const job = jobs.get(path);
-      if (job !== undefined) return jobIconMarker(job);
+      if (job !== undefined) return jobIconMarker(job, path.includes("/"));
       // Archive's copy of a built-in folder draws that folder's icon in grey, with Archive's box on it.
       const twin = twins.get(path);
       const shown = (twin === undefined ? null : twinIconMarker(twin)) ?? emojiOf(path);

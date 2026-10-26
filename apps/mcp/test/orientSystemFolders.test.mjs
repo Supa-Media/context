@@ -60,7 +60,7 @@ test("Tex's folder is listed wherever it is nested, and meetings in the Inbox's 
   assert.doesNotMatch(text, /^- Meetings/m);
 });
 
-test("Tex's line names its own folders, which stay where they are (owner, 2026-10-21)", () => {
+test("Tex's line names its own folders, which stay where they are (owner, 2026-10-21; chats, groups, handbacks 2026-10-26)", () => {
   const text = systemFoldersSection({ folders: [], jobs: jobs({ tex: "Assistant/tex" }) });
-  assert.match(text, /^- Tex `Assistant\/tex\/` — made when used: .*Its own folders attention, dreams, heartbeat, housekeeping, routines, skills, transcripts stay where they are/m);
+  assert.match(text, /^- Tex `Assistant\/tex\/` — made when used: .*Its own folders attention, chats, dreams, groups, handbacks, heartbeat, housekeeping, routines, skills, transcripts stay where they are/m);
 });
