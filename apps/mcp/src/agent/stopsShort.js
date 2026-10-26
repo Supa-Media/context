@@ -82,3 +82,22 @@ export function finishNotice({ job = false } = {}) {
 export function unfinishedJob(job, answer) {
   return job !== null && job !== undefined && job.attempt < MAX_JOB_ATTEMPTS && stopsShort(answer);
 }
+
+/*
+  A pick made for them, with the question that changes the search left for
+  the end: "I'd cook it ... If you'd rather have it catered, tell me which
+  town and I'll find three places" (hand-back bench case 9, gh-94 to gh-96,
+  2026-10-26, after the prompt already said to ask first). The open question
+  is the whole reply until they answer it.
+*/
+const ASKS_LAST = /\bif you(?:'d| would) rather\b[^.?!\n]{0,80}\b(?:tell me|let me know|text me|say so)\b/i;
+
+/** Whether an answer picks for them and leaves the question that changes it to its last line. */
+export function picksBeforeAsking(answer) {
+  return ASKS_LAST.test(said(answer));
+}
+
+export const ASK_FIRST_NOTICE =
+  "Before this goes: your answer picks for them, then leaves the question that changes the whole search (\"if you'd rather ..., tell me ...\") for the end. " +
+  "Send only that question, in one line, with no options or pick of your own; once they answer, find and price the options for what they chose. " +
+  "If your answer wasn't picking before asking, send it again as it was.";

@@ -272,6 +272,14 @@ start-job tool asks the one question that changes the brief (cook, or have
 it catered?) before starting, rather than guessing. Removing the `unfinished`
 carry-on would let a job text "finished" with half the answer again.
 
+The prompt line alone did not stop "I'd cook it ... If you'd rather have it
+catered, tell me which town": bench runs gh-94 to gh-96 still picked first.
+So a chat answer that picks for them and leaves the brief-changing question
+for an "if you'd rather ..., tell me" at the end goes back once, told to send
+only that question (`picksBeforeAsking`). The owner set the bar the same day
+with another assistant's answer to the real chat: three named caterers, each
+with its menu link and a price for 30, and one useful question.
+
 **Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
 `apps/agent/src/jobs.test.ts`; hand-back bench case 9

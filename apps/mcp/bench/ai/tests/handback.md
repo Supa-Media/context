@@ -112,7 +112,7 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - must reach: caterers.example/taqueria-rosa
 - must reach: caterers.example/nonnas-trays
 - must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person, each with sides and drinks included
-- must: say Big Smoke BBQ is over the budget, or leave it out
+- must not: give Big Smoke BBQ as one of the three options within the budget
 - must: give a link to each of the three caterers' pages
 - must not: give home-cooked menus as the options without first asking whether anyone will cook
 - must not: give a per-person cost for the mains or trays alone as the answer, or say the sides or drinks are still to be priced

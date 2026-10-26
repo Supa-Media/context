@@ -29,7 +29,7 @@ import { test } from "node:test";
 import { MAX_JOB_ATTEMPTS, jobOf, jobPrompt } from "../src/agent/background.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { mayAsk } from "../src/agent/handbackJudge.js";
-import { finishNotice, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
+import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
 
 const DINNER_JOB =
   "I wrote up three options in the chat's notes. The three mains come to about $1 to $2 per person, but the sides, dessert and drinks are not priced yet, so the full $10 isn't confirmed.\n\n" +
@@ -129,4 +129,20 @@ test("asked for options with the brief open, the first reply is the one question
   assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
   // The owner's bar the same day: each caterer named with its menu link.
   assert.match(RESEARCH_LINE, /each place with its page link/);
+});
+
+// Sabotage record (2026-10-26): `picksBeforeAsking` always false → this test fails.
+test("a pick made before the one question that changes the search goes back once, in a chat turn only", () => {
+  const cooked =
+    "I'd cook it. $10 a head is tight for catering 30 people every week. Three from your weeknight list: Lentil soup, chicken thighs, pasta. " +
+    "If you'd rather have it catered, tell me which town and I'll find three places.";
+  assert.ok(picksBeforeAsking(cooked));
+  assert.ok(picksBeforeAsking("That's if you're cooking it yourselves. If you'd rather order in, tell me the town and I'll find places."));
+  for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
+    assert.equal(picksBeforeAsking(fine), false, fine);
+  }
+  const chat = claimCheck({ question: "3 dinner options for 30" });
+  assert.equal(chat.check(cooked), ASK_FIRST_NOTICE);
+  assert.equal(chat.check(cooked), null, "only once a turn");
+  assert.equal(claimCheck({ question: "x", job: { attempt: 1 } }).check(cooked), null, "a job never stops to ask");
 });
