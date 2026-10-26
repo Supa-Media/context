@@ -126,6 +126,7 @@ From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed 
 - person starts: "can you show me some dinner options around me in riverside? eats.example has the local picks"
 - if offered hours for one she picks, or asked which one she wants: "can't you just check them all?"
 - if asked whether to book a table: "No, just tell me what's open"
+- if asked which Riverside, which state or where she is: "the Riverside on eats.example, can you just check them?"
 - must reach: eats.example/golden-lotus
 - must reach: eats.example/casa-verde
 - must reach: eats.example/brick-oven
