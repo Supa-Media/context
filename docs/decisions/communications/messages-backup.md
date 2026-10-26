@@ -138,6 +138,16 @@ end puts nothing in and says so. Pictures are named where they were sent but
 not carried: an archive the browser holds in memory, read through action
 answers capped well under their size, cannot take them.
 
+**Download messages, with the pictures, is the Mac app's.** It reads the
+backup back through the gateway, on exactly the terms that let it write
+(`messagesBackupRefusal`): `GET /messages/imessage/log?after=<key>` answers a
+page of the log by the same pager the console uses
+(`packages/communications/src/backupLog.js`), and
+`GET /messages/imessage/file/<folder>/<id>` one file's bytes, as an
+attachment of no type a browser runs, or 404 once an unsend took it back.
+Only those two are GETs; every other path under the backup still wants a
+POST.
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -154,6 +164,8 @@ schemas, Full Disk Access first); `packages/communications/test/backup.test.mjs`
 post a file, the size limit, an unsend taking back words and files) and the
 `files:` checks in `messagesBackup.test.mjs` (no videos, no path outside
 Attachments, waiting only for new files, the byte budget);
+`apps/mcp/test/messagesBackupRead.test.mjs` (reads refused as writes are,
+the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
 page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
 (a short log puts nothing in unsaid) and `backupTranscript.test.mjs`.
