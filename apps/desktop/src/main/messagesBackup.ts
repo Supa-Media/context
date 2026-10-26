@@ -33,7 +33,7 @@ import {
 } from "../core/messages/contacts.ts";
 import { historyDone, type BackupCursor } from "../core/messages/cursor.ts";
 import { runBackupPass, type BackupPassDeps } from "../core/messages/pass.ts";
-import { attachmentPathOf, realAttachmentPath, runFilesPass, type FileRead, type FilesPassDeps } from "../core/messages/files.ts";
+import { FILES_PASS_DEFAULTS, attachmentPathOf, realAttachmentPath, runFilesPass, type FileRead, type FilesPassDeps } from "../core/messages/files.ts";
 import {
   knownColumns,
   selectAccountSql,
@@ -84,6 +84,11 @@ export interface BackupStatus {
   problem: string | null;
   /** The account Messages is signed into, masked: `+1 ••• 4410`, `a••••@example.com`. */
   account: string | null;
+  /** Bytes of pictures, documents and videos sent so far, from the cursor. */
+  filesBytes: number;
+  /** The "What's copied" switches, as the settings hold them. */
+  pictures: boolean;
+  videos: boolean;
 }
 
 /** The slow beat while nothing is waiting. The watcher brings new texts sooner. */
@@ -99,7 +104,7 @@ export interface MessagesBackupDeps {
   store: BackupCursorStore;
   connection: GatewayConnection;
   /** Read fresh every time, so the switch takes effect without a restart. */
-  settings: () => Pick<DesktopSettings, "messagesBackup">;
+  settings: () => Pick<DesktopSettings, "messagesBackup" | "messagesBackupPictures" | "messagesBackupVideos">;
   onChange?: (status: BackupStatus) => void;
   now?: () => number;
   /** Overridable for the suite. */
@@ -122,6 +127,9 @@ const INITIAL: BackupStatus = Object.freeze({
   reachedBack: null,
   problem: null,
   account: null,
+  filesBytes: 0,
+  pictures: true,
+  videos: false,
 });
 
 /** `P:+15550104410` → `+1 ••• 4410`; `E:ada@example.com` → `a••@example.com`. Never the whole thing. */
@@ -168,6 +176,7 @@ export function backupBridgeStatus(status: BackupStatus, machine: string | null)
       problem: status.phase === "stopped" ? status.problem : null,
       account: status.account,
       machine,
+      files: { pictures: status.pictures, videos: status.videos, bytes: status.filesBytes },
     },
   };
 }
@@ -240,8 +249,15 @@ export class MessagesBackupService {
   }
 
   status(): BackupStatus {
-    const enabled = this.#deps.settings().messagesBackup;
-    return { ...this.#status, enabled, phase: enabled ? this.#status.phase : "off" };
+    const settings = this.#deps.settings();
+    const enabled = settings.messagesBackup;
+    return {
+      ...this.#status,
+      enabled,
+      phase: enabled ? this.#status.phase : "off",
+      pictures: settings.messagesBackupPictures !== false,
+      videos: settings.messagesBackupVideos === true,
+    };
   }
 
   /** At launch, and after every change to the switch. */
@@ -403,15 +419,20 @@ export class MessagesBackupService {
       this.#set({ phase: "copying", problem: null });
       const texts = await runBackupPass(deps, start);
       if (!this.#wanted(generation)) return;
-      // Pictures and documents after the texts, from where the texts left the cursor.
-      const files = texts.stopped ? null : await runFilesPass(this.#filesDeps(base, abort, columns, generation), texts.cursor);
-      if (!this.#wanted(generation)) return;
-      const report = {
-        cursor: files?.cursor ?? texts.cursor,
-        sent: texts.sent + (files?.sentFiles ?? 0),
-        stopped: texts.stopped ?? files?.stopped,
-        more: texts.more || (files?.more ?? false),
-      };
+      this.#set({ filesBytes: start.filesBytes });
+      // Files after the texts, from where the texts left the cursor: each switched-on kind its own walk, one byte budget.
+      const report = { cursor: texts.cursor, sent: texts.sent, stopped: texts.stopped, more: texts.more };
+      const settings = this.#deps.settings();
+      let budget = FILES_PASS_DEFAULTS.byteBudget;
+      for (const kind of ["pictures", "videos"] as const) {
+        const on = kind === "pictures" ? settings.messagesBackupPictures !== false : settings.messagesBackupVideos === true;
+        if (!on || report.stopped || budget <= 0) continue;
+        const files = await runFilesPass(this.#filesDeps(base, abort, columns, generation), report.cursor, { kind, byteBudget: budget });
+        if (!this.#wanted(generation)) return;
+        budget -= files.sentBytes;
+        Object.assign(report, { cursor: files.cursor, sent: report.sent + files.sentFiles, stopped: files.stopped, more: report.more || files.more });
+      }
+      this.#set({ filesBytes: report.cursor.filesBytes });
 
       const reached = report.cursor.oldest === null ? { rows: 0, back: null } : await this.#reached(report.cursor);
       this.#set({

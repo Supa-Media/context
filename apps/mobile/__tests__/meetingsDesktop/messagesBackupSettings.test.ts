@@ -35,6 +35,7 @@ import { has, installShell, mount, resetDesktop, teardownDesktop } from "./fixtu
  *
  *   the switch calling setEnabled with the value it already has           1
  *   the card's Turn off doing nothing                                       1
+ *   the videos switch sending the pictures switch                           1
  *   (the phase and outdated rows are in `messagesBackupView.test.ts`)
  */
 
@@ -46,6 +47,7 @@ const VIEW: MessagesBackupView = {
   problem: null,
   account: "+1 ••• 4410",
   machine: "MacBook Pro",
+  files: { pictures: true, videos: false, bytes: 1_400_000_000 },
 };
 
 function shellWith(view: Partial<MessagesBackupView> | null, enabled = true): FakeDesktopBridge {
@@ -107,6 +109,33 @@ describe("Settings › Messages", () => {
     expect(mounted.container.textContent).toContain("What's already copied stays");
     mounted.unmount();
     expect(shell.listenerCount()).toBe(0);
+  });
+
+  test("what's copied: pictures on with the space they take, videos off, each its own switch", async () => {
+    const shell = shellWith({});
+    installShell(shell);
+    const mounted = mount(createElement(MessagesPanel, { owned: true }));
+    await settle();
+
+    expect(mounted.container.textContent).toContain("What's copied");
+    expect(mounted.container.textContent).toContain("Up to 25 MB each · 1.4 GB so far");
+    expect(mounted.container.textContent).toContain("Off. Videos take most of the space.");
+    press(mounted.container, "messages-videos-switch");
+    await settle();
+    expect(shell.calls).toContain(`imessage.setFiles:${JSON.stringify({ videos: true })}`);
+    expect(mounted.container.textContent).not.toContain("Videos take most of the space.");
+    mounted.unmount();
+  });
+
+  test("a Mac app that copies no files asks for an update, and offers no file switches", async () => {
+    installShell(shellWith({ files: undefined }));
+    const mounted = mount(createElement(MessagesPanel, { owned: true }));
+    await settle();
+
+    expect(has(mounted.container, "messages-files-outdated")).toBe(true);
+    expect(has(mounted.container, "messages-videos-switch")).toBe(false);
+    expect(has(mounted.container, "messages-switch")).toBe(true);
+    mounted.unmount();
   });
 
   test("waiting for Full Disk Access offers the pane that grants it", async () => {

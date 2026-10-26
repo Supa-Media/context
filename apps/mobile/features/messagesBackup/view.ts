@@ -9,7 +9,7 @@
  * `docs/decisions/communications/messages-backup.md` carries the argument.
  */
 
-import type { ImessageStatus, MessagesBackupView } from "@context/desktop-bridge";
+import type { ImessageStatus, MessagesBackupFiles, MessagesBackupView } from "@context/desktop-bridge";
 
 /** The backup on this Mac, or why there is nothing to say about it. */
 export type BackupOnThisMac =
@@ -97,4 +97,31 @@ export function progressLines(
       return { title: "Copying, newest first", detail: parts.length === 0 ? null : parts.join(" · ") };
     }
   }
+}
+
+/** "830 KB", "12 MB", "1.4 GB": what the copy takes in the person's storage. */
+export function spaceLabel(bytes: number): string {
+  const units = ["bytes", "KB", "MB", "GB", "TB"];
+  let value = Math.max(0, bytes);
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  if (unit === 0) return `${Math.round(value)} bytes`;
+  const shown = value < 10 ? Math.round(value * 10) / 10 : Math.round(value);
+  return `${shown} ${units[unit]}`;
+}
+
+/**
+ * The two rows of "What's copied" (board 2, 2026-10-26): pictures and
+ * documents with the space they take so far, and videos, which are off unless
+ * the person turns them on because they take most of the space.
+ */
+export function whatsCopiedLines(files: MessagesBackupFiles): { pictures: string; videos: string } {
+  const space = files.bytes > 0 ? ` · ${spaceLabel(files.bytes)} so far` : "";
+  return {
+    pictures: files.pictures ? `Up to 25 MB each${space}` : files.bytes > 0 ? `Off. The ${spaceLabel(files.bytes)} already copied stays.` : "Off",
+    videos: files.videos ? "Up to 25 MB each" : "Off. Videos take most of the space.",
+  };
 }

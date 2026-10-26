@@ -59,6 +59,7 @@
  *   ...accepting a `kind` outside the protocol's four routes                  1
  *   the preload defaulting an unknown `kind` to `session`                     2
  *   the preload passing the Messages backup's view through unnormalised       2
+ *   the preload passing a "What's copied" change through unnormalised         1
  *   an empty `context` read as this machine's own, in the main process        1
  *   ...and in the preload                                                     1
  *   the bridge capturing the pin once instead of reading it per call         3
@@ -516,5 +517,24 @@ export async function runPreloadContractChecks(check) {
     );
     check("an unknown backup phase reads as off, and an overlong label is dropped", backups[1]?.backup?.phase === "off" && backups[1].backup.account === null);
     check("a shell that sends no backup view is told apart from one that is off", backups[2] !== undefined && !("backup" in backups[2]));
+    check("a backup view from before files has no files, rather than both switches off", !("files" in (backups[0]?.backup ?? {})));
+
+    shell.emit(BRIDGE_CHANNELS.imessageChange, {
+      enabled: true,
+      permission: "granted",
+      lastSyncedAt: null,
+      lastError: null,
+      backup: { phase: "copying", files: { pictures: true, videos: "yes", bytes: 1500, names: ["IMG_1.HEIC"] } },
+    });
+    const files = backups[3]?.backup?.files;
+    check(
+      "the switches and the bytes copied arrive, a switch that is not a boolean reads as off, and nothing else does",
+      files?.pictures === true && files.videos === false && files.bytes === 1500 && Object.keys(files).sort().join() === "bytes,pictures,videos",
+    );
+
+    // Nobody answers in this fake; only what was sent matters here.
+    await shell.bridge.imessage.setFiles({ videos: true, pictures: "no", path: "/Users/x" }).catch(() => {});
+    const setFiles = shell.invoked.find((call) => call.channel === BRIDGE_CHANNELS.imessageSetFiles);
+    check("a change to what is copied crosses as the two switches only, each a boolean", JSON.stringify(setFiles?.args[0]) === JSON.stringify({ videos: true }));
   }
 }

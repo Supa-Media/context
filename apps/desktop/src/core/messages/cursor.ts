@@ -18,7 +18,8 @@
  *
  * Pictures and documents have their own two positions, over `attachment`
  * ROWIDs rather than `message` ones (`files.ts`), read in the same two
- * directions, and a running count of the bytes they have sent. A cursor
+ * directions; videos have two more, so either switch can be off for a while
+ * and pick up where it stopped; and one running count of the bytes sent. A cursor
  * written before they existed has none, and its files start from a first
  * look while its texts carry on where they were.
  *
@@ -40,6 +41,8 @@ export interface BackupCursor {
   peopleDigest: string | null;
   filesNewest: number;
   filesOldest: number | null;
+  videosNewest: number;
+  videosOldest: number | null;
   filesBytes: number;
 }
 
@@ -54,6 +57,8 @@ export const FRESH_BACKUP_CURSOR: BackupCursor = Object.freeze({
   peopleDigest: null,
   filesNewest: 0,
   filesOldest: null,
+  videosNewest: 0,
+  videosOldest: null,
   filesBytes: 0,
 });
 
@@ -86,19 +91,19 @@ export function normalizeBackupCursor(raw: unknown): BackupCursor {
   };
 }
 
-function filesPositions(source: Record<string, unknown>): Pick<BackupCursor, "filesNewest" | "filesOldest" | "filesBytes"> {
-  const fresh = { filesNewest: 0, filesOldest: null, filesBytes: 0 };
-  const newest = rowId(source["filesNewest"]);
-  const oldest = source["filesOldest"] === null || source["filesOldest"] === undefined ? null : rowId(source["filesOldest"]);
-  const bytes = rowId(source["filesBytes"]) ?? 0;
-  if (newest === null || (oldest === null && source["filesOldest"] !== null && source["filesOldest"] !== undefined)) return fresh;
-  if (oldest !== null && oldest > newest + 1) return fresh;
-  return { filesNewest: newest, filesOldest: oldest, filesBytes: bytes };
+function filesPositions(source: Record<string, unknown>): Pick<BackupCursor, "filesNewest" | "filesOldest" | "videosNewest" | "videosOldest" | "filesBytes"> {
+  const [filesNewest, filesOldest] = positions(source["filesNewest"], source["filesOldest"]);
+  const [videosNewest, videosOldest] = positions(source["videosNewest"], source["videosOldest"]);
+  return { filesNewest, filesOldest, videosNewest, videosOldest, filesBytes: rowId(source["filesBytes"]) ?? 0 };
 }
 
-/** Whether every file of the history has been looked at. */
-export function filesHistoryDone(cursor: BackupCursor): boolean {
-  return cursor.filesOldest !== null && cursor.filesOldest <= 1;
+/** One walk's two positions, or a fresh walk's when they are missing or make no sense. */
+function positions(rawNewest: unknown, rawOldest: unknown): [number, number | null] {
+  const newest = rowId(rawNewest);
+  const oldest = rawOldest === null || rawOldest === undefined ? null : rowId(rawOldest);
+  if (newest === null || (oldest === null && rawOldest !== null && rawOldest !== undefined)) return [0, null];
+  if (oldest !== null && oldest > newest + 1) return [0, null];
+  return [newest, oldest];
 }
 
 /** Whether the whole history has been sent. */

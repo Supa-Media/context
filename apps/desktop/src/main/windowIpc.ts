@@ -133,6 +133,11 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
       */
       imessage: () => backupBridgeStatus(messagesBackup.status(), machineLabel(hostname())),
       setImessageEnabled: (enabled) => void update({ messagesBackup: enabled }),
+      setImessageFiles: (choice) =>
+        void update({
+          ...(choice.pictures === undefined ? {} : { messagesBackupPictures: choice.pictures }),
+          ...(choice.videos === undefined ? {} : { messagesBackupVideos: choice.videos }),
+        }),
       // The card in the console already says what to do there, so the button goes straight to the pane.
       requestImessageFullDiskAccess: async () => {
         await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);

@@ -9,7 +9,13 @@
  * exactly that field.
  */
 
-import type { ImessageStatus, MessagesBackupPhase, MessagesBackupView } from "@context/desktop-bridge";
+import type {
+  ImessageStatus,
+  MessagesBackupFiles,
+  MessagesBackupFilesChoice,
+  MessagesBackupPhase,
+  MessagesBackupView,
+} from "@context/desktop-bridge";
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -73,5 +79,24 @@ function backupViewFrom(payload: unknown): MessagesBackupView {
     problem: label(source.problem),
     account: label(source.account),
     machine: label(source.machine),
+    ...(source.files === undefined ? {} : { files: filesFrom(source.files) }),
+  };
+}
+
+function filesFrom(payload: unknown): MessagesBackupFiles {
+  const source = record(payload);
+  return { pictures: source.pictures === true, videos: source.videos === true, bytes: count(source.bytes) };
+}
+
+/**
+ * A change to "What's copied", both ways across the bridge: only the two
+ * switches, and only as booleans. A switch that is not a boolean is left out
+ * rather than read as off.
+ */
+export function filesChoiceFrom(payload: unknown): MessagesBackupFilesChoice {
+  const source = record(payload);
+  return {
+    ...(typeof source.pictures === "boolean" ? { pictures: source.pictures } : {}),
+    ...(typeof source.videos === "boolean" ? { videos: source.videos } : {}),
   };
 }

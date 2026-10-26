@@ -4,7 +4,9 @@ import {
   ago,
   backupOnThisMac,
   progressLines,
+  spaceLabel,
   waitingForFullDiskAccess,
+  whatsCopiedLines,
   whoseTexts,
 } from "../features/messagesBackup/view";
 
@@ -91,5 +93,20 @@ describe("the Messages backup in words", () => {
     expect(ago(NOW, NOW)).toBe("just now");
     expect(ago(NOW - 60 * 60_000, NOW)).toBe("1 hour ago");
     expect(ago(NOW - 3 * 24 * 60 * 60_000, NOW)).toBe("3 days ago");
+  });
+});
+
+describe("what's copied", () => {
+  test("space reads as a person would say it", () => {
+    expect(spaceLabel(0)).toBe("0 bytes");
+    expect(spaceLabel(830_000)).toBe("830 KB");
+    expect(spaceLabel(1_400_000_000)).toBe("1.4 GB");
+    expect(spaceLabel(12_345_678)).toBe("12 MB");
+  });
+
+  test("pictures say their limit and the space so far; videos say why they are off", () => {
+    expect(whatsCopiedLines({ pictures: true, videos: false, bytes: 0 })).toEqual({ pictures: "Up to 25 MB each", videos: "Off. Videos take most of the space." });
+    expect(whatsCopiedLines({ pictures: true, videos: true, bytes: 2_000_000 }).pictures).toBe("Up to 25 MB each · 2 MB so far");
+    expect(whatsCopiedLines({ pictures: false, videos: true, bytes: 2_000_000 })).toEqual({ pictures: "Off. The 2 MB already copied stays.", videos: "Up to 25 MB each" });
   });
 });

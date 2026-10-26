@@ -110,6 +110,17 @@ ones first, a byte budget a pass, after the texts. A new file not yet on the
 Mac is waited for for half an hour; an old one (Messages in iCloud keeps many
 only in the cloud) is skipped, and the Mac never asks for it to download.
 
+**"What's copied" is two switches, each its own walk.** Pictures and
+documents (on) and videos (off, because they take most of the space) are set
+in Settings › Messages and kept in the Mac app's settings. Each kind walks
+`attachment` with positions of its own in the cursor, so a switch turned off
+for a month picks up where it stopped when turned back on and misses nothing;
+the two share one byte budget a pass and one count of bytes sent, which the
+page shows as "1.4 GB so far". The page reaches them through the bridge's
+optional `imessage.setFiles`, two booleans rebuilt on both sides of the IPC
+(`apps/desktop/test/consoleBridge/ipcCensus.test.mjs`); a Mac app without it
+is asked to update rather than shown switches that would do nothing.
+
 **An unsend takes back what was already copied.** A batch carrying an unsent
 message deletes every file under that message's folder and rewrites the
 month's log objects that arrived from an hour before it was sent onwards,
