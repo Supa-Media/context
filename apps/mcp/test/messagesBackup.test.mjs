@@ -103,7 +103,9 @@ async function setUp() {
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
   return {
     env,
-    keys: (name) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(".context/messages/")).sort(),
+    keys: (name) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(MESSAGES_BACKUP_LOG)).sort(),
+    pending: (name) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(".context/messages/imessage/pending/")).sort(),
+    all: (name) => [...s3.bucketFor(name).keys()].filter((key) => key.startsWith(".context/messages/")).sort(),
     body: (name, key) => s3.bucketFor(name).get(key)?.body,
     restore: () => {
       for (const restore of restores.reverse()) restore();
@@ -197,7 +199,7 @@ test("everyone but the owner of a personal workspace on a private write grant is
       assert.equal(answer.status, 403, who);
     }
     assert.equal((await post(world, null, BATCH)).status, 401, "no token");
-    for (const name of ["mb-mine", "mb-shared", "mb-other"]) assert.deepEqual(world.keys(name), [], name);
+    for (const name of ["mb-mine", "mb-shared", "mb-other"]) assert.deepEqual(world.all(name), [], name);
   } finally {
     world.restore();
   }
@@ -210,7 +212,7 @@ test("an @name selector is refused, even naming the caller's own workspace", asy
       const answer = await post(world, T.owner, BATCH, { path: `/@${slug}/messages/imessage/batch` });
       assert.ok(answer.status === 403 || answer.status === 404, `${slug}: ${answer.status}`);
     }
-    for (const name of ["mb-mine", "mb-shared", "mb-other"]) assert.deepEqual(world.keys(name), [], name);
+    for (const name of ["mb-mine", "mb-shared", "mb-other"]) assert.deepEqual(world.all(name), [], name);
   } finally {
     world.restore();
   }

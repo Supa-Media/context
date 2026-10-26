@@ -36,6 +36,20 @@ decided from the session before a store opens; an `@name` selector is refused,
 so a batch can only land in the caller's own bucket. `messages` is a reserved
 first segment and name for that reason (`apps/mcp/test/messagesBackup.test.mjs`).
 
+**The index lives in the context's own search database, and AIs reach it
+through `search` and `fetch`.** `communications/textsIndex.js` folds the log
+into `texts_records` and a full-text table in the per-context database every
+workspace already has (fast search is on for everyone), so nothing new is
+provisioned and deleting the tables loses nothing. A row keeps the batch it
+came from and is replaced only by a later one, so the write path, a catch-up
+and a rebuild land on the same answer in any order. A batch the write path
+could not index leaves a marker under `pending/` for the next read. AIs ask
+with `search` `{ texts: true, with, since }` and `fetch texts:` /
+`texts:<id>`: new arguments on the tools every client holds, with the three
+tools behind them unlisted. The route gives them to the personal workspace's
+owner on a private-tier connection only, and never to Tex answering a group
+chat; every texts read marks the turn untrusted (`apps/mcp/test/texts.test.mjs`).
+
 **The owner's picks (2026-10-26, from the boards):**
 
 - An open form: one JSON line per message, readable without Context.

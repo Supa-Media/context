@@ -56,7 +56,10 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
  * validated against what this server advertises now — the same arrangement
  * `archive_chat` has had since it was renamed.
  */
-const UNLISTED_TOOLS = new Set(["create_form"]);
+// The texts tools are reached as `search` with `{ texts: true }` and `fetch
+// texts:` (`v2/searchFetch.js`): new arguments on the tools every client
+// already holds, not three new tools a cached list would not have.
+const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "read_texts"]);
 
 /**
  * The six tools an MCP client is offered since v2 (decided 2026-10-16,

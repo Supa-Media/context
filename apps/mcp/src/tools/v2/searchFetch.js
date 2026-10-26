@@ -16,6 +16,7 @@
 
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { EMAIL_ID_PREFIX } from "../emailRead.js";
+import { TEXTS_ID_PREFIX } from "../texts.js";
 import { readableFileType } from "../readFile.js";
 
 const CHATGPT = /chatgpt|openai/i;
@@ -79,6 +80,16 @@ export function translateSearch(call, app = {}) {
   if (isChatGpt(app) && open.args === undefined) {
     return { name: "search", arguments: { query: call.query }, action: "notes" };
   }
+  // Their texts, from the Mac's backup (`texts.js`).
+  if (open.args?.texts === true) {
+    return target("search", open.args, {
+      name: "search_texts",
+      action: "texts",
+      fixed: typeof call.query === "string" && call.query.trim() !== "" ? { query: call.query } : {},
+      copy: ["with", "since", "limit"],
+      consumed: ["texts"],
+    });
+  }
   // Their email, through Gmail's own search (`emailRead.js`).
   if (open.args?.email === true) {
     return target("search", open.args, {
@@ -111,6 +122,7 @@ const KEYWORDS = {
   "plugins:": { name: "list_plugins", action: "plugins", copy: [] },
   "access:": { name: "scope_info", action: "access", copy: ["path", "workspaces"] },
   "apps:": { name: "app_read", action: "apps", copy: [] },
+  "texts:": { name: "list_texts", action: "texts", copy: ["limit"] },
 };
 
 /** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
@@ -137,6 +149,9 @@ export function translateFetch(call, app = {}) {
   if (id.startsWith(APP_PREFIX)) {
     const app = id.slice(APP_PREFIX.length).trim();
     return target(label, a, { name: "app_read", action: "app", fixed: { app }, copy: ["tool", "arguments"] });
+  }
+  if (id.startsWith(TEXTS_ID_PREFIX)) {
+    return target(label, a, { name: "read_texts", action: "texts", fixed: { chat: id.slice(TEXTS_ID_PREFIX.length) }, copy: ["since", "before", "limit"] });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
