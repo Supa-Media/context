@@ -362,6 +362,11 @@ describe("no public function can reach a storage secret", () => {
         // `meaningSearch.enable` / `.disable` (and the workspace cascade).
         "functions.meaningProvision.provisionMeaningIndex",
         "functions.meaningProvision.releaseMeaningIndex",
+        // Delete the backup (Settings › Messages): one page of the backup's keys erased per run, then the
+        // texts rows of the workspace's search database emptied through its credential. Internal, reached
+        // only by a schedule edge from the owner-only `messagesExport.deleteBackup` and from itself; it
+        // returns null and logs the workspace id only.
+        "functions.messagesExport.eraseBackupPage",
         // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
         //
         // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
