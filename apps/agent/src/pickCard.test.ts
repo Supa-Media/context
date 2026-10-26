@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
+import { PICTURE_FAILED } from "./outgoing";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { pickCard, pickedText, pickUrl, readChoices, type Choice } from "./pickCard";
 import type { Message } from "./reply";
@@ -55,6 +56,8 @@ describe("the pick card", () => {
       layout: { caption: "Tex's pick: Blend LIC", subcaption: "Tap to choose, or reply 1–3", trailingCaption: "$225", imageUrl: "https://agent.example/m/1.png" },
     });
     expect(card?.layout.summary).toBe("Tex's pick: Blend LIC. Reply 1–3 to choose.");
+    const shifted = pickCard(CHOICES, ["Both fit.", ...pictures.slice(1), PICTURE_FAILED], CONFIG);
+    expect(shifted?.layout.imageUrl).toBeUndefined();
   });
 
   it("with no pick, counts the options and shows no picture", () => {

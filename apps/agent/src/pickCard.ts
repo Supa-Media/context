@@ -20,7 +20,7 @@
  */
 
 import type { AppCard, AppCardConfig } from "./appCards";
-import type { SendPart } from "./outgoing";
+import { PICTURE_FAILED, type SendPart } from "./outgoing";
 
 /** One option of a set, as the gateway read it from an option card (`apps/mcp/src/agent/outgoingPictures.js`). */
 export type Choice = { name: string; price?: string; pick?: true; picture: number };
@@ -76,7 +76,8 @@ export function pickCard(choices: Choice[], pictures: SendPart[], config: AppCar
   if (!config || choices.length < 2) return null;
   const media = pictures.flatMap((part) => (typeof part !== "string" && "media" in part && "url" in part.media ? [part.media.url] : []));
   const picked = choices.find((choice) => choice.pick === true);
-  const image = picked !== undefined ? media[picked.picture] : undefined;
+  // A picture that failed to upload shifts the rest, so then no picture rather than the wrong one.
+  const image = picked !== undefined && !pictures.includes(PICTURE_FAILED) ? media[picked.picture] : undefined;
   const numbers = `1–${choices.length}`;
   const caption = picked ? `Tex's pick: ${picked.name}` : `${choices.length} options`;
   return {
