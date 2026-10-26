@@ -177,6 +177,7 @@ export function createShellView(ctx: MainContext): Pick<MainActions, "pressed" |
     ctx.settings = { ...ctx.settings, ...patch };
     await store.writeSettings(ctx.settings);
     if ("imessageEnabled" in patch) imessage.reconfigure();
+    if ("messagesBackup" in patch) ctx.messagesBackup.reconfigure();
     push();
   }
 

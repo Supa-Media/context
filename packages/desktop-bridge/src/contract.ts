@@ -720,6 +720,44 @@ export interface ImessageStatus {
   lastSyncedAt: number | null;
   /** The shell's own words for the last thing that went wrong, or `null`. */
   lastError: string | null;
+  /**
+   * The Messages backup (`docs/decisions/communications/messages-backup.md`),
+   * which is what this member reports since the import into notes was retired
+   * (owner, 2026-10-21). A payload field rather than a version: a shell that
+   * predates the backup sends none, and the console reads its absence as "this
+   * Mac app needs an update" rather than as a backup that is off.
+   */
+  backup?: MessagesBackupView;
+}
+
+/** What a backup pass is doing, as a word the console turns into a sentence. */
+export type MessagesBackupPhase =
+  | "off"
+  | "needs_permission"
+  | "no_messages"
+  | "not_connected"
+  | "copying"
+  | "up_to_date"
+  | "stopped";
+
+/**
+ * The backup's progress, and nothing of what it copied: counts, two times,
+ * the masked account and the Mac's own name. Never a handle, never a word of
+ * a text, never a path.
+ */
+export interface MessagesBackupView {
+  phase: MessagesBackupPhase;
+  /** Rows of the Mac's Messages database copied so far, and how many it has. */
+  copiedRows: number;
+  totalRows: number;
+  /** Epoch milliseconds of the oldest text copied so far, or `null` before the first. */
+  reachedBack: number | null;
+  /** Why it stopped, a closed set of codes, when `phase` is `stopped`. */
+  problem: string | null;
+  /** The account Messages is signed into, masked: `+1 ••• 4410`. */
+  account: string | null;
+  /** This Mac's name, as its owner set it: `Sam's MacBook Pro`. */
+  machine: string | null;
 }
 
 /**

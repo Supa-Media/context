@@ -76,6 +76,7 @@ import {
   type Unsubscribe,
 } from "@context/desktop-bridge";
 import { shouldExposeBridge } from "./console.ts";
+import { imessageStatusFrom } from "./imessageStatus.ts";
 
 /**
  * What the main process answers on a channel it handles.
@@ -262,21 +263,6 @@ function outboxFrom(payload: unknown): OutboxStatus {
   return {
     pending: count(source.pending),
     parked: count(source.parked),
-    lastError: sentence(source.lastError),
-  };
-}
-
-const IMESSAGE_PERMISSIONS: readonly ImessageStatus["permission"][] = ["granted", "denied", "unknown"];
-
-function imessageStatusFrom(payload: unknown): ImessageStatus {
-  const source = record(payload);
-  const permission = source.permission;
-  return {
-    enabled: source.enabled === true,
-    permission: IMESSAGE_PERMISSIONS.includes(permission as ImessageStatus["permission"])
-      ? (permission as ImessageStatus["permission"])
-      : "unknown",
-    lastSyncedAt: typeof source.lastSyncedAt === "number" && Number.isFinite(source.lastSyncedAt) ? source.lastSyncedAt : null,
     lastError: sentence(source.lastError),
   };
 }
