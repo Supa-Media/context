@@ -223,6 +223,10 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     check("service: no video, no unsent message's file and nothing outside Attachments is sent", !fileUploads.some((f) => /video|unsent|SQLite/.test(f.body)));
     check("service: the file positions end with every file looked at", store.saved.at(-1)?.filesOldest === 1 && store.saved.at(-1)?.filesNewest === 5 && store.saved.at(-1)?.filesBytes === 13);
 
+    // Deleted: the cursor starts over, so turning the backup on again copies everything again.
+    await service.forget();
+    check("service: after the backup is deleted its cursor starts over", store.saved.at(-1)?.newest === 0 && store.saved.at(-1)?.oldest === null && store.saved.at(-1)?.filesBytes === 0 && service.status().copiedRows === 0);
+
     const { readAttachment } = await import("../src/main/messagesBackup.ts");
     await symlink(chatDb, join(attachments, "aa/01/link.png"));
     const linked = await readAttachment("~/Library/Messages/Attachments/aa/01/link.png");

@@ -627,6 +627,8 @@ export interface DesktopBridge {
     setFiles?(choice: MessagesBackupFilesChoice): Promise<void>;
     /** Download messages into a folder in Downloads, with the pictures. Absent before it existed; the page checks. */
     download?(): Promise<MessagesBackupDownload>;
+    /** After Delete the backup: turn it off here and start its cursor over. Absent before it existed. */
+    forget?(): Promise<void>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
 
@@ -739,19 +741,17 @@ export const BRIDGE_CHANNELS = Object.freeze({
   outboxStatus: "context:outbox-status",
   outboxDrain: "context:outbox-drain",
 
-  /** Version 2. One write about a meeting, into the shell's own queue. */
-  meetingsWrite: "context:meetings-write",
+  meetingsWrite: "context:meetings-write", // Version 2: one write about a meeting, into the shell's own queue.
 
   /** Version 5. */
   imessageStatus: "context:imessage-status",
   imessageSetEnabled: "context:imessage-set-enabled",
-  /** Version 6. Show the native guide, then open Full Disk Access settings. */
-  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
+  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access", // Version 6: the guide, then the settings pane.
   imessageSetFiles: "context:imessage-set-files",
   imessageDownload: "context:imessage-download",
+  imessageForget: "context:imessage-forget",
 
-  /** Version 7. Is there a local CLI to ask, and asking it. */
-  agentStatus: "context:agent-status",
+  agentStatus: "context:agent-status", // Version 7: is there a local CLI to ask, and asking it.
   agentAsk: "context:agent-ask",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */

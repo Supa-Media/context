@@ -624,6 +624,7 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
       setFiles: (choice: MessagesBackupFilesChoice): Promise<void> =>
         ask(ipc, BRIDGE_CHANNELS.imessageSetFiles, filesChoiceFrom(choice), () => undefined),
       download: (): Promise<MessagesBackupDownload> => ask(ipc, BRIDGE_CHANNELS.imessageDownload, undefined, downloadFrom),
+      forget: (): Promise<void> => ask(ipc, BRIDGE_CHANNELS.imessageForget, undefined, () => undefined),
       onChange: (handler: (status: ImessageStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.imessageChange, imessageStatusFrom, handler),
     }),

@@ -139,6 +139,10 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
           ...(choice.pictures === undefined ? {} : { messagesBackupPictures: choice.pictures }),
           ...(choice.videos === undefined ? {} : { messagesBackupVideos: choice.videos }),
         }),
+      forgetImessage: async () => {
+        await update({ messagesBackup: false });
+        await messagesBackup.forget();
+      },
       downloadImessage: createMessagesDownloader({
         connection: ctx.connection,
         downloadsDir: () => app.getPath("downloads"),
