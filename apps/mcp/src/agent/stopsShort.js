@@ -82,3 +82,25 @@ export function finishNotice({ job = false } = {}) {
 export function unfinishedJob(job, answer) {
   return job !== null && job !== undefined && job.attempt < MAX_JOB_ATTEMPTS && stopsShort(answer);
 }
+
+/*
+  A pick made for them, with the choice that changes the search left as an
+  aside: "I'd cook it ... If you'd rather have it catered, tell me which
+  town", "... which town is it in?", "Catering's the other option if you'd
+  rather not cook" (hand-back bench case 9, gh-94 to gh-98, 2026-10-26,
+  after the prompt already said to ask first). Asked for options, an answer
+  that offers the other road with "if you'd rather" has guessed the brief:
+  the open question is the whole reply until they answer it.
+*/
+const WANTS_OPTIONS = /\b(?:options?|ideas?|suggest(?:ions?)?|recommend(?:ations?)?|choices)\b|\b(?:find|research|pick|choose)\b[^.?!\n]{0,40}\b(?:for|places?|spots?|caterers?|restaurants?)\b/i;
+const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b/i;
+
+/** Whether an answer to a request for options guesses the brief and leaves the other road as an aside. */
+export function picksBeforeAsking(answer, question = "") {
+  return WANTS_OPTIONS.test(said(question)) && OTHER_ROAD.test(said(answer));
+}
+
+export const ASK_FIRST_NOTICE =
+  "Before this goes: your answer picks for them, then leaves the choice that changes the whole search (\"if you'd rather ...\") as an aside. " +
+  "Send only the question that settles it, in one line, with no options or pick of your own; once they answer, find and price the options for what they chose. " +
+  "If your answer wasn't picking before asking, send it again as it was.";
