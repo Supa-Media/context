@@ -15,7 +15,7 @@ import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../vault/pay.js";
-import { armForText, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { armForText, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -187,8 +187,10 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked, told = "", { who = null } = {}) {
+export async function textedAsk(store, session, asked, told = "", { who = null, stale = false } = {}) {
   if (asked.length === 0) {
+    // An answer that says the waiting ask changed, and drew nothing new, drops it (`claimCheck.js` rule 6).
+    if (stale) return { ask: await dropStale(store, session), verbatim: [] };
     // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
     if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return { ask: null, verbatim: [] };
@@ -218,6 +220,20 @@ export async function textedAsk(store, session, asked, told = "", { who = null }
       (holdsEmail ? "Ask me for one email at a time." : "Ask me for one thing at a time."),
     verbatim: [],
   };
+}
+
+/**
+ * Drop the asks still waiting for this person's texted yes, after an answer
+ * that said they changed and held nothing new: the next yes must never make
+ * the one they just corrected (Dev2, 2026-10-26). Said in the gateway's words.
+ */
+async function dropStale(store, session) {
+  const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
+  if (waiting.length === 0) return null;
+  const stuck = await disarmRecords(store, waiting);
+  console.log(JSON.stringify({ event: "ask_superseded", asks: waiting.length, stuck }));
+  const what = waiting.map(({ record }) => clean(String(record.summary ?? record.tool)).slice(0, 200)).join("; ");
+  return `I haven't sent the earlier one (${what}), so nothing goes out on a yes to it. Tell me what to send instead and I'll show it to you.`;
 }
 
 /**

@@ -600,7 +600,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
     const { answer: told, pictures, captions } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
-    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale(told) === true });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
     const answer = [answerWithAsk(told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n");
     /*

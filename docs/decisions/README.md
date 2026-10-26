@@ -772,6 +772,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex answers with a designed card, in one line of words (2026-10-26)](./texting-assistant/visual-answers.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
 - [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
+- [A correction never leaves the ask it corrects waiting for a yes (2026-10-26)](./texting-assistant/honest-answers.md#a-correction-never-leaves-the-ask-it-corrects-waiting-for-a-yes-2026-10-26)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)
 - [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
 - [Tex writes down how it did a hard job, as a learned skill (2026-10-19)](./texting-assistant/learned-skills.md)

@@ -38,6 +38,12 @@
  *   5. A call failed and the answer gives up with other roads to the same
  *      answer untried, or it promises to text them later with nothing in
  *      the turn to keep it (`otherRoutes.js`, 2026-10-23).
+ *   6. An ask was waiting for their yes, and the answer talks as if it
+ *      changed ("Got it, I'll send it to Bo instead") with nothing held
+ *      again. The old ask still stood, so the next yes sent the email they
+ *      had just corrected (Dev2, 2026-10-26). One more round says to make
+ *      the call with the change; an answer that still says it changed with
+ *      nothing held drops the old ask (`stale`, `textedAsk`).
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -326,6 +332,31 @@ export function givesUpOnTheBrowser(answer) {
   return BROWSER_GAVE_UP.test(String(answer ?? "").replace(/[‘’]/g, "'"));
 }
 
+/*
+  A WAITING ASK SAID TO HAVE CHANGED (rule 6). Two strengths: either sends one
+  more round, but only words that say it changed drop the old ask, so "I'll
+  send it when you're ready" after "one sec" can never lose an ask.
+*/
+const CHANGED = /\b(?:instead|changed|updated|switched|swapped|corrected|revised|fixed it|new version|made the change|edited)\b/i;
+const WILL_SEND = /\bI(?:'ll| will|'m going to| am going to)\s+(?:send|email|forward|move|change|update|swap|switch|make it|add|book|post)\b/i;
+
+/** Whether an answer says the waiting ask changed, so the old one must not stand. */
+export function saysItChanged(answer) {
+  return CHANGED.test(String(answer ?? "").replace(/[\u2018\u2019]/g, "'"));
+}
+
+/** Whether an answer talks about changing or sending what is waiting. */
+export function talksOfTheWaiting(answer) {
+  const said = String(answer ?? "").replace(/[\u2018\u2019]/g, "'");
+  return CHANGED.test(said) || WILL_SEND.test(said);
+}
+
+export const SUPERSEDE_NOTICE =
+  "Before this goes: something was waiting for their yes, and your answer talks as if it changed, but nothing new is held. " +
+  "The old one still stands, so their next yes or 👍 would make the one they just corrected. " +
+  "If their text changes it, make the call again now with the change: they are shown the new one, and the old one is dropped. " +
+  "If nothing changed, answer again without saying it changed or will be sent differently.";
+
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
   "If they asked for it, make the change now with your tools and then answer. If you can't, answer again saying plainly that it is not done, " +
@@ -427,6 +458,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   let owedNoticed = false;
   let notePictureNoticed = false;
   let bugNoticed = false;
+  // A waiting ask the answer said had changed, with nothing held again (rule 6).
+  let supersedeNoticed = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -472,6 +505,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         return result;
       };
     },
+    /**
+     * Whether the waiting ask must not stand after this final answer: told once
+     * to make the call with the change, it still says it changed and holds
+     * nothing (rule 6). `textedAsk` then drops it and says so.
+     */
+    stale: (answer) => waiting && supersedeNoticed && !held && saysItChanged(answer),
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
@@ -489,6 +528,11 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // A waiting ask said to have changed, with nothing held again: make the call with the change (rule 6).
+    if (!supersedeNoticed && waiting && !held && talksOfTheWaiting(answer)) {
+      supersedeNoticed = true;
+      return SUPERSEDE_NOTICE;
+    }
     // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
     if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
       retryNoticed = true;

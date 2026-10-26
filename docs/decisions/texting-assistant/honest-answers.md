@@ -95,3 +95,26 @@ it is texted as a fixed line saying the answer got lost, never as nothing.
 `otherRoutes.js` counts "I'll … within N minutes" as a promise to keep, like
 "I'll text you". A background job's follow-ups that say stop are a rule for
 the rest of the job, retries included. Tests: `agentReplyChecks.test.mjs`.
+
+### A correction never leaves the ask it corrects waiting for a yes (2026-10-26)
+
+Agreed with Dev2. An ask stays armed through the person's side texts ("one
+sec", 2026-10-22), and the model is told to draft again only if their text
+changes it. When their text was a correction ("actually send it to Bo
+instead") and the model answered as if it had changed without drafting
+again, the old ask still stood, and their next yes or 👍 sent the email they
+had just corrected.
+
+`claimCheck.js` rule 6: an answer that talks of changing or sending what is
+waiting, with nothing held again, gets one more round telling Tex to make the
+call with the change. If the final answer still says it changed and holds
+nothing, `textedAsk` drops the waiting ask and says so in the gateway's words
+("I haven't sent the earlier one…"). Two strengths of wording on purpose:
+"I'll send it" earns the round, but only words that say it changed
+("instead", "changed", "updated") drop the ask, so an aside answered with
+"I'll send it when you're ready" never loses it. A correction the model
+answers with only "ok" keeps today's behaviour; telling that from "one sec"
+would need a model. Only the asker's own asks are dropped, so in a group
+another person's ask stands. Reverse it and "a correction the model does not
+act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
+fails.
