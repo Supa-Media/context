@@ -258,9 +258,12 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
   async function visual(args) {
-    const built = buildVisual(args);
+    const built = buildVisual(args, { canLoad: (address) => outgoing?.vouches(address) === true });
     if (built.error) return say(built.error, true);
-    return draw(built);
+    const drawn = await draw(built);
+    if (!built.dropped || drawn.isError) return drawn;
+    const left = `${built.dropped} photo(s) left off the card: only images whose address you read this turn load, so open the place's own page for one.`;
+    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${left}` } : part)) };
   }
 
   async function make(args) {
