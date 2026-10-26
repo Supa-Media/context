@@ -45,6 +45,10 @@ export const SIGNAL_LABELS: Record<string, string> = {
   swore: "Swore or angry",
   corrected: "Corrected Tex",
   fix_this: "Said fix this",
+  filler: "Padding or unasked notices",
+  wrong: "Wrong or unchecked answer",
+  incomplete: "Left part undone",
+  feature_ask: "Asked for a feature",
 };
 
 export const KIND_LABELS: Record<string, string> = {
@@ -160,9 +164,9 @@ export const MEASURES = [
 ] as const;
 export type Measure = (typeof MEASURES)[number]["key"];
 
-/** A conversation counts as frustrating when any signal showed, or calm scored 4 or under. */
+/** A conversation counts as frustrating when anything went wrong, or calm scored 4 or under; asking for a feature is not a failure. */
 export function isFrustrated(row: TexReview): boolean {
-  return row.signals.length > 0 || row.calm <= 4;
+  return row.signals.some((code) => code !== "feature_ask") || row.calm <= 4;
 }
 
 function mean(values: number[]): number | null {

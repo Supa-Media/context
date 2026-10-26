@@ -78,6 +78,9 @@ describe("filters", () => {
 describe("measures", () => {
   test("frustrated is any signal or calm 4 or under", () => {
     expect(ROWS.map(isFrustrated)).toEqual([false, true, true, false]);
+    // Asking for a feature is not a failure; a wrong answer is, even when they stayed calm.
+    expect(isFrustrated({ ...ROWS[0]!, signals: ["feature_ask"] })).toBe(false);
+    expect(isFrustrated({ ...ROWS[0]!, signals: ["wrong"] })).toBe(true);
     expect(measureOf(ROWS, "frustrated")).toBe(0.5);
   });
 

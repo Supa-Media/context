@@ -46,11 +46,15 @@ export const SELF_REVIEW_MODEL = "anthropic/claude-haiku-5-5";
 export const SCORE_KEYS = ["goal", "independence", "turns", "friendly", "calm"];
 /**
  * What the conversation was mainly for, one code (the Tex dashboard's task
- * categories, the owner, 2026-10-24), and what showed frustration, as codes.
+ * categories, the owner, 2026-10-24), and what went wrong, as codes: what
+ * showed frustration, what was wrong with Tex's answers even when nobody
+ * complained (`filler`, `wrong`, `incomplete`, 2026-10-26: a polite person
+ * given padding or a wrong fact used to score well and was never triaged),
+ * and `feature_ask` when they asked for something Tex cannot do yet.
  * Codes only, from these closed sets, on every tier: never anybody's words.
  */
 export const TASK_CODES = ["email", "calendar", "web_errand", "notes", "research", "reminders", "messaging", "purchase", "setup", "chat", "other"];
-export const SIGNAL_CODES = ["repeated", "try_again", "cant_first", "gave_up", "swore", "corrected", "fix_this"];
+export const SIGNAL_CODES = ["repeated", "try_again", "cant_first", "gave_up", "swore", "corrected", "fix_this", "filler", "wrong", "incomplete", "feature_ask"];
 /** Where each conversation's last-reviewed fingerprint is kept, beside its history. */
 export const REVIEW_MARK_PREFIX = ".context/agent/reviews/";
 /** The most of a conversation one review reads: its newest turns. */
@@ -140,14 +144,15 @@ export function transcriptOf(turns, after = []) {
 }
 
 const SCORING = [
+  "Judge Tex's answers themselves, not only how the person reacted: a polite person who got padding, a wrong or unchecked fact, or half of what they asked for was badly served, and goal and friendly score low even when they never complained.",
   "Score each from 1 to 10, where 10 is best:",
-  "- goal: did Tex get them what they wanted, end to end?",
+  "- goal: did Tex get them what they wanted, end to end, correctly and completely?",
   "- independence: did Tex do the work itself, asking only for what only they could give (a sign-in, a code, a yes, a choice, a fact only they know)? Low when Tex handed work back, said it couldn't without trying, or asked for something it could find.",
   "- turns: how few back-and-forths it took. Back-and-forth that moved the work on is fine; repeating, re-asking or making them push is not.",
-  "- friendly: did it read like two friends working on something together (short, plain, warm, answer first), or like a chatbot (long, stiff, lists, over-apologising, 'I can't')?",
+  "- friendly: did it read like two friends working on something together (short, plain, warm, answer first), or like a chatbot (long, stiff, lists, over-apologising, 'I can't', stock lines or notices nobody asked for)?",
   "- calm: did they stay calm? 10 is no frustration at all; low when they swore, repeated themselves, told Tex off, or gave up.",
   "Then name what the conversation was mainly for, as task, one of: email (reading, drafting or sending mail), calendar (events and scheduling), web_errand (anything Tex did on a website), notes (their notes and memory), research (questions and looking things up), reminders (reminders and routines), messaging (Slack, Chat or texts to other people), purchase (buying or booking), setup (accounts, sign-ins, connecting things), chat (small talk), other.",
-  "And list what showed frustration, as signals, any of: repeated (they asked again or repeated themselves), try_again (they told Tex to try again), cant_first (Tex said it couldn't before trying), gave_up (they gave up or said never mind), swore (swearing, all caps, angry faces), corrected (they corrected something Tex got wrong), fix_this (they said fix this). None: [].",
+  "And list everything that went wrong, as signals, any of: repeated (they asked again or repeated themselves), try_again (they told Tex to try again), cant_first (Tex said it couldn't before trying), gave_up (they gave up or said never mind), swore (swearing, all caps, angry faces), corrected (they corrected something Tex got wrong), fix_this (they said fix this), filler (Tex padded, repeated a stock line, or added a notice or caveat nobody asked for), wrong (Tex said something false, unchecked, or that contradicted what it said before), incomplete (Tex left part of what they asked undone or stopped short), feature_ask (they asked for something Tex cannot do yet, or asked for Tex to work differently). None: [].",
 ].join("\n");
 
 const SYSTEM_SCORES = [
@@ -162,7 +167,7 @@ const SYSTEM_FULL = [
   "Then write, in plain short sentences:",
   "- summary: what they wanted and how it went, in at most 15 words.",
   "- expected: what they expected Tex to do, as they would put it.",
-  "- improve: a prompt for the engineer fixing Tex, naming what went wrong in this conversation and what Tex should do instead next time. Empty when nothing went wrong.",
+  "- improve: a prompt for the engineer fixing Tex, one numbered line per problem, every one of them, small ones included, each naming what went wrong and what Tex should do instead next time; then one numbered line per thing they asked Tex to do that it cannot yet, starting \"Feature ask:\". Empty when nothing went wrong and nothing was asked for.",
   'Answer with one line of JSON and nothing else: {"scores": {"goal": 7, "independence": 7, "turns": 7, "friendly": 7, "calm": 7}, "task": "email", "signals": [], "summary": "...", "expected": "...", "improve": "..."}',
 ].join("\n");
 

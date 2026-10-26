@@ -75,6 +75,7 @@ export const bugRowValidator = v.object({
   textsShared: v.boolean(),
   title: v.union(v.string(), v.null()),
   theme: v.union(v.string(), v.null()),
+  themes: v.array(v.string()),
 });
 
 export const reviewRowValidator = v.object({
@@ -82,6 +83,7 @@ export const reviewRowValidator = v.object({
   reviewed: v.union(v.number(), v.null()),
   status: v.string(),
   theme: v.union(v.string(), v.null()),
+  themes: v.array(v.string()),
   task: v.union(v.string(), v.null()),
   signals: v.array(v.string()),
   average: v.union(v.number(), v.null()),
@@ -98,6 +100,7 @@ export const themeRowValidator = v.object({
   merged: v.union(v.number(), v.null()),
   firstSeen: v.union(v.number(), v.null()),
   fixThread: v.union(v.string(), v.null()),
+  retest: v.union(v.string(), v.null()),
 });
 
 export const texTriageValidator = v.union(
@@ -178,6 +181,15 @@ export function stampOf(path: string): number | null {
   return Number.isFinite(at) ? at : null;
 }
 
+/**
+ * Every theme a report was filed under: `themes:` as a list, plus `theme:`.
+ * One report often shows several problems, and filing it under one theme
+ * dropped the rest (2026-10-26), so a report may name as many as it has.
+ */
+export function themesOf(properties: Record<string, unknown>): string[] {
+  return [...new Set([...listOf(properties.theme), ...listOf(properties.themes)])];
+}
+
 function slugOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
   return name.endsWith(".md") ? name.slice(0, -3) : name;
@@ -193,7 +205,7 @@ export function bugRowOf(path: string, props: string | undefined): BugRow {
     reporter,
     textsShared: properties.texts === "shared",
     title: heading === null ? null : (textOf(heading) ?? null),
-    theme: textOf(properties.theme),
+    ...themeFields(properties),
   };
 }
 
@@ -204,7 +216,7 @@ export function reviewRowOf(path: string, props: string | undefined): ReviewRow 
     path,
     reviewed: timeOf(properties.reviewed) ?? stampOf(path),
     status: textOf(properties.status) ?? "new",
-    theme: textOf(properties.theme),
+    ...themeFields(properties),
     task: textOf(properties.task),
     signals: listOf(properties.signals),
     average: Number.isFinite(average) ? average : null,
@@ -227,7 +239,14 @@ export function themeRowOf(path: string, props: string | undefined): ThemeRow {
     merged: timeOf(properties.merged),
     firstSeen: timeOf(properties.first_seen),
     fixThread: textOf(properties.fix_thread),
+    // How the fix was checked against the original ask; a theme is only fixed once it says (2026-10-26).
+    retest: textOf(properties.retest),
   };
+}
+
+function themeFields(properties: Record<string, unknown>): { theme: string | null; themes: string[] } {
+  const themes = themesOf(properties);
+  return { theme: themes[0] ?? null, themes };
 }
 
 /**

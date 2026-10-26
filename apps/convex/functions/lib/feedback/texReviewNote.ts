@@ -38,13 +38,14 @@ export const REVIEW_REASONS = ["ended", "fix_this", "frustrated"] as const;
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
 
 /**
- * What a conversation was mainly for, and what showed frustration: codes from
- * closed sets on every tier, the same lists as the gateway's
+ * What a conversation was mainly for, and what went wrong (frustration, what
+ * was wrong with the answers, a feature they asked for): codes from closed
+ * sets on every tier, the same lists as the gateway's
  * (`apps/mcp/src/agent/selfReview.js`). Never a word anybody said.
  */
 export const TASK_CODES = ["email", "calendar", "web_errand", "notes", "research", "reminders", "messaging", "purchase", "setup", "chat", "other"] as const;
 export type TaskCode = (typeof TASK_CODES)[number];
-export const SIGNAL_CODES = ["repeated", "try_again", "cant_first", "gave_up", "swore", "corrected", "fix_this"] as const;
+export const SIGNAL_CODES = ["repeated", "try_again", "cant_first", "gave_up", "swore", "corrected", "fix_this", "filler", "wrong", "incomplete", "feature_ask"] as const;
 export type SignalCode = (typeof SIGNAL_CODES)[number];
 /** A conversation reviewed is at most this many of their texts (the gateway reads the newest 40 turns). */
 export const MAX_REVIEW_TEXTS = 40;
@@ -190,9 +191,21 @@ export interface ScoresRow extends Scores {
   at: number;
   kind: "one" | "group";
   reason: string;
+  /** Codes from the closed sets, so triage can see what went wrong in a conversation it has no words for. */
+  task?: string | null;
+  signals?: string[];
 }
 
-/** A day's numbers, newest last, with the averages on top. Nobody is named and nothing anybody said is in it. */
+/** One code for a table cell: only a code from its set is printed, so nothing else can render. */
+function codeCell(value: string | null | undefined, set: readonly string[]): string {
+  return typeof value === "string" && set.includes(value) ? value : "";
+}
+
+/**
+ * A day's numbers and codes, newest last, with the averages and how often each
+ * code came up on top. Nobody is named and nothing anybody said is in it, but
+ * triage reads it for the conversations that keep numbers only (2026-10-26).
+ */
 export function renderScoresNote(day: string, rows: ScoresRow[]): string {
   const averageOf = (key: ScoreKey) => (rows.length === 0 ? 0 : rows.reduce((sum, row) => sum + row[key], 0) / rows.length);
   const lines = [
@@ -210,13 +223,22 @@ export function renderScoresNote(day: string, rows: ScoresRow[]): string {
     "| --- | --- |",
     ...SCORE_KEYS.map((key) => `| ${SCORE_LABELS[key]} | ${averageOf(key).toFixed(1)} |`),
     "",
-    `| Time (UTC) | Chat | Why | ${SCORE_KEYS.join(" | ")} |`,
-    `| --- | --- | --- | ${SCORE_KEYS.map(() => "---").join(" | ")} |`,
+  ];
+  const counts = new Map<string, number>();
+  for (const row of rows) for (const code of parseSignals(row.signals)) counts.set(code, (counts.get(code) ?? 0) + 1);
+  if (counts.size > 0) {
+    lines.push("| What went wrong | Conversations |", "| --- | --- |");
+    for (const code of SIGNAL_CODES) if (counts.has(code)) lines.push(`| ${code} | ${counts.get(code)} |`);
+    lines.push("");
+  }
+  lines.push(
+    `| Time (UTC) | Chat | Why | ${SCORE_KEYS.join(" | ")} | task | signals |`,
+    `| --- | --- | --- | ${SCORE_KEYS.map(() => "---").join(" | ")} | --- | --- |`,
     ...rows.map(
       (row) =>
-        `| ${new Date(row.at).toISOString().slice(11, 16)} | ${row.kind === "group" ? "group" : "1:1"} | ${plain(row.reason, 20)} | ${SCORE_KEYS.map((key) => row[key]).join(" | ")} |`,
+        `| ${new Date(row.at).toISOString().slice(11, 16)} | ${row.kind === "group" ? "group" : "1:1"} | ${plain(row.reason, 20)} | ${SCORE_KEYS.map((key) => row[key]).join(" | ")} | ${codeCell(row.task, TASK_CODES)} | ${parseSignals(row.signals).join(", ")} |`,
     ),
     "",
-  ];
+  );
   return lines.join("\n");
 }
