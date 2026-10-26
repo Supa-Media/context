@@ -338,7 +338,10 @@ export function expandWorkspaces(bench) {
         if (ws.heldBack.includes(resolveRel(dir, d.from))) held.push(resolveRel(dir, d.as));
       }
     }
-    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated, calendar: ws.calendar ?? [] };
+    // Calendar days and Gmail are not notes and gain no fluff, but must survive
+    // the copy: dropping `mail` here left every fluffed run with an empty
+    // Gmail, so hand-back case 8 could never find its email (2026-10-26).
+    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated, calendar: ws.calendar ?? [], mail: ws.mail ?? [] };
   }
   return { ...bench, workspaces };
 }
