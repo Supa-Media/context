@@ -229,4 +229,5 @@ test/relatedNotes.test.mjs
 test/housekeepingByName.test.mjs
 test/agentCheckout.test.mjs
 test/messagesBackup.test.mjs
+test/messagesBackupFiles.test.mjs
 test/texts.test.mjs

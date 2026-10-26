@@ -16,6 +16,12 @@
  * The two digests say what was last sent of the chat list and the names, so
  * they are sent again only when they change.
  *
+ * Pictures and documents have their own two positions, over `attachment`
+ * ROWIDs rather than `message` ones (`files.ts`), read in the same two
+ * directions, and a running count of the bytes they have sent. A cursor
+ * written before they existed has none, and its files start from a first
+ * look while its texts carry on where they were.
+ *
  * `chat.db` itself is the queue. A position moves only after the gateway has
  * kept what was read, so a failed upload, a closed lid or a crash means the
  * same rows are read and sent again, and the gateway folds them by id.
@@ -32,6 +38,9 @@ export interface BackupCursor {
   changesAfterNs: string;
   chatsDigest: string | null;
   peopleDigest: string | null;
+  filesNewest: number;
+  filesOldest: number | null;
+  filesBytes: number;
 }
 
 export const BACKUP_CURSOR_VERSION = 1;
@@ -43,6 +52,9 @@ export const FRESH_BACKUP_CURSOR: BackupCursor = Object.freeze({
   changesAfterNs: "0",
   chatsDigest: null,
   peopleDigest: null,
+  filesNewest: 0,
+  filesOldest: null,
+  filesBytes: 0,
 });
 
 function rowId(value: unknown): number | null {
@@ -70,7 +82,23 @@ export function normalizeBackupCursor(raw: unknown): BackupCursor {
     changesAfterNs: changes,
     chatsDigest: digest(source["chatsDigest"]),
     peopleDigest: digest(source["peopleDigest"]),
+    ...filesPositions(source),
   };
+}
+
+function filesPositions(source: Record<string, unknown>): Pick<BackupCursor, "filesNewest" | "filesOldest" | "filesBytes"> {
+  const fresh = { filesNewest: 0, filesOldest: null, filesBytes: 0 };
+  const newest = rowId(source["filesNewest"]);
+  const oldest = source["filesOldest"] === null || source["filesOldest"] === undefined ? null : rowId(source["filesOldest"]);
+  const bytes = rowId(source["filesBytes"]) ?? 0;
+  if (newest === null || (oldest === null && source["filesOldest"] !== null && source["filesOldest"] !== undefined)) return fresh;
+  if (oldest !== null && oldest > newest + 1) return fresh;
+  return { filesNewest: newest, filesOldest: oldest, filesBytes: bytes };
+}
+
+/** Whether every file of the history has been looked at. */
+export function filesHistoryDone(cursor: BackupCursor): boolean {
+  return cursor.filesOldest !== null && cursor.filesOldest <= 1;
 }
 
 /** Whether the whole history has been sent. */

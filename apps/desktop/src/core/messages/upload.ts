@@ -13,7 +13,7 @@
  * portal's page) is retried rather than read as success.
  */
 
-import { BACKUP_VERSION, LIMITS, MESSAGES_BACKUP_ROUTE } from "@context/communications/backup";
+import { BACKUP_VERSION, LIMITS, MESSAGES_BACKUP_FILE_ROUTE, MESSAGES_BACKUP_ROUTE } from "@context/communications/backup";
 import type { UploadResult } from "./pass.ts";
 import type { BackupRecord } from "./records.ts";
 
@@ -86,4 +86,35 @@ export async function uploadBackupRecords(config: BackupUploadConfig, records: r
     if ((answer as { ok?: unknown })?.ok !== true) return { ok: false, retry: true, code: "unavailable" };
   }
   return { ok: true };
+}
+
+/**
+ * One picture or document, to `<route>/<folder>/<id>`. The same rules as a
+ * batch: the credential in a header, only a closed set of codes reported, and
+ * nothing but the contract's JSON read as kept.
+ */
+export async function uploadBackupFile(config: BackupUploadConfig, folder: string, id: string, bytes: Uint8Array): Promise<UploadResult> {
+  if (bytes.byteLength > LIMITS.fileBytes) return { ok: false, retry: false, code: "refused" };
+  const token = await config.token();
+  if (token === null) return { ok: false, retry: false, code: "reconnect" };
+  const timeout = AbortSignal.timeout(config.timeoutMs ?? 120_000);
+  const signal = config.signal ? AbortSignal.any([config.signal, timeout]) : timeout;
+  let response: Response;
+  try {
+    response = await (config.fetch ?? fetch)(`${config.baseUrl}${MESSAGES_BACKUP_FILE_ROUTE}/${folder}/${id}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
+      body: bytes as Uint8Array<ArrayBuffer>,
+      signal,
+    });
+  } catch {
+    return { ok: false, retry: true, code: "offline" };
+  }
+  if (!response.ok) return { ok: false, ...classifyStatus(response.status) };
+  try {
+    const answer = (await response.json()) as { ok?: unknown };
+    return answer?.ok === true ? { ok: true } : { ok: false, retry: true, code: "unavailable" };
+  } catch {
+    return { ok: false, retry: true, code: "unavailable" };
+  }
 }

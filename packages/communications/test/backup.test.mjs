@@ -7,13 +7,23 @@
 //   keep text on an unsent message                          -> 1 check failed
 //   drop the bidi strip from names                          -> 1 check failed
 //   accept a batch over LIMITS.records                      -> 1 check failed
+//   keep a file id that is not 32 hex characters            -> 1 check failed
+//   parseFileRoute accepting a third path segment           -> 1 check failed
+//   isVideoFile reading the type only                       -> 1 check failed
 
+import { createHash } from "node:crypto";
 import {
   BACKUP_PREFIX,
   BACKUP_VERSION,
   LIMITS,
+  MESSAGES_BACKUP_FILE_ROUTE,
   MESSAGES_BACKUP_ROUTE,
+  digestId,
+  fileKeyOf,
+  filesFolderKeyOf,
+  isVideoFile,
   monthOf,
+  parseFileRoute,
   normalizeBackupRecord,
   readBackupBatch,
   recordKey,
@@ -32,7 +42,7 @@ const message = (extra = {}) => ({
   ...extra,
 });
 
-export function runBackupChecks(check) {
+export async function runBackupChecks(check) {
   check("backup: the prefix is hidden plumbing under .context/", BACKUP_PREFIX.startsWith(".context/") && BACKUP_PREFIX.endsWith("/"));
   check("backup: the route has no selector or token in it", MESSAGES_BACKUP_ROUTE === "/messages/imessage/batch");
 
@@ -75,4 +85,47 @@ export function runBackupChecks(check) {
   check("backup: an empty batch is refused", readBackupBatch({ v: 1, records: [] }).reason === "empty");
   check("backup: a batch over the record limit is refused", readBackupBatch({ v: 1, records: Array.from({ length: LIMITS.records + 1 }, () => message()) }).reason === "too_many");
   check("backup: a batch of another version is refused", readBackupBatch({ v: 9, records: [message()] }).reason === "version");
+
+  await runFileChecks(check);
+}
+
+async function runFileChecks(check) {
+  const id = "0123456789abcdef0123456789abcdef";
+  const withId = normalizeBackupRecord(message({ files: [{ id, name: "IMG_1.HEIC", type: "image/heic", bytes: 9 }] }));
+  check("backup files: a file keeps its id", withId?.files?.[0]?.id === id);
+  const badId = normalizeBackupRecord(message({ files: [{ id: "../../notes/x", name: "a.jpg" }, { id: id.toUpperCase(), name: "b.jpg" }] }));
+  check("backup files: an id that is not 32 lowercase hex characters is dropped, the file kept", badId?.files?.length === 2 && badId.files.every((file) => !("id" in file)));
+
+  const digest = await digestId("p:0/AAAA-1111");
+  check(
+    "backup files: the digest is SHA-256's first 32 hex characters, as Node computes it on the Mac",
+    digest === createHash("sha256").update("p:0/AAAA-1111").digest("hex").slice(0, 32),
+  );
+  check("backup files: a file lives under its message's folder", fileKeyOf(digest, id) === `${BACKUP_PREFIX}files/${digest}/${id}` && filesFolderKeyOf(digest) === `${BACKUP_PREFIX}files/${digest}/`);
+  let refused = 0;
+  for (const [folder, file] of [["../x", id], [digest, "a/b"], [digest, ""]]) {
+    try {
+      fileKeyOf(folder, file);
+    } catch {
+      refused += 1;
+    }
+  }
+  check("backup files: a key is never built from anything but two digests", refused === 3);
+
+  check("backup files: the route parses to its folder and id", JSON.stringify(parseFileRoute(`${MESSAGES_BACKUP_FILE_ROUTE}/${digest}/${id}`)) === JSON.stringify({ folder: digest, id }));
+  check(
+    "backup files: any other path under the route is not a file",
+    [
+      `${MESSAGES_BACKUP_FILE_ROUTE}/${digest}`,
+      `${MESSAGES_BACKUP_FILE_ROUTE}/${digest}/${id}/more`,
+      `${MESSAGES_BACKUP_FILE_ROUTE}/../${id}`,
+      `${MESSAGES_BACKUP_FILE_ROUTE}${digest}/${id}`,
+      MESSAGES_BACKUP_ROUTE,
+    ].every((path) => parseFileRoute(path) === null),
+  );
+
+  check("backup files: a video is told by its type", isVideoFile({ type: "video/quicktime", name: "clip" }));
+  check("backup files: a video with no type is told by its name", isVideoFile({ name: "IMG_2.MOV" }) && isVideoFile({ type: "application/octet-stream", name: "a.mp4" }));
+  check("backup files: pictures and documents are not videos", !isVideoFile({ type: "image/heic", name: "IMG_1.HEIC" }) && !isVideoFile({ type: "application/pdf", name: "lease.pdf" }) && !isVideoFile({}));
+  check("backup files: the size limit is 25 MB", LIMITS.fileBytes === 25 * 1024 * 1024);
 }

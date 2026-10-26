@@ -25,6 +25,7 @@ import { appleEpochNsToIso } from "../imessage/appleTime.ts";
 import { attributedBodyFromHex } from "../imessage/attributedBody.ts";
 import { targetMessageGuid } from "../imessage/reader.ts";
 import type { RawParticipantRow } from "../imessage/schema.ts";
+import { fileIdOf } from "./files.ts";
 import type { BackupAttachmentRow, BackupChatRow, BackupMessageRow } from "./queries.ts";
 
 export interface MessageRecord {
@@ -40,7 +41,7 @@ export interface MessageRecord {
   edited?: string;
   unsent?: true;
   replyTo?: string;
-  files?: Array<{ name?: string; type?: string; bytes?: number }>;
+  files?: Array<{ id?: string; name?: string; type?: string; bytes?: number }>;
 }
 
 export interface ReactionRecord {
@@ -168,9 +169,11 @@ export function recordsFromRows(
     const files = unsent
       ? []
       : (filesByMessage.get(row.guid) ?? []).map((file) => {
+          const id = fileIdOf(file.attachment_guid);
           const name = fileName(file);
           const bytes = fileSize(file.total_bytes);
           return {
+            ...(id !== undefined ? { id } : {}),
             ...(name !== undefined ? { name } : {}),
             ...(file.mime_type ? { type: file.mime_type } : {}),
             ...(bytes !== undefined ? { bytes } : {}),
