@@ -52,7 +52,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 // Bidi overrides and C0 controls other than tab and newline. A name or id is
 // shown to a person and to a model; neither should be steered by bytes it
 // cannot see. Message text keeps its newlines, and nothing else is taken out.
-const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/g;
+const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
 
 function oneLine(value, max) {
   if (typeof value !== "string") return null;

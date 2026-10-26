@@ -56,7 +56,7 @@ export function runBackupChecks(check) {
   check("backup: an unknown kind is refused", normalizeBackupRecord({ v: 1, kind: "note", id: "x" }) === null);
   check("backup: an unknown service reads as other", normalizeBackupRecord(message({ service: "Carrier pigeon" }))?.service === "other");
 
-  const chat = normalizeBackupRecord({ v: 1, kind: "chat", id: "chat1", name: "Fam‮ily", members: ["+1", "+1", "", 4, "+2"], service: "iMessage" });
+  const chat = normalizeBackupRecord({ v: 1, kind: "chat", id: "chat1", name: "Fam\u202eily", members: ["+1", "+1", "", 4, "+2"], service: "iMessage" });
   check("backup: a chat name loses invisible direction marks", chat?.name === "Family");
   check("backup: chat members are distinct handles", JSON.stringify(chat?.members) === JSON.stringify(["+1", "+2"]));
 
