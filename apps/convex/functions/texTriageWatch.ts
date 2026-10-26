@@ -6,12 +6,15 @@
  * The reader that turns reports into fixes is an agent on an hourly pass, and
  * an agent can stop: before this, a stopped pass left reports at `status: new`
  * and nothing said so. Here the desk's own rows are counted (`texTriage.ts`,
- * from each note's front matter, never its words): a review still `new`, or a
- * bug still `open` with no theme named (triage files a bug under a theme and
- * may leave it open while the fix runs), filed more than `STALE_AFTER_MS` ago
- * means no pass has read it in three of its hours. Only the last
- * `LOOKS_BACK_MS` count: an old report left untouched before this watch
- * existed says nothing about whether triage is running now.
+ * from each note's front matter, never its words): a review still `new`,
+ * filed more than `STALE_AFTER_MS` ago, means no pass has read it in three of
+ * its hours. Only the last `LOOKS_BACK_MS` count.
+ *
+ * Reviews only, never bug reports (2026-10-26): every pass moves each review
+ * off `new`, so one left there is a missed pass, while a bug report stays
+ * `open` while it waits on a fix thread or a person, so an open bug says
+ * nothing about whether triage is running. Counting them mailed a false
+ * stall within an hour of going live, for a 24 Oct bug still `open`.
  *
  * The mail carries a count and a time, never a report's words or who filed
  * it, and goes only to `SIGNUP_ALERTS_EMAIL`, the one team inbox; a
@@ -39,13 +42,13 @@ export const ALERT_EVERY_MS = 6 * 60 * 60 * 1000;
 
 /** How many reports are waiting past the limit, and when the oldest was filed. */
 export function waitingOf(
-  desk: { reviews: { status: string; reviewed: number | null }[]; bugs: { status: string; filed: number | null; themes: string[] }[] },
+  desk: { reviews: { status: string; reviewed: number | null }[] },
   now: number,
 ): { waiting: number; oldest: number | null } {
-  const at = [
-    ...desk.reviews.filter((review) => review.status.toLowerCase() === "new").map((review) => review.reviewed),
-    ...desk.bugs.filter((bug) => bug.status.toLowerCase() === "open" && bug.themes.length === 0).map((bug) => bug.filed),
-  ].filter((when): when is number => when !== null && when < now - STALE_AFTER_MS && when > now - LOOKS_BACK_MS);
+  const at = desk.reviews
+    .filter((review) => review.status.toLowerCase() === "new")
+    .map((review) => review.reviewed)
+    .filter((when): when is number => when !== null && when < now - STALE_AFTER_MS && when > now - LOOKS_BACK_MS);
   return { waiting: at.length, oldest: at.length === 0 ? null : Math.min(...at) };
 }
 
@@ -70,7 +73,7 @@ export const claimAlert = internalMutation({
 
 export function renderTriageAlert(waitingCount: number, oldest: number, deskUrl: string) {
   const since = new Date(oldest).toISOString().replace("T", " ").slice(0, 16);
-  const reports = waitingCount === 1 ? "1 Tex report has" : `${waitingCount} Tex reports have`;
+  const reports = waitingCount === 1 ? "1 Tex conversation review has" : `${waitingCount} Tex conversation reviews have`;
   const text = [
     `${reports} waited more than 3 hours for triage. The oldest was filed ${since} UTC.`,
     "",
