@@ -235,12 +235,22 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9).
+  // Each search and read is kept as a `mail` line beside the browser's, so a
+  // result shows which searches missed an email that was there.
   const mail = bench.workspaces[own.workspace]?.mail ?? [];
+  const mailEvents = [];
   if (mail.length > 0) {
     const address = mail[0].address;
     controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
-    controlPlane.flags.mailResults = (query) => searchMailbox(mail, query);
-    controlPlane.flags.mailMessage = (body) => readMailbox(mail, body.address, body.id);
+    controlPlane.flags.mailResults = (query) => {
+      const found = searchMailbox(mail, query);
+      mailEvents.push(`mail search ${JSON.stringify(String(query))}: ${found.length} found`);
+      return found;
+    };
+    controlPlane.flags.mailMessage = (body) => {
+      mailEvents.push(`mail read ${body.id}`);
+      return readMailbox(mail, body.address, body.id);
+    };
     controlPlane.flags.emailDrafter = address;
   }
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
@@ -566,7 +576,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
-      return [...(web ? web.events() : []), ...site.events()];
+      return [...(web ? web.events() : []), ...site.events(), ...mailEvents];
     },
 
     /** What the conversation changed in the invented workspaces, as a list. */
