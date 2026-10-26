@@ -9,7 +9,10 @@
  *
  * - bold, italics, headings, code ticks and fences go; the words stay;
  * - a `[label](link)` keeps its label, and a web link is sent after the answer
- *   as a text of its own, which is how iMessage draws it as a card;
+ *   as a text of its own, which is how iMessage draws it as a card; a line
+ *   that is nothing but a web link goes there too, so a later paragraph is
+ *   never folded in after it (Messages draws a card only for a link that ends
+ *   its text);
  * - a line that is nothing but a note path (a "source" line) goes, since
  *   it means nothing on a phone;
  * - paragraphs become separate texts, the way people text, with a list kept
@@ -22,6 +25,8 @@ const MAX_LINKS = 2;
 
 const MARKDOWN_LINK = /\[([^\]\n]*)\]\(([^)\s]+)\)/g;
 const WEB_LINK = /^https:\/\/[^\s/]+(\/\S*)?$/;
+// A line that is only a web link, perhaps labelled `link:` or bulleted.
+const LINK_LINE = /^[ \t]*(?:[-*•][ \t]+)?(?:link:[ \t]*)?<?(https:\/\/[^\s/<>]+(?:\/[^\s<>]*)?)>?[ \t]*$/gim;
 const NOTE_PATH_LINE = /^((sources?|from|see):\s*)?[\w.][\w\-./ ]*\.md$/gim;
 const LIST_ITEM = /^(- |\d+[.)] )/;
 
@@ -35,6 +40,12 @@ export function textsFromAnswer(answer: string): string[] {
       return label.trim() === href ? "" : label;
     }
     return label;
+  });
+
+  text = text.replace(LINK_LINE, (_whole, href: string) => {
+    const link = href.replace(/[).,;!?]+$/, "");
+    if (!links.includes(link)) links.push(link);
+    return "";
   });
 
   text = text
@@ -63,7 +74,7 @@ export function textsFromAnswer(answer: string): string[] {
     }
   }
 
-  const sent = texts.length > 0 ? texts : [answer.trim()];
+  const sent = texts.length > 0 || links.length > 0 ? texts : [answer.trim()];
   return [...sent, ...links.slice(0, MAX_LINKS)].filter((part) => part.length > 0);
 }
 

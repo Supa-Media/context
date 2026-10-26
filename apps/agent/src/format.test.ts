@@ -46,6 +46,25 @@ describe("textsFromAnswer", () => {
     ]);
   });
 
+  it("moves a link on a line of its own to the end, so Messages draws its card", () => {
+    // Folded into a later paragraph, the link ends up mid-text and Messages
+    // shows a plain link, or "Tap to Load Preview", instead of the card.
+    expect(
+      textsFromAnswer(
+        "The overview is here:\n\nhttps://context.lc/note/@supa/plan.md\n\nTwo\n\nThree\n\nFour",
+      ),
+    ).toEqual(["The overview is here:", "Two", "Three\n\nFour", "https://context.lc/note/@supa/plan.md"]);
+    expect(textsFromAnswer("Saved.\nlink: https://context.lc/note/@me/a.md")).toEqual([
+      "Saved.",
+      "https://context.lc/note/@me/a.md",
+    ]);
+    expect(textsFromAnswer("https://context.lc/note/@me/a.md")).toEqual(["https://context.lc/note/@me/a.md"]);
+  });
+
+  it("leaves a link inside a sentence where it is", () => {
+    expect(textsFromAnswer("Open https://context.lc/x to sign in.")).toEqual(["Open https://context.lc/x to sign in."]);
+  });
+
   it("never turns a non-https link target into a text of its own", () => {
     expect(textsFromAnswer("See [this](javascript:void) and [that](http://plain.example/x)")).toEqual([
       "See this and that",

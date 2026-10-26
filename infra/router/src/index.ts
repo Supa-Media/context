@@ -8,7 +8,7 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import { previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
+import { GENERIC_PREVIEW, NOTE_LINK_PREVIEW, previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
 import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
 import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
@@ -140,9 +140,10 @@ async function respond(
         );
 
       case "note-preview": {
-        const meta = previewForNote(
+        const titled = previewForNote(
           ...(await noteTitle(decision.slug, decision.path, readOrigin(env.CONVEX_ORIGIN))),
         );
+        const meta = decision.link === true && titled === GENERIC_PREVIEW ? NOTE_LINK_PREVIEW : titled;
         return new Response(renderPreviewHtml(meta), {
           status: 200,
           headers: {

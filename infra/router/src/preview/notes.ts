@@ -90,6 +90,38 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 }
 
 /**
+ * The note link Tex texts and the app opens: `/note/@seyi/1-projects/plan.md`
+ * (`apps/mcp/src/agent/noteLinks.js`), which the app redirects to the console
+ * link above.
+ *
+ * `null` when the URL is not that shape. Otherwise `note` is what
+ * `consoleNoteFrom` makes of the same address, `null` when it refuses it, so
+ * this link answers exactly as the console link would and probes nothing more.
+ */
+export function noteLinkFrom(url: URL): { note: { slug: string; path: string } | null } | null {
+  const segments = normalisePath(url.pathname).split("/").filter(Boolean);
+  if (segments.length < 3 || segments[0] !== "note") return null;
+  const handle = decodeSafely(segments[1]);
+  if (!handle.startsWith("@")) return null;
+  const address = new URL(`${ORIGIN}/console/${encodeURIComponent(handle)}`);
+  address.searchParams.set("note", segments.slice(2).map(decodeSafely).join("/"));
+  return { note: consoleNoteFrom(address) };
+}
+
+/**
+ * The card a note link unfurls with when it has no title to show: every one
+ * of them, whatever note it names and whether that note exists, so the card
+ * says nothing the link did not. Tex texts these links, and the product card
+ * ("One MCP endpoint…") read as an advert for a note somebody had just
+ * written.
+ */
+export const NOTE_LINK_PREVIEW: PreviewMeta = Object.freeze({
+  ...GENERIC_PREVIEW,
+  title: "A note in Context",
+  description: "Opens in Context for people who can already see it.",
+});
+
+/**
  * Every note path this product writes into a workspace before its owner does.
  *
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports

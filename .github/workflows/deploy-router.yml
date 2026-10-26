@@ -211,6 +211,31 @@ jobs:
           echo "ERROR: production did not serve the exact artifact from this run."
           exit 1
 
+      # What iMessage's fetcher reads for the note link Tex texts
+      # (`/note/@slug/<path>`): a note card with a loadable image. A separate
+      # step and never a rollback: a failure here leaves the deploy live and
+      # the run red. `@context` is a reserved name, so no note is named or read.
+      - name: Verify a note link unfurls for iMessage
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0'
+          for attempt in $(seq 1 6); do
+            card=$(curl -fsSL --max-time 20 -A "$ua" https://context.lc/note/@context/deploy-check.md || true)
+            image=$(curl -fsS --max-time 20 -A "$ua" -o /dev/null -w '%{http_code} %{content_type}' https://context.lc/og/card.png || true)
+            if [[ "$card" == *'property="og:title" content="A note in Context"'* \
+               && "$card" == *'property="og:image" content="https://context.lc/og/card.png"'* \
+               && "$image" == "200 image/png"* ]]; then
+              echo "OK — a note link unfurls for iMessage, and its card image loads."
+              echo "- A note link's iMessage card verified live." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Attempt $attempt: no note card for iMessage yet (image: $image)."
+            sleep 5
+          done
+          echo "ERROR: a note link does not unfurl for iMessage. What it served:"
+          printf '%s\n' "$card" | head -40
+          exit 1
+
       - name: Summary
         if: always()
         run: |
