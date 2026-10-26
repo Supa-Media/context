@@ -39,7 +39,7 @@
 
 import worker from "../src/index.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
-import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, summaryLine } from "../src/agent/housekeeping.js";
+import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, healthOf, summaryLine } from "../src/agent/housekeeping.js";
 import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/housekeepingGuard.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -245,8 +245,24 @@ async function toolRefusals(check) {
   );
 }
 
+// A big workspace's score misses its 2.5 s on a cold read and makes it on the next.
+async function healthChecks(check) {
+  const answers = ["## Chaos score\n\nNo score for this workspace yet.", "## Chaos score\n\nChaos 84 of 100 (chaotic).\n\nBiggest wins:\n- areas/apps/context: 221 items, chaos 100"];
+  let asked = 0;
+  const dispatch = async () => ({ content: [{ type: "text", text: answers[Math.min(asked++, answers.length - 1)] }] });
+  const health = await healthOf(dispatch);
+  check("a run whose first health read had no score asks again and gets the folders", asked === 2 && chaosFrom(health) === 84 && health.includes("areas/apps/context"));
+  let never = 0;
+  const none = await healthOf(async () => {
+    never += 1;
+    return { content: [{ type: "text", text: answers[0] }] };
+  });
+  check("a workspace with no score is asked three times, then run on what it said", never === 3 && none === answers[0]);
+}
+
 export async function runAgentHousekeepingChecks(check) {
   unitChecks(check);
+  await healthChecks(check);
   await toolRefusals(check);
 
   const previousFetch = globalThis.fetch;

@@ -68,6 +68,7 @@ const HOUSEKEEPING_ROUNDS = 40;
 const HOUSEKEEPING_TOOL_BUDGET_MS = 180_000;
 const MAX_WHY_CHARS = 4_000;
 const MAX_LINE_CHARS = 280;
+const HEALTH_TRIES = 3;
 
 /** Today's log: `tex/housekeeping/2026-10-17.md`, dated in their zone. */
 export function housekeepingPath(now, timeZone) {
@@ -172,13 +173,24 @@ export function summaryLine(answer, changes) {
   return `I tidied ${changes.length} ${changes.length === 1 ? "thing" : "things"} in your notes.`;
 }
 
-async function healthOf(dispatch) {
-  try {
-    const result = await dispatch("orient", { about: "health" });
-    return result?.isError === true ? "" : textOf(result).trim();
-  } catch {
-    return "";
+/**
+ * The workspace's health, asked again when it came back without a score: the
+ * score has 2.5 s to count a cold workspace's tree, and a big one misses it on
+ * the first read and makes it on the next. A run that started with no score
+ * was told only "judge by the folder map", and left a 221-item folder alone.
+ */
+export async function healthOf(dispatch, tries = HEALTH_TRIES) {
+  let health = "";
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    try {
+      const result = await dispatch("orient", { about: "health" });
+      health = result?.isError === true ? health : textOf(result).trim();
+    } catch {
+      // Asked again below, or answered with what came back.
+    }
+    if (chaosFrom(health) !== null) return health;
   }
+  return health;
 }
 
 /**
