@@ -126,7 +126,6 @@ function ThisMac({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
           {here.enabled && here.view.phase === "needs_permission" ? (
             <Button
               label="Open System Settings"
-              variant="white"
               onPress={backup.openFullDiskAccess}
               testID="messages-open-settings"
             />
