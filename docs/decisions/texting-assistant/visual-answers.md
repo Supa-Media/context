@@ -202,3 +202,14 @@ What reversing it costs: empty photo blocks on cards whenever a photo site
 refuses a headless browser. Tests: `apps/mcp/test/agentVisuals.test.mjs`
 ("a places card fills each place's photo and logo…"),
 `infra/site-shots/src/read.test.ts` and `fetchText.test.ts` (logo).
+
+## The saved conversation says what a card showed (2026-10-26)
+
+A card is a picture and the history keeps words, so the line kept for a sent
+card was its title alone. The self-review judge then marked card answers down
+for hiding the options, and a later turn could not say what option 3 cost.
+The kept line now lists each thing on the card with the facts beside it
+(cuisine, price, hours, Tex's pick, an option's facts), at most 500 characters
+a card, from the data it was drawn with; never a photo's address
+(`apps/mcp/src/agent/visuals/said.js`). Test: "the saved conversation keeps
+what a card showed" in `apps/mcp/test/agentVisuals.test.mjs`.

@@ -38,10 +38,10 @@
  * when it was read, so nothing legitimate is lost.
  */
 
+import { cardWords } from "./visuals/said.js";
+
 /** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
 export const MAX_PICTURES = 8;
-/** The most characters of a drawn card's caption kept in the saved conversation. */
-const MAX_CAPTION = 60;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
 /** The most bytes kept from tool results to check a web address against. */
@@ -214,15 +214,15 @@ export function outgoingPictures({ enabled, question = "" }) {
 }
 
 /**
- * What a drawn card shows, in a few words, from the arguments it was drawn
- * with: the option's name, or the card's title. So a reply of "the 2nd one"
- * to a set of option cards has an answer in the saved conversation.
+ * What a drawn card shows, in words, from the arguments it was drawn with:
+ * its title or option, and each thing on it with its facts. So a reply of
+ * "the 2nd one" to a set of option cards has an answer in the saved
+ * conversation, and a review reads what the card offered.
  */
 function captionOf(name, args) {
   if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
-  const data = args.data;
-  const said = [data.name, data.title, data.kicker].find((value) => typeof value === "string" && value.trim() !== "") ?? "";
-  return said.replace(/[\s\[\]]+/g, " ").trim().slice(0, MAX_CAPTION);
+  // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
+  return cardWords(args.data);
 }
 
 /** The line the saved conversation keeps for what was sent, so "what was that picture?" and "the 2nd one" have an answer. */

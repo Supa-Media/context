@@ -23,6 +23,8 @@
  *     "a card's photo loads only if the turn read its address" fails.
  *   `names` matching inside a word (`visuals/photos.js`) → "a card's photo is
  *     found only by a whole name" fails.
+ *   `captionOf` back to the title alone (`outgoingPictures.js`) → "the saved
+ *     conversation keeps what a card showed" fails.
  */
 
 import assert from "node:assert/strict";
@@ -411,4 +413,30 @@ test("a photo that is not a picture, too big, or answered from plain http is not
   assert.equal(await downloadPhoto("https://a.example/x", answer(new Uint8Array(4), { "content-type": "image/jpeg", "content-length": String(MAX_PHOTO_BYTES + 1) })), null);
   assert.equal(await downloadPhoto("https://a.example/x", async () => { throw new Error("timed out"); }), null);
   assert.match(await downloadPhoto("https://a.example/x", answer(new Uint8Array([1, 2, 3]), { "content-type": "image/png; charset=binary" })), /^data:image\/png;base64,AQID$/);
+});
+
+// Triage, 2026-10-26: the self-review judge read "[Sent a picture]" and marked a card of four
+// restaurants down as an answer that hid the options. The saved line now says what the card showed.
+test("the saved conversation keeps what a card showed: each option with its facts", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const call = outgoing.wrap(async () => ({ content: [{ type: "image", mimeType: "image/png", data: CARD_PNG }] }));
+  await call(VISUAL_TOOL, {
+    template: "places",
+    data: {
+      title: "Dinner options in Chelsea",
+      items: [
+        { name: "Hav & Mar", cuisine: "Ethiopian and Nordic", price: "$$$", hours: "Daily 5 to 10 pm", pick: true, photo: "https://a.example/x.jpg" },
+        { name: "Markette", cuisine: "Modern European", price: "$60 prix fixe" },
+      ],
+    },
+  });
+  await call(VISUAL_TOOL, { template: "option", data: { index: 1, of: 2, name: "Lugo's", price: "$230", price_note: "$7.67 a person", facts: [{ label: "Serves", value: "30" }] } });
+  const { pictures, captions } = outgoing.take("Hav & Mar is my pick.\n[picture 1]\n[picture 2]");
+  const line = sentPicturesLine(pictures, captions);
+  assert.match(line, /1\. Dinner options in Chelsea — 1\. Hav & Mar \(Ethiopian and Nordic · \$\$\$ · Daily 5 to 10 pm · Tex's pick\); 2\. Markette \(Modern European · \$60 prix fixe\)/);
+  assert.match(line, /2\. Lugo's \(\$230 · \$7\.67 a person\) — Serves: 30/);
+  assert.doesNotMatch(line, /a\.example/, "a photo's address is not a fact");
+  const long = { title: "x", items: Array.from({ length: 40 }, (_, i) => ({ name: `Place ${i}`, note: "y".repeat(50) })) };
+  await call(VISUAL_TOOL, { template: "places", data: long });
+  assert.ok(outgoing.take("[picture 3]").captions[0].length <= 500, "one card's words are bounded");
 });
