@@ -23,7 +23,10 @@ The rules, all the owner's:
   worst, one item should move out, two should probably be combined, three is
   nearly fine. The root and the built-in folders are never thin.
 - A run (dated notes, a name with a number, chapters 1 to N) counts as one
-  item, but only up to 30: past a month of daily notes it costs again.
+  item, but only up to 30: past a month of daily notes it costs again. A
+  number with one letter after it (`log-2026-09-18b`, a day's second note)
+  is still the run (2026-10-26): without it a month of security-review notes
+  scored as 54 items, and housekeeping would not file a month into its folder.
 - A note past 1,000 lines adds chaos. Meetings and generated notes are exempt:
   nobody wrote them long.
 - Archive is never scored. The inbox is: a full inbox should raise the score,
