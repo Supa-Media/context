@@ -159,7 +159,7 @@ export const ACTIONS_LINE =
  * caterers' price pages. `stopsShort.js` sends such an answer back.
  */
 export const RESEARCH_LINE =
-  "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), ask that first. " +
+  "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), ask only that, in one line, before any options or pick of your own. " +
   "Then open the pages with the figures and give the whole figure asked for (a cost per person counts sides and drinks). " +
   "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
 
