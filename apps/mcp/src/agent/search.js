@@ -25,8 +25,9 @@ export const MAX_SEARCHES_PER_TURN = 3;
  * budget grows there (`MAX_PAGES_PER_TURN_OPEN_WEB`). The owner's 1:1 of
  * 2026-10-26: asked for lunch spots with prices, the fourth search failed
  * with "answer with what you have", and Tex sent one place and no price.
+ * The owner set 50 the same day: "why not 50 searches?"
  */
-export const MAX_SEARCHES_PER_TURN_OPEN_WEB = 12;
+export const MAX_SEARCHES_PER_TURN_OPEN_WEB = 50;
 
 /** Results one search returns to the model. */
 export const RESULTS_PER_SEARCH = 6;
