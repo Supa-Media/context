@@ -343,6 +343,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A shed index must say so to the caller it happened to, not only to the operator
 - With no connection, search reads the copy on the device, and says so
 - The map's graph is read per shard at request time, and stored nowhere
+- Related notes are the map's links for one note, plus one search
 - Every search is timed, and the time is all that is kept
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in

@@ -173,3 +173,33 @@ round speech badge), so the handle colours are not narrowed to keep clear of
 the tints; trimming them to four made unrelated people share a colour, which
 Dev2 asked to avoid on 2026-09-28. A tool that loses its colour to a random
 pick fails `liveMapAgentKind.test.ts`.
+
+### Related notes are the map's links for one note, plus one search
+
+`related_notes` (`apps/mcp/src/tools/related.js`, reached as `fetch <note> {
+related: true }`) answers "what is around this note" from what already
+exists, and stores nothing (agreed with Dev2, 2026-10-26, replacing the
+path-keyed link graph under `.context/graph/` that the id-keyed tree made
+obsolete):
+
+- **Links and backlinks are the tree's link facts** (`ask: "neighbors"`,
+  `apps/convex/functions/lib/nodes/neighbors.ts`), resolved the map's way and
+  filtered the map's way: only notes the reader may see, names looked up
+  among those notes only, so a hidden note never changes which note a
+  `[[name]]` means. The gateway judges every path again with its own `canSee`.
+- **Nothing about hidden notes reaches the answer, not even a count.** Each
+  side reads at most 4,000 link rows and a side past that answers like any
+  other, and `complete` depends only on whether the seed's own links have been
+  read. A cap that said so, or a read that failed at Convex's query limit,
+  would tell a team reader how many notes they cannot see link here. Reverse
+  it and "hidden backlinkers never change a team reader's answer, however
+  many" (`__tests__/nodes/gatewayFacts.test.ts`) fails.
+- **The seed is opened by `read_note` itself**, so a hidden seed is refused
+  exactly as an absent one, at the same cost, before the tree is asked about
+  it ("a hidden seed answers what an absent one does", `test/relatedNotes.test.mjs`).
+- **Similar text is one ordinary search** over the seed's title and headings,
+  through `searchVisibleNotes`, so it reads the search database where there is
+  one. An encrypted seed's headings are never sent to it.
+
+Not yet: notes sharing a link target or a URL, same-folder nearness, and
+meaning search. Each is one more ranked list beside these.
