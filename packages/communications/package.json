@@ -23,7 +23,8 @@
     "./calendar/sync": "./src/calendar/sync.js",
     "./calendar/meetingLink": "./src/calendar/meetingLink.js",
     "./calendar/contacts": "./src/calendar/contacts.js",
-    "./backup": "./src/backup.js"
+    "./backup": "./src/backup.js",
+    "./backupTranscript": "./src/backupTranscript.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

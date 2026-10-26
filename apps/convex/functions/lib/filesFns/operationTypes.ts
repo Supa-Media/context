@@ -9,6 +9,7 @@
 import type { FolderNotesResult } from "./folderNotes";
 import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
+import type { MessagesLogPage } from "../messagesBackup/exportLog";
 import type {
   ContextMoveExport,
   ContextMoveImport,
@@ -169,6 +170,8 @@ export type FileOperation =
   | { kind: "hideOldCopies"; cursor?: string }
   /** Hidden old copies' text for the owner's Download as folders (`lib/oldCopies/hiding.ts`); run by the barrier. */
   | { kind: "readOldCopies"; paths: string[] }
+  /** A page of the Messages backup's log for the owner's Download as folders (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
+  | { kind: "readMessagesLog"; after?: string }
   /** A queued move's links followed (`lib/nodes/linkRepair.ts`); run by the barrier. */
   | { kind: "repairLinks"; pairs: { from: string; to: string }[] }
   | { kind: "delete"; path: string; confirmation: string }
@@ -393,6 +396,7 @@ export type OperationResult =
   | HidePass
   | LinkRepairResult
   | { kind: "oldCopyTexts"; results: OldCopyText[] }
+  | MessagesLogPage
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */

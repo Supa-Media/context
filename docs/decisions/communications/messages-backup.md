@@ -127,6 +127,17 @@ month's log objects that arrived from an hour before it was sent onwards,
 dropping its earlier lines and keeping every other line. Both finish before
 the batch is answered `ok`, so a failure is a refusal the Mac sends again.
 
+**The texts leave with Download as folders.** The owner's whole-workspace
+download carries the backup as one Markdown file per conversation per month
+under `Messages/` (`Messages (backup)/` when they already have a folder of that
+name), rendered in the console from the log by the same fold and transcript
+code the Mac uses (`packages/communications/src/backupTranscript.js`). The
+log is read a page at a time by key (`messagesExport.readLogForExport`, owner
+only, an empty page for anyone else), and a log that cannot be read to the
+end puts nothing in and says so. Pictures are named where they were sent but
+not carried: an archive the browser holds in memory, read through action
+answers capped well under their size, cannot take them.
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -142,4 +153,7 @@ schemas, Full Disk Access first); `packages/communications/test/backup.test.mjs`
 (the record contract); `apps/mcp/test/messagesBackupFiles.test.mjs` (who may
 post a file, the size limit, an unsend taking back words and files) and the
 `files:` checks in `messagesBackup.test.mjs` (no videos, no path outside
-Attachments, waiting only for new files, the byte budget).
+Attachments, waiting only for new files, the byte budget);
+`apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
+page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
+(a short log puts nothing in unsaid) and `backupTranscript.test.mjs`.
