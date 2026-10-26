@@ -16,7 +16,8 @@
  *   35. Below 4 is thin: three items cost 5, two cost 20 (combine them), one costs 40
  *   (move it out), and a folder holding nothing but its about note 60.
  * - **Runs.** Notes that are one sequence count as one item: the same name
- *   with a number after it (Kings 1 to Kings 30), notes named by date, or
+ *   with a number after it (Kings 1 to Kings 30, a lettered second note such
+ *   as `log-18b` included), notes named by date, or
  *   chapters numbered 1 to N with no gaps or repeats. Only up to 30, though:
  *   a run is one item per 30 notes, so a month of daily notes is fine and a
  *   year of them is not. Subfolders named by single letters (A to Z, and a
@@ -132,7 +133,12 @@ const LETTER_FOLDER = /^[a-z]$/i;
 const CATCH_ALL_FOLDERS = new Set(["other", "#", "0-9", "_"]);
 
 const DATED = /^\d{4}-\d{2}-\d{2}/;
-const STEM_NUMBER = /^(.*?\D)[\s_-]*(\d+)$/;
+/**
+ * A name with a number at its end, a day's second or third note lettered
+ * after it (`coverage-2026-09-18b`): on 2026-10-26 a folder of 54 such notes
+ * scored as 54 items, so housekeeping would not file a month into it.
+ */
+const STEM_NUMBER = /^(.*?\D)[\s_-]*(\d+)[a-z]?$/i;
 const LEADING_NUMBER = /^(\d{1,3})[\s._-]/;
 
 /**
