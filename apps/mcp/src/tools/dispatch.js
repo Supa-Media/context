@@ -17,6 +17,7 @@ import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
 import { toolSaveEmailDraft, toolSendEmail } from "./email.js";
 import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
+import { toolListTexts, toolReadTexts, toolSearchTexts } from "./texts.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
 import { toolGoogleChat } from "./googleChat.js";
 import { toolForwardRule } from "./forwardRule.js";
@@ -242,6 +243,12 @@ async function runTool(name, args, store, scope) {
       return toolSearchEmail(store, scope, rules, overrides, args);
     case "read_email":
       return toolReadEmail(store, args);
+    case "search_texts":
+      return toolSearchTexts(store, args);
+    case "list_texts":
+      return toolListTexts(store, args);
+    case "read_texts":
+      return toolReadTexts(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
     case "google_chat":

@@ -45,7 +45,7 @@ import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
-import { MESSAGES_BACKUP_ROUTE, handleMessagesBackup, messagesBackupRefusal } from "../communications/messagesBackup.js";
+import { MESSAGES_BACKUP_ROUTE, handleMessagesBackup, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -330,6 +330,8 @@ export async function route(request, env, ctx) {
       store.searchSettings = searchSettingsFor(env);
       attachLinkCalls(store, session, controlPlane, env);
       attachImageUploads(store, session, controlPlane, origin);
+      // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.
+      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true }) });
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an

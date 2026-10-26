@@ -41,6 +41,8 @@ import {
 } from "../../../../packages/communications/src/backup.js";
 import { SCOPE_PRIVATE, SCOPE_WRITE, hasScope } from "../session.js";
 import { json } from "../http/responses.js";
+import { projectBatch } from "./textsIndex.js";
+import { isGroupSession } from "../agent/groupTurn.js";
 
 export { MESSAGES_BACKUP_ROUTE };
 
@@ -62,6 +64,22 @@ export function messagesBackupRefusal(session, slug) {
     hasScope(session, SCOPE_WRITE) &&
     hasScope(session, SCOPE_PRIVATE);
   return allowed ? null : json({ ok: false, error: "not_allowed" }, 403);
+}
+
+/**
+ * Whether this session may read the backup (`tools/texts.js`): the owner of
+ * the personal workspace on a private-tier grant, as for writing it, and
+ * never Tex answering in a group chat, where the people reading the answer
+ * are not the person whose texts these are.
+ */
+export function textsCleared(session) {
+  return (
+    session?.workspaceKind === "personal" &&
+    session?.role === "owner" &&
+    session?.scope === "private" &&
+    hasScope(session, SCOPE_PRIVATE) &&
+    !isGroupSession(session)
+  );
 }
 
 function batchId(now) {
@@ -103,19 +121,27 @@ export async function handleMessagesBackup(request, store, { now = Date.now() } 
     const group = groupOf(record);
     if (group === null) continue;
     if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(JSON.stringify(record));
+    groups.get(group).push(record);
   }
 
   const id = batchId(now);
+  const written = [];
   try {
     // One group after another rather than all at once: a batch spans a few
     // months at most, and a failure part-way leaves the Mac to send the whole
     // batch again, which the fold absorbs.
-    for (const [group, lines] of [...groups].sort(([a], [b]) => (a < b ? -1 : 1))) {
-      await store.put(`${MESSAGES_BACKUP_LOG}${group}/${id}.jsonl`, `${lines.join("\n")}\n`);
+    for (const [group, records] of [...groups].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      const key = `${MESSAGES_BACKUP_LOG}${group}/${id}.jsonl`;
+      await store.put(key, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+      written.push([key, records]);
     }
   } catch {
     return json({ ok: false, error: "unavailable" }, 503);
   }
+  // The index (`textsIndex.js`) behind the response where the host allows it;
+  // what it misses it leaves a marker for, so it never fails or slows the write.
+  const projecting = projectBatch(store, written).catch(() => {});
+  if (typeof store.defer === "function") store.defer(projecting);
+  else await projecting;
   return json({ ok: true, kept: batch.records.length, dropped: batch.dropped });
 }

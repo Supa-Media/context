@@ -143,13 +143,15 @@ export class R2Store {
   }
 
   async list(options = {}) {
-    const { prefix, delimiter, cursor, limit } = options;
+    const { prefix, delimiter, cursor, limit, startAfter } = options;
     const scoped = applyRootPrefix(this.rootPrefix, assertSafePrefix(prefix));
     const page = await this.bucket.list({
       prefix: scoped || undefined,
       delimiter,
       cursor,
       limit,
+      // A key to resume after, as `s3.js` takes it; a cursor wins when both are given.
+      ...(startAfter !== undefined && cursor === undefined ? { startAfter: applyRootPrefix(this.rootPrefix, assertSafeKey(startAfter)) } : {}),
     });
     return stripListResult(this.rootPrefix, page);
   }

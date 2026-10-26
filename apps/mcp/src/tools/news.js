@@ -42,6 +42,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-26",
     text:
+      "search with `args: { texts: true, with?, since? }` searches the person's own texts (iMessage and SMS), from the backup their Mac keeps " +
+      "in their storage; fetch `texts:` lists their conversations and `texts:<id>` reads one (`since`, `before`, `limit`). Only their own " +
+      "personal workspace, with private access, and never from a group chat.",
+  },
+  {
+    date: "2026-10-26",
+    text:
       "move_note into another workspace no longer takes `confirm_team_publish`: every such move runs the engine the console's Move uses, " +
       "which keeps a private note private where it lands.",
   },
@@ -336,7 +343,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "d918d868";
+export const TOOL_SHAPE = "27fc8e9e";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

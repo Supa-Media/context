@@ -98,7 +98,10 @@ test("the full list stays compact", () => {
   // Raised to 15,500 on 2026-10-23 for calendar_event's edit and rsvp
   // (new_title, add_guests, remove_guests, reminders, recurrence, all_events,
   // response): the list stood at 15,011 with 70 tools.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 15_500);
+  // Raised to 16,300 on 2026-10-26 for search_texts, list_texts and
+  // read_texts, which are unlisted (reached through search and fetch) but
+  // still defined: the list stood at 15,821 with 74.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 16_300);
 });
 
 /* -------------------------------------------------------------------------- */
