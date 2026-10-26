@@ -95,6 +95,27 @@ is sent unnamed.
 **No Mac path leaves the Mac.** A file record carries the transfer name,
 type and size, never `~/Library/Messages/Attachments/...`.
 
+**Pictures and documents are copied by name, not by path.** A file record
+also carries an `id`, the first 32 hex characters of a SHA-256 of Apple's id
+for the file, and its bytes land at
+`.context/messages/imessage/files/<folder>/<id>`, where `folder` is the same
+digest of the message's id (`POST /messages/imessage/file/<folder>/<id>`,
+refused on exactly the batch route's terms). The same file always lands on
+the same key, so a retry overwrites itself. Every file is stored as
+`application/octet-stream`; its real type stays text in the record. The Mac
+reads only inside `~/Library/Messages/Attachments`, after following links,
+copies no videos and nothing over 25 MB (the gateway holds the size limit
+too), and walks files with a cursor of its own over `attachment` rows, new
+ones first, a byte budget a pass, after the texts. A new file not yet on the
+Mac is waited for for half an hour; an old one (Messages in iCloud keeps many
+only in the cloud) is skipped, and the Mac never asks for it to download.
+
+**An unsend takes back what was already copied.** A batch carrying an unsent
+message deletes every file under that message's folder and rewrites the
+month's log objects that arrived from an hour before it was sent onwards,
+dropping its earlier lines and keeping every other line. Both finish before
+the batch is answered `ok`, so a failure is a refusal the Mac sends again.
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -107,4 +128,7 @@ person's texts to everyone in a room.
 unsent keeps nothing, no stored path, new texts before history, names only for
 chat members) and `messagesBackupSqlite.test.mjs` (real SQLite, old and new
 schemas, Full Disk Access first); `packages/communications/test/backup.test.mjs`
-(the record contract).
+(the record contract); `apps/mcp/test/messagesBackupFiles.test.mjs` (who may
+post a file, the size limit, an unsend taking back words and files) and the
+`files:` checks in `messagesBackup.test.mjs` (no videos, no path outside
+Attachments, waiting only for new files, the byte budget).

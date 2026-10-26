@@ -23,6 +23,18 @@ export const MESSAGES_BACKUP_ROUTE = "/messages/imessage/batch";
 /** Every object the backup keeps lives under this key prefix in the person's bucket. */
 export const BACKUP_PREFIX = ".context/messages/imessage/";
 
+/**
+ * Where one picture or document is posted: `<route>/<folder>/<id>`, the body
+ * its bytes. `folder` is `digestId` of the message's id and `id` is
+ * `digestId` of Apple's id for the file, so the same file always lands on the
+ * same key (a retry overwrites itself), and an unsent message's files are
+ * everything under its one folder.
+ */
+export const MESSAGES_BACKUP_FILE_ROUTE = "/messages/imessage/file";
+
+/** A file's id, and its message's folder: the first 32 hex characters of a SHA-256. */
+export const FILE_ID = /^[0-9a-f]{32}$/;
+
 /** The record kinds, and the key each is folded by: a later record with the same kind and key replaces an earlier one. */
 export const RECORD_KINDS = Object.freeze(["message", "reaction", "chat", "person"]);
 
@@ -40,6 +52,8 @@ export const LIMITS = Object.freeze({
   /** Members of one chat; files on one message. */
   members: 200,
   files: 40,
+  /** Bytes of one copied file. Anything larger stays on the Mac (owner's pick, 2026-10-26). */
+  fileBytes: 25 * 1024 * 1024,
 });
 
 /** Tapback names, from `associated_message_type` 2000–2005. Anything else Apple adds is `reacted`. */
@@ -81,8 +95,14 @@ function files(value) {
     const name = oneLine(file.name, LIMITS.name);
     const type = oneLine(file.type, 100);
     const bytes = Number.isSafeInteger(file.bytes) && file.bytes >= 0 ? file.bytes : null;
+    const id = typeof file.id === "string" && FILE_ID.test(file.id) ? file.id : null;
     if (name === null && type === null) continue;
-    kept.push({ ...(name !== null ? { name } : {}), ...(type !== null ? { type } : {}), ...(bytes !== null ? { bytes } : {}) });
+    kept.push({
+      ...(id !== null ? { id } : {}),
+      ...(name !== null ? { name } : {}),
+      ...(type !== null ? { type } : {}),
+      ...(bytes !== null ? { bytes } : {}),
+    });
   }
   return kept;
 }
@@ -180,6 +200,49 @@ export function normalizeBackupRecord(raw) {
 /** The key a record folds by: a later record with the same key replaces an earlier one. */
 export function recordKey(record) {
   return record.kind === "person" ? `person:${record.handle}` : `${record.kind}:${record.id}`;
+}
+
+/**
+ * The 32-hex-character name the backup gives an id of Apple's: a message's
+ * files folder, or a file. A digest because Apple's ids carry `:` and `/`,
+ * and so a key says nothing about the conversation it came from.
+ *
+ * @param {string} text
+ */
+export async function digestId(text) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...bytes.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Where a message's files live, one key each under it. */
+export function filesFolderKeyOf(folder) {
+  if (!FILE_ID.test(folder)) throw new TypeError("not a files folder");
+  return `${BACKUP_PREFIX}files/${folder}/`;
+}
+
+/** Where one file's bytes live. */
+export function fileKeyOf(folder, id) {
+  if (!FILE_ID.test(id)) throw new TypeError("not a file id");
+  return `${filesFolderKeyOf(folder)}${id}`;
+}
+
+/** `{ folder, id }` for a file route path, or null when the path is not one. */
+export function parseFileRoute(path) {
+  if (typeof path !== "string" || !path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`)) return null;
+  const [folder, id, ...rest] = path.slice(MESSAGES_BACKUP_FILE_ROUTE.length + 1).split("/");
+  if (rest.length > 0 || !FILE_ID.test(folder ?? "") || !FILE_ID.test(id ?? "")) return null;
+  return { folder, id };
+}
+
+const VIDEO_EXTENSIONS = new Set(["mov", "mp4", "m4v", "avi", "mkv", "webm", "3gp", "3g2", "hevc", "mpg", "mpeg", "wmv"]);
+
+/** Whether a file is a video, by its type or, when that says nothing, its name. Videos are off (owner's pick). */
+export function isVideoFile(file) {
+  const type = typeof file?.type === "string" ? file.type.toLowerCase() : "";
+  if (type.startsWith("video/")) return true;
+  const name = typeof file?.name === "string" ? file.name.toLowerCase() : "";
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 && VIDEO_EXTENSIONS.has(name.slice(dot + 1));
 }
 
 /** `YYYY-MM` of a dated record (UTC), the month file it is folded into. */

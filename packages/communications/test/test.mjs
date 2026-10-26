@@ -249,7 +249,7 @@ check(
 
 // -- the modules, in dependency order
 runPathChecks(check);
-runBackupChecks(check);
+await runBackupChecks(check);
 runAnchorChecks(check);
 runNoteChecks(check);
 runChatChecks(check);

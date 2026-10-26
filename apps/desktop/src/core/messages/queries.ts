@@ -131,6 +131,8 @@ export function selectBackupMessagesSql(window: BackupWindow, columns: ReadonlyS
 
 export interface BackupAttachmentRow {
   message_guid: string;
+  /** Apple's id for the file, which names it in the backup (`files.ts`). */
+  attachment_guid: string | null;
   filename: string | null;
   transfer_name: string | null;
   mime_type: string | null;
@@ -142,6 +144,7 @@ export function selectBackupAttachmentsSql(afterRowId: number, throughRowId: num
   return [
     "SELECT",
     "  message.guid AS message_guid,",
+    "  attachment.guid AS attachment_guid,",
     "  attachment.filename AS filename,",
     "  attachment.transfer_name AS transfer_name,",
     "  attachment.mime_type AS mime_type,",
@@ -200,6 +203,7 @@ export function selectAttachmentsForRowsSql(rowIds: readonly number[]): string {
   return [
     "SELECT",
     "  message.guid AS message_guid,",
+    "  attachment.guid AS attachment_guid,",
     "  attachment.filename AS filename,",
     "  attachment.transfer_name AS transfer_name,",
     "  attachment.mime_type AS mime_type,",
@@ -209,4 +213,43 @@ export function selectAttachmentsForRowsSql(rowIds: readonly number[]): string {
     "JOIN attachment ON attachment.ROWID = message_attachment_join.attachment_id",
     `WHERE message.ROWID IN (${ids.join(", ")});`,
   ].join("\n");
+}
+
+/** The highest `attachment` ROWID: where the file copy's first look starts. */
+export function selectAttachmentMaxSql(): string {
+  return "SELECT CAST(COALESCE(MAX(ROWID), 0) AS TEXT) AS max_rowid FROM attachment;";
+}
+
+export interface BackupFileRow extends BackupAttachmentRow {
+  /** The `attachment` ROWID, which the file copy's cursor counts by. */
+  rowid: string;
+  /** When its message was sent, Apple-epoch nanoseconds. */
+  date_ns: string | null;
+}
+
+/**
+ * The files in one `attachment` ROWID range, with their message, for copying
+ * their bytes. A file of an unsent message is left out where the database
+ * can say which those are, and so is one whose message is in no chat, as the
+ * records leave that message out.
+ */
+export function selectBackupFilesSql(afterRowId: number, throughRowId: number, columns: ReadonlySet<string>): string {
+  return [
+    "SELECT",
+    "  CAST(attachment.ROWID AS TEXT) AS rowid,",
+    "  message.guid AS message_guid,",
+    "  attachment.guid AS attachment_guid,",
+    "  attachment.filename AS filename,",
+    "  attachment.transfer_name AS transfer_name,",
+    "  attachment.mime_type AS mime_type,",
+    "  CAST(attachment.total_bytes AS TEXT) AS total_bytes,",
+    "  CAST(message.date AS TEXT) AS date_ns",
+    "FROM attachment",
+    "JOIN message_attachment_join ON message_attachment_join.attachment_id = attachment.ROWID",
+    "JOIN message ON message.ROWID = message_attachment_join.message_id",
+    `WHERE attachment.ROWID > ${rowId(afterRowId)} AND attachment.ROWID <= ${rowId(throughRowId)}`,
+    has(columns, "date_retracted") ? "  AND COALESCE(message.date_retracted, 0) = 0" : "",
+    "  AND EXISTS (SELECT 1 FROM chat_message_join WHERE chat_message_join.message_id = message.ROWID)",
+    "ORDER BY attachment.ROWID ASC;",
+  ].filter(Boolean).join("\n");
 }

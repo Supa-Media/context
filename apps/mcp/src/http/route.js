@@ -45,7 +45,9 @@ import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
-import { MESSAGES_BACKUP_ROUTE, handleMessagesBackup, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
+import { handleMessagesBackup, isMessagesBackupPath, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
+import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
+import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -135,7 +137,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || path === MESSAGES_BACKUP_ROUTE) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -217,8 +219,10 @@ export async function route(request, env, ctx) {
     // app reads it over GET and answers over POST, so the POST-only gate below
     // is not asked of it either.
     const approvalsRoute = path === "/approvals";
-    // The Mac app's Messages backup (`communications/messagesBackup.js`).
-    const messagesBackupRoute = path === MESSAGES_BACKUP_ROUTE;
+    // The Mac app's Messages backup (`communications/messagesBackup.js`): a
+    // batch, or one file. A path under the file route that is not one is
+    // still this route, refused below rather than read as anything else.
+    const messagesBackupRoute = isMessagesBackupPath(path);
     if (
       summaryRoute ||
       path === "/mcp" ||
@@ -673,7 +677,11 @@ export async function route(request, env, ctx) {
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
-      if (messagesBackupRoute) return await handleMessagesBackup(request, store);
+      if (messagesBackupRoute) {
+        const file = parseFileRoute(path);
+        if (file) return await handleMessagesBackupFile(request, store, file);
+        return path === MESSAGES_BACKUP_ROUTE ? await handleMessagesBackup(request, store) : json({ ok: false, error: "not_found" }, 404);
+      }
 
       return handleMcp(request, store, session);
     }

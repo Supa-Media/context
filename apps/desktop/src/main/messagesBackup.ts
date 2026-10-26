@@ -11,8 +11,9 @@
  */
 
 import { createHash } from "node:crypto";
+import { LIMITS } from "@context/communications/backup";
 import type { ImessageStatus } from "@context/desktop-bridge";
-import { access, readdir } from "node:fs/promises";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DesktopSettings } from "../core/settings.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
@@ -32,11 +33,14 @@ import {
 } from "../core/messages/contacts.ts";
 import { historyDone, type BackupCursor } from "../core/messages/cursor.ts";
 import { runBackupPass, type BackupPassDeps } from "../core/messages/pass.ts";
+import { attachmentPathOf, realAttachmentPath, runFilesPass, type FileRead, type FilesPassDeps } from "../core/messages/files.ts";
 import {
   knownColumns,
   selectAccountSql,
+  selectAttachmentMaxSql,
   selectAttachmentsForRowsSql,
   selectBackupAttachmentsSql,
+  selectBackupFilesSql,
   selectBackupMessagesSql,
   selectChatsSql,
   selectMessageColumnsSql,
@@ -44,9 +48,10 @@ import {
   selectRowsFromSql,
   type BackupAttachmentRow,
   type BackupChatRow,
+  type BackupFileRow,
   type BackupMessageRow,
 } from "../core/messages/queries.ts";
-import { uploadBackupRecords } from "../core/messages/upload.ts";
+import { uploadBackupFile, uploadBackupRecords } from "../core/messages/upload.ts";
 import { observeChatDb, type ImessageWatcher } from "./imessage.ts";
 
 export interface BackupCursorStore {
@@ -102,6 +107,8 @@ export interface MessagesBackupDeps {
   observeChatDb?: (path: string, onChange: () => void) => ImessageWatcher;
   query?: (path: string, sql: string) => Promise<unknown[]>;
   addressBook?: () => Promise<AddressBookRow[]>;
+  /** Overridable for the suite; the real one reads only inside `~/Library/Messages/Attachments`. */
+  readAttachment?: (filename: string | null) => Promise<FileRead>;
   fetch?: typeof fetch;
 }
 
@@ -190,6 +197,26 @@ async function readAddressBook(): Promise<AddressBookRow[]> {
     }
   }
   return rows;
+}
+
+/**
+ * One file's bytes, read only from inside `~/Library/Messages/Attachments`,
+ * links followed first, and never more than the contract's limit.
+ */
+export async function readAttachment(filename: string | null): Promise<FileRead> {
+  const path = attachmentPathOf(filename);
+  if (path === null) return { missing: true };
+  const real = await realAttachmentPath(path);
+  if (real === null) return { missing: true };
+  try {
+    const info = await stat(real);
+    if (!info.isFile()) return { missing: true };
+    if (info.size > LIMITS.fileBytes) return { tooLarge: true };
+    const bytes = await readFile(real);
+    return bytes.byteLength > LIMITS.fileBytes ? { tooLarge: true } : { bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) };
+  } catch {
+    return { missing: true };
+  }
 }
 
 function appleNowNs(now: number): string {
@@ -374,8 +401,17 @@ export class MessagesBackupService {
 
       const start = await this.#deps.store.readBackupCursor();
       this.#set({ phase: "copying", problem: null });
-      const report = await runBackupPass(deps, start);
+      const texts = await runBackupPass(deps, start);
       if (!this.#wanted(generation)) return;
+      // Pictures and documents after the texts, from where the texts left the cursor.
+      const files = texts.stopped ? null : await runFilesPass(this.#filesDeps(base, abort, columns, generation), texts.cursor);
+      if (!this.#wanted(generation)) return;
+      const report = {
+        cursor: files?.cursor ?? texts.cursor,
+        sent: texts.sent + (files?.sentFiles ?? 0),
+        stopped: texts.stopped ?? files?.stopped,
+        more: texts.more || (files?.more ?? false),
+      };
 
       const reached = report.cursor.oldest === null ? { rows: 0, back: null } : await this.#reached(report.cursor);
       this.#set({
@@ -398,6 +434,28 @@ export class MessagesBackupService {
     } finally {
       this.#abort = null;
     }
+  }
+
+  #filesDeps(base: string, abort: AbortController, columns: ReadonlySet<string>, generation: number): FilesPassDeps {
+    return {
+      maxRowId: async () => {
+        const rows = (await this.#query(selectAttachmentMaxSql())) as Array<{ max_rowid?: unknown }>;
+        const max = Number(rows[0]?.max_rowid ?? 0);
+        return Number.isSafeInteger(max) && max >= 0 ? max : 0;
+      },
+      files: async (after, through) => (await this.#query(selectBackupFilesSql(after, through, columns))) as BackupFileRow[],
+      read: this.#deps.readAttachment ?? readAttachment,
+      upload: (folder, id, bytes) =>
+        uploadBackupFile(
+          { baseUrl: gatewayBaseFrom(base), token: () => this.#deps.connection.token(), fetch: this.#deps.fetch, signal: abort.signal },
+          folder,
+          id,
+          bytes,
+        ),
+      nowMs: () => this.#now(),
+      saveCursor: (cursor) => this.#deps.store.writeBackupCursor(cursor),
+      stillWanted: () => this.#wanted(generation),
+    };
   }
 
   async #reached(cursor: BackupCursor): Promise<{ rows: number; back: number | null }> {
