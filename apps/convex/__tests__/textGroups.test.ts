@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
@@ -54,7 +55,7 @@ async function resolves(t: T, accessToken: string) {
     clientId: string;
     scopes: string[];
     defaultWorkspaceId: string;
-    workspaces: Array<{ workspaceId: string; grantedNames?: string[] }>;
+    workspaces: Array<{ workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true }>;
   };
 }
 
@@ -300,5 +301,41 @@ describe("what a turn is charged to", () => {
     const usage = await t.run(async (ctx) => await ctx.db.query("jevUsage" as never).collect());
     const charged = new Set((usage as Array<{ workspaceId: string }>).map((row) => row.workspaceId));
     expect([...charged]).toEqual([ada.workspaceId]);
+  });
+});
+
+describe("Tex's setup in a group chat", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** The pinned workspace, made the way it really is: shared, by staff (`pinnedContext.test.ts`). */
+  async function pin(t: T) {
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const staff = await createUser(t, "staff@example.invalid");
+    await createWorkspace(t, staff, "staff-personal");
+    return await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
+  }
+
+  test("the grant carries the pin last, marked setup-only, at member role, and nothing else new", async () => {
+    const t = setupTest();
+    const pinned = await pin(t);
+    const { ada, studio } = await crew(t);
+    const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    const session = await resolves(t, answer.accessToken as string);
+    expect(session?.defaultWorkspaceId).toBe(studio);
+    expect(session?.workspaces.map((entry) => entry.workspaceId)).toEqual([studio, pinned]);
+    expect(session?.workspaces[0]?.setupOnly).toBeUndefined();
+    expect(session?.workspaces[1]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "member", setupOnly: true });
+    expect(JSON.stringify(session?.workspaces)).not.toContain(String(ada.workspaceId));
+  });
+
+  test("the setup-only pin is never a mailbox's workspace", async () => {
+    const t = setupTest();
+    const pinned = await pin(t);
+    await crew(t);
+    const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    const hashedAccessToken = await hashToken(answer.accessToken as string);
+    const join = (workspaceId: string) =>
+      t.mutation(internal.functions.noteMail.joinMailbox, { hashedAccessToken, workspaceId, path: "ai/production/texting-assistant.md", name: "tex", mailboxId: "mb_abcdefgh" });
+    expect(await join(String(pinned))).toEqual({ ok: false, error: "refused" });
   });
 });

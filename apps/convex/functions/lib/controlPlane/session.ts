@@ -15,6 +15,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "../crypto";
 import {
+  addressable,
   contextsForGrant,
   resolveLiveGrant,
   validateLiveGrantRecord,
@@ -81,7 +82,7 @@ export async function resolveLivePresenceGrantsHandler(
       const live = await validateLiveGrantRecord(ctx, grant);
       if (live === null) return null;
 
-      const target = (await contextsForGrant(ctx, live)).find(
+      const target = addressable(await contextsForGrant(ctx, live)).find(
         (row) => row.workspaceId === targetWorkspaceId,
       );
       if (target === undefined) return null;
@@ -144,6 +145,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
         // clearance. Older and ordinary OAuth grants omit it and therefore
         // resolve to no group visibility in the gateway.
         grantedNames: v.optional(v.array(v.string())),
+        // A group chat's grant: the pin, opened only to read Tex's setup (`liveGrants.ts`).
+        setupOnly: v.optional(v.literal(true)),
       }),
     ),
   }),

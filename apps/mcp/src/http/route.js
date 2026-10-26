@@ -28,6 +28,7 @@ import {
   SCOPE_READ,
   SCOPE_WRITE,
   sessionForContext,
+  sessionForSetup,
   SessionRefusal,
   splitWorkspacePath,
   StorageUnavailable,
@@ -647,6 +648,11 @@ export async function route(request, env, ctx) {
         return { session: target, store: targetStore };
       };
       store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
+      // A group chat's turn reads Tex's setup in the pin it may not otherwise address (`session.js`).
+      const setupSession = sessionForSetup(session);
+      if (setupSession !== null) {
+        store.openPinnedSetup = async () => ({ session: setupSession, store: await storeForSession(setupSession, env, controlPlane) });
+      }
 
       store.suggestDestination = (args) =>
         toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
