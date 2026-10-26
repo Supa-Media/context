@@ -95,11 +95,11 @@ ${kicker ? `<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08e
 }
 
 /** The whole page: one fixed card, photographed at `SCALE`. */
-export function page(inner, { background, ink, font = "Inter, system-ui, sans-serif", padding = "36px 32px 28px", gap = 20 }) {
+export function page(inner, { background, ink, font = "Inter, system-ui, sans-serif", padding = "36px 32px 28px", gap = 20, height = CARD_HEIGHT }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="${FONTS.replace(/&/g, "&amp;")}">
 <style>html,body{margin:0;background:${background}}*{box-sizing:border-box}</style></head>
-<body><div style="zoom: ${SCALE}; width: ${CARD_WIDTH}px; height: ${CARD_HEIGHT}px; overflow: hidden; padding: ${padding}; background: ${background}; color: ${ink}; font-family: ${font}; display: flex; flex-direction: column; gap: ${gap}px">
+<body><div style="zoom: ${SCALE}; width: ${CARD_WIDTH}px; height: ${height}px; overflow: hidden; padding: ${padding}; background: ${background}; color: ${ink}; font-family: ${font}; display: flex; flex-direction: column; gap: ${gap}px">
 ${inner}
 </div></body></html>`;
 }

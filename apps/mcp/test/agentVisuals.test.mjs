@@ -150,11 +150,12 @@ test("a card's photo loads only if the turn read its address; fonts are never co
   });
   const sent = shots.calls[0].body;
   assert.deepEqual(sent.allow, [read]);
+  assert.doesNotMatch(sent.html, /evil\.example/, "an address it never read is left off the card, not drawn as an empty block");
   assert.equal(sent.width, 1200);
   assert.equal(sent.height, 1500);
   assert.match(sent.html, /fonts\.googleapis\.com/);
   assert.equal(result.content[0].type, "image");
-  assert.match(result.content[1].text, /^Drawn at 1200x1500\. 1 address\(es\) did not load/, "the made-up address, never the fonts");
+  assert.match(result.content[1].text, /^Drawn at 1200x1500\. 1 photo\(s\) left off the card/, "the made-up address, never the fonts");
   assert.match(result.content.at(-1).text, /This is picture 1/);
 });
 
@@ -285,4 +286,23 @@ test("a texted list that drew nothing goes back once, and comes out as a card an
   } finally {
     world.restore();
   }
+});
+
+// Dev2's Chelsea dinner card (2026-10-26 12:35): empty colour blocks for photos, the cuisine buried in a
+// cut-off line, "takes b..." and "daily 5...", and "away" with no distance.
+test("a places card shows cuisine, price and hours in full, and no empty photo slot or bare 'away'", () => {
+  const items = [
+    { name: "Hav & Mar", cuisine: "Ethiopian and Nordic", price: "$$$", hours: "Daily 5 to 10 pm", address: "245 11th Ave", note: "Marcus Samuelsson's place, takes bookings", photo: "https://media.timeout.example/hav.jpg", pick: true },
+    { name: "Markette", cuisine: "Modern European", price: "$60 three-course prix fixe", hours: "Mon to Wed 5 to 10 pm, Thu to Sat to 10:30", address: "326 7th Ave" },
+    { name: "Shukette", cuisine: "Middle Eastern", hours: "Daily 5 to 11 pm", address: "230 9th Ave", note: "Loud at peak" },
+    { name: "Konban", cuisine: "Japanese tonkatsu", hours: "Mon to Thu 5 to 9:30 pm", address: "311 W 17th St" },
+  ];
+  const built = buildVisual({ template: "places", data: { title: "Dinner in Chelsea", items } }, { canLoad: (address) => address.includes("hav.jpg") });
+  for (const text of ["Ethiopian and Nordic", "$60 three-course prix fixe", "Mon to Wed 5 to 10 pm, Thu to Sat to 10:30", "Marcus Samuelsson&#39;s place, takes bookings"]) assert.ok(built.html.includes(text), text);
+  assert.doesNotMatch(built.html, />away</, "no distance, no distance column");
+  assert.equal((built.html.match(/background-image: url\(/g) ?? []).length, 1, "one photo slot, for the one photo it has");
+  assert.ok(built.height > 1500, "four places get a taller card instead of cut lines");
+  const unread = buildVisual({ template: "places", data: { title: "x", items: [{ name: "A", photo: "https://never.example/a.jpg" }] } }, { canLoad: () => false });
+  assert.doesNotMatch(unread.html, /never\.example|background-image/, "a photo it can't load is left off");
+  assert.equal(unread.dropped, 1);
 });
