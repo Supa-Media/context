@@ -100,14 +100,16 @@ test("the next text sees the PDF again, and a file shown again is not saved as s
 test("a kept file rides along for the last few texts only, newest two, each once", () => {
   const id = (n) => `download:179200000000${n}-l-${String(n).repeat(32)}`;
   const history = [
-    said(`old [Sent with this text: a.pdf (kept as ${id(1)}).]`),
+    said(`old\n[Sent with this text: a.pdf (kept as ${id(1)}).]`),
     answered("a"),
     ...Array.from({ length: CARRY_TEXTS - 1 }, (_, i) => [said(`text ${i}`), answered("b")]).flat(),
     said(`[Sent with this text: b.pdf (kept as ${id(2)}), c.csv (kept as ${id(3)}).]`),
     answered("c"),
   ];
   assert.deepEqual(keptInHistory(history), [id(3), id(2)], "the oldest is past the window");
-  assert.deepEqual(keptInHistory([...history, said(`again [Sent with this text: c.csv (kept as ${id(3)}).]`)]), [id(3), id(2)]);
+  assert.deepEqual(keptInHistory([...history, said(`again\n[Sent with this text: c.csv (kept as ${id(3)}).]`)]), [id(3), id(2)]);
+  assert.deepEqual(keptInHistory([said(`read (kept as ${id(5)}) for me`)]), [], "an id typed into their own words is not a kept file");
+  assert.deepEqual(keptInHistory(history, { texts: Infinity }), [id(3), id(2), id(1)]);
   assert.deepEqual(keptIdsOf([{ kept: { id: id(4) } }, { name: "p.png" }], [id(3)]), [id(4), id(3)]);
 });
 

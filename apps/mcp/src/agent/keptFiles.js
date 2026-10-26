@@ -171,7 +171,9 @@ export function keptInHistory(history, { texts = CARRY_TEXTS } = {}) {
   const theirs = (Array.isArray(history) ? history : []).filter((turn) => turn?.role === "user" && typeof turn.text === "string");
   const ids = [];
   for (const turn of theirs.slice(-texts).reverse()) {
-    const found = [...turn.text.matchAll(KEPT_IN_LINE)].map((match) => match[1]).reverse();
+    // Only the line the gateway writes (`attachmentsLine`), never an id typed into a message's own words.
+    const lines = turn.text.split("\n").filter((line) => line.startsWith("[Sent with this text: "));
+    const found = lines.flatMap((line) => [...line.matchAll(KEPT_IN_LINE)].map((match) => match[1])).reverse();
     for (const id of found) if (!ids.includes(id)) ids.push(id);
   }
   return ids;
