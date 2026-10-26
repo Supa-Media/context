@@ -11,6 +11,14 @@ name: Tex Live (staging)
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "all runs every check; visuals runs only the visual-answer checks (a card for options and a plan, words for one fact)"
+        type: choice
+        options:
+          - all
+          - visuals
+        default: all
 
 permissions:
   contents: read
@@ -50,4 +58,6 @@ jobs:
           echo "::add-mask::$sub"
           echo "TEX_SIMULATOR_ORIGIN=https://context-agent-staging.$sub.workers.dev" >> "$GITHUB_ENV"
       - name: Text Tex through the simulator
+        env:
+          TEX_LIVE_SUITE: ${{ inputs.suite }}
         run: node scripts/staging-tex-live.mjs

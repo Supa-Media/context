@@ -24,6 +24,8 @@ import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
 const PERSONA = "alpha@supa.media";
+/** "visuals" runs only the visual-answer checks (`tex-live-staging.yml`); anything else runs the whole set. */
+const SUITE = process.env.TEX_LIVE_SUITE ?? "";
 const CODE = "000000";
 const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
 const origin = (process.env.TEX_SIMULATOR_ORIGIN ?? "").replace(/\/+$/, "");
@@ -106,67 +108,86 @@ try {
   assert.ok(linked.some((reply) => /Tex/.test(reply) && /connected/.test(reply)), `link reply: ${linked.join(" | ")}`);
   pass("a fictional number links with the app's code, and Tex introduces itself");
 
-  const quick = await text("Hey, what are you?");
-  assert.ok(quick.length >= 1 && !quick.some((reply) => /Something went wrong/.test(reply)), "quick answer failed");
-  pass("a quick question is answered");
+  if (SUITE === "visuals") {
+    // Visual answers (docs/decisions/texting-assistant/visual-answers.md): a
+    // list of options or a plan comes back as a card and one line, and a
+    // plain question stays words. The simulator logs a picture as "[picture]".
+    const options = await text(
+      "Compare these caterers for 30 people, budget $300: Blend LIC $225, Lugo's $230, India Passage $290. Which one?",
+      { timeoutMs: 4 * 60_000 },
+    );
+    assert.ok(options.some((reply) => /^\[picture/.test(reply)), `options reply: ${options.join(" | ")}`);
+    pass("options to choose between come back as a card");
+    const week = await text("Plan me a Saturday in Montreal: breakfast, a museum, a walk and dinner, with times.", { timeoutMs: 6 * 60_000 });
+    assert.ok(week.some((reply) => /^\[picture/.test(reply)), `plan reply: ${week.join(" | ")}`);
+    pass("a day's plan comes back as a card");
+    const fact = await text("What's 12 times 12?", { timeoutMs: 2 * 60_000 });
+    assert.ok(!fact.some((reply) => /^\[picture/.test(reply)), `fact reply: ${fact.join(" | ")}`);
+    pass("one fact stays words");
+  } else {
 
-  // Tex knows the time where the person is (owner, 2026-10-14: it once asked
-  // for the phone's time). A reminder "in 2 minutes" is set without a question
-  // about the time, and its text arrives from the routine a few minutes later.
-  const reminder = await text("Remind me to stretch in 2 minutes", { timeoutMs: 3 * 60_000 });
-  assert.ok(
-    !reminder.some((reply) => /what time|your phone|don't have a clock|can't see the time/i.test(reply)),
-    `reminder reply asked for the time: ${reminder.join(" | ")}`,
-  );
-  pass("a reminder in 2 minutes is set without asking what time it is");
-  const set = Date.now();
-  const seen = (await sim("thread")).messages.length;
-  let reminded = null;
-  while (reminded === null) {
-    assert.ok(Date.now() - set < 6 * 60_000, "no reminder text within 6 minutes");
-    await pause(10_000);
-    const fresh = (await sim("thread")).messages.slice(seen).filter((entry) => entry.dir === "in");
-    reminded = fresh.find((entry) => /stretch/i.test(entry.text)) ?? null;
+    const quick = await text("Hey, what are you?");
+    assert.ok(quick.length >= 1 && !quick.some((reply) => /Something went wrong/.test(reply)), "quick answer failed");
+    pass("a quick question is answered");
+
+    // Tex knows the time where the person is (owner, 2026-10-14: it once asked
+    // for the phone's time). A reminder "in 2 minutes" is set without a question
+    // about the time, and its text arrives from the routine a few minutes later.
+    const reminder = await text("Remind me to stretch in 2 minutes", { timeoutMs: 3 * 60_000 });
+    assert.ok(
+      !reminder.some((reply) => /what time|your phone|don't have a clock|can't see the time/i.test(reply)),
+      `reminder reply asked for the time: ${reminder.join(" | ")}`,
+    );
+    pass("a reminder in 2 minutes is set without asking what time it is");
+    const set = Date.now();
+    const seen = (await sim("thread")).messages.length;
+    let reminded = null;
+    while (reminded === null) {
+      assert.ok(Date.now() - set < 6 * 60_000, "no reminder text within 6 minutes");
+      await pause(10_000);
+      const fresh = (await sim("thread")).messages.slice(seen).filter((entry) => entry.dir === "in");
+      reminded = fresh.find((entry) => /stretch/i.test(entry.text)) ?? null;
+    }
+    console.log(`< [reminder after ${Math.round((reminded.at - set) / 1000)}s] ${redact(reminded.text)}`);
+    pass("the reminder texts on time, from its routine");
+
+    const long = await text(
+      "Find the opening hours of the Louvre on the web, then save them to a new note in my inbox called louvre-hours.md, and tell me when it's done.",
+      { timeoutMs: 11 * 60_000 },
+    );
+    assert.ok(!long.some((reply) => /Something went wrong/.test(reply)), `long task failed: ${long.join(" | ")}`);
+    assert.ok(long.length >= 2, `a long task should text progress before its result, got: ${long.join(" | ")}`);
+    pass("a long task texts progress and then its result");
+
+    // The browser (apps/mcp/src/agent/browse.js): a site's own search box,
+    // typed with the person's words, then the answer read off the result.
+    const browsed = await text(
+      "Go to wikipedia.org, type Ada Lovelace into its search box and open her article, then tell me the year she was born.",
+      { timeoutMs: 6 * 60_000 },
+    );
+    assert.ok(browsed.some((reply) => /1815/.test(reply)), `browsing reply: ${browsed.join(" | ")}`);
+    pass("Tex drives a browser: types into a site's search and reads the result");
+
+    // Pictures (docs/decisions/texting-assistant/pictures.md): a graphic is a
+    // page the screenshot Worker photographs, a photo is Google's image model
+    // through the AI Gateway. The simulator logs each picture sent as
+    // "[picture]".
+    const drawn = await text("Make me a simple poster for a picnic this Saturday at noon in the park.", { timeoutMs: 4 * 60_000 });
+    assert.ok(drawn.some((reply) => /^\[picture/.test(reply)), `poster reply: ${drawn.join(" | ")}`);
+    pass("Tex draws a poster and texts it as a picture");
+    const made = await text("Make me a photo of an orange cat wearing a yellow raincoat.", { timeoutMs: 4 * 60_000 });
+    assert.ok(made.some((reply) => /^\[picture/.test(reply)), `photo reply: ${made.join(" | ")}`);
+    pass("Tex makes a photo with the image model and texts it");
+
+    // The vault (docs/decisions/texting-assistant/vault.md): a login is saved
+    // by the person on a signed-in page, never by text, so asking Tex to keep
+    // one must come back with that page's link. Nothing is saved here.
+    const vault = await text("Can you save my login for news.ycombinator.com so you can sign in for me later?", {
+      timeoutMs: 3 * 60_000,
+    });
+    assert.ok(vault.some((reply) => /\/vault\/\S+/.test(reply)), `vault reply: ${redact(vault.join(" | "))}`);
+    pass("asking Tex to keep a login texts the save page's link, not a request for the password");
   }
-  console.log(`< [reminder after ${Math.round((reminded.at - set) / 1000)}s] ${redact(reminded.text)}`);
-  pass("the reminder texts on time, from its routine");
-
-  const long = await text(
-    "Find the opening hours of the Louvre on the web, then save them to a new note in my inbox called louvre-hours.md, and tell me when it's done.",
-    { timeoutMs: 11 * 60_000 },
-  );
-  assert.ok(!long.some((reply) => /Something went wrong/.test(reply)), `long task failed: ${long.join(" | ")}`);
-  assert.ok(long.length >= 2, `a long task should text progress before its result, got: ${long.join(" | ")}`);
-  pass("a long task texts progress and then its result");
-
-  // The browser (apps/mcp/src/agent/browse.js): a site's own search box,
-  // typed with the person's words, then the answer read off the result.
-  const browsed = await text(
-    "Go to wikipedia.org, type Ada Lovelace into its search box and open her article, then tell me the year she was born.",
-    { timeoutMs: 6 * 60_000 },
-  );
-  assert.ok(browsed.some((reply) => /1815/.test(reply)), `browsing reply: ${browsed.join(" | ")}`);
-  pass("Tex drives a browser: types into a site's search and reads the result");
-
-  // Pictures (docs/decisions/texting-assistant/pictures.md): a graphic is a
-  // page the screenshot Worker photographs, a photo is Google's image model
-  // through the AI Gateway. The simulator logs each picture sent as
-  // "[picture]".
-  const drawn = await text("Make me a simple poster for a picnic this Saturday at noon in the park.", { timeoutMs: 4 * 60_000 });
-  assert.ok(drawn.some((reply) => /^\[picture/.test(reply)), `poster reply: ${drawn.join(" | ")}`);
-  pass("Tex draws a poster and texts it as a picture");
-  const made = await text("Make me a photo of an orange cat wearing a yellow raincoat.", { timeoutMs: 4 * 60_000 });
-  assert.ok(made.some((reply) => /^\[picture/.test(reply)), `photo reply: ${made.join(" | ")}`);
-  pass("Tex makes a photo with the image model and texts it");
-
-  // The vault (docs/decisions/texting-assistant/vault.md): a login is saved
-  // by the person on a signed-in page, never by text, so asking Tex to keep
-  // one must come back with that page's link. Nothing is saved here.
-  const vault = await text("Can you save my login for news.ycombinator.com so you can sign in for me later?", {
-    timeoutMs: 3 * 60_000,
-  });
-  assert.ok(vault.some((reply) => /\/vault\/\S+/.test(reply)), `vault reply: ${redact(vault.join(" | "))}`);
-  pass("asking Tex to keep a login texts the save page's link, not a request for the password");
 } catch (error) {
   failed = error;
 } finally {

@@ -71,11 +71,12 @@ test("an address the turn never read is not fetched for it", async () => {
   assert.deepEqual(pictures, [{ url: "https://example.com/cat.jpg" }, { url: "https://images.example.org/dog.png" }]);
 });
 
-test("at most four pictures, each once, and a turn not from a phone is untouched", async () => {
+test("at most eight pictures (a set of option cards), each once, and a turn not from a phone is untouched", async () => {
   const outgoing = outgoingPictures({ enabled: true });
-  const call = outgoing.wrap(async () => ({ content: [image(), image(), image(), image(), image()] }));
+  const call = outgoing.wrap(async () => ({ content: Array.from({ length: 9 }, () => image()) }));
   await call("read_image", {});
-  const lines = ["[picture 1]", "[picture 1]", "[picture 2]", "[picture 3]", "[picture 4]", "[picture 5]"].join("\n");
+  const lines = ["[picture 1]", "[picture 1]", ...Array.from({ length: 8 }, (_, i) => `[picture ${i + 2}]`)].join("\n");
+  assert.equal(MAX_PICTURES, 8);
   assert.equal(outgoing.take(lines).pictures.length, MAX_PICTURES);
 
   const off = outgoingPictures({ enabled: false });

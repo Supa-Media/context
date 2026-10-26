@@ -483,7 +483,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, pictures: carriesPictures(attachments), judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, pictures: carriesPictures(attachments), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
@@ -597,7 +597,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: told, pictures } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
+    const { answer: told, pictures, captions } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -623,7 +623,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (conversation !== null && !turn.exhausted && !replaced) {
       try {
         const saved = [reactedLine(reacted), jobSavedLine(job) || tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-        await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
+        await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
           sources: turn.steps.flatMap((step) => step.sources ?? []), // addresses only (`sources.js`)

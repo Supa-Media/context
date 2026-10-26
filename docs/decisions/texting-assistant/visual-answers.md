@@ -50,6 +50,29 @@ become **one line of at most 25 words**: the verdict and the next step. The
 card carries the detail, so the words never repeat it. Never for a yes or no,
 one fact, a draft they will send, hard news, or after they ask for text only.
 
+### When the prompt line is not enough (2026-10-26, the same morning)
+
+The first live texts after launch came back as lists: "What does my week look
+like" got seven lines of days, and dinner options got four lines of
+restaurants. The production setup's long rules for how to write a list
+outweighed one line about drawing. So a texted answer is now also read once
+by the turn's checks (`visuals/notice.js`, run from `claimCheck.js`). If it is
+a list of three or more things, nothing was drawn, it is not a draft or code,
+and they didn't ask for words only, it goes back once with the card notice.
+The model then draws and texts one line. Reverting this leaves the card to
+the model's choice, which in production meant no card.
+
+### Option cards, sent as one swipeable set
+
+When each of 2 to 8 options needs its own photo and facts, Tex draws one
+`option` card each, numbered "2 of 4", with "Reply 2 for more on this one"
+along the bottom. An answer with two or more pictures goes out over Sendblue
+as one carousel (`apps/agent/src/carousel.ts`, `send-carousel`, V2 lines
+only). If the line refuses that, the pictures go one by one, and the carousel
+is not retried for the rest of the answer. The saved conversation names each
+card ("1. Blend LIC; 2. Lugo's"), so "the 2nd one" has an answer. An answer
+carries at most 8 pictures.
+
 ## Photos
 
 A card shows the thing itself (the dress, the dish, the flat) through a CSS

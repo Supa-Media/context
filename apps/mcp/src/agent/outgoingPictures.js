@@ -38,8 +38,10 @@
  * when it was read, so nothing legitimate is lost.
  */
 
-/** The most pictures one answer sends: a few photos, not an album. */
-export const MAX_PICTURES = 4;
+/** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
+export const MAX_PICTURES = 8;
+/** The most characters of a drawn card's caption kept in the saved conversation. */
+const MAX_CAPTION = 60;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
 /** The most bytes kept from tool results to check a web address against. */
@@ -125,7 +127,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args) });
           numbers.push(seen.length);
         }
       }
@@ -139,6 +141,7 @@ export function outgoingPictures({ enabled, question = "" }) {
   const take = (answer) => {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
     const pictures = [];
+    const captions = [];
     const named = new Set();
     let carried = 0;
     const stripped = answer.replace(PICTURE_LINE, (_, ref) => {
@@ -149,13 +152,17 @@ export function outgoingPictures({ enabled, question = "" }) {
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
           pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+          captions.push(picture.caption);
         }
         return "";
       }
-      if (vouches(ref)) pictures.push({ url: webAddress(ref) });
+      if (vouches(ref)) {
+        pictures.push({ url: webAddress(ref) });
+        captions.push("");
+      }
       return "";
     });
-    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures };
+    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions };
   };
 
   /** Picture N a tool showed this turn, for a tool that builds on it (`pictureMaker.js`). */
@@ -178,7 +185,22 @@ export function outgoingPictures({ enabled, question = "" }) {
   return { wrap, take, picture, made, vouches };
 }
 
-/** The line the saved conversation keeps for what was sent, so "what was that picture?" has an answer. */
-export function sentPicturesLine(pictures) {
-  return pictures.length === 0 ? "" : `[Sent ${pictures.length === 1 ? "a picture" : `${pictures.length} pictures`} with this answer.]`;
+/**
+ * What a drawn card shows, in a few words, from the arguments it was drawn
+ * with: the option's name, or the card's title. So a reply of "the 2nd one"
+ * to a set of option cards has an answer in the saved conversation.
+ */
+function captionOf(name, args) {
+  if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
+  const data = args.data;
+  const said = [data.name, data.title, data.kicker].find((value) => typeof value === "string" && value.trim() !== "") ?? "";
+  return said.replace(/[\s\[\]]+/g, " ").trim().slice(0, MAX_CAPTION);
+}
+
+/** The line the saved conversation keeps for what was sent, so "what was that picture?" and "the 2nd one" have an answer. */
+export function sentPicturesLine(pictures, captions = []) {
+  if (pictures.length === 0) return "";
+  const named = captions.some(Boolean) ? `: ${pictures.map((_, i) => `${i + 1}. ${captions[i] || "a picture"}`).join("; ")}` : "";
+  const set = pictures.length > 1 ? " as one swipeable set" : "";
+  return `[Sent ${pictures.length === 1 ? "a picture" : `${pictures.length} pictures`}${set} with this answer${named}.]`;
 }

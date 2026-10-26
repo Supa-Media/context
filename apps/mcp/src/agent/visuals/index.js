@@ -15,7 +15,7 @@
  */
 
 import { CARD_HEIGHT, CARD_WIDTH, SCALE } from "./kit.js";
-import { compare, gallery, places, tickets, versus } from "./choices.js";
+import { compare, gallery, option, places, tickets, versus } from "./choices.js";
 import { day, plan, streak, trip } from "./time.js";
 import { board, chart, people, spending, steps, system } from "./status.js";
 
@@ -25,6 +25,7 @@ export const VISUAL_TOOL = "draw_visual";
 const TEMPLATES = {
   compare: [compare, "options ranked on one number against a limit (quotes, plans, prices). {kicker, title, subtitle, limit, lower_is_better (default true), items:[{name, value (number), display ('$225'), detail ('$7.50 a person'), note ('$75 under'), photo, pick, tag}] ≤5, footer}"],
   gallery: [gallery, "things to look at, a photo each: clothes (style editorial), food (style warm, the pick large), gifts or products (style polaroid). {style, kicker, title, items:[{name, price, note, photo, source ('Aritzia'), pick, tag}] ≤4 (warm ≤3), footer}"],
+  option: [option, "ONE option per card, for 2-8 options sent together as a swipeable set (one draw_visual call each, numbered): caterers, dresses, hotels, cars. {index, of, kicker, name, price, price_note ('$7.50 a person'), photo, source, facts:[{label, value}] ≤4, note, pick, tag}"],
   versus: [versus, "two things side by side: homes, cars, jobs. {kicker, title, items:[{name, photo, source}] ×2, rows:[{label, a, b, better: 'a'|'b'}] ≤7}"],
   places: [places, "places to go, numbered, a photo each. {kicker, title, items:[{name, detail ('Mexican · $$ · open till 11'), note, distance ('4 min'), distance_label ('walk'), photo, pick}] ≤4, footer}"],
   tickets: [tickets, "flights, trains, shows as ticket cards. {kicker, title, items:[{name ('Delta 1421'), depart, arrive, duration, stops, price, price_label, note, pick, tag}] ≤3, facts:[{label, value}] ≤3}"],
@@ -81,10 +82,10 @@ export function buildVisual(args) {
  * picture carries the detail (owner, 2026-10-26).
  */
 export const VISUALS_LINE =
-  "VISUAL ANSWERS: before you answer, count these in your answer: 3+ things side by side; numbers worth comparing; times or dates; places; " +
-  "parts that connect or who owns what; things whose looks matter (clothes, food, homes, gifts). Two or more, or they ask to see, compare, " +
-  "plan or map something: call draw_visual with the template that fits, then text ONE line (25 words at most: the verdict and the next step) " +
-  "and [picture N] for the card; the card carries the detail, so never repeat it in words. Never draw for a yes or no, one fact, a draft " +
-  "they will send, hard news, or after they ask for text only. For things whose looks matter, find their pictures first: the photo " +
-  "addresses on the pages you open. When you also save a note about it, keep the card in it: save with write and args: " +
-  "{ images: [{ name: 'card.png', data: 'picture:N' }] }, with ![[card.png]] in the content.";
+  "VISUAL ANSWERS: count these in your answer: 3+ things side by side; numbers to compare; times or dates; places; parts that " +
+  "connect or who owns what; things whose looks matter (clothes, food, homes, gifts). Two or more, or they ask to see, compare, plan " +
+  "or map: call draw_visual with the template that fits, then text ONE line (25 words at most: verdict and next step) and " +
+  "[picture N]; never repeat the card in words. For 2-8 options that each need a photo and facts, draw one option card each " +
+  "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Never draw for a yes or no, one fact, " +
+  "a draft, hard news, or after they ask for text only. For looks, take photos from the pages you open. To keep the card in a " +
+  "note: write with args { images: [{ name: 'card.png', data: 'picture:N' }] } and ![[card.png]] in the content.";
