@@ -72,7 +72,7 @@ export function AccountSection({
   const owned = personal !== undefined;
 
   if (section === "feedback") return <FeedbackSettings />;
-  if (section === "messages") return <MessagesPanel owned={owned} />;
+  if (section === "messages") return <MessagesPanel owned={owned} workspaceId={personal?.id ?? null} />;
 
   if (section === "texApps") {
     return (

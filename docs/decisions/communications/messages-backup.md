@@ -156,6 +156,20 @@ named, not linked, so no link in the folder is broken. The console is told
 counts and a closed code only, never where the folder is. Off the Mac app the
 row says the texts are in Download as folders.
 
+**Delete the backup is the owner's, asked twice, and goes in full.** A bold
+red line on Settings › Messages, pressed twice, records the ask in the audit
+trail under the owner's name (`messagesExport.deleteBackup`) and erases every
+key under `.context/messages/imessage/` (the log, the files, the index's
+markers) a page at a time by key, so a store that keeps a deleted key as a
+marker is passed over rather than looped on; a page that fails is tried again
+later, never left half done in silence. The texts index in the context's
+search database goes last, because it is rebuilt from those keys. On the Mac
+app, this Mac's backup is turned off and its cursor started over first
+(`imessage.forget`), so turning it on again copies everything again rather
+than only what came after; anywhere else, the second ask says a Mac still
+backing up goes on copying new texts. Nothing else under `.context/` is
+touched.
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -175,7 +189,8 @@ Attachments, waiting only for new files, the byte budget);
 `apps/mcp/test/messagesBackupRead.test.mjs` (reads refused as writes are,
 the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
-page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
+page, never outside the log; Delete the backup erases every page and nothing
+else, and empties the index), `apps/mobile/__tests__/messagesDownload.test.ts`
 (a short log puts nothing in unsaid), `backupTranscript.test.mjs`, and
 `apps/desktop/test/messagesDownload.test.mjs` (nothing written before the
 log is read, no broken links, a new folder, no path outside it).

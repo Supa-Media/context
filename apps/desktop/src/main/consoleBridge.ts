@@ -183,6 +183,8 @@ export interface ConsoleBridgeDeps {
   setImessageFiles: (choice: MessagesBackupFilesChoice) => void;
   /** Download messages into Downloads, with the pictures (`main/messagesDownload.ts`). */
   downloadImessage: () => Promise<MessagesBackupDownload>;
+  /** After Delete the backup: off here, and its cursor started over (`MessagesBackupService.forget`). */
+  forgetImessage: () => Promise<void>;
   requestImessageFullDiskAccess: () => Promise<void>;
   /**
    * Whether this machine has a coding CLI to ask, and asking it.
@@ -560,6 +562,10 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     return null;
   });
   handle(BRIDGE_CHANNELS.imessageDownload, async () => downloadFrom(await deps.downloadImessage()));
+  handle(BRIDGE_CHANNELS.imessageForget, async () => {
+    await deps.forgetImessage();
+    return null;
+  });
   handle(BRIDGE_CHANNELS.imessageRequestFullDiskAccess, () =>
     deps.requestImessageFullDiskAccess(),
   );
@@ -681,6 +687,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
         BRIDGE_CHANNELS.imessageSetFiles,
         BRIDGE_CHANNELS.imessageDownload,
+        BRIDGE_CHANNELS.imessageForget,
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
       ]) {

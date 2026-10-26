@@ -592,6 +592,20 @@ export async function runIpcCensusChecks(check) {
     }
     check("a frame that is not the console cannot start a download", refused && !otherCalls.includes("downloadImessage"));
   }
+  // -- forgetting the backup after it was deleted -----------------------------
+  {
+    const { ipc, calls } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.imessageForget)(sender());
+    check("the console can turn the backup off and start it over after deleting it", calls.includes("forgetImessage"));
+    let refused = false;
+    const { ipc: other, calls: otherCalls } = mainBridge();
+    try {
+      await other.handlers.get(BRIDGE_CHANNELS.imessageForget)(sender({ id: 99 }));
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot", refused && !otherCalls.includes("forgetImessage"));
+  }
 
   // -- the local agent, version 7 --------------------------------------------
   {
@@ -671,9 +685,14 @@ export async function runIpcCensusChecks(check) {
       and a closed code rebuilt in the handler (`downloadFrom`): the folder it
       writes, and every word in it, stay on this Mac.
     */
+    /*
+      38 → 39: forgetting the backup after the owner deleted it, gated. It
+      takes nothing and answers nothing; it turns this Mac's backup off and
+      starts its cursor over, which only stops copying.
+    */
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 38,
+      registrations + gatedAsync + gatedSync === 39,
     );
   }
 }

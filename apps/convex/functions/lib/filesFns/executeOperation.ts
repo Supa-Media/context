@@ -293,7 +293,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesFactFill": case "nodesMoveStart": case "nodesMoveBatch": case "nodesSmallData": case "readTrashed": case "hideOldCopies": case "readOldCopies": case "readMessagesLog": case "repairLinks": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesFactFill": case "nodesMoveStart": case "nodesMoveBatch": case "nodesSmallData": case "readTrashed": case "hideOldCopies": case "readOldCopies": case "readMessagesLog": case "eraseMessagesBackup": case "repairLinks": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

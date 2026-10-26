@@ -9,6 +9,7 @@ import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 // The component's own path, not the meetings barrel, which imports a router.
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
+import { DeleteBackup } from "../../../messagesBackup/DeleteBackup";
 import { useBackupStatus } from "../../../messagesBackup/useBackupStatus";
 import { backupOnThisMac, downloadLine, progressLines, whatsCopiedLines, whoseTexts } from "../../../messagesBackup/view";
 import { settingsSectionLabel } from "../sections";
@@ -16,14 +17,14 @@ import { settingsSectionLabel } from "../sections";
 /**
  * Settings › Messages (board 2 of the Messages backup, approved by the owner
  * 2026-10-26): whether this Mac backs up its texts, how far it has got, what
- * is copied, your copy, and who reads them. Deleting the backup arrives with
- * the step that builds it (`docs/decisions/communications/messages-backup.md`).
+ * is copied, your copy, who reads them, and deleting the backup
+ * (`docs/decisions/communications/messages-backup.md`).
  *
  * `owned` is whether this account has a personal workspace: the texts are
  * kept in it, and an account invited into somebody else's has nowhere to keep
  * them.
  */
-export function MessagesPanel({ owned }: { owned: boolean }) {
+export function MessagesPanel({ owned, workspaceId = null }: { owned: boolean; workspaceId?: string | null }) {
   const styles = useThemedStyles(makeStyles);
   const backup = useBackupStatus();
 
@@ -66,6 +67,11 @@ export function MessagesPanel({ owned }: { owned: boolean }) {
       <Text variant="hint" style={styles.foot}>
         Turning the backup off stops copying and keeps what's already there.
       </Text>
+      {owned && workspaceId !== null ? (
+        <View style={styles.spaced}>
+          <DeleteBackup workspaceId={workspaceId} backup={backup} />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -31,7 +31,7 @@ import {
   selectPhoneNamesSql,
   type AddressBookRow,
 } from "../core/messages/contacts.ts";
-import { historyDone, type BackupCursor } from "../core/messages/cursor.ts";
+import { FRESH_BACKUP_CURSOR, historyDone, type BackupCursor } from "../core/messages/cursor.ts";
 import { runBackupPass, type BackupPassDeps } from "../core/messages/pass.ts";
 import { FILES_PASS_DEFAULTS, attachmentPathOf, realAttachmentPath, runFilesPass, type FileRead, type FilesPassDeps } from "../core/messages/files.ts";
 import {
@@ -273,6 +273,19 @@ export class MessagesBackupService {
 
   stop(): void {
     this.#disarm();
+  }
+
+  /**
+   * After the owner deleted the backup: stop, wait out a pass under way, and
+   * start the cursor over, so turning the backup on again copies everything
+   * from the newest text back. The switch is the caller's to turn off first.
+   */
+  async forget(): Promise<void> {
+    this.#disarm();
+    await this.#running?.catch(() => {});
+    await this.#deps.store.writeBackupCursor(FRESH_BACKUP_CURSOR);
+    this.#status = { ...INITIAL };
+    this.#emit();
   }
 
   #emit(): void {
