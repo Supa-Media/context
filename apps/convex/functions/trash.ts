@@ -31,7 +31,6 @@ import { recordAudit } from "./lib/audit";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, personalNameFor, resolveFileAccess } from "./lib/filesFns/access";
 import { rulesForReaders } from "./lib/nodes/readerRules";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { canSee } from "./lib/privacy";
 import {
   GROUP_SCAN,
@@ -177,7 +176,7 @@ export async function dropLinks(
 /**
  * Erase the oldest trash past its date, in the control plane, and record what
  * the bucket must still remove. Answers the erasure's id, or `null` when there
- * is nothing to erase now (the workspace is not keyed, or no trash is due).
+ * is nothing to erase now (no trash is due).
  *
  * The rows go in this transaction: from here the note is gone, and Restore
  * finds nothing. A folder too big for one transaction (`GROUP_SCAN` rows) is
@@ -187,7 +186,6 @@ export const claimErasure = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.id("trashErasures"), v.null()),
   handler: async (ctx, { workspaceId }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return null;
     const now = Date.now();
     const due: StampFolder | undefined = (await stampFolders(ctx.db, workspaceId)).find((stamp) => stamp.eraseAt <= now);
     if (due === undefined) return null;

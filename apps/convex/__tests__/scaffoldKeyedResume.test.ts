@@ -5,7 +5,7 @@
  * (`hasForeignContent`, `lib/scaffold/detect.ts`). One note more is somebody's,
  * and the resume refuses.
  *
- * Sabotage: drop the `keyed && found === NOTE_ID_PREFIX` branch and the first
+ * Sabotage: drop the `found === NOTE_ID_PREFIX` branch and the first
  * case fails (the `notes/` prefix reads as foreign).
  */
 
@@ -42,7 +42,6 @@ function keyedStore(byName: Record<string, string>, raw: string[]): ScaffoldStor
       }
       return { objects, delimitedPrefixes: [...prefixes] };
     },
-    keyedWorkspace: async () => true,
   };
 }
 
@@ -68,11 +67,6 @@ describe("resuming a scaffold in a keyed workspace", () => {
       { "privacy.md": "rules", "index.md": "# My own home\n" },
       ["privacy.md", "notes/0001.md"],
     );
-    expect(await hasForeignContent(store, FILES)).toBe(true);
-  });
-
-  test("a store that is not keyed still reads notes/ as a folder no layout names", async () => {
-    const store = { ...keyedStore({ "privacy.md": "rules" }, ["privacy.md", "notes/0001.md"]), keyedWorkspace: async () => false };
     expect(await hasForeignContent(store, FILES)).toBe(true);
   });
 });

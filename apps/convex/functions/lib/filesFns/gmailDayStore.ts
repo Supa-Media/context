@@ -75,7 +75,7 @@ export function gmailDayStore(store: FileStore, folder: string | undefined): Fil
     }
   };
 
-  // Inherits the rest, so the store's seams (`keyedWorkspace`, attached tree reads) still answer.
+  // Inherits the rest, so the store's seams (attached tree reads) still answer.
   const days = Object.create(store) as FileStore;
   days.get = get;
   days.put = put;

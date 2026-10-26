@@ -14,7 +14,6 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { type FolderNumbersCounts, dropFolderNumbersIn, folderNumbersPlanValidator, planFolderNumbers } from "./lib/nodes/folderNumbers";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
@@ -27,7 +26,7 @@ const PIN_SCAN = 500;
 export const plan = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: folderNumbersPlanValidator,
-  handler: async (ctx, { workspaceId }) => await planFolderNumbers(ctx.db, workspaceId, await keyedWorkspace(ctx.db, workspaceId)),
+  handler: async (ctx, { workspaceId }) => await planFolderNumbers(ctx.db, workspaceId),
 });
 
 /**
@@ -67,7 +66,6 @@ export const workspacePage = internalQuery({
 
 const countsValidator = v.object({
   workspaces: v.number(),
-  unkeyed: v.number(),
   changed: v.number(),
   renamed: v.number(),
   wouldRename: v.number(),
@@ -85,7 +83,7 @@ export const run = internalAction({
       internal.functions.folderNumbers.workspacePage,
       { ...(cursor === undefined ? {} : { cursor }), ...(limit === undefined ? {} : { limit }) },
     );
-    const totals = { workspaces: 0, unkeyed: 0, changed: 0, renamed: 0, wouldRename: 0, twins: 0, refused: {} as Record<string, number> };
+    const totals = { workspaces: 0, changed: 0, renamed: 0, wouldRename: 0, twins: 0, refused: {} as Record<string, number> };
     for (const workspaceId of page.workspaceIds) {
       const move = async (from: string, to: string): Promise<OperationResult> =>
         (await ctx.runAction(internal.functions.files.runFileOperation, {
@@ -103,7 +101,6 @@ export const run = internalAction({
         continue;
       }
       totals.workspaces += 1;
-      if (!counts.keyed) totals.unkeyed += 1;
       if (counts.renamed > 0) totals.changed += 1;
       totals.renamed += counts.renamed;
       totals.wouldRename += counts.wouldRename;

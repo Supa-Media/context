@@ -4,7 +4,7 @@
  * The lib functions (`movePath`, `trashPath`, `followHeading`, ...) run against
  * a store. In production that store is the id layer over the bucket
  * (`withIdLayout`, `apps/mcp/src/store/idLayout.js`) with the barrier's seams
- * attached (`attachQueueMove`, `attachTreeListing`, `attachWorkspaceKeyed`), and
+ * attached (`attachQueueMove`, `attachTreeListing`), and
  * every path a person names is looked up in the Convex tree. This builds that
  * same stack over an in-memory bucket, so each test keeps asking for notes by
  * their path while the bytes live at `notes/<noteId>.md`.
@@ -21,7 +21,6 @@ import { internal } from "../../_generated/api";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
 import type { TreeNames } from "../../functions/lib/fileOps/treeChecks";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { consoleIdLayoutHooks } from "../../functions/lib/noteIds/consoleLayer";
 import { type FileStore } from "../../functions/lib/fileOps";
 import { setFolderVisibility, setVisibility, translateSeededRules, renderPrivacyManifest } from "../seededRules.helpers";
@@ -174,7 +173,6 @@ export async function keyedBucket(
 
   const store = withIdLayout(raw, consoleIdLayoutHooks(ctx, workspaceId) as unknown as Parameters<typeof withIdLayout>[1]) as unknown as FileStore & MemoryStore;
   attachFreshTree(ctx, workspaceId, store);
-  attachWorkspaceKeyed(ctx, workspaceId, store);
   // The barrier attaches each row seam by the operation that needs it.
   for (const kind of ["move", "trash", "restoreTrash"]) {
     attachQueueMove(ctx, { workspaceId, operation: { kind } } as never, store, store, null);

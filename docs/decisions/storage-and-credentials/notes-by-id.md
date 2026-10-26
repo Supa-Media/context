@@ -48,9 +48,25 @@ What was removed: the switch (`noteIds.setMode`, `setPaused`, `startAll`,
 `start`, `restart`), the workflow that started every workspace and verified its
 rows, the cron's copy starts (`keepCurrent` now only re-checks keyed rows),
 the copy-pass counts in the admin report, and the cleanup's pause gate. Still
-to go, after the keyed predicate is removed: the gateway's unlayered session
-arm and the `keyed` flag on the lookup answer. What stays is
-the keyed row, the old-copy cleanup, the diagnosis and the shared-id repair.
+to go: the gateway's unlayered session arm and the `keyed` flag on the lookup
+answer. What stays is the keyed row, the old-copy cleanup, the diagnosis and
+the shared-id repair.
+
+The keyed predicate went on 2026-10-26 (Dev2's go to delete the not-keyed
+branches): `keyedWorkspace` and the queries asking it (`nodes.isKeyed`,
+`noteIds.keyedFor`, `nodeRowMoves.keyedNow`) are gone, and every caller acts
+as it did for a keyed workspace. `keyedAt` on the copy row is still written
+at birth and is history, never a question. The wire still says `keyed: true`
+on the binding, the ingest binding and the lookup, because a gateway or email
+worker deployed a step behind refuses an answer without it. Nothing is
+`not_keyed` any more: a storage move keeps the rows, the trash empties on
+time, old copies are hidden, a share's entry follows its note id, and a
+verification counts from the tree. The vault replacement's clear, which
+deleted the bucket by key, refuses in every workspace (it always did once
+every workspace was keyed) and needs rebuilding on rows before it can come
+back. Reintroducing the predicate as a branch fails, among others,
+`noteIds/keyedStorageMove.test.ts` ("a workspace whose copy row was never
+flipped") and `trash/emptying.test.ts`.
 
 The copy pass itself (`beginCopyPass`, `noteIdsCopy.run`, `copyPage`, `flip`)
 is kept only because the test fixture keys a test workspace through it. No
@@ -119,8 +135,8 @@ Forgetting the rows again fails `__tests__/noteIds/keyedStorageMove.test.ts`.
 
 ## Moves in a keyed workspace are row changes
 
-*Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (switch at
-`keys` and the flip started, `lib/noteIds/keyedState.ts`) a move, rename or
+*Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (every workspace, since
+2026-10-22) a move, rename or
 archive of a file or folder rewrites `nodes` rows and copies nothing:
 `lib/nodes/rowMove.ts` (`applyRowMove`), entered from `startQueuedMove`
 (`lib/nodes/moveStart.ts`), which is the one place every move is decided.

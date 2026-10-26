@@ -21,7 +21,6 @@ import { renderNewFolderAbout } from "../../functions/lib/fileOps/folders";
 import { readFile } from "../../functions/lib/fileOps/reading";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { OWNER, fixture, type Fixture } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, liveAt, rowOf, treeOf } from "./keyedFixture.helpers";
 import { parentRows } from "./treeRows.helpers";
@@ -35,7 +34,6 @@ type Deleted = { kind: "deleted"; paths: string[] };
 function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) {
   const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
   attachQueueMove(f.ctx, args, f.store, f.store);
-  attachWorkspaceKeyed(f.ctx, f.ws, f.store);
   attachTreeListing(f.ctx, f.ws, f.store);
   return executeOperation(f.store, OWNER, operation, Date.now());
 }

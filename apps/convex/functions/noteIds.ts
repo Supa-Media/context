@@ -22,7 +22,6 @@ import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIds
 import { KEYED_RECHECKS_PER_TICK, keyedRecheckOwed } from "./lib/noteIds/keyedRecheck";
 import { planGroup, renameSnapshotId, sharedGroupsPage, copyStateOf } from "./lib/noteIds/sharedIds";
 import { copyRowOf, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 import { nodePaths } from "./lib/nodes/paths";
 
@@ -76,17 +75,6 @@ export const report = query({
     }
     return { workspaces, truncated };
   },
-});
-
-/**
- * Whether a workspace is keyed (`keyedWorkspace`): its notes' bytes live at their
- * id keys. The ingest binding route sends it so the email worker can refuse mail
- * it cannot write. INTERNAL.
- */
-export const keyedFor = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.boolean(),
-  handler: async (ctx, { workspaceId }) => await keyedWorkspace(ctx.db, workspaceId),
 });
 
 /**

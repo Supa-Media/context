@@ -8,89 +8,27 @@
 
 import { canSee } from "../privacy";
 import { type Clearance } from "../clearance";
-import { LIST_PAGE_CAP, type FileStore } from "./store";
+import { type FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
 import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
-import { refuseKeyedStore } from "../noteIds/keyedStore";
-
-/** Keys removed per retryable replacement pass. Small enough for every provider. */
-export const VAULT_CLEAR_BATCH_OBJECTS = 100;
+import { KEYED_REFUSAL } from "../noteIds/keyedStore";
 
 /**
- * Count or remove a bounded piece of a bucket for an explicitly confirmed
- * vault replacement. This deliberately sees plumbing: "replace everything"
- * means notes, attachments, privacy, audit, and derived indexes alike.
- *
- * Deletion always lists from the beginning. Persisting a continuation cursor
- * while mutating the same listing can skip keys on S3-compatible providers;
- * shrinking the first page makes every retry safe, including a retry after
- * the objects were deleted but before Convex recorded the count.
+ * Clearing a bucket for a vault replacement. Refused in every workspace, before
+ * anything is listed or deleted: clearing deletes by key, and every workspace
+ * keeps its notes under their ids (2026-10-22), so the tree's rows would still
+ * name every note just deleted and the import would land at paths no row
+ * adopts. A replacement has to be rebuilt on rows before it can come back.
  */
 export async function clearVaultBatch(
-  store: FileStore,
-  countOnly: boolean,
+  _store: FileStore,
+  _countOnly: boolean,
 ): Promise<{ mode: "counted" | "deleted"; objects: number; complete: boolean }> {
-  // Clearing deletes by key, and in a keyed workspace the keys are the frozen
-  // copies and the id keys alike. The tree's rows would still name every note
-  // that was just deleted, and the import lands at paths no row adopts, so the
-  // replacement is refused there rather than half done (`lib/noteIds/keyedStore.ts`).
-  await refuseKeyedStore(store);
-  if (countOnly) {
-    let cursor: string | undefined;
-    let objects = 0;
-    for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
-      const page = await store.list({ cursor, limit: 1_000 });
-      objects += page.objects.length;
-      if (!page.truncated) return { mode: "counted", objects, complete: true };
-      if (!page.cursor || page.cursor === cursor) {
-        throw new FileOpError(
-          "LISTING_INCOMPLETE",
-          "Context could not finish counting this bucket. Try again before replacing it.",
-        );
-      }
-      cursor = page.cursor;
-    }
-    throw new FileOpError(
-      "FOLDER_TOO_LARGE",
-      "This bucket is too large to replace safely in this flow.",
-    );
-  }
-
-  // A logical-delete store can leave a physical tombstone at the front of
-  // the listing. Its filtered page is intentionally empty but still carries
-  // the provider cursor; follow those pages in this invocation so a vault
-  // clear does not make permanent zero-progress passes. We still start from
-  // the beginning on every retry because deleting while paging can otherwise
-  // skip live keys.
-  let cursor: string | undefined;
-  for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
-    const page = await store.list({ cursor, limit: 1_000 });
-    if ((page.objects?.length ?? 0) > 0) {
-      const batch = page.objects.slice(0, VAULT_CLEAR_BATCH_OBJECTS);
-      for (const object of batch) await store.delete(object.key);
-      return {
-        mode: "deleted",
-        objects: batch.length,
-        complete:
-          page.truncated !== true && page.objects.length <= VAULT_CLEAR_BATCH_OBJECTS,
-      };
-    }
-    if (!page.truncated) return { mode: "deleted", objects: 0, complete: true };
-    if (!page.cursor || page.cursor === cursor) {
-      throw new FileOpError(
-        "LISTING_INCOMPLETE",
-        "Context could not finish clearing this bucket. Try again before replacing it.",
-      );
-    }
-    cursor = page.cursor;
-  }
-  throw new FileOpError(
-    "FOLDER_TOO_LARGE",
-    "This bucket is too large to clear safely in this flow.",
-  );
+  throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
 }
+
 export interface VaultImportFile {
   path: string;
   bytes: Uint8Array;

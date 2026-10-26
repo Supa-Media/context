@@ -25,7 +25,6 @@ import { applyObservation } from "./lib/nodes/observe";
 import { idKeyFor, isNoteId } from "./lib/nodes/noteIds";
 import type { Observation } from "./lib/nodes/table";
 import { clampAt, entryOf, noteEntryValidator, type NoteEntry } from "./lib/noteIds/keyed";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { nodeAt } from "./lib/noteIds/state";
 import { canonicalJobPath } from "./lib/nodes/folderJobs";
 import { movingRowMoves, throughRowMoves } from "./lib/nodes/rowMoveChunks";
@@ -54,24 +53,24 @@ const adoptResultValidator = v.union(
 
 /**
  * What the tree says about each of `paths` (one entry per path with a row,
- * in the order given): `keyed` is whether the workspace is keyed. INTERNAL.
+ * in the order given). `keyed` is always true: every workspace is keyed
+ * (2026-10-22), and the gateway refuses an answer without it. INTERNAL.
  */
 export const notesFor = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
   returns: v.object({ keyed: v.boolean(), notes: v.array(noteEntryValidator) }),
   handler: async (ctx, { workspaceId, paths }) => {
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     const notes: NoteEntry[] = [];
-    const moving = keyed ? await movingRowMoves(ctx.db, workspaceId) : [];
+    const moving = await movingRowMoves(ctx.db, workspaceId);
     for (const path of [...new Set(paths)]) {
       // A built-in folder's default name reaches the folder doing that job now (`folderJobs.ts`),
       // answered under the path asked, which is the one the caller looks it up by.
-      const row = await nodeAt(ctx.db, workspaceId, keyed ? await keyedPathOf(ctx.db, workspaceId, path, moving) : path);
+      const row = await nodeAt(ctx.db, workspaceId, await keyedPathOf(ctx.db, workspaceId, path, moving));
       if (row === null) continue;
       const entry = entryOf(row);
       if (entry !== null) notes.push({ ...entry, path });
     }
-    return { keyed, notes };
+    return { keyed: true, notes };
   },
 });
 
@@ -141,7 +140,6 @@ export async function adoptKeyedRow(
   const refused = { adopted: false as const, taken: null };
   const path = await keyedPathOf(ctx.db, workspaceId, asked);
   if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
-  if (!(await keyedWorkspace(ctx.db, workspaceId))) return refused;
   if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
 
   await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));

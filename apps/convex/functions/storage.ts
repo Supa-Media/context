@@ -79,8 +79,7 @@ import * as gatewayBinding from "./lib/storage/gatewayBinding";
 import * as rekeyWorkspace from "./lib/storage/rekeyWorkspaceSecrets";
 import * as rekeyConnectors from "./lib/storage/rekeyConnectorSecrets";
 import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
-import { forgetWorkspaceTree, keepKeyedTreeForStorage } from "./nodesPurge";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { keepKeyedTreeForStorage } from "./nodesPurge";
 import { keyIfBornEmpty } from "./lib/noteIds/born";
 import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
@@ -396,9 +395,8 @@ export const applyBinding = internalMutation({
     */
     if (storageMoved(existing, fields)) {
       await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, { workspaceId: args.workspaceId });
-      // A keyed workspace's rows are its notes' only names, and its keys moved with it as they were: they stay.
-      if (await keyedWorkspace(ctx.db, args.workspaceId)) await keepKeyedTreeForStorage(ctx, args.workspaceId);
-      else await forgetWorkspaceTree(ctx, args.workspaceId, { storageMoved: true }); // its rows name the old bucket's keys
+      // The rows are the notes' only names, and the keys moved with the workspace as they were: they stay.
+      await keepKeyedTreeForStorage(ctx, args.workspaceId);
     }
 
     let bindingId: Id<"storageBindings">;

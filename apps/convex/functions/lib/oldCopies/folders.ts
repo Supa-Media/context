@@ -33,7 +33,7 @@ import { rowsBelow } from "../nodes/paths";
 export const CHANNEL_FOLDERS = ["calendar", "contacts", "email", "google-chat", "imessage"] as const;
 
 /** A refusal that is about the workspace, not the folder: try again on the next look. */
-const STOPPING: ReadonlySet<RowMoveRefusal> = new Set<RowMoveRefusal>(["not_keyed", "not_served", "busy"]);
+const STOPPING: ReadonlySet<RowMoveRefusal> = new Set<RowMoveRefusal>(["not_served", "busy"]);
 
 export interface FoldersHidden {
   days: number;

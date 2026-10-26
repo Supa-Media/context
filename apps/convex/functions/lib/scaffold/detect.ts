@@ -176,12 +176,11 @@ export async function hasForeignContent(
   };
 
   /*
-    A keyed workspace's notes are listed at `notes/<id>.md`, which no layout
-    names. Only the app writes there, each key named by a tree row, so they are
+    A workspace's notes are listed at `notes/<id>.md` (every workspace is
+    keyed, 2026-10-22), which no layout names. Only the app writes there, each key named by a tree row, so they are
     ours when every one is accounted for: as many id keys as layout notes that
     read back, by name, byte for byte.
   */
-  const keyed = (await store.keyedWorkspace?.()) === true;
   const idKeysAreOurs = async (): Promise<boolean> => {
     let keys = 0;
     let cursor: string | undefined = undefined;
@@ -224,7 +223,7 @@ export async function hasForeignContent(
       }
       for (const found of listing.delimitedPrefixes ?? []) {
         if (isPlumbingKey(found)) continue;
-        if (keyed && found === NOTE_ID_PREFIX) {
+        if (found === NOTE_ID_PREFIX) {
           if (!(await idKeysAreOurs())) return true;
           continue;
         }

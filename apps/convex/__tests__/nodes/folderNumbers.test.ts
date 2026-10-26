@@ -6,15 +6,13 @@
  * It renames through the same file operation the console's rename uses, at
  * the owner's clearance, so a renamed folder keeps its rows, ids, rules,
  * job and Archive twin. What it may not do is guess: a folder whose plain
- * name is already taken is left alone, an unkeyed workspace is left alone
- * (its rename would be a byte move), and a dry run changes nothing.
+ * name is already taken is left alone, and a dry run changes nothing.
  *
  * ## Sabotage record
  *
  * Applied as local edits, suite re-run, failing tests counted.
  *
  *   rename even when a sibling already has the plain name          2
- *   plan renames in an unkeyed workspace                           1
  *   move in a dry run                                              1
  *   drop the job rows from the plan (root folders only)            1
  *   no pin before the rename (unkeyed file refuses it)             1
@@ -80,7 +78,7 @@ describe("taking the numbers off built-in folders", () => {
 
     const counts = await run(f);
 
-    expect(counts).toMatchObject({ keyed: true, renamed: 2, twins: 0, refused: {} });
+    expect(counts).toMatchObject({ renamed: 2, twins: 0, refused: {} });
     expect(await liveAt(f, "projects")).toBe(true);
     expect(await liveAt(f, "resources")).toBe(true);
     expect(await liveAt(f, "1-projects")).toBe(false);
@@ -209,7 +207,7 @@ describe("taking the numbers off built-in folders", () => {
   test("a dry run counts and changes nothing", async () => {
     const f = await keyedFixture();
     const counts = await run(f, true);
-    expect(counts).toMatchObject({ keyed: true, renamed: 0, wouldRename: 2 });
+    expect(counts).toMatchObject({ renamed: 0, wouldRename: 2 });
     expect(await liveAt(f, "1-projects")).toBe(true);
     expect(await liveAt(f, "projects")).toBe(false);
   });
@@ -219,13 +217,6 @@ describe("taking the numbers off built-in folders", () => {
     await run(f);
     const again = await run(f);
     expect(again).toMatchObject({ renamed: 0, wouldRename: 0, twins: 0 });
-  });
-
-  test("an unkeyed workspace is left alone: its rename would be a byte move", async () => {
-    const f = await fixture();
-    const counts = await run(f);
-    expect(counts).toMatchObject({ keyed: false, renamed: 0, wouldRename: 0 });
-    expect(await liveAt(f, "1-projects")).toBe(true);
   });
 
   test("a private subfolder the team cannot see moves with its folder", async () => {

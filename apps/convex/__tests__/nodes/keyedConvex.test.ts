@@ -1,7 +1,6 @@
 /**
  * The keyed-workspace guards, run through convex-test against the real schema:
- * what "keyed" means (`keyedWorkspace`), and that the table writes the new
- * columns (`convexNodeTable`). Each case fails if its guard is removed.
+ * that the table writes the new columns (`convexNodeTable`). Each case fails if its guard is removed.
  */
 
 import { describe, expect, test } from "vitest";
@@ -11,7 +10,6 @@ import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
-import { keyedWorkspace } from "../../functions/lib/noteIds/keyedState";
 
 async function workspace(t: ReturnType<typeof convexTest>, slug: string): Promise<Id<"workspaces">> {
   return await t.run(async (ctx) => {
@@ -28,56 +26,6 @@ async function workspace(t: ReturnType<typeof convexTest>, slug: string): Promis
     });
   });
 }
-
-/** Sets the switch to `mode` and the workspace's copy row to keyed (`keyedAt`) or not. */
-async function setKeyedState(
-  t: ReturnType<typeof convexTest>,
-  ws: Id<"workspaces">,
-  mode: "paths" | "ids" | "keys",
-  keyedAt: number | undefined,
-): Promise<void> {
-  await t.run(async (ctx) => {
-    const layout = await ctx.db.query("noteIdLayout").first();
-    const fields = { mode, updatedAt: 1 };
-    if (layout === null) await ctx.db.insert("noteIdLayout", { paused: false, ...fields });
-    else await ctx.db.patch(layout._id, fields);
-    await ctx.db.insert("noteIdCopies", {
-      workspaceId: ws,
-      status: "done",
-      runId: 1,
-      files: 0,
-      copied: 0,
-      failed: 0,
-      failures: [],
-      updatedAt: 1,
-      ...(keyedAt === undefined ? {} : { keyedAt }),
-    });
-  });
-}
-
-describe("keyedWorkspace: what counts as keyed", () => {
-  test("a workspace with no layout row and no copy row is not keyed", async () => {
-    const t = convexTest(schema, modules);
-    const ws = await workspace(t, "fresh");
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(false);
-  });
-
-  test("keys mode without the copy's keyedAt is not keyed (the flip has not started)", async () => {
-    const t = convexTest(schema, modules);
-    const ws = await workspace(t, "keysonly");
-    await setKeyedState(t, ws, "keys", undefined);
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(false);
-  });
-
-  test("keyedAt makes a keyed workspace, and only that workspace", async () => {
-    const t = convexTest(schema, modules);
-    const ws = await workspace(t, "keyed");
-    const other = await workspace(t, "other");
-    await setKeyedState(t, ws, "keys", 5);
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(true);
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, other))).toBe(false);
-  });
-});
 
 describe("convexNodeTable: noteId and storageKey", () => {
   test("an insert with no noteId mints one; an insert with a given noteId and storageKey keeps them", async () => {

@@ -16,7 +16,6 @@
 
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
 import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, drawnMoves, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
@@ -27,7 +26,6 @@ import { liveNodeAt, nodeAt, nodePaths, pathsBuilt } from "./lib/nodes/paths";
 import { HIDDEN_ASKED } from "./lib/nodes/builtJudge";
 
 const refusalValidator = v.union(
-  v.literal("not_keyed"),
   v.literal("not_served"),
   v.literal("busy"),
   v.literal("not_found"),
@@ -40,13 +38,6 @@ const refusalValidator = v.union(
   v.literal("archive_stays"),
   v.literal("built_in_archived"),
 );
-
-/** Whether the workspace is keyed. Read by the trash, which has no row form yet. */
-export const keyedNow = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.boolean(),
-  handler: async (ctx, { workspaceId }) => await keyedWorkspace(ctx.db, workspaceId),
-});
 
 const moveValidator = v.object({ from: v.string(), to: v.string() });
 
@@ -65,7 +56,6 @@ export const drawn = internalQuery({
 export const plan = internalQuery({
   args: { workspaceId: v.id("workspaces"), from: v.string() },
   returns: v.object({
-    keyed: v.boolean(),
     kind: v.union(v.null(), v.literal("file"), v.literal("folder")),
     files: v.array(v.string()),
     /** Live rows the move renames, the name included: what the batch cap adds up. */
@@ -81,18 +71,14 @@ export const plan = internalQuery({
     listed: v.boolean(),
   }),
   handler: async (ctx, { workspaceId, from }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) {
-      return { keyed: false, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: false, built: false, listed: true };
-    }
     const built = await pathsBuilt(ctx.db, workspaceId);
     const subtree = await subtreeOf(ctx.db, workspaceId, from, ROW_MOVE_MAX - 1);
-    if (subtree.root === null) return { keyed: true, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over && !built, built, listed: !subtree.over };
+    if (subtree.root === null) return { kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over && !built, built, listed: !subtree.over };
     // On built paths a folder too big to list moves as one row all the same; its files are not named.
-    if (built && subtree.over) return { keyed: true, kind: subtree.root.kind, files: [], rows: 1, unkeyed: false, tooLarge: false, built, listed: false };
+    if (built && subtree.over) return { kind: subtree.root.kind, files: [], rows: 1, unkeyed: false, tooLarge: false, built, listed: false };
     const rows = [subtree.root, ...subtree.below];
     const files = rows.filter((row) => row.kind === "file");
     return {
-      keyed: true,
       kind: subtree.root.kind,
       files: files.map((row) => row.path),
       rows: rows.length,

@@ -18,9 +18,7 @@
  *
  * - a folder whose plain name a sibling already has is left where it is and
  *   counted as a twin, so two folders are never merged by a migration;
- * - an unkeyed workspace is left alone, because there a rename is a byte
- *   move of every note under it;
- * - in a keyed one, a file row still read at its path (written by path
+ * - a file row still read at its path (written by path
  *   after keying, such as a mail pass's attachment list) would make the row
  *   move refuse the whole folder ("unkeyed"), so it is pinned first, as
  *   hiding old copies pins them (`lib/oldCopies/folders.ts`): its key set to
@@ -52,20 +50,17 @@ export interface FolderRename {
 }
 
 export interface FolderNumbersPlan {
-  keyed: boolean;
   renames: FolderRename[];
   /** Numbered folders whose plain name a sibling already has. */
   twins: string[];
 }
 
 export const folderNumbersPlanValidator = v.object({
-  keyed: v.boolean(),
   renames: v.array(v.object({ from: v.string(), to: v.string() })),
   twins: v.array(v.string()),
 });
 
 export interface FolderNumbersCounts {
-  keyed: boolean;
   renamed: number;
   wouldRename: number;
   twins: number;
@@ -96,8 +91,7 @@ async function liveChildren(db: DatabaseReader, workspaceId: Id<"workspaces">, p
 }
 
 /** What this workspace's numbered built-in folders would be renamed to, read from the live rows. */
-export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"workspaces">, keyed: boolean): Promise<FolderNumbersPlan> {
-  if (!keyed) return { keyed, renames: [], twins: [] };
+export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<FolderNumbersPlan> {
   const candidates = new Map<string, Doc<"nodes">>();
   for (const row of await liveChildren(db, workspaceId, undefined)) {
     // A top-level row's path is its name.
@@ -132,7 +126,7 @@ export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"wor
     claimed.set(parent, taken);
     renames.push({ from: row.path, to: parent === "" ? plain : `${parent}/${plain}` });
   }
-  return { keyed, renames, twins };
+  return { renames, twins };
 }
 
 /** Pin every unkeyed file row under `folder`, a page at a time; answers the rows pinned. */
@@ -164,13 +158,12 @@ export async function dropFolderNumbersIn(
     ctx.runQuery(internal.functions.folderNumbers.plan, { workspaceId }) as Promise<FolderNumbersPlan>;
   const first = await plan();
   const counts: FolderNumbersCounts = {
-    keyed: first.keyed,
     renamed: 0,
     wouldRename: first.renames.length,
     twins: first.twins.length,
     refused: {},
   };
-  if (dryRun || !first.keyed) return counts;
+  if (dryRun) return counts;
   const tried = new Set<string>();
   let current = first;
   for (let pass = 0; pass < MAX_RENAMES; pass += 1) {

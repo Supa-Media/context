@@ -34,6 +34,7 @@ import {
   keyWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { seedTreeFromBucket } from "./treeSeeding.helpers";
 import { bodyAtPath, notePaths, objectsOutsideNotes } from "./keyedFixture.onboard.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
 import { canSeeInRows, rowFolderRules } from "./scaffold/rowsAccess.helpers";
@@ -121,6 +122,12 @@ async function connectingViaBindStorage(options: ConnectOptions = {}) {
     ...(rootPrefix ? { rootPrefix } : {}),
   });
   return { t, owner, workspaceId, backend };
+}
+
+/** Verify, with the tree's rows laid from the bucket first: the count is the tree's (`servedNoteCount`). */
+async function verifyCounted(t: TestConvex, workspaceId: Id<"workspaces">) {
+  await seedTreeFromBucket(t, workspaceId);
+  await t.action(internal.functions.provisioning.verifyStorageBinding, { workspaceId });
 }
 
 function binding(t: TestConvex, owner: Id<"users">, workspaceId: Id<"workspaces">) {
@@ -516,9 +523,10 @@ describe("verification classifies the bucket without touching it", () => {
   /* ------------------------------------------------------------------ */
 
   /**
-   * The note count, end to end through the real S3 adapter.
+   * The note count, end to end. It is the tree's (`servedNoteCount`): the
+   * bucket holds frozen path copies beside the id keys.
    *
-   * `noteCount.test.ts` proves the walk. These prove it reaches the row a
+   * `nodes/servedNoteCount.test.ts` proves the count. These prove it reaches the row a
    * console reads — a separate failure, and the one that would leave the tile
    * blank forever with a perfectly correct counter sitting behind it.
    */
@@ -529,9 +537,7 @@ describe("verification classifies the bucket without touching it", () => {
     backend.seed("areas/health.md", "# Health\n");
     backend.seed("projects/diagram.png", "binary");
 
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
 
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ noteCount: 3, noteCountTruncated: false });
@@ -546,9 +552,7 @@ describe("verification classifies the bucket without touching it", () => {
     }
     backend.seed("projects/ship-it.md", "# Ship it\n");
 
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
 
     expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 1 });
   });
@@ -562,9 +566,7 @@ describe("verification classifies the bucket without touching it", () => {
   test("a later failed probe does not erase the count", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
     backend.seed("projects/ship-it.md", "# Ship it\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
     const countedAt = (await binding(t, owner, workspaceId))?.noteCountedAt;
     expect(countedAt).toBeTypeOf("number");
 
@@ -591,9 +593,7 @@ describe("verification classifies the bucket without touching it", () => {
     const { t, owner, backend, workspaceId } = await connecting();
     backend.seed("projects/ship-it.md", "# Ship it\n");
     backend.seed("areas/health.md", "# Health\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
     expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 2 });
 
     const elsewhere = memoryS3("some-other-bucket", { unreachable: true });
@@ -618,9 +618,7 @@ describe("verification classifies the bucket without touching it", () => {
     const { t, owner, backend, workspaceId } = await connecting();
     backend.seed("projects/private-thing.md", "# Secret\n");
     backend.seed("areas/another.md", "# Also secret\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
 
     const guest = await createUser(t, "guest@example.invalid");
     await addMember(t, workspaceId, guest, "member");

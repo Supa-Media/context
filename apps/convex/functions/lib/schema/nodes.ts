@@ -439,8 +439,8 @@ export const nodeTables = {
     passSeq: v.optional(v.number()),
     /**
      * The workspace's flip to keyed rows started at this time (`keys` mode).
-     * With the switch at `keys`, this makes the workspace keyed for good
-     * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
+     * Every workspace is keyed now (2026-10-22) and nothing reads this to
+     * decide it; kept on the row as history.
      */
     keyedAt: v.optional(v.number()),
     /** The one recheck of this keyed workspace's rows against their keys was started then (`lib/noteIds/keyedRecheck.ts`). */
@@ -484,8 +484,8 @@ export const nodeTables = {
   /**
    * RETIRED 2026-10-22 (`docs/decisions/storage-and-credentials/notes-by-id.md`).
    * The switch and its pause are gone: every workspace is keyed. The row stays
-   * only because prod holds it at `keys` and `keyedWorkspace` and the id-layout
-   * query still read `mode`. Nothing writes it now. Remove the table, and the
+   * only because prod holds it at `keys` and the id-layout query still reads
+   * `mode`. Nothing writes it now. Remove the table, and the
    * rows, with those readers.
    */
   noteIdLayout: defineTable({

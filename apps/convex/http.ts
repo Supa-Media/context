@@ -97,7 +97,7 @@ import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
-import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler, keyedSibling } from "./functions/lib/noteIds/http";
+import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler } from "./functions/lib/noteIds/http";
 import { ingestNoteIdsAdoptHandler, ingestNoteIdsLookupHandler, ingestNoteIdsWroteHandler } from "./functions/lib/noteIds/ingestHttp";
 import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
@@ -559,7 +559,8 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
     binding,
     ...(noteCap === null ? {} : { noteCap }),
     ...(counted === null ? {} : { noteCount: counted.notes }),
-    ...(await keyedSibling(ctx, binding.workspaceId)),
+    // Every workspace is keyed (2026-10-22): the email worker writes each note to its id key.
+    keyed: true,
     ...managed,
   });
 });

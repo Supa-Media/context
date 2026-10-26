@@ -51,7 +51,6 @@
 export { MAX_NOTE_BYTES, FOLDER_OPERATION_CAP } from "./fileOps/store";
 export type { FileStore } from "./fileOps/store";
 export {
-  VAULT_CLEAR_BATCH_OBJECTS,
   clearVaultBatch,
   MAX_VAULT_IMPORT_FILE_BYTES,
   importVaultFiles,

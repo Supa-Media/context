@@ -6,7 +6,6 @@
  * rows themselves, which keep their ids), and nothing is copied or queued.
  *
  * Refused, with nothing written, when:
- *  - the workspace is not keyed (`keyedWorkspace`);
  *  - the destination, or any path a moved row would take, is held by a live row;
  *  - any file under the name has no key (its flip is not finished);
  *  - another keyed move still moving overlaps either name (`busy`, `rowMoveChunks.ts`);
@@ -30,7 +29,6 @@
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
-import { keyedWorkspace } from "../noteIds/keyedState";
 import { convexNodeTable } from "./convexTable";
 import { treeServesNow } from "./listing";
 import { privacyEtagOf, readerMirror } from "./readerRules";
@@ -59,7 +57,6 @@ import { applyBuiltMove } from "./builtMove";
 export const ROW_MOVE_MAX = 500;
 
 export type RowMoveRefusal =
-  | "not_keyed"
   | "not_served"
   | "busy"
   | "not_found"
@@ -187,7 +184,6 @@ export async function applyRowMove(
   const refuse = (reason: RowMoveRefusal): RowMoveAnswer => ({ ok: false, reason });
   const trash = args.trash === true;
 
-  if (!(await keyedWorkspace(ctx.db, ws))) return refuse("not_keyed");
   if (!(await treeServesNow(ctx.db, ws))) return refuse("not_served");
   // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
   if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");

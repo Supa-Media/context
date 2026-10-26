@@ -10,7 +10,6 @@ import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { managedBucketName } from "../../functions/lib/managedStorage";
-import { keyedWorkspace } from "../../functions/lib/noteIds/keyedState";
 import { copyRowOf } from "../../functions/lib/noteIds/state";
 import { tester, user, type T } from "./noteIds.helpers";
 
@@ -51,7 +50,7 @@ describe("a new workspace", () => {
     const t = tester();
     const { ws, owner } = await newWorkspace(t);
     await bind(t, ws, owner, managedBucketName(ws));
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(true);
+    expect((await t.run((ctx) => copyRowOf(ctx.db, ws)))?.keyedAt).toEqual(expect.any(Number));
     expect(await t.run((ctx) => copyRowOf(ctx.db, ws))).toMatchObject({
       status: "done",
       keyedAt: expect.any(Number),
@@ -68,7 +67,7 @@ describe("a new workspace", () => {
     const t = tester();
     const { ws, owner } = await newWorkspace(t);
     await bind(t, ws, owner, "owners-own-bucket");
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(true);
+    expect((await t.run((ctx) => copyRowOf(ctx.db, ws)))?.keyedAt).toEqual(expect.any(Number));
   });
 
   test("that already has tree rows is not marked keyed: they may be unkeyed", async () => {
@@ -78,6 +77,6 @@ describe("a new workspace", () => {
       await ctx.db.insert("nodes", { workspaceId: ws, path: "inbox", name: "inbox", kind: "folder", observedAt: 1 });
     });
     await bind(t, ws, owner, managedBucketName(ws));
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(false);
+    expect((await t.run((ctx) => copyRowOf(ctx.db, ws)))?.keyedAt).toBeUndefined();
   });
 });

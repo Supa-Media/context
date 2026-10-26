@@ -8,8 +8,8 @@
  * copies of the bucket's names) would leave the workspace with no names at
  * all, and no sweep of the new bucket could bring them back.
  *
- * Sabotage: call `forgetWorkspaceTree` unconditionally in `applyBinding` again
- * and the first case fails with every row gone.
+ * Sabotage: call `forgetWorkspaceTree` in `applyBinding` again and both cases
+ * fail with every row gone.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -91,11 +91,12 @@ describe("a storage move", () => {
     expect(scheduled).toContain("functions/noteIdsCopy:runCheck");
   });
 
-  test("in an unkeyed workspace still forgets the rows, which named the old bucket's paths", async () => {
+  test("keeps the rows of a workspace whose copy row was never flipped too: every workspace is keyed", async () => {
     const f = await fixture();
     await bind(f, "bucket-old");
-    expect((await liveRows(f)).length).toBeGreaterThan(0);
+    const before = await liveRows(f);
+    expect(before.length).toBeGreaterThan(0);
     await moveStorage(f, "bucket-new");
-    expect(await liveRows(f)).toEqual([]);
+    expect(await liveRows(f)).toEqual(before);
   });
 });
