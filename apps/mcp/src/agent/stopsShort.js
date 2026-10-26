@@ -35,6 +35,9 @@ const SHORT = [
   new RegExp(String.raw`\b(?:I|we) (?:haven't|have not|didn't|did not) (?:yet\s+)?(?:priced|costed|checked|compared|researched|looked (?:up|into)|found prices for)\b`, "i"),
   /\b(?:I|we) (?:still )?(?:need|have) to (?:price|cost|check|compare|research|look up|look into|find prices)\b/i,
   /\bstill (?:needs?|has|have) to be (?:priced|costed|checked|compared|researched|looked up)\b/i,
+  // A figure given up on because one page lacked it (bench gh-112: "Seoul Box: no prices listed").
+  /\bno (?:[A-Z][\w']*\s+){0,3}(?:prices?|pricing|menu prices|hours) (?:are |is )?(?:listed|posted|published|shown|online|to give)\b|\bno menu with prices\b/i,
+  /\b(?:prices?|pricing|hours) (?:(?:are|is) not|aren't|isn't|not) (?:listed|posted|published|shown|online)\b/i,
   /\bisn't (?:confirmed|priced|known) yet\b|\b(?:full|total) [^.?!\n]{0,40}\b(?:isn't|is not|aren't|are not) (?:confirmed|priced|known|covered)\b/i,
 ];
 

@@ -64,6 +64,13 @@ test("the catering answer's offers to keep looking are read as stopping short", 
     "I can look up hours for one you pick.",
     "I can check hours for whichever you choose.",
     "Want me to check hours?",
+    // Bench gh-112, the lunch case: one place's menu page was broken, so its
+    // price was given up on rather than found on its ordering page.
+    "Seoul Box, 18 Mill Street: no prices listed.",
+    "Seoul Box: price not listed.",
+    "it says \"Page not found\", so there are no Seoul Box prices to give.",
+    "it says Page not found, so there's no menu with prices there.",
+    "Their prices aren't posted online.",
   ]) {
     assert.ok(stopsShort(said), said);
   }
@@ -80,6 +87,7 @@ test("a finished answer, a fair ask or a step only someone else can take is not 
     "Added smoke alarm battery to your to-do list.",
     "Your order is placed; next step is the courier picking it up at 6.",
     "Bella Cucina is open till 10 tonight and Pho 88 till 9. I can book a table at the one you pick.",
+    "Bento Bay: bentos $12 to $14. No booking needed.",
   ]) {
     assert.equal(stopsShort(said), false, said);
   }
