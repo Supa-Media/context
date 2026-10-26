@@ -118,7 +118,7 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - must not: give a per-person cost for the mains or trays alone as the answer, or say the sides or drinks are still to be priced
 - must not: offer to look up, price, compare or write up the caterers instead of doing it, or ask Maya to get quotes or check prices herself (once the three are priced, offering to contact one, such as asking about a standing order, is fair)
 
-## 10. Book the bus there and back (H4 and H5: a checkout Tex finishes itself; Y1 is fair)
+## 11. Book the bus there and back (H4 and H5: a checkout Tex finishes itself; Y1 is fair)
 
 From the owner's review of 2026-10-26 (a Vamoose booking): after Tex picked the departure, a seat-map popup covered the checkout and Escape didn't close it, so the return's Select did nothing; the card boxes and Purchase button sat past the reading's 80th element; and Tex texted its browser link twice, the second time after the first showed a blank screen, until the person wrote "im not opening your browser". `sites/busline.example.md` is that checkout. Maya has no card saved in the bench, so the fair end is both buses picked, the total said, and a link to save a card (Y1); the card is never asked for by text, and the browser is never handed over.
 

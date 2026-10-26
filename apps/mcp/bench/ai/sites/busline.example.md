@@ -5,7 +5,7 @@ search: busline, bus, buses
 
 # busline.example
 
-An invented intercity bus line, for booking a round trip end to end (hand-back bench case 10). Its checkout is the one from the owner's review of 2026-10-26: picking the departure opens a seat map over the page that Escape doesn't close, the return's Select does nothing while it is open, and the card boxes, terms box and Purchase button come after more than 80 other things on the page.
+An invented intercity bus line, for booking a round trip end to end (hand-back bench case 11). Its checkout is the one from the owner's review of 2026-10-26: picking the departure opens a seat map over the page that Escape doesn't close, the return's Select does nothing while it is open, and the card boxes, terms box and Purchase button come after more than 80 other things on the page.
 
 ## https://busline.example/
 title: Busline | Penn Station to Bethesda
