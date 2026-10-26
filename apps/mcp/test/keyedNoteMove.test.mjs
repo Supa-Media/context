@@ -19,6 +19,9 @@ import { toolMoveNotes } from "../src/tools/moves/notes.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
+import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
+import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
+import { MOVE_TIMEOUTS } from "../src/agent/slowMoves.js";
 
 /** A bucket fake with the methods a note move reads and writes. */
 function bucket(files) {
@@ -208,6 +211,43 @@ test("a keyed batch that cannot reach the control plane is refused, and no note 
   const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
 
   assert.match(answer.content[0].text, /could not start the moves right now/);
+  assert.deepEqual(noteWrites(made.writes), []);
+});
+
+/**
+ * A batch's rows are planned, judged and moved before the control plane
+ * answers, so a batch of 20 outlasted the 8-second lookup wait and every
+ * housekeeping move on a crowded folder came back "could not start the moves
+ * right now" (2026-10-26). The batch waits longer, still inside move_notes'
+ * own limit, and a batch it gave up on is told as maybe landed.
+ */
+test("a keyed batch waits longer than a lookup, and one the gateway gave up on is told as maybe landed", async () => {
+  const timeouts = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    timeouts.push(ms);
+    return realSetTimeout(fn, 0, ...rest);
+  };
+  const hang = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    });
+  const env = { CONTROL_PLANE_URL: "https://control-plane.example.test", GATEWAY_SECRET: "s".repeat(32) };
+  let error = null;
+  try {
+    await createControlPlane(env, { fetchImpl: hang }).startMoveBatch("cat_token", "ws_moves", [{ from: "a.md", to: "b/a.md" }]);
+  } catch (caught) {
+    error = caught;
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.ok(timeouts.includes(CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS));
+  assert.ok(CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS > CONTROL_PLANE_TIMEOUT_MS && CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS < MOVE_TIMEOUTS.move_notes);
+  assert.ok(error instanceof ControlPlaneError && error.reason === "timed out");
+
+  const made = keyedBatch(TWO_NOTES, error);
+  const answer = await toolMoveNotes(made.store, "private", [], new Map(), TWO_MOVES, false);
+  assert.match(answer.content[0].text, /may still finish; list the folder before sending any of them again/);
   assert.deepEqual(noteWrites(made.writes), []);
 });
 
