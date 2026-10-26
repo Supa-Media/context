@@ -41,7 +41,8 @@ export const prepare = internalMutation({
         email, emailVerificationTime: now, name: displayNames[i], isActive: true, createdAt: now,
       });
     }
-    const staffEmail = [...parseAdminEmails(process.env.ADMIN_EMAILS)].sort()[0];
+    const adminEmails = parseAdminEmails(process.env.ADMIN_EMAILS);
+    const staffEmail = [...adminEmails].sort()[0];
     if (!staffEmail) throw new Error("Staging personas require at least one ADMIN_EMAILS entry for @context-lc.");
     const existingStaff = await ctx.db.query("users").withIndex("by_email", q => q.eq("email", staffEmail)).unique();
     const staffUserId = existingStaff?._id ?? await ctx.db.insert("users", {
@@ -49,11 +50,16 @@ export const prepare = internalMutation({
     });
     const workspaces: { slug: string; workspaceId: Id<"workspaces">; owner: Persona }[] = [];
     for (const fixture of FIXTURES) {
-      const creator = fixture.vouchedByStaff ? staffUserId : users[fixture.owner];
       const claim = await findName(ctx, fixture.slug);
       let workspaceId = claim?.workspaceId;
+      const workspace = workspaceId ? await ctx.db.get(workspaceId) : null;
+      // The pinned workspace was vouched for by whoever was first in ADMIN_EMAILS
+      // when it was made. A staff list that has since grown keeps it the same
+      // workspace: any staff creator is still its voucher, never an outsider.
+      const creatorEmail = workspace ? (await ctx.db.get(workspace.createdBy))?.email : undefined;
+      const stillStaff = fixture.vouchedByStaff && workspace && creatorEmail !== undefined && adminEmails.has(creatorEmail.toLowerCase());
+      const creator = stillStaff ? workspace.createdBy : fixture.vouchedByStaff ? staffUserId : users[fixture.owner];
       if (claim) {
-        const workspace = workspaceId ? await ctx.db.get(workspaceId) : null;
         if (!workspace || workspace.createdBy !== creator || workspace.kind !== fixture.kind) {
           throw new Error(`Fixture name collision: ${fixture.slug}; nothing was changed.`);
         }
@@ -79,9 +85,9 @@ export const prepare = internalMutation({
         else if (role && member && reset) await ctx.db.patch(member._id, { role });
         else if (!role && member && reset) await ctx.db.delete(member._id);
       }
-      if (fixture.vouchedByStaff && staffUserId !== users[fixture.owner]) {
-        const staffMembership = memberships.find(m => m.userId === staffUserId);
-        if (!staffMembership) await ctx.db.insert("workspaceMembers", { workspaceId: id, userId: staffUserId, role: "owner", joinedAt: now });
+      if (fixture.vouchedByStaff && creator !== users[fixture.owner]) {
+        const staffMembership = memberships.find(m => m.userId === creator);
+        if (!staffMembership) await ctx.db.insert("workspaceMembers", { workspaceId: id, userId: creator, role: "owner", joinedAt: now });
         else if (reset && staffMembership.role !== "owner") await ctx.db.patch(staffMembership._id, { role: "owner" });
       }
       if (!claim && fixture.kind === "personal") await seedIngestionSettings(ctx, { workspaceId: id, ownerUserId: users[fixture.owner], now });

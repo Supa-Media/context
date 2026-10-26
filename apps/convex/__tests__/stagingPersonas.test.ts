@@ -77,6 +77,19 @@ describe("isolated staging fixtures", () => {
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(1);
     expect(await t.run(ctx => ctx.db.query("workspaces").collect())).toHaveLength(1);
   });
+  test("a grown staff list keeps the pinned workspace its first voucher made", async () => {
+    const t = setupTest();
+    const first = await t.mutation(internal.functions.stagingPersonas.prepare, {});
+    vi.stubEnv("ADMIN_EMAILS", "aaron@supa.media,staff@supa.media");
+    const again = await t.mutation(internal.functions.stagingPersonas.prepare, { reset: true });
+    expect(again.workspaces).toEqual(first.workspaces);
+    const context = first.workspaces.find(w => w.slug === "context-lc")!;
+    const members = await t.run(ctx => ctx.db.query("workspaceMembers").withIndex("by_workspace", q => q.eq("workspaceId", context.workspaceId)).collect());
+    expect(members).toHaveLength(2);
+    // A creator who has left the staff list is no voucher.
+    vi.stubEnv("ADMIN_EMAILS", "aaron@supa.media");
+    await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/collision: context-lc/);
+  });
   test("an unrelated member prevents fixture reset", async () => {
     const t = setupTest();
     const { workspaces } = await t.mutation(internal.functions.stagingPersonas.prepare, {});

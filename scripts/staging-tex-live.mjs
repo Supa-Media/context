@@ -89,8 +89,27 @@ pass("signed in as the alpha persona");
 // code only.
 {
   const workspaces = await convex.query(ref("functions/workspaces:listMyWorkspaces"), {});
-  const personal = workspaces.find((w) => w.kind === "personal") ?? workspaces[0];
-  const grant = await convex.action(ref("functions/agentGrant:mintConsoleGrant"), { workspaceId: personal._id ?? personal.workspaceId });
+  const personal = workspaces.find((w) => w.kind === "personal");
+  assert.ok(personal, `the persona has no personal workspace (has: ${workspaces.map((w) => w.slug).join(", ") || "none"})`);
+  const workspaceId = personal._id ?? personal.workspaceId;
+  // A persona whose bucket was never provisioned, or lost its entitlement, is
+  // provisioned the way the seed workflow does it, then waited for. Status and
+  // error code only: the bucket's name is derived from the workspace id.
+  const bindingOf = () => convex.query(ref("functions/storage:getStorageBinding"), { workspaceId });
+  let binding = await bindingOf();
+  console.log(`storage: ${binding ? `${binding.provider} ${binding.status}${binding.errorCode ? ` (${binding.errorCode})` : ""}` : "none"}`);
+  if (binding?.status !== "connected") {
+    await convex.mutation(ref("functions/billing:setEntitlements"), { workspaceId, managedStorage: true, fastSearch: false });
+    await convex.mutation(ref("functions/billing:activateTestPremium"), { workspaceId });
+    for (let attempt = 0; attempt < 90 && binding?.status !== "connected"; attempt++) {
+      await pause(2000);
+      binding = await bindingOf();
+      assert.notEqual(binding?.status, "error", `storage provisioning failed (${binding?.errorCode ?? "unknown"})`);
+    }
+    assert.equal(binding?.status, "connected", `storage did not become ready: ${binding?.status ?? "none"}`);
+    pass("the persona's storage was provisioned");
+  }
+  const grant = await convex.action(ref("functions/agentGrant:mintConsoleGrant"), { workspaceId });
   const answered = await fetch("https://mcp-staging.context.lc/agent", {
     method: "POST",
     headers: { authorization: `Bearer ${grant.accessToken}`, "content-type": "application/json" },
