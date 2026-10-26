@@ -1,0 +1,46 @@
+# Bring one person's next Tex housekeeping run forward to now, so a change to
+# housekeeping is checked on a real run instead of waiting for 9am in their
+# zone (docs/decisions/texting-assistant/housekeeping.md). Manual only. The
+# texting Worker's next Cron tick (within a minute) claims it as any due run,
+# with every check asked again there. It prints
+# `functions/housekeeping.ts:runHousekeepingNow`'s answer, one code (due,
+# running, not_armed, unknown_name), and nothing the run read or changed:
+# that goes into the person's own `tex/housekeeping/` note. The handle typed
+# here is visible to anyone who can read this repository's runs, so only a
+# handle its owner is happy to have seen should be typed.
+name: Tex housekeeping now
+
+on:
+  workflow_dispatch:
+    inputs:
+      handle:
+        description: "The person's handle or personal workspace's slug, without @."
+        required: true
+
+jobs:
+  now:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run now
+        run: |
+          case "$HANDLE" in
+            *[!a-z0-9-]*|"") echo "handle must be lowercase letters, digits and dashes"; exit 1 ;;
+          esac
+          npx convex run functions/housekeeping:runHousekeepingNow "{\"name\":\"$HANDLE\"}"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}

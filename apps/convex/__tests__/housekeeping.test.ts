@@ -16,6 +16,9 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
 /*
  * ## Sabotage record
  *
+ *   `runHousekeepingNowHandler` patching a leased row (2026-10-26)
+ *     → "brings one person's next run forward…" fails
+ *
  * Run as temporary local edits and reverted (2026-10-17).
  *
  *   `nextHousekeepingAfter` answering `afterMs + 1h`
@@ -252,6 +255,21 @@ describe("hearing back", () => {
     const [run] = await due(t);
     expect((await result(t, run!.runId, "Archived the kitchen remodel")).status).toBe(400);
     expect((await result(t, "house_nope", "tidied")).body).toEqual({ status: "unknown" });
+  });
+});
+
+describe("a run now, by hand", () => {
+  test("brings one person's next run forward by their workspace's handle, and leaves a run already out alone", async () => {
+    const t = setupTest();
+    const { userId } = await linked(t, "ada");
+    await text(t);
+    expect(await t.mutation(internal.functions.housekeeping.runHousekeepingNow, { name: "@ada" })).toBe("due");
+    const [run] = await due(t);
+    expect(run).toBeDefined();
+    expect(await t.mutation(internal.functions.housekeeping.runHousekeepingNow, { name: "ada" })).toBe("running");
+    await result(t, run!.runId, "tidied");
+    expect((await row(t, userId))!.nextRunAt!).toBeGreaterThan(Date.now());
+    expect(await t.mutation(internal.functions.housekeeping.runHousekeepingNow, { name: "nobody-here" })).toBe("unknown_name");
   });
 });
 

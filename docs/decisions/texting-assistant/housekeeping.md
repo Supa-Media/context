@@ -86,7 +86,10 @@ each row's version without reading bodies, and a keyed batch looks its notes
 up ten at a time. The log states, from what the gateway saw rather than from
 the model, how many dry runs it made and whether a change was still running
 when the run ended, because that run's own account called a timed-out move a
-dry run. Tests: `apps/mcp/test/housekeepingByName.test.mjs`.
+dry run. Tests: `apps/mcp/test/housekeepingByName.test.mjs`. To check a fix on
+a real run without waiting for 9am, the manual "Tex housekeeping now" workflow
+brings one person's next run forward (`runHousekeepingNow`); the next Cron tick
+claims it like any due run.
 
 **Measured.** `apps/mcp/bench/ai/tests/housekeeping.md` (`mode: housekeeping`)
 (AI Benchmark, job `housekeeping`, with the live setup note) runs it on
