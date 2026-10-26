@@ -86,7 +86,7 @@ export {
   shareCardTokenFrom,
 } from "./preview/shareLinks";
 
-export { consoleNoteFrom, previewForNote, PRODUCT_MANDATED_PATHS } from "./preview/notes";
+export { consoleNoteFrom, noteLinkFrom, NOTE_LINK_PREVIEW, previewForNote, PRODUCT_MANDATED_PATHS } from "./preview/notes";
 
 export {
   shortLinkFrom,
