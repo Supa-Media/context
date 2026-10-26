@@ -60,6 +60,10 @@ test("the catering answer's offers to keep looking are read as stopping short", 
     "I haven't priced them for 30.",
     "Want me to look up their menus?",
     "Let me know if you'd like me to dig into prices.",
+    // Dev2's 1:1, 2026-10-26: four restaurants nearby, hours held for a pick.
+    "I can look up hours for one you pick.",
+    "I can check hours for whichever you choose.",
+    "Want me to check hours?",
   ]) {
     assert.ok(stopsShort(said), said);
   }
@@ -75,6 +79,7 @@ test("a finished answer, a fair ask or a step only someone else can take is not 
     "The table is booked for 7 pm; the restaurant emails a confirmation within the hour.",
     "Added smoke alarm battery to your to-do list.",
     "Your order is placed; next step is the courier picking it up at 6.",
+    "Bella Cucina is open till 10 tonight and Pho 88 till 9. I can book a table at the one you pick.",
   ]) {
     assert.equal(stopsShort(said), false, said);
   }
