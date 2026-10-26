@@ -19,7 +19,8 @@
  * answers (`quoted.js`), so a quoted "yes" settles nothing.
  */
 
-import { listPending } from "../tools/approvals.js";
+import { disarmRecords, listPending } from "../tools/approvals.js";
+import { askOvertaken, droppedLine } from "./askOvertaken.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { settlePayByText } from "./textedPay.js";
 import { openTranscript } from "./transcript.js";
@@ -30,10 +31,25 @@ import { appendConversation, appendTold, readConversation, readTold } from "./co
  * or what goes on to the model: `{ setAside }`, the asks still waiting for
  * their yes, which the model is told about (`setAsideLine`), or null.
  */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null, thumbsUp = false }) {
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
+  /*
+    An ask Tex has since texted something else after by itself (a routine, a
+    check-in) is no longer what a yes or no answers: it is dropped, nothing is
+    sent, and the model answers the text (`askOvertaken.js`). A 👍 on the
+    ask's own words was put on it, so it still counts (`thumbsUpIsYes`).
+  */
+  if (!thumbsUp) {
+    const armed = await listPending(store, { userId: session.actorUserId, texting: true, now });
+    if (await askOvertaken(store, conversation, armed.map(({ record }) => record))) {
+      // One that cannot be dropped stays armed, but this same check keeps every later bare yes off it too.
+      const stuck = await disarmRecords(store, armed);
+      console.log(JSON.stringify({ event: "ask_overtaken", asks: armed.length, stuck }));
+      return { dropped: armed.map(({ record }) => ({ tool: record.tool, summary: record.summary })) };
+    }
+  }
   // A yes to a card's payment goes on to the model, which fills the card (`textedPay.js`).
   const pay = await settlePayByText(store, session, verdict, question, now);
   if (verdict !== null && pay.allowed.length === 0) {
@@ -62,9 +78,9 @@ export async function settleTextedText(store, session, { dispatch, question, has
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
 }
 
-/** The model's note that what it asked before still waits for their yes, or "". */
-export function setAsideLine(setAside) {
-  if (!Array.isArray(setAside) || setAside.length === 0) return "";
+/** The model's note that what it asked before still waits for their yes, or was dropped (`droppedLine`), or "". */
+export function setAsideLine(setAside, dropped = []) {
+  if (!Array.isArray(setAside) || setAside.length === 0) return droppedLine(dropped);
   const each = setAside.map((entry) => `"${String(entry.summary ?? entry.tool).slice(0, 200)}"`).join(", ");
   return (
     `(Context: you asked the person to give a 👍 or say yes to ${each}, and it still waits: their yes or 👍 makes it, nothing else is needed. ` +
