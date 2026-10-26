@@ -21,6 +21,10 @@
  *  5. `notesUnder` ignoring its `visible` predicate. → "a member on the desk
  *     is not listed a report their own membership cannot open" fails: the
  *     held-back report is listed, heading and all.
+ *  6. `claimAlert` always answering true (2026-10-26). → "a desk nobody has
+ *     read for three hours mails the team inbox once" fails: a second mail.
+ *  7. `waitingOf` counting every `new` review, however fresh. → "only what
+ *     has waited three hours counts" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -30,7 +34,8 @@ vi.setConfig({ testTimeout: 30_000 });
 
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { listOf, onTheDesk, stampOf, themeRowOf, triageFolders, withStatus } from "../../functions/lib/adminFns/texTriage";
+import { LOOKS_BACK_MS, STALE_AFTER_MS, waitingOf } from "../../functions/texTriageWatch";
+import { listOf, onTheDesk, reviewRowOf, stampOf, themeRowOf, triageFolders, withStatus } from "../../functions/lib/adminFns/texTriage";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { LEGACY_PARA_FOLDERS } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
@@ -56,6 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -196,17 +202,74 @@ describe("the pure parts", () => {
     expect(withStatus("# Plain", "open")).toBe("---\nstatus: open\n---\n\n# Plain");
   });
 
+  test("a report filed under several themes counts for each of them", () => {
+    const facts = (properties: Record<string, unknown>) => JSON.stringify({ properties });
+    expect(reviewRowOf("r/2026-10-26 1643 x.md", facts({ themes: ["a-theme", "b-theme"] }))).toMatchObject({ theme: "a-theme", themes: ["a-theme", "b-theme"] });
+    expect(reviewRowOf("r/2026-10-26 1643 x.md", facts({ theme: "a-theme", themes: "b-theme, c-theme" }))).toMatchObject({ themes: ["a-theme", "b-theme", "c-theme"] });
+    expect(reviewRowOf("r/2026-10-26 1643 x.md", facts({}))).toMatchObject({ theme: null, themes: [] });
+  });
+
   test("lists, stamps, themes and the desk's folders", () => {
     expect(listOf(["a", "a", "b"])).toEqual(["a", "b"]);
     expect(listOf('["x","y"]')).toEqual(["x", "y"]);
     expect(listOf("notes, email")).toEqual(["notes", "email"]);
     expect(stampOf("a/2026-10-24 0905 x.md")).toBe(Date.UTC(2026, 9, 24, 9, 5));
     expect(stampOf("a/x.md")).toBeNull();
-    expect(themeRowOf("f/themes/x.md", undefined)).toMatchObject({ slug: "x", name: "x", status: "open", prs: [] });
+    expect(themeRowOf("f/themes/x.md", undefined)).toMatchObject({ slug: "x", name: "x", status: "open", prs: [], retest: null });
+    expect(themeRowOf("f/themes/x.md", JSON.stringify({ properties: { status: "fixed", retest: "bench 2026-10-26 3/3" } }))).toMatchObject({ retest: "bench 2026-10-26 3/3" });
     const folders = triageFolders("2-areas");
     expect(folders).toEqual({ bugs: "2-areas/tex-bugs", reviews: "2-areas/tex-reviews", themes: "2-areas/tex-reviews/themes" });
     expect(onTheDesk(folders, "2-areas/tex-bugs/team/a.md")).toBe(true);
     expect(onTheDesk(folders, "2-areas/tex-bugs/team/a.txt")).toBe(false);
     expect(onTheDesk(folders, "2-areas/tex-bugs//a.md")).toBe(false);
+  });
+});
+
+describe("the watch on the desk", () => {
+  test("only what has waited three hours counts", () => {
+    const now = Date.UTC(2026, 9, 26, 22);
+    const desk = {
+      reviews: [
+        { status: "new", reviewed: now - STALE_AFTER_MS - 1 },
+        { status: "new", reviewed: now - 60_000 },
+        { status: "triaged", reviewed: now - 10 * STALE_AFTER_MS },
+      ],
+      bugs: [
+        { status: "open", filed: now - 2 * STALE_AFTER_MS, themes: [] },
+        { status: "fixing", filed: now - 2 * STALE_AFTER_MS, themes: [] },
+        // Filed under a theme: triage read it, and leaves it open while the fix runs.
+        { status: "open", filed: now - 2 * STALE_AFTER_MS, themes: ["checkout"] },
+        // Untouched since before the watch existed: says nothing about triage now.
+        { status: "open", filed: now - LOOKS_BACK_MS - 1, themes: [] },
+      ],
+    };
+    expect(waitingOf(desk, now)).toEqual({ waiting: 2, oldest: now - 2 * STALE_AFTER_MS });
+    expect(waitingOf({ reviews: [], bugs: [] }, now)).toEqual({ waiting: 0, oldest: null });
+  });
+
+  test("a desk nobody has read for three hours mails the team inbox once, with a count and no words", async () => {
+    // The fixtures are filed 22 to 24 Oct 2026; the watch looks back three days.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 12));
+    const { t } = await world();
+    vi.stubEnv("SIGNUP_ALERTS_EMAIL", "team@example.invalid");
+    vi.stubEnv("RESEND_API_KEY", "re_fake_0123456789");
+    vi.stubEnv("APP_ORIGIN", "https://app.example.invalid");
+    const mails: { to: string; subject: string; text: string }[] = [];
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (String(input).startsWith("https://api.resend.com/")) {
+        mails.push(JSON.parse(String(init?.body)) as { to: string; subject: string; text: string });
+        return new Response("{}", { status: 200 });
+      }
+      return await backend.fetchImpl(input, init);
+    });
+    await t.action(internal.functions.texTriageWatch.check, {});
+    await t.action(internal.functions.texTriageWatch.check, {});
+    expect(mails).toHaveLength(1);
+    expect(mails[0]!.to).toBe("team@example.invalid");
+    // The review still new and the two unthemed bugs still open from the last three days; the 22 Oct one is older.
+    expect(mails[0]!.subject).toBe("Tex triage has stalled: 3 waiting");
+    expect(mails[0]!.text).toContain("https://app.example.invalid/admin");
+    expect(mails[0]!.text).not.toMatch(/calendar|Blank reply|Card number|long note/i);
   });
 });

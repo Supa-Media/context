@@ -534,4 +534,17 @@ crons.interval(
   {},
 );
 
+/**
+ * Tex's triage desk, watched: a mail to the team inbox when reviews or texted
+ * bug reports have sat untouched for three hours, so a stopped triage pass is
+ * noticed (`functions/texTriageWatch.ts`). It counts rows and says so; it
+ * decides nothing and changes nothing.
+ */
+crons.interval(
+  "watch the Tex triage desk",
+  { hours: 1 },
+  internal.functions.texTriageWatch.check,
+  {},
+);
+
 export default crons;

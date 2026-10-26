@@ -91,6 +91,7 @@ function PainLine({ row, onOpen, onSend }: { row: PainRow; onOpen: (path: string
       </td>
       <td>
         <span className={`td-chip ${row.status}`}>{row.status === "shipped" && row.theme.merged !== null ? `Shipped ${shortDate(row.theme.merged)}` : STATUS_TEXT[row.status]}</span>
+        {row.status === "shipped" ? <div className="td-pain-meta">{row.theme.retest !== null ? `Retested: ${row.theme.retest}` : "Not retested yet"}</div> : null}
         {row.theme.prs.length > 0 ? <div className="td-pain-meta">{row.theme.prs.map((pr) => `#${pr}`).join(" ")}</div> : null}
         {row.status === "working" && row.theme.fixThread !== null ? <div className="td-pain-meta">{row.theme.fixThread}</div> : null}
       </td>

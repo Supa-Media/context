@@ -18,6 +18,7 @@ import {
   beforeAndSince,
   directionOf,
   isSuccess,
+  painRowsOf,
   painStatusOf,
   untriagedSignals,
   type ThemeRow,
@@ -50,7 +51,7 @@ function row(over: Partial<TexReview> = {}): TexReview {
 }
 
 function theme(over: Partial<ThemeRow> = {}): ThemeRow {
-  return { path: "t.md", slug: "t", name: "Note saves", status: "shipped", signals: ["try_again"], tasks: ["notes"], prs: [2154], merged: SHIPPED, firstSeen: null, fixThread: null, ...over };
+  return { path: "t.md", slug: "t", name: "Note saves", status: "shipped", signals: ["try_again"], tasks: ["notes"], prs: [2154], merged: SHIPPED, firstSeen: null, fixThread: null, retest: null, ...over };
 }
 
 describe("what counts", () => {
@@ -58,6 +59,12 @@ describe("what counts", () => {
     expect(isSuccess(row())).toBe(true);
     expect(isSuccess(row({ goal: 7 }))).toBe(false);
     expect(isSuccess(row({ signals: ["gave_up"] }))).toBe(false);
+  });
+
+  test("a review filed under two themes counts as a report for both", () => {
+    const review = { path: "r.md", reviewed: SHIPPED + 1, status: "triaged", theme: "a", themes: ["a", "b"], task: "notes", signals: [], average: 4 };
+    const desk = { themes: [theme({ slug: "a", path: "a.md" }), theme({ slug: "b", path: "b.md" })], bugs: [], reviews: [review], available: true, slug: "x" } as TriageDesk;
+    expect(painRowsOf(desk, [], SHIPPED + DAY).map((pain) => [pain.key, pain.reports.length])).toEqual([["a", 1], ["b", 1]]);
   });
 
   test("signals with no named problem are listed, but only from coded rows in two weeks", () => {
