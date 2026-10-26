@@ -46,6 +46,8 @@ export type {
   MeetingWrite,
   MeetingWriteAck,
   MeetingWriteKind,
+  MessagesBackupPhase,
+  MessagesBackupView,
   OutboxStatus,
   PendingMachineApproval,
   SpellingCheck,

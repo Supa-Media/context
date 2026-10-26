@@ -6,13 +6,6 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { GoogleConnectionsCard } from "../../google/GoogleConnectionsCard";
 import { LiveOldCopies } from "../../google/LiveOldCopies";
 import { IngestionCard } from "../../ingestion/IngestionCard";
-/*
-  The component's own path rather than the meetings barrel, deliberately: that
-  barrel re-exports `useMeetingFlow`, which imports `expo-router`, and pulling
-  a navigator into a settings panel makes every console test that renders it
-  mock a router it has nothing to do with.
-*/
-import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { selectedContext, type ConsoleData } from "../../types";
 import { WorkspaceRefusalCard } from "./PanelHead";
 
@@ -53,8 +46,6 @@ export function SourcesPanel({ data }: { data: ConsoleData }) {
           {oldCopies === null ? null : (
             <LiveOldCopies workspaceId={oldCopies} open={false} onOpen={() => setOldCopiesOpen(true)} onClose={() => {}} />
           )}
-          {/* Draws nothing in a browser or on a phone: there is no machine. */}
-          <ThisMachineCard focus="chats" />
           <IngestionCard state={data.ingestion} fallbackAddress={data.ingestionAddress} />
         </View>
       ) : (

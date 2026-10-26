@@ -55,6 +55,12 @@ export const IN_APP_MESSAGES = {
   },
   /** "Context is in early beta". */
   "beta-notice": { kind: "onboarding", priority: 80, scope: "account", store: "messageReads" },
+  /**
+   * "Your texts, ready for Tex": the Mac app's Messages backup, on by default,
+   * waiting for Full Disk Access. Its answer is the backup's own state on the
+   * Mac: granting the permission or turning the backup off.
+   */
+  "messages-backup": { kind: "onboarding", priority: 75, scope: "account", store: "own" },
   /** The console's setup checklist and its "You're set up." card. */
   "setup-checklist": { kind: "onboarding", priority: 70, scope: "workspace", store: "own" },
   /** What a shared workspace is to somebody who does not own it. */

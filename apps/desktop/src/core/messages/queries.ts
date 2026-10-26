@@ -170,9 +170,13 @@ export function selectMessageTotalsSql(): string {
   return "SELECT CAST(COALESCE(MAX(ROWID), 0) AS TEXT) AS max_rowid, CAST(COUNT(*) AS TEXT) AS rows FROM message;";
 }
 
-/** How many rows sit at or above `fromRowId`: the part of the history the backup has reached. */
+/**
+ * How many rows sit at or above `fromRowId` (the part of the history the
+ * backup has reached), and the earliest time among them, for "back to March
+ * 2024 so far".
+ */
 export function selectRowsFromSql(fromRowId: number): string {
-  return `SELECT CAST(COUNT(*) AS TEXT) AS rows FROM message WHERE ROWID >= ${rowId(fromRowId)};`;
+  return `SELECT CAST(COUNT(*) AS TEXT) AS rows, CAST(MIN(NULLIF(date, 0)) AS TEXT) AS oldest_ns FROM message WHERE ROWID >= ${rowId(fromRowId)};`;
 }
 
 /**

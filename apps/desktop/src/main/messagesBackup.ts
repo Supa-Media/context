@@ -11,12 +11,13 @@
  */
 
 import { createHash } from "node:crypto";
+import type { ImessageStatus } from "@context/desktop-bridge";
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { DesktopSettings } from "../core/settings.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
 import { gatewayBaseFrom } from "../core/sync/connection.ts";
-import { APPLE_EPOCH_MS } from "../core/imessage/appleTime.ts";
+import { APPLE_EPOCH_MS, appleEpochNsToIso } from "../core/imessage/appleTime.ts";
 import { attemptChatDbRead, detectFullDiskAccess, type FullDiskAccessStatus } from "../core/imessage/permission.ts";
 import { defaultChatDbPath, isAllowedChatDbPath } from "../core/imessage/paths.ts";
 import { queryAddressBook, queryChatDb } from "../core/imessage/sqlite.ts";
@@ -72,6 +73,8 @@ export interface BackupStatus {
   totalRows: number;
   /** When a pass last kept something. */
   lastCopiedAt: number | null;
+  /** The earliest text copied so far, epoch milliseconds. */
+  reachedBack: number | null;
   /** Why it stopped, from a closed set (`upload.ts`'s codes), when `phase` is `stopped`. */
   problem: string | null;
   /** The account Messages is signed into, masked: `+1 ••• 4410`, `a••••@example.com`. */
@@ -109,6 +112,7 @@ const INITIAL: BackupStatus = Object.freeze({
   copiedRows: 0,
   totalRows: 0,
   lastCopiedAt: null,
+  reachedBack: null,
   problem: null,
   account: null,
 });
@@ -126,6 +130,39 @@ export function maskAccount(login: unknown): string | null {
   if (digits.length < 4) return null;
   const country = value.startsWith("+") && digits.length > 10 ? `+${digits.slice(0, digits.length - 10)} ` : "";
   return `${country}••• ${digits.slice(-4)}`;
+}
+
+/**
+ * The Mac's name as its owner reads it: `Sams-MacBook-Pro.local` → `Sams MacBook Pro`.
+ * Null for a name with nothing left in it.
+ */
+export function machineLabel(host: unknown): string | null {
+  if (typeof host !== "string") return null;
+  const name = host.replace(/\.local$/i, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return name === "" ? null : name.slice(0, 60);
+}
+
+/**
+ * What the console is told, through the bridge's `imessage` member: the old
+ * import's four fields, filled from the backup, and the backup's own view.
+ * Counts, times, the masked account and the Mac's name; nothing it copied.
+ */
+export function backupBridgeStatus(status: BackupStatus, machine: string | null): ImessageStatus {
+  return {
+    enabled: status.enabled,
+    permission: status.permission,
+    lastSyncedAt: status.lastCopiedAt,
+    lastError: null,
+    backup: {
+      phase: status.phase,
+      copiedRows: status.copiedRows,
+      totalRows: status.totalRows,
+      reachedBack: status.reachedBack,
+      problem: status.phase === "stopped" ? status.problem : null,
+      account: status.account,
+      machine,
+    },
+  };
 }
 
 /** Every Contacts database on this Mac, at the paths `contacts.ts` allows. */
@@ -340,9 +377,10 @@ export class MessagesBackupService {
       const report = await runBackupPass(deps, start);
       if (!this.#wanted(generation)) return;
 
-      const reached = report.cursor.oldest === null ? 0 : await this.#reachedRows(report.cursor);
+      const reached = report.cursor.oldest === null ? { rows: 0, back: null } : await this.#reached(report.cursor);
       this.#set({
-        copiedRows: reached,
+        copiedRows: reached.rows,
+        reachedBack: reached.back,
         ...(report.sent > 0 ? { lastCopiedAt: this.#now() } : {}),
       });
       if (report.stopped) {
@@ -362,10 +400,13 @@ export class MessagesBackupService {
     }
   }
 
-  async #reachedRows(cursor: BackupCursor): Promise<number> {
-    if (historyDone(cursor)) return this.#status.totalRows;
-    const rows = (await this.#query(selectRowsFromSql(cursor.oldest as number))) as Array<{ rows?: unknown }>;
+  async #reached(cursor: BackupCursor): Promise<{ rows: number; back: number | null }> {
+    const rows = (await this.#query(selectRowsFromSql(cursor.oldest as number))) as Array<{ rows?: unknown; oldest_ns?: unknown }>;
     const count = Number(rows[0]?.rows ?? 0);
-    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+    const oldest = appleEpochNsToIso(rows[0]?.oldest_ns);
+    return {
+      rows: historyDone(cursor) ? this.#status.totalRows : Number.isSafeInteger(count) && count >= 0 ? count : 0,
+      back: oldest === null ? null : Date.parse(oldest),
+    };
   }
 }

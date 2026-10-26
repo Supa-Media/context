@@ -56,4 +56,7 @@ export function runSettingsChecks(check) {
   check("no token field survives normalisation", !("token" in normalizeSettings({ version: 1, token: "shhh" })));
   // Messages are no longer copied into notes (owner, 2026-10-21): a file that turned the import on reads as off.
   check("an older file that turned iMessage import on reads as off", normalizeSettings({ version: 1, imessageEnabled: true }).imessageEnabled === false);
+  // The Messages backup is on by default (owner, 2026-10-26), and a person's "off" is kept.
+  check("the Messages backup is on for a fresh install", normalizeSettings({}).messagesBackup === true);
+  check("the Messages backup stays off once turned off", normalizeSettings({ version: 1, messagesBackup: false }).messagesBackup === false);
 }

@@ -26,7 +26,7 @@ import { addressKey, isAllowedAddressBookPath, personRecords } from "../src/core
 import { FRESH_BACKUP_CURSOR, historyDone, laterNs, normalizeBackupCursor } from "../src/core/messages/cursor.ts";
 import { runBackupPass } from "../src/core/messages/pass.ts";
 import { batchesOf, classifyStatus, uploadBackupRecords } from "../src/core/messages/upload.ts";
-import { maskAccount } from "../src/main/messagesBackup.ts";
+import { backupBridgeStatus, machineLabel, maskAccount } from "../src/main/messagesBackup.ts";
 
 const NS_2026_10_21 = "814295520000000000"; // 2026-10-21T17:12:00Z in Apple-epoch nanoseconds
 
@@ -246,6 +246,31 @@ function checkMask(check) {
   check("account: a phone number shows its last four only", maskAccount("P:+15550104410") === "+1 ••• 4410");
   check("account: an email shows its first letter and domain", maskAccount("E:ada@example.com") === "a••@example.com");
   check("account: nothing readable shows nothing", maskAccount(null) === null && maskAccount("P:12") === null);
+
+  check("machine: the Mac's name reads as its owner wrote it", machineLabel("Sams-MacBook-Pro.local") === "Sams MacBook Pro");
+  check("machine: an empty name is no name", machineLabel("") === null && machineLabel(".local") === null && machineLabel(undefined) === null);
+
+  const status = {
+    enabled: true,
+    phase: "copying",
+    permission: "granted",
+    copiedRows: 10,
+    totalRows: 40,
+    lastCopiedAt: 5,
+    reachedBack: 3,
+    problem: "server",
+    account: "+1 ••• 4410",
+  };
+  const told = backupBridgeStatus(status, "Sams MacBook Pro");
+  check(
+    "bridge: the console is told the switch, the grant and the progress",
+    told.enabled && told.permission === "granted" && told.lastSyncedAt === 5 && told.backup.copiedRows === 10 && told.backup.totalRows === 40 && told.backup.reachedBack === 3 && told.backup.machine === "Sams MacBook Pro",
+  );
+  check("bridge: a problem is told only when the backup stopped on it", told.backup.problem === null && backupBridgeStatus({ ...status, phase: "stopped" }, null).backup.problem === "server");
+  check(
+    "bridge: the view carries the contract's fields and nothing else",
+    Object.keys(told.backup).sort().join() === "account,copiedRows,machine,phase,problem,reachedBack,totalRows",
+  );
 }
 
 export async function runMessagesBackupChecks(check) {

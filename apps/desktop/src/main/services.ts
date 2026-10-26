@@ -7,6 +7,7 @@
  * reads the tray. See `main()` for the order.
  */
 
+import { hostname } from "node:os";
 import { app } from "electron";
 import { createDetectionLoop, loadDetector } from "../core/detection/loop.ts";
 import { macosCollectors } from "../platform/macos/index.ts";
@@ -21,7 +22,7 @@ import { electronPermissionBroker } from "./permissions.ts";
 import { createLocalAgent } from "./localAgent.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
-import { MessagesBackupService } from "./messagesBackup.ts";
+import { MessagesBackupService, backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
 import { DesktopUpdater } from "./updater.ts";
 import { createNotepad, createPanel } from "./windows.ts";
 import { FAKE, RENDERER_DIR, RENDERER_UI } from "./launchFlags.ts";
@@ -49,15 +50,14 @@ export async function createServices(
     store,
     connection,
     settings: () => ctx.settings,
-    onChange: (status) => {
-      ctx.consoleBridge?.emitImessage(status);
-      push();
-    },
+    // Retired (owner, 2026-10-21): the bridge's `imessage` member reports the backup below.
+    onChange: () => push(),
   });
   const messagesBackup = new MessagesBackupService({
     store,
     connection,
     settings: () => ctx.settings,
+    onChange: (status) => ctx.consoleBridge?.emitImessage(backupBridgeStatus(status, machineLabel(hostname()))),
   });
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.

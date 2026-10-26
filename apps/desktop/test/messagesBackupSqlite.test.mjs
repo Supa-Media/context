@@ -192,6 +192,7 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     const status = service.status();
     check("service: a finished copy says it is up to date", status.phase === "up_to_date" && status.copiedRows === 6 && status.totalRows === 6);
     check("service: the account shows masked", status.account === "+1 ••• 4410");
+    check("service: how far back the copy reaches is the oldest text's time", status.reachedBack === Date.parse("2026-10-21T17:12:00.000Z"));
     check("service: the cursor ends with all history sent", store.saved.at(-1)?.oldest === 1 && store.saved.at(-1)?.newest === 6);
 
     // Off means nothing is read or sent.

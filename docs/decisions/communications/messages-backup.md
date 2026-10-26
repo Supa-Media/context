@@ -50,6 +50,22 @@ tools behind them unlisted. The route gives them to the personal workspace's
 owner on a private-tier connection only, and never to Tex answering a group
 chat; every texts read marks the turn untrusted (`apps/mcp/test/texts.test.mjs`).
 
+**On by default, and nothing is read until the person grants Full Disk
+Access by hand.** A fresh install has `messagesBackup: true`; a settings file
+that says false stays false. macOS never lets an app ask for Full Disk Access,
+so the first time the Mac app opens, a card ("Your texts, ready for Tex") says
+the backup is on, names the masked account and the Mac, shows the two steps,
+opens the right pane, and offers Turn off. It stays until the permission lands
+or the backup is off; closing it hides it for that visit only. Settings ›
+Messages holds the switch, the progress line and who reads the texts. The
+console learns all of it through the bridge's `imessage` member, which reports
+the backup since the import into notes was retired: a `backup` view of counts,
+two times, the masked account and the Mac's name, rebuilt field by field in
+the preload (`apps/desktop/test/consoleBridge/preloadContract.test.mjs`). A
+Mac app from before the backup sends no view, and the page asks for an update
+rather than drawing a switch that would do nothing
+(`apps/mobile/__tests__/meetingsDesktop/messagesBackupSettings.test.ts`).
+
 **The owner's picks (2026-10-26, from the boards):**
 
 - An open form: one JSON line per message, readable without Context.

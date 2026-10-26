@@ -110,10 +110,11 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   blocklist: [],
   imessageEnabled: false,
   /*
-    Off until the first-run card and Settings › Messages exist to say it is
-    on and how to turn it off; the build that adds them makes it the default.
+    On (owner, 2026-10-26): the first-run card says so and shows the switch,
+    and nothing is read until the person grants Full Disk Access by hand,
+    which macOS never lets an app ask for.
   */
-  messagesBackup: false,
+  messagesBackup: true,
   /*
     On device, which is where audio stays until somebody says otherwise.
 
