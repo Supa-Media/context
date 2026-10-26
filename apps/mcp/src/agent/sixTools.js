@@ -51,6 +51,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
   steer_job: { tool: "steer_background_job", summary: "Pass their text to a background job that is still running, or stop it.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },
+  draw_visual: { tool: "draw_visual", summary: "Turn your answer into one of your designed picture cards (options, photos, a trip, a day, a plan, a board, a chart), to text them.", take: own },
   draw_picture: { tool: "draw_picture", summary: "Make a graphic from an HTML page you write, to text them. Make it first; guess what they left out.", take: own },
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
 };

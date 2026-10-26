@@ -148,6 +148,7 @@ test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
 test/agentPictureMaker.test.mjs
+test/agentVisuals.test.mjs
 test/readFile.test.mjs
 test/readNoteCost.test.mjs
 test/agentLearnedSkills.test.mjs

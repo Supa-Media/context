@@ -767,6 +767,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A note they ask for is saved at once, where their folders say (2026-10-24)](./texting-assistant/saving-notes.md)
 - [A slow save is followed through, never told as failed unseen (2026-10-24)](./texting-assistant/saving-notes.md#a-slow-save-is-followed-through-never-told-as-failed-unseen-2026-10-24)
 - [Tex has a point of view, pushes back once, and never flatters (2026-10-25)](./texting-assistant/pushback.md)
+- [Tex answers with a designed card, in one line of words (2026-10-26)](./texting-assistant/visual-answers.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
 - [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)

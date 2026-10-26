@@ -51,6 +51,7 @@
 import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
 import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
+import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -79,6 +80,8 @@ const REF = /^(?:(attachment|picture|earlier-photo):(\d{1,2})|(last-picture))$/;
 /** A reference where a page loads a picture: in quotes or a CSS `url()`. */
 const INLINE_REF = /(["'(])\s*(attachment:\d{1,2}|picture:\d{1,2}|earlier-photo:\d{1,2}|last-picture)\s*(["')])/g;
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/g;
+/** Google Fonts, which the screenshot Worker always loads: never counted as an address that did not. */
+const FONT_ADDRESS = /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//;
 
 const DRAW_DEFINITION = {
   name: DRAW_TOOL,
@@ -192,7 +195,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   let kept; // undefined until read
   let earlier; // likewise
 
-  const tools = [...(shots ? [DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
+  const tools = [...(shots ? [VISUAL_DEFINITION, DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
   if (tools.length === 0) return null;
 
   async function lastPicture() {
@@ -236,7 +239,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       else inlined.set(ref, `data:${found.pictures[0].mediaType};base64,${found.pictures[0].data}`);
     }
     const page = html.replace(INLINE_REF, (whole, open, ref, close) => (inlined.has(ref) ? `${open}${inlined.get(ref)}${close}` : whole));
-    const addresses = [...new Set(html.match(ADDRESS) ?? [])];
+    const addresses = [...new Set(html.match(ADDRESS) ?? [])].filter((address) => !FONT_ADDRESS.test(address));
     const allow = addresses.filter((address) => outgoing?.vouches(address) === true).slice(0, MAX_ALLOWED);
     const response = await shots.fetch("https://site-shots/render", {
       method: "POST",
@@ -251,6 +254,13 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const blocked = addresses.length - allow.length + (Array.isArray(body.blocked) ? body.blocked.length : 0);
     if (blocked > 0) notes.push(`${blocked} address(es) did not load: only images whose address you read this turn do.`);
     return { content: [{ type: "image", data: body.png, mimeType: "image/png" }, { type: "text", text: notes.join(" ") }] };
+  }
+
+  /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
+  async function visual(args) {
+    const built = buildVisual(args);
+    if (built.error) return say(built.error, true);
+    return draw(built);
   }
 
   async function make(args) {
@@ -300,8 +310,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   return {
     tools,
-    has: (name) => (name === DRAW_TOOL && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: (name, args) => (name === DRAW_TOOL ? draw(args) : make(args)),
+    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
+    call: (name, args) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args) : make(args)),
   };
 }
 
@@ -327,6 +337,34 @@ export async function turnPictures(env, { texted, question, attachments, store, 
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.
   if (maker !== null && keep) await keepPhotos(store, attachments);
   return { outgoing, maker };
+}
+
+const DRAWN_REF = /^picture:(\d{1,2})$/;
+
+/**
+ * write_note `images[].data: "picture:N"` becomes the bytes of picture N, when
+ * this turn drew or made it (`outgoing.made`), so the card Tex texted is the
+ * card in the note it writes, without the model repeating a picture's bytes.
+ * Any other picture is refused by name: one read out of a note stays there.
+ */
+export function withDrawnImages(outgoing, callTool) {
+  if (typeof outgoing?.made !== "function") return callTool;
+  return (name, args) => {
+    if (name !== "write_note" || !Array.isArray(args?.images)) return callTool(name, args);
+    const refused = [];
+    const images = args.images.map((image) => {
+      const ref = typeof image?.data === "string" ? DRAWN_REF.exec(image.data.trim()) : null;
+      if (!ref) return image;
+      const picture = outgoing.made(Number(ref[1]));
+      if (picture === null) {
+        refused.push(image.data.trim());
+        return image;
+      }
+      return { ...image, data: `data:${picture.mediaType};base64,${picture.data}` };
+    });
+    if (refused.length > 0) return say(`${refused.join(", ")}: only a picture you drew or made this turn can be kept by its number. Nothing was saved.`, true);
+    return callTool(name, { ...args, images });
+  };
 }
 
 export function withPictureMaker(maker, callTool) {

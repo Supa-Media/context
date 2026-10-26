@@ -17,7 +17,7 @@
 
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
-import { MAX_LINKS, MAX_TEXT_CHARS, type PageRead } from "./read";
+import { MAX_LINKS, MAX_TEXT_CHARS, keepImages, type PageRead } from "./read";
 import { publicHttpsUrl } from "./shoot";
 
 /** How long the site may take to answer before the browser is tried instead. */
@@ -171,8 +171,12 @@ export function fromMarkdown(url: string, markdown: string): PageRead {
   const heading = /^#\s+(.+)$/m.exec(text);
   const seen = new Set<string>();
   const links: PageRead["links"] = [];
+  const pictures: Array<{ alt: string; src: string }> = [];
   for (const match of text.matchAll(LINK)) {
-    if (match[1] === "!") continue;
+    if (match[1] === "!") {
+      pictures.push({ alt: match[2], src: match[3] });
+      continue;
+    }
     const href = publicHttpsUrl(safeResolve(match[3], url));
     if (href === null || seen.has(href)) continue;
     seen.add(href);
@@ -185,6 +189,7 @@ export function fromMarkdown(url: string, markdown: string): PageRead {
     text: text.slice(0, MAX_TEXT_CHARS),
     truncated: text.length > MAX_TEXT_CHARS,
     links,
+    images: keepImages(pictures, url),
     via: "markdown",
   };
 }
@@ -212,6 +217,18 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     links.push({ text: (anchor.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 120), href });
     if (links.length >= MAX_LINKS) break;
   }
+  // The pictures, read before extraction too: it is told to remove them.
+  const pictures: Array<{ alt: string; src: string }> = [];
+  for (const name of ["og:image", "og:image:secure_url", "twitter:image"]) {
+    const meta = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
+    const content = meta?.getAttribute("content");
+    if (content) pictures.push({ alt: "", src: content });
+  }
+  for (const img of document.querySelectorAll("img")) {
+    const src = img.getAttribute("src") || img.getAttribute("data-src") || (img.getAttribute("srcset") ?? "").trim().split(/\s+/)[0];
+    if (src) pictures.push({ alt: img.getAttribute("alt") ?? "", src });
+    if (pictures.length >= 60) break;
+  }
   // Not `markdown: true`: its converter (turndown) needs a DOM parser the
   // Workers runtime does not have, and fails there while passing in Node.
   const result = await Defuddle(document as unknown as Parameters<typeof Defuddle>[0], url, {
@@ -227,6 +244,7 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     text: text.slice(0, MAX_TEXT_CHARS),
     truncated: text.length > MAX_TEXT_CHARS,
     links,
+    images: keepImages(pictures, url),
     via: "html",
   };
 }
