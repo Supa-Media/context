@@ -68,6 +68,8 @@ export function photoUrl(value) {
   if (typeof value !== "string") return null;
   const ref = value.trim();
   if (/^(?:attachment|picture|earlier-photo):\d{1,2}$|^last-picture$/.test(ref)) return ref;
+  // A photo the gateway downloaded for the card (`./photos.js`), put in as data once the page is built.
+  if (/^card-photo:\d{1,2}$/.test(ref)) return ref;
   if (ref.length > 2000 || !/^https:\/\/[^\s"'()<>\\]+$/.test(ref)) return null;
   // The page decodes a character reference in its style attribute before CSS reads it: &#39; would close the url('…').
   if (/&(?:#|[a-z][a-z0-9]*;)/i.test(ref)) return null;

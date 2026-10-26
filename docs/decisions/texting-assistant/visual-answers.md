@@ -159,3 +159,31 @@ every hand-back notice now says to send the whole answer again, not only the
 new part; H8 says a lookup needs no word about undoing; and a list of projects
 counts as something to look at (a board). Test:
 `apps/mcp/test/agentVisualNotice.test.mjs`.
+
+## A card's photos are real, or there is no slot (2026-10-26, evening)
+
+Dev2's first card of places ("dinner options near chelsea") had empty coloured
+blocks: Tex had read Time Out's photos of two places, but the screenshot
+Worker's browser could not load them, and the redraw left every photo off.
+"Didn't even fill in the dishes, or logos." Three rules now hold:
+
+- **A place with no slot.** A row is drawn with a photo only when it has one
+  that loads (#2228); cuisine, price and hours are their own labels, and lines
+  wrap instead of being cut.
+- **The gateway downloads every photo itself** (`apps/mcp/src/agent/visuals/
+  photos.js`) and puts it in the page as data, so the browser loads nothing
+  from the web. One that is refused, not a picture, over 1.5 MB or slower than
+  6 seconds is taken off the card. Only addresses the turn read are fetched:
+  the rule `outgoingPictures.vouches` already keeps for `[picture <address>]`.
+- **Missing photos and logos are filled from the pages read.** A photo whose
+  description names the place (as whole words), else the share picture of a
+  page titled with its name; a logo is the site's home-screen icon or
+  `og:logo`, which a page read now reports apart from its photos
+  (`infra/site-shots/src/read.ts` `pickLogo`). The draw result says which
+  were filled and how many were left off, so the model can open a place's own
+  page and draw again.
+
+What reversing it costs: empty photo blocks on cards whenever a photo site
+refuses a headless browser. Tests: `apps/mcp/test/agentVisuals.test.mjs`
+("a places card fills each place's photo and logo…"),
+`infra/site-shots/src/read.test.ts` and `fetchText.test.ts` (logo).

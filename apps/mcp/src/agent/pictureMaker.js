@@ -52,6 +52,7 @@ import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
 import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
+import { downloadPhotos, fillPictures, pictureAddresses } from "./visuals/photos.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -69,6 +70,8 @@ export const MAX_SOURCES = 4;
 const MAX_KEPT_SOURCES = 2;
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_HTML_CHARS = 200_000;
+/** A designed card with its photos in it as data: under the screenshot Worker's 15 MB. */
+const MAX_CARD_CHARS = 14_000_000;
 /** Base64 one image request carries: under the model API's 20 MB inline ceiling. */
 const MAX_SOURCE_CHARS = 18_000_000;
 const MAX_KEPT_CHARS = 16_000_000;
@@ -79,6 +82,8 @@ const ASPECTS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"
 const REF = /^(?:(attachment|picture|earlier-photo):(\d{1,2})|(last-picture))$/;
 /** A reference where a page loads a picture: in quotes or a CSS `url()`. */
 const INLINE_REF = /(["'(])\s*(attachment:\d{1,2}|picture:\d{1,2}|earlier-photo:\d{1,2}|last-picture)\s*(["')])/g;
+/** Where a card names a photo the gateway downloaded (`./visuals/photos.js`), as built by `kit.js` `photoUrl`. */
+const CARD_PHOTO = /card-photo:(\d{1,2})(?=')/g;
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/g;
 /** Google Fonts, which the screenshot Worker always loads: never counted as an address that did not. */
 const FONT_ADDRESS = /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//;
@@ -226,10 +231,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     return picture ? { pictures: [picture], theirs: false } : null;
   }
 
-  async function draw(args) {
+  async function draw(args, { card = false } = {}) {
     const html = typeof args?.html === "string" ? args.html : "";
     if (html.trim().length === 0) return say("Write the page as html.", true);
-    if (html.length > MAX_HTML_CHARS) return say(`A page is at most ${MAX_HTML_CHARS} characters; put pictures in by reference, not as data.`, true);
+    if (html.length > (card ? MAX_CARD_CHARS : MAX_HTML_CHARS)) return say(`A page is at most ${MAX_HTML_CHARS} characters; put pictures in by reference, not as data.`, true);
     const missing = new Set();
     const inlined = new Map();
     for (const [, , ref] of html.matchAll(INLINE_REF)) {
@@ -258,12 +263,21 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
   async function visual(args) {
-    const built = buildVisual(args, { canLoad: (address) => outgoing?.vouches(address) === true });
+    // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
+    const { data, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
+    const photos = [...(await downloadPhotos(read, fetchImpl))];
+    const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
+    const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens });
     if (built.error) return say(built.error, true);
-    const drawn = await draw(built);
-    if (!built.dropped || drawn.isError) return drawn;
-    const left = `${built.dropped} photo(s) left off the card: only images whose address you read this turn load, so open the place's own page for one.`;
-    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${left}` } : part)) };
+    const html = built.html.replace(CARD_PHOTO, (whole, n) => photos[Number(n) - 1]?.[1] ?? whole);
+    const drawn = await draw({ ...built, html }, { card: true });
+    if (drawn.isError) return drawn;
+    const notes = [];
+    if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
+    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo) and draw again.`);
+    if (notes.length === 0) return drawn;
+    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
 
   async function make(args) {
