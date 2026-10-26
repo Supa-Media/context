@@ -357,15 +357,10 @@ describe("no public function can reach a storage secret", () => {
         // invisible here and are not any more. See `unattributed` in `analyze`.
         "functions.fastSearchProvision.provisionIndex",
         "functions.fastSearchProvision.releaseIndex",
-        // The meaning index's two, on the same credential and the same shape:
-        // internalActions reached only by a schedule edge from
-        // `meaningSearch.enable` / `.disable` (and the workspace cascade).
+        // The meaning index's two, same credential and shape (schedule edges from `meaningSearch.enable` / `.disable`),
+        // and Delete the backup's eraser, which empties the texts rows through it, scheduled only by owner-only `deleteBackup`.
         "functions.meaningProvision.provisionMeaningIndex",
         "functions.meaningProvision.releaseMeaningIndex",
-        // Delete the backup (Settings › Messages): one page of the backup's keys erased per run, then the
-        // texts rows of the workspace's search database emptied through its credential. Internal, reached
-        // only by a schedule edge from the owner-only `messagesExport.deleteBackup` and from itself; it
-        // returns null and logs the workspace id only.
         "functions.messagesExport.eraseBackupPage",
         // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
         //
