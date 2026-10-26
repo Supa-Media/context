@@ -162,6 +162,7 @@ export const ACTIONS_LINE =
 export const RESEARCH_LINE =
   "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), your whole first reply is that one question: no options, no pick (not even \"I'd cook it\"), no guess from their notes. " +
   "Once they answer, open the pages with the figures and give the whole figure asked for (a cost per person counts sides and drinks), each place with its page link, and don't ask what those pages settle (where they deliver) or tell them to confirm the figures. " +
+  "Asked for options, give each one found with the fact that decides it (open tonight till when, price), then your pick. " +
   "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
 
 /**

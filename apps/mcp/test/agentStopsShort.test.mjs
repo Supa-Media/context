@@ -138,6 +138,8 @@ test("asked for options with the brief open, the first reply is the one question
   assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
   // The owner's bar the same day: each caterer named with its menu link.
   assert.match(RESEARCH_LINE, /each place with its page link/);
+  // Hand-back bench case 10 (gh-104): opened all three places' pages, then texted only its pick.
+  assert.match(RESEARCH_LINE, /give each one found with the fact that decides it .*then your pick/);
   // gh-100: told her to confirm the prices, and asked which Riverside when the directory said.
   assert.match(RESEARCH_LINE, /don't ask what those pages settle .* or tell them to confirm the figures/);
 });
