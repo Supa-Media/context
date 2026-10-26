@@ -8,6 +8,7 @@
  *  2. `runJob` delivering an exhausted answer at once → "carries on in a new turn when one ran out of steps".
  *  3. `jobUpdate` ignoring `sent` → "an update offered again repeats no text".
  *  4. `jobsFor` not passing `running` → "a texted turn is shown the chat's jobs and starts them".
+ *  5. `runJob` ignoring `unfinished` (2026-10-26) → "gives a job whose answer stopped short another part, built on that answer".
  */
 
 import { describe, expect, it } from "vitest";
@@ -154,6 +155,35 @@ describe("background jobs", () => {
     expect(reports.filter((update) => update.texts).map((update) => update.texts)).toEqual([["Wrote the note with what I have."]]);
     expect(reports.at(-1)?.state).toBe("done");
     expect(storage.data.has(RUN_KEY)).toBe(false);
+  });
+
+  it("gives a job whose answer stopped short another part, built on that answer (self-review, 2026-10-26)", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const short = "Mains are about $1 a head. Next step is pricing the sides.";
+    const { deps, asked, reports } = jobDeps([
+      { body: { answer: short, unfinished: true } },
+      { body: { answer: "Three caterers at $8.50, $9.50 and $10 a head, all in." } },
+    ]);
+    await runJob(storage, deps);
+    expect(reports.filter((update) => update.texts)).toEqual([]);
+    expect(reports.at(-1)).toMatchObject({ state: "running", status: "Finishing what was still missing" });
+    await runJob(storage, deps);
+    expect(asked[1].job).toMatchObject({ attempt: 2, draft: short, unfinished: true });
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Three caterers at $8.50, $9.50 and $10 a head, all in."] });
+    expect(storage.data.has(RUN_KEY)).toBe(false);
+  });
+
+  it("a part that ran out of steps after an unfinished one is not told it stopped short", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const { deps, asked } = jobDeps([
+      { body: { answer: "Next step is pricing the sides.", unfinished: true } },
+      { body: { answer: "Pricing.", exhausted: true } },
+      { body: { answer: "Done." } },
+    ]);
+    for (let i = 0; i < MAX_JOB_ATTEMPTS; i += 1) await runJob(storage, deps);
+    expect((asked[2].job as { unfinished?: true }).unfinished).toBeUndefined();
   });
 
   it("tries a turn that could not start again later, then says it couldn't finish", async () => {

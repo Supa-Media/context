@@ -68,7 +68,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[]; vaultWatch?: true }
+  | { kind: "answer"; texts: string[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -166,15 +166,22 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
   const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
   // A text that came after the turn's last look changes the job: it is not texted the old way.
   const changed = outcome.kind === "answer" && left.length > 0;
-  const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed;
+  // An answer that stopped short of the ask (`apps/mcp/src/agent/stopsShort.js`) is not done: the next part finishes it.
+  const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
+  const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
   if (carryOn && run.attempt < MAX_JOB_ATTEMPTS) {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
-    const draft = changed && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
-    await storage.put<Stored>(RUN_KEY, { ...run, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}) });
+    const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
+    const { unfinished: _was, ...kept } = run;
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}) });
     await tell({
       state: "running",
       ...watch,
-      status: changed ? "Changing it to what you texted" : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
+      status: changed
+        ? "Changing it to what you texted"
+        : unfinished
+          ? "Finishing what was still missing"
+          : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
     await storage.setAlarm(deps.now());
     return log("carry_on", run.id);
@@ -219,6 +226,7 @@ function ask(run: JobRun, followUps: string[]): JobAsk {
     ...(run.doneWhen ? { doneWhen: run.doneWhen } : {}),
     ...(run.tainted ? { tainted: true as const } : {}),
     ...(run.draft ? { draft: run.draft } : {}),
+    ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
   };
 }
 
@@ -233,6 +241,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       kind: "answer",
       texts: answer.text ? texts(answer.text) : [],
       exhausted: answer.exhausted === true,
+      unfinished: answer.unfinished === true,
       status: firstLine(answer.text),
       steered: answer.steered ?? [],
       ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),

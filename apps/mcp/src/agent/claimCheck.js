@@ -48,6 +48,7 @@
 
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
+import { finishNotice, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -387,7 +388,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, pictures = false }) {
+export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -410,6 +411,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
+  // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
+  let shortNoticed = false;
   let keptPromise = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
@@ -451,6 +454,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         return result;
       };
     },
+    /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
+    unfinished: (answer) => unfinishedJob(job, answer),
     check(answer) {
       const shaped = shape(answer, steps);
       if (shaped !== null) return shaped;
@@ -476,6 +481,10 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       if (!handedBack && handsWorkBack(answer, { held })) {
         handedBack = true;
         return HANDBACK_NOTICE;
+      }
+      if (!shortNoticed && stopsShort(answer)) {
+        shortNoticed = true;
+        return finishNotice({ job: job !== null });
       }
       if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
         captchaNoticed = true;

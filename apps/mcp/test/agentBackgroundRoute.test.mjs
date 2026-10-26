@@ -18,6 +18,9 @@
  *     → "a change to a running job names it for the Worker" fails.
  *  4. The route passing `transcript.record` as `observe` without `withJobSteps`.
  *     → "a job's turn streams each step as a short line" fails.
+ *  5. `unfinishedJob` always false (`stopsShort.js`, 2026-10-26).
+ *     → "...and one that still stops short is marked unfinished for the
+ *     Worker, and not kept as said" fails.
  */
 
 import worker from "../src/index.js";
@@ -214,6 +217,40 @@ export async function runAgentBackgroundRouteChecks(check) {
       /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.requests.at(-1))) &&
         conversationTurns(bucket).length === kept + 2,
     );
+
+    /* ---------------- a job that stops short of the ask is not done (self-review, 2026-10-26) ---------------- */
+
+    // The dinner job: mains priced, "Next step is pricing the sides". It gets one more round, then the Worker another part.
+    const dinner = { ...job, id: "job-dinner-0001", title: "Dinner options", attempt: 1, followUps: [] };
+    const short = "I wrote up three options. The mains come to about $1 to $2 per person, but the sides and drinks are not priced yet. Next step is pricing the sides.";
+    const beforeShort = conversationTurns(bucket).length;
+    model.install([{ text: short }, { text: short }]);
+    const stopped = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: dinner });
+    check(
+      "a job's answer that stops short gets one more round, told to finish it",
+      /stops short of what they asked[^]*background job/.test(JSON.stringify(model.requests.at(-1)?.messages?.at(-1) ?? "")),
+    );
+    check(
+      "...and one that still stops short is marked unfinished for the Worker, and not kept as said",
+      stopped.status === 200 && stopped.body?.unfinished === true && stopped.body?.exhausted === undefined && conversationTurns(bucket).length === beforeShort,
+    );
+    model.install([{ text: "Three caterers come in at $8.50, $9.50 and $10 a person, sides and drinks included." }]);
+    const finished = await post(env, TOKEN_TEXTS, "/agent", {
+      question: "three dinner options, about $10 a head for 30 people",
+      conversation: "texts",
+      job: { ...dinner, attempt: 2, draft: short, unfinished: true },
+    });
+    check(
+      "the next part is shown the short answer as unfinished, to do the missing part",
+      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(systemOf(model.requests.at(-1))),
+    );
+    check(
+      "...and a full answer is done: not marked, and kept",
+      finished.body?.unfinished === undefined && conversationTurns(bucket).length === beforeShort + 2,
+    );
+    model.install([{ text: short }, { text: short }]);
+    const last = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: { ...dinner, attempt: 3 } });
+    check("a job's last part texts what it has, even short", last.status === 200 && last.body?.unfinished === undefined && /not priced yet/.test(last.body?.answer ?? ""));
 
     /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
 
