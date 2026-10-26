@@ -124,7 +124,7 @@ function isInboxPart(path, inboxPath) {
  * Context's icons (`folderIcons.cjs`), and a person adds notes and folders of
  * their own beside them.
  */
-const TEX_PARTS = Object.freeze(["attention", "dreams", "heartbeat", "housekeeping", "routines", "skills", "transcripts"]);
+const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "routines", "skills", "transcripts"]);
 
 /**
  * Whether `path` is one of Tex's own folders, given the path of the folder

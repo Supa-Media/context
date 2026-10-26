@@ -14,6 +14,10 @@ import {
   serializeFolderIcons,
 } from "../../../packages/shared/src/folderIcons.cjs";
 import { contextPartOf, iconAsText } from "../../../packages/shared/src/contextIcons.cjs";
+import { INBOX_PARTS, TEX_PARTS } from "../../../packages/shared/src/folderJobInfo.cjs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function memory(initial = {}) {
   const objects = new Map(Object.entries(initial));
@@ -191,4 +195,50 @@ test("remapIcons carries several note icons in one write", async () => {
   assert.equal(await remapIcons(store, []), null);
   const broken = { async get() { throw new Error("down"); }, async put() { throw new Error("down"); } };
   assert.equal(await remapIcons(broken, [{ from: "a.md", to: "b.md" }]), null);
+});
+
+/**
+ * Every folder Context makes for itself inside Tex's folder or the Inbox gets
+ * a drawn icon (owner, 2026-10-26: "when we create new system folders we give
+ * it a freakin icon"). tex/chats and tex/handbacks shipped bare because
+ * nothing tied a new folder name in the code to an icon. This reads the code
+ * that writes notes and fails on any `tex/<name>` or `inbox/<name>` it spells
+ * that has no drawn part, so a new one cannot ship without its icon.
+ */
+test("every folder Context files into under tex/ or inbox/ draws a Context part", () => {
+  const roots = ["apps/mcp/src", "apps/agent/src", "apps/convex/functions", "packages/shared/src", "packages/communications/src", "packages/meetings/src"];
+  const repo = fileURLToPath(new URL("../../../", import.meta.url));
+  const files = [];
+  const walk = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules" && entry.name !== "_generated") walk(full);
+      } else if (/\.(c|m)?[jt]s$/.test(entry.name) && !/\.d\.c?ts$/.test(entry.name)) files.push(full);
+    }
+  };
+  for (const root of roots) walk(join(repo, root));
+  assert.ok(files.length > 100, `read ${files.length} files`);
+  const named = new Map();
+  for (const file of files) {
+    for (const match of readFileSync(file, "utf8").matchAll(/["'`](tex|inbox)\/([a-z0-9][a-z0-9-]*(?:\.md)?)(?![a-z0-9-])/g)) {
+      const key = `${match[1]}/${match[2]}`;
+      if (!named.has(key)) named.set(key, file.slice(repo.length));
+    }
+  }
+  assert.ok(named.has("tex/handbacks") && named.has("inbox/email"), "the scan finds the folders it guards");
+  const bare = [...named].filter(([path]) => {
+    const icon = path.startsWith("tex/") ? texPartIcon(path.slice("tex/".length)) : defaultFolderIcon(path);
+    return icon === null || contextPartOf(icon) === null;
+  });
+  assert.deepEqual(bare.map(([path, file]) => `${path} (${file})`), [], "draw these in contextIcons.cjs + folderIcons.cjs + drawings.ts");
+});
+
+test("each of Tex's own folders and the Inbox's own has a drawn part (owner, 2026-10-26)", () => {
+  for (const name of TEX_PARTS) assert.notEqual(contextPartOf(texPartIcon(name)), null, `tex/${name}`);
+  for (const name of INBOX_PARTS) assert.notEqual(contextPartOf(defaultFolderIcon(`inbox/${name}`)), null, `inbox/${name}`);
+  assert.equal(drawn("tex/chats"), "🗨️");
+  assert.equal(drawn("tex/groups"), "👥");
+  assert.equal(drawn("tex/handbacks"), "↩️");
 });

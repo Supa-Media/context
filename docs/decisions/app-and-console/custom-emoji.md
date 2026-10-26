@@ -202,9 +202,12 @@ icon set" canvas (project files `context-icons/`).
 - **Stored as `context:icon:<name>`** in the same icon rows and
   `folder-icons.json`. The setter accepts only a name in the set
   (`checkFolderIcon`). Nothing anybody chose before is converted.
-- **Ink: blue means Context looks after it.** Built-in folders and the parts
-  Context files into draw Tex blue; an icon a person chose draws in the text
-  colour (option B, over one blue for everything or a colour per family).
+- **Ink: blue only at the top of the workspace.** A built-in folder at the
+  root draws Tex blue; everything inside another folder draws in the text
+  colour: the parts Context files into, a built-in folder nested somewhere
+  (Website in Areas), and an icon a person chose (owner, 2026-10-26: "arent
+  all the non root folders supposed to be colored black", replacing the
+  2026-10-21 option B, where the parts were blue too).
 - **The picker has two tabs**, "Context icons" (the default) and "Emoji"
   (the picker as it was). It opens on Emoji when an emoji is chosen now.
   Search looks through both, Context icons first. Suggested on the Context
@@ -214,10 +217,14 @@ icon set" canvas (project files `context-icons/`).
 - **The emoji twin** is what an icon is written as wherever a drawing can't go
   (`iconAsText`).
 
-**Tex's and the Inbox's own folders draw Context's icons too**, in Tex blue
-(`context:part:<name>`, `defaultFolderIcon` and `texPartIcon`, drawn and never
-written). Tex's own folders (attention, dreams, heartbeat, housekeeping,
-routines, skills, transcripts; `TEX_PARTS`) are kept where they are like the
+**Tex's and the Inbox's own folders draw Context's icons too**, in the text
+colour (`context:part:<name>`, `defaultFolderIcon` and `texPartIcon`, drawn
+and never written). **Every folder Context makes for itself gets one**
+(owner, 2026-10-26, after tex/chats and tex/handbacks shipped bare):
+`apps/mcp/test/folderIcons.test.mjs` reads the code that writes notes and
+fails on any `tex/<name>` or `inbox/<name>` it spells without a drawn part.
+Tex's own folders (attention, chats, dreams, groups, handbacks, heartbeat,
+housekeeping, routines, skills, transcripts; `TEX_PARTS`) are kept where they are like the
 Inbox's, wherever Tex's folder is nested: renaming or moving one is refused
 by the control plane (`assertNotProtectedFolder`) and the gateway
 (`protectedFolderRefusal`), the menu dims Rename and Move to with the reason,
