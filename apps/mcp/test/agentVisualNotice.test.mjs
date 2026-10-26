@@ -58,6 +58,9 @@ test("a short answer, a draft, words they asked for, or a turn that drew already
   assert.equal(wantsACard(WEEK, { steps: [{ name: "draw_visual", ok: true }] }), false);
   // A drawing that failed is no card: the list still goes back once.
   assert.equal(wantsACard(WEEK, { steps: [{ name: "draw_visual", ok: false }] }), true);
+  // Hand-back bench case 10 (gh-104): after failed draws Tex texted "the card won't draw" and one line in
+  // place of the list; a card that won't draw leaves the whole list in words.
+  assert.match(VISUAL_NOTICE, /If the drawing fails again, send the whole list in words/);
 });
 
 test("a texted list goes back once with the card notice, and the next answer goes out", async () => {

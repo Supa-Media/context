@@ -73,7 +73,8 @@ export const VISUAL_NOTICE =
   "That answer is a list, and they read lists better as a picture. Send it as one of your cards instead: call send with action " +
   "draw_visual and the template that fits (places for places to go, day for one day, trip for a week or a trip by day, compare or " +
   "option cards for options, board for work by status, plan for a plan over weeks), with every item and figure from what you found. " +
-  "Then reply with ONE line, 25 words at most (the verdict and the next step), and [picture N] on its own line. Never repeat the list in words.";
+  "Then reply with ONE line, 25 words at most (the verdict and the next step), and [picture N] on its own line. Never repeat the list in words. " +
+  "If the drawing fails again, send the whole list in words, every item with its figures, and don't mention the card.";
 
 /** The card, asked for beside another notice that won the round (`claimCheck.js`). */
 export const VISUAL_TOO =

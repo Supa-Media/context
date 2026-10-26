@@ -64,6 +64,13 @@ test("the catering answer's offers to keep looking are read as stopping short", 
     "I can look up hours for one you pick.",
     "I can check hours for whichever you choose.",
     "Want me to check hours?",
+    // Bench gh-112, the lunch case: one place's menu page was broken, so its
+    // price was given up on rather than found on its ordering page.
+    "Seoul Box, 18 Mill Street: no prices listed.",
+    "Seoul Box: price not listed.",
+    "it says \"Page not found\", so there are no Seoul Box prices to give.",
+    "it says Page not found, so there's no menu with prices there.",
+    "Their prices aren't posted online.",
   ]) {
     assert.ok(stopsShort(said), said);
   }
@@ -80,6 +87,7 @@ test("a finished answer, a fair ask or a step only someone else can take is not 
     "Added smoke alarm battery to your to-do list.",
     "Your order is placed; next step is the courier picking it up at 6.",
     "Bella Cucina is open till 10 tonight and Pho 88 till 9. I can book a table at the one you pick.",
+    "Bento Bay: bentos $12 to $14. No booking needed.",
   ]) {
     assert.equal(stopsShort(said), false, said);
   }
@@ -126,6 +134,10 @@ test("an offer to keep looking is judged, with or without a question mark", () =
   assert.ok(mayAsk("I can write these up in the chat's notes if you want."));
   assert.ok(mayAsk("Next step is pricing the sides."));
   assert.ok(finishNotice({ job: false }).length > 0);
+  // Dev2's 1:1, 2026-10-26: "The page doesn't list hours ... I can look up hours for one you pick" got the
+  // notice and went out anyway through "isn't published anywhere": a list page is not where hours live.
+  assert.match(finishNotice({ job: false }), /A list page without the figure is not where it lives: open each place's own page/);
+  assert.match(finishNotice({ job: false }), /opening hours/);
 });
 
 test("asked for options with the brief open, the first reply is the one question, and options come with their links", async () => {
@@ -134,6 +146,10 @@ test("asked for options with the brief open, the first reply is the one question
   assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
   // The owner's bar the same day: each caterer named with its menu link.
   assert.match(RESEARCH_LINE, /each place with its page link/);
+  // Hand-back bench case 10 (gh-104): opened all three places' pages, then texted only its pick.
+  assert.match(RESEARCH_LINE, /give each one found with the fact that decides it .*then your pick/);
+  // gh-107: asked "which Riverside?" twice before any search.
+  assert.match(RESEARCH_LINE, /A town they name is enough to search on: never ask which state first/);
   // gh-100: told her to confirm the prices, and asked which Riverside when the directory said.
   assert.match(RESEARCH_LINE, /don't ask what those pages settle .* or tell them to confirm the figures/);
 });
@@ -151,6 +167,10 @@ test("a pick made before the one question that changes the search goes back once
   assert.ok(picksBeforeAsking("I'd cook it: three trays from your list. Catering's the other option if you'd rather not cook.", asked));
   // gh-100: "the other option" with no "if you'd rather".
   assert.ok(picksBeforeAsking("I'd cook it yourselves. Catering is the other option, if nobody wants to cook every week. Which way do you want to go?", asked));
+  // gh-107: "Or I can look for caterers instead. Which one?", and grocery-costed cooking nobody asked for.
+  assert.ok(picksBeforeAsking("I'd cook it: $10 a head stretches a long way. Or I can look for caterers instead. Which one?", asked));
+  assert.ok(picksBeforeAsking("I couldn't find published grocery prices, so these are estimates. Chicken tray bake (my pick): about $3 a person. Which store do you shop at?", asked));
+  assert.equal(picksBeforeAsking("Here are three recipes under $10 a head.", "find 3 recipes I can cook for 30 people"), false, "cooking they asked for");
   for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
     assert.equal(picksBeforeAsking(fine, asked), false, fine);
   }

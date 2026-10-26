@@ -149,3 +149,28 @@ test("runTurn waits for the judge and gives the model one more round", async () 
   assert.ok(JSON.stringify(ai.calls[1]).includes("you ask for something you can find"));
   assert.match(result.answer, /\$64\.20/);
 });
+
+// The owner's 1:1, 2026-10-26: five priced lunch spots found, then a notice's round texted only
+// "Namudol ... I can't give you a price for it. I didn't change anything, so there's nothing to undo."
+// Sabotage record: with `RECHECK_REPLACES` left off the notice in turn.js, this test fails.
+test("a notice's round is told its answer replaces the last one, and H8 never asks for a 'nothing to undo'", async () => {
+  const { RECHECK_REPLACES } = await import("../src/agent/recheck.js");
+  const MAIN = "@cf/acme/main-model";
+  const ai = scripted(["Want me to look up Namudol?", "Hibino $12, Sapps $15, Namudol $14."]);
+  const claims = claimCheck({ question: "lunch near me with prices", judge: async () => noticeFor("H8") });
+  await runTurn({
+    question: "lunch near me with prices",
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: [],
+    env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN },
+    providerOptions: { ai },
+    texting: true,
+    builtinModelOverride: MAIN,
+    answerCheck: claims.check,
+    callTool: claims.wrap(async () => ({ content: [] })),
+  });
+  const sent = JSON.stringify(ai.calls[1]);
+  assert.ok(sent.includes(JSON.stringify(RECHECK_REPLACES).slice(1, -1)), "the notice says the next answer must stand on its own");
+  assert.match(RECHECK_REPLACES, /keep every option, figure and link/);
+  assert.match(noticeFor("H8"), /say how to undo it only if it changed something/);
+});
