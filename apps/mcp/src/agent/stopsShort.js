@@ -40,8 +40,9 @@ const SHORT = [
 
 /** It offers, or plans, the looking or writing it was asked to do instead of doing it. */
 const OFFERS_MORE = [
-  /\bI can (?:also )?(?:write (?:these|this|them|it|that) up|look (?:into|up)|dig (?:into|up|deeper|further)|price|research|find|compare|get (?:prices|quotes?|numbers)|check (?:prices|menus))\b[^.?!\n]{0,100}\bif (?:you|y'all|you all)(?:'d)? (?:want|like)\b/i,
-  /\b(?:want|would you like) me to (?:look (?:into|up)|dig|price|research|find (?:prices|out)|compare|check (?:prices|menus)|write (?:these|this|them|it) up)\b/i,
+  // "... if you want", or held for a pick: "I can look up hours for one you pick" (Dev2's 1:1, 2026-10-26).
+  /\bI can (?:also )?(?:write (?:these|this|them|it|that) up|look (?:into|up)|dig (?:into|up|deeper|further)|price|research|find|compare|get (?:prices|quotes?|numbers)|check (?:prices|menus|hours|reviews))\b[^.?!\n]{0,100}(?:\bif (?:you|y'all|you all)(?:'d)? (?:want|like)\b|\b(?:you|y'all) (?:pick|choose)\b)/i,
+  /\b(?:want|would you like) me to (?:look (?:into|up)|dig|price|research|find (?:prices|out)|compare|check (?:prices|menus|hours|reviews)|write (?:these|this|them|it) up)\b/i,
   /\bI(?:'d| would) (?:try to |next |then |start by |want to )?(?:get (?:a )?quotes?|look up|price|research|compare (?:prices|quotes))\b/i,
   /\blet me know if you(?:'d)? (?:want|like) me to (?:look|dig|price|research|find|compare|check)\b/i,
 ];
@@ -58,7 +59,7 @@ export function stopsShort(answer) {
 
 const FINISH =
   "Before this goes: your answer stops short of what they asked. It says part of it is still missing, names a next step, or offers to look further, " +
-  "and that looking is yours to do. Do it now: search_web, open the pages that have the figures (a menu, a price list, a per-person price, a fee), " +
+  "and that looking is yours to do. Do it now: search_web, open the pages that have the figures (a menu, a price list, opening hours, a per-person price, a fee), " +
   "and give the answer they asked for in full, every part counted (a per-person cost includes the sides, drinks and anything else it is meant to cover), " +
   "with where each figure came from. Looking up published prices never needs their yes; only contacting someone (an email, a call, a quote request) does, so offer that as one line at the end if it helps. ";
 
