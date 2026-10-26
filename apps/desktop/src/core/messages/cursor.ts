@@ -16,6 +16,13 @@
  * The two digests say what was last sent of the chat list and the names, so
  * they are sent again only when they change.
  *
+ * Pictures and documents have their own two positions, over `attachment`
+ * ROWIDs rather than `message` ones (`files.ts`), read in the same two
+ * directions; videos have two more, so either switch can be off for a while
+ * and pick up where it stopped; and one running count of the bytes sent. A cursor
+ * written before they existed has none, and its files start from a first
+ * look while its texts carry on where they were.
+ *
  * `chat.db` itself is the queue. A position moves only after the gateway has
  * kept what was read, so a failed upload, a closed lid or a crash means the
  * same rows are read and sent again, and the gateway folds them by id.
@@ -32,6 +39,11 @@ export interface BackupCursor {
   changesAfterNs: string;
   chatsDigest: string | null;
   peopleDigest: string | null;
+  filesNewest: number;
+  filesOldest: number | null;
+  videosNewest: number;
+  videosOldest: number | null;
+  filesBytes: number;
 }
 
 export const BACKUP_CURSOR_VERSION = 1;
@@ -43,6 +55,11 @@ export const FRESH_BACKUP_CURSOR: BackupCursor = Object.freeze({
   changesAfterNs: "0",
   chatsDigest: null,
   peopleDigest: null,
+  filesNewest: 0,
+  filesOldest: null,
+  videosNewest: 0,
+  videosOldest: null,
+  filesBytes: 0,
 });
 
 function rowId(value: unknown): number | null {
@@ -70,7 +87,23 @@ export function normalizeBackupCursor(raw: unknown): BackupCursor {
     changesAfterNs: changes,
     chatsDigest: digest(source["chatsDigest"]),
     peopleDigest: digest(source["peopleDigest"]),
+    ...filesPositions(source),
   };
+}
+
+function filesPositions(source: Record<string, unknown>): Pick<BackupCursor, "filesNewest" | "filesOldest" | "videosNewest" | "videosOldest" | "filesBytes"> {
+  const [filesNewest, filesOldest] = positions(source["filesNewest"], source["filesOldest"]);
+  const [videosNewest, videosOldest] = positions(source["videosNewest"], source["videosOldest"]);
+  return { filesNewest, filesOldest, videosNewest, videosOldest, filesBytes: rowId(source["filesBytes"]) ?? 0 };
+}
+
+/** One walk's two positions, or a fresh walk's when they are missing or make no sense. */
+function positions(rawNewest: unknown, rawOldest: unknown): [number, number | null] {
+  const newest = rowId(rawNewest);
+  const oldest = rawOldest === null || rawOldest === undefined ? null : rowId(rawOldest);
+  if (newest === null || (oldest === null && rawOldest !== null && rawOldest !== undefined)) return [0, null];
+  if (oldest !== null && oldest > newest + 1) return [0, null];
+  return [newest, oldest];
 }
 
 /** Whether the whole history has been sent. */

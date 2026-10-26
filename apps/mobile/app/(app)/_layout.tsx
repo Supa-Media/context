@@ -9,6 +9,7 @@ import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
+import { MessagesBackupCard } from "../../features/messagesBackup/MessagesBackupCard";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
 import { EmailGate } from "../../features/auth/gmailFirst/EmailGate";
 import { DomainJoin } from "../../features/auth/DomainJoin";
@@ -337,6 +338,8 @@ export default function AppLayout() {
           be opened from, and where the early-beta notice is shown once.
         */}
         <FeedbackHost />
+        {/* The Mac app's Messages backup, on by default, waiting for Full Disk Access. Nothing elsewhere. */}
+        <MessagesBackupCard />
         {joined === null ? null : (
           <ToastHost
             toasts={[{ id: `joined-${joined.slug}`, message: joinedNotice(joined.name, joined.domain) }]}

@@ -35,6 +35,7 @@
 import {
   BACKUP_PREFIX,
   LIMITS,
+  MESSAGES_BACKUP_FILE_ROUTE,
   MESSAGES_BACKUP_ROUTE,
   monthOf,
   readBackupBatch,
@@ -43,8 +44,24 @@ import { SCOPE_PRIVATE, SCOPE_WRITE, hasScope } from "../session.js";
 import { json } from "../http/responses.js";
 import { projectBatch } from "./textsIndex.js";
 import { isGroupSession } from "../agent/groupTurn.js";
+import { forgetUnsent } from "./messagesBackupFiles.js";
+import { MESSAGES_BACKUP_LOG_ROUTE } from "./messagesBackupRead.js";
 
 export { MESSAGES_BACKUP_ROUTE };
+
+/** The batch route, the log route, or any path under the file route (`messagesBackupFiles.js` parses it). */
+export function isMessagesBackupPath(path) {
+  return (
+    path === MESSAGES_BACKUP_ROUTE ||
+    path === MESSAGES_BACKUP_LOG_ROUTE ||
+    (typeof path === "string" && path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`))
+  );
+}
+
+/** Whether this is a read of the backup by its owner (`messagesBackupRead.js`): a GET of the log or of a file. */
+export function isMessagesBackupRead(path, method) {
+  return method === "GET" && (path === MESSAGES_BACKUP_LOG_ROUTE || (typeof path === "string" && path.startsWith(`${MESSAGES_BACKUP_FILE_ROUTE}/`)));
+}
 
 /** Where every batch object lives. */
 export const MESSAGES_BACKUP_LOG = `${BACKUP_PREFIX}log/`;
@@ -135,6 +152,8 @@ export async function handleMessagesBackup(request, store, { now = Date.now() } 
       await store.put(key, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
       written.push([key, records]);
     }
+    // After the batch's own objects, whose unsent records stay.
+    await forgetUnsent(store, batch.records);
   } catch {
     return json({ ok: false, error: "unavailable" }, 503);
   }

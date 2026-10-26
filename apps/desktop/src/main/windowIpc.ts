@@ -10,21 +10,19 @@
 
 import { app, ipcMain, session, shell } from "electron";
 import { episodeKey, answered } from "../core/consent/gate.ts";
-import {
-  FULL_DISK_ACCESS_SETTINGS_URL,
-  fullDiskAccessNotice,
-} from "../core/imessage/permission.ts";
+import { hostname } from "node:os";
+import { FULL_DISK_ACCESS_SETTINGS_URL } from "../core/imessage/permission.ts";
 import { consoleOrigin, consoleUrl } from "../core/shell/console.ts";
 import { createConsoleWindow } from "./windows.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror } from "./consoleMirror.ts";
 import { COMMANDS } from "./ipc.ts";
-import { askSomething } from "./dialogs.ts";
+import { backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
 import { CONSOLE_UI, RENDERER_DIR } from "./launchFlags.ts";
 import type { MainActions, MainContext } from "./context.ts";
 
 export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "openConsoleWindowIfAsked"> {
-  const { controller, imessage, localAgent } = ctx;
+  const { controller, messagesBackup, localAgent } = ctx;
   // Late-bound: these live in other modules and are read from `ctx` at call time.
   const push: MainActions["push"] = () => ctx.push();
   const update: MainActions["update"] = (patch) => ctx.update(patch);
@@ -128,22 +126,21 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
       outbox: outboxStatus,
       drain: () => void drain(),
       writeMeeting: writeMeetingFromConsole,
-      imessage: () => imessage.status(),
-      // Messages are no longer copied into notes (owner, 2026-10-21): the import stays off.
-      setImessageEnabled: () => void update({ imessageEnabled: false }),
+      /*
+        The bridge's `imessage` member reports the Messages backup since the
+        import into notes was retired (owner, 2026-10-21): the switch is the
+        backup's, and so is what the console is told.
+      */
+      imessage: () => backupBridgeStatus(messagesBackup.status(), machineLabel(hostname())),
+      setImessageEnabled: (enabled) => void update({ messagesBackup: enabled }),
+      setImessageFiles: (choice) =>
+        void update({
+          ...(choice.pictures === undefined ? {} : { messagesBackupPictures: choice.pictures }),
+          ...(choice.videos === undefined ? {} : { messagesBackupVideos: choice.videos }),
+        }),
+      // The card in the console already says what to do there, so the button goes straight to the pane.
       requestImessageFullDiskAccess: async () => {
-        const parent = ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed() ? null : ctx.consoleWindow;
-        const answer = await askSomething(parent, {
-          type: "info",
-          title: "Allow iMessage import",
-          message: fullDiskAccessNotice(app.getName()),
-          detail: `After turning it on, quit and reopen ${app.getName()}, then return to Settings → Chats.`,
-          buttons: ["Open System Settings", "Not now"],
-          defaultId: 0,
-          cancelId: 1,
-          noLink: true,
-        });
-        if (answer.response === 0) await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
+        await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
       },
       localAgent: () => localAgent.status(),
       askLocalAgent: (request) => localAgent.ask(request),

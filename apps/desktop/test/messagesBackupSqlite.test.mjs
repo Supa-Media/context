@@ -14,12 +14,16 @@
  *   queries.ts naming date_edited on a database without it      1 (the old-schema read throws, ending the suite)
  *   queries.ts dropping the NULLIF on date_retracted            2 (every message reads as unsent)
  *   messagesBackup.ts sending before Full Disk Access           1
+ *   queries.ts reading an unsent message's files                4
+ *   readAttachment not following links before the check        1
  */
 
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { writeFile, symlink } from "node:fs/promises";
 
 const SQLITE3 = "/usr/bin/sqlite3";
 
@@ -36,7 +40,7 @@ CREATE TABLE chat (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT
 CREATE TABLE handle (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, service TEXT);
 CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
 CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
-CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, mime_type TEXT, total_bytes INTEGER, transfer_name TEXT);
+CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT NULL, filename TEXT, mime_type TEXT, total_bytes INTEGER, transfer_name TEXT);
 CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);`;
 }
 
@@ -61,8 +65,13 @@ function seed(newColumns) {
     ${message(4, "G4", "Dinner at 5 actually", 1, 3, 0, 0, "NULL", newColumns ? T(10) : 0)}
     ${message(5, "G5", "", 2, 4, 0, 0, "NULL", 0, newColumns ? T(11) : 0, 2)}
     ${message(6, "G6", "photo", 2, 5, 0, 0, "NULL", 0, 0, 2)}
-    INSERT INTO attachment (ROWID, filename, mime_type, total_bytes, transfer_name) VALUES (1, '~/Library/Messages/Attachments/aa/01/IMG_0001.HEIC', 'image/heic', 204800, 'IMG_0001.HEIC');
-    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (6, 1);`;
+    INSERT INTO attachment (ROWID, guid, filename, mime_type, total_bytes, transfer_name) VALUES
+      (1, 'AT-1', '~/Library/Messages/Attachments/aa/01/IMG_0001.HEIC', 'image/heic', 13, 'IMG_0001.HEIC'),
+      (2, 'AT-2', '~/Library/Messages/Attachments/aa/02/clip.MOV', 'video/quicktime', 40, 'clip.MOV'),
+      (3, 'AT-3', '~/Library/Messages/Attachments/aa/03/gone.pdf', 'application/pdf', 10, 'gone.pdf'),
+      (4, 'AT-4', '~/Library/Messages/../Messages/chat.db', 'image/png', 10, 'sneaky.png'),
+      (5, 'AT-5', '~/Library/Messages/Attachments/aa/05/taken-back.jpg', 'image/jpeg', 10, 'taken-back.jpg');
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (6, 1), (6, 2), (6, 3), (6, 4), (5, 5);`;
 }
 
 const ADDRESS_BOOK = `
@@ -110,6 +119,11 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     const chatDb = join(home, "Library", "Messages", "chat.db");
     execFileSync(SQLITE3, [chatDb, schema(MESSAGE_COLUMNS_NEW)]);
     execFileSync(SQLITE3, [chatDb, seed(true)]);
+    const attachments = join(home, "Library", "Messages", "Attachments");
+    for (const folder of ["aa/01", "aa/02", "aa/05"]) await mkdir(join(attachments, folder), { recursive: true });
+    await writeFile(join(attachments, "aa/01/IMG_0001.HEIC"), "picture bytes");
+    await writeFile(join(attachments, "aa/02/clip.MOV"), "video bytes that must stay on the Mac");
+    await writeFile(join(attachments, "aa/05/taken-back.jpg"), "unsent bytes");
     const sourceDir = join(home, "Library", "Application Support", "AddressBook", "Sources", "SRC-1");
     await mkdir(sourceDir, { recursive: true });
     execFileSync(SQLITE3, [join(sourceDir, "AddressBook-v22.abcddb"), ADDRESS_BOOK]);
@@ -130,12 +144,17 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     check("sqlite: an edit is read with its time", byId.get("G4")?.edited === "2026-10-21T17:22:00.000Z");
     check("sqlite: an unsend is read", byId.get("G5")?.unsent === true);
     check("sqlite: a tapback is a reaction on its target", byId.get("G3")?.kind === "reaction" && byId.get("G3").target === "G2");
-    check("sqlite: a picture's name and size come through, never its path", byId.get("G6")?.files?.[0]?.name === "IMG_0001.HEIC" && byId.get("G6").files[0].bytes === 204800);
+    check("sqlite: a picture's name and size come through, never its path", byId.get("G6")?.files?.[0]?.name === "IMG_0001.HEIC" && byId.get("G6").files[0].bytes === 13);
+    check("sqlite: a file carries the digest of Apple's id for it", byId.get("G6")?.files?.[0]?.id === createHash("sha256").update("AT-1").digest("hex").slice(0, 32));
+    const fileRows = await queryChatDb(chatDb, q.selectBackupFilesSql(0, 5, columns));
+    check("sqlite: the file copy reads files with their message, leaving out an unsent message's", fileRows.map((r) => r.attachment_guid).join() === "AT-1,AT-2,AT-3,AT-4" && fileRows[0].message_guid === "G6");
+    const attachmentMax = await queryChatDb(chatDb, q.selectAttachmentMaxSql());
+    check("sqlite: the highest file row is read", attachmentMax[0]?.max_rowid === "5");
 
     const changed = await queryChatDb(chatDb, q.selectBackupMessagesSql({ kind: "changed", afterNs: T(5), limit: 100 }, columns));
     check("sqlite: changes since an instant are the edited and unsent rows, oldest change first", changed.map((r) => r.guid).join() === "G4,G5");
     const forRows = await queryChatDb(chatDb, q.selectAttachmentsForRowsSql([6, 4]));
-    check("sqlite: files for scattered rows are read by id", forRows.length === 1 && forRows[0].message_guid === "G6");
+    check("sqlite: files for scattered rows are read by id", forRows.length === 4 && forRows.every((r) => r.message_guid === "G6"));
     const account = await queryChatDb(chatDb, q.selectAccountSql());
     check("sqlite: the signed-in account is read", account[0]?.login === "P:+15550104410");
 
@@ -147,6 +166,7 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     check("sqlite: an older database has none of the newer columns", oldColumns.size === 0 && !q.canReadChanges(oldColumns));
     const oldRows = run(q.selectBackupMessagesSql({ kind: "range", afterRowId: 0, throughRowId: 6 }, oldColumns));
     check("sqlite: an older database still reads every row", oldRows.length === 6);
+    check("sqlite: an older database's files are read without the newer columns", run(q.selectBackupFilesSql(0, 5, oldColumns)).length === 5);
     check("sqlite: on an older database nothing reads as edited or unsent", recordsFromRows(oldRows, []).every((r) => !("edited" in r) && !("unsent" in r)));
     let threw = false;
     try {
@@ -170,6 +190,7 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
 
     // The service, end to end, over the fixture and a fake gateway.
     const posts = [];
+    const fileUploads = [];
     const store = fakeStore();
     const statuses = [];
     const service = new MessagesBackupService({
@@ -179,7 +200,8 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
       observeChatDb: () => ({ close() {} }),
       onChange: (status) => statuses.push(status),
       fetch: async (url, init) => {
-        posts.push({ url, body: JSON.parse(init.body) });
+        if (String(url).includes("/messages/imessage/file/")) fileUploads.push({ url: String(url), body: new TextDecoder().decode(init.body), auth: init.headers.authorization });
+        else posts.push({ url, body: JSON.parse(init.body) });
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       },
     });
@@ -192,7 +214,20 @@ export async function runMessagesBackupSqliteChecks(check, skip) {
     const status = service.status();
     check("service: a finished copy says it is up to date", status.phase === "up_to_date" && status.copiedRows === 6 && status.totalRows === 6);
     check("service: the account shows masked", status.account === "+1 ••• 4410");
+    check("service: how far back the copy reaches is the oldest text's time", status.reachedBack === Date.parse("2026-10-21T17:12:00.000Z"));
     check("service: the cursor ends with all history sent", store.saved.at(-1)?.oldest === 1 && store.saved.at(-1)?.newest === 6);
+    const g6 = createHash("sha256").update("G6").digest("hex").slice(0, 32);
+    const at1 = createHash("sha256").update("AT-1").digest("hex").slice(0, 32);
+    check("service: a picture's bytes are sent once, under its message's folder", fileUploads.length === 1 && fileUploads[0].url === `https://gateway.invalid/messages/imessage/file/${g6}/${at1}` && fileUploads[0].body === "picture bytes");
+    check("service: a file's credential rides in the header", fileUploads[0]?.auth === "Bearer token-1" && !fileUploads[0].url.includes("token-1"));
+    check("service: no video, no unsent message's file and nothing outside Attachments is sent", !fileUploads.some((f) => /video|unsent|SQLite/.test(f.body)));
+    check("service: the file positions end with every file looked at", store.saved.at(-1)?.filesOldest === 1 && store.saved.at(-1)?.filesNewest === 5 && store.saved.at(-1)?.filesBytes === 13);
+
+    const { readAttachment } = await import("../src/main/messagesBackup.ts");
+    await symlink(chatDb, join(attachments, "aa/01/link.png"));
+    const linked = await readAttachment("~/Library/Messages/Attachments/aa/01/link.png");
+    check("service: a link inside Attachments that points out of it is never read", "missing" in linked);
+    check("service: a path that climbs out of Attachments is never read", "missing" in (await readAttachment("~/Library/Messages/Attachments/../chat.db")) && "missing" in (await readAttachment(chatDb)));
 
     // Off means nothing is read or sent.
     const quiet = [];

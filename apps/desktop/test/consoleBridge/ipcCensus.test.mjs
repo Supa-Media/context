@@ -557,6 +557,23 @@ export async function runIpcCensusChecks(check) {
       nothing else: it opens no input, files no meeting, reaches no credential,
       and `main/capture.ts` clamps both numbers into 0-1 before they travel.
     */
+  // -- the Messages backup's "What's copied" switches ------------------------
+  {
+    const { ipc, calls } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.imessageSetFiles)(sender(), { pictures: false, videos: "true", path: "/Users/x" });
+    check(
+      "a change to what is copied reaches the shell as the two switches only, each a boolean",
+      calls.includes(`setImessageFiles:${JSON.stringify({ pictures: false })}`) && !calls.some((call) => call.includes("/Users/x")),
+    );
+    let refused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.imessageSetFiles)(sender({ id: 99 }), { videos: true });
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot change what is copied", refused && !calls.some((call) => call.includes("videos")));
+  }
+
   // -- the local agent, version 7 --------------------------------------------
   {
     const { ipc, asked } = mainBridge({ localAgent: { available: true, name: "Claude Code" } });
@@ -624,9 +641,15 @@ export async function runIpcCensusChecks(check) {
       already has through the connection, so the ceiling here is the sender
       check above rather than anything new.
     */
+    /*
+      36 → 37: the Messages backup's "What's copied" switches, gated. It
+      carries two booleans, rebuilt in the handler (`filesChoiceFrom`), and
+      changes which of the person's own files their own Mac copies to their
+      own storage; it reads nothing back.
+    */
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 36,
+      registrations + gatedAsync + gatedSync === 37,
     );
   }
 }

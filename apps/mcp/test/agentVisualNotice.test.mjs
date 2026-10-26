@@ -20,7 +20,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { VISUAL_NOTICE, VISUAL_TOO, wantsACard } from "../src/agent/visuals/notice.js";
+import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, owesAPicture, wantsACard } from "../src/agent/visuals/notice.js";
 import { noticeFor } from "../src/agent/handbackJudge.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 
@@ -112,10 +112,21 @@ test("a list sent back for another reason carries the card too, once", async () 
 });
 
 test("the hand-back notice keeps the whole answer and never makes a lookup about undoing", () => {
-  assert.match(noticeFor("H8"), /a lookup changes nothing/);
+  assert.match(noticeFor("H8"), /never add a line about undoing it/);
   assert.match(noticeFor("H12"), /whole answer again/);
 });
 
 test("a list of projects is a board", () => {
   assert.equal(wantsACard("Context private beta\nTex\nGoogle OAuth verification\nPortal onboarding", { question: "what are the projects in supa rn" }), true);
+});
+
+test("a graphic asked for, or promised in the words, with nothing drawn goes back to be drawn", async () => {
+  const ask = "Tex can you make a graphic for this instead of this wall of text, i'm not reading all this";
+  const claims = claimCheck({ question: ask, visuals: () => true });
+  assert.equal(await claims.check("Here's the one-page version. It's not started, and it has three open questions."), OWED_PICTURE_NOTICE);
+  assert.equal(owesAPicture("Here’s the graphic.", { question: "what's left" }), true, "the words promise one");
+  assert.equal(owesAPicture("Here's the one-pager.", { question: ask, steps: [{ name: "draw_visual", ok: true }] }), false, "drawn: it goes with the answer");
+  assert.equal(owesAPicture("The deposit came in Tuesday.", { question: "did the deposit come in" }), false);
+  const blind = claimCheck({ question: ask, visuals: () => false });
+  assert.notEqual(await blind.check("Here's the one-pager."), OWED_PICTURE_NOTICE);
 });

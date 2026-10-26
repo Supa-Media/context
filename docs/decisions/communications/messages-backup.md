@@ -50,6 +50,22 @@ tools behind them unlisted. The route gives them to the personal workspace's
 owner on a private-tier connection only, and never to Tex answering a group
 chat; every texts read marks the turn untrusted (`apps/mcp/test/texts.test.mjs`).
 
+**On by default, and nothing is read until the person grants Full Disk
+Access by hand.** A fresh install has `messagesBackup: true`; a settings file
+that says false stays false. macOS never lets an app ask for Full Disk Access,
+so the first time the Mac app opens, a card ("Your texts, ready for Tex") says
+the backup is on, names the masked account and the Mac, shows the two steps,
+opens the right pane, and offers Turn off. It stays until the permission lands
+or the backup is off; closing it hides it for that visit only. Settings ›
+Messages holds the switch, the progress line and who reads the texts. The
+console learns all of it through the bridge's `imessage` member, which reports
+the backup since the import into notes was retired: a `backup` view of counts,
+two times, the masked account and the Mac's name, rebuilt field by field in
+the preload (`apps/desktop/test/consoleBridge/preloadContract.test.mjs`). A
+Mac app from before the backup sends no view, and the page asks for an update
+rather than drawing a switch that would do nothing
+(`apps/mobile/__tests__/meetingsDesktop/messagesBackupSettings.test.ts`).
+
 **The owner's picks (2026-10-26, from the boards):**
 
 - An open form: one JSON line per message, readable without Context.
@@ -79,6 +95,59 @@ is sent unnamed.
 **No Mac path leaves the Mac.** A file record carries the transfer name,
 type and size, never `~/Library/Messages/Attachments/...`.
 
+**Pictures and documents are copied by name, not by path.** A file record
+also carries an `id`, the first 32 hex characters of a SHA-256 of Apple's id
+for the file, and its bytes land at
+`.context/messages/imessage/files/<folder>/<id>`, where `folder` is the same
+digest of the message's id (`POST /messages/imessage/file/<folder>/<id>`,
+refused on exactly the batch route's terms). The same file always lands on
+the same key, so a retry overwrites itself. Every file is stored as
+`application/octet-stream`; its real type stays text in the record. The Mac
+reads only inside `~/Library/Messages/Attachments`, after following links,
+copies no videos and nothing over 25 MB (the gateway holds the size limit
+too), and walks files with a cursor of its own over `attachment` rows, new
+ones first, a byte budget a pass, after the texts. A new file not yet on the
+Mac is waited for for half an hour; an old one (Messages in iCloud keeps many
+only in the cloud) is skipped, and the Mac never asks for it to download.
+
+**"What's copied" is two switches, each its own walk.** Pictures and
+documents (on) and videos (off, because they take most of the space) are set
+in Settings › Messages and kept in the Mac app's settings. Each kind walks
+`attachment` with positions of its own in the cursor, so a switch turned off
+for a month picks up where it stopped when turned back on and misses nothing;
+the two share one byte budget a pass and one count of bytes sent, which the
+page shows as "1.4 GB so far". The page reaches them through the bridge's
+optional `imessage.setFiles`, two booleans rebuilt on both sides of the IPC
+(`apps/desktop/test/consoleBridge/ipcCensus.test.mjs`); a Mac app without it
+is asked to update rather than shown switches that would do nothing.
+
+**An unsend takes back what was already copied.** A batch carrying an unsent
+message deletes every file under that message's folder and rewrites the
+month's log objects that arrived from an hour before it was sent onwards,
+dropping its earlier lines and keeping every other line. Both finish before
+the batch is answered `ok`, so a failure is a refusal the Mac sends again.
+
+**The texts leave with Download as folders.** The owner's whole-workspace
+download carries the backup as one Markdown file per conversation per month
+under `Messages/` (`Messages (backup)/` when they already have a folder of that
+name), rendered in the console from the log by the same fold and transcript
+code the Mac uses (`packages/communications/src/backupTranscript.js`). The
+log is read a page at a time by key (`messagesExport.readLogForExport`, owner
+only, an empty page for anyone else), and a log that cannot be read to the
+end puts nothing in and says so. Pictures are named where they were sent but
+not carried: an archive the browser holds in memory, read through action
+answers capped well under their size, cannot take them.
+
+**Download messages, with the pictures, is the Mac app's.** It reads the
+backup back through the gateway, on exactly the terms that let it write
+(`messagesBackupRefusal`): `GET /messages/imessage/log?after=<key>` answers a
+page of the log by the same pager the console uses
+(`packages/communications/src/backupLog.js`), and
+`GET /messages/imessage/file/<folder>/<id>` one file's bytes, as an
+attachment of no type a browser runs, or 404 once an unsend took it back.
+Only those two are GETs; every other path under the backup still wants a
+POST.
+
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
 Moving the cursor before the gateway answers loses messages silently on the
@@ -91,4 +160,12 @@ person's texts to everyone in a room.
 unsent keeps nothing, no stored path, new texts before history, names only for
 chat members) and `messagesBackupSqlite.test.mjs` (real SQLite, old and new
 schemas, Full Disk Access first); `packages/communications/test/backup.test.mjs`
-(the record contract).
+(the record contract); `apps/mcp/test/messagesBackupFiles.test.mjs` (who may
+post a file, the size limit, an unsend taking back words and files) and the
+`files:` checks in `messagesBackup.test.mjs` (no videos, no path outside
+Attachments, waiting only for new files, the byte budget);
+`apps/mcp/test/messagesBackupRead.test.mjs` (reads refused as writes are,
+the whole log, a taken-back file not found);
+`apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
+page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
+(a short log puts nothing in unsaid) and `backupTranscript.test.mjs`.

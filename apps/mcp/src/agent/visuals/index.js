@@ -27,7 +27,7 @@ const TEMPLATES = {
   gallery: [gallery, "things to look at, a photo each: clothes (style editorial), food (style warm, the pick large), gifts or products (style polaroid). {style, kicker, title, items:[{name, price, note, photo, source ('Aritzia'), pick, tag}] ≤4 (warm ≤3), footer}"],
   option: [option, "ONE option per card, for 2-8 options sent together as a swipeable set (one draw_visual call each, numbered): caterers, dresses, hotels, cars. {index, of, kicker, name, price, price_note ('$7.50 a person'), photo, source, facts:[{label, value}] ≤4, note, pick, tag}"],
   versus: [versus, "two things side by side: homes, cars, jobs. {kicker, title, items:[{name, photo, source}] ×2, rows:[{label, a, b, better: 'a'|'b'}] ≤7}"],
-  places: [places, "places to go, numbered, a photo each. {kicker, title, items:[{name, detail ('Mexican · $$ · open till 11'), note, distance ('4 min'), distance_label ('walk'), photo, pick}] ≤4, footer}"],
+  places: [places, "places to go (restaurants, bars, shops), numbered. {kicker, title, items:[{name, cuisine ('Ethiopian'), price ('$$' or '$60 prix fixe'), hours ('5 to 10 pm'), address, note (one short line: why go, booking), distance ('4 min', only if you know it), distance_label ('walk'), photo (a dish or room photo from the place's own page, Yelp, OpenTable or a review you opened: open each place's own page first: its read lists photos and a Logo line), logo (that Logo line), pick}] ≤4, footer}. Every field shows in full; leave out what you don't know"],
   tickets: [tickets, "flights, trains, shows as ticket cards. {kicker, title, items:[{name ('Delta 1421'), depart, arrive, duration, stops, price, price_label, note, pick, tag}] ≤3, facts:[{label, value}] ≤3}"],
   trip: [trip, "a trip or event by day. {kicker, title, days:[{name, stops:[{time, what, note}] ≤5}] ≤3, chips:[{label, value, tone: 'good'|'warn'}] ≤3}"],
   day: [day, "one day hour by hour. {kicker, title, events:[{start ('9:30'), end, title, note, kind: meeting|free|travel|warn}] ≤9}"],
@@ -67,13 +67,50 @@ export const VISUAL_DEFINITION = {
 };
 
 /** The page for one visual, at the size it is photographed, or an error the model can act on. */
-export function buildVisual(args) {
+export function buildVisual(args, { canLoad, photos } = {}) {
   const template = typeof args?.template === "string" ? args.template : "";
   if (!Object.hasOwn(TEMPLATES, template)) return { error: `No template "${template.slice(0, 30)}". Pick one of: ${VISUAL_TEMPLATES.join(", ")}.` };
   const data = args?.data && typeof args.data === "object" && !Array.isArray(args.data) ? args.data : null;
   if (data === null) return { error: "Pass the template's fields as data." };
   const theme = args?.theme === "dark" ? "dark" : "light";
-  return { html: TEMPLATES[template][0](data, theme), width: CARD_WIDTH * SCALE, height: CARD_HEIGHT * SCALE };
+  const dropped = [];
+  const drawn = TEMPLATES[template][0](loadable(data, canLoad, dropped, photos), theme);
+  const page = typeof drawn === "string" ? { html: drawn, height: CARD_HEIGHT } : drawn;
+  return { html: page.html, width: CARD_WIDTH * SCALE, height: page.height * SCALE, dropped: dropped.length };
+}
+
+/**
+ * The data with every web photo or logo the card could not load taken out, so
+ * a template leaves the slot off rather than drawing an empty block. `canLoad`
+ * is whether the screenshot Worker will load an address (`pictureMaker.js`:
+ * only ones this turn read); without it, every address stays. `photos` names
+ * the ones the gateway downloaded (`./photos.js`), each `card-photo:N`, put in
+ * as data once the page is built.
+ */
+function loadable(data, canLoad, dropped, photos) {
+  if (typeof canLoad !== "function") return data;
+  const keep = (value) => typeof value !== "string" || !/^https:/i.test(value.trim()) || canLoad(value.trim());
+  const clean = (item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const out = { ...item };
+    for (const key of ["photo", "logo"]) {
+      if (typeof out[key] === "string" && photos?.has(out[key].trim())) {
+        out[key] = photos.get(out[key].trim());
+        continue;
+      }
+      // Only the gateway names a downloaded photo; one the model wrote would be an empty slot.
+      if (typeof out[key] === "string" && /^card-photo:/.test(out[key].trim())) {
+        delete out[key];
+        continue;
+      }
+      if (keep(out[key])) continue;
+      dropped.push(out[key]);
+      delete out[key];
+    }
+    for (const [key, value] of Object.entries(out)) if (Array.isArray(value)) out[key] = value.map(clean);
+    return out;
+  };
+  return clean(data);
 }
 
 /**

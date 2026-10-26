@@ -24,6 +24,7 @@ import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
 import { YourPicture } from "./panels/YourPicture";
+import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
 /**
@@ -71,6 +72,7 @@ export function AccountSection({
   const owned = personal !== undefined;
 
   if (section === "feedback") return <FeedbackSettings />;
+  if (section === "messages") return <MessagesPanel owned={owned} />;
 
   if (section === "texApps") {
     return (

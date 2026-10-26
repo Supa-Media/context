@@ -149,17 +149,27 @@ function archivedTo(result) {
   return match ? match[1] : null;
 }
 
-/** A batch move's own cap (`moves/limits.js`): a matched move goes in batches this size. */
-const MATCH_BATCH = 100;
+/**
+ * A matched move goes in batches this size, well under a batch move's own
+ * cap (`moves/limits.js`, 100). Each note's move carries its editing history
+ * and every link to it, so in a real workspace a batch of 100 ran past
+ * move_notes' 60 s and moved nothing (2026-10-26), while moves of 9 and 11
+ * landed; twenty at a time keeps each batch inside the call's 35 s.
+ */
+const MATCH_BATCH = 20;
 
 /**
- * How long a move by name keeps starting batches, well inside move_notes'
- * own limit (`slowMoves.js`, 60 s): past it the call answers with what moved
- * and says the rest are still there, rather than being cut off with nothing
- * said. On 2026-10-26 a real run moved 11 notes of a 480-note folder and its
- * log was the only record, so a long move now ends in words the model can act on.
+ * How long a move by name may run, inside move_notes' own limit
+ * (`slowMoves.js`, 60 s): a batch is started only when the slowest one so far
+ * would still end inside it, and past it the call answers with what moved and
+ * says the rest are still there, rather than being cut off with nothing said.
+ * On 2026-10-26 a real run moved 11 notes of a 480-note folder and its log was
+ * the only record, so a long move now ends in words the model can act on. A
+ * batch can take most of a minute on a crowded folder (the control plane's
+ * own wait is 45 s, `controlPlane/client.js`), which is why the next one is
+ * judged by the slowest rather than by the clock alone.
  */
-const MATCH_BUDGET_MS = 35_000;
+const MATCH_BUDGET_MS = 55_000;
 
 /**
  * A name pattern as a whole-name test, or null for none: `*` any run, `?` one
@@ -333,9 +343,10 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match and would go into ${into}/\n${[...shown, ...more].join("\n")}` }] };
     }
     let moved = 0;
+    let slowest = 0;
     const began = now();
     for (let start = 0; start < moves.length; start += MATCH_BATCH) {
-      if (start > 0 && now() - began > matchBudgetMs) {
+      if (start > 0 && now() - began + slowest > matchBudgetMs) {
         return {
           content: [{
             type: "text",
@@ -345,6 +356,7 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
         };
       }
       const batch = moves.slice(start, start + MATCH_BATCH);
+      const sent = now();
       let result = await callTool("move_notes", { moves: batch });
       if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
         const plan = await callTool("move_notes", { moves: batch, dry_run: true });
@@ -358,6 +370,7 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
         return { isError: true, content: [{ type: "text", text: `moved ${moved} of ${moves.length} notes into ${into}/, then stopped: ${said}` }] };
       }
       moved += batch.length;
+      slowest = Math.max(slowest, now() - sent);
     }
     return { content: [{ type: "text", text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}); links follow them` }] };
   }

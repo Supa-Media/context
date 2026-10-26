@@ -89,9 +89,11 @@ export async function startRowMoveBatch(
   const { workspaceId, store, moves, clearance, now } = args;
   if (moves.length === 0) throw new FileOpError("PATH_INVALID", "A batch needs at least one move.");
 
+  // Each move's names are read at once: one after another, a batch of 20 outlasted the gateway's wait (2026-10-26).
+  const plans = await Promise.all(moves.map((move) => ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: move.from })));
   const planned: Planned[] = [];
-  for (const move of moves) {
-    const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: move.from });
+  for (const [index, move] of moves.entries()) {
+    const plan = plans[index];
     if (plan.kind === null) throw notFound();
     if (plan.tooLarge) throw refusal("too_large", move.to, true);
     if (plan.unkeyed) throw refusal("unkeyed", move.to, true);

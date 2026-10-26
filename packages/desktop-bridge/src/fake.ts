@@ -379,6 +379,13 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
               calls.push("imessage.requestFullDiskAccess");
               imessageFullDiskAccessRequests += 1;
             },
+            async setFiles(choice: { pictures?: boolean; videos?: boolean }): Promise<void> {
+              calls.push(`imessage.setFiles:${JSON.stringify(choice)}`);
+              const files = imessageStatus.backup?.files;
+              if (imessageStatus.backup && files) {
+                imessageStatus = { ...imessageStatus, backup: { ...imessageStatus.backup, files: { ...files, ...choice } } };
+              }
+            },
             onChange: (handler: (status: ImessageStatus) => void) => subscribe(imessageListeners, handler),
           }),
         }),

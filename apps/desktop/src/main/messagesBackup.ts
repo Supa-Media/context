@@ -11,12 +11,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { access, readdir } from "node:fs/promises";
+import { LIMITS } from "@context/communications/backup";
+import type { ImessageStatus } from "@context/desktop-bridge";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DesktopSettings } from "../core/settings.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
 import { gatewayBaseFrom } from "../core/sync/connection.ts";
-import { APPLE_EPOCH_MS } from "../core/imessage/appleTime.ts";
+import { APPLE_EPOCH_MS, appleEpochNsToIso } from "../core/imessage/appleTime.ts";
 import { attemptChatDbRead, detectFullDiskAccess, type FullDiskAccessStatus } from "../core/imessage/permission.ts";
 import { defaultChatDbPath, isAllowedChatDbPath } from "../core/imessage/paths.ts";
 import { queryAddressBook, queryChatDb } from "../core/imessage/sqlite.ts";
@@ -31,11 +33,14 @@ import {
 } from "../core/messages/contacts.ts";
 import { historyDone, type BackupCursor } from "../core/messages/cursor.ts";
 import { runBackupPass, type BackupPassDeps } from "../core/messages/pass.ts";
+import { FILES_PASS_DEFAULTS, attachmentPathOf, realAttachmentPath, runFilesPass, type FileRead, type FilesPassDeps } from "../core/messages/files.ts";
 import {
   knownColumns,
   selectAccountSql,
+  selectAttachmentMaxSql,
   selectAttachmentsForRowsSql,
   selectBackupAttachmentsSql,
+  selectBackupFilesSql,
   selectBackupMessagesSql,
   selectChatsSql,
   selectMessageColumnsSql,
@@ -43,9 +48,10 @@ import {
   selectRowsFromSql,
   type BackupAttachmentRow,
   type BackupChatRow,
+  type BackupFileRow,
   type BackupMessageRow,
 } from "../core/messages/queries.ts";
-import { uploadBackupRecords } from "../core/messages/upload.ts";
+import { uploadBackupFile, uploadBackupRecords } from "../core/messages/upload.ts";
 import { observeChatDb, type ImessageWatcher } from "./imessage.ts";
 
 export interface BackupCursorStore {
@@ -72,10 +78,17 @@ export interface BackupStatus {
   totalRows: number;
   /** When a pass last kept something. */
   lastCopiedAt: number | null;
+  /** The earliest text copied so far, epoch milliseconds. */
+  reachedBack: number | null;
   /** Why it stopped, from a closed set (`upload.ts`'s codes), when `phase` is `stopped`. */
   problem: string | null;
   /** The account Messages is signed into, masked: `+1 ••• 4410`, `a••••@example.com`. */
   account: string | null;
+  /** Bytes of pictures, documents and videos sent so far, from the cursor. */
+  filesBytes: number;
+  /** The "What's copied" switches, as the settings hold them. */
+  pictures: boolean;
+  videos: boolean;
 }
 
 /** The slow beat while nothing is waiting. The watcher brings new texts sooner. */
@@ -91,7 +104,7 @@ export interface MessagesBackupDeps {
   store: BackupCursorStore;
   connection: GatewayConnection;
   /** Read fresh every time, so the switch takes effect without a restart. */
-  settings: () => Pick<DesktopSettings, "messagesBackup">;
+  settings: () => Pick<DesktopSettings, "messagesBackup" | "messagesBackupPictures" | "messagesBackupVideos">;
   onChange?: (status: BackupStatus) => void;
   now?: () => number;
   /** Overridable for the suite. */
@@ -99,6 +112,8 @@ export interface MessagesBackupDeps {
   observeChatDb?: (path: string, onChange: () => void) => ImessageWatcher;
   query?: (path: string, sql: string) => Promise<unknown[]>;
   addressBook?: () => Promise<AddressBookRow[]>;
+  /** Overridable for the suite; the real one reads only inside `~/Library/Messages/Attachments`. */
+  readAttachment?: (filename: string | null) => Promise<FileRead>;
   fetch?: typeof fetch;
 }
 
@@ -109,8 +124,12 @@ const INITIAL: BackupStatus = Object.freeze({
   copiedRows: 0,
   totalRows: 0,
   lastCopiedAt: null,
+  reachedBack: null,
   problem: null,
   account: null,
+  filesBytes: 0,
+  pictures: true,
+  videos: false,
 });
 
 /** `P:+15550104410` → `+1 ••• 4410`; `E:ada@example.com` → `a••@example.com`. Never the whole thing. */
@@ -126,6 +145,40 @@ export function maskAccount(login: unknown): string | null {
   if (digits.length < 4) return null;
   const country = value.startsWith("+") && digits.length > 10 ? `+${digits.slice(0, digits.length - 10)} ` : "";
   return `${country}••• ${digits.slice(-4)}`;
+}
+
+/**
+ * The Mac's name as its owner reads it: `Sams-MacBook-Pro.local` → `Sams MacBook Pro`.
+ * Null for a name with nothing left in it.
+ */
+export function machineLabel(host: unknown): string | null {
+  if (typeof host !== "string") return null;
+  const name = host.replace(/\.local$/i, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return name === "" ? null : name.slice(0, 60);
+}
+
+/**
+ * What the console is told, through the bridge's `imessage` member: the old
+ * import's four fields, filled from the backup, and the backup's own view.
+ * Counts, times, the masked account and the Mac's name; nothing it copied.
+ */
+export function backupBridgeStatus(status: BackupStatus, machine: string | null): ImessageStatus {
+  return {
+    enabled: status.enabled,
+    permission: status.permission,
+    lastSyncedAt: status.lastCopiedAt,
+    lastError: null,
+    backup: {
+      phase: status.phase,
+      copiedRows: status.copiedRows,
+      totalRows: status.totalRows,
+      reachedBack: status.reachedBack,
+      problem: status.phase === "stopped" ? status.problem : null,
+      account: status.account,
+      machine,
+      files: { pictures: status.pictures, videos: status.videos, bytes: status.filesBytes },
+    },
+  };
 }
 
 /** Every Contacts database on this Mac, at the paths `contacts.ts` allows. */
@@ -155,6 +208,26 @@ async function readAddressBook(): Promise<AddressBookRow[]> {
   return rows;
 }
 
+/**
+ * One file's bytes, read only from inside `~/Library/Messages/Attachments`,
+ * links followed first, and never more than the contract's limit.
+ */
+export async function readAttachment(filename: string | null): Promise<FileRead> {
+  const path = attachmentPathOf(filename);
+  if (path === null) return { missing: true };
+  const real = await realAttachmentPath(path);
+  if (real === null) return { missing: true };
+  try {
+    const info = await stat(real);
+    if (!info.isFile()) return { missing: true };
+    if (info.size > LIMITS.fileBytes) return { tooLarge: true };
+    const bytes = await readFile(real);
+    return bytes.byteLength > LIMITS.fileBytes ? { tooLarge: true } : { bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) };
+  } catch {
+    return { missing: true };
+  }
+}
+
 function appleNowNs(now: number): string {
   return (BigInt(Math.max(0, now - APPLE_EPOCH_MS)) * 1_000_000n).toString();
 }
@@ -176,8 +249,15 @@ export class MessagesBackupService {
   }
 
   status(): BackupStatus {
-    const enabled = this.#deps.settings().messagesBackup;
-    return { ...this.#status, enabled, phase: enabled ? this.#status.phase : "off" };
+    const settings = this.#deps.settings();
+    const enabled = settings.messagesBackup;
+    return {
+      ...this.#status,
+      enabled,
+      phase: enabled ? this.#status.phase : "off",
+      pictures: settings.messagesBackupPictures !== false,
+      videos: settings.messagesBackupVideos === true,
+    };
   }
 
   /** At launch, and after every change to the switch. */
@@ -337,12 +417,27 @@ export class MessagesBackupService {
 
       const start = await this.#deps.store.readBackupCursor();
       this.#set({ phase: "copying", problem: null });
-      const report = await runBackupPass(deps, start);
+      const texts = await runBackupPass(deps, start);
       if (!this.#wanted(generation)) return;
+      this.#set({ filesBytes: start.filesBytes });
+      // Files after the texts, from where the texts left the cursor: each switched-on kind its own walk, one byte budget.
+      const report = { cursor: texts.cursor, sent: texts.sent, stopped: texts.stopped, more: texts.more };
+      const settings = this.#deps.settings();
+      let budget = FILES_PASS_DEFAULTS.byteBudget;
+      for (const kind of ["pictures", "videos"] as const) {
+        const on = kind === "pictures" ? settings.messagesBackupPictures !== false : settings.messagesBackupVideos === true;
+        if (!on || report.stopped || budget <= 0) continue;
+        const files = await runFilesPass(this.#filesDeps(base, abort, columns, generation), report.cursor, { kind, byteBudget: budget });
+        if (!this.#wanted(generation)) return;
+        budget -= files.sentBytes;
+        Object.assign(report, { cursor: files.cursor, sent: report.sent + files.sentFiles, stopped: files.stopped, more: report.more || files.more });
+      }
+      this.#set({ filesBytes: report.cursor.filesBytes });
 
-      const reached = report.cursor.oldest === null ? 0 : await this.#reachedRows(report.cursor);
+      const reached = report.cursor.oldest === null ? { rows: 0, back: null } : await this.#reached(report.cursor);
       this.#set({
-        copiedRows: reached,
+        copiedRows: reached.rows,
+        reachedBack: reached.back,
         ...(report.sent > 0 ? { lastCopiedAt: this.#now() } : {}),
       });
       if (report.stopped) {
@@ -362,10 +457,35 @@ export class MessagesBackupService {
     }
   }
 
-  async #reachedRows(cursor: BackupCursor): Promise<number> {
-    if (historyDone(cursor)) return this.#status.totalRows;
-    const rows = (await this.#query(selectRowsFromSql(cursor.oldest as number))) as Array<{ rows?: unknown }>;
+  #filesDeps(base: string, abort: AbortController, columns: ReadonlySet<string>, generation: number): FilesPassDeps {
+    return {
+      maxRowId: async () => {
+        const rows = (await this.#query(selectAttachmentMaxSql())) as Array<{ max_rowid?: unknown }>;
+        const max = Number(rows[0]?.max_rowid ?? 0);
+        return Number.isSafeInteger(max) && max >= 0 ? max : 0;
+      },
+      files: async (after, through) => (await this.#query(selectBackupFilesSql(after, through, columns))) as BackupFileRow[],
+      read: this.#deps.readAttachment ?? readAttachment,
+      upload: (folder, id, bytes) =>
+        uploadBackupFile(
+          { baseUrl: gatewayBaseFrom(base), token: () => this.#deps.connection.token(), fetch: this.#deps.fetch, signal: abort.signal },
+          folder,
+          id,
+          bytes,
+        ),
+      nowMs: () => this.#now(),
+      saveCursor: (cursor) => this.#deps.store.writeBackupCursor(cursor),
+      stillWanted: () => this.#wanted(generation),
+    };
+  }
+
+  async #reached(cursor: BackupCursor): Promise<{ rows: number; back: number | null }> {
+    const rows = (await this.#query(selectRowsFromSql(cursor.oldest as number))) as Array<{ rows?: unknown; oldest_ns?: unknown }>;
     const count = Number(rows[0]?.rows ?? 0);
-    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+    const oldest = appleEpochNsToIso(rows[0]?.oldest_ns);
+    return {
+      rows: historyDone(cursor) ? this.#status.totalRows : Number.isSafeInteger(count) && count >= 0 ? count : 0,
+      back: oldest === null ? null : Date.parse(oldest),
+    };
   }
 }

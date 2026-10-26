@@ -85,6 +85,11 @@ export const operationResultValidator = v.union(
     looked: v.optional(v.object({ rows: v.number(), unread: v.number(), theirs: v.number() })),
   }),
   v.object({
+    kind: v.literal("messagesLog"),
+    objects: v.array(v.object({ key: v.string(), text: v.string() })),
+    next: v.union(v.null(), v.string()),
+  }),
+  v.object({
     kind: v.literal("oldCopyTexts"),
     results: v.array(
       v.union(
@@ -465,6 +470,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("hideOldCopies"), cursor: v.optional(v.string()) }),
   /** Sent only by `oldCopies.readForExport`, for an owner. */
   v.object({ kind: v.literal("readOldCopies"), paths: v.array(v.string()) }),
+  /** Sent only by `messagesExport.readLogForExport`, for an owner. */
+  v.object({ kind: v.literal("readMessagesLog"), after: v.optional(v.string()) }),
   /** Sent only by `linkRepairs.repairWorkspace`. */
   v.object({ kind: v.literal("repairLinks"), pairs: v.array(v.object({ from: v.string(), to: v.string() })) }),
   v.object({

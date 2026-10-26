@@ -18,6 +18,13 @@
  *   pass.ts sending chats again when nothing changed             1
  *   upload.ts putting the token in the URL                       2
  *   upload.ts reading a non-JSON 200 as kept                     1
+ *   files.ts copying videos                                      5
+ *   files.ts moving forward past a file still downloading        1
+ *   files.ts moving the cursor past a failed upload              2
+ *   files.ts ignoring the byte budget                            1
+ *   files.ts accepting a path outside Attachments                1
+ *   cursor.ts dropping text positions for an old cursor          3
+ *   files.ts walking videos on the pictures positions            1
  */
 
 import { LIMITS } from "@context/communications/backup";
@@ -26,7 +33,8 @@ import { addressKey, isAllowedAddressBookPath, personRecords } from "../src/core
 import { FRESH_BACKUP_CURSOR, historyDone, laterNs, normalizeBackupCursor } from "../src/core/messages/cursor.ts";
 import { runBackupPass } from "../src/core/messages/pass.ts";
 import { batchesOf, classifyStatus, uploadBackupRecords } from "../src/core/messages/upload.ts";
-import { maskAccount } from "../src/main/messagesBackup.ts";
+import { backupBridgeStatus, machineLabel, maskAccount } from "../src/main/messagesBackup.ts";
+import { attachmentPathOf, digestId, runFilesPass, wantedFile } from "../src/core/messages/files.ts";
 
 const NS_2026_10_21 = "814295520000000000"; // 2026-10-21T17:12:00Z in Apple-epoch nanoseconds
 
@@ -51,9 +59,10 @@ function row(overrides = {}) {
 }
 
 function checkRecords(check) {
-  const [message] = recordsFromRows([row()], [{ message_guid: "G1", filename: "~/Library/Messages/Attachments/ab/12/IMG_1.HEIC", transfer_name: "IMG_1.HEIC", mime_type: "image/heic", total_bytes: "2048" }]);
+  const [message] = recordsFromRows([row()], [{ message_guid: "G1", attachment_guid: "AT-1", filename: "~/Library/Messages/Attachments/ab/12/IMG_1.HEIC", transfer_name: "IMG_1.HEIC", mime_type: "image/heic", total_bytes: "2048" }]);
   check("records: a text becomes a message record with its words", message?.kind === "message" && message.text === "Dinner at 4" && message.from === "+15550100100");
   check("records: the date is the message's own, in UTC", message?.at === "2026-10-21T17:12:00.000Z");
+  check("records: a file carries the digest of Apple's id for it", message?.files?.[0]?.id === digestId("AT-1"));
   check("records: a file is named as it was sent, never by where the Mac keeps it", message?.files?.[0]?.name === "IMG_1.HEIC" && !JSON.stringify(message).includes("Library"));
 
   const [stored] = recordsFromRows([row()], [{ message_guid: "G1", filename: "~/Library/Messages/Attachments/ab/IMG_2.HEIC", transfer_name: null, mime_type: null, total_bytes: null }]);
@@ -246,9 +255,127 @@ function checkMask(check) {
   check("account: a phone number shows its last four only", maskAccount("P:+15550104410") === "+1 ••• 4410");
   check("account: an email shows its first letter and domain", maskAccount("E:ada@example.com") === "a••@example.com");
   check("account: nothing readable shows nothing", maskAccount(null) === null && maskAccount("P:12") === null);
+
+  check("machine: the Mac's name reads as its owner wrote it", machineLabel("Sams-MacBook-Pro.local") === "Sams MacBook Pro");
+  check("machine: an empty name is no name", machineLabel("") === null && machineLabel(".local") === null && machineLabel(undefined) === null);
+
+  const status = {
+    enabled: true,
+    phase: "copying",
+    permission: "granted",
+    copiedRows: 10,
+    totalRows: 40,
+    lastCopiedAt: 5,
+    reachedBack: 3,
+    problem: "server",
+    account: "+1 ••• 4410",
+  };
+  const told = backupBridgeStatus(status, "Sams MacBook Pro");
+  check(
+    "bridge: the console is told the switch, the grant and the progress",
+    told.enabled && told.permission === "granted" && told.lastSyncedAt === 5 && told.backup.copiedRows === 10 && told.backup.totalRows === 40 && told.backup.reachedBack === 3 && told.backup.machine === "Sams MacBook Pro",
+  );
+  check("bridge: a problem is told only when the backup stopped on it", told.backup.problem === null && backupBridgeStatus({ ...status, phase: "stopped" }, null).backup.problem === "server");
+  check(
+    "bridge: the view carries the contract's fields and nothing else",
+    Object.keys(told.backup).sort().join() === "account,copiedRows,files,machine,phase,problem,reachedBack,totalRows",
+  );
+}
+
+const APPLE_EPOCH_MS = Date.UTC(2001, 0, 1);
+const nsAt = (ms) => String(BigInt(ms - APPLE_EPOCH_MS) * 1_000_000n);
+
+/** A fake `attachment` table of `count` files, one per message, all pictures unless `shape` says otherwise. */
+function fakeFiles({ count = 10, shape = () => ({}), read = async () => ({ bytes: new Uint8Array(10) }), upload = async () => ({ ok: true }), now = Date.UTC(2026, 9, 26) } = {}) {
+  const sent = [];
+  const saved = [];
+  const deps = {
+    maxRowId: async () => count,
+    files: async (after, through) => {
+      const rows = [];
+      for (let id = after + 1; id <= Math.min(through, count); id += 1) {
+        rows.push({ rowid: String(id), message_guid: `G${id}`, attachment_guid: `AT-${id}`, filename: `~/Library/Messages/Attachments/a/${id}.jpg`, transfer_name: `${id}.jpg`, mime_type: "image/jpeg", total_bytes: "10", date_ns: nsAt(now - 86_400_000), ...shape(id) });
+      }
+      return rows;
+    },
+    read: async (filename) => read(filename),
+    upload: async (folder, id, bytes) => {
+      const result = await upload(folder, id, bytes);
+      if (result.ok) sent.push({ folder, id });
+      return result;
+    },
+    nowMs: () => now,
+    saveCursor: async (cursor) => saved.push(cursor),
+    stillWanted: () => true,
+  };
+  return { deps, sent, saved };
+}
+
+async function checkFiles(check) {
+  check("files: pictures and documents are wanted", wantedFile({ filename: null, transfer_name: "lease.pdf", mime_type: "application/pdf", total_bytes: "100" }));
+  check("files: videos are not", !wantedFile({ filename: null, transfer_name: "clip.MOV", mime_type: "video/quicktime", total_bytes: "100" }) && !wantedFile({ filename: null, transfer_name: "clip.mp4", mime_type: null, total_bytes: null }));
+  check("files: nothing over 25 MB", !wantedFile({ filename: null, transfer_name: "big.pdf", mime_type: "application/pdf", total_bytes: String(LIMITS.fileBytes + 1) }));
+  check("files: link previews are not something anybody sent", !wantedFile({ filename: null, transfer_name: "x.pluginPayloadAttachment", mime_type: null, total_bytes: "5" }));
+  const home = "/Users/ada";
+  check("files: a file is read from inside Attachments", attachmentPathOf("~/Library/Messages/Attachments/ab/1/IMG.HEIC", home) === "/Users/ada/Library/Messages/Attachments/ab/1/IMG.HEIC");
+  check(
+    "files: anywhere else is refused",
+    [null, "", "~/Library/Messages/chat.db", "~/Library/Messages/Attachments/../chat.db", "/etc/passwd", "~/Library/Messages/Attachments", "~/Library/Messages/AttachmentsX/a.jpg"].every((f) => attachmentPathOf(f, home) === null),
+  );
+
+  {
+    const { deps, sent } = fakeFiles({ count: 6 });
+    const first = await runFilesPass(deps, FRESH_BACKUP_CURSOR, { pageRows: 2 });
+    check("files: the first look starts both ends at the newest file and copies history newest first", first.cursor.filesNewest === 6 && sent[0]?.id === digestId("AT-6") && sent[0].folder === digestId("G6"));
+    check("files: every file is copied once and the history is done", sent.length === 6 && new Set(sent.map((s) => s.id)).size === 6 && first.cursor.filesOldest === 1 && first.more === false);
+    check("files: the bytes sent are counted", first.cursor.filesBytes === 60);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 4, shape: (id) => (id === 2 ? { mime_type: "video/mp4", transfer_name: "v.mp4" } : id === 3 ? { total_bytes: String(LIMITS.fileBytes * 2) } : {}) });
+    await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 4, filesOldest: 5 });
+    check("files: a video and an oversized file are passed over", sent.map((s) => s.id).sort().join() === [digestId("AT-1"), digestId("AT-4")].sort().join());
+  }
+  {
+    const now = Date.UTC(2026, 9, 26);
+    const { deps, sent } = fakeFiles({ count: 8, now, shape: (id) => (id === 7 ? { date_ns: nsAt(now - 60_000) } : {}), read: async (f) => (f.endsWith("/7.jpg") ? { missing: true } : { bytes: new Uint8Array(1) }) });
+    const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 5, filesOldest: 1 });
+    check("files: a new file still downloading holds the forward walk before it", report.cursor.filesNewest === 6 && sent.length === 1 && report.more === false);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 4, read: async (f) => (f.endsWith("/3.jpg") ? { missing: true } : { bytes: new Uint8Array(1) }) });
+    const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 4, filesOldest: 5 });
+    check("files: an old file that is not on the Mac is skipped, never waited for", report.cursor.filesOldest === 1 && sent.length === 3);
+  }
+  {
+    let calls = 0;
+    const { deps, saved } = fakeFiles({ count: 6, upload: async () => (++calls === 3 ? { ok: false, retry: true, code: "offline" } : { ok: true }) });
+    const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 0, filesOldest: 1 });
+    check("files: a failed upload stops the pass with the cursor before that file", report.stopped?.code === "offline" && report.cursor.filesNewest === 2 && saved.at(-1).filesNewest === 2);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 3, upload: async (folder) => (folder === digestId("G2") ? { ok: false, retry: false, code: "refused" } : { ok: true }) });
+    const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 0, filesOldest: 1 });
+    check("files: a file the gateway refuses is passed over, never retried forever", report.stopped === undefined && report.cursor.filesNewest === 3 && sent.length === 2);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 10, read: async () => ({ bytes: new Uint8Array(40) }) });
+    const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 10, filesOldest: 11 }, { byteBudget: 100 });
+    check("files: a pass stops at its byte budget and says more is waiting", sent.length === 3 && report.more === true && report.cursor.filesOldest === 8);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 4, shape: (id) => (id % 2 === 0 ? { mime_type: "video/quicktime", transfer_name: `${id}.MOV` } : {}) });
+    const report = await runFilesPass(deps, FRESH_BACKUP_CURSOR, { kind: "videos" });
+    check("files: the videos walk copies videos only", sent.map((s) => s.id).sort().join() === [digestId("AT-2"), digestId("AT-4")].sort().join());
+    check("files: ...on positions of its own, leaving the pictures walk where it was", report.cursor.videosOldest === 1 && report.cursor.filesOldest === null);
+  }
+  const legacy = normalizeBackupCursor({ version: 1, newest: 900, oldest: 400, changesAfterNs: "123" });
+  check("files: a cursor from before files keeps its text positions and starts files fresh", legacy.newest === 900 && legacy.oldest === 400 && legacy.filesOldest === null && legacy.filesNewest === 0);
+  const broken = normalizeBackupCursor({ version: 1, newest: 900, oldest: 400, changesAfterNs: "123", filesNewest: 3, filesOldest: 50 });
+  check("files: broken file positions start files fresh without touching texts", broken.newest === 900 && broken.filesOldest === null);
 }
 
 export async function runMessagesBackupChecks(check) {
+  await checkFiles(check);
   checkRecords(check);
   checkContacts(check);
   checkCursor(check);

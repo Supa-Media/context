@@ -191,7 +191,11 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
         ...(versions[index] ? { expectedEtag: versions[index] } : {}),
       })),
     );
-  } catch {
+  } catch (error) {
+    // A batch the gateway gave up waiting on may still land: the caller re-reads before sending it again.
+    if (error?.reason === "timed out") {
+      return toolError("the moves are taking longer than expected and may still finish; list the folder before sending any of them again");
+    }
     return toolError("could not start the moves right now; try again in a moment");
   }
   if (!answer || answer.ok !== true) {

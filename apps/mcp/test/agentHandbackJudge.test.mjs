@@ -172,5 +172,6 @@ test("a notice's round is told its answer replaces the last one, and H8 never as
   const sent = JSON.stringify(ai.calls[1]);
   assert.ok(sent.includes(JSON.stringify(RECHECK_REPLACES).slice(1, -1)), "the notice says the next answer must stand on its own");
   assert.match(RECHECK_REPLACES, /keep every option, figure and link/);
-  assert.match(noticeFor("H8"), /say how to undo it only if it changed something/);
+  // "To undo it, archive that note." in the Tex Devs group (2026-10-26): no undo line at all.
+  assert.match(noticeFor("H8"), /never add a line about undoing it/);
 });

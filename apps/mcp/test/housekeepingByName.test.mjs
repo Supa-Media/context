@@ -87,7 +87,7 @@ test("a bare into is a subfolder of the folder the notes are in", async () => {
   assert.ok(session.moves()[0].args.moves.every((move) => move.destination.startsWith(`${FOLDER}/coverage/`)));
 });
 
-test("move_notes by name moves only the notes directly in the folder whose names match, 100 a batch, each logged", async () => {
+test("move_notes by name moves only the notes directly in the folder whose names match, 20 a batch, each logged", async () => {
   const session = sessionOver(PATHS);
   const guard = housekeepingCallTool(session.dispatch);
   const into = `${FOLDER}/security-review-coverage`;
@@ -96,14 +96,14 @@ test("move_notes by name moves only the notes directly in the folder whose names
 
   assert.notEqual(result.isError, true, result.content[0].text);
   assert.match(result.content[0].text, /moved 230 notes/);
-  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [100, 100, 30]);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [...Array(11).fill(20), 10]);
   const sources = session.moves().flatMap((call) => call.args.moves.map((move) => move.source));
   assert.deepEqual(sources, Array.from({ length: 230 }, (_, i) => coverage(i)));
   assert.ok(session.moves().every((call) => call.args.moves.every((move) => move.destination === `${into}/${move.source.split("/").pop()}`)));
   assert.equal(guard.changes.length, 230);
 });
 
-test("a long move by name stops starting batches before its time runs out, says what moved, and the same call carries on", async () => {
+test("a long move by name starts no batch the slowest so far would not finish in time, says what moved, and the same call carries on", async () => {
   const session = sessionOver(PATHS);
   let clock = 0;
   const slow = async (name, args) => {
@@ -111,12 +111,13 @@ test("a long move by name stops starting batches before its time runs out, says 
     if (name === "move_notes") clock += 20_000;
     return result;
   };
-  const guard = housekeepingCallTool(slow, [], { now: () => clock, matchBudgetMs: 35_000 });
+  const guard = housekeepingCallTool(slow, [], { now: () => clock, matchBudgetMs: 55_000 });
 
+  // 20 s a batch: a third would end at 60 s, past the 55 s budget, so two go.
   const first = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
   assert.notEqual(first.isError, true);
-  assert.match(first.content[0].text, /^moved 200 of 230 notes .* the other 30 are still in .* Send the same move again/);
-  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [100, 100]);
+  assert.match(first.content[0].text, /^moved 40 of 230 notes .* the other 190 are still in .* Send the same move again/);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [20, 20]);
 });
 
 test("a batch that asks for versions is planned first and sent again with the versions its plan names", async () => {

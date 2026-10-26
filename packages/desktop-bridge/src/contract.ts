@@ -46,6 +46,8 @@
 
 import type { TranscriptSegment } from "@context/meetings/protocol";
 import type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus } from "./localAgent.ts";
+import type { ImessageStatus, MessagesBackupFilesChoice } from "./messagesBackup.ts";
+export type { ImessageStatus, MessagesBackupFiles, MessagesBackupFilesChoice, MessagesBackupPhase, MessagesBackupView } from "./messagesBackup.ts";
 
 export type { TranscriptSegment };
 export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
@@ -612,20 +614,11 @@ export interface DesktopBridge {
   };
 
   /**
-   * Whether this machine imports iMessage history, and the one fact it needs
-   * from the person before it can. **Version 5.**
-   *
-   * Optional on the type for `MIN_BRIDGE_VERSION`'s reason, same as
-   * `meetings` above: a shell that shipped before this existed answers a
-   * version below 5 and has no `imessage` member, so the console's iMessage
-   * toggle checks for the member rather than assuming it because a bridge is
-   * present at all.
-   *
-   * There is no `enable()`/`disable()` pair here on purpose — `setEnabled`
-   * mirrors `toggleDetection`'s own shape (`docs/decisions/desktop.md`'s
-   * "Watch for meetings" toggle), because turning iMessage import on is the
-   * same kind of decision as turning detection on: reversible, off by
-   * default, and something the tray offers exactly as it offers detection.
+   * The Messages backup on this Mac, and the one fact it needs from the
+   * person before it can run (Full Disk Access). **Version 5.** Optional for
+   * `MIN_BRIDGE_VERSION`'s reason, like `meetings` above: a shell older than
+   * version 5 has no `imessage` member, so the console checks for the member.
+   * `setEnabled` mirrors `toggleDetection`: reversible, and never a dialog.
    */
   imessage?: {
     status(): Promise<ImessageStatus>;
@@ -633,6 +626,8 @@ export interface DesktopBridge {
     setEnabled(enabled: boolean): Promise<void>;
     /** Explain Full Disk Access and open the exact System Settings pane when the person continues. */
     requestFullDiskAccess(): Promise<void>;
+    /** The backup's "What's copied" switches. Absent before the backup copied files; the page checks for it. */
+    setFiles?(choice: MessagesBackupFilesChoice): Promise<void>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
 
@@ -687,39 +682,6 @@ export interface DesktopBridge {
 export interface SpellingCheck {
   misspelled: boolean;
   suggestions: string[];
-}
-
-/**
- * What the console may know about iMessage import. Never a path, never a
- * message, never a contact — only whether it is on, whether this Mac has
- * granted the one permission it needs, and when it last actually wrote
- * something.
- */
-export interface ImessageStatus {
-  enabled: boolean;
-  /**
-   * Full Disk Access cannot be requested, only attempted — see
-   * `core/imessage/permission.ts`. `"unknown"` covers both "never tried yet"
-   * and "tried, and the failure was not clearly a permission refusal" (a
-   * `chat.db` that does not exist yet, for instance); it is never shown as a
-   * more alarming "denied" than the evidence supports.
-   */
-  permission: "granted" | "denied" | "unknown";
-  /**
-   * Epoch milliseconds of the last pass that actually filed a note, or `null`
-   * until one has.
-   *
-   * **A pass that wrote nothing does not stamp this**, whether it wrote nothing
-   * because every day was refused or because there was nothing new to write.
-   * The console renders it as "last synced <time>", which is read as "your
-   * messages are in your context" — so an attempt is not enough to earn it, and
-   * this field said "the last completed sync attempt" while the shell stamped
-   * it for refusals, which is how a card came to report a working import over a
-   * gateway that had never accepted a single note.
-   */
-  lastSyncedAt: number | null;
-  /** The shell's own words for the last thing that went wrong, or `null`. */
-  lastError: string | null;
 }
 
 /**
@@ -786,6 +748,7 @@ export const BRIDGE_CHANNELS = Object.freeze({
   imessageSetEnabled: "context:imessage-set-enabled",
   /** Version 6. Show the native guide, then open Full Disk Access settings. */
   imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
+  imessageSetFiles: "context:imessage-set-files",
 
   /** Version 7. Is there a local CLI to ask, and asking it. */
   agentStatus: "context:agent-status",

@@ -186,6 +186,18 @@ describe("a page's pictures, for visual answers", () => {
     ]);
   });
 
+  // Dev2, 2026-10-26: a card of restaurants "didn't even fill in the dishes, or logos".
+  it("names the site's logo from its home-screen icon, kept apart from the photos", async () => {
+    const place = `<!doctype html><html><head><title>Hav &amp; Mar</title>
+      <link rel="icon" href="/favicon.ico"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"></head><body><main>
+      ${"<p>Marcus Samuelsson's Chelsea restaurant, Ethiopian and Nordic cooking, open daily from five.</p>".repeat(4)}
+      </main></body></html>`;
+    const { impl } = fakeFetch({ "https://havandmar.example/": { type: "text/html", body: place } });
+    const page = await fetchPage("https://havandmar.example/", impl);
+    expect(page?.logo).toBe("https://havandmar.example/apple-touch-icon.png");
+    expect(page?.images).toEqual([]);
+  });
+
   it("takes a Markdown page's pictures, resolved against the page, at most MAX_IMAGES", () => {
     const many = Array.from({ length: 20 }, (_, i) => `![Dish ${i}](/menu/dish-${i}.jpg)`).join("\n");
     const page = fromMarkdown("https://food.example/menu", `# Menu\n\n${many}`);
