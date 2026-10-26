@@ -149,8 +149,14 @@ function archivedTo(result) {
   return match ? match[1] : null;
 }
 
-/** A batch move's own cap (`moves/limits.js`): a matched move goes in batches this size. */
-const MATCH_BATCH = 100;
+/**
+ * A matched move goes in batches this size, well under a batch move's own
+ * cap (`moves/limits.js`, 100). Each note's move carries its editing history
+ * and every link to it, so in a real workspace a batch of 100 ran past
+ * move_notes' 60 s and moved nothing (2026-10-26), while moves of 9 and 11
+ * landed; twenty at a time keeps each batch inside the call's 35 s.
+ */
+const MATCH_BATCH = 20;
 
 /**
  * How long a move by name keeps starting batches, well inside move_notes'
