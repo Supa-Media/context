@@ -87,6 +87,16 @@ export const OTHER_ROUTES_LINE =
 export const PRONOUNS_LINE =
   "Never guess anyone's pronouns, from a name or anything else: use their name or they/them, unless they or their notes say which pronouns they use.";
 
+/**
+ * Two people with one name are two people (the owner's review of a chat,
+ * 2026-10-26): asked for a job referral for a friend, Tex wrote one from
+ * what the notes said about a different person with the same first name,
+ * because the search for that name found both.
+ */
+export const SAME_NAME_LINE =
+  "Two people can share a name: a fact is about someone only when what you read ties it to that person (full name, email, number, handle), never because a first name or nickname matches. " +
+  "If you can't tell which one they mean, ask once before writing about either.";
+
 const GROUND_RULES = [
   // "In this conversation" includes earlier texts whose lookups are not shown
   // (`conversation.js`): read narrowly, this rule had the model take back its
@@ -104,6 +114,7 @@ const GROUND_RULES = [
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
   // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
   PRONOUNS_LINE,
+  SAME_NAME_LINE,
 ];
 
 /**
@@ -174,6 +185,19 @@ export const RESEARCH_LINE =
 export const REMEMBER_LINE =
   "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference, a goal they're working toward, a decision they've made and why), " +
   "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
+
+/**
+ * A lesson for Tex is not a fact about them (the owner's review of a chat,
+ * 2026-10-26): told "take note of this please and make sure this never
+ * happens again" after a mistake, Tex wrote "no drafts from a file I can't
+ * open" into tex/about-me.md; "that's common sense, not about me info".
+ * How Tex should work is for the people improving it to fix, through a bug
+ * report (`report_problem`, held for their yes) and the self-review of
+ * finished chats; about-me is for them.
+ */
+export const LESSONS_LINE =
+  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about-me.md. " +
+  "Fix what you can in this turn, and file it with report_problem so the people improving you see it.";
 
 /**
  * A note they ask for is saved, and saved where their folders say (Tex's
@@ -350,7 +374,7 @@ export function systemPrompt(
         RESEARCH_LINE,
         // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
         OPINION_LINE,
-        ...(edits ? [REMEMBER_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
+        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

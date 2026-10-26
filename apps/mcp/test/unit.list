@@ -213,6 +213,7 @@ test/agentIdentity.test.mjs
 test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
 test/agentInstacartCheckout.test.mjs
+test/agentKeptCarry.test.mjs
 test/agentKeptFiles.test.mjs
 test/agentReplyChecks.test.mjs
 test/agentFolderFit.test.mjs
