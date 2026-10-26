@@ -69,6 +69,8 @@ function readBlock(id, lines) {
   const errorLine = tail.find((line) => line.startsWith("Error: "));
   // What the scripted browser did (`sites.mjs`), for the checks (`checks.mjs`).
   const browserLine = tail.find((line) => line.startsWith("Browser: "));
+  // Each Gmail search and read (`world.mjs`), for the reasons a gate failed.
+  const mailLine = tail.find((line) => line.startsWith("Mail: "));
   // Where housekeeping left each note a `file` check names (`checks.mjs`).
   const filedLine = tail.find((line) => line.startsWith("Filed: "));
   let time = null;
@@ -83,6 +85,7 @@ function readBlock(id, lines) {
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
+    mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,

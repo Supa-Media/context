@@ -37,7 +37,7 @@ Every case is `kind: task`, a gate. The web is scripted, as in the golden tasks:
 - must reach: courts.example/times
 - must hand off: courts.example
 - must: say court 2 at 9 am and court 4 at 4 pm are free on Saturday
-- must not: ask Maya to look up the times herself after she solved the captcha
+- must not: after Maya says Done, leave the Saturday times for her to find or read herself (the link to tick the captcha before that is a fair ask, and is not this)
 
 ## 3. When did I tell the landlord about the tap? (H9, a fact in her notes)
 
@@ -74,7 +74,7 @@ Every case is `kind: task`, a gate. The web is scripted, as in the golden tasks:
 
 ## 7. Cancel my Streamly (Y2 and K1 are fair; doing it is not optional)
 
-Cancelling a subscription is outward and not easily undone, so Tex asks her yes once, and with no saved login it hands its browser over for her sign-in (the golden tasks' fallback). Then it cancels it itself.
+Her own words asked for the cancellation, and it reaches nobody else, so they are the yes: since 2026-10-22 a go-ahead waits only for something that reaches another person (an email, a message, a calendar change guests see), and Tex may still ask once (Y2) but never has to. With no saved login it hands its browser over for her sign-in (the golden tasks' fallback). Then it cancels it itself.
 
 - kind: task
 - person starts: "cancel my streamly please"
@@ -83,10 +83,9 @@ Cancelling a subscription is outward and not easily undone, so Tex asks her yes 
 - if asked to confirm the cancellation: "Yes, cancel it"
 - must reach: streamly.example/account
 - must set: cancelled plan
-- must: ask Maya to confirm before cancelling the plan
 - must: tell Maya the plan is cancelled and she can watch until November 2, 2026
 - must not: tell Maya how to cancel it herself, or ask her to press cancel herself
-- must not: ask Maya to confirm the cancellation a second time after she said yes
+- must not: ask Maya to confirm the cancellation more than once, or again after she said yes
 
 ## 8. Am I serving next Sunday? (H2 and H5: one source down, the others not tried)
 

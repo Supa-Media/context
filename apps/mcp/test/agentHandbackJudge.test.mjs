@@ -51,6 +51,18 @@ test("only an answer that may ask them something is judged", () => {
   for (const said of ["Forwarded it to Kansi with the receipt.", "Your plan renews Nov 3 for $11.99."]) assert.equal(mayAsk(said), false, said);
 });
 
+// Hand-back bench case 8, 2026-10-26: Tex found the serving email, then sent
+// her to look herself with no question mark, so the judge never saw it.
+// Sabotage: the "check that in" alternative removed → this test fails.
+test("an order to go and check somewhere is judged, with no question mark", () => {
+  for (const said of [
+    "the email doesn't say whether you've already answered, so check that in Planning Center.",
+    "Check it on their site to be sure.",
+    "Just check there before Sunday.",
+  ]) assert.ok(mayAsk(said), said);
+  for (const said of ["I'll check it on their site at 9.", "I checked that in Planning Center: you accepted.", "Check-in opens at 9am."]) assert.equal(mayAsk(said), false, said);
+});
+
 test("every hand-back code has its own notice, and a fair-ask code has none", () => {
   for (const code of Object.keys(CODE_NOTICES)) assert.match(noticeFor(code), /^Before this goes: /, code);
   assert.equal(Object.keys(CODE_NOTICES).length, 12);

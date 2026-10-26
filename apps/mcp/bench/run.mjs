@@ -351,6 +351,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           changes: world.changes(),
           // What the scripted browser did, for the checks (`checks.mjs`).
           browser: world.browser(),
+          // Each Gmail search and read, so a result shows a search that missed.
+          mail: world.mail(),
           // The emails it saved or sent, for the forward check (`checks.mjs`).
           emails: world.emails(),
           // Wall time for the whole conversation, worlds and the played person
