@@ -94,6 +94,19 @@ How it works:
   `an "ok" to an email is a yes`, `a side text leaves the ask standing`, `a
   yes after Tex asked something else sends nothing` and `two emails in one
   texted turn go in one ask` in `apps/mcp/test/emailGate.test.mjs`.
+- **A text Tex sends by itself is Tex asking something else** (2026-10-26,
+  from a self-review: a "yes" to a routine's reminder sent a bug report held
+  before it, with the person's last 12 texts). A routine, a check-in, an
+  agent's ping or a fixed Worker text after an ask means a bare yes or no
+  answers that text. The runs disarm the ask themselves, and the yes checks
+  again against the conversation as it was texted (`askOvertaken.js`: any
+  "Not a text from them" entry after the ask was armed, unless the ask was
+  shown again after it), so a disarm that missed still sends nothing; the
+  ask is dropped and the model is told so, and calling again asks again. A
+  👍 on the ask's own words still sends it. The person's own side texts never
+  count. Tests: `a yes after a text Tex sent by itself does not release an
+  ask shown before it` and the `overtaken` checks in
+  `apps/mcp/test/agentEgressTexting.test.mjs`.
 
 What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,

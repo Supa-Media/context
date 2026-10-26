@@ -191,7 +191,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
-  let setAside = [];
+  let setAside = [], dropped = []; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
   let paid = [];
   let thumbsUp = false;
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
@@ -210,9 +210,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
       conversation: group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
       told: body.told,
+      thumbsUp,
     });
     if (settled?.answer !== undefined) return json(settled);
-    setAside = settled?.setAside ?? [];
+    ({ setAside = [], dropped = [] } = settled ?? {});
     paid = settled?.allowed ?? [];
   }
 
@@ -487,7 +488,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.

@@ -33,9 +33,12 @@ import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtu
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
 import { approvalVerdict, notDone } from "../src/agent/textedApprovals.js";
 import { TOLD } from "../src/agent/conversation.js";
+import { overtaken } from "../src/agent/askOvertaken.js";
+import { askLine } from "../src/agent/textedApprovals.js";
 import { teamNow } from "./accessRows.mjs";
 
 export async function runAgentEgressTextingChecks(check) {
+  overtakenChecks(check);
   const world = await createEgressWorld();
   const { model, controlPlane, env, pending, bucket } = world;
   const teamVisible = (path) => teamNow(controlPlane, "ws_egress", bucket.get("privacy.md")?.body, path);
@@ -251,6 +254,37 @@ export async function runAgentEgressTextingChecks(check) {
     );
     await sweep();
 
+    // A yes after a text Tex sent by itself answers that text, even when nothing disarmed the ask
+    // before it (2026-10-26: a "yes" to a routine's reminder sent a bug report held before it).
+    model.install([claim("tenth-co"), { text: "Want @tenth-co?" }]);
+    await ask(env, TOKEN_TEXTS, "set up tenth co");
+    model.install([{ text: "Great, your notes are ready." }]);
+    before = model.requests.length;
+    const yesToTold = await request(env, TOKEN_TEXTS, "/agent", { question: "yes", conversation: "texts", told: ["ready"] });
+    check(
+      "a yes after a text Tex sent by itself does not release an ask shown before it",
+      yesToTold.status === 200 && model.requests.length === before + 1 && !claimed("tenth-co") && !/^Done/.test(yesToTold.body?.answer ?? ""),
+    );
+    check(
+      "the model is told the earlier ask was dropped, and it is no longer waiting",
+      JSON.stringify(model.requests.at(-1) ?? {}).includes("the earlier ask is dropped") && (await approvalRows()).length === 0,
+    );
+    model.install([{ text: "OK." }]);
+    await ask(env, TOKEN_TEXTS, "yes");
+    check("a second yes does not release it either", !claimed("tenth-co"));
+    await sweep();
+
+    // Shown again after Tex's own text, the ask is the newest thing a yes answers.
+    model.install([claim("eleventh-co"), { text: "Want @eleventh-co?" }]);
+    await ask(env, TOKEN_TEXTS, "set up eleventh co");
+    model.install([{ text: "Sure." }]);
+    await request(env, TOKEN_TEXTS, "/agent", { question: "one sec", conversation: "texts", told: ["ready"] });
+    model.install([claim("eleventh-co"), { text: "Want @eleventh-co?" }]);
+    await ask(env, TOKEN_TEXTS, "ok set up eleventh co again");
+    await ask(env, TOKEN_TEXTS, "yes");
+    check("an ask shown again after Tex's own text is released by the next yes", claimed("eleventh-co"));
+    await sweep();
+
     // An ask the person was never shown cannot be released by a later yes.
     model.install([claim("eighth-co"), { status: 500 }]);
     const unshown = await ask(env, TOKEN_TEXTS, "set up eighth co");
@@ -267,4 +301,37 @@ export async function runAgentEgressTextingChecks(check) {
   } finally {
     world.restore();
   }
+}
+
+/** `overtaken` alone: which of Tex's texts after an ask stop a bare yes reaching it. */
+function overtakenChecks(check) {
+  const record = { id: "r1", tool: "report_problem", summary: "send a bug report", detail: "The page froze.", armed_at: 1_000 };
+  const ask = askLine([record]);
+  const routine = { role: "user", text: "(Not a text from them. Your routine tex/routines/once/x.md ran on its schedule and you texted them what follows.)", at: 2_000 };
+  const shown = [{ role: "user", text: "file a bug", at: 1_100 }, { role: "assistant", text: `I wrote it up.\n\n${ask}` }];
+  check("an ask with nothing after it is still what a yes answers", overtaken(shown, [record]) === false);
+  check(
+    "a routine's text after the ask overtakes it",
+    overtaken([...shown, routine, { role: "assistant", text: "Reminder: put in the referral." }], [record]) === true,
+  );
+  check(
+    "the person's own side text does not",
+    overtaken([...shown, { role: "user", text: "one sec", at: 2_000 }, { role: "assistant", text: "Sure." }], [record]) === false,
+  );
+  check(
+    "the ask shown again after the routine's text is answerable again",
+    overtaken([...shown, routine, { role: "assistant", text: "Reminder: x" }, { role: "user", text: "send it?", at: 3_000 }, { role: "assistant", text: ask }], [record]) === false,
+  );
+  check(
+    "a text Tex sent by itself before the ask was armed does not count",
+    overtaken([{ ...routine, at: 500 }, { role: "assistant", text: "Reminder: x" }, ...shown], [record]) === false,
+  );
+  check(
+    "a history without times (the old file) never counts against an ask",
+    overtaken([...shown, { ...routine, at: undefined }, { role: "assistant", text: "Reminder: x" }], [record]) === false,
+  );
+  check(
+    "an older record is timed from when it was armed",
+    overtaken([...shown, routine, { role: "assistant", text: "Reminder: x" }], [{ ...record, armed_at: undefined, texting_until: 1_000 + 12 * 60 * 60 * 1000 }]) === true,
+  );
 }
