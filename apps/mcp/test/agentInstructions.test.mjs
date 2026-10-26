@@ -230,7 +230,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 12,000 when a note they ask for is saved, and filed in the subfolder that fits (prompt.js, SAVING_LINE, 2026-10-24; 12,244 then).
   // and from 12,500 when they were told a reorganize they ask for is theirs to do at once (prompt.js, REORGANIZE_LINE, 2026-10-25).
   // and from 13,000 when they were told to push back once on a request against their goals, and never flatter (pushback.js, OPINION_LINE, 2026-10-25; 13,647 then).
-  assert.ok(system.length < 14_000, `system was ${system.length} characters`);
+  // and from 14,000 when they were told to ask the one brief-changing question and price the whole figure (prompt.js, RESEARCH_LINE, 2026-10-26; 14,226 then).
+  assert.ok(system.length < 14_500, `system was ${system.length} characters`);
 });
 
 test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {

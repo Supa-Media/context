@@ -152,6 +152,18 @@ export const ACTIONS_LINE =
   "Never tell them to make a change, send a message or fill in a form themselves.";
 
 /**
+ * Research is finished when the figure asked for is there (self-review,
+ * 2026-10-26): asked for three $10-a-head dinner options for 30, Tex built
+ * cooking menus nobody asked for, priced only the mains, and after "catering
+ * only" offered "I can write these up if you want" instead of opening the
+ * caterers' price pages. `stopsShort.js` sends such an answer back.
+ */
+export const RESEARCH_LINE =
+  "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), ask that first. " +
+  "Then open the pages with the figures and give the whole figure asked for (a cost per person counts sides and drinks). " +
+  "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
+
+/**
  * A fact they give is kept the moment it is given (the owner, 2026-10-23:
  * Tex asked for their home address, was told it, and kept it nowhere; "what
  * a personal assistant would need to know" is asked once). The memory nudge
@@ -333,6 +345,7 @@ export function systemPrompt(
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
         ACTIONS_LINE,
+        RESEARCH_LINE,
         // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
         OPINION_LINE,
         ...(edits ? [REMEMBER_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
