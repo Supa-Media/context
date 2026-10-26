@@ -166,7 +166,7 @@ other people's words are in its history.
   login of its own, such as a shared email, saved in the workspace for
   everyone. A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
-  ([vault](./vault.md), "A card pays only on the person's yes, each time").
+  ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and
