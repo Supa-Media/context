@@ -187,9 +187,4 @@ export default {
       return json({ error: "server_error" }, 500);
     }
   },
-  // The retired job queue may still name this Worker as its consumer, and Cloudflare refuses an upload
-  // without a handler while it does. Its messages describe byte moves that no longer exist: drop them.
-  async queue(batch) {
-    batch.ackAll();
-  },
 };

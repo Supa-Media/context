@@ -1,24 +1,16 @@
 /**
- * The retired gateway job queue can still be bound to this Worker as its
- * consumer on the Cloudflare side, and a Worker named as a consumer cannot be
- * uploaded without a `queue` handler. Its messages describe byte moves that no
- * longer exist, so the handler only acknowledges them.
+ * The gateway consumes no queue. The retired job queues were deleted on the
+ * Cloudflare side (2026-10-26), so the empty `queue` handler that kept uploads
+ * working while they still named this Worker is gone too. A handler or a
+ * queue binding coming back means a queue was brought back without a design.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import worker from "../src/index.js";
 
-test("a leftover queue message is acknowledged and nothing else happens", async () => {
-  let acked = 0;
-  let retried = 0;
-  const batch = {
-    queue: "old-jobs",
-    messages: [{ id: "m1", body: { kind: "materialize_move" } }],
-    ackAll: () => acked++,
-    retryAll: () => retried++,
-  };
-  assert.equal(typeof worker.queue, "function");
-  await worker.queue(batch, {});
-  assert.equal(acked, 1);
-  assert.equal(retried, 0);
+test("the gateway has no queue handler and binds no queue", async () => {
+  assert.equal(worker.queue, undefined);
+  const config = await readFile(new URL("../wrangler.toml", import.meta.url), "utf8");
+  assert.doesNotMatch(config, /^\s*\[\[(?:env\.\w+\.)?queues\./m);
 });
