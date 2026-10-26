@@ -140,6 +140,11 @@ try {
     const week = await text("Plan me a Saturday in Montreal: breakfast, a museum, a walk and dinner, with times.", { timeoutMs: 6 * 60_000 });
     assert.ok(week.some((reply) => /^\[picture/.test(reply)), `plan reply: ${week.join(" | ")}`);
     pass("a day's plan comes back as a card");
+    // The persona's own week (its weekly-plan fixture note): what the person
+    // most often asks, and the answer the card exists for.
+    const myWeek = await text("What does my week look like?", { timeoutMs: 6 * 60_000 });
+    assert.ok(myWeek.some((reply) => /^\[picture/.test(reply)), `week reply: ${myWeek.join(" | ")}`);
+    pass("the person's own week comes back as a card");
     const fact = await text("What's 12 times 12?", { timeoutMs: 2 * 60_000 });
     assert.ok(!fact.some((reply) => /^\[picture/.test(reply)), `fact reply: ${fact.join(" | ")}`);
     pass("one fact stays words");

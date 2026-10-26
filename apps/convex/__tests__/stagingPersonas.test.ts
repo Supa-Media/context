@@ -77,6 +77,16 @@ describe("isolated staging fixtures", () => {
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(1);
     expect(await t.run(ctx => ctx.db.query("workspaces").collect())).toHaveLength(1);
   });
+  test("every fixture workspace is keyed with a ready tree, as a new workspace is born", async () => {
+    const t = setupTest();
+    const { workspaces } = await t.mutation(internal.functions.stagingPersonas.prepare, {});
+    for (const { workspaceId } of workspaces) {
+      const copies = await t.run(ctx => ctx.db.query("noteIdCopies").withIndex("by_workspace", q => q.eq("workspaceId", workspaceId)).unique());
+      const tree = await t.run(ctx => ctx.db.query("nodeTrees").withIndex("by_workspace", q => q.eq("workspaceId", workspaceId)).unique());
+      expect(copies?.keyedDoneAt).toBeDefined();
+      expect(tree?.status).toBe("ready");
+    }
+  });
   test("a grown staff list keeps the pinned workspace its first voucher made", async () => {
     const t = setupTest();
     const first = await t.mutation(internal.functions.stagingPersonas.prepare, {});

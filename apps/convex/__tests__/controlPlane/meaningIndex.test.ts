@@ -112,7 +112,7 @@ describe("/gateway/binding — the meaning index", () => {
     const body = JSON.parse(await bindingText(t, aliceWs)) as Record<string, unknown>;
     // The rows' access rules and `keyed` (every workspace is) ride beside the binding on every answer, and
     // nothing else does: no meaning index, and no credential for one.
-    expect(Object.keys(body).sort()).toEqual(["binding", "keyed", "privacy"]);
+    expect(Object.keys(body).sort()).toEqual(["binding", "idLayout", "keyed", "privacy"]);
     expect(body).not.toHaveProperty("meaningIndex");
   });
 

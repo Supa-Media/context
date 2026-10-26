@@ -47,15 +47,6 @@ for (const { slug, workspaceId, owner } of workspaces) {
     await pause(2000);
   }
   assert.ok(ready, `${slug}: storage did not become ready`);
-  if (slug === 'context-lc') {
-    let privacy;
-    try { privacy = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'privacy.md' }); }
-    catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
-    if (!privacy) {
-      const repaired = await client.action(ref('functions/files:resetPrivacy'), { workspaceId });
-      assert.equal(repaired.path, 'privacy.md', `${slug}: privacy manifest was not created`);
-    }
-  }
   // Only new buckets need the ordinary onboarding scaffold.
   let index;
   try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }

@@ -6,6 +6,7 @@ import { parseAdminEmails } from "./lib/admin";
 import { stagingStorageIsFree } from "./lib/managedStorage";
 import { claimName, findName } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
+import { keyIfBornEmpty } from "./lib/noteIds/born";
 
 export const PERSONAS = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
 type Persona = typeof PERSONAS[number];
@@ -91,6 +92,10 @@ export const prepare = internalMutation({
         else if (reset && staffMembership.role !== "owner") await ctx.db.patch(staffMembership._id, { role: "owner" });
       }
       if (!claim && fixture.kind === "personal") await seedIngestionSettings(ctx, { workspaceId: id, ownerUserId: users[fixture.owner], now });
+      // Keyed like any new workspace (`lib/noteIds/born.ts`): a staging fixture made
+      // before notes by id has no tree rows, so it starts keyed and empty, and the
+      // seed script writes its notes again at their id keys.
+      await keyIfBornEmpty(ctx, id);
       workspaces.push({ slug: fixture.slug, workspaceId: id, owner: fixture.owner });
     }
     const lumio = workspaces.find(w => w.slug === "lumio")!;
