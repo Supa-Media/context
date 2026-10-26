@@ -35,6 +35,13 @@ it. Tests: `apps/convex/__tests__/calendarEdit.test.ts`,
 `apps/mcp/test/calendarGate.test.mjs` ("an existing event of their own gets
 its address at once").
 
+### A routine's run changes it too (2026-10-26)
+
+A routine's run makes the same own-calendar changes at once, and refuses
+(never holds) one that would tell a guest, texting it as a question instead
+([routines](../routines.md), "A routine's run changes the person's own
+calendar, and nothing else").
+
 ### Tex changes the person's own calendar without asking (2026-10-22)
 
 Decided by the owner on 2026-10-22: "as long as there isn't a second person
