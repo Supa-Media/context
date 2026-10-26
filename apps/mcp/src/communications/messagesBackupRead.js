@@ -14,11 +14,11 @@
  */
 
 import { fileKeyOf } from "../../../../packages/communications/src/backup.js";
-import { readLogPage } from "../../../../packages/communications/src/backupLog.js";
+import { MESSAGES_BACKUP_LOG_ROUTE, readLogPage } from "../../../../packages/communications/src/backupLog.js";
 import { ATTACHMENT_CONTENT_TYPE } from "../store/contentTypes.js";
 import { json } from "../http/responses.js";
 
-export const MESSAGES_BACKUP_LOG_ROUTE = "/messages/imessage/log";
+export { MESSAGES_BACKUP_LOG_ROUTE };
 
 /** One page of the log. */
 export async function handleMessagesBackupLog(request, store) {

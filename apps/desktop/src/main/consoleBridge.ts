@@ -69,6 +69,7 @@ import {
   type DetectionView,
   type ImessageStatus,
   type LocalAgentAsk,
+  type MessagesBackupDownload,
   type MessagesBackupFilesChoice,
   type LocalAgentReply,
   type LocalAgentStatus,
@@ -83,7 +84,7 @@ import {
   type TrayCommand,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
-import { filesChoiceFrom } from "../core/shell/imessageStatus.ts";
+import { downloadFrom, filesChoiceFrom } from "../core/shell/imessageStatus.ts";
 
 /** An `IpcMainInvokeEvent`/`IpcMainEvent`, as much of one as the guard reads. */
 export interface BridgeSenderEvent {
@@ -180,6 +181,8 @@ export interface ConsoleBridgeDeps {
   setImessageEnabled: (enabled: boolean) => void;
   /** The Messages backup's "What's copied" switches. */
   setImessageFiles: (choice: MessagesBackupFilesChoice) => void;
+  /** Download messages into Downloads, with the pictures (`main/messagesDownload.ts`). */
+  downloadImessage: () => Promise<MessagesBackupDownload>;
   requestImessageFullDiskAccess: () => Promise<void>;
   /**
    * Whether this machine has a coding CLI to ask, and asking it.
@@ -556,6 +559,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     deps.setImessageFiles(filesChoiceFrom(payload));
     return null;
   });
+  handle(BRIDGE_CHANNELS.imessageDownload, async () => downloadFrom(await deps.downloadImessage()));
   handle(BRIDGE_CHANNELS.imessageRequestFullDiskAccess, () =>
     deps.requestImessageFullDiskAccess(),
   );
@@ -676,6 +680,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.imessageSetEnabled,
         BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
         BRIDGE_CHANNELS.imessageSetFiles,
+        BRIDGE_CHANNELS.imessageDownload,
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
       ]) {

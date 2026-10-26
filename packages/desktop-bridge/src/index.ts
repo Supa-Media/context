@@ -46,6 +46,7 @@ export type {
   MeetingWrite,
   MeetingWriteAck,
   MeetingWriteKind,
+  MessagesBackupDownload,
   MessagesBackupFiles,
   MessagesBackupFilesChoice,
   MessagesBackupPhase,

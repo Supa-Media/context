@@ -11,6 +11,8 @@
 import { BACKUP_PREFIX } from "./backup.js";
 
 export const BACKUP_LOG_PREFIX = `${BACKUP_PREFIX}log/`;
+/** The gateway route that answers a page to the owner (`apps/mcp/src/communications/messagesBackupRead.js`). */
+export const MESSAGES_BACKUP_LOG_ROUTE = "/messages/imessage/log";
 /** Objects one page reads at most. */
 export const LOG_PAGE_OBJECTS = 50;
 /** Characters of text one page carries at most. One batch object is at most `LIMITS.bodyBytes`, so one always fits. */

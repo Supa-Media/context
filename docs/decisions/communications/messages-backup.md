@@ -146,7 +146,15 @@ page of the log by the same pager the console uses
 `GET /messages/imessage/file/<folder>/<id>` one file's bytes, as an
 attachment of no type a browser runs, or 404 once an unsend took it back.
 Only those two are GETs; every other path under the backup still wants a
-POST.
+POST. Settings › Messages › Your copy asks the Mac app over the bridge's
+optional `imessage.download` (`apps/desktop/src/main/messagesDownload.ts`):
+it reads the whole log before writing anything, fetches every picture the
+transcripts link, and writes into a new folder in Downloads
+(`Messages backup <date>`, never one that exists), checking every path stays
+inside it, then shows it in Finder. A picture the bucket does not hold is
+named, not linked, so no link in the folder is broken. The console is told
+counts and a closed code only, never where the folder is. Off the Mac app the
+row says the texts are in Download as folders.
 
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
@@ -168,4 +176,6 @@ Attachments, waiting only for new files, the byte budget);
 the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
 page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
-(a short log puts nothing in unsaid) and `backupTranscript.test.mjs`.
+(a short log puts nothing in unsaid), `backupTranscript.test.mjs`, and
+`apps/desktop/test/messagesDownload.test.mjs` (nothing written before the
+log is read, no broken links, a new folder, no path outside it).

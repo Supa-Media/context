@@ -36,6 +36,8 @@ import { has, installShell, mount, resetDesktop, teardownDesktop } from "./fixtu
  *   the switch calling setEnabled with the value it already has           1
  *   the card's Turn off doing nothing                                       1
  *   the videos switch sending the pictures switch                           1
+ *   Download offered off the Mac app                                        1
+ *   Download not saying what it saved                                       1
  *   (the phase and outdated rows are in `messagesBackupView.test.ts`)
  */
 
@@ -176,6 +178,24 @@ describe("Settings › Messages", () => {
     await settle();
 
     expect(has(mounted.container, "messages-not-on-mac")).toBe(true);
+    // Your copy: the folder with the pictures is the Mac app's to write; here, the way to the texts.
+    expect(has(mounted.container, "messages-download")).toBe(false);
+    expect(mounted.container.textContent).toContain("Download as folders on your workspace has the texts");
+    mounted.unmount();
+  });
+
+  test("your copy: Download messages saves into Downloads on the Mac, and says what it saved", async () => {
+    const shell = shellWith({});
+    installShell(shell);
+    const mounted = mount(createElement(MessagesPanel, { owned: true }));
+    await settle();
+
+    expect(mounted.container.textContent).toContain("Your copy");
+    expect(mounted.container.textContent).toContain("One file per conversation per month, with the pictures");
+    press(mounted.container, "messages-download");
+    await settle();
+    expect(shell.calls).toContain("imessage.download");
+    expect(mounted.container.textContent).toContain("Saved 2 conversations and 3 pictures to Downloads.");
     mounted.unmount();
   });
 
