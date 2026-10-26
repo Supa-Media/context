@@ -92,14 +92,16 @@ describe("hiding old copies", () => {
     expect(await f.owner.query(api.functions.oldCopies.summary, { workspaceId: f.ws })).toMatchObject({ days: 4 });
   });
 
-  test("a workspace that is not keyed is left alone until it is", async () => {
+  test("a workspace whose copy row was never flipped is looked through too: every workspace is keyed", async () => {
     const f = await copiesFixture();
     await f.t.run(async (ctx) => {
-      // Not flipped: its copy row has no keyedAt.
       for (const row of await ctx.db.query("noteIdCopies").collect()) await ctx.db.patch(row._id, { keyedAt: undefined });
     });
-    expect(await hideAll(f)).toEqual({ days: 0, contacts: 0, files: 0 });
-    for (const path of ALL_COPIES) expect(await liveAt(f, path)).toBe(true);
+    await hideAll(f);
+    for (const path of ALL_COPIES) {
+      expect(await liveAt(f, path)).toBe(false);
+      expect(await liveAt(f, hidden(path))).toBe(true);
+    }
   });
 
   test("the hourly pass hands on keyed personal workspaces not yet looked through, and no others", async () => {

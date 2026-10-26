@@ -69,7 +69,6 @@ export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boole
       return new FileOpError("PATH_INVALID", "Built-in folders can't go into Archive. Archive the things inside them instead.");
     case "unkeyed":
     case "not_served":
-    case "not_keyed":
     case "rules_changed":
       return new FileOpError("CONFLICT", "The tree is still getting ready for this move. Try again in a moment.");
   }
@@ -108,7 +107,6 @@ interface RowMoveArgs {
 export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
   const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from });
-  if (!plan.keyed) return null;
   const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
   if (recorded !== null && !recorded.trash) {
     if (recorded.to !== to) throw await busyOrHidden(args);

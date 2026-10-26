@@ -54,12 +54,6 @@ export interface ScaffoldStore {
     truncated?: boolean;
     cursor?: string;
   }>;
-  /**
-   * Whether the workspace keeps its notes under their ids (the id layer,
-   * `apps/mcp/src/store/idLayout.js`): a note is then read by its name, and
-   * the listing shows its `notes/<id>.md` key.
-   */
-  keyedWorkspace?: () => Promise<boolean>;
 }
 
 /** Which starting layout to lay down. Mirrors `workspaces.structureTemplate`. */

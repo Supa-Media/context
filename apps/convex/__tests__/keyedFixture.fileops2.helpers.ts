@@ -27,7 +27,6 @@ import { applySeededRules, rulesRowsStore } from "./fileOps/keyedFixture.fileops
 import { type FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../functions/lib/noteIds/keyedStore";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { seedTreeFromStore } from "./treeSeeding.helpers";
 import { consoleIdLayoutHooks } from "../functions/lib/noteIds/consoleLayer";
@@ -141,7 +140,6 @@ export async function keyedBucket(seed: KeySeed = async () => {}): Promise<Keyed
     enumerable: false,
     configurable: true,
   });
-  attachWorkspaceKeyed(ctx, ws, layered);
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "move" } }, layered, store);
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "trash" } }, layered, store);
   attachQueueMove(ctx, { workspaceId: ws, scope: "private", operation: { kind: "restoreTrash" } }, layered, store);

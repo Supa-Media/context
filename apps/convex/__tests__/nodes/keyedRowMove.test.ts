@@ -350,19 +350,6 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
       );
       expect(exact).toMatchObject({ ok: true, kind: "folder", rows: 6 });
     }));
-
-  test("a row move of a non-keyed workspace is refused as not keyed, and changes nothing", async () => {
-    const f = await fixture();
-    const answer = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
-      workspaceId: f.ws,
-      from: "1-projects/keep.md",
-      to: "1-projects/kept.md",
-      privacyEtag: null,
-      now: Date.now(),
-    });
-    expect(answer).toEqual({ ok: false, reason: "not_keyed" });
-    expect(await liveAt(f, "1-projects/keep.md")).toBe(true);
-  });
 });
 
 describe("what a keyed move carries with it", () => {

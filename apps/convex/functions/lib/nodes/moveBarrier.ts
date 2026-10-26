@@ -29,7 +29,6 @@ import { startRowMove } from "./rowMoveStart";
 import { startRowMoveBatch } from "./rowMoveBatch";
 import { restoreRowTrash, startRowTrash } from "./rowTrash";
 import { attachTreeListing } from "./treeNames";
-import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
 
 type BarrierArgs = {
   workspaceId: Id<"workspaces">;
@@ -109,7 +108,6 @@ export async function runMoveOperation(
     // Asked of the tree, on a store of its own so the move's walks below are unchanged.
     const named = Object.create(store) as FileStore;
     attachTreeListing(ctx, args.workspaceId, named);
-    attachWorkspaceKeyed(ctx, args.workspaceId, named);
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     await assertNotProtectedFolder(named, from, clearance, "move");
     if (from === to || to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {

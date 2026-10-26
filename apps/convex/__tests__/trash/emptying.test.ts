@@ -203,16 +203,15 @@ describe("emptying the trash after 30 days", () => {
     expect(await erasures(f)).toEqual([]);
   });
 
-  test("a workspace that is not keyed has nothing erased", async () => {
+  test("a workspace whose copy row was never flipped is emptied on time too: every workspace is keyed", async () => {
     const f = await keyedFixture();
     const key = await trash(f, "1-projects/keep.md", Date.now() - 31 * DAY);
     await f.t.run(async (ctx) => {
-      // Not flipped: its copy row has no keyedAt.
       for (const row of await ctx.db.query("noteIdCopies").collect()) await ctx.db.patch(row._id, { keyedAt: undefined });
     });
 
-    expect(await f.t.mutation(internal.functions.trash.claimErasure, { workspaceId: f.ws })).toBeNull();
-    expect(await liveAt(f, key)).toBe(true);
+    expect(await f.t.mutation(internal.functions.trash.claimErasure, { workspaceId: f.ws })).not.toBeNull();
+    expect(await liveAt(f, key)).toBe(false);
   });
 
   test("the daily pass hands a workspace on only when it is owed an erasure", async () => {

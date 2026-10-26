@@ -22,7 +22,6 @@ import { modules } from "../test.setup";
 import type { FileStore } from "../functions/lib/fileOps";
 import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../functions/lib/noteIds/keyedStore";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "./seededRules.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
@@ -119,7 +118,6 @@ export function seamsOf(f: KeyedLinks): void {
   attachQueueMove(f.ctx, { workspaceId: f.ws, scope, operation: { kind: "trash" } }, f.store, f.store);
   attachQueueMove(f.ctx, { workspaceId: f.ws, scope, operation: { kind: "restoreTrash" } }, f.store, f.store);
   attachTreeListing(f.ctx, f.ws, f.store);
-  attachWorkspaceKeyed(f.ctx, f.ws, f.store);
 }
 
 /** Every live and gone row of the workspace, sorted by path. */

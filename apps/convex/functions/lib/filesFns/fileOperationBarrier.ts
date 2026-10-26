@@ -46,7 +46,6 @@ import { TreeUnbound } from "../nodes/treeGate";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachTreeListing } from "../nodes/treeNames";
-import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
 import { jobLens } from "./jobLens";
 import { attachArrivalAccess } from "../nodes/arrivalAccess";
 import { servedNoteCount } from "../nodes/servedCount";
@@ -543,7 +542,6 @@ export async function runFileOperationHandler(
   const listing = { store };
   attachQueueMove(ctx, args, listing.store, bucket, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
-  attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
   await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).

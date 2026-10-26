@@ -13,7 +13,6 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { keyedSibling } from "../noteIds/http";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
 
 /**
@@ -91,10 +90,6 @@ export async function gatewayBindingHandler(
   // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
   // Unlike the two above this is not caught: a switch the gateway cannot read must not be guessed at.
   const idLayout = await ctx.runQuery(internal.functions.noteIds.idLayout, {});
-  // Tenth: `keyed: true` only while the workspace is keyed (`keyedSibling`): its
-  // notes live at id keys and the path objects are frozen copies. The gateway
-  // refuses a keyed store that has no id layer (`sessionStore.js`).
-  const keyed = await keyedSibling(ctx, opened.binding.workspaceId as Id<"workspaces">);
   // Eleventh: the staff console's feature switches (`functions/featureSwitches.ts`),
   // absent while every one is off, as the siblings above are absent in the ordinary case.
   // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
@@ -133,7 +128,9 @@ export async function gatewayBindingHandler(
     ...(privacy === null ? {} : { privacy }),
     // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
     ...(idLayout === null ? {} : { idLayout }),
-    ...keyed,
+    // Tenth: every workspace is keyed (2026-10-22): its notes live at id keys. The
+    // gateway refuses a keyed store that has no id layer (`sessionStore.js`).
+    keyed: true,
     ...(Object.values(features).some(Boolean) ? { features } : {}),
   });
 }

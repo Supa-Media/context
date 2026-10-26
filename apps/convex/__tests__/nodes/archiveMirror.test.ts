@@ -3,7 +3,6 @@ import { internal } from "../../_generated/api";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { NOTE_ID, keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
 import { OWNER, TEAM, start, type Fixture } from "./moveFixture.helpers";
 import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
@@ -179,7 +178,6 @@ describe("the tidy, in a workspace that keeps its notes by id", () => {
   function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) {
     const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
     attachQueueMove(f.ctx, args, f.store, f.store);
-    attachWorkspaceKeyed(f.ctx, f.ws, f.store);
     attachTreeListing(f.ctx, f.ws, f.store);
     return executeOperation(f.store, OWNER, operation, Date.now());
   }

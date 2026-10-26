@@ -46,7 +46,7 @@ import {
   scaffoldContext,
 } from "./lib/scaffold";
 import { scaffoldStep } from "./lib/scaffold/step";
-import { servedNoteCount, verifiedNoteCount } from "./lib/nodes/servedCount";
+import { servedNoteCount } from "./lib/nodes/servedCount";
 import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
   type ProbeResult,
@@ -484,10 +484,9 @@ export const verifyStorageBinding = internalAction({
 
     // Deliberately after the scaffold as well as after the record: a bucket we
     // just laid a layout into is counted as it now stands, not as we found it.
-    // `countNotes` returns `null` rather than throwing, so a bucket that stops
-    // answering costs the count and nothing else. A keyed workspace is counted
-    // from its tree instead (`verifiedNoteCount`): its bucket holds frozen copies.
-    const counted = await verifiedNoteCount(ctx, args.workspaceId, store);
+    // Counted from the tree (`servedNoteCount`): the bucket holds frozen path
+    // copies beside the id keys. `null` costs the count and nothing else.
+    const counted = await servedNoteCount(ctx, args.workspaceId);
     if (counted !== null) {
       try {
         await ctx.runMutation(internal.functions.storage.recordNoteCount, {

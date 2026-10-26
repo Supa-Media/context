@@ -33,11 +33,10 @@ export async function catchUpKeyedRows(
 ): Promise<void> {
   const wanted = asked.filter((entry): entry is { path: string; expectedEtag: string } => entry.expectedEtag !== undefined);
   if (wanted.length === 0) return;
-  const { keyed, notes } = await ctx.runQuery(internal.functions.noteIdsKeyed.notesFor, {
+  const { notes } = await ctx.runQuery(internal.functions.noteIdsKeyed.notesFor, {
     workspaceId,
     paths: wanted.map((entry) => entry.path),
   });
-  if (!keyed) return;
   const behind: { path: string; key: string; etag: string; expectedEtag: string }[] = [];
   for (const { path, expectedEtag } of wanted) {
     const note = notes.find((entry) => entry.path === path);

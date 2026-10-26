@@ -24,7 +24,6 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { ledgerOf, ledgerRows } from "../smallData/forwarding";
 import { forwardPath } from "../../../../mcp/src/forwarding.js";
-import { keyedWorkspace } from "../noteIds/keyedState";
 import { located, nodeAt } from "../nodes/paths";
 
 /** Rows one stamping pass reads. */
@@ -71,7 +70,6 @@ export async function liveEntryOf(
 ): Promise<{ path: string; byId: boolean }> {
   const minted = { path: share.entryPath, byId: false };
   if (share.entryNoteId === undefined) return minted;
-  if (!(await keyedWorkspace(db, share.workspaceId))) return minted;
   const rows = await db
     .query("nodes")
     .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", share.workspaceId).eq("noteId", share.entryNoteId as string))

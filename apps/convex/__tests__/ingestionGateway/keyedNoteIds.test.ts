@@ -94,11 +94,11 @@ describe("the id-layer routes for a capture", () => {
     expect(body.notes[PATH]).toMatchObject({ state: "keyed", key: NOTE_KEY, etag: "e1", noteId: NOTE });
   }, COLD);
 
-  test("lookup answers the same shape in a workspace that is not keyed", async () => {
+  test("lookup of a path no row holds answers keyed, with no notes, in a workspace never flipped", async () => {
     const { t } = await ready();
     const ticket = await boundTicket(t, "seyi");
     const body = await (await lookup(t, ticket, [PATH])).json();
-    expect(body).toEqual({ copies: {}, keyed: false, notes: {} });
+    expect(body).toEqual({ copies: {}, keyed: true, notes: {} });
   });
 
   test("wrote records the key's new version on the row", async () => {

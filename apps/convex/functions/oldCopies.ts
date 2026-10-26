@@ -37,7 +37,6 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { OLD_COPIES_ROOT } from "./lib/fileOps/store";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { applyRowMove, type RowMoveRefusal } from "./lib/nodes/rowMove";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { rowVerdict } from "./lib/oldCopies/classify";
 import { CHANNEL_FOLDERS, hideChannelFolders, pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
@@ -65,7 +64,7 @@ const ERASE_PAGE = 200;
 /** Hidden notes one export listing names: past it, the download says it is short rather than guess. */
 const EXPORT_MAX = 8_000;
 /** A refusal that is about the workspace, not the row: the pass stops, and the next look starts it again. */
-const STOPPING: ReadonlySet<RowMoveRefusal> = new Set<RowMoveRefusal>(["not_keyed", "not_served", "busy"]);
+const STOPPING: ReadonlySet<RowMoveRefusal> = new Set<RowMoveRefusal>(["not_served", "busy"]);
 
 const pairValidator = v.object({ from: v.string(), to: v.string() });
 
@@ -324,7 +323,7 @@ const summaryValidator = v.union(
     lastDay: v.union(v.string(), v.null()),
     /** When copying stopped and the hiding began: "Copied before" this day. */
     since: v.number(),
-    /** Why hiding is waiting (a row-move refusal: `busy`, `not_served`, `not_keyed`), or `null`. */
+    /** Why hiding is waiting (a row-move refusal: `busy` or `not_served`), or `null`. */
     problem: v.union(v.string(), v.null()),
     /** The Google accounts the copies came from, for "From a and b". */
     addresses: v.array(v.string()),

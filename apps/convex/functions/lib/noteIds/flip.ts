@@ -1,5 +1,5 @@
 /**
- * The flip to keyed rows (`keys` mode, `lib/noteIds/keyedState.ts`): once a
+ * The flip to keyed rows (`keys` mode): once a
  * copy pass finds nothing left to copy, each live file row whose copy is still
  * true is keyed. Its bytes are the copy's bytes, so the flip changes no content
  * and writes no change-log entry; it only makes the key the row's own

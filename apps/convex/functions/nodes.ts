@@ -17,7 +17,6 @@ import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { migrationPaused } from "./lib/nodes/pause";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { nodePaths } from "./lib/nodes/paths";
 
 /** Rows one `listLive` call returns at most. */
@@ -88,13 +87,6 @@ export const listLive = internalQuery({
     const cursor = rows.length >= size ? rows[rows.length - 1].path : null;
     return { rows, cursor };
   },
-});
-
-/** Whether the workspace is keyed (`lib/noteIds/keyedState.ts`), for the tree's runs to check before they sweep or check it. INTERNAL. */
-export const isKeyed = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.boolean(),
-  handler: async (ctx, { workspaceId }): Promise<boolean> => keyedWorkspace(ctx.db, workspaceId),
 });
 
 /** The privacy rules the tree last mirrored from `privacy.md`, or null when none. */

@@ -27,7 +27,7 @@ import { getFunctionName } from "convex/server";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
 import { countNotes } from "../../functions/lib/noteCount";
-import { servedNoteCount, verifiedNoteCount } from "../../functions/lib/nodes/servedCount";
+import { servedNoteCount } from "../../functions/lib/nodes/servedCount";
 import type { NodeRow } from "../../functions/lib/nodes/table";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 
@@ -107,13 +107,12 @@ describe("the free plan's note count from the tree", () => {
 });
 
 /**
- * What a verification records (`provisioning.ts`). A keyed workspace's bucket
- * still holds the frozen path copies beside the id keys, so walking it counts
- * every note twice: the tree answers instead. Any other workspace is walked, as
- * it always was.
+ * What a verification records (`provisioning.ts`) is the tree's count too: the
+ * bucket holds the frozen path copies beside the id keys, so walking it would
+ * count every note twice.
  *
- * Sabotage: `verifiedNoteCount` walking the bucket when keyed -> the first case
- * fails (the walk's listing is called, and the count is the doubled one).
+ * Sabotage: count the bucket's listing instead -> the first case fails (the
+ * listing is called, and the count is the doubled one).
  */
 describe("the count a verification records", () => {
   /** The bucket after a flip: the notes' frozen path copies, and their id keys beside them. */
@@ -123,37 +122,20 @@ describe("the count a verification records", () => {
     return store;
   }
 
-  /** `ctxServing`, plus the answer to the keyed question. */
-  function ctxKeyed(keyed: boolean, rows: NodeRow[] | null) {
-    const inner = ctxServing(rows) as { runQuery: (ref: unknown, args: unknown) => Promise<unknown> };
-    return {
-      runQuery: vi.fn(async (ref: unknown, args: unknown) => {
-        if (getFunctionName(ref as never) === "functions/noteIds:keyedFor") return keyed;
-        return await inner.runQuery(ref, args);
-      }),
-    } as never;
-  }
-
-  test("a keyed workspace is counted from the tree, and its bucket is not listed", async () => {
+  test("is counted from the tree, and the bucket is not listed", async () => {
     const store = keyedBucket();
     const rows = (await rowsOf(store)).filter(({ path }) => !path.startsWith("notes/"));
     const list = vi.spyOn(store, "list");
-    const counted = await verifiedNoteCount(ctxKeyed(true, rows), WS, store);
+    const counted = await servedNoteCount(ctxServing(rows), WS);
     expect(counted).toEqual({ notes: 11, truncated: false });
     expect(list).not.toHaveBeenCalled();
   });
 
-  test("a keyed workspace whose tree cannot answer records nothing, rather than the walk", async () => {
+  test("records nothing when the tree cannot answer, rather than the walk", async () => {
     const store = keyedBucket();
     const list = vi.spyOn(store, "list");
-    expect(await verifiedNoteCount(ctxKeyed(true, null), WS, store)).toBeNull();
+    expect(await servedNoteCount(ctxServing(null), WS)).toBeNull();
     expect(list).not.toHaveBeenCalled();
-  });
-
-  test("any other workspace is walked, as before", async () => {
-    const store = keyedBucket();
-    const counted = await verifiedNoteCount(ctxKeyed(false, null), WS, store);
-    expect(counted).toEqual({ notes: 18, truncated: false });
   });
 });
 

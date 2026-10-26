@@ -583,15 +583,6 @@ export const openGatewayJob = internalAction({
       .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
       .then((held) => held ?? undefined);
 
-    // Keyed (`lib/noteIds/keyedStore.ts`): a path-based job in a keyed workspace is refused by
-    // the gateway. Not knowing is not "unkeyed": the job waits for the next delivery instead.
-    let keyed: boolean;
-    try {
-      keyed = await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId: claimed.workspaceId });
-    } catch {
-      return { retryAfterMs: 30_000 };
-    }
-
     return {
       job: claimed,
       binding: {
@@ -613,7 +604,8 @@ export const openGatewayJob = internalAction({
       rotation,
       managedEncryption,
       privacy,
-      keyed,
+      // Every workspace is keyed (2026-10-22): the gateway refuses a path-based job.
+      keyed: true,
     };
   },
 });
