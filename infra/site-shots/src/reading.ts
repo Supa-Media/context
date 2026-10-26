@@ -7,10 +7,18 @@
 import type { BrowsePage, Element, Reading } from "./browse";
 import { FRAME_REF_BASE, MAX_FRAME_ELEMENTS, MAX_FRAME_TEXT, framesOf } from "./frames";
 import { publicHttpsUrl } from "./shoot";
+import { POPUP_PROBE } from "./popups";
 
-/** The most text and elements one reading hands back. */
+/** The most text one reading hands back. */
 export const MAX_BROWSE_TEXT = 12_000;
-export const MAX_ELEMENTS = 80;
+/**
+ * The most of the top page's elements one reading numbers. It was 80, and a
+ * bus checkout's card boxes, terms box and Purchase button sat past the 80th
+ * (the owner's review, 2026-10-26), so they had no number to fill or press.
+ * The gateway shows the model the first ones and every box past them, and
+ * pages through the rest (`apps/mcp/src/agent/browse.js`).
+ */
+export const MAX_ELEMENTS = 300;
 /** How many of the page's elements a reading looks at for something to number; past it a page is read as far as here. */
 export const MAX_SCANNED = 5_000;
 
@@ -103,6 +111,8 @@ export async function snapshot(page: BrowsePage): Promise<Reading> {
     cut = text.length > room;
     text = text.slice(0, room) + tail;
   }
+  // Something drawn over the page (a dialog, a seat map): said, so a close_popup step can clear it (./popups.ts).
+  const popup = (await page.evaluate<boolean>(POPUP_PROBE).catch(() => false)) === true;
   const elements: Element[] = [];
   for (const item of items) {
     const e = item as Record<string, unknown>;
@@ -124,5 +134,6 @@ export async function snapshot(page: BrowsePage): Promise<Reading> {
     truncated: cut || text.length > MAX_BROWSE_TEXT,
     elements,
     ...(uploads > 0 ? { uploads: Math.min(uploads, 100) } : {}),
+    ...(popup ? { popup: true } : {}),
   };
 }

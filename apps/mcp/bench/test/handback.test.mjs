@@ -121,3 +121,39 @@ test("case 2: a captcha that outlasts every try is handed over once, then the pa
     world.close();
   }
 });
+
+test("case 10: a seat-map popup is closed, both buses are picked, the card boxes are listed, and a refused browser stays Tex's", async () => {
+  const model = scripted([
+    browse({ do: "goto", url: "https://busline.example/checkout" }),
+    browse({ do: "click", ref: 2 }),
+    // The return's Select under the popup does nothing, as on the real site.
+    browse({ do: "click", ref: 2 }),
+    browse({ do: "close_popup" }),
+    browse({ do: "click", ref: 2 }),
+    { text: "Both buses are picked: 10:00 AM out, 5:50 PM back, $131.50 in all. Nothing is paid yet." },
+    browse({ do: "handoff" }),
+    { text: "I'll finish it myself." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const first = await world.text("book me the 10am bus from penn station to bethesda on sunday nov 1, and the 5:50 back the same day. busline.example");
+    assert.ok(first.tools.every((call) => call.ok), JSON.stringify(first.tools));
+    assert.match(model.results[0], /\[\d+\] input checkbox: I agree|\[\d+\] checkbox: I agree/);
+    assert.match(model.results[0], /button: Purchase now/);
+    assert.match(model.results[0], /Card number/);
+    assert.match(model.results[0], /more links not listed, from \[\d+\]: a read step with from/);
+    assert.match(model.results[1], /Something is drawn over this page/);
+    assert.match(model.results[2], /PLEASE SELECT YOUR RETURN SCHEDULE/, "the press under the popup did nothing");
+    assert.match(model.results[4], /total \$131\.50/);
+    const events = world.browser();
+    assert.ok(events.includes("close popup busline.example/checkout"));
+    const second = await world.text("I'm not opening your browser. book it yourself");
+    assert.ok(second.tools.some((call) => !call.ok), "the handoff after their refusal is refused");
+    assert.match(model.results.at(-1), /won't take over your browser/);
+    const ten = await handbackCase(10);
+    const record = { tools: [...first.tools, ...second.tools].map((c) => c.tool), browser: world.browser() };
+    assert.deepEqual(checkVerdicts(ten, record).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});

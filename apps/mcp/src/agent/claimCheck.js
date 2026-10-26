@@ -49,8 +49,9 @@
 import { VISUAL_NOTICE, wantsACard } from "./visuals/notice.js";
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
-import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
+import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
+import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -409,6 +410,10 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   // Whether the turn could browse, and did (`BROWSER_UNTRIED_NOTICE`).
   let canBrowse = () => false;
   let browserTried = false;
+  // A checkout handed back, or a site said to lack what the browser never looked for (`checkoutChecks.js`).
+  let canFillCard = () => false;
+  let payNoticed = false;
+  let lookNoticed = false;
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
@@ -427,6 +432,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       if (web === null) return null;
       hadWeb = true;
       canBrowse = () => Array.isArray(web.tools) && web.tools.some((tool) => BROWSER_TOOLS.has(tool?.name));
+      canFillCard = () => Array.isArray(web.tools) && web.tools.some((tool) => tool?.name === "fill_card");
       return {
         ...web,
         call: async (name, args) => {
@@ -486,7 +492,15 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         handedBack = true;
         return HANDBACK_NOTICE;
       }
-      if (!shortNoticed && stopsShort(answer)) {
+      if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
+        payNoticed = true;
+        return CARD_NOTICE;
+      }
+      if (!lookNoticed && !browserTried && canBrowse() && saysNotFoundOnSite(answer)) {
+        lookNoticed = true;
+        return LOOK_ON_SITE_NOTICE;
+      }
+      if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
         shortNoticed = true;
         return finishNotice({ job: job !== null });
       }
