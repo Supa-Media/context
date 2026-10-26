@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { MessagesBackupFiles } from "@context/desktop-bridge";
 import { Button } from "../../../design/components/Button";
@@ -9,14 +10,14 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 // The component's own path, not the meetings barrel, which imports a router.
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { useBackupStatus } from "../../../messagesBackup/useBackupStatus";
-import { backupOnThisMac, progressLines, whatsCopiedLines, whoseTexts } from "../../../messagesBackup/view";
+import { backupOnThisMac, downloadLine, progressLines, whatsCopiedLines, whoseTexts } from "../../../messagesBackup/view";
 import { settingsSectionLabel } from "../sections";
 
 /**
  * Settings › Messages (board 2 of the Messages backup, approved by the owner
  * 2026-10-26): whether this Mac backs up its texts, how far it has got, what
- * is copied, and who reads them. The download and deleting the backup arrive
- * with the steps that build them (`docs/decisions/communications/messages-backup.md`).
+ * is copied, your copy, and who reads them. Deleting the backup arrives with
+ * the step that builds it (`docs/decisions/communications/messages-backup.md`).
  *
  * `owned` is whether this account has a personal workspace: the texts are
  * kept in it, and an account invited into somebody else's has nowhere to keep
@@ -46,6 +47,7 @@ export function MessagesPanel({ owned }: { owned: boolean }) {
       ) : (
         <ThisMac backup={backup} />
       )}
+      {owned ? <YourCopy backup={backup} /> : null}
 
       <Text variant="eyebrow" style={[styles.eyebrow, styles.spaced]}>
         Who reads them
@@ -136,6 +138,56 @@ function ThisMac({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
       {/* The backup sends with this Mac's own grant: unconnected is why nothing is copied. */}
       {here.enabled && here.view.phase === "not_connected" ? <ThisMachineCard focus="chats" /> : null}
       <WhatsCopied backup={backup} files={here.view.files} />
+    </View>
+  );
+}
+
+/**
+ * Your copy (board 2): the backup downloaded into a folder in Downloads, one
+ * file per conversation per month with the pictures. Only the Mac app can
+ * write that folder; anywhere else, Download as folders carries the texts.
+ */
+function YourCopy({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
+  const styles = useThemedStyles(makeStyles);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const download = backup.download;
+  return (
+    <View>
+      <Text variant="eyebrow" style={[styles.eyebrow, styles.spaced]}>
+        Your copy
+      </Text>
+      <Card>
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Download messages</Text>
+            <Text variant="rowSub" style={styles.rowSub} testID="messages-download-detail">
+              {download === null
+                ? "One file per conversation per month, with the pictures. Download them from the Mac app; Download as folders on your workspace has the texts."
+                : "One file per conversation per month, with the pictures, in a new folder in Downloads."}
+            </Text>
+            {said === null ? null : (
+              <Text variant="rowSub" style={styles.rowSub} testID="messages-download-result">
+                {said}
+              </Text>
+            )}
+          </Grow>
+          {download === null ? null : (
+            <Button
+              label={busy ? "Downloading…" : "Download"}
+              disabled={busy}
+              onPress={() => {
+                setBusy(true);
+                setSaid(null);
+                void download()
+                  .then((result) => setSaid(downloadLine(result)))
+                  .finally(() => setBusy(false));
+              }}
+              testID="messages-download"
+            />
+          )}
+        </Row>
+      </Card>
     </View>
   );
 }

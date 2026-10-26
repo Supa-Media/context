@@ -46,8 +46,8 @@
 
 import type { TranscriptSegment } from "@context/meetings/protocol";
 import type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus } from "./localAgent.ts";
-import type { ImessageStatus, MessagesBackupFilesChoice } from "./messagesBackup.ts";
-export type { ImessageStatus, MessagesBackupFiles, MessagesBackupFilesChoice, MessagesBackupPhase, MessagesBackupView } from "./messagesBackup.ts";
+import type { ImessageStatus, MessagesBackupDownload, MessagesBackupFilesChoice } from "./messagesBackup.ts";
+export type { ImessageStatus, MessagesBackupDownload, MessagesBackupFiles, MessagesBackupFilesChoice, MessagesBackupPhase, MessagesBackupView } from "./messagesBackup.ts";
 
 export type { TranscriptSegment };
 export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
@@ -614,20 +614,19 @@ export interface DesktopBridge {
   };
 
   /**
-   * The Messages backup on this Mac, and the one fact it needs from the
-   * person before it can run (Full Disk Access). **Version 5.** Optional for
-   * `MIN_BRIDGE_VERSION`'s reason, like `meetings` above: a shell older than
-   * version 5 has no `imessage` member, so the console checks for the member.
-   * `setEnabled` mirrors `toggleDetection`: reversible, and never a dialog.
+   * The Messages backup on this Mac and Full Disk Access, which it needs. **Version 5.**
+   * Optional like `meetings`: older shells lack it, so the console checks for the member.
    */
   imessage?: {
     status(): Promise<ImessageStatus>;
-    /** Turn import on or off. Never opens a system dialog — see `docs/decisions/communications.md`. */
+    /** Turn the backup on or off: reversible, like `toggleDetection`, and never a system dialog. */
     setEnabled(enabled: boolean): Promise<void>;
     /** Explain Full Disk Access and open the exact System Settings pane when the person continues. */
     requestFullDiskAccess(): Promise<void>;
     /** The backup's "What's copied" switches. Absent before the backup copied files; the page checks for it. */
     setFiles?(choice: MessagesBackupFilesChoice): Promise<void>;
+    /** Download messages into a folder in Downloads, with the pictures. Absent before it existed; the page checks. */
+    download?(): Promise<MessagesBackupDownload>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
 
@@ -749,6 +748,7 @@ export const BRIDGE_CHANNELS = Object.freeze({
   /** Version 6. Show the native guide, then open Full Disk Access settings. */
   imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
   imessageSetFiles: "context:imessage-set-files",
+  imessageDownload: "context:imessage-download",
 
   /** Version 7. Is there a local CLI to ask, and asking it. */
   agentStatus: "context:agent-status",

@@ -241,6 +241,10 @@ export function mainBridge(overrides = {}) {
       enabledCalls.push(enabled);
     },
     setImessageFiles: (choice) => void calls.push(`setImessageFiles:${JSON.stringify(choice)}`),
+    downloadImessage: async () => {
+      calls.push("downloadImessage");
+      return overrides.download ?? { ok: true, conversations: 1, transcripts: 2, pictures: 3, notCopied: 0 };
+    },
     requestImessageFullDiskAccess: async () => void calls.push("requestImessageFullDiskAccess"),
     localAgent: () => {
       calls.push("localAgent");
@@ -291,6 +295,7 @@ export const HANDLED = [
   BRIDGE_CHANNELS.imessageSetEnabled,
   BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
   BRIDGE_CHANNELS.imessageSetFiles,
+  BRIDGE_CHANNELS.imessageDownload,
   BRIDGE_CHANNELS.agentStatus,
   BRIDGE_CHANNELS.agentAsk,
 ];

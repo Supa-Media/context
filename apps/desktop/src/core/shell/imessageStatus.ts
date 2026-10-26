@@ -11,6 +11,7 @@
 
 import type {
   ImessageStatus,
+  MessagesBackupDownload,
   MessagesBackupFiles,
   MessagesBackupFilesChoice,
   MessagesBackupPhase,
@@ -99,4 +100,16 @@ export function filesChoiceFrom(payload: unknown): MessagesBackupFilesChoice {
     ...(typeof source.pictures === "boolean" ? { pictures: source.pictures } : {}),
     ...(typeof source.videos === "boolean" ? { videos: source.videos } : {}),
   };
+}
+
+/** The codes a download may stop with; anything else the main process says is `unavailable`. */
+const DOWNLOAD_PROBLEMS = new Set(["not_connected", "busy", "reconnect", "not_allowed", "not_available", "offline", "unavailable", "cancelled", "too_long", "write_failed"]);
+
+/** What Download messages did, both ways across the bridge: counts and a closed code, nothing else. */
+export function downloadFrom(payload: unknown): MessagesBackupDownload {
+  const source = record(payload);
+  if (source.ok === true) {
+    return { ok: true, conversations: count(source.conversations), transcripts: count(source.transcripts), pictures: count(source.pictures), notCopied: count(source.notCopied) };
+  }
+  return { ok: false, problem: typeof source.problem === "string" && DOWNLOAD_PROBLEMS.has(source.problem) ? source.problem : "unavailable" };
 }

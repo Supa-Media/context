@@ -21,6 +21,7 @@ export function foldRecords(records) {
   for (const record of records) {
     if (record && typeof record === "object" && typeof record.kind === "string") latest.set(recordKey(record), record);
   }
+  /** @type {{ messages: any[], reactions: any[], chats: Map<string, any>, people: Map<string, string> }} */
   const fold = { messages: [], reactions: [], chats: new Map(), people: new Map() };
   for (const record of latest.values()) {
     if (record.kind === "message") fold.messages.push(record);

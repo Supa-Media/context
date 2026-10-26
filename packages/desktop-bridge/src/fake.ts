@@ -386,6 +386,10 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
                 imessageStatus = { ...imessageStatus, backup: { ...imessageStatus.backup, files: { ...files, ...choice } } };
               }
             },
+            async download() {
+              calls.push("imessage.download");
+              return { ok: true as const, conversations: 2, transcripts: 5, pictures: 3, notCopied: 0 };
+            },
             onChange: (handler: (status: ImessageStatus) => void) => subscribe(imessageListeners, handler),
           }),
         }),
