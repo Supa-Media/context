@@ -105,16 +105,19 @@ instead") and the model answered as if it had changed without drafting
 again, the old ask still stood, and their next yes or 👍 sent the email they
 had just corrected.
 
-`claimCheck.js` rule 6: an answer that talks of changing or sending what is
-waiting, with nothing held again, gets one more round telling Tex to make the
-call with the change. If the final answer still says it changed and holds
-nothing, `textedAsk` drops the waiting ask and says so in the gateway's words
-("I haven't sent the earlier one…"). Two strengths of wording on purpose:
-"I'll send it" earns the round, but only words that say it changed
-("instead", "changed", "updated") drop the ask, so an aside answered with
-"I'll send it when you're ready" never loses it. A correction the model
-answers with only "ok" keeps today's behaviour; telling that from "one sec"
-would need a model. Only the asker's own asks are dropped, so in a group
-another person's ask stands. Reverse it and "a correction the model does not
+`claimCheck.js` rule 6 is judged on the person's own words, never the
+model's (`correctsTheAsk`): "actually", "instead", "send it to", "make it",
+"cc", "wrong", or an address the waiting draft does not have. A side text
+("one sec", "add milk to my list", "not now") carries none, so whatever the
+model answers it never touches the ask. A correction with nothing held gets
+one more round telling Tex to make the call with the change; a turn that
+still holds nothing drops exactly the asks that text corrected, never another
+of theirs and never another person's in a group, and the gateway says so in
+its own words in place of the model's line ("I haven't sent the earlier
+one…"). When an ask cannot be withdrawn the text says so and asks for a "no",
+rather than claiming it is gone. An earlier version read the model's answer
+for "changed" or "I'll send"; review found it dropped asks over unrelated
+words ("Updated your list") and missed "Sure, Bo it is".
+Reverse it and "a correction the model does not
 act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
 fails.

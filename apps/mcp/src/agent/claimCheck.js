@@ -38,12 +38,12 @@
  *   5. A call failed and the answer gives up with other roads to the same
  *      answer untried, or it promises to text them later with nothing in
  *      the turn to keep it (`otherRoutes.js`, 2026-10-23).
- *   6. An ask was waiting for their yes, and the answer talks as if it
- *      changed ("Got it, I'll send it to Bo instead") with nothing held
- *      again. The old ask still stood, so the next yes sent the email they
- *      had just corrected (Dev2, 2026-10-26). One more round says to make
- *      the call with the change; an answer that still says it changed with
- *      nothing held drops the old ask (`stale`, `textedAsk`).
+ *   6. Their text corrects an ask waiting for their yes ("actually send it
+ *      to Bo instead") and nothing new is held. The old ask still stood, so
+ *      the next yes sent the email they had just corrected (Dev2,
+ *      2026-10-26). One more round says to make the call with the change;
+ *      a turn that ends with nothing held drops the asks it corrected
+ *      (`stale`, `textedAsk`). Judged on their words, not the model's.
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -333,29 +333,28 @@ export function givesUpOnTheBrowser(answer) {
 }
 
 /*
-  A WAITING ASK SAID TO HAVE CHANGED (rule 6). Two strengths: either sends one
-  more round, but only words that say it changed drop the old ask, so "I'll
-  send it when you're ready" after "one sec" can never lose an ask.
+  A WAITING ASK THEIR TEXT CORRECTS (rule 6). Judged on the person's own words,
+  never the model's: "actually", "instead", "send it to", "cc", an address the
+  waiting draft doesn't have. A side text ("one sec", "add milk to my list")
+  carries none of them, so it never touches the ask (Dev2, 2026-10-22).
 */
-const CHANGED = /\b(?:instead|changed|updated|switched|swapped|corrected|revised|fixed it|new version|made the change|edited)\b/i;
-const WILL_SEND = /\bI(?:'ll| will|'m going to| am going to)\s+(?:send|email|forward|move|change|update|swap|switch|make it|add|book|post)\b/i;
+const CORRECTION =
+  /\b(?:actually|instead|rather|wrong|change|changed|switch|swap|correction|make it|send it to|send that to|send to|email it to|forward it to|to \w+ not|cc|bcc|move it to|reschedule)\b/i;
+const ADDRESS = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 
-/** Whether an answer says the waiting ask changed, so the old one must not stand. */
-export function saysItChanged(answer) {
-  return CHANGED.test(String(answer ?? "").replace(/[\u2018\u2019]/g, "'"));
-}
-
-/** Whether an answer talks about changing or sending what is waiting. */
-export function talksOfTheWaiting(answer) {
-  const said = String(answer ?? "").replace(/[\u2018\u2019]/g, "'");
-  return CHANGED.test(said) || WILL_SEND.test(said);
+/** Whether their text corrects one of the asks waiting for their yes (`setAside` from `textedSettle.js`). */
+export function correctsTheAsk(question, waiting) {
+  if (!Array.isArray(waiting) || waiting.length === 0) return false;
+  const said = String(question ?? "").replace(/[\u2018\u2019]/g, "'");
+  if (CORRECTION.test(said)) return true;
+  const known = waiting.map((entry) => JSON.stringify(entry?.args ?? {}).toLowerCase()).join(" ");
+  return (said.match(ADDRESS) ?? []).some((address) => !known.includes(address.toLowerCase()));
 }
 
 export const SUPERSEDE_NOTICE =
-  "Before this goes: something was waiting for their yes, and your answer talks as if it changed, but nothing new is held. " +
-  "The old one still stands, so their next yes or 👍 would make the one they just corrected. " +
-  "If their text changes it, make the call again now with the change: they are shown the new one, and the old one is dropped. " +
-  "If nothing changed, answer again without saying it changed or will be sent differently.";
+  "Before this goes: their text corrects what was waiting for their yes, and nothing new is held. " +
+  "Make the call again now with their change: they are shown the new one, and the old one is dropped. " +
+  "If you need something to make it, ask only for that. If nothing new is held when this answer goes, the old one is dropped and they are told.";
 
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
@@ -422,7 +421,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null, visuals = () => false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -506,11 +505,11 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       };
     },
     /**
-     * Whether the waiting ask must not stand after this final answer: told once
-     * to make the call with the change, it still says it changed and holds
-     * nothing (rule 6). `textedAsk` then drops it and says so.
+     * Whether the waiting asks must not stand after this turn: their text
+     * corrected them and the turn held nothing new (rule 6), whether or not
+     * a round was left for the notice. `textedAsk` drops them and says so.
      */
-    stale: (answer) => waiting && supersedeNoticed && !held && saysItChanged(answer),
+    stale: () => corrects && !held,
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
@@ -528,11 +527,6 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
-    // A waiting ask said to have changed, with nothing held again: make the call with the change (rule 6).
-    if (!supersedeNoticed && waiting && !held && talksOfTheWaiting(answer)) {
-      supersedeNoticed = true;
-      return SUPERSEDE_NOTICE;
-    }
     // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
     if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
       retryNoticed = true;
@@ -579,6 +573,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     if (!laterNoticed && !keptPromise && promisesLater(answer)) {
       laterNoticed = true;
       return LATER_NOTICE;
+    }
+    // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
+    // An answer asking them something ("Who should it go to?") waits on them instead.
+    if (!supersedeNoticed && corrects && !held && !/\?/.test(String(answer ?? ""))) {
+      supersedeNoticed = true;
+      return SUPERSEDE_NOTICE;
     }
     // "File this as a bug" answered with a note, not a report (`bugCheck.js`).
     if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {
