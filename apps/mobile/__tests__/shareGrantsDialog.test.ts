@@ -157,3 +157,39 @@ describe("a note with a list", () => {
     expect(save).toHaveBeenCalledWith({ base: "team", grantees: [{ email: "pat@example.test", role: "view" }] }, 1);
   });
 });
+
+describe("an @name outside the workspace", () => {
+  /** Answers as the control plane would: only `seyi` is somebody. */
+  function FakeProbe({ handle, onAnswer }: { handle: string; onAnswer: (handle: string, found: boolean | undefined) => void }) {
+    const { useEffect } = require("react") as typeof import("react");
+    useEffect(() => onAnswer(handle, handle === "seyi"), [handle, onAnswer]);
+    return null;
+  }
+
+  test("a name nobody holds offers nothing to press, and says so", () => {
+    mount(LIST, { HandleProbe: FakeProbe });
+    type("@se");
+    expect(byId("share-suggest-@se")).toBeNull();
+    expect(document.body.textContent).toContain("Nobody on Context goes by @se.");
+  });
+
+  test("a name a person holds is offered, and adding it writes that handle", async () => {
+    const { save } = mount(LIST, { HandleProbe: FakeProbe });
+    type("@seyi");
+    press(byId("share-suggest-@seyi"));
+    await act(async () => press(byId("share-submit")));
+    expect(save).toHaveBeenCalledWith({
+      base: "team",
+      grantees: [
+        { email: "pat@example.test", role: "view" },
+        { handle: "@seyi", role: "view" },
+      ],
+    }, 1);
+  });
+
+  test("with nobody to ask, no @name row is ever drawn", () => {
+    mount(LIST);
+    type("@seyi");
+    expect(byId("share-suggest-@seyi")).toBeNull();
+  });
+});

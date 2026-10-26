@@ -10,6 +10,8 @@ import { requireAuthId } from "@supa-media/convex/auth";
 import { query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { checkAvailability } from "./lib/nameClaims";
+import { resolveAddressedUser } from "./lib/identities";
+import { parseInvitee } from "./lib/invitees";
 import {
   NAME_MAX_LENGTH,
   NAME_MIN_LENGTH,
@@ -146,5 +148,27 @@ export const resolveMyName = query({
       displayName: workspace.displayName,
       role: membership.role,
     };
+  },
+});
+
+/**
+ * Whether an `@name` belongs to a person, so the share field offers it only once it does: a typed name nobody
+ * holds is never drawn as somebody to share with (Dev2, 2026-10-25).
+ *
+ * Yes or no, and nothing about who. Whether a name is held is already what `checkNameAvailable` answers to anyone
+ * signed in; this adds only "and it is a person" (a personal workspace or a user claim, not a shared workspace or a
+ * group), which the share list then shows as the `@name` alone. No id, no display name, no address. Signed in only,
+ * for the reason `checkNameAvailable` gives.
+ */
+export const personByName = query({
+  args: { name: v.string() },
+  returns: v.object({ found: v.boolean() }),
+  handler: async (ctx, args) => {
+    await requireAuthId(ctx);
+    const parsed = parseInvitee(args.name);
+    if (!parsed.ok || parsed.invitee.kind !== "name") return { found: false };
+    const userId = await resolveAddressedUser(ctx, parsed.invitee);
+    // A name can outlive its account: a deleted person is nobody, as `setGrantees` treats them.
+    return { found: userId !== null && (await ctx.db.get(userId)) !== null };
   },
 });

@@ -1,5 +1,6 @@
 import { useConvex } from "convex/react";
 import { ShareDialog } from "../ShareDialog";
+import { HandleProbe } from "./HandleProbe";
 import type { ShareDialogProps } from "./props";
 import { useShareGrants } from "./useShareGrants";
 
@@ -21,5 +22,5 @@ export function LiveShareDialog(props: Props) {
 
 function WithGrants({ workspaceId, ...props }: Props) {
   const grants = useShareGrants(workspaceId, props.path);
-  return <ShareDialog {...props} grants={grants} />;
+  return <ShareDialog {...props} grants={grants} HandleProbe={HandleProbe} />;
 }

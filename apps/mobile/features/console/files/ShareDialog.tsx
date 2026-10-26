@@ -32,7 +32,7 @@
  * **absent, not disabled**.
  */
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
@@ -40,7 +40,7 @@ import { useColors, useThemedStyles } from "../../design/theme";
 import { densityFor } from "../../app/frame";
 import { baseName, folderLabel } from "./paths";
 import { accessRows } from "./access";
-import { noMatchHint, recipientsFor } from "./recipients";
+import { noMatchHint, recipientsFor, typedHandle } from "./recipients";
 import { isGroupVisibility } from "./types";
 import { scopeOf } from "./scope";
 import { sharesFor } from "./shares";
@@ -84,6 +84,7 @@ export function ShareDialog({
   context = { slug: null, kind: null, viewerIsOwner: true },
   footExtra,
   grants,
+  HandleProbe,
 }: ShareDialogProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -95,6 +96,14 @@ export function ShareDialog({
   const view = useWindowDimensions();
   const compact = densityFor(view.width) === "compact";
   const [recipient, setRecipient] = useState("");
+  /* The server's answer for the last `@name` asked about (`HandleProbe`); used only while that name is typed. */
+  const [handleAnswer, setHandleAnswer] = useState<{ handle: string; found: boolean | undefined } | null>(null);
+  const onHandleAnswer = useCallback(
+    (handle: string, found: boolean | undefined) => setHandleAnswer({ handle, found }),
+    [],
+  );
+  const typed = typedHandle(recipient);
+  const handleFound = typed !== null && handleAnswer?.handle === typed ? handleAnswer.found : undefined;
   /**
    * What went wrong with the last copy, or `null`. Carries the URL when the
    * clipboard refused, because the clipboard is the only part that failed and
@@ -190,11 +199,13 @@ export function ShareDialog({
           reachingUserIds: new Set(rows.filter((row) => row.role !== "group").map((row) => row.key)),
           reachingGroups:
             shown !== undefined && isGroupVisibility(shown.visibility) ? new Set([shown.visibility.slice(1)]) : undefined,
+          handleFound,
         }
       : {
           ...reachingOf(grants.list, owners.map((owner) => owner.userId)),
           inviteDetail: `Not in ${handle}. They can open it once they sign in with this email`,
           handleDetail: `Not in ${handle}. They find it under Shared with me`,
+          handleFound,
         };
   const domain =
     grants === undefined
@@ -204,10 +215,12 @@ export function ShareDialog({
     ...recipientsFor(recipient, access?.members ?? [], groups ?? [], reaching),
     ...(domain === null ? [] : [domain]),
   ];
-  const emptyHint = suggestions.length === 0 ? noMatchHint(recipient) : undefined;
+  const emptyHint = suggestions.length === 0 ? noMatchHint(recipient, HandleProbe === undefined ? false : handleFound) : undefined;
   const submit = () => {
     // With a list, Enter picks a row; a bare string is never minted as a share.
     if (recipient.trim() === "" || grants !== undefined) return;
+    // A bare `@name` is sent only once a person is known to hold it, the same rule as its row.
+    if (typed !== null && handleFound !== true) return;
     onShare(recipient.trim());
     setRecipient("");
   };
@@ -291,6 +304,7 @@ export function ShareDialog({
                 )}
               </View>
 
+              {HandleProbe !== undefined && typed !== null ? <HandleProbe handle={typed} onAnswer={onHandleAnswer} /> : null}
               <RecipientPicker
                 compact={compact}
                 recipient={recipient}

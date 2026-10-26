@@ -136,6 +136,11 @@ export function recipientsFor(
     reachingHandles?: ReadonlySet<string>;
     /** The second line of the `@name` row, where the caller's share means something else. */
     handleDetail?: string;
+    /**
+     * Whether the typed `@name` belongs to a person (`names.personByName`). Only `true` draws its row: a name
+     * nobody holds, an answer still on its way, and a caller that cannot ask all offer nothing to press.
+     */
+    handleFound?: boolean;
     /** The second line of the invite row, where the caller's invite means something else. */
     inviteDetail?: string;
   } = {},
@@ -228,16 +233,16 @@ export function recipientsFor(
     });
   }
   /*
-    A typed `@name` that is nobody's here and no group's: offered as itself, for whoever holds it. Whether
-    anybody does is the server's to say on Share (one refusal for a name nobody holds), never looked up while
-    typing — the field would otherwise be a way to page through who is on Context.
+    A typed `@name` that is nobody's here and no group's: offered as itself, and only once the server has said a
+    person holds it (Dev2, 2026-10-25: a row for a name nobody holds is a share sent to nobody). The answer is
+    yes or no and never who.
   */
   const handleIsOurs =
     handle !== null &&
     (members.some((member) => member.handle?.toLowerCase() === handle) ||
       groups.some((group) => group.name.toLowerCase() === handle));
   const handleReaches = handle !== null && options.reachingHandles?.has(handle) === true;
-  if (handle !== null && !handleIsOurs && !handleReaches) {
+  if (handle !== null && !handleIsOurs && !handleReaches && options.handleFound === true) {
     offers.push({
       kind: "handle",
       key: `@${handle}`,
@@ -278,7 +283,13 @@ function memberDetail(member: RecipientMember): string | undefined {
  * that appears over an untouched field is noise, and the people who already
  * have the note are listed right below it anyway.
  */
-export function noMatchHint(query: string): string | undefined {
+export function noMatchHint(query: string, handleFound?: boolean): string | undefined {
   if (query.trim().length === 0) return undefined;
+  const handle = typedHandle(query);
+  if (handle !== null) {
+    return handleFound === false
+      ? `Nobody on Context goes by @${handle}. Check the spelling, or type their email.`
+      : `Looking for @${handle}…`;
+  }
   return "Nobody here by that name. Type their @name or a full email address to share with somebody new.";
 }
