@@ -10,6 +10,7 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 // The component's own path, not the meetings barrel, which imports a router.
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { DeleteBackup } from "../../../messagesBackup/DeleteBackup";
+import { ReadHistory } from "../../../messagesBackup/ReadHistory";
 import { useBackupStatus } from "../../../messagesBackup/useBackupStatus";
 import { backupOnThisMac, downloadLine, progressLines, whatsCopiedLines, whoseTexts } from "../../../messagesBackup/view";
 import { settingsSectionLabel } from "../sections";
@@ -62,6 +63,7 @@ export function MessagesPanel({ owned, workspaceId = null }: { owned: boolean; w
             </Text>
           </Grow>
         </Row>
+        {owned && workspaceId !== null ? <ReadHistory workspaceId={workspaceId} /> : null}
       </Card>
 
       <Text variant="hint" style={styles.foot}>

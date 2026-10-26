@@ -28,6 +28,8 @@
  *   catch-up: pending markers not read                                   1
  *   catch-up: the first walk not run                                     1
  *   ftsQueryOf: the query passed through unquoted                        1
+ *   reads: the list tool's read not written down                          1
+ *   reads: every page of a download written down, not the first          1
  *
  * Fake names, numbers and credentials only.
  */
@@ -50,6 +52,7 @@ import {
 import { textsCleared } from "../src/communications/messagesBackup.js";
 import { ftsQueryOf } from "../src/communications/textsRead.js";
 import { TEXTS_LOG, TEXTS_PENDING } from "../src/communications/textsIndex.js";
+import { BACKUP_READS_PREFIX } from "../../../packages/communications/src/backupReads.js";
 
 const DB_OTHER = "db-3333-3333-3333-333333333333";
 const tok = (name) => `cat_texts_${name}_`.padEnd(40, "0");
@@ -263,4 +266,41 @@ test("a person's words are quoted terms, never operators", () => {
   assert.equal(ftsQueryOf('flight" OR texts_fts:* NEAR(a b)'), '"flight" "OR" "texts" "fts" "NEAR" "a" "b"');
   assert.equal(ftsQueryOf("  ...  "), null);
   assert.equal(ftsQueryOf("café 6pm"), '"café" "6pm"');
+});
+
+test("each read is written down as who and what kind, never what was read, and a refused one is not", async () => {
+  const world = await setUp();
+  try {
+    await post(world, T.owner, BATCH);
+    const bucket = world.bucket("t-mine");
+    const reads = () => [...bucket.keys()].filter((key) => key.startsWith(BACKUP_READS_PREFIX)).sort().map((key) => ({ key, body: String(bucket.get(key).body) }));
+    assert.equal(reads().length, 0, "a backup alone is not a read");
+
+    await search(world, T.owner, "flight");
+    await fetchId(world, T.owner, "texts:");
+    await fetchId(world, T.owner, "texts:chat-ada");
+    await search(world, T.editor, "flight");
+    await search(world, T.ownerTeam, "flight");
+    const kept = reads();
+    assert.deepEqual(kept.map((read) => JSON.parse(read.body).how).sort(), ["listed", "read", "searched"]);
+    for (const read of kept) {
+      assert.equal(JSON.parse(read.body).who, "Claude");
+      assert.doesNotMatch(read.key + read.body, /flight|chat-ada|Ada|1555/);
+    }
+
+    const { ctx, settle } = createWorkerCtx();
+    const first = await worker.fetch(new Request("https://gateway.test/messages/imessage/log", { headers: { Authorization: `Bearer ${T.owner}` } }), world.env, ctx);
+    await settle();
+    assert.equal(first.status, 200);
+    const { objects } = await first.json();
+    assert.equal(reads().filter((read) => JSON.parse(read.body).how === "downloaded").length, 1, "the first page of a download is one read");
+    const later = createWorkerCtx();
+    const after = encodeURIComponent(objects[0].key);
+    const page = await worker.fetch(new Request(`https://gateway.test/messages/imessage/log?after=${after}`, { headers: { Authorization: `Bearer ${T.owner}` } }), world.env, later.ctx);
+    await later.settle();
+    assert.equal(page.status, 200);
+    assert.equal(reads().filter((read) => JSON.parse(read.body).how === "downloaded").length, 1, "a later page is the same download");
+  } finally {
+    world.restore();
+  }
 });

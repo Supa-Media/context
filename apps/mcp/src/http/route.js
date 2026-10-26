@@ -338,7 +338,7 @@ export async function route(request, env, ctx) {
       attachLinkCalls(store, session, controlPlane, env);
       attachImageUploads(store, session, controlPlane, origin);
       // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.
-      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true }) });
+      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true, reader: session.actorClientName ?? null }) });
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -687,7 +687,7 @@ export async function route(request, env, ctx) {
       if (approvalsRoute) return await handleApprovals(request, store, session);
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
-        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store) : json({ ok: false, error: "not_found" }, 404);
+        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store, session) : json({ ok: false, error: "not_found" }, 404);
         if (file) return await handleMessagesBackupFile(request, store, file);
         return path === MESSAGES_BACKUP_ROUTE ? await handleMessagesBackup(request, store) : json({ ok: false, error: "not_found" }, 404);
       }
