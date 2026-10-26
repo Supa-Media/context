@@ -286,6 +286,36 @@ never exports keys, touches plumbing or writes a malformed routine, whatever
 the model named", "a routine's own run is never offered a write", "and stops itself,
 recoverably".
 
+### A routine's run changes the person's own calendar, and nothing else (2026-10-26)
+
+A review of 2026-10-26: Tex made an hourly routine to retry adding a birthday
+that Google had refused, and every run texted "I can't reach your calendar
+from this chat right now ... Text me again later", because a run was offered
+read tools only and the calendar gate refused the routines connection. That
+hands the work back, against the owner's rule that Tex never does (2026-10-22),
+and a retry routine is what Tex's own help tells it to make. So a run is
+offered `calendar_event` beside its reads (`routineCalendarTools`), and the
+gate lets a routine's run (the `/agent` turn, `egress.routine` set from the
+grant, never a direct call on that connection) change an event nobody else is
+on at once, as a texted turn does
+([calendar-writes](./communications/calendar-writes.md)). A change that would
+tell a guest is refused, not held: nobody is on the line to say yes, so the
+run texts it as a question and the person's reply makes it. After a run has
+read words from outside (a page, an email), it may only add events, never
+cancel or rewrite one. Still no note
+write, email or other send. Tests (`calendarGate.test.mjs`): "a routine's run
+is offered their calendar, and no other write", "…adds the event at once", "a
+routine's change that would tell a guest is not made…", "a routine's run
+that read an email's words may not cancel…", "a routine's
+connection called directly never changes the calendar…".
+
+The same review: a daily reminder texted "This is the last one." and went on;
+its `until:` said "this week", read in the next week. A run may call itself
+the last only when it ends the routine with `DONE:`; any other answer has
+that sentence taken off (`withoutLastClaim`), and Tex writes `until:` as a
+date, never "this week" or "tomorrow". Test (`routineVoice.test.mjs`): "a run
+that goes on never says it is the last one".
+
 ### A routine note shows its schedule and its recent runs, and Pause is a line in the file
 
 The app draws a bar on any note under `tex/routines/<schedule>/` or `routines/<schedule>/`: the schedule in

@@ -10,7 +10,9 @@
  *      limits are asked about without spending them, so the person is never
  *      asked to approve something that would be refused.
  *   2. Tex or another connected AI may ask; a routine or a dream has no person
- *      on the line and never may.
+ *      on the line and never may. A routine's own run (never a direct call on
+ *      its connection) changes the person's own calendar at once, as Tex does,
+ *      and only that (a review, 2026-10-26).
  *   3. The call is held as a pending approval whose record carries the whole
  *      change, which the person reads before their YES. Only a literal YES
  *      releases it by text (`agent/textedApprovals.js`); another AI's change
@@ -27,6 +29,9 @@ import { emailCaller } from "./emailGate.js";
 import { offerFor, offerTarget } from "./offerFor.js";
 
 export { CALENDAR_TOOL };
+
+/** The routine runner's client (`agent/routine.js`), named here as `forwardRule.js` does. */
+const ROUTINES_CLIENT_ID = "context_routines";
 
 /**
  * `null` to let an approved replay through to `calendar_event`, or the answer
@@ -48,7 +53,13 @@ export async function calendarGate(supplied, { store, session, target }) {
   // A connected AI calling again after the person approved it in the app.
   const released = await takeDone(store, { name: CALENDAR_TOOL, args: supplied, userId, clientId: session.actorClientId });
   if (released) return released;
-  if (emailCaller(session.actorClientId) === null) {
+  // A routine's run, as `route.js` set it from the grant: the person's own events only (`routine.js`).
+  const routineRun = session.actorClientId === ROUTINES_CLIENT_ID && typeof session.egress?.routine === "string";
+  // Unattended after a page or an email's words: those words may add an event, never take one away or rewrite it.
+  if (routineRun && session.egress?.ledger?.untrusted === true && read.change.action !== "create") {
+    return toolError("Not changed: this routine read something from outside, so it may only add events now. Text them the change in one line instead.");
+  }
+  if (emailCaller(session.actorClientId) === null && !routineRun) {
     return toolError("Not changed: this connection may not change the person's calendar. Tell them what to change instead.");
   }
 
@@ -76,7 +87,13 @@ export async function calendarGate(supplied, { store, session, target }) {
     telling them to do it themselves: "it should've suggested the change and
     had me 👍 to approve it". Another AI's change still waits for the app.
   */
-  if (texting && guests.length === 0) return null;
+  if ((texting || routineRun) && guests.length === 0) return null;
+  if (routineRun) {
+    return toolError(
+      `Not changed: this would tell ${guests.join(", ")}, and nobody is on the line in a routine to say yes. ` +
+        "Text them this change in one line; their yes to it makes it.",
+    );
+  }
   const held = guests.length > 0 ? { ...supplied, notify_guests: true } : supplied;
   // One change per texted ask, as one email: one YES releases exactly what was read.
   const ledger = session.egress?.ledger ?? null;

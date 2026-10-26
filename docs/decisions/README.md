@@ -704,6 +704,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
 - Routines run only in a personal workspace, and text only their writer
+- A routine's run changes the person's own calendar, and nothing else (2026-10-26)
 - A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)

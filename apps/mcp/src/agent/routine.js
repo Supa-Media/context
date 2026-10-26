@@ -36,6 +36,9 @@ export const SKIP_WORD = QUIET_WORD;
 /** What a run whose `until:` has come true starts its answer with. */
 export const DONE_WORD = "DONE:";
 
+/** The one write a run is offered: a change to the person's own calendar (`calendarGate.js`). */
+export const ROUTINE_CALENDAR_TOOL = "calendar_event";
+
 export const MAX_RUNS_KEPT = 20;
 export const MAX_RUN_TEXT = 2000;
 const MAX_LAST_RUN_IN_PROMPT = 1500;
@@ -198,6 +201,15 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
       "it stops at once. Never send a change to it for approval. " +
       "Say something worked only when a call in this run showed it working: an app listed as connected is not a read that worked.",
   );
+  // A review, 2026-10-26: an hourly "retry adding Tabi's birthday" routine had no calendar and texted
+  // "I can't reach your calendar from this chat right now ... Text me again later", every hour.
+  lines.push(
+    "You can change their own calendar in this run (send action calendar): add, edit, move or cancel an event nobody else is on, at once. " +
+      "A change that would tell a guest can't be made while nobody is on the line: text them the change in one line, and their yes makes it. " +
+      "Never ask them to text you again, try later, or do it themselves: do it now, or say what stopped it and that this routine tries again next run.",
+    // The same review: a daily reminder texted "This is the last one." and went on.
+    `Say a reminder is the last one only when you start your answer with ${DONE_WORD}, which ends it; otherwise never say it is the last or that they end.`,
+  );
   if (mail) lines.push(mail);
   lines.push(
     // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
@@ -239,8 +251,34 @@ export function runOutcome(answer, { routine = null, runs = [] } = {}) {
   if (trimmed.toUpperCase().startsWith(DONE_WORD)) {
     return { outcome: "finished", text: spokenToThem(trimmed.slice(DONE_WORD.length)) };
   }
-  const text = spokenToThem(trimmed);
+  const text = withoutLastClaim(spokenToThem(trimmed));
   return repeatsItself(routine, runs, text) ? { outcome: "skipped", text: "" } : { outcome: "answered", text };
+}
+
+/** A sentence that says this run is the last, or that no more reminders come. */
+const LAST_CLAIM =
+  /\b(?:this|that|it)(?:\s+is|'s|\u2019s)\s+(?:the|my|your)\s+(?:last|final)(?:\s+(?:one|reminder|time|text)\b|\s*[.!?]*$)|\bno\s+more\s+reminders\b|\bfinal\s+reminder\b/i;
+
+/**
+ * A run that goes on saying it is the last (a review, 2026-10-26: a daily
+ * reminder texted "This is the last one." and the person had to ask for the
+ * rest of the week). Only a run that ends its routine (`DONE_WORD`) may; any
+ * other has that sentence taken off, and "Final reminder:" becomes "Reminder:".
+ */
+export function withoutLastClaim(text) {
+  const said = String(text ?? "").replace(/^(?:last|final)\s+reminder\b/i, "Reminder");
+  const sentences = said.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((sentence) => !LAST_CLAIM.test(sentence));
+  return kept.length === 0 || kept.length === sentences.length ? said : kept.join(" ");
+}
+
+/**
+ * The calendar tool a routine run is offered, when the grant offered it: their
+ * own events change at once, and nothing that tells a guest goes
+ * (`calendarGate.js`). No other write (`docs/decisions/routines.md`).
+ */
+export function routineCalendarTools(offered) {
+  return (Array.isArray(offered) ? offered : []).filter((tool) => tool?.name === ROUTINE_CALENDAR_TOOL);
 }
 
 const sameWords = (text) => String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();

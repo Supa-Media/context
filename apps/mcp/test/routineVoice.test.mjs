@@ -24,6 +24,16 @@
  *  6. The minute-cadence refusal removed. → `a text never makes a routine
  *     that runs more often than hourly` fails.
  *
+ *  7. `runOutcome` without `withoutLastClaim`. → `a run that goes on never
+ *     says it is the last one` fails.
+ *  8. The calendar and last-one lines left out of `routineQuestion`. → `a
+ *     run is told it can change their calendar…` fails.
+ *
+ * A review of 2026-10-26: an hourly retry texted "I can't reach your calendar
+ * from this chat right now ... Text me again later", and a daily reminder
+ * texted "Reminder: call Kyle about El Salvador. This is the last one." and
+ * went on.
+ *
  * Later that day an every-5-minutes "retry Planning Center" check texted
  * "Planning Center's connected." over and over while every read failed, and
  * "I couldn't stop this check myself" with a pause sent for approval.
@@ -32,7 +42,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { saysQuiet, spokenToThem } from "../src/agent/checkInGuards.js";
-import { recentTextsSection, repeatsItself, routineQuestion, runOutcome } from "../src/agent/routine.js";
+import { recentTextsSection, repeatsItself, routineCalendarTools, routineQuestion, runOutcome, withoutLastClaim } from "../src/agent/routine.js";
 import { checkInText } from "../src/agent/heartbeat.js";
 import { textingAwareCallTool } from "../src/agent/textingWrites.js";
 
@@ -167,4 +177,27 @@ test("a text never makes a routine that runs more often than hourly", async () =
   assert.notEqual(edited.isError, true);
   const hourly = await call("write_note", { path: "tex/routines/hourly/retry-pc.md", content: "x" });
   assert.notEqual(hourly.isError, true);
+});
+
+test("a run that goes on never says it is the last one", () => {
+  const kyle = "Reminder: call Kyle about El Salvador. This is the last one.";
+  assert.deepEqual(runOutcome(kyle), { outcome: "answered", text: "Reminder: call Kyle about El Salvador." });
+  assert.equal(runOutcome("Final reminder: call Kyle.").text, "Reminder: call Kyle.");
+  assert.equal(withoutLastClaim("Reminder: call Kyle. That's your final reminder!"), "Reminder: call Kyle.");
+  assert.equal(withoutLastClaim("Reminder: call Kyle. No more reminders after today."), "Reminder: call Kyle.");
+  // A run that ends its routine may say so, and ordinary words about "last" stay.
+  assert.equal(runOutcome(`DONE: ${kyle}`).text, kyle);
+  assert.equal(withoutLastClaim("Reminder: pay rent. It's the last day of the month."), "Reminder: pay rent. It's the last day of the month.");
+  assert.equal(withoutLastClaim("Reminder: call Kyle at the last minute."), "Reminder: call Kyle at the last minute.");
+});
+
+test("a run is told it can change their calendar, never to hand it back, and when it may say last", () => {
+  const routine = { path: "tex/routines/hourly/retry-tabi-birthday-calendar.md", cadence: { unit: "hour", every: 1 }, settings: {}, body: "Add Tabi's birthday to their calendar." };
+  const question = routineQuestion(routine, { now: Date.UTC(2026, 9, 26, 14), timeZone: "UTC" });
+  assert.match(question, /change their own calendar in this run/);
+  assert.match(question, /Never ask them to text you again, try later, or do it themselves/);
+  assert.match(question, /last one only when you start your answer with DONE:/);
+  const offered = [{ name: "calendar_event" }, { name: "write_note" }, { name: "send_email" }, { name: "read_note" }];
+  assert.deepEqual(routineCalendarTools(offered).map((tool) => tool.name), ["calendar_event"]);
+  assert.deepEqual(routineCalendarTools(undefined), []);
 });

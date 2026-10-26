@@ -24,9 +24,20 @@
  *     check is refused invalid).
  *  5. `readCalendarChange` without `edit`, as before 2026-10-23. → `an
  *     existing event of their own gets its address at once…` fails.
+ *  6. `routineCalendarTools` returning nothing, as before 2026-10-26. → `a
+ *     routine's run is offered their calendar…` fails.
+ *  7. `calendarGate` without `routineRun`. → `…and adds the event at once`
+ *     fails (the run is told this connection may not change it).
+ *  8. `calendarGate` letting a routine's change through whatever its guests.
+ *     → `a routine's change that would tell a guest is not made…` fails.
+ *  9. `routineRun` not asking for the run's own `egress.routine`. → `a
+ *     routine never changes the calendar…` fails (a direct call goes).
+ * 10. The routine's outside-read check removed. → `a routine's run that
+ *     read an email's words may not cancel…` fails.
  */
 
-import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { ask, call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { shown as shownTools } from "./sixToolsShown.mjs";
 import { readCalendarChange } from "../src/tools/calendarWrite.js";
 
 const CREATE = { action: "create", title: "Dentist", start: "2026-10-20T15:00:00-04:00", end: "2026-10-20T16:00:00-04:00" };
@@ -66,13 +77,60 @@ export async function runCalendarGateChecks(check) {
     const routine = await call(env, TOKEN_ROUTINE, "calendar_event", CREATE);
     const mcp = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, title: "Lunch" });
     check(
-      "a routine never changes the calendar; another AI's change waits for the app",
+      "a routine's connection called directly never changes the calendar; another AI's change waits for the app",
       routine.isError === true &&
         /may not change/.test(textOf(routine)) &&
         mcp.isError === true &&
         /approve this exact change in the Context app/.test(textOf(mcp)) &&
         changes().length === 1,
     );
+    // A review, 2026-10-26: an hourly "retry Tabi's birthday" routine had no calendar and texted
+    // "I can't reach your calendar from this chat right now ... Text me again later."
+    const TABI = { action: "create", title: "Tabi's birthday", start: "2026-11-03", end: "2026-11-04" };
+    model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: TABI } }] }, { text: "Tabi's birthday is on your calendar now." }]);
+    const beforeRun = changes().length;
+    const waitingRun = pending().length;
+    const ran = await request(env, TOKEN_ROUTINE, "/agent", { routine: { path: "routines/daily/brief.md" } });
+    check(
+      "a routine's run is offered their calendar, and no other write",
+      shownTools(model.requests.at(-2)?.tools).has("send.calendar") &&
+        !shownTools(model.requests.at(-2)?.tools).has("write.save") &&
+        !shownTools(model.requests.at(-2)?.tools).has("send.email"),
+    );
+    check(
+      "a routine's run that was asked to add an event to their own calendar adds the event at once",
+      ran.status === 200 &&
+        changes().length === beforeRun + 1 &&
+        JSON.stringify(changes().at(-1).change) === JSON.stringify(readCalendarChange(TABI).change) &&
+        pending().length === waitingRun &&
+        ran.body?.answer === "Tabi's birthday is on your calendar now.",
+    );
+    controlPlane.flags.calendarGuests = ["Blessing Aodu"];
+    const GUESTED = { action: "move", title: "Sayo / Seyi", start: "2026-10-22T19:00:00-04:00", new_start: "2026-10-22T21:00:00-04:00", new_end: "2026-10-22T22:00:00-04:00" };
+    model.install([{ toolCalls: [{ name: "calendar_event", args: GUESTED }] }, { text: "Want me to move Sayo / Seyi to 9? Blessing would hear." }]);
+    const beforeGuestRun = changes().length;
+    const waitingGuestRun = pending().length;
+    await request(env, TOKEN_ROUTINE, "/agent", { routine: { path: "routines/daily/brief.md" } });
+    check(
+      "a routine's change that would tell a guest is not made, not held, and is texted to them as a question",
+      changes().length === beforeGuestRun &&
+        pending().length === waitingGuestRun &&
+        JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("nobody is on the line in a routine"),
+    );
+    controlPlane.flags.calendarGuests = [];
+    const CANCEL = { action: "cancel", title: "Tabi's birthday", start: "2026-11-03" };
+    model.install([
+      { toolCalls: [{ name: "fetch", args: { id: "0-inbox/email/me-at-example-com/2026-10-01.md" } }] },
+      { toolCalls: [{ name: "calendar_event", args: CANCEL }] },
+      { text: "Want me to take Tabi's birthday off?" },
+    ]);
+    const beforeRead = changes().length;
+    await request(env, TOKEN_ROUTINE, "/agent", { routine: { path: "routines/daily/brief.md" } });
+    check(
+      "a routine's run that read an email's words may not cancel or rewrite an event",
+      changes().length === beforeRead && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("may only add events now"),
+    );
+
     // The owner's chat, 2026-10-22 5:04 PM: "Say yes and I'll add it", a "yes", then a second ask for a 👍. Now there is no ask at all.
     const MARI = { action: "create", title: "MARI LOLA event", start: "2026-11-01T15:00:00-05:00", end: "2026-11-01T17:00:00-05:00", location: "Bethesda" };
     model.install([{ toolCalls: [{ name: "calendar_event", args: MARI }] }, { text: "Done, Mari Lola is on your calendar for Sunday, November 1, 3 to 5 pm." }]);
