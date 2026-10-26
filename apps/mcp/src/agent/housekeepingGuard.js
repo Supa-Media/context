@@ -150,13 +150,17 @@ function archivedTo(result) {
 }
 
 /**
- * A matched move goes in batches this size, well under a batch move's own
- * cap (`moves/limits.js`, 100). Each note's move carries its editing history
- * and every link to it, so in a real workspace a batch of 100 ran past
- * move_notes' 60 s and moved nothing (2026-10-26), while moves of 9 and 11
- * landed; twenty at a time keeps each batch inside the call's 35 s.
+ * A matched move goes in batches this size, under a batch move's own cap
+ * (`moves/limits.js`, 100). In a real workspace a batch of 100 once ran past
+ * move_notes' 60 s and moved nothing (2026-10-26). Since the control plane
+ * judges a batch's access rules once (#2243) a batch of 20 took about 3 s
+ * there, and a run still topped out near 80 notes because each call fit only
+ * four batches, so fifty at a time.
  */
-const MATCH_BATCH = 20;
+const MATCH_BATCH = 50;
+
+/** How many notes one dry run plans: a batch move's own cap (`moves/limits.js`). */
+const PLAN_BATCH = 100;
 
 /**
  * A batch the control plane could not start, said in no more words than that,
@@ -328,9 +332,10 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
   /**
    * `move_notes { folder, match, into }`: every note directly in `folder`
    * whose name matches, moved into `into` keeping its name, in batches that
-   * each pass `callTool` as a written-out batch would. An applied batch with
-   * no versions (a workspace that is not keyed asks for them) is planned
-   * first and sent again with the versions its plan names.
+   * each pass `callTool` as a written-out batch would. Where an applied batch
+   * with no versions is refused for want of them (a keyed workspace), the
+   * notes are planned a hundred at a time and every batch carries the
+   * versions its plan names.
    */
   async function moveMatching(given) {
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS.matching.has(key));
@@ -354,6 +359,10 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
     let moved = 0;
     let slowest = 0;
     let size = MATCH_BATCH;
+    // A keyed workspace asks for every note's version. Once it has asked, the notes are planned a hundred at
+    // a time and each batch carries its versions: before, every batch was sent bare, planned, then sent again,
+    // three calls where one does, and a call fit four batches (2026-10-26).
+    let versions = null;
     const began = now();
     for (let start = 0; start < moves.length; ) {
       if (start > 0 && now() - began + slowest > matchBudgetMs) {
@@ -367,13 +376,18 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       }
       const batch = moves.slice(start, start + size);
       const sent = now();
-      let result = await callTool("move_notes", { moves: batch });
-      if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
-        const plan = await callTool("move_notes", { moves: batch, dry_run: true });
-        const etags = plannedEtags(plan);
-        result = plan?.isError === true
-          ? plan
-          : await callTool("move_notes", { moves: batch.map((move) => ({ ...move, expected_source_etag: etags.get(move.source) })) });
+      let result = null;
+      if (versions !== null && batch.some((move) => !versions.has(move.source))) {
+        const plan = await callTool("move_notes", { moves: moves.slice(start, start + PLAN_BATCH), dry_run: true });
+        if (plan?.isError === true) result = plan;
+        else for (const [source, etag] of plannedEtags(plan)) versions.set(source, etag);
+      }
+      result ??= await callTool("move_notes", {
+        moves: versions === null ? batch : batch.map((move) => ({ ...move, expected_source_etag: versions.get(move.source) })),
+      });
+      if (versions === null && result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
+        versions = new Map();
+        continue;
       }
       if (result?.isError === true && size > MATCH_BATCH_MIN && UNSTARTED.test(textOf(result))) {
         // Nothing in the batch moved: the same notes go again, half as many at a time, and so do the rest.
