@@ -192,6 +192,7 @@ module.exports = ({ config }) => {
       "expo-router",
       "@sentry/react-native/expo",
       "./plugins/with-context-widgets",
+      "./plugins/with-context-messages",
       [
         "expo-splash-screen",
         {

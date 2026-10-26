@@ -51,7 +51,12 @@
   },
   "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
   "vars": {
-    "GATEWAY_ORIGIN": "https://mcp.context.lc"
+    "GATEWAY_ORIGIN": "https://mcp.context.lc",
+    // A link to a note goes as a Context card when "on" (src/appCards.ts);
+    // the team id is the APPLE_TEAM_ID secret. Off until the Messages
+    // extension ships, so a tap opens the note.
+    "APP_CARDS": "off",
+    "APP_CARD_EXTENSION_ID": "lc.context.mobile.messages"
   },
   "triggers": { "crons": ["* * * * *"] },
   // Converts a texted iPhone photo (HEIC) to a JPEG the model can read
@@ -70,7 +75,9 @@
       "images": { "binding": "IMAGES" },
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
-        "SIMULATOR": "on"
+        "SIMULATOR": "on",
+        "APP_CARDS": "off",
+        "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
       }
     }
   }

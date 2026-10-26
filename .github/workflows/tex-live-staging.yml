@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "all runs every check; visuals runs only the visual-answer checks (a card for options and a plan, words for one fact)"
+        description: "all runs every check; visuals runs only the visual-answer checks (a card for options, a plan and the persona's week, words for one fact)"
         type: choice
         options:
           - all

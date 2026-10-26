@@ -9,6 +9,8 @@ const plist = require("@expo/plist").default;
 
 const HOST_BUNDLE_ID = "lc.context.mobile";
 const EXTENSION_BUNDLE_ID = `${HOST_BUNDLE_ID}.widgets`;
+// The Context card in Messages (apps/mobile/plugins/with-context-messages.js).
+const MESSAGES_BUNDLE_ID = `${HOST_BUNDLE_ID}.messages`;
 const APP_GROUP = `group.${HOST_BUNDLE_ID}`;
 
 function validateInfoPlistXml(xml) {
@@ -76,8 +78,22 @@ function validateIpa(path, options = {}) {
   ) {
     throw new Error("ContextWidgets extension version must exactly match its host app");
   }
+  validateMessagesExtension(path, entries, appRoot, host.info);
   if (options.verifySignatures !== false) verifySignedPayload(path, appRoot);
   return { version: host.version, audio: host.audio, extension: EXTENSION_BUNDLE_ID };
+}
+
+/** The iMessage extension: one, the right id and extension point, and its host's exact version (App Store Connect refuses drift). */
+function validateMessagesExtension(path, entries, appRoot, hostInfo) {
+  const plists = entries.filter((entry) => entry === `${appRoot}/PlugIns/ContextMessages.appex/Info.plist`);
+  if (plists.length !== 1) throw new Error("IPA must contain exactly one embedded ContextMessages.appex");
+  const extension = parsePlistXml(readPlistXml(path, plists[0]), "ContextMessages Info.plist is malformed");
+  if (extension.CFBundleIdentifier !== MESSAGES_BUNDLE_ID || extension.NSExtension?.NSExtensionPointIdentifier !== "com.apple.message-payload-provider") {
+    throw new Error("ContextMessages extension has the wrong bundle id or extension point");
+  }
+  if (extension.CFBundleVersion !== hostInfo.CFBundleVersion || extension.CFBundleShortVersionString !== hostInfo.CFBundleShortVersionString) {
+    throw new Error("ContextMessages extension version must exactly match its host app");
+  }
 }
 
 function readPlistXml(archivePath, entry) {

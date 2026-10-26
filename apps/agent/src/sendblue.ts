@@ -24,6 +24,8 @@ import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAt
 import { logShape, sendblueTapback } from "./sendblueTapbacks";
 
 /** The base address docs.sendblue.com names for every call. */
+import type { AppCard } from "./appCards";
+
 export const SENDBLUE_API = "https://api.sendblue.com";
 
 /** Tex's iMessage Name & Photo: the name and the card's photo (`apps/mobile/public/texts-card.png`), its address versioned so a new photo is fetched anew. */
@@ -188,6 +190,15 @@ export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatI
 /** Send one picture by its https address, which Sendblue fetches. */
 export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chatId: string, url: string, replyTo?: string): Promise<void> {
   await sendMessage(fetcher, keys, chatId, { media_url: url }, replyTo);
+}
+
+/**
+ * A card in place of a text (docs: App Cards, V2 lines on a paid plan,
+ * one-to-one chats): `appCards.ts` builds it. Refused with a 4xx where the
+ * line has none, which the caller answers with the plain text.
+ */
+export async function sendSendblueAppCard(fetcher: Fetch, keys: SendblueKeys, chatId: string, card: AppCard, replyTo?: string): Promise<string | undefined> {
+  return await sendMessage(fetcher, keys, chatId, { app_card: card }, replyTo);
 }
 
 /**

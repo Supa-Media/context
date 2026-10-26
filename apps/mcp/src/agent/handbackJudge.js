@@ -89,7 +89,7 @@ export function mayAsk(answer) {
 }
 
 /** One more round, worded for the code that was found. */
-const DO_IT = "Do it now with your tools, then answer with what you did or found. ";
+const DO_IT = "Do it now with your tools, then send your whole answer again with what you did or found added, never only the new part. ";
 export const CODE_NOTICES = {
   H1: "you ask them to send or give you something you can find yourself. Search their mail, notes and accounts for it, a different way each time. ",
   H2: "you send them to go and look somewhere. Look there yourself: their mail, Gmail on the web, or the site's account, billing or admin page in your browser with a saved login. ",
@@ -98,7 +98,7 @@ export const CODE_NOTICES = {
   H5: "you say you can't without having tried. Try it, then say what failed if it did. ",
   H6: "you ask them to check what you read. Look again yourself and say where you read it. ",
   H7: "you ask again after they said yes, or ask leave to fix your own mistake. Their yes stands: do it, or fix it, and say it's done. ",
-  H8: "you ask them to confirm something harmless that can be undone. Do it, and if it changed something, say how to undo it (a lookup changes nothing: never say there is nothing to undo). ",
+  H8: "you ask them to confirm something harmless that can be undone. Do it, and say how to undo it only if it changed something: a lookup changes nothing, so never mention undoing one. ",
   H9: "you ask for something you can find in their mail, notes, calendar or accounts. Find it. ",
   H10: "you give them a menu. Pick the best one with your reason, and offer at most one other. ",
   H11: "you ask them to report back when you can check yourself. Write a routine note under tex/routines/<schedule>/ to check it, and say you'll text when it's done. ",

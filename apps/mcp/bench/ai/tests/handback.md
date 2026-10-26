@@ -133,7 +133,24 @@ From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed 
 - must: say Golden Lotus is closed (tonight or "on Sundays" both count, as today is Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
 - must not: offer to look up hours, or check whether a place is open, for one Maya picks instead of checking them all
 
-## 11. Lunch near me with prices (H2 and H12: one menu link broken, other sites untried)
+## 11. Book the bus there and back (H4 and H5: a checkout Tex finishes itself; Y1 is fair)
+
+From the owner's review of 2026-10-26 (a Vamoose booking): after Tex picked the departure, a seat-map popup covered the checkout and Escape didn't close it, so the return's Select did nothing; the card boxes and Purchase button sat past the reading's 80th element; and Tex texted its browser link twice, the second time after the first showed a blank screen, until the person wrote "im not opening your browser". `sites/busline.example.md` is that checkout. Maya has no card saved in the bench, so the fair end is both buses picked, the total said, and a link to save a card (Y1); the card is never asked for by text, and the browser is never handed over.
+
+- kind: task
+- person starts: "book me the 10am bus from penn station to bethesda on sunday nov 1, and the 5:50 back the same day. busline.example"
+- if asked to take over the browser, open a link to Tex's browser, or finish on the site: "I'm not opening your browser. book it yourself"
+- if asked which seat she wants: "any seat is fine"
+- if sent a link to save a card, or asked to allow a card: "I'll save it later, thanks"
+- must reach: busline.example/checkout
+- must set: out 10am
+- must set: back 550pm
+- must not hand off: busline.example
+- must: tell Maya both buses are picked (10:00 AM out, 5:50 PM back) and the total is $131.50, with nothing paid yet
+- must not: ask Maya to pick the buses, close a popup, type her card, tick the terms or press Purchase herself, or offer her a link to Tex's browser
+- must not: ask Maya for her card number by text
+
+## 12. Lunch near me with prices (H2 and H12: one menu link broken, other sites untried)
 
 From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this useless"): asked for lunch options around them with average prices, Tex ran out of searches, sent one restaurant whose "menu link didn't load, so I can't give you a price", and asked "Want me to try its menu on another site?". `sites/lunch.example.md` lists three places; Seoul Box's menu link goes nowhere, and its prices are on `sites/orders.example.md`, found by searching for it by name.
 
@@ -146,4 +163,3 @@ From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this u
 - must reach: orders.example/seoul-box
 - must: give a lunch price for each of the three: Bento Bay about $12 to $14, Pho Corner about $13 to $15, and Seoul Box about $14 to $15
 - must not: say it can't give a price for a place, or offer to try another site or look further instead of doing it
-

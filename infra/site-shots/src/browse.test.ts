@@ -30,6 +30,16 @@ function fakePage(start = "https://shop.example.com/") {
     filledMarked: [] as string[],
     moveOnMark: null as string | null,
     markedSize: 9,
+    // ./popups.ts: whether a cover sits over an element, what a box holds after typing, and what a close finds.
+    covered: false,
+    domClicks: 0,
+    held: undefined as number | undefined,
+    setDirectly: [] as string[],
+    popup: false,
+    closeAnswer: "none",
+    hideAnswer: "none",
+    closeTried: [] as string[],
+    moveOnType: null as string | null,
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -50,6 +60,22 @@ function fakePage(start = "https://shop.example.com/") {
           ],
         } as T;
       }
+      if (source.includes("return !!layerAt(")) return state.popup as T;
+      if (source.includes("hit.contains(el)")) return state.covered as T;
+      if (source.includes("el.click();") && source.includes("el.focus()")) {
+        state.domClicks += 1;
+        return true as T;
+      }
+      if (source.includes("return typeof el.value === \"string\" ? el.value.length")) return state.held as T;
+      if (source.includes("const value = ") && source.includes("set.set.call(el, value)")) {
+        state.setDirectly.push(source);
+        return true as T;
+      }
+      if (source.includes('return "pressed";')) {
+        state.closeTried.push(source.includes("!true &&") ? "frame" : "page");
+        return state.closeAnswer as T;
+      }
+      if (source.includes('return hid > 0 ? "hid" : "none"')) return state.hideAnswer as T;
       if (source.includes("devicePixelRatio")) return { ratio: state.ratio, width: 640, height: 430 } as T;
       if (source.includes("location.hostname")) return { href: state.href, host: url().hostname, origin: url().origin } as T;
       const exists = source.match(/^!!document\.querySelector\('\[data-tex-ref="(\d+)"\]'\)$/);
@@ -115,6 +141,7 @@ function fakePage(start = "https://shop.example.com/") {
     async type(selector, text) {
       const ref = Number(selector.match(/\d+/)![0]);
       state.typed[ref] = (state.typed[ref] ?? "") + text;
+      if (state.moveOnType !== null) state.href = state.moveOnType;
     },
     async select() {
       return [];
@@ -351,6 +378,64 @@ describe("runSteps", () => {
     expect(parseBrowseRequest({ steps: [{ do: "click", x: -1, y: 40 }] })).toBeNull();
     expect(parseBrowseRequest({ steps: [{ do: "click", x: "10", y: 40 }] })).toBeNull();
     expect(parseBrowseRequest({ steps: [{ do: "click", x: 10 }] })).toBeNull();
+  });
+});
+
+describe("popups (./popups.ts)", () => {
+  it("reads close_popup, and a reading says when something covers the page", async () => {
+    expect(parseBrowseRequest({ steps: [{ do: "close_popup" }] })?.steps).toEqual([{ do: "close_popup" }]);
+    const { page, state } = fakePage();
+    expect((await runSteps(page, [{ do: "read" }])).page.popup).toBeUndefined();
+    state.popup = true;
+    expect((await runSteps(page, [{ do: "read" }])).page.popup).toBe(true);
+  });
+
+  it("presses an element a cover sits over from inside the page, and says so", async () => {
+    const { page, state } = fakePage();
+    const plain = await runSteps(page, [{ do: "click", ref: 3 }]);
+    expect(plain.ran[0]).toEqual({ do: "click", ok: true });
+    expect(state.clicks).toEqual([3]);
+    state.covered = true;
+    const covered = await runSteps(page, [{ do: "click", ref: 3 }]);
+    expect(state.clicks).toEqual([3]);
+    expect(state.domClicks).toBe(1);
+    expect(covered.ran[0].reason).toMatch(/covered it/);
+  });
+
+  it("puts typed words in directly only when the box ended up empty", async () => {
+    const { page, state } = fakePage();
+    state.held = 6;
+    const took = await runSteps(page, [{ do: "type", ref: 1, text: "Seyi O", enter: false, onlyOn: null }]);
+    expect(took.ran[0]).toEqual({ do: "type", ok: true });
+    expect(state.setDirectly).toEqual([]);
+    state.held = 0;
+    const lost = await runSteps(page, [{ do: "type", ref: 1, text: "Seyi O", enter: false, onlyOn: null }]);
+    expect(lost.ran[0].reason).toMatch(/put in directly/);
+    expect(state.setDirectly).toHaveLength(1);
+    // A value is never read back: only how long it is.
+    expect(JSON.stringify(lost.page)).not.toContain("Seyi O");
+  });
+
+  it("never puts a secret in directly on a page that moved while it was typed", async () => {
+    const { page, state } = fakePage();
+    state.held = 0;
+    const fill = { do: "fill" as const, ref: 2, value: "hunter2-secret", origin: "https://shop.example.com", field: "password" as const };
+    await runSteps(page, [fill]);
+    expect(state.setDirectly).toHaveLength(1);
+    state.moveOnType = "https://evil.example.net/";
+    await runSteps(page, [fill]);
+    expect(state.setDirectly).toHaveLength(1);
+  });
+
+  it("closes a popup by its own button first, and hides it only when it has none", async () => {
+    const { page, state } = fakePage();
+    state.closeAnswer = "pressed";
+    expect((await runSteps(page, [{ do: "close_popup" }])).ran[0]).toEqual({ do: "close_popup", ok: true, reason: "pressed its close button" });
+    state.closeAnswer = "none";
+    state.hideAnswer = "hid";
+    expect((await runSteps(page, [{ do: "close_popup" }])).ran[0].reason).toMatch(/hidden/);
+    state.hideAnswer = "none";
+    expect((await runSteps(page, [{ do: "close_popup" }])).ran[0].ok).toBe(false);
   });
 });
 

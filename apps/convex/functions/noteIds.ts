@@ -78,17 +78,16 @@ export const report = query({
 });
 
 /**
- * The switch as `/gateway/binding` carries it: `"keys"` once the layout row says
- * so (the only mode left, `notes-by-id.md`), else null. Read-only; the row is
- * retired. INTERNAL.
+ * The switch as `/gateway/binding` carries it: always `"keys"`, the only mode
+ * left (`notes-by-id.md`). It used to read the retired `noteIdLayout` row, which
+ * only a deployment that ran the migration from the console holds: staging and
+ * every new self-hosted deployment had none, so the gateway refused each of their
+ * workspaces as keyed with no id layer (2026-10-26). INTERNAL.
  */
 export const idLayout = internalQuery({
   args: {},
   returns: v.union(v.literal("keys"), v.null()),
-  handler: async (ctx) => {
-    const layout = await ctx.db.query("noteIdLayout").first();
-    return layout?.mode === "keys" ? "keys" : null;
-  },
+  handler: async () => "keys" as const,
 });
 
 /**

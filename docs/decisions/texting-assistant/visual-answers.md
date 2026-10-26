@@ -62,6 +62,18 @@ and they didn't ask for words only, it goes back once with the card notice.
 The model then draws and texts one line. Reverting this leaves the card to
 the model's choice, which in production meant no card.
 
+The owner then asked for the reasoning to live in the prompt, not only in a
+check for lists: the production setup (@context-lc
+`ai/production/texting-assistant.md`) now has an "Answer with a picture"
+section that sorts the cases by kind (their time, options, places, looks,
+tickets, work, money, how things fit) with the template for each, what stays
+words, and examples. The check is the floor under that section, so it was
+narrowed to match it: a list goes back only when they asked for something to
+look at (see, show, compare, options, plan, week…) or when at least half its
+lines carry a second signal (a day or time, a price or figure, an address or
+distance). A plain to-do list ("Book the van / Cancel the internet") stays
+words, as the section says.
+
 ### Option cards, sent as one swipeable set
 
 When each of 2 to 8 options needs its own photo and facts, Tex draws one
@@ -107,3 +119,43 @@ Drop the templates and the model writes free HTML again: slower, inconsistent,
 and an injection surface. Drop the one-line rule and the card arrives under a
 paragraph that says the same thing. Checks: `apps/mcp/test/agentVisuals.test.mjs`
 (sabotage record in its header).
+
+### Note links as Context cards (2026-10-26, built switched off)
+
+The owner asked for Sendblue App Cards next to the carousel and chose "static
+now, extension next". A text that is nothing but a link to a note
+(`https://context.lc/note/@slug/path.md`, the link the gateway adds to reads
+and writes) can go as a static card: the note's name, its workspace and
+folder, and the link as the card's URL (`apps/agent/src/appCards.ts`). A line
+that refuses the card (not V2, no plan, a group) gets the plain link, so a
+card is never the only way to the note.
+
+It ships with `APP_CARDS: "off"`. Sendblue's docs say a static card shows
+without the Messages extension, but not what a tap does without it, and a
+link that opens the note beats a card that might not. It goes on once the
+Context app's Messages extension (`lc.context.mobile.messages`) is in the App
+Store; the team id is the `APPLE_TEAM_ID` secret, synced to the Worker on
+deploy.
+
+The extension is `apps/mobile/targets/context-messages`, added by
+`plugins/with-context-messages.js` the way the widgets are: a Messages view
+controller that, when a Context card is tapped, opens the card's link if it is
+an https link on context.lc and nothing else. The IPA check
+(`scripts/validate-ios-ipa.cjs`) requires it embedded once, with its id,
+extension point and the host's exact version. It reaches people with the next
+native build and App Store release, which stay separate explicit actions.
+
+## A card rides along with any other notice (2026-10-26, afternoon)
+
+Dev2's lunch question ("show me some lunch options around me, average prices
+as well") still came back as words after the prompt section went live. The
+transcript showed why: the first answer was a priced list of five places, but
+another check sent it back first for its missing prices, the card notice never
+got a round, and the hand-back judge's H8 notice ("say how to undo it") then
+turned the reply into one place and "I didn't change anything, so there's
+nothing to undo". So when any other notice wins a round and the answer is a
+list a card should carry, the card ask is added to that notice (once a turn);
+every hand-back notice now says to send the whole answer again, not only the
+new part; H8 says a lookup needs no word about undoing; and a list of projects
+counts as something to look at (a board). Test:
+`apps/mcp/test/agentVisualNotice.test.mjs`.

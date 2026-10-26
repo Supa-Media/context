@@ -26,6 +26,7 @@ import { decisionEngine } from "./decide.js";
 import { resolveUpload } from "./uploads.js";
 import { keepDownload } from "./downloads.js";
 import { markUntrusted } from "../privacy/egress.js";
+import { handoffRefusedIn } from "./browse.js";
 
 /** How many of their earlier texts vouch for what the browser may type and open. */
 export const EARLIER_TEXTS_VOUCHED = 20;
@@ -87,8 +88,9 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           search,
           addresses: vouched,
           opened: pagesOpenedBefore(history),
-          // A browser handed to the person is texted the moment it exists.
+          // A browser handed to the person is texted the moment it exists, unless their texts said no to it.
           say: channel !== null ? (text) => channel.say(text) : null,
+          handoffRefused: handoffRefusedIn(`${theirEarlierWords(history)}\n\n${question ?? ""}`),
           // The vault this turn's grant opens, for `fill_login`: a group chat's is its
           // shared workspace's, narrowed to what the whole workspace was given.
           store,

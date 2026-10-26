@@ -144,7 +144,7 @@ export async function createPending(
     // is armed for a yes only when `armed` (`armForText`).
     texting: texting === true && armed === true,
     ...(texting === true ? { asked_by_text: true } : {}),
-    ...(texting === true && armed === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
+    ...(texting === true && armed === true ? { texting_until: now + TEXTING_TTL_MS, armed_at: now } : {}),
     // An ask that is not a held call (`vault/asks.js`): settled by its own
     // grant, never replayed.
     ...(typeof kind === "string" ? { kind } : {}),
@@ -185,7 +185,8 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
   if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now)) return record;
   // A card's payment ask keeps its own ten minutes: a texted yes never reaches an older one (`vault/pay.js`).
   const short = record.kind === "vault_pay";
-  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS };
+  // When it was armed: a text Tex sends by itself after this is what a bare yes answers (`agent/askOvertaken.js`).
+  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS, armed_at: now };
   armed.expires_at = Math.max(record.expires_at ?? 0, armed.texting_until);
   await store.put(key, JSON.stringify(armed));
   return armed;

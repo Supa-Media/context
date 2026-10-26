@@ -94,10 +94,11 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
 });
 
-test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
+test('the pinned homepage seed holds no privacy manifest: access lives on the rows', async () => {
   const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
   assert.equal(stagingContextLcNotes['privacy.md'], undefined);
-  assert.match(read('scripts/staging-personas.mjs'), /functions\/files:resetPrivacy/);
+  // `files:resetPrivacy` is gone with privacy.md; a seed that still called it stopped the run.
+  assert.doesNotMatch(read('scripts/staging-personas.mjs'), /resetPrivacy|privacy\.md/);
 });
 
 test('Google push settings sync in both deployments', () => {

@@ -172,6 +172,5 @@ test("a notice's round is told its answer replaces the last one, and H8 never as
   const sent = JSON.stringify(ai.calls[1]);
   assert.ok(sent.includes(JSON.stringify(RECHECK_REPLACES).slice(1, -1)), "the notice says the next answer must stand on its own");
   assert.match(RECHECK_REPLACES, /keep every option, figure and link/);
-  assert.match(noticeFor("H8"), /if it changed something, say how to undo it/);
-  assert.match(noticeFor("H8"), /never say there is nothing to undo/);
+  assert.match(noticeFor("H8"), /say how to undo it only if it changed something/);
 });

@@ -32,6 +32,7 @@ import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } fr
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
 import { MAX_SCANNED, snapshot } from "./reading";
 import { isCheckoutPaymentFrame } from "./paymentFrames";
+import { COVERED_PRESS, SET_DIRECTLY, closePopup, coveredSource, domClickSource, typedOrSet } from "./popups";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 
 /*
@@ -57,6 +58,8 @@ export type Step =
   | { do: "click"; text: string }
   | { do: "click"; x: number; y: number }
   | { do: "look" }
+  /** Close what is drawn over the page: its close or skip, else hide it (./popups.ts). */
+  | { do: "close_popup" }
   | { do: "type"; ref: number; text: string; enter: boolean; onlyOn: string[] | null }
   | { do: "fill"; ref: number; value: string; origin: string; field: FillField }
   | { do: "select"; ref: number; option: string }
@@ -91,6 +94,8 @@ export interface Reading {
   elements: Element[];
   /** How many boxes on the page take a file, hidden ones included: an upload step fills one. */
   uploads?: number;
+  /** Something like a popup covers the page (./popups.ts). */
+  popup?: boolean;
   /** After a `look`: what the page shows, a JPEG, and its size in its own pixels, the space a click's x and y are in. */
   shot?: { data: string; width: number; height: number };
 }
@@ -214,6 +219,8 @@ function parseStep(item: unknown): Step | null {
       return { do: "read" };
     case "look":
       return { do: "look" };
+    case "close_popup":
+      return { do: "close_popup" };
     case "upload": {
       const file = s.file as Record<string, unknown> | undefined;
       if (!file || typeof file !== "object") return null;
@@ -406,7 +413,6 @@ async function clear(page: Doc, ref: number): Promise<void> {
   })()`);
 }
 
-
 async function where(page: Pick<Doc, "evaluate">): Promise<{ href: string; host: string; origin: string }> {
   return await page.evaluate(`({ href: location.href, host: location.hostname, origin: location.origin })`);
 }
@@ -518,6 +524,8 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
     case "read":
     case "look":
       return ok;
+    case "close_popup":
+      return await closePopup(page, () => settle(page));
     case "back":
       await page.goBack({ timeout: BROWSE_GOTO_TIMEOUT_MS });
       await settle(page);
@@ -543,24 +551,32 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
     case "click": {
       let press: () => Promise<void>;
       let doc: Doc = page;
+      let covered = false;
       if ("x" in step) {
         // A point on the last look's picture: what a person would tap, whatever the page says it is.
         const { ratio } = await pixelRatio(page);
         press = () => page.mouse.click(step.x / ratio, step.y / ratio);
-      } else if ("text" in step) {
-        const marked = await docMarking(page, wordsSource(step.text));
-        if (marked === null) return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
-        doc = marked;
-        press = () => marked.click(BY_WORDS);
       } else {
-        const found = await docOf(page, step.ref);
-        if (found === null) return missing;
-        doc = found;
-        const ref = step.ref;
-        press = () => found.click(selector(ref));
+        let target: string;
+        if ("text" in step) {
+          const marked = await docMarking(page, wordsSource(step.text));
+          if (marked === null) return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
+          doc = marked;
+          target = BY_WORDS;
+        } else {
+          const found = await docOf(page, step.ref);
+          if (found === null) return missing;
+          doc = found;
+          target = selector(step.ref);
+        }
+        const on = doc;
+        // A popup's cover over it would take a press at its point, so it is pressed from inside the page instead (./popups.ts).
+        covered = (await on.evaluate<boolean>(coveredSource(target)).catch(() => false)) === true;
+        press = covered ? async () => void (await on.evaluate(domClickSource(target))) : () => on.click(target);
       }
       const got = await pressWithPicker(page, press, null, doc);
-      return got === "asked" ? { do: "click", ok: true, reason: ASKS_FOR_FILE } : ok;
+      if (got === "asked") return { do: "click", ok: true, reason: ASKS_FOR_FILE };
+      return covered ? { do: "click", ok: true, reason: COVERED_PRESS } : ok;
     }
     case "select": {
       const doc = await docOf(page, step.ref);
@@ -584,11 +600,13 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       }
       await clear(doc, step.ref);
       await doc.type(selector(step.ref), step.text);
+      // Words put in directly are checked against the named sites again: the page may have moved while the keys went in.
+      const direct = (step.onlyOn === null || onSite((await where(doc)).host, step.onlyOn)) && (await typedOrSet(doc, selector(step.ref), step.text));
       if (step.enter) {
         await page.keyboard.press("Enter");
         await settle(page);
       }
-      return ok;
+      return direct ? { do: "type", ok: true, reason: SET_DIRECTLY } : ok;
     }
     case "upload": {
       const doc = step.ref === null ? page : await docOf(page, step.ref);
@@ -662,8 +680,11 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
         if (!(await doc.evaluate<boolean>(pickExpirySource(step.ref, step.value)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
         return ok;
       }
+      const at = (await where(doc)).origin;
       await clear(doc, step.ref);
       await doc.type(selector(step.ref), step.value);
+      // A secret is put in directly only where it was just checked to belong: a page that moved meanwhile gets nothing more.
+      if ((await where(doc).catch(() => null))?.origin === at) await typedOrSet(doc, selector(step.ref), step.value);
       return ok;
     }
   }

@@ -6,7 +6,7 @@ search: seoul, order, orders, delivery
 # orders.example
 
 An invented ordering site, for the hand-back bench (`tests/handback.md` case
-11): the one place Seoul Box's lunch prices are published.
+12): the one place Seoul Box's lunch prices are published.
 
 ## https://orders.example/seoul-box
 title: Seoul Box, Riverside | Order online
