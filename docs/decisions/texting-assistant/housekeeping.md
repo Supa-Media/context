@@ -73,6 +73,24 @@ found no model included, and the daily sweep restarts a row that stopped. It
 texts nobody: what it did is in its log, and `line` is kept for
 the check-in to mention if the person asks for that.
 
+**Many notes move by their names (2026-10-26).** A crowded folder of several
+hundred dated notes is the commonest chaos, and a run that wrote its moves out
+one by one spent its whole clock on one batch: @seyi's run wrote 100 moves,
+sent them as a dry run (an applied keyed batch needs each note's version), and
+the dry run read every note's body in turn and was cut off at 60 s. So
+housekeeping's `move_notes` also takes `{ folder, match, into }`: the gateway
+lists the folder, moves every note directly in it whose name matches, 100 a
+batch, each batch through the same guard, planning a batch for its versions
+only where the store asks for them. A keyed workspace's dry run now plans from
+each row's version without reading bodies, and a keyed batch looks its notes
+up ten at a time. The log states, from what the gateway saw rather than from
+the model, how many dry runs it made and whether a change was still running
+when the run ended, because that run's own account called a timed-out move a
+dry run. Tests: `apps/mcp/test/housekeepingByName.test.mjs`. To check a fix on
+a real run without waiting for 9am, the manual "Tex housekeeping now" workflow
+brings one person's next run forward (`runHousekeepingNow`); the next Cron tick
+claims it like any due run.
+
 **Measured.** `apps/mcp/bench/ai/tests/housekeeping.md` (`mode: housekeeping`)
 (AI Benchmark, job `housekeeping`, with the live setup note) runs it on
 Tomas's deliberately messy workspace and grades where each note

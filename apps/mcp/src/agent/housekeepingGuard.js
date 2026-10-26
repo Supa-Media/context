@@ -26,6 +26,11 @@
  *     that workspace, so one would carry a change out of this one.
  *   - No cap on how much one run changes (owner, 2026-10-17: "remove
  *     limit"): every change is still one of the above, logged with its undo.
+ *   - Many notes move by their names (`move_notes { folder, match, into }`):
+ *     the run names a pattern and the gateway lists and moves the notes, a
+ *     hundred a batch, each batch through every check above. Writing out
+ *     ~360 moves by hand spent a run's whole budget on one timed-out call
+ *     (@seyi, 2026-10-26).
  */
 
 import { mightWiden } from "../privacy/egress.js";
@@ -52,6 +57,7 @@ const ALLOWED_ARGS = {
   write_note: new Set(["path", "content", "expected_etag"]),
   move_note: new Set(["source", "destination", "expected_source_etag"]),
   move_notes: new Set(["moves", "dry_run"]),
+  matching: new Set(["folder", "match", "into", "dry_run"]),
   move_folder: new Set(["source", "destination", "dry_run"]),
   archive_note: new Set(["path", "expected_etag"]),
 };
@@ -143,6 +149,41 @@ function archivedTo(result) {
   return match ? match[1] : null;
 }
 
+/** A batch move's own cap (`moves/limits.js`): a matched move goes in batches this size. */
+const MATCH_BATCH = 100;
+
+/** A name pattern (`*` any run, `?` one character) as a whole-name test, or null for none. */
+export function namePattern(match) {
+  const text = String(match ?? "").trim();
+  if (text === "" || text.includes("/")) return null;
+  const body = text.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${body}$`, "i");
+}
+
+/** The notes directly in `folder` whose names match, each with where it lands in `into`. */
+async function matchedMoves(dispatch, folder, pattern, into) {
+  const listed = await dispatch("list_notes", { prefix: `${folder}/` });
+  if (listed?.isError === true) return [];
+  const moves = [];
+  for (const line of textOf(listed).split("\n")) {
+    const found = /^(.+?) \(\d[\d,]* bytes\)\s*$/.exec(line.trim());
+    if (!found) continue;
+    const path = plain(found[1]);
+    const cut = path.lastIndexOf("/");
+    const name = path.slice(cut + 1);
+    if (path.slice(0, cut) !== folder || name === "about.md" || !pattern.test(name)) continue;
+    moves.push({ source: path, destination: `${into}/${name}` });
+  }
+  return moves;
+}
+
+/** The etags a dry run's plan names, by source (`- a.md (etag X) → b.md`). */
+function plannedEtags(result) {
+  const etags = new Map();
+  for (const found of textOf(result).matchAll(/^- (.+?) \(etag (\S+)\) → /gm)) etags.set(found[1], found[2]);
+  return etags;
+}
+
 /**
  * A housekeeping run's dispatcher over the session's own `dispatch`.
  *
@@ -151,7 +192,8 @@ function archivedTo(result) {
  * @returns {{ callTool: (name: string, args: object) => Promise<object>, changes: object[], refusals: number }}
  */
 export function housekeepingCallTool(dispatch, runFolders = []) {
-  const ledger = { changes: [], refusals: 0 };
+  // Dry runs and changes still running are the gateway's to report, never the model's to guess.
+  const ledger = { changes: [], refusals: 0, dryRuns: 0, running: 0 };
   const refuse = (text) => {
     ledger.refusals += 1;
     return refused(text);
@@ -165,6 +207,7 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
     if (HOUSEKEEPING_READS.has(name)) return await dispatch(name, given);
     if (!HOUSEKEEPING_CHANGES.has(name)) return refuse(`Housekeeping can't use ${name}: it only moves, archives and tidies notes.`);
 
+    if (name === "move_notes" && given.match !== undefined) return await moveMatching(given);
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS[name].has(key));
     if (extra.length > 0) return refuse(`Housekeeping can't set ${extra.join(", ")}.`);
     if (mightWiden(name, given)) return refuse("Housekeeping never lets more people see something.");
@@ -205,7 +248,14 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
       }
     }
 
-    const result = await dispatch(name, given);
+    if (dryRun) ledger.dryRuns += 1;
+    else ledger.running += 1;
+    let result;
+    try {
+      result = await dispatch(name, given);
+    } finally {
+      if (!dryRun) ledger.running -= 1;
+    }
     if (!dryRun && result?.isError !== true) {
       for (const change of changesOf(name, given)) {
         if (change.do === "archived") {
@@ -219,6 +269,50 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
     return result;
   }
 
+  /**
+   * `move_notes { folder, match, into }`: every note directly in `folder`
+   * whose name matches, moved into `into` keeping its name, in batches that
+   * each pass `callTool` as a written-out batch would. An applied batch with
+   * no versions (a workspace that is not keyed asks for them) is planned
+   * first and sent again with the versions its plan names.
+   */
+  async function moveMatching(given) {
+    const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS.matching.has(key));
+    if (extra.length > 0) return refuse(`Moving by name takes folder, match, into and dry_run, not ${extra.join(", ")}.`);
+    const folder = plain(given.folder).replace(/\/+$/, "");
+    const into = plain(given.into).replace(/\/+$/, "");
+    const pattern = namePattern(given.match);
+    if (folder === "" || into === "" || pattern === null) {
+      return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
+    }
+    if (into === folder) return refuse("into must be a different folder from folder.");
+    const moves = await matchedMoves(dispatch, folder, pattern, into);
+    if (moves.length === 0) return refused(`No note directly in ${folder}/ has a name matching ${given.match}. Nothing moved.`);
+    if (given.dry_run === true) {
+      const shown = moves.slice(0, 10).map((move) => `- ${move.source}`);
+      const more = moves.length > shown.length ? [`- and ${moves.length - shown.length} more`] : [];
+      return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match and would go into ${into}/\n${[...shown, ...more].join("\n")}` }] };
+    }
+    let moved = 0;
+    for (let start = 0; start < moves.length; start += MATCH_BATCH) {
+      const batch = moves.slice(start, start + MATCH_BATCH);
+      let result = await callTool("move_notes", { moves: batch });
+      if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
+        const plan = await callTool("move_notes", { moves: batch, dry_run: true });
+        const etags = plannedEtags(plan);
+        result = plan?.isError === true
+          ? plan
+          : await callTool("move_notes", { moves: batch.map((move) => ({ ...move, expected_source_etag: etags.get(move.source) })) });
+      }
+      if (result?.isError === true) {
+        const said = textOf(result).split("\n")[0];
+        return { isError: true, content: [{ type: "text", text: `moved ${moved} of ${moves.length} notes into ${into}/, then stopped: ${said}` }] };
+      }
+      moved += batch.length;
+    }
+    return { content: [{ type: "text", text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}); links follow them` }] };
+  }
+
   return {
     callTool,
     get changes() {
@@ -227,12 +321,44 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
     get refusals() {
       return ledger.refusals;
     },
+    /** Dry runs made: each moves nothing. */
+    get dryRuns() {
+      return ledger.dryRuns;
+    },
+    /** Changes sent and not yet answered: past their limit, they may still land. */
+    get running() {
+      return ledger.running;
+    },
   };
 }
 
 /** The tools a run is offered: the session's own definitions of the ones it may call. */
 export function housekeepingTools(offered) {
-  return offered.filter((tool) => HOUSEKEEPING_READS.has(tool.name) || HOUSEKEEPING_CHANGES.has(tool.name));
+  return offered
+    .filter((tool) => HOUSEKEEPING_READS.has(tool.name) || HOUSEKEEPING_CHANGES.has(tool.name))
+    .map((tool) => (tool.name === "move_notes" ? byName(tool) : tool));
+}
+
+/** `move_notes` as a run sees it: a batch written out, or every note in a folder whose name matches. */
+function byName(tool) {
+  const schema = tool.inputSchema ?? {};
+  return {
+    ...tool,
+    description:
+      `${tool.description ?? ""} Or move many notes by name: folder (where they are), match (a name pattern, * for any run of ` +
+      "characters, like security-review-log-coverage-*) and into (the folder they go to, made if it is new); every note " +
+      "directly in folder whose name matches moves, however many.",
+    inputSchema: {
+      ...schema,
+      properties: {
+        ...(schema.properties ?? {}),
+        folder: { type: "string", description: "With match: the folder the notes are in." },
+        match: { type: "string", description: "A name pattern; * matches any run of characters, ? one." },
+        into: { type: "string", description: "With match: the folder they move into." },
+      },
+      required: [],
+    },
+  };
 }
 
 /** The line that puts one change back, for the log. */

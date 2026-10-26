@@ -16,6 +16,7 @@ import { applyTexJobGrant, endTexJobGrant, ensureTexJobClient, texJobWorkspace, 
 import { personalWorkspaceOf } from "../../textLinks";
 import { accountTimeZone } from "../routines/access";
 import { effectiveTimeZone } from "../routines/model";
+import { validateName } from "../names";
 import {
   HOUSEKEEPING_CLIENT_ID,
   HOUSEKEEPING_CLIENT_NAME,
@@ -151,4 +152,41 @@ export async function armLinkedHousekeepingHandler(ctx: MutationCtx): Promise<nu
     armed += 1;
   }
   return armed;
+}
+
+/** What `runHousekeepingNowHandler` did, as a code: the workflow prints it, and nothing else. */
+export type HousekeepingNow = "due" | "running" | "not_armed" | "unknown_name";
+
+/**
+ * Bring one person's next run forward to now, by their handle or their
+ * personal workspace's slug, for the manual "Tex housekeeping now" workflow:
+ * a fix to housekeeping is verified on a real run without waiting for 9am
+ * (2026-10-26). The next Cron tick claims it as it claims any due run, every
+ * check asked again there. A run already handed out is left to finish.
+ */
+export async function runHousekeepingNowHandler(ctx: MutationCtx, args: { name: string }): Promise<HousekeepingNow> {
+  const valid = validateName(args.name.replace(/^@/, ""));
+  if (!valid.ok) return "unknown_name";
+  const claim = await ctx.db
+    .query("names")
+    .withIndex("by_name", (q) => q.eq("name", valid.normalized))
+    .unique();
+  let userId: Id<"users"> | null = claim?.kind === "user" ? (claim.userId ?? null) : null;
+  if (claim?.kind === "workspace" && claim.workspaceId !== undefined) {
+    const members = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", claim.workspaceId!))
+      .take(50);
+    userId = members.find((member) => member.role === "owner")?.userId ?? null;
+  }
+  if (userId === null) return "unknown_name";
+  const row = await ctx.db
+    .query("texHousekeeping")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (row === null) return "not_armed";
+  const now = Date.now();
+  if (leaseIsLive(row, now)) return "running";
+  await ctx.db.patch(row._id, { nextRunAt: now, updatedAt: now });
+  return "due";
 }

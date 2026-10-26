@@ -29,7 +29,7 @@ import { test } from "node:test";
 import { MAX_JOB_ATTEMPTS, jobOf, jobPrompt } from "../src/agent/background.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { mayAsk } from "../src/agent/handbackJudge.js";
-import { finishNotice, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
+import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
 
 const DINNER_JOB =
   "I wrote up three options in the chat's notes. The three mains come to about $1 to $2 per person, but the sides, dessert and drinks are not priced yet, so the full $10 isn't confirmed.\n\n" +
@@ -121,4 +121,38 @@ test("an offer to keep looking is judged, with or without a question mark", () =
   assert.ok(mayAsk("I can write these up in the chat's notes if you want."));
   assert.ok(mayAsk("Next step is pricing the sides."));
   assert.ok(finishNotice({ job: false }).length > 0);
+});
+
+test("asked for options with the brief open, the first reply is the one question, and options come with their links", async () => {
+  const { RESEARCH_LINE } = await import("../src/agent/prompt.js");
+  // gh-94 and gh-95, 2026-10-26: "I'd cook it", from her notes, before asking.
+  assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
+  // The owner's bar the same day: each caterer named with its menu link.
+  assert.match(RESEARCH_LINE, /each place with its page link/);
+  // gh-100: told her to confirm the prices, and asked which Riverside when the directory said.
+  assert.match(RESEARCH_LINE, /don't ask what those pages settle .* or tell them to confirm the figures/);
+});
+
+// Sabotage record (2026-10-26): `picksBeforeAsking` always false → this test fails.
+test("a pick made before the one question that changes the search goes back once, in a chat turn only", () => {
+  const cooked =
+    "I'd cook it. $10 a head is tight for catering 30 people every week. Three from your weeknight list: Lentil soup, chicken thighs, pasta. " +
+    "If you'd rather have it catered, tell me which town and I'll find three places.";
+  const asked = "help me find 3 options for a dinner every wednesday, about $10 a person, around 30 people";
+  assert.ok(picksBeforeAsking(cooked, asked));
+  assert.ok(picksBeforeAsking("That's if you're cooking it yourselves. If you'd rather order in, tell me the town and I'll find places.", asked));
+  assert.ok(picksBeforeAsking("I'd cook it yourselves. $300 a week easily covers big trays. If you'd rather have it catered, which town is it in?", asked));
+  // gh-98: the aside with no question mark and no "tell me".
+  assert.ok(picksBeforeAsking("I'd cook it: three trays from your list. Catering's the other option if you'd rather not cook.", asked));
+  // gh-100: "the other option" with no "if you'd rather".
+  assert.ok(picksBeforeAsking("I'd cook it yourselves. Catering is the other option, if nobody wants to cook every week. Which way do you want to go?", asked));
+  for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
+    assert.equal(picksBeforeAsking(fine, asked), false, fine);
+  }
+  // Not asked for options, so an "if you'd rather" is just a reply.
+  assert.equal(picksBeforeAsking(cooked, "what should I make for dinner tonight?"), false);
+  const chat = claimCheck({ question: "3 dinner options for 30" });
+  assert.equal(chat.check(cooked), ASK_FIRST_NOTICE);
+  assert.equal(chat.check(cooked), null, "only once a turn");
+  assert.equal(claimCheck({ question: "x", job: { attempt: 1 } }).check(cooked), null, "a job never stops to ask");
 });

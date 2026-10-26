@@ -7,13 +7,14 @@ search: catering, caterer, caterers, catered, cater
 
 An invented catering directory, for the hand-back bench (`tests/handback.md`
 case 9). Each caterer's page prices its trays per person and its sides and
-drinks per person separately, so the full cost per person is a sum Tex has to
+drinks per person separately, and Nonna's Trays prices whole trays that serve
+ten, as real caterers do, so the full cost per person is a sum Tex has to
 make, never one figure it can copy. Its search result line names only the
 directory, so the prices are only found by opening the pages.
 
 ## https://caterers.example/
 title: Neighborhood Catering Directory
-text: Drop-off catering for groups of 20 to 60, delivered on weeknights.
+text: Drop-off catering for groups of 20 to 60, delivered on weeknights across Riverside and the towns around it. Every caterer listed here delivers to Riverside.
 - link: Lucky Wok Catering -> https://caterers.example/lucky-wok
 - link: Taqueria Rosa -> https://caterers.example/taqueria-rosa
 - link: Nonna's Trays -> https://caterers.example/nonnas-trays
@@ -38,10 +39,10 @@ text: Delivery is free within 5 miles.
 ## https://caterers.example/nonnas-trays
 title: Nonna's Trays | Neighborhood Catering Directory
 text: Nonna's Trays. Family-style Italian, drop-off for 10 or more.
-text: Baked ziti and chicken parm trays: $6.50 a person.
-text: Sides: Caesar salad and garlic bread, $2.00 a person.
-text: Drinks: lemonade or iced tea, $1.00 a person.
-text: Dessert: cannoli, $2.50 a person (optional).
+text: Baked ziti and chicken parm: half tray (serves 10) $65.
+text: Sides: Caesar salad and garlic bread, half tray (serves 10) $20.
+text: Drinks: lemonade or iced tea, gallon (serves 10) $10.
+text: Dessert: cannoli, dozen $30 (optional).
 text: Delivery is free on weeknights.
 
 ## https://caterers.example/big-smoke

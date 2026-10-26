@@ -18,7 +18,7 @@
 
 import { withActivityHint } from "../../live/activityHint.js";
 import { recordChange } from "../../activity/record.js";
-import { canSee, hasOverride, visibilityOf } from "../../privacy/engine.js";
+import { canSee, effectiveVisibility, hasOverride, narrowerVisibility, visibilityOf } from "../../privacy/engine.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { announceMoves } from "../../moves/keyedCollaboration.js";
@@ -112,24 +112,75 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
  * see is "not found" whatever it aimed at. A refusal names nothing the caller
  * cannot see, and the control plane writes every row or none.
  */
-export async function startKeyedBatchMove(store, scope, rules, overrides, moves) {
-  if (typeof store.startMoveBatch !== "function") {
-    return toolError("moving several notes in one call is not available in this workspace yet; move them one at a time");
+/**
+ * Each move's lookups run this many at a time. A hundred one after another
+ * (a tree lookup and a storage probe each) took most of a minute, and a
+ * housekeeping run's batch of 100 was cut off at its limit (2026-10-26).
+ */
+const CHECK_LANES = 10;
+
+/** `work` over every item, `CHECK_LANES` at a time, answers in the items' order. */
+async function inLanes(items, work) {
+  const answers = [];
+  for (let start = 0; start < items.length; start += CHECK_LANES) {
+    answers.push(...(await Promise.all(items.slice(start, start + CHECK_LANES).map(work))));
   }
-  for (const move of moves) {
-    const seen = canSee(move.source, scope, rules, overrides);
-    const present = await probeWithLegacyFallback(store, move.source);
-    if (!seen || !present) return toolError(`not found: ${move.source}`);
+  return answers;
+}
+
+/**
+ * The checks `toolMoveNote` makes for one note, made for each move of a keyed
+ * batch: a source the caller may not see is "not found" whatever it aimed at.
+ * The first refusal in the batch's order, or null.
+ */
+async function keyedBatchRefusal(store, scope, rules, overrides, moves) {
+  const present = await inLanes(moves, (move) => probeWithLegacyFallback(store, move.source));
+  for (const [index, move] of moves.entries()) {
+    if (!canSee(move.source, scope, rules, overrides) || !present[index]) return toolError(`not found: ${move.source}`);
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
     if (scope === "team" && hasOverride(overrides, move.destination)) return writePermissionError("move destination");
   }
+  return null;
+}
+
+/**
+ * A keyed batch's dry run: the same checks, each source's stored version (what
+ * the control plane compares the move against) and a destination already
+ * taken, in the old preflight's words. Nothing here reads a note's body or its
+ * editing history, so a dry run of 100 costs what the move itself does, where
+ * the old preflight read every body and timed out (2026-10-26).
+ */
+export async function planKeyedBatchMove(store, scope, rules, overrides, moves) {
+  const refusal = await keyedBatchRefusal(store, scope, rules, overrides, moves);
+  if (refusal) return refusal;
+  const looked = await inLanes(moves, async (move) => ({
+    head: await store.head(move.source),
+    taken: await probeWithLegacyFallback(store, move.destination),
+  }));
+  const lines = [];
+  for (const [index, move] of moves.entries()) {
+    const { head, taken } = looked[index];
+    if (typeof head?.etag !== "string" || head.etag === "") return toolError(`not found: ${move.source}`);
+    if (taken) return toolError(`conflict: destination already exists: ${move.destination}`);
+    const visibility = narrowerVisibility(effectiveVisibility(move.source, rules, overrides), visibilityOf(move.destination, rules));
+    lines.push(`- ${move.source} (etag ${head.etag}) → ${move.destination} [${visibility}]`);
+  }
+  return toolText(`preflight ok: ${moves.length} moves\n${lines.join("\n")}`);
+}
+
+export async function startKeyedBatchMove(store, scope, rules, overrides, moves) {
+  if (typeof store.startMoveBatch !== "function") {
+    return toolError("moving several notes in one call is not available in this workspace yet; move them one at a time");
+  }
+  const refusal = await keyedBatchRefusal(store, scope, rules, overrides, moves);
+  if (refusal) return refusal;
   const versions = [];
-  for (const move of moves) {
-    const version = await rowVersionOf(store, move.source, move.expectedSourceEtag || undefined);
-    if (version.conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
-    versions.push(version.etag);
+  const checked = await inLanes(moves, (move) => rowVersionOf(store, move.source, move.expectedSourceEtag || undefined));
+  for (const [index, move] of moves.entries()) {
+    if (checked[index].conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
+    versions.push(checked[index].etag);
   }
   let answer;
   try {

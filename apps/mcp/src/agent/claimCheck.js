@@ -48,7 +48,7 @@
 
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
-import { finishNotice, stopsShort, unfinishedJob } from "./stopsShort.js";
+import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -413,6 +413,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   let laterNoticed = false;
   // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
   let shortNoticed = false;
+  let askFirstNoticed = false;
   let keptPromise = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
@@ -485,6 +486,10 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       if (!shortNoticed && stopsShort(answer)) {
         shortNoticed = true;
         return finishNotice({ job: job !== null });
+      }
+      if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
+        askFirstNoticed = true;
+        return ASK_FIRST_NOTICE;
       }
       if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
         captchaNoticed = true;

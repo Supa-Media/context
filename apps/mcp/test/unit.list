@@ -225,3 +225,4 @@ test/agentRoutineWhen.test.mjs
 test/keyedCollabRename.test.mjs
 test/agentStopsShort.test.mjs
 test/relatedNotes.test.mjs
+test/housekeepingByName.test.mjs
