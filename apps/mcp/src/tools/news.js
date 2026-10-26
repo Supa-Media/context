@@ -40,6 +40,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-26",
+    newTool: true,
+    text:
+      "fetch a note with `{ related: true }` (and `limit`, 1 to 25) for the notes around it, each with why: the notes it links to " +
+      "(linked_from_here), the notes linking to it (links_here), and notes whose text is like its title and headings (related_text). " +
+      "related_notes `{ path, limit }` is the same by name.",
+  },
+  {
     date: "2026-10-24",
     text:
       "read_file and read_email (with `attachment`) take `from`: the character a long file's next part starts at, which each part names under `more:`. " +
@@ -322,7 +330,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "ac0df738";
+export const TOOL_SHAPE = "d2af3e4a";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

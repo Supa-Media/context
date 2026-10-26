@@ -82,7 +82,7 @@ export function coreToolDefinitions() {
           },
           args: {
             type: "object",
-            description: "Optional. e.g. mail, transcript, image, lists, limit. orient lists what each id takes.",
+            description: "Optional. e.g. mail, transcript, image, lists, related (with limit: the notes linked to, from and like this one), limit. orient lists what each id takes.",
           },
         },
         required: ["id"],

@@ -44,6 +44,7 @@ import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
 import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolProposeNote, toolReviewProposal } from "./proposalActions.js";
 import { toolReadActivity } from "../activity/readActivity.js";
@@ -189,6 +190,8 @@ async function runTool(name, args, store, scope) {
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
       return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
+    case "related_notes":
+      return toolRelatedNotes(store, scope, rules, overrides, args);
     case "archive_note":
       return toolArchiveNote(store, scope, rules, overrides, args.path, args.expected_etag);
     case "move_note":

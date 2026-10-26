@@ -191,6 +191,15 @@ describe("translateFetch: note paths", () => {
     );
   });
 
+  it("lists a note's related notes when related is true, with its limit", () => {
+    assert.deepEqual(translateFetch({ id: "1-projects/a.md", args: { related: true, limit: 5 } }, CLAUDE), {
+      name: "related_notes",
+      arguments: { path: "1-projects/a.md", limit: 5 },
+      action: "related",
+    });
+    assert.match(translateFetch({ id: "1-projects/a.md", args: { related: true, depth: 2 } }, CLAUDE).error, /takes args: limit/);
+  });
+
   it("evaluates a note's lists when lists is true", () => {
     assert.deepEqual(translateFetch({ id: "1-projects/a.md", args: { lists: true } }, CLAUDE), {
       name: "evaluate_lists",
