@@ -91,6 +91,14 @@ a real run without waiting for 9am, the manual "Tex housekeeping now" workflow
 brings one person's next run forward (`runHousekeepingNow`); the next Cron tick
 claims it like any due run.
 
+The first bench run over a crowded folder (240 run logs) showed two more ways
+a run stalled: the model wanted a quarter (three months) and `*` cannot say
+it, and it named its new subfolder bare (`into: "2026-03"`), which the landing
+check read as a new top-level folder; it then tried to write `about.md` notes
+to make the folders, which housekeeping refuses. So the pattern also takes
+`[1-3]` sets and `{01,02,03}` alternatives, a bare `into` is a subfolder of
+`folder`, and the instructions say the move makes the folder.
+
 **Measured.** `apps/mcp/bench/ai/tests/housekeeping.md` (`mode: housekeeping`)
 (AI Benchmark, job `housekeeping`, with the live setup note) runs it on
 Tomas's deliberately messy workspace and grades where each note

@@ -152,11 +152,39 @@ function archivedTo(result) {
 /** A batch move's own cap (`moves/limits.js`): a matched move goes in batches this size. */
 const MATCH_BATCH = 100;
 
-/** A name pattern (`*` any run, `?` one character) as a whole-name test, or null for none. */
+/**
+ * A name pattern as a whole-name test, or null for none: `*` any run, `?` one
+ * character, `[0-9]` or `[!x]` one of a set, `{01,02,03}` any one of the words
+ * (so a quarter is `run-log-2026-{01,02,03}-*`).
+ */
 export function namePattern(match) {
   const text = String(match ?? "").trim();
   if (text === "" || text.includes("/")) return null;
-  const body = text.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  const escape = (chars) => chars.replace(/[.+^${}()|[\]\\*?]/g, "\\$&");
+  let body = "";
+  let depth = 0;
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "*") body += ".*";
+    else if (char === "?") body += ".";
+    else if (char === "[") {
+      const close = text.indexOf("]", at + 2);
+      if (close === -1) return null;
+      let set = text.slice(at + 1, close);
+      const negated = set.startsWith("!") || set.startsWith("^");
+      if (negated) set = set.slice(1);
+      body += `[${negated ? "^" : ""}${set.replace(/[\\\]^]/g, "\\$&")}]`;
+      at = close;
+    } else if (char === "{") {
+      depth += 1;
+      body += "(?:";
+    } else if (char === "}" && depth > 0) {
+      depth -= 1;
+      body += ")";
+    } else if (char === "," && depth > 0) body += "|";
+    else body += escape(char);
+  }
+  if (depth !== 0) return null;
   return new RegExp(`^${body}$`, "i");
 }
 
@@ -280,7 +308,9 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS.matching.has(key));
     if (extra.length > 0) return refuse(`Moving by name takes folder, match, into and dry_run, not ${extra.join(", ")}.`);
     const folder = plain(given.folder).replace(/\/+$/, "");
-    const into = plain(given.into).replace(/\/+$/, "");
+    // A bare name is a subfolder of `folder` (`into: "2026-03"`), unless it names a built-in top-level folder.
+    const named = plain(given.into).replace(/\/+$/, "");
+    const into = named === "" || named.includes("/") || BUILT_IN_FOLDER.test(named) ? named : `${folder}/${named}`;
     const pattern = namePattern(given.match);
     if (folder === "" || into === "" || pattern === null) {
       return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
@@ -346,15 +376,16 @@ function byName(tool) {
     ...tool,
     description:
       `${tool.description ?? ""} Or move many notes by name: folder (where they are), match (a name pattern, * for any run of ` +
-      "characters, like security-review-log-coverage-*) and into (the folder they go to, made if it is new); every note " +
-      "directly in folder whose name matches moves, however many.",
+      "characters, ? one, [0-9] one of a set, {01,02,03} any one of the words, like run-log-2026-{01,02,03}-*) and into " +
+      "(the folder they go to, made if it is new; a bare name like 2026-q1 is a subfolder of folder); every note directly in " +
+      "folder whose name matches moves, however many. Never write a note to make a folder: moving into it makes it.",
     inputSchema: {
       ...schema,
       properties: {
         ...(schema.properties ?? {}),
         folder: { type: "string", description: "With match: the folder the notes are in." },
-        match: { type: "string", description: "A name pattern; * matches any run of characters, ? one." },
-        into: { type: "string", description: "With match: the folder they move into." },
+        match: { type: "string", description: "A name pattern: * any run of characters, ? one, [0-9] one of a set, {a,b} either word." },
+        into: { type: "string", description: "With match: the folder they move into, made if new; a bare name is a subfolder of folder." },
       },
       required: [],
     },
