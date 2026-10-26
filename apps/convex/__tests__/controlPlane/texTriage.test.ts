@@ -25,6 +25,8 @@
  *     read for three hours mails the team inbox once" fails: a second mail.
  *  7. `waitingOf` counting every `new` review, however fresh. → "only what
  *     has waited three hours counts" fails.
+ *  8. `waitingOf` counting bugs still `open` again. → "a desk nobody has read
+ *     for three hours mails the team inbox once" fails: 3 waiting, not 1.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -233,18 +235,12 @@ describe("the watch on the desk", () => {
         { status: "new", reviewed: now - STALE_AFTER_MS - 1 },
         { status: "new", reviewed: now - 60_000 },
         { status: "triaged", reviewed: now - 10 * STALE_AFTER_MS },
-      ],
-      bugs: [
-        { status: "open", filed: now - 2 * STALE_AFTER_MS, themes: [] },
-        { status: "fixing", filed: now - 2 * STALE_AFTER_MS, themes: [] },
-        // Filed under a theme: triage read it, and leaves it open while the fix runs.
-        { status: "open", filed: now - 2 * STALE_AFTER_MS, themes: ["checkout"] },
-        // Untouched since before the watch existed: says nothing about triage now.
-        { status: "open", filed: now - LOOKS_BACK_MS - 1, themes: [] },
+        // Filed before the watch looks back: says nothing about triage now.
+        { status: "new", reviewed: now - LOOKS_BACK_MS - 1 },
       ],
     };
-    expect(waitingOf(desk, now)).toEqual({ waiting: 2, oldest: now - 2 * STALE_AFTER_MS });
-    expect(waitingOf({ reviews: [], bugs: [] }, now)).toEqual({ waiting: 0, oldest: null });
+    expect(waitingOf(desk, now)).toEqual({ waiting: 1, oldest: now - STALE_AFTER_MS - 1 });
+    expect(waitingOf({ reviews: [] }, now)).toEqual({ waiting: 0, oldest: null });
   });
 
   test("a desk nobody has read for three hours mails the team inbox once, with a count and no words", async () => {
@@ -267,8 +263,8 @@ describe("the watch on the desk", () => {
     await t.action(internal.functions.texTriageWatch.check, {});
     expect(mails).toHaveLength(1);
     expect(mails[0]!.to).toBe("team@example.invalid");
-    // The review still new and the two unthemed bugs still open from the last three days; the 22 Oct one is older.
-    expect(mails[0]!.subject).toBe("Tex triage has stalled: 3 waiting");
+    // The one review still new. Bugs still open never count: they wait on fixes and people, not on a pass.
+    expect(mails[0]!.subject).toBe("Tex triage has stalled: 1 waiting");
     expect(mails[0]!.text).toContain("https://app.example.invalid/admin");
     expect(mails[0]!.text).not.toMatch(/calendar|Blank reply|Card number|long note/i);
   });

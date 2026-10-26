@@ -120,7 +120,8 @@ mattered, and the owner asked for each gap fixed ("can you fix the gaps"):
   `fixed` only once `retest:` is written.
 - **Nobody noticed a stopped reader.** The reader is an agent, and agents
   stop. `functions/texTriageWatch.ts` counts, every hour, the reviews still
-  `new` and bug reports still `open` with no theme, filed between three hours
-  and three days ago, and
+  `new` filed between three hours and three days ago (reviews only: a bug
+  report stays `open` while it waits on a fix, so counting bugs mailed a
+  false stall for a 24 Oct bug the first hour it ran), and
   mails the team inbox (`SIGNUP_ALERTS_EMAIL`) a count and a time, at most
   every six hours while it stays stuck; no inbox, no mail.
