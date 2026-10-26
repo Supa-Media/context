@@ -106,7 +106,7 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - person starts: "help me find 3 options for a dinner every wednesday, about $10 a person, around 30 people"
 - if asked whether anyone will cook, or whether she wants catering or a restaurant: "none of us want to cook, so catering only. we're in Riverside"
 - if offered home-cooked menus or recipes: "none of us want to cook 😅 catering only, we're in Riverside"
-- if asked which town or neighborhood: "Riverside"
+- if asked which town, neighborhood, state or which Riverside: "Riverside, California"
 - if asked whether to contact, email or request a quote from a caterer: "No, just the options for now"
 - must reach: caterers.example/lucky-wok
 - must reach: caterers.example/taqueria-rosa

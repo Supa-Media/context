@@ -140,6 +140,8 @@ test("asked for options with the brief open, the first reply is the one question
   assert.match(RESEARCH_LINE, /each place with its page link/);
   // Hand-back bench case 10 (gh-104): opened all three places' pages, then texted only its pick.
   assert.match(RESEARCH_LINE, /give each one found with the fact that decides it .*then your pick/);
+  // gh-107: asked "which Riverside?" twice before any search.
+  assert.match(RESEARCH_LINE, /A town they name is enough to search on: never ask which state first/);
   // gh-100: told her to confirm the prices, and asked which Riverside when the directory said.
   assert.match(RESEARCH_LINE, /don't ask what those pages settle .* or tell them to confirm the figures/);
 });
@@ -157,6 +159,10 @@ test("a pick made before the one question that changes the search goes back once
   assert.ok(picksBeforeAsking("I'd cook it: three trays from your list. Catering's the other option if you'd rather not cook.", asked));
   // gh-100: "the other option" with no "if you'd rather".
   assert.ok(picksBeforeAsking("I'd cook it yourselves. Catering is the other option, if nobody wants to cook every week. Which way do you want to go?", asked));
+  // gh-107: "Or I can look for caterers instead. Which one?", and grocery-costed cooking nobody asked for.
+  assert.ok(picksBeforeAsking("I'd cook it: $10 a head stretches a long way. Or I can look for caterers instead. Which one?", asked));
+  assert.ok(picksBeforeAsking("I couldn't find published grocery prices, so these are estimates. Chicken tray bake (my pick): about $3 a person. Which store do you shop at?", asked));
+  assert.equal(picksBeforeAsking("Here are three recipes under $10 a head.", "find 3 recipes I can cook for 30 people"), false, "cooking they asked for");
   for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
     assert.equal(picksBeforeAsking(fine, asked), false, fine);
   }

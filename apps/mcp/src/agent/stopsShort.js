@@ -95,11 +95,16 @@ export function unfinishedJob(job, answer) {
   the open question is the whole reply until they answer it.
 */
 const WANTS_OPTIONS = /\b(?:options?|ideas?|suggest(?:ions?)?|recommend(?:ations?)?|choices)\b|\b(?:find|research|pick|choose)\b[^.?!\n]{0,40}\b(?:for|places?|spots?|caterers?|restaurants?)\b/i;
-const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b/i;
+const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b|\bor I can (?:look|find|search|price)\b/i;
+// gh-107: cooking costed from grocery prices, never asked, then "which store do you shop at?".
+const COOKED = /\b(?:I'd cook|cook it|grocer(?:y|ies)|recipes?|home-?cooked)\b/i;
+const ASKED_TO_COOK = /\b(?:cook|recipe|make|grocer|bake)/i;
 
-/** Whether an answer to a request for options guesses the brief and leaves the other road as an aside. */
+/** Whether an answer to a request for options guesses the brief: the other road left as an aside, or cooking nobody asked for. */
 export function picksBeforeAsking(answer, question = "") {
-  return WANTS_OPTIONS.test(said(question)) && OTHER_ROAD.test(said(answer));
+  const words = said(answer);
+  if (!WANTS_OPTIONS.test(said(question))) return false;
+  return OTHER_ROAD.test(words) || (COOKED.test(words) && !ASKED_TO_COOK.test(said(question)));
 }
 
 export const ASK_FIRST_NOTICE =
