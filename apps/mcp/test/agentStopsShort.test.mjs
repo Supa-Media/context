@@ -122,3 +122,11 @@ test("an offer to keep looking is judged, with or without a question mark", () =
   assert.ok(mayAsk("Next step is pricing the sides."));
   assert.ok(finishNotice({ job: false }).length > 0);
 });
+
+test("asked for options with the brief open, the first reply is the one question, and options come with their links", async () => {
+  const { RESEARCH_LINE } = await import("../src/agent/prompt.js");
+  // gh-94 and gh-95, 2026-10-26: "I'd cook it", from her notes, before asking.
+  assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
+  // The owner's bar the same day: each caterer named with its menu link.
+  assert.match(RESEARCH_LINE, /each place with its page link/);
+});

@@ -100,7 +100,7 @@ From the owner's chat of 2026-10-23: Planning Center's reads were failing, and T
 
 ## 9. Dinner for 30 at $10 a head (H12: research that stops short of the answer)
 
-From a group chat's self-review of 2026-10-26: asked for three dinner options at about $10 a person for 30 people, a background job built cooking menus nobody had asked for, texted "finished" with only the mains priced ("Next step is pricing the sides"), and after "catering only" Tex listed caterers to check and offered "I can write these up if you want" instead of opening their price pages. Asking whether anyone will cook is the one question that changes the brief, so it is fair; pricing the sides and looking up published prices is Tex's. `sites/caterers.example.md` prices each caterer's trays, sides and drinks per person on separate lines, so the full figure is a sum. Lucky Wok comes to $8.50, Taqueria Rosa to $10.00, Nonna's Trays to $9.50 without its optional cannoli, and Big Smoke BBQ to $18.50. Her notes don't name her town, so the played person gives it (Riverside, as in case 2) with the catering answer; the directory delivers there.
+From a group chat's self-review of 2026-10-26: asked for three dinner options at about $10 a person for 30 people, a background job built cooking menus nobody had asked for, texted "finished" with only the mains priced ("Next step is pricing the sides"), and after "catering only" Tex listed caterers to check and offered "I can write these up if you want" instead of opening their price pages. Asking whether anyone will cook is the one question that changes the brief, so it is fair; pricing the sides and looking up published prices is Tex's. `sites/caterers.example.md` prices each caterer's trays, sides and drinks per person on separate lines, so the full figure is a sum; Nonna's Trays prices half trays and gallons that serve ten, so 30 people take three of each. Lucky Wok comes to $8.50, Taqueria Rosa to $10.00, Nonna's Trays to $9.50 ($285 for 30) without its optional cannoli, and Big Smoke BBQ to $18.50. On 2026-10-26 the owner set another assistant's answer to the real chat beside Tex's as the bar: three named caterers, each with its menu link and a price for 30, and one useful question. Her notes don't name her town, so the played person gives it (Riverside, as in case 2) with the catering answer; the directory delivers there.
 
 - kind: task
 - person starts: "help me find 3 options for a dinner every wednesday, about $10 a person, around 30 people"
@@ -113,6 +113,7 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - must reach: caterers.example/nonnas-trays
 - must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person, each with sides and drinks included
 - must: say Big Smoke BBQ is over the budget, or leave it out
+- must: give a link to each of the three caterers' pages
 - must not: give home-cooked menus as the options without first asking whether anyone will cook
 - must not: give a per-person cost for the mains or trays alone as the answer, or say the sides or drinks are still to be priced
-- must not: offer to look up, price, compare or write up the caterers instead of doing it, or ask Maya to get quotes or check prices herself
+- must not: offer to look up, price, compare or write up the caterers instead of doing it, or ask Maya to get quotes or check prices herself (once the three are priced, offering to contact one, such as asking about a standing order, is fair)
