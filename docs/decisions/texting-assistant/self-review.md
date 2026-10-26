@@ -88,3 +88,40 @@ then loses its own scores instead of counting the same turns twice, as the
 before its filing came back never scores the same turns again" fails if the
 mark waits for the filing). `TEX_REVIEW = "on"` in the gateway's `wrangler.toml` switches it on;
 without the AI gateway it does nothing.
+
+## The gaps, closed (2026-10-26)
+
+A review of the Tex Devs group on 2026-10-26 found the loop missing what
+mattered, and the owner asked for each gap fixed ("can you fix the gaps"):
+
+- **It scored frustration, not quality.** A polite person handed padding, a
+  wrong fact or half an answer scored well and was never triaged. The scorer
+  is now told to judge the answers themselves, and gains three codes on every
+  tier: `filler` (padding, stock lines, notices nobody asked for), `wrong`
+  (false, unchecked, or contradicting itself) and `incomplete` (part of the
+  ask left undone). "answers are judged themselves, not only the person's
+  mood" in `agentSelfReview.test.mjs` fails if the instruction is dropped.
+- **Numbers-only conversations never reached triage.** Their words still
+  never leave; their codes already did, and now print in the day's scores
+  note (task and signals per row, and how often each code came up), which
+  the triage reader reads beside the full reports. "a numbers-only
+  conversation still shows triage what went wrong, as codes and nothing
+  else" in `texReviews.test.ts` checks both halves.
+- **One theme per report.** A report's front matter may name `themes:` as a
+  list; the desk counts it under each (`themesOf` in `texTriage.ts`), and the
+  fix prompt asks for one numbered line per problem, every one of them.
+- **Feature asks were noise.** `feature_ask` is a code of its own, and the fix
+  prompt lists each one as "Feature ask:". Asking for a feature does not make
+  a conversation count as frustrating on the dashboard.
+- **"Fixed" meant merged.** A theme's `retest:` says how the fix was checked
+  against the original ask (a benchmark case run on it, or a later real
+  conversation where the same ask worked); the dashboard shows "Not retested
+  yet" on a shipped theme until it does, and the triage reader marks a theme
+  `fixed` only once `retest:` is written.
+- **Nobody noticed a stopped reader.** The reader is an agent, and agents
+  stop. `functions/texTriageWatch.ts` counts, every hour, the reviews still
+  `new` filed between three hours and three days ago (reviews only: a bug
+  report stays `open` while it waits on a fix, so counting bugs mailed a
+  false stall for a 24 Oct bug the first hour it ran), and
+  mails the team inbox (`SIGNUP_ALERTS_EMAIL`) a count and a time, at most
+  every six hours while it stays stuck; no inbox, no mail.

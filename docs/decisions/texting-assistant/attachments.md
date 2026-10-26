@@ -133,3 +133,38 @@ next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
 it and keep its figures unless the new text changes them; its answer replaces
 the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
 fails.
+
+## A kept file is shown again on the next texts (owner's review, 2026-10-26)
+
+A resume PDF came with a text and Tex wrote a pitch from it. On the next
+text, on the small model, it looked for the file with
+`list_notes { prefix: "download:…" }` and `fetch { id: "download:…", args:
+{ mail: false } }`; the first lists notes and the second was refused as a
+mail read, so neither reached the kept file. Tex said the PDF "won't load",
+took back what it had read, and asked them to paste the text. The id in the
+saved conversation was not enough: a model had to choose the one call that
+reads it.
+
+So the files the last four texts kept ride along again as attachments marked
+`carried` (`carryKeptFiles`, `apps/mcp/src/agent/keptFiles.js`): the newest
+two, a PDF only up to 3 MB, a text file's first 30,000 characters with where
+the rest starts. They are told as files from earlier in the chat, never saved
+as sent with this text, never sent to the planner as a data file, and they
+mark the turn untrusted as the file did on its own turn, since its words are
+in front of the model again. A PDF turn falls back only to a model that can
+read it, as a picture turn does. `fetch` with a `download:` id reads it
+whatever other arguments come along, and a `list_notes` of one reads it too.
+An answer that still says a file won't open, or asks them to paste or resend
+it, with a kept file in reach and no read of it this turn, gets one more
+round naming the id (`keptClaims.js`). Undo: drop `carryKeptFiles` from the
+route; `agentKeptCarry.test.mjs` fails.
+
+The same chat: told "make sure this never happens again", Tex wrote the
+lesson into `tex/about-me.md` ("that's common sense, not about me info"). A
+lesson about how Tex works is filed with `report_problem`, a write to
+about-me in a turn that asks for one is refused with that reason
+(`lessonInAboutMe`, `bugCheck.js`), and the memory nudge leaves lessons out.
+And because a search for one first name found two people, the referral used
+the other person's work: every turn is told a fact is someone's only when
+what was read ties it to that person, never a shared first name
+(`SAME_NAME_LINE`, `prompt.js`).

@@ -190,6 +190,17 @@ describe("what a review may carry", () => {
     expect(JSON.stringify(backend.snapshot())).not.toContain("alice-handle");
   });
 
+  test("a numbers-only conversation still shows triage what went wrong, as codes and nothing else", async () => {
+    const { t, pinned } = await world();
+    expect(await review(t, { reason: "ended", scores: SCORES, task: "research", signals: ["filler", "wrong", "feature_ask", "she wanted avocados"], words: WORDS })).toEqual({ review: { filed: "scores" } });
+    const [day] = scoreNotes(await notesIn(t, pinned));
+    const note = await readNote(t, pinned, day!);
+    expect(note).toContain("| 4 | 3 | 5 | 6 | 2 | research | filler, wrong, feature_ask |");
+    expect(note).toContain("| filler | 1 |");
+    expect(note).toContain("| feature_ask | 1 |");
+    expect(JSON.stringify(backend.snapshot())).not.toContain("avocado");
+  });
+
   /** Production's shape: the access rows judge, and pin readers read as guests (`bugNotes.test.ts`). */
   async function judgedByRows(t: TestConvex, pinned: Id<"workspaces">, moved: boolean) {
     await t.run(async (ctx) => {
