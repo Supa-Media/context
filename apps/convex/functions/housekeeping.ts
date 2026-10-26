@@ -7,10 +7,11 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import {
   armLinkedHousekeepingHandler,
   claimDueHousekeepingHandler,
+  housekeepingNowStatusHandler,
   recordHousekeepingResultHandler,
   runHousekeepingNowHandler,
 } from "./lib/housekeeping/runs";
@@ -42,4 +43,11 @@ export const runHousekeepingNow = internalMutation({
   args: { name: v.string() },
   returns: v.union(v.literal("due"), v.literal("running"), v.literal("not_armed"), v.literal("unknown_name")),
   handler: runHousekeepingNowHandler,
+});
+
+/** Manual (the same workflow, waiting): `running`, or the last run's outcome code and when it started. */
+export const housekeepingNowStatus = internalQuery({
+  args: { name: v.string() },
+  returns: v.object({ status: v.string(), lastRunAt: v.union(v.number(), v.null()) }),
+  handler: housekeepingNowStatusHandler,
 });

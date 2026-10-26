@@ -267,8 +267,13 @@ describe("a run now, by hand", () => {
     const [run] = await due(t);
     expect(run).toBeDefined();
     expect(await t.mutation(internal.functions.housekeeping.runHousekeepingNow, { name: "ada" })).toBe("running");
+    expect((await t.query(internal.functions.housekeeping.housekeepingNowStatus, { name: "ada" })).status).toBe("running");
     await result(t, run!.runId, "tidied");
     expect((await row(t, userId))!.nextRunAt!).toBeGreaterThan(Date.now());
+    const after = await t.query(internal.functions.housekeeping.housekeepingNowStatus, { name: "ada" });
+    expect(after.status).toBe("tidied");
+    expect(after.lastRunAt).not.toBeNull();
+    expect((await t.query(internal.functions.housekeeping.housekeepingNowStatus, { name: "nobody-here" })).status).toBe("unknown_name");
     expect(await t.mutation(internal.functions.housekeeping.runHousekeepingNow, { name: "nobody-here" })).toBe("unknown_name");
   });
 });
