@@ -126,6 +126,10 @@ test("an offer to keep looking is judged, with or without a question mark", () =
   assert.ok(mayAsk("I can write these up in the chat's notes if you want."));
   assert.ok(mayAsk("Next step is pricing the sides."));
   assert.ok(finishNotice({ job: false }).length > 0);
+  // Dev2's 1:1, 2026-10-26: "The page doesn't list hours ... I can look up hours for one you pick" got the
+  // notice and went out anyway through "isn't published anywhere": a list page is not where hours live.
+  assert.match(finishNotice({ job: false }), /A list page without the figure is not where it lives: open each place's own page/);
+  assert.match(finishNotice({ job: false }), /opening hours/);
 });
 
 test("asked for options with the brief open, the first reply is the one question, and options come with their links", async () => {

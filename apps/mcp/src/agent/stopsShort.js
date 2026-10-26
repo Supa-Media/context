@@ -70,6 +70,7 @@ export function finishNotice({ job = false } = {}) {
     (job
       ? "This is a background job, so take the steps it needs; update the note you wrote with the full figures. "
       : 'If it will take many steps, start a background job for it (send { action: "background" }) and tell them in one line you are on it. ') +
+    "A list page without the figure is not where it lives: open each place's own page, or search the place by name, for every place you name, not one they pick. " +
     "If a figure truly isn't published anywhere you can reach, say in one line where you looked and give your best estimate, marked as one. " +
     "If your answer wasn't stopping short of anything they asked, send it again as it was."
   );

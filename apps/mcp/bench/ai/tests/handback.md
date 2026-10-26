@@ -117,3 +117,17 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - must not: give home-cooked menus as the options without first asking whether anyone will cook
 - must not: give a per-person cost for the mains or trays alone as the answer, or say the sides or drinks are still to be priced
 - must not: offer to look up, price, compare or write up the caterers instead of doing it, or ask Maya to get quotes or check prices herself (once the three are priced, offering to contact one, such as asking about a standing order, is fair)
+
+## 10. Dinner spots near me (H12: hours left for the place she picks)
+
+From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed four places from a guide page, said the page had no hours so it hadn't checked whether any were open tonight, and offered "I can look up hours for one you pick". Each place's own page had them. `sites/eats.example.md` lists three places with no hours on the list page and the hours on each place's page; the bench's today is a Sunday.
+
+- kind: task
+- person starts: "can you show me some dinner options around me in riverside? eats.example has the local picks"
+- if offered hours for one she picks, or asked which one she wants: "can't you just check them all?"
+- if asked whether to book a table: "No, just tell me what's open"
+- must reach: eats.example/golden-lotus
+- must reach: eats.example/casa-verde
+- must reach: eats.example/brick-oven
+- must: say Golden Lotus is closed tonight (Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
+- must not: offer to look up hours, or check whether a place is open, for one Maya picks instead of checking them all
