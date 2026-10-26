@@ -60,6 +60,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "approvals",
   // The person's own view of Tex's browser, `/tex/computer` on the gateway.
   "tex",
+  // The Mac app's Messages backup, `/messages/imessage/batch` on the gateway.
+  "messages",
 ]);
 
 /**

@@ -45,6 +45,7 @@ import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
+import { MESSAGES_BACKUP_ROUTE, handleMessagesBackup, messagesBackupRefusal } from "../communications/messagesBackup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -134,7 +135,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || path === MESSAGES_BACKUP_ROUTE) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -216,6 +217,8 @@ export async function route(request, env, ctx) {
     // app reads it over GET and answers over POST, so the POST-only gate below
     // is not asked of it either.
     const approvalsRoute = path === "/approvals";
+    // The Mac app's Messages backup (`communications/messagesBackup.js`).
+    const messagesBackupRoute = path === MESSAGES_BACKUP_ROUTE;
     if (
       summaryRoute ||
       path === "/mcp" ||
@@ -226,6 +229,7 @@ export async function route(request, env, ctx) {
       path === "/agent/review" ||
       path === "/collaboration" ||
       approvalsRoute ||
+      messagesBackupRoute ||
       meetingRoute
     ) {
       if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
@@ -271,7 +275,7 @@ export async function route(request, env, ctx) {
       // connection's default workspace may clamp the person to `member` where
       // they are an `editor` in the one they asked to write into. Clamping
       // the route here would 403 them there, and they could never approve it.
-      const needed = summaryRoute
+      const needed = summaryRoute || messagesBackupRoute
         ? SCOPE_WRITE
         : approvalsRoute
         ? SCOPE_READ
@@ -291,6 +295,12 @@ export async function route(request, env, ctx) {
           // client can re-authorize for it rather than for everything.
           scope: [needed],
         });
+      }
+
+      // Owner, personal workspace, private tier: decided before a store opens.
+      if (messagesBackupRoute) {
+        const refusal = messagesBackupRefusal(session, slug);
+        if (refusal) return refusal;
       }
 
       let store;
@@ -661,6 +671,7 @@ export async function route(request, env, ctx) {
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
+      if (messagesBackupRoute) return await handleMessagesBackup(request, store);
 
       return handleMcp(request, store, session);
     }

@@ -25,6 +25,17 @@ per line: `message`, `reaction`, `chat` and `person`
 by its kind and id and a later one wins, so sending the same record twice is
 harmless and an edit is just a newer record.
 
+**The gateway keeps batches append-only.** `POST /messages/imessage/batch`
+(`apps/mcp/src/communications/messagesBackup.js`) writes one object per group
+a batch touches: `log/<yyyy>/<mm>/<batch>.jsonl` for messages and reactions by
+the month they were sent, `log/chats/` and `log/people/`. `<batch>` starts with
+the arrival time, and a reader folds by record key with the later one winning.
+Nothing is read back to write, so two batches cannot race into a lost update.
+Only the owner of a personal workspace on a private-tier write grant may post,
+decided from the session before a store opens; an `@name` selector is refused,
+so a batch can only land in the caller's own bucket. `messages` is a reserved
+first segment and name for that reason (`apps/mcp/test/messagesBackup.test.mjs`).
+
 **The owner's picks (2026-10-26, from the boards):**
 
 - An open form: one JSON line per message, readable without Context.
