@@ -39,6 +39,15 @@
  * - `[needs Label, Label = value]`: the button goes nowhere until those boxes
  *   are filled (or hold that value, or that option is chosen, or that box is
  *   ticked), and the page then says what is missing.
+ * - `popup (flag): words`: while the flag is set, the page is covered by a
+ *   popup that says those words (a seat map, 2026-10-26). The reading says
+ *   so (`popup: true`, as `infra/site-shots/src/popups.ts` does), a click or
+ *   typing on the page under it does nothing, Escape doesn't close it, and a
+ *   `close_popup` step does, unsetting the flag.
+ * - `- filler: 90`: that many links in a row ("Timetable 1" ...), each back
+ *   to the page, to push what follows past a reading's first elements.
+ * - `[sets flag]` sets it on any button that goes through, with or without
+ *   `->`.
  * - `- download:` is a button that saves a file, `[file name]`: a browse
  *   `download` step naming it gets a small PDF of that name back.
  * - `search:` words: a `search_web` query with one of them lists the site's
@@ -153,7 +162,7 @@ export function parseSite(raw, label = "site") {
     const t = line.trim();
     const heading = line.match(/^## (https:\/\/\S+)\s*$/);
     if (heading) {
-      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0 };
+      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null };
       site.pages.set(placeOf(heading[1]), page);
       return;
     }
@@ -163,6 +172,10 @@ export function parseSite(raw, label = "site") {
     else if (t === "signed in only") page.signedInOnly = true;
     else if ((m = t.match(/^captcha:\s*(\d+|always)$/))) page.captcha = m[1] === "always" ? Infinity : Number(m[1]);
     else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
+    else if ((m = t.match(/^popup\s+\(([^)]+)\):\s*(.*)$/))) page.popup = { when: readFlags(m[1], where), line: m[2] };
+    else if ((m = t.match(/^- filler:\s*(\d{1,3})$/))) {
+      for (let n = 1; n <= Number(m[1]); n++) page.elements.push({ kind: "link", when: null, label: `Timetable ${n}`, href: page.url, needs: [], sets: [], options: null, file: null });
+    }
     else if ((m = t.match(ELEMENT))) page.elements.push(readElement(m[1], readFlags(m[2], where), m[3], where));
     else throw new Error(`${where}: cannot read "${t}"`);
   });
@@ -245,6 +258,8 @@ export function createWeb(sites) {
     if (!page) return { url: browser.url, title: "Page not found", text: "This page doesn't exist.", truncated: false, elements: [] };
     if (walled(browser)) return { url: browser.url, title: "Just a moment...", text: "Verify you are human by completing the action below.", truncated: false, elements: [] };
     const text = page.text.filter((t) => shows(t.when, flags)).map((t) => t.line);
+    const covered = popupShows(page);
+    if (covered) text.unshift(page.popup.line);
     if (note) text.unshift(note);
     const elements = visible(page).map(({ el, i }, shown) => {
       const value = valueOf(browser, page, i);
@@ -254,8 +269,11 @@ export function createWeb(sites) {
       else if ((el.kind === "textbox" || el.kind === "password") && value) item.filled = true;
       return item;
     });
-    return { url: browser.url, title: page.title, text: text.join("\n"), truncated: false, elements };
+    return { url: browser.url, title: page.title, text: text.join("\n"), truncated: false, elements, ...(covered ? { popup: true } : {}) };
   }
+
+  /** Whether the page's popup covers it now. */
+  const popupShows = (page) => page?.popup != null && shows(page.popup.when, flags);
 
   /** The [needs] a button's page does not meet, as words for the page. */
   function missing(browser, page, element) {
@@ -290,6 +308,12 @@ export function createWeb(sites) {
       case "scroll":
       case "press":
         return { ok: true };
+      case "close_popup": {
+        if (!popupShows(page)) return { ok: false, reason: "nothing on the page looks like a popup; look to see what is in the way" };
+        for (const { name, not } of page.popup.when) if (!not) flags.delete(name);
+        events.push(`close popup ${placeOf(browser.url)}`);
+        return { ok: true, reason: "pressed its close button" };
+      }
       case "back":
         if (browser.history.length < 2) return { ok: false, reason: "nothing to go back to" };
         browser.history.pop();
@@ -298,24 +322,31 @@ export function createWeb(sites) {
         return { ok: true, moved: true };
       case "click": {
         if (!el) return { ok: false, reason: "no such element" };
+        // Under a popup the press lands on its cover: nothing happens, and nothing says so.
+        if (popupShows(page)) {
+          events.push(`blocked click ${placeOf(browser.url)} "${el.label}"`);
+          return { ok: true };
+        }
         events.push(`click ${placeOf(browser.url)} "${el.label}"`);
         if (el.kind === "checkbox") {
           browser.values.set(at, browser.values.get(at) !== true);
           return { ok: true };
         }
-        if (!el.href) return { ok: true };
         const short = missing(browser, page, el);
         if (short.length > 0) return { ok: true, note: `Fill in: ${short.join(", ")}.` };
         for (const flag of el.sets) {
           flags.add(flag);
           events.push(`set ${flag}`);
         }
+        if (!el.href) return { ok: true };
         land(browser, el.href);
         return { ok: true, moved: true };
       }
       case "type": {
         if (!el || (el.kind !== "textbox" && el.kind !== "password")) return { ok: false, reason: "that is not a box to type in" };
         if (Array.isArray(s.onlyOn) && !s.onlyOn.includes(hostOf(browser.url))) return { ok: false, reason: "not on a site the person named" };
+        // The popup keeps the focus, so the keys never reach the box.
+        if (popupShows(page)) return { ok: true };
         browser.values.set(at, String(s.text ?? ""));
         events.push(`type ${placeOf(browser.url)} "${String(s.text ?? "").slice(0, 120)}"`);
         return { ok: true };

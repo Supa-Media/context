@@ -35,8 +35,14 @@ export { REPORT_TOOL };
 
 /** How many messages between them go with a report, newest last: the ask and their answer included. */
 export const REPORT_TEXTS_TURNS = 12;
-/** The longest report shown by text: with the line about texts, one text under `TEXTED_ASK_CAP`. */
-export const TEXTED_REPORT_CAP = 2_000;
+/**
+ * The longest report shown by text. It was 2,000 characters, and on
+ * 2026-10-26 a person who had just given up on a booking was texted a whole
+ * paragraph of steps and refs to read and 👍 (the owner's review: "report
+ * failures plainly without long bug-report dumps"). Their texts carry the
+ * detail; the report says what went wrong in a few plain sentences.
+ */
+export const TEXTED_REPORT_CAP = 500;
 /** The texts attached, in characters. Kept equal to `MAX_REPORT_TEXTS_CHARS` in the control plane. */
 export const MAX_REPORT_TEXTS_CHARS = 16_000;
 
@@ -89,7 +95,10 @@ export async function reportGate(supplied, { store, session }) {
   const message = reportMessage(supplied);
   if (message === null) return await sendReport(store, null);
   if ([...message].length > TEXTED_REPORT_CAP) {
-    return toolError(`Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it whole. Shorten it.`);
+    return toolError(
+      `Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it at a glance. ` +
+        "Say what went wrong in two or three plain sentences, with no step lists or element numbers; share_texts carries the detail.",
+    );
   }
 
   // Their own text asked for it, and none of their texts go: sent now (4. above).

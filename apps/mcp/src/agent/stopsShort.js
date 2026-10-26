@@ -74,13 +74,27 @@ export function finishNotice({ job = false } = {}) {
   );
 }
 
+/*
+  A JOB THAT ENDS ON ITS OWN NEXT STEP (the owner's review, 2026-10-26). A
+  booking job texted "I still can't finish ... Next I'll reload the checkout,
+  fill in the passenger details, and then ask you to allow the Chase card",
+  and stopped: the next step it named was its own to take. A job's answer
+  that names what it will do next has not done it.
+*/
+const NEXT_STEP = /(?:^|[.!?]\s+|\n)(?:so\s+)?next,?\s+I(?:'ll| will| am going to|'m going to)\s+(?!text|let you know|tell you|send you)/i;
+
+/** Whether an answer names the next thing it will do, rather than doing it. */
+export function announcesNextStep(answer) {
+  return NEXT_STEP.test(said(answer));
+}
+
 /**
  * Whether a job's final answer leaves it unfinished, so the Worker runs
  * another turn rather than texting it as done. Its last turn texts what it
  * has, missing parts named.
  */
 export function unfinishedJob(job, answer) {
-  return job !== null && job !== undefined && job.attempt < MAX_JOB_ATTEMPTS && stopsShort(answer);
+  return job !== null && job !== undefined && job.attempt < MAX_JOB_ATTEMPTS && (stopsShort(answer) || announcesNextStep(answer));
 }
 
 /*

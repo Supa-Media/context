@@ -5,7 +5,7 @@
  * reading only the top page, Tex saw it in a picture and could press none of it.
  *
  * Each frame is its own document, read with its own numbers: the top page's
- * are 1 to 80, the first frame's from 1001, the second's from 2001, so a
+ * are 1 to 300, the first frame's from 1001, the second's from 2001, so a
  * number names one element whichever document holds it. A step on a frame's
  * element checks that frame's own site (`where` in ./browse.ts), never the
  * top page's: a password typed for one site never lands in another's frame.
@@ -35,7 +35,7 @@ export type Doc = Pick<FrameDoc, "evaluate" | "click" | "type" | "setFiles">;
 export const FRAME_REF_BASE = 1_000;
 export const MAX_FRAMES = 8;
 /** At most this many of a frame's elements are numbered, and this much of its text kept. */
-export const MAX_FRAME_ELEMENTS = 40;
+export const MAX_FRAME_ELEMENTS = 80;
 export const MAX_FRAME_TEXT = 3_000;
 
 /** The page's frames, when its browser can list them. */
