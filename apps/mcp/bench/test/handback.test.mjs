@@ -122,7 +122,7 @@ test("case 2: a captcha that outlasts every try is handed over once, then the pa
   }
 });
 
-test("case 10: a seat-map popup is closed, both buses are picked, the card boxes are listed, and a refused browser stays Tex's", async () => {
+test("case 11: a seat-map popup is closed, both buses are picked, the card boxes are listed, and a refused browser stays Tex's", async () => {
   const model = scripted([
     browse({ do: "goto", url: "https://busline.example/checkout" }),
     browse({ do: "click", ref: 2 }),
@@ -150,9 +150,9 @@ test("case 10: a seat-map popup is closed, both buses are picked, the card boxes
     const second = await world.text("I'm not opening your browser. book it yourself");
     assert.ok(second.tools.some((call) => !call.ok), "the handoff after their refusal is refused");
     assert.match(model.results.at(-1), /won't take over your browser/);
-    const ten = await handbackCase(10);
+    const eleven = await handbackCase(11);
     const record = { tools: [...first.tools, ...second.tools].map((c) => c.tool), browser: world.browser() };
-    assert.deepEqual(checkVerdicts(ten, record).filter((v) => !v.pass), []);
+    assert.deepEqual(checkVerdicts(eleven, record).filter((v) => !v.pass), []);
   } finally {
     world.close();
   }
