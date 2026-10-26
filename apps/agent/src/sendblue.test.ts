@@ -163,7 +163,7 @@ describe("sendblue webhook", () => {
 
 type Call = { path: string; headers: Headers; body: Record<string, unknown> };
 
-function fakeSendblue(calls: Call[], status: (path: string, n: number) => number = () => 200): Fetch {
+function fakeSendblue(calls: Call[], status: (path: string, n: number) => number = () => 200, pictures = 1): Fetch {
   let n = 0;
   return (async (url: string, init: RequestInit) => {
     const parsed = new URL(url);
@@ -179,7 +179,7 @@ function fakeSendblue(calls: Call[], status: (path: string, n: number) => number
     if (parsed.pathname === "/agent") {
       return Response.json({
         answer: `answer to ${body.question}${body.quoted ? ` [quoting ${body.quoted}]` : ""}`,
-        pictures: [{ name: "p.png", mediaType: "image/png", data: btoa("png-bytes") }],
+        pictures: Array.from({ length: pictures }, (_, i) => ({ name: pictures === 1 ? "p.png" : `p${i + 1}.png`, mediaType: "image/png", data: btoa(`png-bytes-${i}`) })),
       });
     }
     throw new Error(`unexpected ${url}`);
@@ -418,6 +418,48 @@ describe("sendblue sending", () => {
     await drain(storage, deps(fakeSendblue(calls), []));
     expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/profile")).toHaveLength(0);
     expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/share")).toHaveLength(1);
+  });
+
+  it("sends two or more pictures as one swipeable carousel, in the answer's thread", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("sendblue:mh_c1"), 1_000);
+    const calls: Call[] = [];
+    let hostedN = 0;
+    const d = deps(fakeSendblue(calls, () => 200, 3), []);
+    await drain(storage, { ...d, hostPicture: async (p) => (p.mediaType === "text/vcard" ? "https://agent.example/media/abc/card.vcf" : `https://agent.example/media/abc/${++hostedN}.png`) });
+    const carousel = calls.filter((c) => c.path === "/api/send-carousel");
+    expect(carousel).toHaveLength(1);
+    expect(carousel[0].body).toEqual({
+      number: PHONE,
+      from_number: LINE,
+      media_urls: ["https://agent.example/media/abc/1.png", "https://agent.example/media/abc/2.png", "https://agent.example/media/abc/3.png"],
+      reply_to: { message_handle: "sendblue:mh_c1" },
+    });
+    // No picture also went one by one.
+    expect(calls.filter((c) => c.path === "/api/send-message" && c.body.media_url !== undefined && !String(c.body.media_url).endsWith(".vcf"))).toHaveLength(0);
+  });
+
+  it("sends the pictures one by one when the line has no carousels", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("sendblue:mh_c2"), 1_000);
+    const calls: Call[] = [];
+    let hostedN = 0;
+    // A V1 line: Sendblue refuses the carousel with a 400, threaded or not.
+    const d = deps(fakeSendblue(calls, (path) => (path === "/api/send-carousel" ? 400 : 200), 3), []);
+    await drain(storage, { ...d, hostPicture: async (p) => (p.mediaType === "text/vcard" ? "https://agent.example/media/abc/card.vcf" : `https://agent.example/media/abc/${++hostedN}.png`) });
+    const one = calls.filter((c) => c.path === "/api/send-message" && String(c.body.media_url ?? "").endsWith("png"));
+    expect(one.map((c) => c.body.media_url)).toEqual(["https://agent.example/media/abc/1.png", "https://agent.example/media/abc/2.png", "https://agent.example/media/abc/3.png"]);
+    // Asked once (threaded, then plain), never again for the rest of the answer.
+    expect(calls.filter((c) => c.path === "/api/send-carousel")).toHaveLength(2);
+    expect(await storage.list({ prefix: "pending:" })).toHaveProperty("size", 0);
+  });
+
+  it("sends one picture as a plain photo, never a carousel", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("sendblue:mh_c3"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    expect(calls.some((c) => c.path === "/api/send-carousel")).toBe(false);
   });
 
   it("sends the card on the new line even when the old line's card went out today", async () => {

@@ -50,6 +50,7 @@ import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
+import { carouselRun, isRefusal } from "./carousel";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
@@ -313,7 +314,22 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
         ([other, waiting]) => other !== key && waiting.message.chatId === item.message.chatId,
       );
       const thread = threadFor(item.message, overtaken);
+      let carousels = true;
       for (const [index, part] of reply.entries()) {
+        if (index < sent) continue;
+        // Two or more pictures in a row go as one swipeable set where the line has carousels.
+        const run = item.message.channel === "simulator" ? [] : carouselRun(reply, index);
+        if (carousels && run.length >= 2 && line.sendCarousel) {
+          try {
+            await line.sendCarousel(item.message.chatId, run, thread);
+            sent = index + run.length;
+            continue;
+          } catch (error) {
+            // Refused (a line with no carousels): the pictures go one by one below.
+            if (!isRefusal(error)) throw error;
+            carousels = false;
+          }
+        }
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
           await record(storage, "in", describePart(part), deps.now());
