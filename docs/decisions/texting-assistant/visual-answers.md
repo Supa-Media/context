@@ -119,3 +119,20 @@ Drop the templates and the model writes free HTML again: slower, inconsistent,
 and an injection surface. Drop the one-line rule and the card arrives under a
 paragraph that says the same thing. Checks: `apps/mcp/test/agentVisuals.test.mjs`
 (sabotage record in its header).
+
+### Note links as Context cards (2026-10-26, built switched off)
+
+The owner asked for Sendblue App Cards next to the carousel and chose "static
+now, extension next". A text that is nothing but a link to a note
+(`https://context.lc/note/@slug/path.md`, the link the gateway adds to reads
+and writes) can go as a static card: the note's name, its workspace and
+folder, and the link as the card's URL (`apps/agent/src/appCards.ts`). A line
+that refuses the card (not V2, no plan, a group) gets the plain link, so a
+card is never the only way to the note.
+
+It ships with `APP_CARDS: "off"`. Sendblue's docs say a static card shows
+without the Messages extension, but not what a tap does without it, and a
+link that opens the note beats a card that might not. It goes on once the
+Context app's Messages extension (`lc.context.mobile.messages`) is in the App
+Store; the team id is the `APPLE_TEAM_ID` secret, synced to the Worker on
+deploy.

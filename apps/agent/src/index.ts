@@ -45,6 +45,7 @@ import { acceptJob, runJob, steerJob } from "./jobRun";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
+import { appCardConfig } from "./appCards";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
@@ -67,6 +68,11 @@ export interface Env {
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
+  /** "on" sends a link to a note as a Context card, with the extension's bundle id and the Apple team id (`appCards.ts`). */
+  APP_CARDS?: string;
+  APP_CARD_EXTENSION_ID?: string;
+  APPLE_TEAM_ID?: string;
+  APP_STORE_ID?: string;
 }
 
 /** Linq's payloads are small; anything this big is not one of them. */
@@ -427,6 +433,7 @@ export class SenderInbox implements DurableObject {
       gatewayOrigin: this.env.GATEWAY_ORIGIN,
       linqApiKey: this.env.LINQ_API_KEY,
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
+      appCard: appCardConfig(this.env),
       hostPicture: async (picture: Picture) =>
         hostPicture(
           this.state.storage,

@@ -380,7 +380,7 @@ function threadFor(message: Message, overtaken = false): string | undefined {
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
-  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, hostPicture: deps.hostPicture };
+  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, hostPicture: deps.hostPicture, appCard: deps.appCard };
 }
 
 /**

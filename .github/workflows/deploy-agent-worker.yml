@@ -115,9 +115,12 @@ jobs:
           SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
           SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
           SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_ORIGIN
+          # Names the Messages extension on a note's card (src/appCards.ts); cards stay off without it.
+          if [ -n "${APPLE_TEAM_ID:-}" ]; then printf '%s' "$APPLE_TEAM_ID" | pnpm exec wrangler secret put APPLE_TEAM_ID; fi
           for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET SENDBLUE_API_KEY_ID SENDBLUE_API_SECRET SENDBLUE_WEBHOOK_SECRET; do
             if [ -n "${!name:-}" ]; then
               printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
