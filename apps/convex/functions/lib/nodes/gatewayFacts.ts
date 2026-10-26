@@ -137,8 +137,14 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
       for (const key of await servedKeys(served)) {
         if (isIndexableNote(key) && !isPlumbing(key) && visible(key) && visible(logical(key))) notes.add(logical(key));
       }
-      const moving = queued.length > 0;
-      if (!notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: !moving } };
+      if (!notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
+      // Short only where a move touches the seed or a note this reader sees: a move anywhere else
+      // in the workspace, a private folder's included, must not change their answer.
+      const touched = (path: string) => logical(path) !== path && notes.has(logical(path));
+      const moving =
+        !rows.present ||
+        [...rows.byPath, ...rows.byName].some(touched) ||
+        rows.links.some((link) => link.kind === "path" && touched(link.target));
       const found = resolveNeighbors(
         seed,
         {
@@ -148,8 +154,8 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
         },
         notes,
       );
-      // Only the seed's own state and whether anything is moving, which this reader may see.
-      return { served: true, neighbors: { ...found, complete: rows.present && rows.current && !moving } };
+      // Only the seed's own state and moves among notes this reader may see.
+      return { served: true, neighbors: { ...found, complete: rows.current && !moving } };
     }
 
     if (body.ask === "forwarding") {

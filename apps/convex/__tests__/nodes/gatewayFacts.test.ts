@@ -29,7 +29,9 @@
  *  - dropping the seed's `visible` check: "a hidden seed answers what an
  *    absent one does" fails at member clearance;
  *  - a 200-row cap on each side whose overflow marks the answer incomplete:
- *    "hidden backlinkers never change a team reader's answer" fails.
+ *    "hidden backlinkers never change a team reader's answer" fails;
+ *  - marking every answer short while any move is queued: the same case
+ *    fails on its private move.
  */
 
 import { seedTreeRows } from "../fixtures.helpers";
@@ -380,6 +382,26 @@ describe("POST /gateway/tree/facts", () => {
     expect(before).toContain('"complete":true');
     await seedTreeRows(t, ws, Array.from({ length: 250 }, (_, n) => ({ path: `2-areas/hidden-${n}.md`, etag: `e-h${n}` })));
     await addLinks(t, ws, Array.from({ length: 250 }, (_, n): [string, "path", string] => [`2-areas/hidden-${n}.md`, "path", "1-projects/plan.md"]));
+    expect(await ask()).toBe(before);
+    // Nor does a move of a note they cannot see, though it links here.
+    await t.run(async (ctx) =>
+      ctx.db.insert("rowMoves", {
+        workspaceId: ws,
+        from: "1-projects/secret/codes.md",
+        to: "1-projects/secret/old/codes.md",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 0,
+        left: 1,
+        now: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
     expect(await ask()).toBe(before);
   });
 
