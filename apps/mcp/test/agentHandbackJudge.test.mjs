@@ -154,7 +154,7 @@ test("runTurn waits for the judge and gives the model one more round", async () 
 // "Namudol ... I can't give you a price for it. I didn't change anything, so there's nothing to undo."
 // Sabotage record: with `RECHECK_REPLACES` left off the notice in turn.js, this test fails.
 test("a notice's round is told its answer replaces the last one, and H8 never asks for a 'nothing to undo'", async () => {
-  const { RECHECK_REPLACES } = await import("../src/agent/turn.js");
+  const { RECHECK_REPLACES } = await import("../src/agent/recheck.js");
   const MAIN = "@cf/acme/main-model";
   const ai = scripted(["Want me to look up Namudol?", "Hibino $12, Sapps $15, Namudol $14."]);
   const claims = claimCheck({ question: "lunch near me with prices", judge: async () => noticeFor("H8") });
