@@ -103,6 +103,22 @@ test("move_notes by name moves only the notes directly in the folder whose names
   assert.equal(guard.changes.length, 230);
 });
 
+test("a long move by name stops starting batches before its time runs out, says what moved, and the same call carries on", async () => {
+  const session = sessionOver(PATHS);
+  let clock = 0;
+  const slow = async (name, args) => {
+    const result = await session.dispatch(name, args);
+    if (name === "move_notes") clock += 20_000;
+    return result;
+  };
+  const guard = housekeepingCallTool(slow, [], { now: () => clock, matchBudgetMs: 35_000 });
+
+  const first = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+  assert.notEqual(first.isError, true);
+  assert.match(first.content[0].text, /^moved 200 of 230 notes .* the other 30 are still in .* Send the same move again/);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [100, 100]);
+});
+
 test("a batch that asks for versions is planned first and sent again with the versions its plan names", async () => {
   const session = sessionOver(PATHS.slice(0, 3), (args) => {
     if (args.dry_run === true) {

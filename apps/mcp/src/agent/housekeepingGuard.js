@@ -153,6 +153,15 @@ function archivedTo(result) {
 const MATCH_BATCH = 100;
 
 /**
+ * How long a move by name keeps starting batches, well inside move_notes'
+ * own limit (`slowMoves.js`, 60 s): past it the call answers with what moved
+ * and says the rest are still there, rather than being cut off with nothing
+ * said. On 2026-10-26 a real run moved 11 notes of a 480-note folder and its
+ * log was the only record, so a long move now ends in words the model can act on.
+ */
+const MATCH_BUDGET_MS = 35_000;
+
+/**
  * A name pattern as a whole-name test, or null for none: `*` any run, `?` one
  * character, `[0-9]` or `[!x]` one of a set, `{01,02,03}` any one of the words
  * (so a quarter is `run-log-2026-{01,02,03}-*`).
@@ -219,7 +228,7 @@ function plannedEtags(result) {
  * @param {string[]} [runFolders] where Tex's and the website's folders are now (`protectedReason`)
  * @returns {{ callTool: (name: string, args: object) => Promise<object>, changes: object[], refusals: number }}
  */
-export function housekeepingCallTool(dispatch, runFolders = []) {
+export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now, matchBudgetMs = MATCH_BUDGET_MS } = {}) {
   // Dry runs and changes still running are the gateway's to report, never the model's to guess.
   const ledger = { changes: [], refusals: 0, dryRuns: 0, running: 0 };
   const refuse = (text) => {
@@ -324,7 +333,17 @@ export function housekeepingCallTool(dispatch, runFolders = []) {
       return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match and would go into ${into}/\n${[...shown, ...more].join("\n")}` }] };
     }
     let moved = 0;
+    const began = now();
     for (let start = 0; start < moves.length; start += MATCH_BATCH) {
+      if (start > 0 && now() - began > matchBudgetMs) {
+        return {
+          content: [{
+            type: "text",
+            text: `moved ${moved} of ${moves.length} notes from ${folder}/ into ${into}/ before this call's time ran out; ` +
+              `the other ${moves.length - moved} are still in ${folder}/. Send the same move again to carry on.`,
+          }],
+        };
+      }
       const batch = moves.slice(start, start + MATCH_BATCH);
       let result = await callTool("move_notes", { moves: batch });
       if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
