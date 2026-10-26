@@ -270,6 +270,15 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   counts split by the model that spent them, which is what a turn that
  *   changed model mid-way is priced by (`modelPlan.js` `meterParts`)
  */
+/**
+ * Said after every recheck notice: only the turn's last answer is sent, so
+ * the one written after a notice must carry the whole reply (the owner's
+ * 1:1, 2026-10-26: five priced lunch spots found, then a notice's round
+ * texted only "Namudol ... I can't give you a price for it").
+ */
+export const RECHECK_REPLACES =
+  "\n\nOnly your next answer is sent, in place of the one above, so it must stand on its own: keep every option, figure and link from it they still need, changed only as this note asks, and never mention this note.";
+
 export async function runTurn(options) {
   const {
     question,
@@ -565,7 +574,7 @@ export async function runTurn(options) {
     if (answer.toolCalls.length === 0) {
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
+      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck + RECHECK_REPLACES });
       continue;
     }
 

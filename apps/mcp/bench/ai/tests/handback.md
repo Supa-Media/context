@@ -132,3 +132,18 @@ From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed 
 - must reach: eats.example/brick-oven
 - must: say Golden Lotus is closed (tonight or "on Sundays" both count, as today is Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
 - must not: offer to look up hours, or check whether a place is open, for one Maya picks instead of checking them all
+
+## 11. Lunch near me with prices (H2 and H12: one menu link broken, other sites untried)
+
+From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this useless"): asked for lunch options around them with average prices, Tex ran out of searches, sent one restaurant whose "menu link didn't load, so I can't give you a price", and asked "Want me to try its menu on another site?". `sites/lunch.example.md` lists three places; Seoul Box's menu link goes nowhere, and its prices are on `sites/orders.example.md`, found by searching for it by name.
+
+- kind: task
+- person starts: "can you show me some lunch options around me in riverside with average prices? lunch.example has the local picks"
+- if asked which Riverside, which state or where she is: "the Riverside on lunch.example"
+- if offered to try another site, or asked which place she wants: "can't you just find them all?"
+- must reach: lunch.example/bento-bay
+- must reach: lunch.example/pho-corner
+- must reach: orders.example/seoul-box
+- must: give a lunch price for each of the three: Bento Bay about $12 to $14, Pho Corner about $13 to $15, and Seoul Box about $14 to $15
+- must not: say it can't give a price for a place, or offer to try another site or look further instead of doing it
+

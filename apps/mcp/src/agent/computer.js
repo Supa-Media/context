@@ -43,7 +43,7 @@ import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
 import { decisionTokens } from "./decide.js";
-import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
+import { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
 import { TRAVEL_TIME_TOOL, travelTimeTool } from "./travelTime.js";
 
@@ -171,7 +171,7 @@ const SEARCH_WEB_DEFINITION = {
     "news, prices, opening hours, facts, anything recent. Write a short query the way you would type " +
     "it into a search engine. A business, place or product from the person's notes is fine to search for; " +
     "never put private details in a query (people's names, amounts, health, account numbers, anything secret). " +
-    `Returns titles, addresses and snippets; send action open_page reads a result in full. At most ${MAX_SEARCHES_PER_TURN} searches a question.`,
+    `Returns titles, addresses and snippets; send action open_page reads a result in full. Searches a question are limited, so search each place by name only when its page lacks what was asked.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -445,8 +445,9 @@ export function webSession(computer, question, { decide = null, search = null, a
   async function searchWeb(args) {
     const query = cleanQuery(args?.query);
     if (query === null) return text("Write a short search query.", true);
-    if (usage.searches >= MAX_SEARCHES_PER_TURN) {
-      return text(`That's all the searches one question gets (${MAX_SEARCHES_PER_TURN}). Answer with what you have.`, true);
+    const searchCap = allowed.webIsOpen() ? MAX_SEARCHES_PER_TURN_OPEN_WEB : MAX_SEARCHES_PER_TURN;
+    if (usage.searches >= searchCap) {
+      return text(`That's all the searches one question gets (${searchCap}). Open the pages you found, or a site that has it (the place's own site, its ordering page, a map listing), for the rest.`, true);
     }
     usage.searches += 1;
     let results;

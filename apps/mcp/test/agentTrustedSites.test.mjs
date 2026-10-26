@@ -222,3 +222,25 @@ test("open_page opens an address the model chose only when the setup opens the w
   assert.notEqual((await session.call(OPEN_PAGE_TOOL, { urls: [url] })).isError, true);
   assert.deepEqual(computer.opened, [url]);
 });
+
+// Sabotage record (2026-10-26): with the open-web search cap set back to 3, this test fails.
+test("open web lifts the question's searches to MAX_SEARCHES_PER_TURN_OPEN_WEB, and the cap points at pages, not giving up", async () => {
+  const { SEARCH_WEB_TOOL } = await import("../src/agent/computer.js");
+  const { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB } = await import("../src/agent/search.js");
+  const search = { search: async () => [{ title: "Lunch", url: "https://example.com/lunch", description: "" }] };
+  const run = async (openWeb) => {
+    const session = webSession(fakeComputer(), "lunch near me with prices", { search });
+    session.trust([], { openWeb });
+    const replies = [];
+    for (let i = 0; i <= MAX_SEARCHES_PER_TURN_OPEN_WEB; i += 1) replies.push(await session.call(SEARCH_WEB_TOOL, { query: `lunch ${i}` }));
+    return replies;
+  };
+  assert.ok(MAX_SEARCHES_PER_TURN_OPEN_WEB > MAX_SEARCHES_PER_TURN);
+  const closed = await run(false);
+  assert.equal(closed.findIndex((reply) => reply.isError === true), MAX_SEARCHES_PER_TURN);
+  const open = await run(true);
+  assert.equal(open.findIndex((reply) => reply.isError === true), MAX_SEARCHES_PER_TURN_OPEN_WEB);
+  // The owner's 1:1, 2026-10-26: "Answer with what you have" ended a lunch search with one place and no price.
+  assert.doesNotMatch(JSON.stringify(open.at(-1)), /Answer with what you have/);
+  assert.match(JSON.stringify(open.at(-1)), /Open the pages you found/);
+});

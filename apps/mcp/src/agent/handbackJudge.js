@@ -98,7 +98,7 @@ export const CODE_NOTICES = {
   H5: "you say you can't without having tried. Try it, then say what failed if it did. ",
   H6: "you ask them to check what you read. Look again yourself and say where you read it. ",
   H7: "you ask again after they said yes, or ask leave to fix your own mistake. Their yes stands: do it, or fix it, and say it's done. ",
-  H8: "you ask them to confirm something harmless that can be undone. Do it and say how to undo it. ",
+  H8: "you ask them to confirm something harmless that can be undone. Do it, and if it changed something, say how to undo it (a lookup changes nothing: never say there is nothing to undo). ",
   H9: "you ask for something you can find in their mail, notes, calendar or accounts. Find it. ",
   H10: "you give them a menu. Pick the best one with your reason, and offer at most one other. ",
   H11: "you ask them to report back when you can check yourself. Write a routine note under tex/routines/<schedule>/ to check it, and say you'll text when it's done. ",
