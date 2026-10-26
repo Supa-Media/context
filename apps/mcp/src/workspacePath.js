@@ -131,4 +131,8 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // The person's own view of Tex's browser, `/tex/computer` (`http/texComputer.js`).
   // Already in the control plane's RESERVED_NAMES as the assistant's name.
   "tex",
+  // The Mac app's Messages backup, `POST /messages/imessage/batch`
+  // (`communications/messagesBackup.js`). Also in the control plane's
+  // RESERVED_NAMES, for the reason `presence` is.
+  "messages",
 ]);
