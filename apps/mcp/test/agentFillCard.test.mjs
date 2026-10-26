@@ -1,13 +1,18 @@
 /**
  * `fill_card` (`src/agent/fillCard.js`) and the payment ask (`src/vault/pay.js`):
  * the agent fills a saved card at a checkout and never holds it, and only on
- * the person's yes in the Context app, given each time, for one AI on one site.
+ * the person's yes in the Context app, given once a purchase, for one AI on
+ * one site and one total.
  *
  * Sabotage these and a test here fails:
  *
  *  1. `payAllowed` returning allowed with no grant → "nothing is filled before
  *     the person's yes".
- *  2. The spend in `payAllowed` dropped (grant kept) → "one yes is one fill".
+ *  2. The spend in `payAllowed` dropped (grant kept) → "one yes is one
+ *     purchase". `FILLS_PER_YES` back at 1 → the same test and "a refused box
+ *     says the yes still covers filling again" (the 2026-10-26 Vamoose
+ *     checkout asked three times). `yesFor` ignoring the total → "a different
+ *     total asks again".
  *  3. `yesFor` ignoring the host → "a yes on one site fills nowhere else".
  *  4. `/approvals` offering approve_always for a payment → "the app is offered
  *     approve or deny, never from now on".
@@ -128,7 +133,7 @@ const leaks = (value) => {
   const shown = JSON.stringify(value);
   return shown.includes(NUMBER) || shown.includes(`"${CVC}"`) || shown.includes(` ${CVC}`);
 };
-const PAY = { number_ref: 1, exp_ref: 2, cvc_ref: 3 };
+const PAY = { total: "$12.00", number_ref: 1, exp_ref: 2, cvc_ref: 3 };
 
 async function checkout(store, url = "https://shop.example/checkout", { redirect } = {}) {
   const computer = fakeComputer({ redirect });
@@ -165,7 +170,7 @@ test("nothing is filled before the person's yes, and asking again raises no seco
   const { computer, web } = await checkout(store);
   const first = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
   assert.equal(first.isError, true);
-  assert.match(first.content[0].text, /Waiting for the person to allow paying with Visa ••4242, expires 08\/29 on shop\.example/);
+  assert.match(first.content[0].text, /Waiting for the person to allow paying \$12\.00 with Visa ••4242, expires 08\/29 on shop\.example/);
   await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
   assert.equal(fills(computer).length, 0);
   assert.equal(pending(store).length, 1);
@@ -180,14 +185,14 @@ test("the app is offered approve or deny, never from now on, and the ask names t
   const [waiting] = listed.body.approvals;
   assert.equal(waiting.kind, "vault_pay");
   assert.deepEqual(waiting.choices, ["approve", "deny"]);
-  assert.match(waiting.summary, /let Claude Code pay with your Visa ••4242, expires 08\/29 on shop\.example/);
+  assert.match(waiting.summary, /let Claude Code pay \$12\.00 with your Visa ••4242, expires 08\/29 on shop\.example/);
   assert.equal(leaks(listed.body), false);
   const always = await app(store, "POST", { id: waiting.id, action: "approve_always" });
   assert.equal(always.status, 400);
   assert.equal(pending(store).length, 1, "the refused answer leaves the ask waiting");
 });
 
-test("one yes is one fill: the boxes get the card, and the model is told only which parts", async () => {
+test("a yes fills: the boxes get the card, and the model is told only which parts", async () => {
   const { store, id } = await vaultWith();
   const { computer, web } = await checkout(store);
   await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
@@ -209,15 +214,68 @@ test("one yes is one fill: the boxes get the card, and the model is told only wh
       { ref: 3, origin: "https://shop.example", field: "cc-cvc" },
     ],
   );
-  const meta = await readMeta(store, KEYS, "ws_1", id);
-  assert.deepEqual(meta.pay ?? [], [], "the yes was spent");
+  assert.match(filled.content[0].text, /never pay twice/);
+});
 
-  // A second fill, in a later question, asks again.
-  const { computer: again, web: later } = await checkout(store);
-  const second = await later.call(FILL_CARD_TOOL, { entry: id, ...PAY });
-  assert.equal(second.isError, true);
-  assert.match(second.content[0].text, /Waiting for the person/);
-  assert.equal(fills(again).length, 0);
+// The owner's review, 2026-10-26: a Vamoose checkout asked for the same 👍
+// three times, once after a menu refused the fill and once after the page reset.
+test("one yes is one purchase: refills of the same total don't ask again, a different total does", async () => {
+  const { store, id } = await vaultWith();
+  const { web } = await checkout(store);
+  await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+  await allow(store);
+
+  // The first fill, then the page resets and a later question fills again, spelling the total its own way.
+  for (const total of ["$12.00", "$12", "$12.0"]) {
+    const { computer, web: later } = await checkout(store);
+    const filled = await later.call(FILL_CARD_TOOL, { entry: id, ...PAY, total });
+    assert.notEqual(filled.isError, true, `${total}: ${JSON.stringify(filled)}`);
+    assert.equal(fills(computer).length, 3);
+  }
+  assert.equal(pending(store).length, 0, "nobody was asked again");
+  const meta = await readMeta(store, KEYS, "ws_1", id);
+  assert.deepEqual(meta.pay ?? [], [], "the yes's fills are spent");
+
+  // Spent: the next fill asks again.
+  const { computer: spent, web: after } = await checkout(store);
+  const again = await after.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+  assert.equal(again.isError, true);
+  assert.match(again.content[0].text, /Waiting for the person/);
+  assert.equal(fills(spent).length, 0);
+});
+
+test("a different total asks again, and a fill with no total is refused before anyone is asked", async () => {
+  const { store, id } = await vaultWith();
+  const { web } = await checkout(store);
+  for (const total of [undefined, "", "twelve dollars", "12", "$12 or $14", "$1.2.3"]) {
+    const refused = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY, total });
+    assert.equal(refused.isError, true, String(total));
+    assert.match(refused.content[0].text, /total must be/);
+  }
+  assert.equal(pending(store).length, 0);
+  await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+  await allow(store);
+  const { computer, web: later } = await checkout(store);
+  const dearer = await later.call(FILL_CARD_TOOL, { entry: id, ...PAY, total: "$120.00" });
+  assert.equal(dearer.isError, true);
+  assert.match(dearer.content[0].text, /allow paying \$120\.00/);
+  assert.equal(fills(computer).length, 0);
+});
+
+test("a refused box says the yes still covers filling again", async () => {
+  const { store, id } = await vaultWith();
+  const { computer, web } = await checkout(store);
+  await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+  await allow(store);
+  // Box 4 is the ZIP: the expiry aimed at it is refused by the browser.
+  const wrong = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY, exp_ref: 4 });
+  assert.equal(wrong.isError, true);
+  assert.match(wrong.content[0].text, /still covers 2 more fills of this \$12\.00 purchase/);
+  assert.doesNotMatch(wrong.content[0].text, /asks the person again/);
+  const right = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
+  assert.notEqual(right.isError, true, JSON.stringify(right));
+  assert.equal(computer.typed[2], "08/29");
+  assert.equal(pending(store).length, 0);
 });
 
 test("a yes on one site fills nowhere else, and is never another AI's", async () => {
@@ -316,7 +374,7 @@ describe("Tex asks by text", () => {
     assert.equal(ledger.asked.length, 1);
     assert.equal(ledger.asked[0].texting, false, "raised unarmed: only a texted ask arms it");
     const { ask } = await textedAsk(store, SESSION, ledger.asked);
-    assert.equal(ask, "Before I pay, I need your OK to pay with your Visa ••4242, expires 08/29 on shop.example. Give it a 👍 and I'll fill it in.");
+    assert.equal(ask, "Before I pay, I need your OK to pay $12.00 with your Visa ••4242, expires 08/29 on shop.example. Give it a 👍 and I'll fill it in.");
     assert.equal(leaks(ask), false);
     assert.equal(fills(computer).length, 0);
     // Armed for no longer than the ask's own ten minutes.

@@ -514,7 +514,7 @@ its storage…", "a full jar gives up the IndexedDB…"). A Firebase-shaped
 sign-in read from one Chromium and restored into a fresh one, before the
 page's own open, was checked by hand; another origin stayed signed out.
 
-### A card pays only on the person's yes, each time
+### A card pays only on the person's yes, once a purchase
 
 Decided by the owner, 2026-10-21 ("add cards to the vault please"). A card is
 an entry of type `card` whose values are fixed fields (`number`, `exp_month`,
@@ -535,12 +535,12 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   card is used at shops nobody can list in advance; the yes below is what
   keeps that safe, and it names the site.
 - **The yes.** `fill_card` (`apps/mcp/src/agent/fillCard.js`) asks first,
-  every time (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
+  once a purchase (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
   text (the owner chose "Ask by text, every payment" on 2026-10-21, over an
   ask in the app and over a per-site yes): the gateway adds "Before I pay, I
-  need your OK to pay with your Visa ••4242 on shop.example. Give this a 👍 or say yes" to
-  the answer, in its own words, naming the card and the site the browser is
-  on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
+  need your OK to pay $12.00 with your Visa ••4242 on shop.example. Give this a 👍 or say yes" to
+  the answer, in its own words, naming the total, the card and the site the
+  browser is on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
   pay it"); "ok" or "sure" sets the ask aside, a no drops it
   (`apps/mcp/src/agent/textedPay.js`). The yes does not end the turn: the
   model is told what was allowed and fills the card in the browser it left
@@ -548,14 +548,32 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   texted asks do. Any other AI, and a card in a workspace other than the
   turn's own, is asked in the Context app instead, Allow or No. There is
   never a "from now on", because a payment cannot be taken back. A yes
-  writes one fill into the card's sealed meta, for that AI (client id), that
-  host, that person, for ten minutes, spent by a conditional write before the
-  card is typed, so two fills racing on one yes fill once. Storage without
+  writes one purchase into the card's sealed meta, for that AI (client id),
+  that host, that person and that total, for thirty minutes and at most
+  three fills, each spent by a conditional write before the card is typed,
+  so two fills racing on a yes's last fill fill once. A different total asks
+  again. Storage without
   conditional writes fills no card. Nothing is opened before the yes; a site
   the card isn't for, a page that isn't https, and a box the card has nothing
   for are refused before anyone is asked. A page Tex reads can make Tex ask,
   which is why the ask names the site and the card in the gateway's words:
   the person is answering about that checkout, not about the model's story.
+- **One yes, one purchase (2026-10-26).** A Vamoose bus checkout asked for
+  the same 👍 three times: the expiry menu refused the fill (its picker's
+  digit pattern had lost its backslash in the page script, so no numbered
+  menu ever matched), and then the cart timed out and was rebuilt, and each
+  fill had spent the yes. The owner's ask was that one yes cover the whole
+  purchase while the card and the amount stay the same. So `fill_card` names
+  the total the page shows, the ask says it, and the yes lasts for refills of
+  that purchase: a box refused and filled again, a page reset and filled
+  again. Going back to one fill per yes asks the person again for every
+  hiccup; dropping the total from the match lets a yes for $12 fill a $120
+  cart. The model is told the yes covers one purchase and never to pay twice
+  with it. Menus are picked by number, by "8 - Aug" or by month name, and a
+  one-box expiry aimed at a menu picks its month or its year
+  (`infra/site-shots/src/cardMenus.ts`). Tests:
+  `apps/mcp/test/agentFillCard.test.mjs` ("one yes is one purchase…", "a
+  different total asks again…") and `infra/site-shots/src/cardMenus.test.ts`.
 - **What the model sees.** The card's label and which parts were filled.
   Never a digit. It fills and never pays: the model presses the checkout's
   button itself with `browse`, after telling the person the total. The

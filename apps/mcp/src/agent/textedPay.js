@@ -1,7 +1,7 @@
 /**
  * A texted yes to a card's payment ask (`vault/pay.js`): settled before any
  * model runs, like every texted yes (`textedApprovals.js`), but it does not
- * end the turn. The yes is one fill of the card on that site; filling it is
+ * end the turn. The yes is one purchase with the card on that site; filling it is
  * the model's next step in the browser it left on the checkout, so the turn
  * goes on to the model with a line saying what the person allowed.
  *
@@ -63,6 +63,7 @@ export function paidLine(allowed) {
   const each = allowed.map((summary) => `"${String(summary).slice(0, 200)}"`).join(", ");
   return (
     `(Context: the person just texted yes to ${each}. Fill the card now with fill_card on the checkout your browser is on, ` +
-    "then press the page's pay button with browse and tell them it is done. The yes is for one fill in the next 10 minutes.)"
+    "then press the page's pay button with browse and tell them it is done. The yes covers this one purchase for the next 30 minutes, " +
+    "filling again included if a box is refused or the page resets, so never ask them again for it.)"
   );
 }
