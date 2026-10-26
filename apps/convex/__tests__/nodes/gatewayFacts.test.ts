@@ -27,7 +27,9 @@
  *    same case fails (the rename of a private folder the team reaches
  *    through a shared note goes missing, as the tree would still show it);
  *  - dropping the seed's `visible` check: "a hidden seed answers what an
- *    absent one does" fails at member clearance.
+ *    absent one does" fails at member clearance;
+ *  - a 200-row cap on each side whose overflow marks the answer incomplete:
+ *    "hidden backlinkers never change a team reader's answer" fails.
  */
 
 import { seedTreeRows } from "../fixtures.helpers";
@@ -362,6 +364,23 @@ describe("POST /gateway/tree/facts", () => {
     const mine = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "2-areas/mine.md" });
     // [[later]] matches two visible notes, so it names neither.
     expect(mine.neighbors.links).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("hidden backlinkers never change a team reader's answer, however many", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    // The seed's own links read, so its answer is whole and anything that made it short would show.
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as MutationCtx["db"];
+      const plan = await db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", "1-projects/plan.md")).unique();
+      await ctx.db.patch(plan!._id, { parsed: plan!.etag });
+    });
+    const ask = async () => responseFingerprint(await gatewayPost(t, "/gateway/tree/facts", { accessToken: MEMBER, expectedWorkspaceId: ws, ...NEIGHBORS }));
+    const before = await ask();
+    expect(before).toContain('"complete":true');
+    await seedTreeRows(t, ws, Array.from({ length: 250 }, (_, n) => ({ path: `2-areas/hidden-${n}.md`, etag: `e-h${n}` })));
+    await addLinks(t, ws, Array.from({ length: 250 }, (_, n): [string, "path", string] => [`2-areas/hidden-${n}.md`, "path", "1-projects/plan.md"]));
+    expect(await ask()).toBe(before);
   });
 
   test("a hidden seed answers what an absent one does", async () => {

@@ -132,7 +132,8 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
       if (!rows.present || !notes.has(seed)) return { served: true, neighbors: { links: [], backlinks: [], complete: true } };
       return {
         served: true,
-        neighbors: { ...resolveNeighbors(seed, rows, notes), complete: rows.current && !rows.capped },
+        // Only the seed's own state, which this reader may see: nothing about hidden notes reaches it.
+        neighbors: { ...resolveNeighbors(seed, rows, notes), complete: rows.current },
       };
     }
 

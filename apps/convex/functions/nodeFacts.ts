@@ -363,16 +363,15 @@ export const candidates = internalQuery({
   },
 });
 
-/** Link rows one neighbors read takes on each side; past it the answer says it may be short. */
-export const NEIGHBOR_ROWS = 200;
-
 const linkValidator = v.object({ kind: v.union(v.literal("path"), v.literal("name")), target: v.string() });
 
 /**
  * One note's link rows, for `related_notes` (`lib/nodes/neighbors.ts` resolves
  * them): what it links to, and the notes linking to its path or its bare name.
- * Unfiltered, like `candidates`; the caller judges every path. `null` until
- * the facts have read every note once.
+ * Unfiltered, like `candidates`; the caller judges every path. Every row is
+ * read, as `candidates` reads them: a cap counted over rows the reader may not
+ * see would tell them how many such notes link here. `null` until the facts
+ * have read every note once.
  */
 export const neighbors = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
@@ -381,7 +380,6 @@ export const neighbors = internalQuery({
     v.object({
       present: v.boolean(),
       current: v.boolean(),
-      capped: v.boolean(),
       links: v.array(linkValidator),
       byPath: v.array(v.string()),
       byName: v.array(v.string()),
@@ -393,22 +391,21 @@ export const neighbors = internalQuery({
     const outgoing = await ctx.db
       .query("nodeLinks")
       .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId).eq("source", path))
-      .take(NEIGHBOR_ROWS + 1);
+      .collect();
     const pointing = (target: string, kind: "path" | "name") =>
       ctx.db
         .query("nodeLinks")
         .withIndex("by_workspace_target", (q) => q.eq("workspaceId", workspaceId).eq("target", target).eq("kind", kind))
-        .take(NEIGHBOR_ROWS + 1);
+        .collect();
     const byPath = await pointing(path, "path");
     const byName = await pointing(bareNameOf(path), "name");
     const row = await liveNode(ctx.db, workspaceId, path);
     return {
       present: row !== null,
       current: row !== null && factsCurrent(row),
-      capped: [outgoing, byPath, byName].some((rows) => rows.length > NEIGHBOR_ROWS),
-      links: outgoing.slice(0, NEIGHBOR_ROWS).map(({ kind, target }) => ({ kind, target })),
-      byPath: byPath.slice(0, NEIGHBOR_ROWS).map((link) => link.source),
-      byName: byName.slice(0, NEIGHBOR_ROWS).map((link) => link.source),
+      links: outgoing.map(({ kind, target }) => ({ kind, target })),
+      byPath: byPath.map((link) => link.source),
+      byName: byName.map((link) => link.source),
     };
   },
 });
