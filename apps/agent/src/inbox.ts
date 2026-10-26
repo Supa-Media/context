@@ -51,7 +51,9 @@ import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { carouselRun, isRefusal } from "./carousel";
-import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { sendCardPart, sendPicture } from "./sendParts";
+import { withPickCard, type Choice } from "./pickCard";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
@@ -340,7 +342,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
           const handle = await line.sendText(item.message.chatId, part, key, thread);
           await rememberText(storage, item.message.chatId, handle, part, deps.now());
         }
-        else await sendPicture(deps, item.message.chatId, part.media, key, thread);
+        else if ("card" in part) await sendCardPart(line, item.message.chatId, part.card, thread);
+        else await sendPicture(line, item.message.chatId, part.media, key, thread);
         sent = index + 1;
       }
       await storage.delete(key);
@@ -463,6 +466,7 @@ export const ACKNOWLEDGE_AFTER_MS = 10_000;
  */
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<SendPart[]> {
   let pictures: OutgoingPicture[] = [];
+  let choices: Choice[] = [];
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
   const onSetUp = () =>
     oweReadyText(
@@ -487,7 +491,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onToldDelivered: () => clearTold(storage, told),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
-      onPictures: (sent) => void (pictures = sent),
+      onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
@@ -504,7 +508,8 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return await partsFor(texts, pictures, upload);
+  // A set of option cards is followed by the card to choose one with a tap (`pickCard.ts`).
+  return withPickCard(await partsFor(texts, pictures, upload), choices, message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard);
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
@@ -535,22 +540,6 @@ async function dropSteered(storage: InboxStorage, ids: string[]): Promise<void> 
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   for (const [key, item] of pending) {
     if (item.reply === undefined && ids.includes(item.message.eventId)) await storage.delete(key);
-  }
-}
-
-/**
- * A picture that Linq refuses (a web address that is gone, or not an image)
- * becomes a sentence saying so rather than a reply retried until dropped; a
- * failure that is not a refusal is retried with the reply.
- */
-async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string, thread?: string) {
-  const line = lineFor(lineDeps(deps), chatId);
-  try {
-    await line.sendMedia(chatId, media, key, thread);
-  } catch (error) {
-    const status = (error as { status?: number | null }).status;
-    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`, thread);
   }
 }
 

@@ -286,3 +286,26 @@ test("a texted list that drew nothing goes back once, and comes out as a card an
     world.restore();
   }
 });
+
+test("option cards drawn in a texted turn reach the texting Worker as choices, for the one-tap pick card", async () => {
+  const { createEgressWorld, request, TOKEN_TEXTS } = await import("./agentEgressFixtures.mjs");
+  const world = await createEgressWorld();
+  try {
+    const shots = siteShots();
+    const env = { ...world.env, SITE_SHOTS: shots.SITE_SHOTS };
+    const option = (index, name, extra = {}) => ({ name: "send", args: { action: VISUAL_TOOL, args: { template: "option", data: { index, of: 2, name, ...extra } } } });
+    world.model.install([
+      { toolCalls: [option(1, "Blend LIC", { price: "$225", pick: true }), option(2, "Lugo's", { price: "$230" })] },
+      { text: "Both fit the $300. Blend LIC is cheapest.\n\n[picture 1]\n[picture 2]" },
+    ]);
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "show me catering options for 30", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(asked.body.pictures.length, 2);
+    assert.deepEqual(asked.body.choices, [
+      { name: "Blend LIC", price: "$225", pick: true, picture: 0 },
+      { name: "Lugo's", price: "$230", picture: 1 },
+    ]);
+  } finally {
+    world.restore();
+  }
+});

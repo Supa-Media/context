@@ -19,6 +19,7 @@
 import type { GatewayAttachment } from "./attachments";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import { readChoices, type Choice } from "./pickCard";
 import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
@@ -223,7 +224,7 @@ export type AgentAnswer =
   /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps; `unfinished`: a job's answer stopped short of the ask. */
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -344,6 +345,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       kind: "answer",
       text: body.answer.trim(),
       pictures,
+      ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),

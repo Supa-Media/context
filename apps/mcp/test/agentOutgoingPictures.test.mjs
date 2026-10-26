@@ -180,3 +180,25 @@ test("an address read before the model used it stays vouched when a tool repeats
   await page("browse", { url: "https://cdn.example.com/logo.png" });
   assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
 });
+
+test("option cards sent together carry their choices, so the person can pick with one tap", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "places", data: { title: "Near you" } });
+  await draw("draw_visual", { template: "option", data: { index: 1, of: 2, name: "  Via\nCarota ", price: "$$", pick: true } });
+  await draw("draw_visual", { template: "option", data: { index: 2, of: 2, name: "Bar Pitti" } });
+  const { choices } = outgoing.take("Two good ones.\n[picture 2]\n[picture 3]\n[picture 1]");
+  assert.deepEqual(choices, [
+    { name: "Via Carota", price: "$$", pick: true, picture: 0 },
+    { name: "Bar Pitti", picture: 1 },
+  ]);
+});
+
+test("one option card, or option cards never sent, offer no choice", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "option", data: { name: "Via Carota" } });
+  await draw("draw_visual", { template: "option", data: { name: "Bar Pitti" } });
+  assert.deepEqual(outgoing.take("Just this one.\n[picture 1]").choices, []);
+  assert.deepEqual(outgoingPictures({ enabled: false }).take("x").choices, undefined);
+});

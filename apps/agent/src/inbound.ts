@@ -83,7 +83,7 @@ export type Inbound =
   /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
   /** `on`: Sendblue named the message it was on rather than quoting it; its words are read before queueing (`sendblueTapbacks.ts`). */
   | { kind: "reaction"; eventId: string; chatId: string; from: string; messageId: string; reaction: Reaction; on?: string }
-  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
+  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" | "app_card" }
   | { kind: "invalid" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

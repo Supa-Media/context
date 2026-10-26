@@ -598,7 +598,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: told, pictures, captions } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
+    const { answer: told, pictures, captions, choices = [] } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -647,7 +647,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
       ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
       ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
-      ...(pictures.length > 0 ? { pictures } : {}),
+      ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), // choices: `outgoingPictures.js`
       ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
       provider: turn.provider,
       model: turn.model,
