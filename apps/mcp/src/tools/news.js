@@ -41,6 +41,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-26",
+    text:
+      "move_note into another workspace no longer takes `confirm_team_publish`: every such move runs the engine the console's Move uses, " +
+      "which keeps a private note private where it lands.",
+  },
+  {
+    date: "2026-10-26",
     newTool: true,
     text:
       "fetch a note with `{ related: true }` (and `limit`, 1 to 25) for the notes around it, each with why: the notes it links to " +
@@ -330,7 +336,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "d2af3e4a";
+export const TOOL_SHAPE = "d918d868";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

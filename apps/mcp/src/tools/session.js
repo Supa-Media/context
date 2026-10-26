@@ -491,12 +491,10 @@ async function routeToolCall(params, store, session, routed) {
       toolMoveNoteAcrossContexts(
         sourceTarget.store,
         sourceTarget.session,
-        destinationTarget.store,
         destinationTarget.session,
         crossArgs.source,
         crossArgs.destination,
-        crossArgs.expected_source_etag,
-        crossArgs.confirm_team_publish === true
+        crossArgs.expected_source_etag
       )
     );
     reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);

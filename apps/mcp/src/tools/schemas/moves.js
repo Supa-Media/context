@@ -94,11 +94,6 @@ export function searchAndMoveToolDefinitions() {
             type: "string",
             description: "Optional etag from read_note for conflict-safe moves",
           },
-          confirm_team_publish: {
-            type: "boolean",
-            description:
-              "Required when a cross-context move publishes a private source note into team-visible destination scope.",
-          },
         },
         required: ["source", "destination"],
         additionalProperties: false,

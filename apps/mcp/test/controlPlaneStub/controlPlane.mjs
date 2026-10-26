@@ -34,6 +34,7 @@ import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
 import { createDreamRoutes } from "./dreams.mjs";
+import { createMoveRoutes } from "./moves.mjs";
 import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
 
 const encoder = new TextEncoder();
@@ -299,6 +300,7 @@ export function createControlPlaneStub(options = {}) {
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);
+  const moves = createMoveRoutes(grantForAccessToken, coveredContexts);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -876,7 +878,8 @@ export function createControlPlaneStub(options = {}) {
       default: {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
-          (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body));
+          (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
+          (await moves.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -937,6 +940,7 @@ export function createControlPlaneStub(options = {}) {
     revoke,
     mailboxes: mail.mailboxes,
     dreams,
+    moves,
     issueCode,
     setBuiltinVerdict,
     holdRules,

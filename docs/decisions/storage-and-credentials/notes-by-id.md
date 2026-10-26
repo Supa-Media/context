@@ -309,10 +309,16 @@ does its keyed half through its own credential barrier:
   the note would land readable by the destination's team. A full pending list
   stops the move before anything lands.
 - **From an AI client,** `move_note` into another workspace asks the same
-  engine (`POST /gateway/moves/across`, `tools/moves/acrossKeyed.js`) when
-  either end is keyed, and the gateway writes no bytes itself. The route
-  serves only an owner of the source with private access and an editor or
-  owner of the destination, and answers every other caller alike.
+  engine (`POST /gateway/moves/across`, `tools/moves/acrossKeyed.js`), and
+  the gateway writes no bytes itself. The route serves only an owner of the
+  source with private access and an editor or owner of the destination, and
+  answers every other caller alike. Since 2026-10-26 (Dev2's go to delete the
+  not-keyed branches) this is the only cross-workspace move: the gateway's
+  path-based copy-then-delete, with its own `confirm_team_publish` and
+  rollback, is gone, and a store with no engine refuses before reading
+  anything (`test/keyedMoveAcross.test.mjs`). The engine's `contextMoves` row
+  is the move's record, so the `POST /gateway/moves` report
+  (`recordAgentMove`) has no caller left.
 
 What a "simplification" would cost: listing the bucket in a keyed source plans
 the frozen copies, and narrowing through the rules file in rows mode publishes

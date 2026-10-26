@@ -1,18 +1,18 @@
 /**
- * `move_note` into another workspace when either end is keyed
- * (`src/tools/moves/acrossKeyed.js`): the gateway asks the control plane's
- * engine, which carries the note and trashes the source, and writes no bytes
- * itself. A store with no control plane still refuses, as before
- * (`keyedWorkspaceRefusals.test.mjs`).
+ * `move_note` into another workspace (`src/tools/moves/acrossKeyed.js`): the
+ * gateway asks the control plane's engine, which carries the note and trashes
+ * the source, and writes no bytes itself. There is no path-based move to fall
+ * back to: a store with no engine refuses.
  *
  * Sabotage, each confirmed to fail a case here:
- *  - call the path-based move instead of the engine: the keyed case writes bytes;
+ *  - skip the engine-seam check: the store with no engine is not refused;
  *  - drop the etag check: the stale-version case asks the engine anyway;
  *  - read an engine refusal (`null`) as a move: the refused case says "moved".
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolMoveNoteAcrossContexts } from "../src/tools/moves/acrossContexts.js";
+import { KEYED_PATH_REFUSAL } from "../src/store/idLayout.js";
 
 /** A bucket fake that records every write, keyed or not as asked, with the engine seam. */
 function workspace({ keyed, answer, files = {} }) {
@@ -56,7 +56,7 @@ const NOTE = { "1-projects/plan.md": { body: "# Plan\n", etag: "e1" } };
 
 async function move(source, destination, etag) {
   const result = await toolMoveNoteAcrossContexts(
-    source.store, SOURCE, destination.store, DESTINATION, "1-projects/plan.md", "1-projects/plan.md", etag, true
+    source.store, SOURCE, DESTINATION, "1-projects/plan.md", "1-projects/plan.md", etag
   );
   return { text: result.content[0].text, isError: result.isError === true };
 }
@@ -75,8 +75,8 @@ test("a keyed note moves through the engine, and the gateway writes nothing", as
   assert.deepEqual(destination.writes, []);
 });
 
-test("either end keyed is enough to go through the engine", async () => {
-  for (const [from, to] of [[true, false], [false, true]]) {
+test("every move goes through the engine, whatever either store says about being keyed", async () => {
+  for (const [from, to] of [[true, false], [false, true], [false, false]]) {
     const source = workspace({ keyed: from, files: NOTE, answer: { status: "complete", movedObjects: 1, skipped: [] } });
     const destination = workspace({ keyed: to });
     const { isError } = await move(source, destination);
@@ -110,8 +110,17 @@ test("the engine's refusals come back as errors, never as a move", async () => {
   }
 });
 
-test("two workspaces that are not keyed never ask the engine", async () => {
-  const source = workspace({ keyed: false, files: NOTE, answer: { status: "complete", movedObjects: 1, skipped: [] } });
-  await move(source, workspace({ keyed: false }));
-  assert.deepEqual(source.asked, []);
+test("a store with no engine is refused before anything is read or written", async () => {
+  const source = workspace({ keyed: false, files: NOTE });
+  delete source.store.moveAcross;
+  const reads = [];
+  const { get, head } = source.store;
+  source.store.get = async (key) => (reads.push(key), get(key));
+  source.store.head = async (key) => (reads.push(key), head(key));
+  const destination = workspace({ keyed: false });
+  const { text, isError } = await move(source, destination, "e1");
+  assert.equal(isError, true);
+  assert.equal(text, KEYED_PATH_REFUSAL);
+  assert.deepEqual(reads, []);
+  assert.deepEqual([...source.writes, ...destination.writes], []);
 });
