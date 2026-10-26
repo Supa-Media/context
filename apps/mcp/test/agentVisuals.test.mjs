@@ -68,6 +68,11 @@ const EXAMPLES = {
   streak: { count: 12, title: "days in a row", marks: "0111111111111" },
 };
 
+test("a card that won't draw leaves the whole answer in words", () => {
+  // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list.
+  assert.match(VISUALS_LINE, /If draw_visual fails, text it all in words, no word of the card/);
+});
+
 test("every template draws from its example, at 1200x1500, with its words on the card", () => {
   assert.deepEqual(Object.keys(EXAMPLES).sort(), [...VISUAL_TEMPLATES].sort(), "an example for every template");
   for (const template of VISUAL_TEMPLATES) {

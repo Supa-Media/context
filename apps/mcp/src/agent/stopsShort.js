@@ -35,6 +35,9 @@ const SHORT = [
   new RegExp(String.raw`\b(?:I|we) (?:haven't|have not|didn't|did not) (?:yet\s+)?(?:priced|costed|checked|compared|researched|looked (?:up|into)|found prices for)\b`, "i"),
   /\b(?:I|we) (?:still )?(?:need|have) to (?:price|cost|check|compare|research|look up|look into|find prices)\b/i,
   /\bstill (?:needs?|has|have) to be (?:priced|costed|checked|compared|researched|looked up)\b/i,
+  // A figure given up on because one page lacked it (bench gh-112: "Seoul Box: no prices listed").
+  /\bno (?:[A-Z][\w']*\s+){0,3}(?:prices?|pricing|menu prices|hours) (?:are |is )?(?:listed|posted|published|shown|online|to give)\b|\bno menu with prices\b/i,
+  /\b(?:prices?|pricing|hours) (?:(?:are|is) not|aren't|isn't|not) (?:listed|posted|published|shown|online)\b/i,
   /\bisn't (?:confirmed|priced|known) yet\b|\b(?:full|total) [^.?!\n]{0,40}\b(?:isn't|is not|aren't|are not) (?:confirmed|priced|known|covered)\b/i,
 ];
 
@@ -70,6 +73,7 @@ export function finishNotice({ job = false } = {}) {
     (job
       ? "This is a background job, so take the steps it needs; update the note you wrote with the full figures. "
       : 'If it will take many steps, start a background job for it (send { action: "background" }) and tell them in one line you are on it. ') +
+    "A list page without the figure is not where it lives: open each place's own page, or search the place by name, for every place you name, not one they pick. " +
     "If a figure truly isn't published anywhere you can reach, say in one line where you looked and give your best estimate, marked as one. " +
     "If your answer wasn't stopping short of anything they asked, send it again as it was."
   );
@@ -108,11 +112,16 @@ export function unfinishedJob(job, answer) {
   the open question is the whole reply until they answer it.
 */
 const WANTS_OPTIONS = /\b(?:options?|ideas?|suggest(?:ions?)?|recommend(?:ations?)?|choices)\b|\b(?:find|research|pick|choose)\b[^.?!\n]{0,40}\b(?:for|places?|spots?|caterers?|restaurants?)\b/i;
-const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b/i;
+const OTHER_ROAD = /\bif you(?:'d| would) rather\b|\bthe other option\b|\bor I can (?:look|find|search|price)\b/i;
+// gh-107: cooking costed from grocery prices, never asked, then "which store do you shop at?".
+const COOKED = /\b(?:I'd cook|cook it|grocer(?:y|ies)|recipes?|home-?cooked)\b/i;
+const ASKED_TO_COOK = /\b(?:cook|recipe|make|grocer|bake)/i;
 
-/** Whether an answer to a request for options guesses the brief and leaves the other road as an aside. */
+/** Whether an answer to a request for options guesses the brief: the other road left as an aside, or cooking nobody asked for. */
 export function picksBeforeAsking(answer, question = "") {
-  return WANTS_OPTIONS.test(said(question)) && OTHER_ROAD.test(said(answer));
+  const words = said(answer);
+  if (!WANTS_OPTIONS.test(said(question))) return false;
+  return OTHER_ROAD.test(words) || (COOKED.test(words) && !ASKED_TO_COOK.test(said(question)));
 }
 
 export const ASK_FIRST_NOTICE =

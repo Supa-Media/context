@@ -64,6 +64,7 @@ import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+import { RECHECK_REPLACES } from "./recheck.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -565,7 +566,7 @@ export async function runTurn(options) {
     if (answer.toolCalls.length === 0) {
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
+      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck + RECHECK_REPLACES });
       continue;
     }
 

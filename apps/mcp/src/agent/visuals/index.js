@@ -87,5 +87,5 @@ export const VISUALS_LINE =
   "or map: call draw_visual with the template that fits, then text ONE line (25 words at most: verdict and next step) and " +
   "[picture N]; never repeat the card in words. For 2-8 options that each need a photo and facts, draw one option card each " +
   "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Never draw for a yes or no, one fact, " +
-  "a draft, hard news, or after they ask for text only. For looks, take photos from the pages you open. To keep the card in a " +
+  "a draft, hard news, or after they ask for text only. If draw_visual fails, text it all in words, no word of the card. For looks, take photos from the pages you open. To keep the card in a " +
   "note: write with args { images: [{ name: 'card.png', data: 'picture:N' }] } and ![[card.png]] in the content.";

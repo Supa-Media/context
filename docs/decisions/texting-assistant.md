@@ -530,7 +530,7 @@ carry words from the person's notes out of the turn. What bounds it:
   while a business, place or product from the notes may be searched for,
   since that is what makes it useful ("is my dentist open Saturday?"). That
   is a request, not a lock; the lock is the point above.
-- At most 3 searches a question, 6 results each, 300 characters a query.
+- At most 3 searches a question, 6 results each, 300 characters a query; 50 searches under `open_web: yes` (the owner, 2026-10-26, after a lunch-prices ask gave up at the fourth search: "why not 50 searches?").
 - Results reach the model marked as not written by the person. Their
   addresses join the turn's openable addresses, the same as a link on a page.
   An address written inside a result's title or snippet does not.

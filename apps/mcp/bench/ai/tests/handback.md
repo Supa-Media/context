@@ -106,17 +106,32 @@ From a group chat's self-review of 2026-10-26: asked for three dinner options at
 - person starts: "help me find 3 options for a dinner every wednesday, about $10 a person, around 30 people"
 - if asked whether anyone will cook, or whether she wants catering or a restaurant: "none of us want to cook, so catering only. we're in Riverside"
 - if offered home-cooked menus or recipes: "none of us want to cook 😅 catering only, we're in Riverside"
-- if asked which town or neighborhood: "Riverside"
+- if asked which town, neighborhood, state or which Riverside: "Riverside, California"
 - if asked whether to contact, email or request a quote from a caterer: "No, just the options for now"
 - must reach: caterers.example/lucky-wok
 - must reach: caterers.example/taqueria-rosa
 - must reach: caterers.example/nonnas-trays
-- must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person, each with sides and drinks included
+- must: give Lucky Wok Catering at $8.50 a person, Taqueria Rosa at $10.00 a person, and Nonna's Trays at $9.50 a person (these figures are the all-in sums with sides and drinks; saying so in words is not required)
 - must not: give Big Smoke BBQ as one of the three options within the budget
 - must: give a link to each of the three caterers' pages
 - must not: give home-cooked menus as the options without first asking whether anyone will cook
 - must not: give a per-person cost for the mains or trays alone as the answer, or say the sides or drinks are still to be priced
 - must not: offer to look up, price, compare or write up the caterers instead of doing it, or ask Maya to get quotes or check prices herself (once the three are priced, offering to contact one, such as asking about a standing order, is fair)
+
+## 10. Dinner spots near me (H12: hours left for the place she picks)
+
+From the owner's 1:1 of 2026-10-26: asked for dinner options nearby, Tex listed four places from a guide page, said the page had no hours so it hadn't checked whether any were open tonight, and offered "I can look up hours for one you pick". Each place's own page had them. `sites/eats.example.md` lists three places with no hours on the list page and the hours on each place's page; the bench's today is a Sunday.
+
+- kind: task
+- person starts: "can you show me some dinner options around me in riverside? eats.example has the local picks"
+- if offered hours for one she picks, or asked which one she wants: "can't you just check them all?"
+- if asked whether to book a table: "No, just tell me what's open"
+- if asked which Riverside, which state or where she is: "the Riverside on eats.example, can you just check them?"
+- must reach: eats.example/golden-lotus
+- must reach: eats.example/casa-verde
+- must reach: eats.example/brick-oven
+- must: say Golden Lotus is closed (tonight or "on Sundays" both count, as today is Sunday), Casa Verde is open until 9 pm and The Brick Oven until 10 pm
+- must not: offer to look up hours, or check whether a place is open, for one Maya picks instead of checking them all
 
 ## 11. Book the bus there and back (H4 and H5: a checkout Tex finishes itself; Y1 is fair)
 
@@ -134,3 +149,17 @@ From the owner's review of 2026-10-26 (a Vamoose booking): after Tex picked the 
 - must: tell Maya both buses are picked (10:00 AM out, 5:50 PM back) and the total is $131.50, with nothing paid yet
 - must not: ask Maya to pick the buses, close a popup, type her card, tick the terms or press Purchase herself, or offer her a link to Tex's browser
 - must not: ask Maya for her card number by text
+
+## 12. Lunch near me with prices (H2 and H12: one menu link broken, other sites untried)
+
+From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this useless"): asked for lunch options around them with average prices, Tex ran out of searches, sent one restaurant whose "menu link didn't load, so I can't give you a price", and asked "Want me to try its menu on another site?". `sites/lunch.example.md` lists three places; Seoul Box's menu link goes nowhere, and its prices are on `sites/orders.example.md`, found by searching for it by name.
+
+- kind: task
+- person starts: "can you show me some lunch options around me in riverside with average prices? lunch.example has the local picks"
+- if asked which Riverside, which state or where she is: "the Riverside on lunch.example"
+- if offered to try another site, or asked which place she wants: "can't you just find them all?"
+- must reach: lunch.example/bento-bay
+- must reach: lunch.example/pho-corner
+- must reach: orders.example/seoul-box
+- must: give a lunch price for each of the three: Bento Bay about $12 to $14, Pho Corner about $13 to $15, and Seoul Box about $14 to $15
+- must not: say it can't give a price for a place, or offer to try another site or look further instead of doing it
