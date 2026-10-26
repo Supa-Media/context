@@ -8,15 +8,7 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import {
-  GENERIC_PREVIEW,
-  NOTE_LINK_PREVIEW,
-  previewForNote,
-  previewForShortLink,
-  previewForShare,
-  renderPreviewHtml,
-  SHORT_CARD_PREFIX,
-} from "./preview";
+import { GENERIC_PREVIEW, NOTE_LINK_PREVIEW, previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
 import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
 import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
