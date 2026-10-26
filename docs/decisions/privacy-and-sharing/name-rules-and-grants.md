@@ -333,7 +333,9 @@ sharing is addressed by name). Whether a handle is held was never a secret,
 since `names.checkNameAvailable` answers it to anyone signed in, so the
 refusal for a handle nobody holds tells nothing new. What stays private is the
 holder: the list shows an outsider by their `@handle`, never their name or
-address (`shareList.ts`). Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
+address (`shareList.ts`). The share field offers a typed `@name` only once
+`names.personByName` says a person holds it (owner, 2026-10-26: no row for a
+name nobody holds), and that query answers yes or no, never who. Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
 with nothing else in it, and nothing is written. A missing account and a
 deleted one are the same refusal. A member or an editor is `FORBIDDEN`. A
 non-member, or a path with no row, is `NOT_FOUND`. Each list is capped at 100
