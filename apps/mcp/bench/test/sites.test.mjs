@@ -226,3 +226,11 @@ test("download and attach checks read the browser's record and the emails saved"
   const wrong = { browser: ['download phonebill.example/billing "Invoice-2026-08.pdf"'], emails: [{ to: ["ama@northside.example"], body: "The invoice is attached." }] };
   assert.deepEqual(checkVerdicts(question, wrong).map((v) => v.pass), [false, false, false]);
 });
+
+test("a card drawn in the bench comes back as a picture, so draw_visual is not scored as broken", async () => {
+  const web = createWeb([parseSite(SHOP)]);
+  const drawn = await post(web, "/render", { html: "<p>card</p>", width: 600, height: 800 });
+  assert.equal(drawn.status, 200);
+  assert.equal(typeof drawn.body.png, "string");
+  assert.equal(drawn.body.width, 600);
+});
