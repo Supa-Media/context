@@ -31,7 +31,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { convexNodeTable } from "./convexTable";
 import { treeServesNow } from "./listing";
-import { privacyEtagOf, readerMirror } from "./readerRules";
+import { privacyEtagFrom, readerMirror } from "./readerRules";
 import { newNoteId } from "./noteIds";
 import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
@@ -163,6 +163,11 @@ export async function applyRowMove(
     /** The etag of `privacy.md` the caller just wrote; the tree's copy of the rules must be it. */
     privacyEtag: string | null;
     /**
+     * An earlier move of this same transaction already held the rules to the caller's version
+     * (`nodeRowMoves.rowMoveBatch`): what changed them since is the batch's own moves, so they are not checked again.
+     */
+    privacyChecked?: boolean;
+    /**
      * The live files under `from` the caller read and judged (`plan`). A file
      * that arrived since is not in the judgement, so the move is refused
      * `changed` rather than moving a note nobody checked.
@@ -186,8 +191,8 @@ export async function applyRowMove(
 
   if (!(await treeServesNow(ctx.db, ws))) return refuse("not_served");
   // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
-  if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
   const mirror = await readerMirror(ctx, ws);
+  if (!trash && args.privacyChecked !== true && (await privacyEtagFrom(ctx, ws, mirror)) !== args.privacyEtag) return refuse("rules_changed");
   // Who could see each old path, judged before any row moves (`followMovedFiles`).
   const before = await mirrorRules(mirror);
   if (invalidMove(from, to)) return refuse("invalid");

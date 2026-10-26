@@ -7,7 +7,9 @@
  *
  * Sabotage: make `rowMove` compare `readMirror` again (the "rules_changed" tests pass wrongly);
  * return the file etag from `privacyEtagNow` (the end-to-end move refuses);
- * drop the grant-only version from `readerMirror`'s etag (the grant test passes wrongly).
+ * drop the grant-only version from `readerMirror`'s etag (the grant test passes wrongly);
+ * hold every move of a batch to the handed etag (`privacyChecked` never set: the batch whose first move changes the
+ * rules is refused), or none of them (the stale batch goes through).
  */
 
 import { describe, expect, test } from "vitest";
@@ -95,5 +97,42 @@ describe("the privacy etag a move is made under", () => {
     const f = await keyedFixture();
     const moved = await start(f, "1-projects/keep.md", "1-projects/kept.md");
     expect(moved).toMatchObject({ from: "1-projects/keep.md", to: "1-projects/kept.md", rowed: true });
+  });
+
+  test("a batch is held to the handed version once: a stale one is refused whole", async () => {
+    const f = await keyedFixture();
+    const read = await rowsEtag(f);
+    await setBase(f, "1-projects/keep.md", "private");
+    const before = await treeOf(f);
+    await expect(
+      f.t.mutation(internal.functions.nodeRowMoves.rowMoveBatch, {
+        workspaceId: f.ws,
+        moves: [
+          { from: "3-resources/r.md", to: "3-resources/r2.md" },
+          { from: "1-projects/keep.md", to: "1-projects/kept.md" },
+        ],
+        privacyEtag: read,
+        now: Date.now(),
+      }),
+    ).rejects.toThrow();
+    expect(await treeOf(f)).toEqual(before);
+  });
+
+  test("a batch whose first move changes the rules still makes the rest: that change is its own", async () => {
+    const f = await keyedFixture();
+    // A note with a row of its own: moving it moves the row, so the rules' version moves with the first move.
+    await setBase(f, "1-projects/keep.md", "private");
+    const read = await rowsEtag(f);
+    const moved = await f.t.mutation(internal.functions.nodeRowMoves.rowMoveBatch, {
+      workspaceId: f.ws,
+      moves: [
+        { from: "1-projects/keep.md", to: "1-projects/kept.md" },
+        { from: "3-resources/r.md", to: "3-resources/r2.md" },
+      ],
+      privacyEtag: read,
+      now: Date.now(),
+    });
+    expect(moved.map((move) => move.to)).toEqual(["1-projects/kept.md", "3-resources/r2.md"]);
+    expect(await rowsEtag(f)).not.toBe(read);
   });
 });

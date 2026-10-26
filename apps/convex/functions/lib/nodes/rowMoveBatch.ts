@@ -134,11 +134,15 @@ export async function startRowMoveBatch(
     }
   };
   try {
+    // Every move's narrowing in one call: one a move read the workspace's rows again for each note.
+    if (rowsTruth) {
+      await ctx.runMutation(internal.functions.nodesAccess.narrowMoves, {
+        workspaceId,
+        moves: planned.map(({ move }) => ({ from: move.from, to: move.to })),
+      });
+    }
     for (const { move } of planned) {
-      if (rowsTruth) {
-        await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from: move.from, to: move.to });
-        continue;
-      }
+      if (rowsTruth) continue;
       const carry = await carryPrivacy(store, move.from, move.to);
       if (carry === null) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
       carried.push({ from: move.from, to: move.to, added: carry.added });
