@@ -476,3 +476,25 @@ test("a note already filed in tex/groups/ stops Tex sharing the folder", async (
   assert.equal(await shareGroupNotesFolder(unreachable), false, "a tree that cannot answer shares nothing");
   assert.deepEqual(unreachable.shared, []);
 });
+
+// Tex Devs, 2026-10-26: "redo the diagram" got "the only graphic I made was the Reason Network one".
+// The chat's memory kept the words and never the card, so the next turn could not see it.
+test("a card sent in a group is kept in the chat's memory with what it showed", async () => {
+  const CARD = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
+  const SITE_SHOTS = { async fetch(url, init) { const body = JSON.parse(init.body); return new Response(JSON.stringify({ png: CARD, width: body.width, height: body.height, blocked: [] })); } };
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "draw_visual", args: { template: "places", data: { title: "Budget picks", items: [{ name: "The Eleanor", cuisine: "Bowling bar" }] } } } }] },
+    { text: "Here's the night out." },
+  ]);
+  const env = world.env;
+  world.env = { ...env, SITE_SHOTS };
+  try {
+    const { status, body } = await ask(TOKEN_GROUP, { question: "plan a night out", group: chat() });
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.pictures?.length, 1, "the card goes");
+  } finally {
+    world.env = env;
+  }
+  const memory = [...world.team.keys()].filter((key) => key.includes("groups")).map((key) => bodyAt(world.team, key) ?? "").join("\n");
+  assert.match(memory, /Sent a picture with this answer: 1\. Budget picks — 1\. The Eleanor \(Bowling bar\)/);
+});

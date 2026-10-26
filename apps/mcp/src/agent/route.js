@@ -620,7 +620,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
-    if (group !== null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, answer, { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {});
+    if (group !== null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
     if (conversation !== null && !turn.exhausted && !replaced) {
       try {
         const saved = [reactedLine(reacted), jobSavedLine(job) || tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes

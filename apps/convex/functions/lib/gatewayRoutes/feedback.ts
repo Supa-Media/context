@@ -10,7 +10,8 @@
  * same ten-a-day budget per person, the same Sentry envelope, nothing of the
  * report stored.
  *
- * One exception, by where it goes: a report from the texting grant is a bug
+ * One exception, by where it goes: a report from the texting grant (or Tex in
+ * a group chat, filed as its tagger, never with texts) is a bug
  * report the person filed with Tex, and it lands as a note in the pinned
  * context's `tex-bugs/` folder instead of Sentry (`bugNotes.ts`). Only on a
  * deployment that has a pinned context; a self-hosted one sends it to Sentry.
@@ -31,6 +32,7 @@ import { fileBugNote } from "../../bugNotes";
 import { TEXTS_CLIENT_ID, parseAgentReport } from "../feedback/agentReport";
 import { deliverFeedback, feedbackTarget } from "../feedback/deliver";
 import { json, stringField } from "../gatewayAuth";
+import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 
 const REFUSALS: Record<string, string> = {
   FEEDBACK_INVALID: "invalid",
@@ -38,6 +40,11 @@ const REFUSALS: Record<string, string> = {
   FEEDBACK_BUSY: "unavailable",
   FEEDBACK_UNAVAILABLE: "unavailable",
 };
+
+/** Whether a client's reports are Tex's bug notes: a text, or Tex in a group chat as its tagger (Tex Devs, 2026-10-26). */
+export function filedAsBugNote(clientId: string): boolean {
+  return clientId === TEXTS_CLIENT_ID || clientId === TEXTS_GROUP_CLIENT_ID;
+}
 
 export async function gatewayFeedbackHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
@@ -49,8 +56,7 @@ export async function gatewayFeedbackHandler(ctx: ActionCtx, body: Record<string
   if (session === null) return json({ report: null });
 
   const userId = session.actorUserId as Id<"users">;
-  const bugNote =
-    session.clientId === TEXTS_CLIENT_ID ? await ctx.runQuery(internal.functions.bugNotes.destination, { userId }) : null;
+  const bugNote = filedAsBugNote(session.clientId) ? await ctx.runQuery(internal.functions.bugNotes.destination, { userId }) : null;
   const sentry = feedbackTarget();
   if (sentry === null && bugNote === null) return json({ report: null, refused: "not_configured" });
 
