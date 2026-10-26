@@ -66,6 +66,8 @@ const MAX_THINKING_CHARS = 6_000;
 const MAX_SAID_CHARS = 4_000;
 const MAX_ARG_CHARS = 300;
 const MAX_ARGS_CHARS = 800;
+/** A list longer than this is shown as its first two items and a count. */
+const LONG_LIST = 5;
 
 /** Argument names that may carry something secret; their values are never written. */
 const SECRET_KEY = /pass|secret|token|otp|pin\b|cvv|card|api[-_]?key|credential|^code$/i;
@@ -119,9 +121,17 @@ export function argsLine(args) {
       return `[${typeof value === "string" ? value.length : JSON.stringify(value)?.length ?? 0} characters]`;
     }
     if (typeof value === "string") return value.length > MAX_ARG_CHARS ? `${value.slice(0, MAX_ARG_CHARS)}…` : value;
-    if (Array.isArray(value)) return value.slice(0, 20).map((item) => hide(item, null));
+    // A long list (a batch of moves) shows its first items and how many more, so the line's cut never
+    // swallows the arguments after it: a housekeeping log hid `dry_run` behind 100 moves (2026-10-26).
+    if (Array.isArray(value)) {
+      const shown = value.slice(0, value.length > LONG_LIST ? 2 : LONG_LIST).map((item) => hide(item, null));
+      return value.length > shown.length ? [...shown, `… ${value.length - shown.length} more`] : shown;
+    }
     if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value).slice(0, 30).map(([k, v]) => [k, hide(v, k)]));
+      // Plain values first, lists and objects after, for the same reason.
+      const entries = Object.entries(value).slice(0, 30);
+      const flat = (v) => v === null || typeof v !== "object";
+      return Object.fromEntries([...entries.filter(([, v]) => flat(v)), ...entries.filter(([, v]) => !flat(v))].map(([k, v]) => [k, hide(v, k)]));
     }
     return value;
   };
