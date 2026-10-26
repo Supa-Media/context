@@ -8,7 +8,7 @@ import type { Fetch } from "./clients";
 const LINE = "+18135550100";
 const PHONE = "+14155550123";
 const KEYS = { keyId: "k", secret: "s" };
-const CONFIG = { extensionBundleId: "lc.context.mobile.messages", teamId: "ABCDE12345" };
+const CONFIG = { extensionBundleId: "lc.context.mobile.messages", teamId: "T".repeat(10) };
 const LINK = "https://context.lc/note/@dev2/1-projects/tex/launch-plan.md";
 
 type Call = { path: string; body: Record<string, unknown> };

@@ -136,3 +136,11 @@ link that opens the note beats a card that might not. It goes on once the
 Context app's Messages extension (`lc.context.mobile.messages`) is in the App
 Store; the team id is the `APPLE_TEAM_ID` secret, synced to the Worker on
 deploy.
+
+The extension is `apps/mobile/targets/context-messages`, added by
+`plugins/with-context-messages.js` the way the widgets are: a Messages view
+controller that, when a Context card is tapped, opens the card's link if it is
+an https link on context.lc and nothing else. The IPA check
+(`scripts/validate-ios-ipa.cjs`) requires it embedded once, with its id,
+extension point and the host's exact version. It reaches people with the next
+native build and App Store release, which stay separate explicit actions.
