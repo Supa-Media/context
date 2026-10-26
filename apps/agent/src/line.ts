@@ -9,11 +9,14 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
+import { noteCard, type AppCardConfig } from "./appCards";
+import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
   parseSendblueChat,
   markSendblueRead,
   reactSendblue,
+  sendSendblueAppCard,
   sendSendblueCarousel,
   sendSendblueMedia,
   sendSendblueText,
@@ -53,6 +56,8 @@ export type LineDeps = {
   sendblue?: SendblueKeys | null;
   /** Serves a picture's bytes at a short-lived address (`media.ts`), for a line that only takes addresses. */
   hostPicture?: (picture: Picture) => Promise<string>;
+  /** Set when a link to a note goes as a Context card (`appCards.ts`); absent, it goes as the link. */
+  appCard?: AppCardConfig | null;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
@@ -84,7 +89,18 @@ function sendblueLine(deps: LineDeps): Line {
     return deps.sendblue;
   };
   return {
-    sendText: (chatId, text, _key, replyTo) => sendSendblueText(fetch, keys(), chatId, text, replyTo),
+    sendText: async (chatId, text, _key, replyTo) => {
+      const card = deps.appCard ? noteCard(text, deps.appCard) : null;
+      if (card) {
+        try {
+          return await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
+        } catch (error) {
+          // A line with no cards gets the link itself: the card is never the only way to the note.
+          if (!isRefusal(error)) throw error;
+        }
+      }
+      return await sendSendblueText(fetch, keys(), chatId, text, replyTo);
+    },
     sendMedia: async (chatId, media, _key, replyTo) => {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("sendblue", 400);
