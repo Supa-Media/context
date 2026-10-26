@@ -21,6 +21,7 @@ import { electronPermissionBroker } from "./permissions.ts";
 import { createLocalAgent } from "./localAgent.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
+import { MessagesBackupService } from "./messagesBackup.ts";
 import { DesktopUpdater } from "./updater.ts";
 import { createNotepad, createPanel } from "./windows.ts";
 import { FAKE, RENDERER_DIR, RENDERER_UI } from "./launchFlags.ts";
@@ -52,6 +53,11 @@ export async function createServices(
       ctx.consoleBridge?.emitImessage(status);
       push();
     },
+  });
+  const messagesBackup = new MessagesBackupService({
+    store,
+    connection,
+    settings: () => ctx.settings,
   });
   // `null` in console mode. Every use below is guarded rather than the flag
   // being read a second time — see `UI_MODE`.
@@ -186,5 +192,5 @@ export async function createServices(
     },
   });
 
-  return { localAgent, imessage, panel, notepad, capture, controller, updater, loop };
+  return { localAgent, imessage, messagesBackup, panel, notepad, capture, controller, updater, loop };
 }

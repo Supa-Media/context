@@ -54,7 +54,9 @@ workspaces, and because a kind may be added back on purpose.
 
 **What is lost on purpose:** meaning search over mail, and iMessage for cloud
 AIs. The owner accepted both: "we shouldn't have to do meaning search for
-email often". Either comes back if people miss it.
+email often". Either comes back if people miss it. iMessage came back on
+2026-10-26, as a backup the Mac sends and never as notes:
+[messages-backup](./messages-backup.md).
 
 **Old copies are never deleted for the person.** They are hidden from the
 tree, search and AI, kept in Download as folders, and the person may delete

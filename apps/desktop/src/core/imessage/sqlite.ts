@@ -23,6 +23,7 @@
 import { run } from "../../platform/exec.ts";
 import { ChatDbUnreadable } from "./permission.ts";
 import { isAllowedChatDbPath } from "./paths.ts";
+import { isAllowedAddressBookPath } from "../messages/contacts.ts";
 
 const SQLITE3_BINARY = "/usr/bin/sqlite3";
 
@@ -43,7 +44,23 @@ export async function queryChatDb(path: string, sql: string, maxBufferBytes?: nu
   if (!isAllowedChatDbPath(path)) {
     throw new ChatDbUnreadable("other", "refused: not this Mac's own chat.db");
   }
+  return queryReadOnly(path, sql, maxBufferBytes);
+}
 
+/**
+ * One query against one of the Mac's Contacts databases, for the names the
+ * Messages backup puts beside each number (`core/messages/contacts.ts`).
+ * Refused for any path but those, on the same terms as `queryChatDb`.
+ */
+export async function queryAddressBook(path: string, sql: string): Promise<unknown[]> {
+  if (!isAllowedAddressBookPath(path)) {
+    throw new ChatDbUnreadable("other", "refused: not this Mac's own Contacts");
+  }
+  return queryReadOnly(path, sql);
+}
+
+/** The one `sqlite3` invocation, for a path one of the two callers above already allowed. */
+async function queryReadOnly(path: string, sql: string, maxBufferBytes?: number): Promise<unknown[]> {
   let stdout: string;
   try {
     stdout = await run(

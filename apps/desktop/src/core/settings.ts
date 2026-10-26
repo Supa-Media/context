@@ -51,6 +51,12 @@ export interface DesktopSettings {
    * install reads nothing until somebody has seen the toggle and turned it on.
    */
   imessageEnabled: boolean;
+  /**
+   * Back up this Mac's Messages into the person's own storage, for Tex and
+   * their AIs to read when asked (`docs/decisions/communications/messages-backup.md`).
+   * Not notes: nothing of it appears in the tree or in notes search.
+   */
+  messagesBackup: boolean;
   transcription: TranscriptionMode;
   /**
    * The MCP endpoint this machine connects to, e.g. `https://…/mcp`.
@@ -103,6 +109,11 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   askBeforeEveryMeeting: true,
   blocklist: [],
   imessageEnabled: false,
+  /*
+    Off until the first-run card and Settings › Messages exist to say it is
+    on and how to turn it off; the build that adds them makes it the default.
+  */
+  messagesBackup: false,
   /*
     On device, which is where audio stays until somebody says otherwise.
 
@@ -183,6 +194,7 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     // Always off, whatever an older file says: messages are no longer copied
     // into notes (owner, 2026-10-21; `docs/decisions/communications/live-not-copied.md`).
     imessageEnabled: false,
+    messagesBackup: bool(source["messagesBackup"], DEFAULT_SETTINGS.messagesBackup),
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
     // The same guard as the base URL: https, or a loopback address for a local
     // gateway. A settings file naming an `http://` endpoint would otherwise
