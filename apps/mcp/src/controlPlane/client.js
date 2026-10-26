@@ -18,6 +18,15 @@ export const CONTROL_PLANE_TIMEOUT_MS = 8_000;
 export const CONTROL_PLANE_SITE_TIMEOUT_MS = 30_000;
 
 /**
+ * How long a batch of note moves may take. The control plane plans, judges
+ * and moves every note's row before it answers, so a batch of 20 outlasted the
+ * 8-second lookup timeout and every housekeeping move on a crowded folder came
+ * back "could not start the moves right now" (2026-10-26). Under `move_notes`'s
+ * own 60-second limit (`agent/slowMoves.js`), so the gateway's answer arrives first.
+ */
+export const CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS = 45_000;
+
+/**
  * Cap on a control-plane response body.
  *
  * Small on purpose: every documented payload is a few hundred bytes, and the
