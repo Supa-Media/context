@@ -569,6 +569,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A broken mailbox is said only when the person must act, and a long silence once (owner, 2026-10-20)
 - A mailbox recovers by itself unless the person has to give a permission (owner, 2026-10-20)
 - Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes (owner, 2026-10-21)
+- The Mac backs up Messages into the person's bucket, as records, never as notes (owner, 2026-10-26)
 
 ## [The desktop shell](./desktop.md)
 

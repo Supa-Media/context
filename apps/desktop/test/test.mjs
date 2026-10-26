@@ -56,6 +56,8 @@ import { runImessageGatewayNotesChecks } from "./imessageGatewayNotes.test.mjs";
 import { runImessageSyncChecks } from "./imessageSync.test.mjs";
 import { runImessageSqliteChecks } from "./imessageSqlite.test.mjs";
 import { runImessageServiceChecks } from "./imessageService.test.mjs";
+import { runMessagesBackupChecks } from "./messagesBackup.test.mjs";
+import { runMessagesBackupSqliteChecks } from "./messagesBackupSqlite.test.mjs";
 
 let failures = 0;
 let skipped = 0;
@@ -190,6 +192,8 @@ await suite("runImessageGatewayNotesChecks", () => runImessageGatewayNotesChecks
 await suite("runImessageSyncChecks", () => runImessageSyncChecks(check));
 await suite("runImessageSqliteChecks", () => runImessageSqliteChecks(check, skip));
 await suite("runImessageServiceChecks", () => runImessageServiceChecks(check, skip));
+await suite("runMessagesBackupChecks", () => runMessagesBackupChecks(check));
+await suite("runMessagesBackupSqliteChecks", () => runMessagesBackupSqliteChecks(check, skip));
 
 console.log(
   failures

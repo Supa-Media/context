@@ -33,6 +33,7 @@ import type { DesktopCaptureRecorder } from "./capture.ts";
 import type { DesktopStore } from "./store.ts";
 import type { LocalAgentRunner } from "./localAgent.ts";
 import type { ImessageSyncService } from "./imessage.ts";
+import type { MessagesBackupService } from "./messagesBackup.ts";
 import type { AppTray } from "./tray.ts";
 import type { DesktopUpdater } from "./updater.ts";
 import type { UiState } from "./ipc.ts";
@@ -152,6 +153,7 @@ export interface MainServices {
   connection: GatewayConnection;
   localAgent: LocalAgentRunner;
   imessage: ImessageSyncService;
+  messagesBackup: MessagesBackupService;
   /** `null` in console mode — see `UI_MODE`. */
   panel: BrowserWindow | null;
   notepad: BrowserWindow | null;
