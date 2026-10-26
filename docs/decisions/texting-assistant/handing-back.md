@@ -273,7 +273,7 @@ it catered?) before starting, rather than guessing. Removing the `unfinished`
 carry-on would let a job text "finished" with half the answer again.
 
 The prompt line alone did not stop "I'd cook it ... If you'd rather have it
-catered, tell me which town": bench runs gh-94 to gh-96 still picked first.
+catered, tell me which town": bench runs gh-94 to gh-98 still picked first.
 So a chat answer that picks for them and leaves the brief-changing question
 for an "if you'd rather ..., tell me" at the end goes back once, told to send
 only that question (`picksBeforeAsking`). The owner set the bar the same day

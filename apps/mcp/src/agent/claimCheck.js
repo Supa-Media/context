@@ -487,7 +487,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         shortNoticed = true;
         return finishNotice({ job: job !== null });
       }
-      if (!askFirstNoticed && job === null && picksBeforeAsking(answer)) {
+      if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
         askFirstNoticed = true;
         return ASK_FIRST_NOTICE;
       }

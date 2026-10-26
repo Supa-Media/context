@@ -136,12 +136,17 @@ test("a pick made before the one question that changes the search goes back once
   const cooked =
     "I'd cook it. $10 a head is tight for catering 30 people every week. Three from your weeknight list: Lentil soup, chicken thighs, pasta. " +
     "If you'd rather have it catered, tell me which town and I'll find three places.";
-  assert.ok(picksBeforeAsking(cooked));
-  assert.ok(picksBeforeAsking("That's if you're cooking it yourselves. If you'd rather order in, tell me the town and I'll find places."));
-  assert.ok(picksBeforeAsking("I'd cook it yourselves. $300 a week easily covers big trays. If you'd rather have it catered, which town is it in?"));
+  const asked = "help me find 3 options for a dinner every wednesday, about $10 a person, around 30 people";
+  assert.ok(picksBeforeAsking(cooked, asked));
+  assert.ok(picksBeforeAsking("That's if you're cooking it yourselves. If you'd rather order in, tell me the town and I'll find places.", asked));
+  assert.ok(picksBeforeAsking("I'd cook it yourselves. $300 a week easily covers big trays. If you'd rather have it catered, which town is it in?", asked));
+  // gh-98: the aside with no question mark and no "tell me".
+  assert.ok(picksBeforeAsking("I'd cook it: three trays from your list. Catering's the other option if you'd rather not cook.", asked));
   for (const fine of ["Do you want to cook, or have it catered?", "Lucky Wok is $8.50 a person all in. Want me to ask about a standing Wednesday order?"]) {
-    assert.equal(picksBeforeAsking(fine), false, fine);
+    assert.equal(picksBeforeAsking(fine, asked), false, fine);
   }
+  // Not asked for options, so an "if you'd rather" is just a reply.
+  assert.equal(picksBeforeAsking(cooked, "what should I make for dinner tonight?"), false);
   const chat = claimCheck({ question: "3 dinner options for 30" });
   assert.equal(chat.check(cooked), ASK_FIRST_NOTICE);
   assert.equal(chat.check(cooked), null, "only once a turn");
