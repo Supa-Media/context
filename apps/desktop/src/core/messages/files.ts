@@ -30,7 +30,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { LIMITS, isVideoFile } from "@context/communications/backup";
 import { appleEpochNsToIso } from "../imessage/appleTime.ts";
-import { filesHistoryDone, type BackupCursor } from "./cursor.ts";
+import type { BackupCursor } from "./cursor.ts";
 import type { UploadResult } from "./pass.ts";
 import type { BackupFileRow } from "./queries.ts";
 
@@ -82,12 +82,24 @@ export async function realAttachmentPath(path: string, home: string = homedir())
 /** Link previews Messages keeps as files of its own: not something anybody sent. */
 const NOT_SENT_EXTENSIONS = new Set(["pluginpayloadattachment"]);
 
-/** Whether this file is one the backup copies, from what the database says about it. */
-export function wantedFile(row: Pick<BackupFileRow, "filename" | "transfer_name" | "mime_type" | "total_bytes">): boolean {
+/**
+ * The two kinds "What's copied" switches between: pictures and documents
+ * (everything that is not a video), and videos. Each is its own walk over
+ * `attachment`, with its own cursor positions.
+ */
+export type FileKind = "pictures" | "videos";
+
+const POSITIONS = Object.freeze({
+  pictures: { newest: "filesNewest", oldest: "filesOldest" },
+  videos: { newest: "videosNewest", oldest: "videosOldest" },
+} as const);
+
+/** Whether this file is one this walk copies, from what the database says about it. */
+export function wantedFile(row: Pick<BackupFileRow, "filename" | "transfer_name" | "mime_type" | "total_bytes">, kind: FileKind = "pictures"): boolean {
   const name = (row.transfer_name ?? row.filename ?? "").trim();
   const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
   if (NOT_SENT_EXTENSIONS.has(extension)) return false;
-  if (isVideoFile({ type: row.mime_type ?? undefined, name })) return false;
+  if (isVideoFile({ type: row.mime_type ?? undefined, name }) !== (kind === "videos")) return false;
   const declared = row.total_bytes === null ? null : Number(row.total_bytes);
   return !(declared !== null && Number.isFinite(declared) && declared > LIMITS.fileBytes);
 }
@@ -107,6 +119,8 @@ export interface FilesPassDeps {
 }
 
 export interface FilesPassOptions {
+  /** Which walk this is. */
+  kind?: FileKind;
   /** `attachment` ROWIDs per page. */
   pageRows?: number;
   /** Bytes one pass may send. */
@@ -133,6 +147,8 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
   const pageRows = options.pageRows ?? FILES_PASS_DEFAULTS.pageRows;
   const byteBudget = options.byteBudget ?? FILES_PASS_DEFAULTS.byteBudget;
   const waitMs = options.waitMs ?? FILES_PASS_DEFAULTS.waitMs;
+  const kind = options.kind ?? "pictures";
+  const { newest: NEWEST, oldest: OLDEST } = POSITIONS[kind];
 
   let cursor = { ...start };
   let sentFiles = 0;
@@ -145,7 +161,7 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
 
   /** One file: `done` to move past it, `wait` to stop before it, `budget` when the pass has sent enough. */
   const copy = async (row: BackupFileRow, forward: boolean): Promise<Outcome | "failed"> => {
-    if (!wantedFile(row) || !row.message_guid) return "done";
+    if (!wantedFile(row, kind) || !row.message_guid) return "done";
     const id = fileIdOf(row.attachment_guid);
     if (id === undefined) return "done";
     if (sentBytes >= byteBudget) return "budget";
@@ -170,16 +186,18 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
 
   const max = await deps.maxRowId();
   if (!deps.stillWanted()) return { cursor, sentFiles, sentBytes, more: false };
-  if (cursor.filesOldest === null) await save({ ...cursor, filesNewest: max, filesOldest: max + 1 });
+  if (cursor[OLDEST] === null) await save({ ...cursor, [NEWEST]: max, [OLDEST]: max + 1 });
+  const bytes = () => ({ filesBytes: start.filesBytes + sentBytes });
 
   // New files, forward.
   let held = false;
-  while (cursor.filesNewest < max) {
+  while (cursor[NEWEST] < max) {
     if (!deps.stillWanted()) return { cursor, sentFiles, sentBytes, more: false };
-    const through = Math.min(max, cursor.filesNewest + pageRows);
-    let reached = cursor.filesNewest;
+    const from = cursor[NEWEST];
+    const through = Math.min(max, from + pageRows);
+    let reached = from;
     let ended: Outcome | "failed" | null = null;
-    for (const row of await deps.files(cursor.filesNewest, through)) {
+    for (const row of await deps.files(from, through)) {
       const outcome = await copy(row, true);
       if (outcome !== "done") {
         ended = outcome;
@@ -188,7 +206,7 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
       reached = Number(row.rowid);
     }
     const next = ended === null ? through : reached;
-    if (next !== cursor.filesNewest || sentBytes > 0) await save({ ...cursor, filesNewest: next, filesBytes: start.filesBytes + sentBytes });
+    if (next !== from || sentBytes > 0) await save({ ...cursor, [NEWEST]: next, ...bytes() });
     if (ended === "failed") return { cursor, sentFiles, sentBytes, stopped, more: false };
     if (ended === "wait") {
       held = true;
@@ -198,12 +216,12 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
   }
 
   // History, backward, newest first.
-  while (!filesHistoryDone(cursor)) {
+  while (!walkDone(cursor[OLDEST])) {
     if (!deps.stillWanted()) return { cursor, sentFiles, sentBytes, more: false };
-    const through = (cursor.filesOldest as number) - 1;
+    const through = (cursor[OLDEST] as number) - 1;
     const after = Math.max(0, through - pageRows);
     const rows = (await deps.files(after, through)).sort((a, b) => Number(b.rowid) - Number(a.rowid));
-    let reached = cursor.filesOldest as number;
+    let reached = cursor[OLDEST] as number;
     let ended: Outcome | "failed" | null = null;
     for (const row of rows) {
       const outcome = await copy(row, false);
@@ -213,10 +231,15 @@ export async function runFilesPass(deps: FilesPassDeps, start: BackupCursor, opt
       }
       reached = Number(row.rowid);
     }
-    await save({ ...cursor, filesOldest: ended === null ? after + 1 : reached, filesBytes: start.filesBytes + sentBytes });
+    await save({ ...cursor, [OLDEST]: ended === null ? after + 1 : reached, ...bytes() });
     if (ended === "failed") return { cursor, sentFiles, sentBytes, stopped, more: false };
     if (ended === "budget") return { cursor, sentFiles, sentBytes, more: true };
   }
 
-  return { cursor, sentFiles, sentBytes, more: held ? false : cursor.filesNewest < max };
+  return { cursor, sentFiles, sentBytes, more: held ? false : cursor[NEWEST] < max };
+}
+
+/** Whether a walk has looked at every file of the history. */
+function walkDone(oldest: number | null): boolean {
+  return oldest !== null && oldest <= 1;
 }

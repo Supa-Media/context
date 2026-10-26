@@ -59,4 +59,6 @@ export function runSettingsChecks(check) {
   // The Messages backup is on by default (owner, 2026-10-26), and a person's "off" is kept.
   check("the Messages backup is on for a fresh install", normalizeSettings({}).messagesBackup === true);
   check("the Messages backup stays off once turned off", normalizeSettings({ version: 1, messagesBackup: false }).messagesBackup === false);
+  check("the backup copies pictures and not videos on a fresh install", normalizeSettings({}).messagesBackupPictures === true && normalizeSettings({}).messagesBackupVideos === false);
+  check("the backup's file switches are kept as set", normalizeSettings({ version: 1, messagesBackupPictures: false, messagesBackupVideos: true }).messagesBackupVideos === true && normalizeSettings({ version: 1, messagesBackupPictures: false }).messagesBackupPictures === false);
 }

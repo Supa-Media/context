@@ -24,6 +24,7 @@
  *   files.ts ignoring the byte budget                            1
  *   files.ts accepting a path outside Attachments                1
  *   cursor.ts dropping text positions for an old cursor          3
+ *   files.ts walking videos on the pictures positions            1
  */
 
 import { LIMITS } from "@context/communications/backup";
@@ -277,7 +278,7 @@ function checkMask(check) {
   check("bridge: a problem is told only when the backup stopped on it", told.backup.problem === null && backupBridgeStatus({ ...status, phase: "stopped" }, null).backup.problem === "server");
   check(
     "bridge: the view carries the contract's fields and nothing else",
-    Object.keys(told.backup).sort().join() === "account,copiedRows,machine,phase,problem,reachedBack,totalRows",
+    Object.keys(told.backup).sort().join() === "account,copiedRows,files,machine,phase,problem,reachedBack,totalRows",
   );
 }
 
@@ -360,6 +361,12 @@ async function checkFiles(check) {
     const { deps, sent } = fakeFiles({ count: 10, read: async () => ({ bytes: new Uint8Array(40) }) });
     const report = await runFilesPass(deps, { ...FRESH_BACKUP_CURSOR, filesNewest: 10, filesOldest: 11 }, { byteBudget: 100 });
     check("files: a pass stops at its byte budget and says more is waiting", sent.length === 3 && report.more === true && report.cursor.filesOldest === 8);
+  }
+  {
+    const { deps, sent } = fakeFiles({ count: 4, shape: (id) => (id % 2 === 0 ? { mime_type: "video/quicktime", transfer_name: `${id}.MOV` } : {}) });
+    const report = await runFilesPass(deps, FRESH_BACKUP_CURSOR, { kind: "videos" });
+    check("files: the videos walk copies videos only", sent.map((s) => s.id).sort().join() === [digestId("AT-2"), digestId("AT-4")].sort().join());
+    check("files: ...on positions of its own, leaving the pictures walk where it was", report.cursor.videosOldest === 1 && report.cursor.filesOldest === null);
   }
   const legacy = normalizeBackupCursor({ version: 1, newest: 900, oldest: 400, changesAfterNs: "123" });
   check("files: a cursor from before files keeps its text positions and starts files fresh", legacy.newest === 900 && legacy.oldest === 400 && legacy.filesOldest === null && legacy.filesNewest === 0);

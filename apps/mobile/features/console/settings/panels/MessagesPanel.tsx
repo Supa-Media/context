@@ -1,4 +1,5 @@
 import { StyleSheet, View } from "react-native";
+import type { MessagesBackupFiles } from "@context/desktop-bridge";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Switch } from "../../../design/components/Switch";
@@ -8,14 +9,14 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 // The component's own path, not the meetings barrel, which imports a router.
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { useBackupStatus } from "../../../messagesBackup/useBackupStatus";
-import { backupOnThisMac, progressLines, whoseTexts } from "../../../messagesBackup/view";
+import { backupOnThisMac, progressLines, whatsCopiedLines, whoseTexts } from "../../../messagesBackup/view";
 import { settingsSectionLabel } from "../sections";
 
 /**
  * Settings › Messages (board 2 of the Messages backup, approved by the owner
- * 2026-10-26): whether this Mac backs up its texts, how far it has got, and
- * who reads them. Pictures, the download and deleting the backup arrive with
- * the steps that build them (`docs/decisions/communications/messages-backup.md`).
+ * 2026-10-26): whether this Mac backs up its texts, how far it has got, what
+ * is copied, and who reads them. The download and deleting the backup arrive
+ * with the steps that build them (`docs/decisions/communications/messages-backup.md`).
  *
  * `owned` is whether this account has a personal workspace: the texts are
  * kept in it, and an account invited into somebody else's has nowhere to keep
@@ -134,6 +135,66 @@ function ThisMac({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
       </Card>
       {/* The backup sends with this Mac's own grant: unconnected is why nothing is copied. */}
       {here.enabled && here.view.phase === "not_connected" ? <ThisMachineCard focus="chats" /> : null}
+      <WhatsCopied backup={backup} files={here.view.files} />
+    </View>
+  );
+}
+
+/** Pictures and documents, and videos: each its own switch (owner's pick: pictures on, videos off). */
+function WhatsCopied({
+  backup,
+  files,
+}: {
+  backup: ReturnType<typeof useBackupStatus>;
+  files: MessagesBackupFiles | undefined;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  if (files === undefined || backup.setFiles === null) {
+    return (
+      <Text variant="paneSub" style={styles.sub} testID="messages-files-outdated">
+        Update the Mac app to copy pictures and documents too.
+      </Text>
+    );
+  }
+  const setFiles = backup.setFiles;
+  const lines = whatsCopiedLines(files);
+  return (
+    <View>
+      <Text variant="eyebrow" style={[styles.eyebrow, styles.spaced]}>
+        What's copied
+      </Text>
+      <Card>
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Pictures and documents</Text>
+            <Text variant="rowSub" style={styles.rowSub} testID="messages-pictures-detail">
+              {lines.pictures}
+            </Text>
+          </Grow>
+          <Switch
+            value={files.pictures}
+            label="Copy pictures and documents"
+            disabled={backup.changing}
+            onValueChange={(next) => setFiles({ pictures: next })}
+            testID="messages-pictures-switch"
+          />
+        </Row>
+        <Row divided>
+          <Grow>
+            <Text variant="rowTitle">Videos</Text>
+            <Text variant="rowSub" style={styles.rowSub} testID="messages-videos-detail">
+              {lines.videos}
+            </Text>
+          </Grow>
+          <Switch
+            value={files.videos}
+            label="Copy videos"
+            disabled={backup.changing}
+            onValueChange={(next) => setFiles({ videos: next })}
+            testID="messages-videos-switch"
+          />
+        </Row>
+      </Card>
     </View>
   );
 }

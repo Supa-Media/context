@@ -73,4 +73,25 @@ export interface MessagesBackupView {
   account: string | null;
   /** This Mac's name, as its owner set it: `Sam's MacBook Pro`. */
   machine: string | null;
+  /**
+   * Which files are copied, and how many bytes of them so far. Absent from a
+   * Mac app that copies none, which the console reads as "update to copy
+   * pictures" rather than as both switches off.
+   */
+  files?: MessagesBackupFiles;
+}
+
+/** The two switches of "What's copied" (owner's pick: pictures on, videos off), and the bytes sent. */
+export interface MessagesBackupFiles {
+  /** Pictures and documents, up to 25 MB each. */
+  pictures: boolean;
+  /** Videos, up to 25 MB each. */
+  videos: boolean;
+  bytes: number;
+}
+
+/** A change to one or both switches; a switch left out stays as it is. */
+export interface MessagesBackupFilesChoice {
+  pictures?: boolean;
+  videos?: boolean;
 }

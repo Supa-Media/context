@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { getDesktopBridge, type DesktopBridge, type ImessageStatus } from "@context/desktop-bridge";
+import {
+  getDesktopBridge,
+  type DesktopBridge,
+  type ImessageStatus,
+  type MessagesBackupFilesChoice,
+} from "@context/desktop-bridge";
 
 /**
  * The Messages backup on this Mac, as the Mac app reports it, kept live.
@@ -13,6 +18,8 @@ export function useBackupStatus(): {
   status: ImessageStatus | null;
   changing: boolean;
   setEnabled: (enabled: boolean) => void;
+  /** Null on a Mac app that cannot change what is copied. */
+  setFiles: ((choice: MessagesBackupFilesChoice) => void) | null;
   openFullDiskAccess: () => void;
 } {
   const [bridge] = useState(() => getDesktopBridge());
@@ -52,6 +59,19 @@ export function useBackupStatus(): {
         .then(setStatus, () => {})
         .finally(() => setChanging(false));
     },
+    setFiles:
+      bridge?.imessage?.setFiles === undefined
+        ? null
+        : (choice) => {
+            const member = bridge.imessage;
+            if (member?.setFiles === undefined) return;
+            setChanging(true);
+            void member
+              .setFiles(choice)
+              .then(() => member.status())
+              .then(setStatus, () => {})
+              .finally(() => setChanging(false));
+          },
     openFullDiskAccess: () => {
       void bridge?.imessage?.requestFullDiskAccess().catch(() => {});
     },
