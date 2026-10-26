@@ -441,6 +441,7 @@ export function createWeb(sites) {
     return { status: 200, body: { page: { url: shown.url, title: shown.title, text: shown.text, links: shown.elements.filter((e) => e.href).map((e) => ({ text: e.label, href: e.href })) } } };
   }
 
+  const BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
   return {
@@ -454,6 +455,9 @@ export function createWeb(sites) {
         }
         if (path === "/browse") return json(200, browse(body));
         if (path === "/browse/close") return json(200, { ok: true });
+        // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
+        // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
+        if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
         return json(404, { error: "not found" });
       },
     },
