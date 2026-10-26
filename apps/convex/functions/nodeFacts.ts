@@ -40,6 +40,7 @@ import {
   writeFacts,
 } from "./lib/nodes/facts";
 import { rowsAfter } from "./lib/nodes/paths";
+import { bareNameOf } from "./lib/nodes/neighbors";
 
 /** Rows of the tree one walk step looks through. */
 const WALK_ROWS = 2_000;
@@ -359,6 +360,56 @@ export const candidates = internalQuery({
       for (const link of rows) pointing.add(link.source);
     }
     return { pointing: [...pointing], unparsed };
+  },
+});
+
+/** Link rows one neighbors read takes on each side; past it the answer says it may be short. */
+export const NEIGHBOR_ROWS = 200;
+
+const linkValidator = v.object({ kind: v.union(v.literal("path"), v.literal("name")), target: v.string() });
+
+/**
+ * One note's link rows, for `related_notes` (`lib/nodes/neighbors.ts` resolves
+ * them): what it links to, and the notes linking to its path or its bare name.
+ * Unfiltered, like `candidates`; the caller judges every path. `null` until
+ * the facts have read every note once.
+ */
+export const neighbors = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      present: v.boolean(),
+      current: v.boolean(),
+      capped: v.boolean(),
+      links: v.array(linkValidator),
+      byPath: v.array(v.string()),
+      byName: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, { workspaceId, path }) => {
+    const state = await factStateRow(ctx.db, workspaceId);
+    if (state === null || !state.ready) return null;
+    const outgoing = await ctx.db
+      .query("nodeLinks")
+      .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId).eq("source", path))
+      .take(NEIGHBOR_ROWS + 1);
+    const pointing = (target: string, kind: "path" | "name") =>
+      ctx.db
+        .query("nodeLinks")
+        .withIndex("by_workspace_target", (q) => q.eq("workspaceId", workspaceId).eq("target", target).eq("kind", kind))
+        .take(NEIGHBOR_ROWS + 1);
+    const byPath = await pointing(path, "path");
+    const byName = await pointing(bareNameOf(path), "name");
+    const row = await liveNode(ctx.db, workspaceId, path);
+    return {
+      present: row !== null,
+      current: row !== null && factsCurrent(row),
+      capped: [outgoing, byPath, byName].some((rows) => rows.length > NEIGHBOR_ROWS),
+      links: outgoing.slice(0, NEIGHBOR_ROWS).map(({ kind, target }) => ({ kind, target })),
+      byPath: byPath.slice(0, NEIGHBOR_ROWS).map((link) => link.source),
+      byName: byName.slice(0, NEIGHBOR_ROWS).map((link) => link.source),
+    };
   },
 });
 

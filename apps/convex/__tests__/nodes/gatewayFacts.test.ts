@@ -25,7 +25,9 @@
  *    reader may not see" fails at member clearance;
  *  - judging a folder entry by `canSee` rather than the folder rule: the
  *    same case fails (the rename of a private folder the team reaches
- *    through a shared note goes missing, as the tree would still show it).
+ *    through a shared note goes missing, as the tree would still show it);
+ *  - dropping the seed's `visible` check: "a hidden seed answers what an
+ *    absent one does" fails at member clearance.
  */
 
 import { seedTreeRows } from "../fixtures.helpers";
@@ -144,6 +146,13 @@ async function facts(t: T, body: Record<string, unknown>) {
 }
 
 const LINKS = { ask: "links", sources: ["1-projects/plan.md"], names: ["plan"] };
+const NEIGHBORS = { ask: "neighbors", path: "1-projects/plan.md" };
+
+async function addLinks(t: T, workspaceId: Id<"workspaces">, links: Array<[string, "path" | "name", string]>) {
+  await t.run(async (ctx) => {
+    for (const [source, kind, target] of links) await ctx.db.insert("nodeLinks", { workspaceId, source, kind, target });
+  });
+}
 
 describe("POST /gateway/tree/facts", () => {
   test("a move's candidates are what the reader may see", async () => {
@@ -209,6 +218,11 @@ describe("POST /gateway/tree/facts", () => {
       { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OTHER, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OWNER, expectedWorkspaceId: other, ask: "forwarding" },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors" },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: ["1-projects/plan.md"] },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "x".repeat(2_000) },
+      { accessToken: CAPTURE, expectedWorkspaceId: ws, ...NEIGHBORS },
+      { accessToken: OTHER, expectedWorkspaceId: ws, ...NEIGHBORS },
     ];
     for (const body of refusals) {
       const response = await gatewayPost(t, "/gateway/tree/facts", body);
@@ -307,5 +321,60 @@ describe("POST /gateway/tree/facts", () => {
       now: 1_000,
     });
     expect(await facts(t, { accessToken: OTHER, expectedWorkspaceId: other, ask: "forwarding" })).toEqual({ served: true, forwarding: [] });
+  });
+  test("a note's backlinks are what the reader may see", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/later.md", "1-projects/secret/codes.md", "2-areas/mine.md"]);
+    expect(owner.neighbors.links).toEqual([]);
+    for (const reader of [MEMBER, OWNER_TEAM]) {
+      const team = await facts(t, { accessToken: reader, expectedWorkspaceId: ws, ...NEIGHBORS });
+      // plan.md's own text has not been read for links yet, so its answer may be short.
+      expect(team.neighbors).toEqual({ links: [], backlinks: ["1-projects/later.md"], complete: false });
+    }
+  });
+
+  test("a note's links resolve paths and bare names, and name only what the reader may see", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await addLinks(t, ws, [
+      ["1-projects/later.md", "name", "shared"],
+      ["1-projects/later.md", "path", "1-projects/secret/codes.md"],
+      ["1-projects/later.md", "path", "1-projects/missing.md"],
+      ["1-projects/later.md", "name", "nobody"],
+    ]);
+    const later = { ask: "neighbors", path: "1-projects/later.md" };
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...later });
+    expect(owner.neighbors.links).toEqual(["1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/shared.md"]);
+    const member = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ...later });
+    expect(member.neighbors.links).toEqual(["1-projects/plan.md", "2-areas/shared.md"]);
+  });
+
+  test("a bare name beside the note wins, and a name two visible notes share names neither", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await seedTreeRows(t, ws, [{ path: "1-projects/secret/plan.md", etag: "e-twin" }, { path: "2-areas/x/later.md", etag: "e-later2" }]);
+    await addLinks(t, ws, [["2-areas/mine.md", "name", "later"]]);
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    // codes.md's [[plan]] now means the plan.md beside it.
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/later.md", "2-areas/mine.md"]);
+    const mine = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "2-areas/mine.md" });
+    // [[later]] matches two visible notes, so it names neither.
+    expect(mine.neighbors.links).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("a hidden seed answers what an absent one does", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    const ask = (path: string) => gatewayPost(t, "/gateway/tree/facts", { accessToken: MEMBER, expectedWorkspaceId: ws, ask: "neighbors", path });
+    const hidden = await responseFingerprint(await ask("1-projects/secret/codes.md"));
+    expect(hidden).toBe(await responseFingerprint(await ask("1-projects/nope.md")));
+    expect(hidden).not.toContain("plan");
+  });
+
+  test("a note's neighbors before the facts are whole say so", async () => {
+    const { t, ws } = await fixture();
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS })).toEqual({ served: true, neighbors: null });
   });
 });
