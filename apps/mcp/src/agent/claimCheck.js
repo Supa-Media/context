@@ -38,6 +38,12 @@
  *   5. A call failed and the answer gives up with other roads to the same
  *      answer untried, or it promises to text them later with nothing in
  *      the turn to keep it (`otherRoutes.js`, 2026-10-23).
+ *   6. Their text corrects an ask waiting for their yes ("actually send it
+ *      to Bo instead") and nothing new is held. The old ask still stood, so
+ *      the next yes sent the email they had just corrected (Dev2,
+ *      2026-10-26). One more round says to make the call with the change;
+ *      a turn that ends with nothing held drops the asks it corrected
+ *      (`stale`, `textedAsk`). Judged on their words, not the model's.
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -327,6 +333,30 @@ export function givesUpOnTheBrowser(answer) {
   return BROWSER_GAVE_UP.test(String(answer ?? "").replace(/[‘’]/g, "'"));
 }
 
+/*
+  A WAITING ASK THEIR TEXT CORRECTS (rule 6). Judged on the person's own words,
+  never the model's: "actually", "instead", "send it to", "cc", an address the
+  waiting draft doesn't have. A side text ("one sec", "add milk to my list")
+  carries none of them, so it never touches the ask (Dev2, 2026-10-22).
+*/
+const CORRECTION =
+  /\b(?:actually|instead|rather|wrong|change|changed|switch|swap|correction|make it|send it to|send that to|send to|email it to|forward it to|to \w+ not|cc|bcc|move it to|reschedule)\b/i;
+const ADDRESS = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+
+/** Whether their text corrects one of the asks waiting for their yes (`setAside` from `textedSettle.js`). */
+export function correctsTheAsk(question, waiting) {
+  if (!Array.isArray(waiting) || waiting.length === 0) return false;
+  const said = String(question ?? "").replace(/[\u2018\u2019]/g, "'");
+  if (CORRECTION.test(said)) return true;
+  const known = waiting.map((entry) => JSON.stringify(entry?.args ?? {}).toLowerCase()).join(" ");
+  return (said.match(ADDRESS) ?? []).some((address) => !known.includes(address.toLowerCase()));
+}
+
+export const SUPERSEDE_NOTICE =
+  "Before this goes: their text corrects what was waiting for their yes, and nothing new is held. " +
+  "Make the call again now with their change: they are shown the new one, and the old one is dropped. " +
+  "If you need something to make it, ask only for that. If nothing new is held when this answer goes, the old one is dropped and they are told.";
+
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
   "If they asked for it, make the change now with your tools and then answer. If you can't, answer again saying plainly that it is not done, " +
@@ -392,7 +422,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -428,6 +458,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   let owedNoticed = false;
   let notePictureNoticed = false;
   let bugNoticed = false;
+  // A waiting ask the answer said had changed, with nothing held again (rule 6).
+  let supersedeNoticed = false;
   // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
   let keptRead = false;
   let keptNoticed = false;
@@ -477,6 +509,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         return result;
       };
     },
+    /**
+     * Whether the waiting asks must not stand after this turn: their text
+     * corrected them and the turn held nothing new (rule 6), whether or not
+     * a round was left for the notice. `textedAsk` drops them and says so.
+     */
+    stale: () => corrects && !held,
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
@@ -545,6 +583,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     if (!laterNoticed && !keptPromise && promisesLater(answer)) {
       laterNoticed = true;
       return LATER_NOTICE;
+    }
+    // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
+    // An answer asking them something ("Who should it go to?") waits on them instead.
+    if (!supersedeNoticed && corrects && !held && !/\?/.test(String(answer ?? ""))) {
+      supersedeNoticed = true;
+      return SUPERSEDE_NOTICE;
     }
     // "File this as a bug" answered with a note, not a report (`bugCheck.js`).
     if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {

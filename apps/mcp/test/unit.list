@@ -235,3 +235,4 @@ test/messagesBackup.test.mjs
 test/messagesBackupFiles.test.mjs
 test/messagesBackupRead.test.mjs
 test/texts.test.mjs
+test/agentSupersededAsk.test.mjs

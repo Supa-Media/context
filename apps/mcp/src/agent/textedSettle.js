@@ -74,7 +74,8 @@ export async function settleTextedText(store, session, { dispatch, question, has
     again nor says it was dropped.
   */
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
-  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ tool: record.tool, summary: record.summary })) } : null;
+  // `id` and `args` let a correction drop exactly these (`claimCheck.js` rule 6); only `summary` is ever shown.
+  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ id: record.id, tool: record.tool, summary: record.summary, args: record.args })) } : null;
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
 }
 
