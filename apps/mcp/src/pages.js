@@ -49,14 +49,24 @@ export const PAGE_GUIDE = PAGE_SKILL;
  * carry the current skill stamp, so whoever wrote it has not read the page
  * design skill as it is now (owner, 2026-10-27: "skill should be required
  * when making pages"). Null when it does.
+ *
+ * The refusal carries the skill itself, so reading it costs no second call:
+ * on 2026-10-27 Tex, refused in a WhatsApp group, never made the orient call
+ * the refusal named and saved the research as a plain note instead, telling
+ * the chat "the page format wouldn't save from this chat". Whoever is refused
+ * has now read the skill in the refusal, and is told to write the page again
+ * rather than fall back to a plain note.
  */
 export function pageSkillMissing(content) {
   const { fields } = frontMatter(typeof content === "string" ? content : "");
   if (String(fields.skill ?? "").trim() === PAGE_SKILL_STAMP) return null;
   return [
     fields.skill ? "this page was written to an older page design skill, so it was not saved." : "this page was not saved: read the page design skill first.",
-    'Read it with orient about: "pages", follow it, and put the stamp it ends with in the page\'s front matter (skill: ...).',
-  ].join(" ");
+    `It is below (orient about: "pages" answers the same). Follow it and write the page again, as a .page.md note, with skill: ${PAGE_SKILL_STAMP} in its front matter.`,
+    "Never save it as a plain note instead, and never tell anyone pages can't be saved: a page with the stamp is saved anywhere you may write.",
+    "",
+    PAGE_SKILL,
+  ].join("\n");
 }
 
 /** The line a background job is told about writing its result as a page. */

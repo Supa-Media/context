@@ -138,9 +138,14 @@ required when making pages".
   before sending) with the format reference appended from the block kinds. It
   is what `orient about: "pages"` answers, and it ends with a stamp, a hash of
   its own text. A `.page.md` write whose front matter does not carry the
-  current `skill:` stamp is refused before anything is looked up, naming where
-  to read it; changing the skill changes the stamp, so every agent reads it
-  again. Edits made in the app are not agent writes and are not gated.
+  current `skill:` stamp is refused before anything is looked up, and the
+  refusal carries the whole skill and its stamp, so the refused writer has
+  read it with no second call; changing the skill changes the stamp, so every
+  agent reads it again. Edits made in the app are not agent writes and are
+  not gated. (The first version only named `orient about: "pages"`; within
+  the hour Tex in a WhatsApp group was refused, never made that call, and
+  saved the research as a plain note, telling the chat pages "wouldn't save
+  from this chat". The refusal also says never to fall back to a plain note.)
 
 What a "simplification" would cost: dropping the stamp check lets agents write
 pages from memory of an older format, which is how the first pages came out
