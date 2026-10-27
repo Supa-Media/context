@@ -44,7 +44,7 @@ export function chatWhereOf(value: unknown): ChatWhere | null {
 }
 
 /** A due chat routine handed to its chat's queue. */
-export type ChatRoutineRun = ChatWhere & { runId: string; path: string; phone: string };
+export type ChatRoutineRun = ChatWhere & { runId: string; path: string; phone: string; timeZone?: string; since?: number };
 
 export function chatRoutineRunOf(value: unknown): ChatRoutineRun | null {
   const run = value as Partial<ChatRoutineRun> | null;
@@ -53,14 +53,35 @@ export function chatRoutineRunOf(value: unknown): ChatRoutineRun | null {
   if (typeof run.runId !== "string" || !/^run_[A-Za-z0-9_-]{1,64}$/.test(run.runId)) return null;
   if (typeof run.path !== "string" || run.path === "" || run.path.length > 512) return null;
   if (typeof run.phone !== "string" || !E164.test(run.phone)) return null;
-  return { ...where, runId: run.runId, path: run.path, phone: run.phone };
+  const timeZone = typeof run.timeZone === "string" && /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(run.timeZone) ? run.timeZone : undefined;
+  const since = typeof run.since === "number" && Number.isSafeInteger(run.since) && run.since > 0 ? run.since : undefined;
+  return { ...where, runId: run.runId, path: run.path, phone: run.phone, ...(timeZone ? { timeZone } : {}), ...(since ? { since } : {}) };
+}
+
+/** When a run last went, in the routine's own time zone, or null when it never did or the zone is unknown. */
+export function lastRanWords(since: number | undefined, timeZone: string | undefined): string | null {
+  if (since === undefined) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: timeZone ?? "UTC",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(since));
+  } catch {
+    return null;
+  }
 }
 
 /** What a chat routine's turn is asked: its writer's tag, in words only this Worker writes. */
-export function chatRoutineQuestion(path: string): string {
+export function chatRoutineQuestion(path: string, lastRan: string | null = null): string {
   return (
     `(It's time for this chat's routine, ${path}. Read that note and do what it says now, for everyone here, ` +
-    "as if it had just been asked. If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"
+    "as if it had just been asked. " +
+    (lastRan === null ? "" : `It last ran ${lastRan}: anything "new" means since then. `) +
+    "If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"
   );
 }
 
@@ -74,7 +95,7 @@ export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
     from: run.phone,
     participants: [],
     messageId: "",
-    text: chatRoutineQuestion(run.path),
+    text: chatRoutineQuestion(run.path, lastRanWords(run.since, run.timeZone)),
     routine: { runId: run.runId, path: run.path },
   };
 }

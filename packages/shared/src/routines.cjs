@@ -283,6 +283,7 @@ function routineSettings(text, cadence) {
     send: "text",
     to: [],
     chat: null,
+    wake: null,
     until: null,
     paused: false,
     timeZone: null,
@@ -349,6 +350,12 @@ function routineSettings(text, cadence) {
     const chat = fields.chat.trim().toLowerCase();
     if (CHAT_ID.test(chat)) settings.chat = chat;
     else problems.push(`"chat: ${fields.chat}" isn't a chat. Ask Tex in the chat to set the routine up.`);
+  }
+  // `wake: new mail` also runs a chat routine soon after new mail reaches a
+  // mailbox shared with its chat (`docs/decisions/texting-assistant/chat-mail.md`).
+  if (fields.wake !== undefined && fields.wake !== "") {
+    if (/^new (?:mail|email)$/i.test(fields.wake.trim())) settings.wake = "mail";
+    else problems.push(`"wake: ${fields.wake}" isn't something a routine can wake on. Use "wake: new mail".`);
   }
   if (fields.until !== undefined && fields.until !== "") settings.until = fields.until;
   if (fields.paused !== undefined) {

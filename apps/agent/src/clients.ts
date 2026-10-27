@@ -525,6 +525,8 @@ export type DueRoutine = {
   phones: string[];
   /** A chat routine's chat, by its key: answered into that group, never a phone. */
   chat?: string;
+  /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
+  since?: number;
 };
 
 /** Most runs one tick takes on; the rest are still due on the next. */
@@ -558,6 +560,7 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
       send: run.send,
       phones,
       ...(chat === undefined ? {} : { chat }),
+      ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
     });
   }
   return due;

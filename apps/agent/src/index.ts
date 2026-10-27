@@ -419,7 +419,7 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
   const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(where.groupId)));
-  const body = { ...where, runId: run.runId, path: run.path, phone };
+  const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";

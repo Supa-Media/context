@@ -27,6 +27,8 @@ export interface RoutineSettings {
   to: string[];
   /** The group chat a shared workspace's routine answers into: 16 hex (`chatRoutineId`). */
   chat: string | null;
+  /** `wake: new mail`: a chat routine also runs soon after new mail in a mailbox shared with its chat. */
+  wake: "mail" | null;
   until: string | null;
   paused: boolean;
   timeZone: string | null;

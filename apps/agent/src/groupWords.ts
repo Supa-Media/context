@@ -9,6 +9,8 @@ export type Command =
   | { kind: "start" }
   | { kind: "use"; slug: string }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
+  | { kind: "share_mail"; address: string; query?: string }
+  | { kind: "unshare_mail"; address?: string }
   | { kind: "status" };
 
 const NAME = "(?:tex|context)";
@@ -17,7 +19,7 @@ const WORD = `@?${NAME}(?![\\w-])`;
 /** Words a message to Tex starts with after its name, unpunctuated ("Tex what's on"), where "Tex got that wrong" is about it. */
 const ASKING =
   "(?:what|what's|whats|who|who's|when|when's|where|where's|why|how|which|can|could|would|will|is|are|do|does|did|should|please|pls|" +
-  "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read)\\b";
+  "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read|share|unshare)\\b";
 /** "Tex ^ do this", "Tex ↑": the message above is the ask. */
 const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
 /*
@@ -57,6 +59,12 @@ export function unquoted(text: string): string {
   return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
 }
 
+/** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
+const MAILBOX = "(?:my )?(?:work )?(?:mail|email|emails|inbox|gmail)";
+const HERE = "(?: (?:here|in here|with (?:this|the) (?:chat|group)|with everyone here|with us))?";
+const SHARE_MAIL = new RegExp(`^share ${MAILBOX} (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190})(?: (?:matching|that matches|filtered by|only) (.{1,300}?))?${HERE}$`);
+const UNSHARE_MAIL = new RegExp(`^(?:stop sharing|unshare) ${MAILBOX}(?: (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190}))?${HERE}$`);
+
 /**
  * The words after Tex's name, when they are one of the group commands. While
  * the chat is picking a workspace (`choices`), one of the names it was offered
@@ -77,6 +85,10 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
+  const shared = SHARE_MAIL.exec(rest);
+  if (shared) return { kind: "share_mail", address: shared[1]!, ...(shared[2] ? { query: shared[2] } : {}) };
+  const unshared = UNSHARE_MAIL.exec(rest);
+  if (unshared) return { kind: "unshare_mail", ...(unshared[1] ? { address: unshared[1] } : {}) };
   const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
   if (use) return { kind: "use", slug: use[1] };
   const named = BARE_NAME.exec(rest);

@@ -50,6 +50,7 @@ const scheduleValidator = v.object({
   send: sendValidator,
   to: v.array(v.string()),
   chat: v.optional(v.string()),
+  wake: v.optional(v.literal("mail")),
 });
 
 // ── Keeping the rows a description of the bucket ───────────────────────────
@@ -118,6 +119,7 @@ export const claimDueRoutines = internalMutation({
       send: sendValidator,
       phones: v.array(v.string()),
       chat: v.optional(v.string()),
+      since: v.optional(v.number()),
     }),
   ),
   handler: claimDueRoutinesHandler,

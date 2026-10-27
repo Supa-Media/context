@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroupRoutine, drainGroup, type GroupDeps } from "./groupInbox";
-import { chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { chatRoutineMessage, chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { runDueRoutines } from "./routines";
 import { fetchDueRoutines, type DueRoutine, type Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -153,7 +153,15 @@ describe("handing a chat routine out", () => {
     expect(chatRoutineRunOf({ ...RUN, runId: "x" })).toBeNull();
     expect(chatWhereOf({ line: LINE, groupId: GROUP })).toEqual({ line: LINE, groupId: GROUP });
     expect(chatWhereOf(true)).toBeNull();
+    expect(chatRoutineRunOf({ ...RUN, timeZone: "America/New_York", since: 1_700_000_000_000 })).toEqual({ ...RUN, timeZone: "America/New_York", since: 1_700_000_000_000 });
+    expect(chatRoutineRunOf({ ...RUN, timeZone: "x\ny", since: -1 })).toEqual(RUN);
     expect(saysSkip("SKIP.")).toBe(true);
+  });
+
+  it("tells the turn when it last ran, in the routine's own time zone", () => {
+    const text = chatRoutineMessage({ ...RUN, timeZone: "America/New_York", since: Date.UTC(2026, 9, 27, 13, 5) }).text;
+    expect(text).toContain("It last ran Oct 27, 9:05 AM EDT");
+    expect(chatRoutineMessage(RUN).text).not.toContain("last ran");
     expect(saysSkip("Skip the meeting today")).toBe(false);
   });
 });
