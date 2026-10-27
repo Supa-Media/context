@@ -119,6 +119,7 @@ import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
+import * as noteCard from "./functions/lib/gatewayRoutes/noteCard";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
@@ -964,6 +965,8 @@ http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRou
 http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsGmailHandler) });
 http.route({ path: "/agent-texts/vault-saved", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsVaultSavedHandler) });
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
+// The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
+http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);

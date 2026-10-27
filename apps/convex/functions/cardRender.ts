@@ -97,6 +97,8 @@ export const renderCard = internalAction({
     kind: v.optional(
       v.union(v.literal("note"), v.literal("folder"), v.literal("form")),
     ),
+    /** The line under the title, for a card Tex texts (`CARD_SUBTITLE_TEXTED`). */
+    subtitle: v.optional(v.string()),
   },
   returns: v.bytes(),
   handler: async (ctx, args): Promise<ArrayBuffer> => {
@@ -122,6 +124,7 @@ export const renderCard = internalAction({
         handle: args.handle ?? null,
         kind: args.kind ?? "note",
         children: args.children ?? [],
+        ...(args.subtitle === undefined ? {} : { subtitle: args.subtitle }),
       }) as never,
       {
         width: CARD_WIDTH,

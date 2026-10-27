@@ -11,7 +11,8 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
-import { noteCard, type AppCardConfig } from "./appCards";
+import { noteCard, noteLinkOf, type AppCardConfig } from "./appCards";
+import { linkAfterCard, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
@@ -75,6 +76,8 @@ export type LineDeps = {
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Set when a link to a note goes as a Context card (`appCards.ts`); absent, it goes as the link. */
   appCard?: AppCardConfig | null;
+  /** Draws a note link's picture (`noteCards.ts`), sent before the link where there is no App Card. */
+  noteCardPicture?: NoteCardDrawer;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
@@ -114,6 +117,19 @@ function sendblueLine(deps: LineDeps): Line {
           return await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
         } catch (error) {
           // A line with no cards gets the link itself: the card is never the only way to the note.
+          if (!isRefusal(error)) throw error;
+        }
+      }
+      // No card: the note's picture first, then the link inside a sentence (`noteCards.ts`).
+      const link = deps.noteCardPicture && deps.hostPicture ? noteLinkOf(text) : null;
+      const picture = link && deps.noteCardPicture ? await deps.noteCardPicture(link) : null;
+      const address = picture && deps.hostPicture ? await deps.hostPicture(picture).catch(() => null) : null;
+      if (link && address) {
+        try {
+          await sendSendblueMedia(fetch, keys(), chatId, address, replyTo);
+          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(link), replyTo);
+        } catch (error) {
+          // A picture the line would not take: the link alone, as before.
           if (!isRefusal(error)) throw error;
         }
       }
