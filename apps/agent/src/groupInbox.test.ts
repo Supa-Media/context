@@ -129,6 +129,14 @@ describe("what wakes Tex in a group", () => {
     expect(groupCommand("supa")).toBeNull();
     expect(groupCommand("hello", ["supa"])).toBeNull();
   });
+  it("reads adding everyone here, as editors unless it says members", () => {
+    expect(groupCommand("Tex add everyone here to @Crystal-Care")).toEqual({ kind: "invite", slug: "crystal-care" });
+    expect(groupCommand("Tex, invite everybody in this chat to crystal-care.")).toEqual({ kind: "invite", slug: "crystal-care" });
+    expect(groupCommand("Tex add everyone to @crystal-care as members")).toEqual({ kind: "invite", slug: "crystal-care", role: "member" });
+    expect(groupCommand("Tex add everyone to @crystal-care as an editor")).toEqual({ kind: "invite", slug: "crystal-care", role: "editor" });
+    expect(groupCommand("Tex add everyone to the guest list")).toBeNull();
+    expect(groupCommand("Tex add milk to the list")).toBeNull();
+  });
 });
 
 describe("the group webhook", () => {
@@ -623,5 +631,25 @@ describe("a group chat with guests (docs/decisions/texting-assistant/group-guest
     await drainGroup(storage, deps(w, { control: { status: "guests_off" } }));
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band"), GROUP_LINES.guestsOff]);
     expect(w.asks).toEqual([]);
+  });
+});
+
+describe("adding everyone here (invited family)", () => {
+  it("says who was invited and that the whole workspace is in use, with no model", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex add everyone here to @crystal-care"), 0);
+    await drainGroup(storage, deps(w, { control: { status: "invited", slug: "crystal-care", count: 2, role: "editor" } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.invited("crystal-care", 2, "editor")]);
+    expect(GROUP_LINES.invited("crystal-care", 2, "editor")).toContain("invited 2 people here to @crystal-care as editors");
+    expect(w.asks).toEqual([]);
+  });
+
+  it("tells a non-owner only an owner can add people", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex add everyone here to @crystal-care", { from: BO }), 0);
+    await drainGroup(storage, deps(w, { control: { status: "not_allowed", slug: "crystal-care" } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notOwner("crystal-care")]);
   });
 });

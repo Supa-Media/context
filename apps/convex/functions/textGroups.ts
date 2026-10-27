@@ -10,7 +10,8 @@ import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
-import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, type GuestInfo } from "./lib/textGroupGuests";
+import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -35,6 +36,10 @@ import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLa
  *   shares gives the chat a group and folder of its own there. Then anyone in
  *   the chat may tag Tex, accounts or not, and the grant reads only what is
  *   shared with that group; usage counts against whoever turned it on.
+ * - **Invited family** (the owner, 2026-10-27; `lib/textGroupInvited.ts`):
+ *   "Tex, add everyone here to @slug" from an owner of a shared workspace
+ *   invites each person in the chat by number, and a pending phone invitation
+ *   counts as membership in the chat, so it works on the whole workspace.
  *
  * The participant list is never stored: it arrives with each message (the
  * Worker sends the union of the webhook's list and Sendblue's own), and is
@@ -58,6 +63,7 @@ const commandValidator = v.union(
   v.object({ kind: v.literal("stop") }),
   v.object({ kind: v.literal("start") }),
   v.object({ kind: v.literal("use"), slug: v.string() }),
+  v.object({ kind: v.literal("invite"), slug: v.string(), role: v.optional(v.union(v.literal("editor"), v.literal("member"))) }),
 );
 
 export const groupAnswerValidator = v.union(
@@ -74,6 +80,8 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("not_allowed"), slug: v.string() }),
   /** A guest chat whose group is gone or whose binder can no longer open it: guest mode is off. */
   v.object({ status: v.literal("guests_off") }),
+  /** "Tex, add everyone here to @slug": how many people here were invited, as what (`lib/textGroupInvited.ts`). */
+  v.object({ status: v.literal("invited"), slug: v.string(), count: v.number(), role: v.string() }),
   v.object({
     status: v.literal("ready"),
     slug: v.string(),
@@ -101,6 +109,7 @@ export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "guests_off" }
   | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
+  | { status: "invited"; slug: string; count: number; role: string }
   | { status: "unknown_sender"; tell: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -164,12 +173,33 @@ export const applyGroupTurn = internalMutation({
     }
     if (group.mutedAt !== undefined) return { status: "muted" };
 
+    // "Tex, add everyone here to @slug" (`lib/textGroupInvited.ts`): only an owner there, and then the chat uses it.
+    if (args.command?.kind === "invite") {
+      const slug = cleanSlug(args.command.slug);
+      const role = args.command.role ?? "editor";
+      const added = senderUser === null ? null : await inviteEveryone(ctx, senderUser, slug, others, role);
+      if (added === null || senderUser === null) return { status: "not_allowed", slug };
+      await clearGuests(ctx, group);
+      await ctx.db.patch(group._id, { workspaceId: added.workspace._id, boundBy: senderUser });
+      return { status: "invited", slug: added.workspace.slug, count: added.count, role };
+    }
+
     // A guest chat answers whoever tags it, accounts or not, until "use" names a workspace everyone shares.
     if (args.command?.kind !== "use" && group.guestGroupId !== undefined) return await guestTurn(ctx, args, group, senderUser, others);
 
+    // A chat whose people are all members or invited there by number works on the whole workspace (`textGroupInvited.ts`).
+    const usingSlug = args.command?.kind === "use" ? cleanSlug(args.command.slug) : null;
+    const counted = usingSlug !== null ? await workspaceBySlug(ctx, usingSlug) : group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
+    const invited = counted === null ? null : await invitedChat(ctx, counted, others, now);
+    if (invited !== null && invited.invited.size > 0) {
+      const fresh = (await ctx.db.get(group._id)) ?? group;
+      const answer = await invitedTurn(ctx, args, fresh, invited, usingSlug !== null);
+      if (answer !== null) return answer;
+    }
+
     // Somebody with no account can't open a workspace to anyone; in a guest chat they are told so plainly.
     if (senderUser === null && args.command?.kind === "use" && group.guestGroupId !== undefined) {
-      return { status: "not_allowed", slug: args.command.slug.trim().replace(/^@/, "").toLowerCase().slice(0, MAX_SLUG) };
+      return { status: "not_allowed", slug: cleanSlug(args.command.slug) };
     }
     if (senderUser === null) {
       // Told once per person per chat, and by a salted hash, never the number.
@@ -197,7 +227,7 @@ export const applyGroupTurn = internalMutation({
     let bound = false;
     let workspace = shared.find((entry) => entry._id === group.workspaceId) ?? null;
     if (args.command?.kind === "use") {
-      const slug = args.command.slug.trim().replace(/^@/, "").toLowerCase().slice(0, MAX_SLUG);
+      const slug = cleanSlug(args.command.slug);
       const chosen = shared.find((entry) => entry.slug === slug) ?? null;
       if (chosen === null) {
         // Guest mode (`lib/textGroupGuests.ts`): an owner or editor opens that workspace to this chat, whoever is in it.
@@ -249,7 +279,7 @@ export const applyGroupTurn = internalMutation({
 type TurnArgs = {
   groupKey: string;
   sender: string;
-  command?: { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string };
+  command?: { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "invite"; slug: string; role?: "editor" | "member" };
   mint: boolean;
   hashedAccessToken: string;
   hashedRefreshToken: string;
@@ -318,6 +348,72 @@ async function guestTurn(
   const tagger = taggerMember ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
   const handle = taggerMember ? await handleOf(ctx, actor) : "";
   return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger };
+}
+
+/** A slug as a command said it: no "@", lowercase, bounded. */
+function cleanSlug(said: string): string {
+  return said.trim().replace(/^@/, "").toLowerCase().slice(0, MAX_SLUG);
+}
+
+/**
+ * One tag in a chat whose people are members of the workspace or invited there by number (`lib/textGroupInvited.ts`),
+ * or the "use" that names it. The grant reads at team tier, as any chat's does. It is the tagger's own when they are a
+ * member, and otherwise the binder's, an owner or editor in the chat, clamped to the invitation's role and marked so
+ * it acts for nobody's own account. Null when it can't answer this way and the chat goes on as before: an invited
+ * person saying "use", or nobody here who may stand behind an invited person's tag.
+ */
+async function invitedTurn(
+  ctx: MutationCtx,
+  args: TurnArgs,
+  chat: Doc<"textGroups">,
+  invited: InvitedChat,
+  using: boolean,
+): Promise<GroupAnswer | null> {
+  const workspace = invited.workspace;
+  const taggerUser = invited.members.get(args.sender) ?? null;
+  if (using && taggerUser === null) return null;
+  let actor = taggerUser;
+  const taggerInvitation = invited.invited.get(args.sender);
+  if (actor === null) {
+    const binder = chat.workspaceId === workspace._id ? chat.boundBy : undefined;
+    const inChat = binder !== undefined && [...invited.members.values()].includes(binder);
+    if (!inChat || !(await mayOpenToGuests(ctx, workspace._id, binder)) || (await phoneSignInPaused(ctx, binder))) return null;
+    actor = binder;
+  }
+  const bound = using && (chat.workspaceId !== workspace._id || chat.guestGroupId !== undefined);
+  if (using) {
+    await clearGuests(ctx, chat);
+    await ctx.db.patch(chat._id, { workspaceId: workspace._id, boundBy: actor });
+  }
+  const minted = args.mint && args.command === undefined;
+  if (minted) {
+    const ok = await mintGroupGrant(ctx, {
+      group: chat,
+      workspaceId: workspace._id,
+      tagger: actor,
+      coViewerIds: [...new Set(invited.members.values())].filter((userId) => userId !== actor),
+      hashedAccessToken: args.hashedAccessToken,
+      hashedRefreshToken: args.hashedRefreshToken,
+      expiresAt: args.expiresAt,
+      participants: invited.members.size + invited.invited.size,
+      invited: {
+        invitationIds: [...invited.invited.values()].map((row) => row._id),
+        ...(taggerInvitation !== undefined ? { taggerRole: taggerInvitation.role } : {}),
+      },
+    });
+    if (!ok) return null;
+  }
+  const introduced = chat.introducedAt === undefined && (minted || using);
+  if (introduced) await ctx.db.patch(chat._id, { introducedAt: Date.now() });
+  const names: { phone: string; handle: string }[] = [];
+  for (const [phone, userId] of invited.members) names.push({ phone, handle: await handleOf(ctx, userId) });
+  // An invited person is named by a label, never by number, as a guest is.
+  const guests: { phone: string; label: string }[] = [];
+  for (const phone of invited.invited.keys()) guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
+  const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
+  const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
+  const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger };
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
@@ -389,6 +485,8 @@ async function mintGroupGrant(
     participants: number;
     /** Guest mode: the chat's group, the person usage counts against, and whether the tagger is a guest. */
     guest?: { groupId: Id<"workspaceGroups">; binder: Id<"users">; guestTagger: boolean };
+    /** Invited family (`lib/textGroupInvited.ts`): the invitations counted, and the invited tagger's role when one tagged. */
+    invited?: { invitationIds: Id<"workspaceInvitations">[]; taggerRole?: "editor" | "member" };
   },
 ): Promise<boolean> {
   const membership = await ctx.db
@@ -397,7 +495,9 @@ async function mintGroupGrant(
     .unique();
   if (membership === null) return false;
   // Never `context:private`: a group reads at team tier whoever tagged Tex.
-  const scopes = clampScopes([SCOPE_READ, SCOPE_WRITE], membership.role);
+  // An invited person's tag acts through the binder, and never past the invitation's role.
+  const taggerRole = input.invited?.taggerRole;
+  const scopes = clampScopes(clampScopes([SCOPE_READ, SCOPE_WRITE], membership.role), taggerRole ?? membership.role);
   if (!hasOperationScope(scopes)) return false;
   // A guest chat counts against whoever opened it to guests (the owner, 2026-10-25), whoever tagged Tex.
   const meterWorkspaceId = await personalWorkspaceOf(ctx, input.guest?.binder ?? input.tagger);
@@ -405,7 +505,11 @@ async function mintGroupGrant(
   await ensureGroupClient(ctx);
 
   const guest = input.guest === undefined ? {} : { guestGroupId: input.guest.groupId, guestTagger: input.guest.guestTagger };
-  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...guest };
+  const invited =
+    input.invited === undefined
+      ? {}
+      : { coInvitationIds: input.invited.invitationIds, ...(taggerRole !== undefined ? { invitedTaggerRole: taggerRole } : {}) };
+  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...guest, ...invited };
   const token = {
     scopes,
     texGroup,
@@ -442,6 +546,7 @@ async function mintGroupGrant(
       scopes: scopes.join(" "),
       participants: input.participants,
       ...(input.guest !== undefined ? { guests: true, guestTagger: input.guest.guestTagger } : {}),
+      ...(input.invited !== undefined ? { invited: input.invited.invitationIds.length, invitedTagger: taggerRole !== undefined } : {}),
     },
   });
   return true;

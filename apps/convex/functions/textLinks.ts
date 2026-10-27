@@ -28,6 +28,7 @@ import { effectiveTimeZone } from "./lib/routines/model";
 import { armDream } from "./lib/dreams/model";
 import { armHeartbeat } from "./lib/heartbeats/model";
 import { armHousekeeping } from "./lib/housekeeping/model";
+import { acceptPhoneInvitations } from "./lib/invitations/join";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -452,6 +453,8 @@ export const consumeLinkCode = internalMutation({
     // And an account has one number: a new one replaces the old.
     await removeLinksOf(ctx, match.userId, "texts.phone.replaced");
     await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now });
+    // A workspace that invited this number from a Tex group chat is joined now: the code proved it.
+    await acceptPhoneInvitations(ctx, match.userId, args.phone);
 
     await recordAudit(ctx, {
       workspaceId: workspace._id,

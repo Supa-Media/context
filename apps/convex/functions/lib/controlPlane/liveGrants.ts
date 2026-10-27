@@ -18,7 +18,8 @@ import { pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 import { phoneSignInPaused } from "../emailProof";
-import { guestBinder } from "../textGroupGuests";
+import { guestBinder, mayOpenToGuests } from "../textGroupGuests";
+import { invitationsStillCount } from "../textGroupInvited";
 import { chatNamesOf } from "../nodes/chatFolders";
 import { accessRowsOf } from "../nodes/accessRows";
 
@@ -121,6 +122,10 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
     if ((await getMembership(ctx, grant.workspaceId, userId)) === null) return false;
     if (await phoneSignInPaused(ctx, userId)) return false;
   }
+  // Invited family (`lib/textGroupInvited.ts`): every invitation counted still counts, and an invited person's tag
+  // stands on a binder who may still open the workspace to the chat.
+  if (texGroup.coInvitationIds !== undefined && !(await invitationsStillCount(ctx, grant.workspaceId, texGroup.coInvitationIds))) return false;
+  if (texGroup.invitedTaggerRole !== undefined && !(await mayOpenToGuests(ctx, grant.workspaceId, grant.userId))) return false;
   return true;
 }
 
@@ -225,6 +230,9 @@ export async function contextsForGrant(
       const grantedNames = chatNamesOf(chatGroupId, chatGroup.name, await accessRowsOf(ctx, own.workspaceId));
       return [{ ...own, role, grantedNames }, ...setup];
     }
+    // An invited person's tag: the binder's grant, never past the invitation's role, and never an owner's tools.
+    const invitedRole = live.grant.texGroup?.invitedTaggerRole;
+    if (invitedRole !== undefined) return [{ ...own, role: own.role === "member" ? "member" : invitedRole }, ...setup];
     return [own, ...setup];
   }
 

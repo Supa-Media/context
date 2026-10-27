@@ -412,7 +412,7 @@ function InviteForm({
       ) : null}
 
       <TextField
-        label="@name or email"
+        label="@name, email or phone"
         value={invitee}
         onChangeText={(text) => {
           setInvitee(text);
