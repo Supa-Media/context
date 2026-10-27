@@ -9,7 +9,7 @@
  *
  *   `agentWorkerRoute` dropped from the decide route (no secret check)       1 failed ("refuses without the secret")
  *   `readDecideBody` not requiring `newest` in `candidates`                  1 failed ("refuses a malformed body")
- *   `STALE_AT` lowered to 0.5                                                1 failed ("stale only at 0.7")
+ *   `STALE_AT` lowered to 0.5                                                1 failed ("stale only at 0.85")
  *   covers returning only [start, newest], not the range                    1 failed ("a split request: start ... full range")
  *   covers kept on silent (not [])                                           1 failed ("not answering: covers nothing")
  *   the switch refusal mapped to "unavailable"                               1 failed ("off and capped")
@@ -190,15 +190,15 @@ describe("the decision", () => {
     expect((await decide(t)).json).toMatchObject({ covers: [NEWEST] });
   });
 
-  test("mid-turn and stale only at 0.7", async () => {
+  test("mid-turn at its answer, and stale only at 0.85", async () => {
     const t = setupTest();
     await boundGroup(t);
     const asks = [id(20), id(21), id(22)];
     const sent = clef({
       ...ANSWER,
       midTurn: { type: "choice", choice: "restart", confidence: 0.7 },
-      stale_0: { type: "noul", noul: 0.7 },
-      stale_1: { type: "noul", noul: 0.69 },
+      stale_0: { type: "noul", noul: 0.85 },
+      stale_1: { type: "noul", noul: 0.84 },
       stale_2: { type: "noul", noul: 0.95 },
       movedOn: { type: "noul", noul: 0.8 },
     });

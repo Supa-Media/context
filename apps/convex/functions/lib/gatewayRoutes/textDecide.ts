@@ -22,7 +22,8 @@ export const MAX_TRANSCRIPT = 24_000;
 export const MAX_CANDIDATES = 32;
 export const MAX_WAITING_ASKS = 8;
 /** At or above this a waiting ask is stale: the model may end an ask sooner, so it has to be fairly sure. */
-export const STALE_AT = 0.7;
+/** High on purpose: a side text ("one sec") must never drop a held email; a correction scores far above this. */
+export const STALE_AT = 0.85;
 /** Sendblue's group ids are uuids; anything much longer is not one (as `/agent-texts/group`). */
 const MAX_CHAT = 200;
 /** `${at padded to 13}-${seq padded to 6}` (contract section 1). */
@@ -99,7 +100,7 @@ export function decideRequest(body: DecideBody): JevRequest {
   const questions: Record<string, unknown> = {
     act: {
       type: "choice",
-      instructions: `The state is a chat transcript, newest last; "You" is Tex, an assistant in the chat. Decide what Tex does about the newest message (event ${body.newest}). ${STYLE_RULES[body.style]}`,
+      instructions: `The state is a chat transcript, newest last; each line starts with its event id in angle brackets; "You" is Tex, an assistant in the chat. Decide what Tex does about the newest message (event <${body.newest}>). ${STYLE_RULES[body.style]}`,
       criteria: {
         silent: "Tex says nothing",
         react: "Tex only reacts with a tapback: the message acknowledges or thanks Tex and needs no words",
@@ -109,7 +110,7 @@ export function decideRequest(body: DecideBody): JevRequest {
     start: {
       type: "choice",
       instructions: "Which message does the request Tex is answering start at?",
-      criteria: Object.fromEntries(body.candidates.map((id) => [id, `the message with event id ${id} in the transcript`])),
+      criteria: Object.fromEntries(body.candidates.map((id) => [id, `the message on the line starting <${id}>`])),
     },
   };
   if (body.running) {
@@ -126,7 +127,7 @@ export function decideRequest(body: DecideBody): JevRequest {
   body.waitingAsks.forEach((id, index) => {
     questions[`stale_${index}`] = {
       type: "noul",
-      instructions: `Tex is holding an action for a yes (event ${id}). Does the newest message cancel or change this held action?`,
+      instructions: `Tex is holding an action for a yes (event <${id}>). Does the newest message clearly cancel or change this held action? A side remark, a delay ("one sec"), or a question about it is not a change.`,
       criteria: { true: "yes, it cancels or changes the held action", false: "no, the held action still stands as asked" },
     };
   });
