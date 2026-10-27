@@ -32,7 +32,9 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_LINES, log, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { shrinkPicture, type OutgoingPicture } from "./outgoing";
+import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
 
 export type JobDeps = {
@@ -43,6 +45,8 @@ export type JobDeps = {
   sendblue?: SendblueKeys | null;
   whapi?: WhapiKeys | null;
   now: () => number;
+  /** Shrinks a big picture before it goes to the chat's inbox (`outgoing.ts`); absent, it goes as it is. */
+  images?: ImagesLike;
   /** Tell the chat's inbox; true once it took the update (and sent its texts). */
   report: (inbox: string, update: JobUpdate) => Promise<boolean>;
 };
@@ -70,7 +74,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -120,8 +124,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
   let sent = run.sent ?? 0;
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
     const ok = await deps.report(run.inbox, { id: run.id, ...update, first: sent }).catch(() => false);
-    if (ok && update.texts) {
-      sent += update.texts.length;
+    const count = (update.pictures?.length ?? 0) + (update.texts?.length ?? 0);
+    if (ok && count > 0) {
+      sent += count;
       await storage.put<Stored>(RUN_KEY, { ...run, sent });
     }
     return ok;
@@ -191,7 +196,14 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
 
   const update: Omit<JobUpdate, "id" | "first"> =
     outcome.kind === "answer"
-      ? { state: "done", status: outcome.status, texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts, ...watch }
+      ? {
+          state: "done",
+          status: outcome.status,
+          // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
+          ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
+          texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
+          ...watch,
+        }
       : outcome.kind === "stop"
         ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
         : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
@@ -215,6 +227,13 @@ async function finish(
   await storage.delete(STEERS_KEY);
   await storage.delete(STOP_KEY);
   log(update.state, run.id);
+}
+
+/** An answer's pictures as its update carries them: shrunk, then as many as fit (`jobPictures`). */
+async function sendable(pictures: OutgoingPicture[], images: ImagesLike | undefined): Promise<{ pictures?: OutgoingPicture[] }> {
+  const shrunk = await Promise.all(pictures.slice(0, MAX_JOB_PICTURES).map((picture) => ("url" in picture ? picture : shrinkPicture(images, picture))));
+  const kept = jobPictures(shrunk);
+  return kept.length > 0 ? { pictures: kept } : {};
 }
 
 /** What the job's turn is asked with. */
@@ -242,6 +261,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
     return {
       kind: "answer",
       texts: answer.text ? texts(answer.text) : [],
+      pictures: answer.pictures,
       exhausted: answer.exhausted === true,
       unfinished: answer.unfinished === true,
       status: firstLine(answer.text),

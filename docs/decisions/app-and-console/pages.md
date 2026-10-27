@@ -61,6 +61,17 @@ refused with the line to fix (`apps/mcp/src/pages.js`), as a broken form is;
 `orient about: "pages"` is the format guide, built from the block kinds so it
 cannot drift from the checks.
 
+**One picture, then the link (owner, 2026-10-27: "Cover picture + link").**
+The cover replaces the link's name card rather than joining it: a job's
+answer carries its pictures to the chat (`apps/agent/src/jobTexts.ts`), they
+go first, and once one went a bare note link is texted inside a sentence, so
+no name card is drawn for it. A cover that would not send is skipped and the
+link gets its name card as before. A job update holds at most two pictures
+and 1.5 MB of them, because an update the chat's inbox did not take is kept
+in the job's object until it does. Messages cannot draw a rich preview for a
+link sent from an API line (Sendblue has no rich-link send), which is why
+the picture is texted rather than left to the link.
+
 **What a simplification would cost.**
 
 - *Store the page as HTML.* Loses editing in place, comments, search and the
@@ -78,4 +89,6 @@ page view is the web app's. Publishing a page as a website page.
 `infra/router/src/pageFrame.test.ts` (only the runtime's files, never the
 console, box framable); `apps/mcp/test/pages.test.mjs` (write refusal, guide,
 job line, cover) and `apps/mcp/test/pagesFormat.test.mjs` (escaping, link
-schemes, typed punctuation).
+schemes, typed punctuation); `apps/agent/src/jobCovers.test.ts` (cover
+first, no name card after it, a retry repeats nothing, a failed cover keeps
+the card).

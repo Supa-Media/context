@@ -24,6 +24,7 @@
 
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
+import { readPictures, type OutgoingPicture } from "./outgoing";
 
 /** What a turn asked to start, as the gateway wrote it. */
 export type StartedJob = { title: string; brief: string; doneWhen?: string; tainted?: true };
@@ -53,7 +54,29 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
-export type JobUpdate = { id: string; state: JobState; status?: string; texts?: string[]; first?: number; step?: string; vaultWatch?: string };
+/** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
+export type JobUpdate = { id: string; state: JobState; status?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string };
+
+/** A job's answer texts at most this many pictures: a page's cover, a card or two. */
+export const MAX_JOB_PICTURES = 2;
+/**
+ * Their bytes together, base64, stay under this: an update the inbox did not
+ * take is kept in the job's object until it does, under the 2 MB value cap.
+ */
+export const MAX_JOB_PICTURE_CHARS = 1_500_000;
+
+/** The pictures a job's update carries, in order, until the count or the size runs out. */
+export function jobPictures(pictures: OutgoingPicture[]): OutgoingPicture[] {
+  const kept: OutgoingPicture[] = [];
+  let chars = 0;
+  for (const picture of pictures) {
+    if (kept.length === MAX_JOB_PICTURES) break;
+    chars += "url" in picture ? picture.url.length : picture.data.length;
+    if (chars > MAX_JOB_PICTURE_CHARS) break;
+    kept.push(picture);
+  }
+  return kept;
+}
 
 export const MAX_RUNNING_JOBS = 3;
 /** Turns one job may take before it texts what it has (the gateway clamps to the same). */
@@ -236,7 +259,8 @@ export async function noteJobSent(storage: InboxStorage, id: string, sent: numbe
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, texts, first, step, vaultWatch } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, vaultWatch } = value as Record<string, unknown>;
+  const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || (state !== "running" && state !== "done" && state !== "failed")) return null;
   return {
     id,
@@ -245,6 +269,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof step === "string" ? { step } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
+    ...(read.length > 0 ? { pictures: read } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
   };
 }
