@@ -46,6 +46,7 @@
 import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
+import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -143,7 +144,8 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 const HANDOFF_SENTENCE =
   "When the person has to do something themselves (a code they can't text you, a captcha this tool said outlasted every try, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
   "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
-  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. ";
+  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. " +
+  "A form, a picker or a button that didn't work is never a handoff: finish it yourself, and a handoff on a page with no sign-in, code, captcha or card box is refused. ";
 /*
   A LINK THEY SAID NO TO IS NEVER SENT AGAIN (the owner's review, 2026-10-26).
   "If you can't book this bus for me yourself, you are useless to me, im not
@@ -548,6 +550,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       steps += planned.length;
       let done;
       let captchaLine = "";
+      let notTheirs = false;
       try {
         // The steps go first with no handoff, so a captcha they meet is
         // tried every other way before the browser is handed over for it.
@@ -556,6 +559,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
         // Got past a captcha: nothing is left for the person to do there.
         if (cleared) handoff = false;
+        // Only a sign-in, a code, a captcha, a card or their own ask is theirs (`handoffGate.js`).
+        if (handoff && done !== null && !handoffIsTheirs({ reading: done.reading, stuck: captchas.stuck(), theirWords: addresses })) {
+          handoff = false;
+          notTheirs = true;
+        }
         if (handoff && done !== null) done = await run([{ do: "read" }], { handoff: true });
       } catch {
         done = null;
@@ -594,7 +602,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
             : "";
       const kept = done.file ? await keepFile(done.file) : "";
-      const result = textResult(readingText(done.reading, done.ran, { from }) + captchaLine + told + kept, done.ran.some((r) => !r.ok) || kept.startsWith("\n\nNot kept"));
+      const result = textResult(
+        readingText(done.reading, done.ran, { from }) + captchaLine + (notTheirs ? NOT_THEIRS : "") + told + kept,
+        notTheirs || done.ran.some((r) => !r.ok) || kept.startsWith("\n\nNot kept"),
+      );
       // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
       result.sources = [done.reading.url];
       // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).

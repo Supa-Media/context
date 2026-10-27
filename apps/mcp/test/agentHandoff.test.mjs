@@ -26,7 +26,7 @@ function fakeComputer({ canHandOff, handoffUrl = null }) {
       return {
         session: "sess-handoff-0001",
         ran: steps.map((step) => ({ do: step.do, ok: true })),
-        page: { url, title: "Sign in", text: "", truncated: false, elements: [] },
+        page: { url, title: "Sign in", text: "", truncated: false, elements: [{ ref: 1, kind: "input password", label: "Password" }] },
         ...(handoffUrl ? { handoffUrl } : {}),
       };
     },
@@ -78,7 +78,7 @@ function browserbaseBinding(requests) {
       return Response.json({
         session: "bb-1",
         ran: body.steps.map((step) => ({ do: step.do, ok: true })),
-        page: { url: target, title: "Log in", text: "", truncated: false, elements: [] },
+        page: { url: target, title: "Log in", text: "", truncated: false, elements: [{ ref: 1, kind: "input password", label: "Password" }] },
         liveUrl: BROWSERBASE_LINK,
         handoffUrl: BROWSERBASE_LINK,
       });
