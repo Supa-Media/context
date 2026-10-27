@@ -37,7 +37,10 @@ type World = {
   members: (string[] | null)[] | null;
 };
 
-function deps(world: World, answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[] } = {}): GroupDeps {
+function deps(
+  world: World,
+  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: { candidates: string[] }) => unknown } = {},
+): GroupDeps {
   let membersRead = 0;
   let handles = 0;
   const fetcher = (async (url: string, init: RequestInit) => {
@@ -62,6 +65,9 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
       world.reacted.push(body.reaction);
       return Response.json({});
     }
+    // Decide (`decide.ts`): unreachable unless a test says what it answers, so a group falls back to `addressesTex`.
+    if (path === "/agent-texts/decide" && answers.decide) return Response.json(answers.decide(body));
+    if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent-texts/group") {
       world.control.push(body);
       return Response.json(answers.control ?? { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
@@ -224,14 +230,17 @@ describe("a group's queue", () => {
   it("reads a picture sent just after the tag with it (Jhon's screenshot, 2026-10-23)", async () => {
     const storage = new MemoryStorage();
     const w = world();
+    // Quiet: only the tagger's own picture after their tag goes to decide with it (`followsOwnTag`).
+    const quiet = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", engagement: "quiet", engagementChosen: true };
     await acceptGroup(storage, message("Tex, hi"), 0);
-    await drainGroup(storage, deps(w));
+    await drainGroup(storage, deps(w, { control: quiet }));
     expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
     expect(storage.alarms.at(-1)).toBe(10 + GROUP_TEXT_WAIT_MS);
     // Somebody else's picture is chat, not the tagger's screenshot.
     expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
-    expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("queued");
-    await drainGroup(storage, deps(w));
+    // Kept as chat, and put to decide with the tag it follows; decide's covers make them one turn.
+    expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("kept");
+    await drainGroup(storage, deps(w, { decide: (body) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 }) }));
     expect(w.asks).toHaveLength(2);
     expect(w.asks[1]).toMatchObject({ question: "Tex, file this screenshot as a bug report", attachments: [{ name: "IMG_0001.png", mediaType: "image/png" }] });
     expect((w.asks[1].attachments as { data?: string }[])[0].data).toBeTruthy();

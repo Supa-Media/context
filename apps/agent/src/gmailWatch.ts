@@ -96,7 +96,7 @@ export async function checkGmail(storage: InboxStorage, deps: GmailWatchDeps): P
     return;
   }
   // The next turn's history is owed this text, by name (`told.ts`).
-  await noteTold(storage, answer.main ? "gmail_main" : "gmail");
+  await noteTold(storage, answer.main ? "gmail_main" : "gmail", owed.chatId, now);
   await storage.delete(GMAIL_KEY);
 }
 
