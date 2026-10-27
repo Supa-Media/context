@@ -15,7 +15,7 @@
  */
 
 import { CARD_HEIGHT, CARD_WIDTH, SCALE } from "./kit.js";
-import { compare, gallery, option, places, tickets, versus } from "./choices.js";
+import { compare, gallery, mapCard, option, places, tickets, versus } from "./choices.js";
 import { day, plan, streak, trip } from "./time.js";
 import { board, chart, people, spending, steps, system } from "./status.js";
 
@@ -27,7 +27,8 @@ const TEMPLATES = {
   gallery: [gallery, "things to look at, a photo each: clothes (style editorial), food (style warm, the pick large), gifts or products (style polaroid). {style, kicker, title, items:[{name, price, note, photo, source ('Aritzia'), pick, tag}] ≤4 (warm ≤3), footer}"],
   option: [option, "ONE option per card, for 2-8 options sent together as a swipeable set (one draw_visual call each, numbered): caterers, dresses, hotels, cars. {index, of, kicker, name, price, price_note ('$7.50 a person'), photo, source, facts:[{label, value}] ≤4, note, pick, tag}"],
   versus: [versus, "two things side by side: homes, cars, jobs. {kicker, title, items:[{name, photo, source}] ×2, rows:[{label, a, b, better: 'a'|'b'}] ≤7}"],
-  places: [places, "places to go (restaurants, bars, shops), numbered. {kicker, title, from (where they start: their address from about-me, or where they said they are, written as it is there: each place's distance is measured from it for you), items:[{name, cuisine ('Ethiopian'), price ('$$' or '$60 prix fixe'), hours ('5 to 10 pm'), address (the full street address from the page you read), note (one short line: why go, booking), photo (a dish or room photo from the place's own page, Yelp, OpenTable or a review you opened: open each place's own page first: its read lists photos and a Logo line), logo (that Logo line), pick}] ≤4, footer}. Every field shows in full; leave out what you don't know"],
+  places: [places, "places to go (restaurants, bars, shops, florists), numbered, with a map of them on top. {kicker, title, near (the town or neighbourhood the places are in, 'Long Island City, NY': the map needs it), from (where they start: their address from about-me, or where they said they are, written as it is there: each place's distance is measured from it for you), items:[{name, cuisine ('Ethiopian'), price ('$$' or '$60 prix fixe'), hours ('5 to 10 pm'), address (the full street address from the page you read), note (one short line: why go, booking), photo (a dish or room photo from the place's own page, Yelp, OpenTable or a review you opened: open each place's own page first: its read lists photos and a Logo line), logo (that Logo line), pick}] ≤4, footer}. Every field shows in full; leave out what you don't know"],
+  map: [mapCard, "stops on a map, numbered: a day's errands, a trip's sights, where to meet. {kicker, title, near ('Montreal, QC'), route (true when the order is the way to go), stops:[{name, address (the street address as you read it), time, note}] ≤6, footer}"],
   tickets: [tickets, "flights, trains, shows as ticket cards. {kicker, title, items:[{name ('Delta 1421'), depart, arrive, duration, stops, price, price_label, note, pick, tag}] ≤3, facts:[{label, value}] ≤3}"],
   trip: [trip, "a trip or event by day. {kicker, title, days:[{name, stops:[{time, what, note}] ≤5}] ≤3, chips:[{label, value, tone: 'good'|'warn'}] ≤3}"],
   day: [day, "one day hour by hour. {kicker, title, events:[{start ('9:30'), end, title, note, kind: meeting|free|travel|warn}] ≤9}"],
@@ -67,14 +68,15 @@ export const VISUAL_DEFINITION = {
 };
 
 /** The page for one visual, at the size it is photographed, or an error the model can act on. */
-export function buildVisual(args, { canLoad, photos } = {}) {
+export function buildVisual(args, { canLoad, photos, map = null } = {}) {
   const template = typeof args?.template === "string" ? args.template : "";
   if (!Object.hasOwn(TEMPLATES, template)) return { error: `No template "${template.slice(0, 30)}". Pick one of: ${VISUAL_TEMPLATES.join(", ")}.` };
   const data = args?.data && typeof args.data === "object" && !Array.isArray(args.data) ? args.data : null;
   if (data === null) return { error: "Pass the template's fields as data." };
   const theme = args?.theme === "dark" ? "dark" : "light";
   const dropped = [];
-  const drawn = TEMPLATES[template][0](loadable(data, canLoad, dropped, photos), theme);
+  // The map is only ever the gateway's (`./map.js`): one the model wrote into data is not drawn.
+  const drawn = TEMPLATES[template][0]({ ...loadable(data, canLoad, dropped, photos), map }, theme);
   const page = typeof drawn === "string" ? { html: drawn, height: CARD_HEIGHT } : drawn;
   return { html: page.html, width: CARD_WIDTH * SCALE, height: page.height * SCALE, dropped: dropped.length };
 }
