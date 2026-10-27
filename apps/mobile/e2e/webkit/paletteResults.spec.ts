@@ -90,9 +90,9 @@ for (const [where, viewport] of [
       await expect(rows.first()).toContainText("Launch pricing plan checklist");
       // Four answers, the folded line, and the name the tree held.
       await expect(rows).toHaveCount(6);
-      await expect(page.getByText("Notes on freemium")).toHaveCount(0);
+      await expect(page.getByText("Notes on freemium", { exact: true })).toHaveCount(0);
       await page.getByText("2 more about the same topic").click();
-      await expect(page.getByText("Notes on freemium")).toBeVisible();
+      await expect(page.getByText("Notes on freemium", { exact: true })).toBeVisible();
       await expect(rows.first()).toContainText("Launch pricing plan checklist");
       const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(pageWidth).toBeLessThanOrEqual(viewport.width);
