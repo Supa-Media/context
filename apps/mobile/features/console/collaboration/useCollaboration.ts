@@ -112,6 +112,18 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     options.path !== null &&
     options.path.endsWith(".md") &&
     !options.path.endsWith(".excalidraw.md");
+  /*
+    The note on screen, before it was shared. The read after a rename, or
+    after a new note's first save, is the first to come back with a `c2.`
+    version, and the controller then starts under somebody mid-sentence: it
+    takes their typing as a draft at once (`draftWaitMs: 0`) rather than
+    holding the note read-only for its first read. Followed across this
+    console's rename, since the read that shares it can land in the same
+    render as the new name.
+  */
+  const unshared = useRef<string | null>(null);
+  if (!active) unshared.current = options.path;
+  else if (options.rename?.to === options.path && unshared.current === options.rename.from) unshared.current = options.path;
 
   useEffect(() => {
     const path = identity.current.path;
@@ -141,6 +153,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       // Read when typing starts: see `base` in `durable.ts`.
       base: () => ({ text: callbacks.current.initialText(), etag: callbacks.current.initialEtag?.() ?? null }),
       legacyDraft: options.legacyDraft?.(),
+      ...(unshared.current === path ? { draftWaitMs: 0 } : {}),
       transport,
       online: () => typeof navigator === "undefined" || navigator.onLine !== false,
       canWrite: () => callbacks.current.editable,
@@ -188,6 +201,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       },
     });
     controller.current = next;
+    unshared.current = null;
     options.onOwned?.(path, true);
     void next.start();
     // Online again, and also focus: a rollout can briefly return 404 while
@@ -240,6 +254,9 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       if (!active || current === null) return undefined;
       return {
         ...state,
+        // Read live: a controller takes typing from the moment it exists, before it first reports.
+        ready: current.state.ready,
+        drafting: current.state.drafting,
         text: current.state.text,
         revision: current.state.revision,
         shared: current.state.shared,

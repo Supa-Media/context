@@ -3,10 +3,11 @@ import { scopedKeyFor, type CacheScope } from "../../offline/keys";
 import { openStore } from "../../offline/store";
 import { createSharedDoc, fromBase64, toBase64, type SharedDoc } from "../presence/sharedDoc";
 import { applyTextDiff } from "./textEdits";
-import { DRAFT_WAIT_MS, documentIdOf, holdsDocument, type Recovery } from "./offlineDraft";
+import { DRAFT_WAIT_MS, documentIdOf, draftFromLegacy, holdsDocument, keepsEveryWord, keptOver, type Recovery } from "./offlineDraft";
 import { closeNote, openNote } from "./noteLease";
 
 export { textEdits } from "./textEdits";
+export { keepsEveryWord } from "./offlineDraft";
 
 export type DurableStatus =
   | "loading"
@@ -129,22 +130,14 @@ function emptyRecord(): Persisted {
   return { version: 1, documentId: null, etag: null, snapshot: "", pending: [] };
 }
 
+/** The longest a rename may keep a note's typing from being sent. */
+const HOLD_LIMIT_MS = 30_000;
+
 /**
  * A small durable client for one note. It stores the CRDT identity and update
  * queue, never a competing full-file draft. Each HTTP write mints a fresh
  * grant, and a response can only settle the updates included in that request.
  */
-/**
- * Whether carrying `draft` onto `note` loses none of the note's words. Only its
- * opening heading may be replaced, since that is the title a person retitles.
- */
-export function keepsEveryWord(draft: string, note: string): boolean {
-  const body = note.replace(/^\s*#[^\n]*(\n|$)/, "").trim();
-  return body === "" || draft.includes(body);
-}
-
-/** The longest a rename may keep a note's typing from being sent. */
-const HOLD_LIMIT_MS = 30_000;
 
 export class DurableCollaborationController {
   private options: DurableControllerOptions;
@@ -174,6 +167,8 @@ export class DurableCollaborationController {
   private reading: Promise<void> | null = null;
   private readAgain = false;
   private readonly liveListeners = new Set<(frame: LiveUpdate) => void>();
+  /** Whether `start` has read the record this device kept; see `persist`. */
+  private loaded = false;
   /** The record this editor holds against a background send; see `noteLease.ts`. */
   private leased: string | null = null;
 
@@ -185,12 +180,18 @@ export class DurableCollaborationController {
     this.doc = createSharedDoc({ onLocalUpdateBytes: (update) => this.localUpdate(update) });
     this.target = options.path;
     this.doc.notePath = () => this.target;
+    // Typing the editor already holds, or is about to, on a note just shared under it:
+    // taken as a draft from the start (`draftFromLegacy`), never held for a read.
+    const legacy = draftFromLegacy(options.legacyDraft);
+    if (legacy !== undefined) this.record = { ...this.record, documentId: documentIdOf(legacy.baseEtag), recovery: legacy };
+    if (legacy !== undefined || (options.draftWaitMs === 0 && this.mayDraft())) this.draftable = true;
   }
 
   get state(): DurableCollaboration {
     return {
       mode: "durable",
-      ready: this.readyState,
+      // A controller stopped for a restart takes nothing more; its replacement reports when it can.
+      ready: this.readyState && !this.stopped,
       status: this.statusState,
       pending: this.pendingCount(),
       etag: this.record.etag,
@@ -374,6 +375,7 @@ export class DurableCollaborationController {
       await openNote(this.key);
     }
     let raw: string | null = null;
+    const held = this.record;
     try {
       raw = await this.store.get(this.key);
     } catch {
@@ -383,12 +385,14 @@ export class DurableCollaborationController {
     if (!this.stopped && raw !== null) {
       try {
         const parsed: unknown = JSON.parse(raw);
-        if (validRecord(parsed)) this.record = parsed;
+        if (validRecord(parsed)) this.record = keptOver(parsed, this.record);
       } catch {
         // A malformed local record is ignored; the old draft/cache remains.
       }
     }
+    this.loaded = true;
     if (this.record.recovery !== undefined) {
+      if (this.record.recovery === held.recovery) await this.persist();
       this.readyState = false;
       // An offline draft from an earlier visit goes on taking typing.
       this.armDraft(true);
@@ -474,7 +478,7 @@ export class DurableCollaborationController {
   private mayDraft(): boolean {
     const kept = this.record.recovery;
     if (kept !== undefined && kept.offline !== true) return false;
-    if (this.options.legacyDraft !== undefined || this.options.canWrite?.() === false) return false;
+    if ((kept === undefined && this.options.legacyDraft !== undefined) || this.options.canWrite?.() === false) return false;
     const documentId = documentIdOf(kept?.baseEtag ?? this.options.base?.().etag);
     return documentId !== null && (this.record.documentId === null || this.record.documentId === documentId);
   }
@@ -514,7 +518,7 @@ export class DurableCollaborationController {
     const baseEtag = kept?.baseEtag ?? base?.etag ?? null;
     if (documentIdOf(baseEtag) === null) return;
     this.record.documentId ??= documentIdOf(baseEtag);
-    this.record.recovery = { baseline: kept?.baseline ?? base!.text, desired: text, baseEtag, offline: true };
+    this.record.recovery = kept === undefined ? { baseline: base!.text, desired: text, baseEtag, offline: true } : { ...kept, desired: text };
     const persisted = this.persist();
     this.emit("storing");
     this.options.onText(text);
@@ -558,6 +562,8 @@ export class DurableCollaborationController {
   }
 
   private persist(): Promise<boolean> {
+    // Not over the kept record before it is read: `start` lays what is held over it, then saves.
+    if (!this.loaded) return Promise.resolve(false);
     // Only a document that holds something: see `holdsDocument`.
     if (this.seeded) this.record.snapshot = this.doc.snapshot();
     const value = JSON.stringify(this.record);
@@ -630,12 +636,10 @@ export class DurableCollaborationController {
       this.readyState = true;
       this.options.onText(this.doc.markdown());
       if (!(await this.persist())) return;
-      // An offline draft was never in the legacy queue, so there is nothing to adopt there.
-      this.emit(this.record.pending.length > 0 ? "syncing" : "saved", adopted.offline === true ? undefined : {
-        path: this.options.path,
-        text: adopted.desired,
-        baseEtag: expectedBaseEtag,
-      });
+      // An offline draft was never in the legacy queue, unless it began as the editor's own (`adopt`).
+      this.emit(this.record.pending.length > 0 ? "syncing" : "saved", adopted.adopt !== undefined
+        ? { path: this.options.path, ...adopted.adopt }
+        : adopted.offline === true ? undefined : { path: this.options.path, text: adopted.desired, baseEtag: expectedBaseEtag });
       this.scheduleFlush();
     } catch (error) {
       // A draft kept for an earlier note at this path names that note's
