@@ -285,3 +285,10 @@ had no photo per dish, and the pages Tex read were its only source.
   holds. A fact shows up to 60 characters, wrapped, not cut at 24.
 
 What fails if reversed: `apps/mcp/test/agentPictureSearch.test.mjs`.
+
+Since the same day, with `GOOGLE_MAPS_KEY` set, the geocoder is Google's,
+with Photon only on Google's miss; each card looks an address up once for its
+distances and its map (`geocoderFor`), and logs a `card_distance` reason
+code (no_from, from_unseen, from_not_found, some_missed, measured), never an
+address. Dev2's ice-cream card came back without distances while only
+Photon was looking, and nothing said why.
