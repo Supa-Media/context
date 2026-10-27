@@ -53,7 +53,8 @@ import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
-import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
+import { downloadPhoto, downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
+import { huntPhotos, shooterFor } from "./visuals/hunt.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
@@ -202,6 +203,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
+  let web = null; // the turn's search_web, set by `useWeb`
   let kept; // undefined until read
   let earlier; // likewise
 
@@ -295,12 +297,16 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl, { find });
     const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
     const photos = [...(await downloadPhotos(read, fetchImpl, sparesIn(outgoing?.read?.() ?? "")))];
+    const got = new Set(photos.map(([address]) => address));
+    // Every option still without a picture is searched for, else its page photographed (`./visuals/hunt.js`).
+    const hunt = await huntPhotos(args?.template, data, { shown: (address) => got.has(address), web, download: (address) => downloadPhoto(address, fetchImpl), shoot: shooterFor(shots), read: () => outgoing?.read?.() ?? "" });
+    photos.push(...hunt.pictures);
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
     // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
     const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: find, locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
     if (drawnMap.refuse) return say(drawnMap.reason, true);
     photos.push(...(drawnMap.pictures ?? []));
-    const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
+    const built = buildVisual({ ...args, data: hunt.data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
     if (built.error) return say(built.error, true);
     const html = built.html.replace(CARD_PHOTO, (whole, n) => photos[Number(n) - 1]?.[1] ?? whole);
     const drawn = await draw({ ...built, html }, { card: true });
@@ -309,7 +315,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
     if (measured) notes.push(measured);
     if (drawnMap.reason) notes.push(drawnMap.reason);
-    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
+    if (hunt.searched.length > 0) notes.push(`Photos found by a picture search for: ${hunt.searched.join(", ")}.`);
+    if (hunt.screenshots.length > 0) notes.push(`Screenshots of their own pages for: ${hunt.screenshots.join(", ")}.`);
+    if (hunt.missing.length > 0) notes.push(`No picture found yet for: ${hunt.missing.join(", ")}. Open each one's own page or a review with photos in your browser, pass a photo you read, and draw again: a comparison shows every thing.`);
+    else if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
     if (notes.length === 0) return drawn;
     return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
@@ -380,6 +389,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   return {
     tools,
+    /** The turn's web tools, once open, for hunting a card's missing pictures (`./visuals/hunt.js`). */
+    useWeb: (call) => void (web = typeof call === "function" ? call : null),
     has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
     call: async (name, args, callTool) => looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args))),
   };

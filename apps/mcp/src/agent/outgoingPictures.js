@@ -166,6 +166,14 @@ export function outgoingPictures({ enabled, question = "" }) {
     };
   };
 
+  /**
+   * The turn's web tools (`turnWeb.js`), read the same way: they run beside
+   * the dispatcher, not through it, so until 2026-10-27 no page or picture
+   * search a texted turn read ever reached `read` or `vouches`, and every web
+   * photo on a card was dropped as unread (Dev2: "why isn't it adding images?").
+   */
+  const wrapWeb = (web) => (web === null || !enabled ? web : { ...web, call: wrap((name, args) => web.call(name, args)) });
+
   /** The answer without its picture lines, and the pictures those lines named that may go. */
   const take = (answer) => {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
@@ -259,7 +267,7 @@ export function outgoingPictures({ enabled, question = "" }) {
     return wanted.length >= MIN_ADDRESS && (plainSeen().includes(` ${wanted} `) || ` ${plainAddress(known)} `.includes(` ${wanted} `));
   };
 
-  return { wrap, take, picture, made, vouches, read, knows, locates };
+  return { wrap, wrapWeb, take, picture, made, vouches, read, knows, locates };
 }
 
 /**

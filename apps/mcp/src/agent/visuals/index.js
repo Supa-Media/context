@@ -129,5 +129,7 @@ export const VISUALS_LINE =
   "or map: call draw_visual with the template that fits, then text ONE line (25 words at most: verdict and next step) and " +
   "[picture N]; never repeat the card in words. For 2-8 options that each need a photo and facts, draw one option card each " +
   "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Places to go or buy from (restaurants, bars, shops, florists) are one places card, never option cards. Never draw for a yes or no, one fact, " +
-  "a draft, hard news, or after they ask for text only. If draw_visual fails, text it all in words, no word of the card. For looks, take photos from the pages you open. To keep the card in a " +
+  "a draft, hard news, or after they ask for text only. COMPARISONS ARE SEEN: each option (food, place, country, product) shows a real picture, from " +
+  "pages you open, search_web pictures: true, or its page in your browser; the card hunts any you leave out. Never give up on pictures after one try. " +
+  "If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card. To keep the card in a " +
   "note: write with args { images: [{ name: 'card.png', data: 'picture:N' }] } and ![[card.png]] in the content.";

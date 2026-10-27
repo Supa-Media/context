@@ -90,7 +90,8 @@ const EXAMPLES = {
 
 test("a card that won't draw leaves the whole answer in words", () => {
   // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list.
-  assert.match(VISUALS_LINE, /If draw_visual fails, text it all in words, no word of the card/);
+  assert.match(VISUALS_LINE, /If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card/);
+  assert.match(VISUALS_LINE, /COMPARISONS ARE SEEN/);
 });
 
 test("every template draws from its example, at 1200x1500, with its words on the card", () => {
@@ -180,7 +181,8 @@ test("a card's photo loads only if the turn read its address; fonts are never co
   assert.equal(sent.height, 1500);
   assert.match(sent.html, /fonts\.googleapis\.com/);
   assert.equal(result.content[0].type, "image");
-  assert.match(result.content[1].text, /^Drawn at 1200x1500\. 1 photo\(s\) left off the card/, "the made-up address, never the fonts");
+  // The made-up one is hunted for (`visuals/hunt.js`); with no web this turn, it is named as still missing.
+  assert.match(result.content[1].text, /^Drawn at 1200x1500\. No picture found yet for: Made up\./, "the made-up address, never the fonts");
   assert.doesNotMatch(result.content[1].text, /did not load/, "the fonts are never counted");
   assert.match(result.content.at(-1).text, /This is picture 1/);
 });
@@ -402,7 +404,7 @@ test("a places card fills each place's photo and logo from the pages read, downl
   assert.doesNotMatch(html, /https:\/\/media\.timeout|markette\.example/, "no web address left for the browser to fail on");
   assert.deepEqual(shots.calls[0].body.allow, []);
   assert.match(result.content[1].text, /added from the pages you read for: Hav & Mar, Markette, Shukette/);
-  assert.match(result.content[1].text, /1 photo\(s\) left off the card/, "Shukette's photo refused to download, so its slot is gone, not empty");
+  assert.match(result.content[1].text, /No picture found yet for: Shukette, Konban\./, "Shukette's photo refused to download, so it is hunted for (`visuals/hunt.js`) and named, its slot gone, not empty");
 });
 
 test("a card's photo is found only by a whole name, and never from a page that does not name it", () => {
