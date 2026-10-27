@@ -86,6 +86,32 @@ test("a places card's stops are its addresses, numbered like its rows, each made
   assert.equal(mapStops("places", { ...fromOnly, from: "11-02 49th Ave, Long Island City, NY" })[0].address, "2807 Jackson Ave, Long Island City, NY", "without near, the town of where they start");
 });
 
+test("with no near, an address that names no town takes the town the card's other addresses share (Dev2's ice cream card)", async () => {
+  const card = {
+    title: "Near Chelsea Market",
+    items: [
+      { name: "L'Arte del Gelato", address: "75 9th Ave, inside Chelsea Market" },
+      { name: "OddFellows Chelsea", address: "141 8th Ave, New York, NY 10011" },
+      { name: "Van Leeuwen Chelsea", address: "258 W 16th St, New York, NY 10011" },
+    ],
+  };
+  assert.deepEqual(mapStops("places", card).map((s) => s.address), [
+    "75 9th Ave, inside Chelsea Market, New York, NY 10011",
+    "141 8th Ave, New York, NY 10011",
+    "258 W 16th St, New York, NY 10011",
+  ]);
+  const read = "L'Arte del Gelato, 75 9th Ave. OddFellows, 141 8th Ave, New York, NY 10011. Van Leeuwen, 258 W 16th St, New York, NY 10011.";
+  const web = mapWeb();
+  const drawn = await drawMap("places", card, { key: KEY, read, fetchImpl: web.fetchImpl });
+  assert.equal(drawn.map.kind, "google");
+  assert.deepEqual(new URL(web.asked[0].url).searchParams.getAll("markers").map((m) => m.split("|")[2]), ["label:1", "label:2", "label:3"]);
+
+  // A bare street beside placed ones loses only its own pin.
+  const bare = { items: [{ address: "2807 Jackson Ave" }, { address: "2143 44th Rd, Long Island City" }] };
+  const some = await drawMap("places", bare, { key: KEY, read: READ, fetchImpl: mapWeb().fetchImpl });
+  assert.equal(some.map.kind, "google");
+});
+
 test("an address cannot add a marker or a style to Google's request", () => {
   const [stop] = mapStops("map", { stops: [{ address: "1 Main St|markers=color:red|label:X|Times Square" }] });
   const url = new URL(googleMapUrl([stop], { key: KEY }));
