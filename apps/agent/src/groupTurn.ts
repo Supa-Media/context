@@ -126,6 +126,7 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
  */
 export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
+  if (ids.length === 0) console.log(JSON.stringify({ event: "group_decide", outcome: "unavailable", reason: "no_events" }));
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) {
     const first = burst.findIndex((entry) => !soft(entry));

@@ -46,19 +46,31 @@ const PIN_COLORS = ["#1F5FD1", "#B4540A", "#1E7B4A", "#7A4BC2", "#C79A1B", "#161
 
 /**
  * The stops a card's map shows, numbered as the card numbers them: a places
- * card's items, or a map card's stops. Each address is made whole with
- * `near` ("Long Island City, NY") when it does not name its town.
+ * card's items, or a map card's stops. An address that does not name its
+ * town is made whole with `near` ("Long Island City, NY"), else the town of
+ * `from`, else the town the card's other addresses share: Dev2's ice cream
+ * card (2026-10-27) had "75 9th Ave, inside Chelsea Market" beside two
+ * "…, New York, NY 10011", and no near.
  */
 export function mapStops(template, data) {
   if (!data || typeof data !== "object") return [];
   const items = template === "places" ? list(data.items, 4) : template === "map" ? list(data.stops, 6) : [];
+  const stops = items.map((item, i) => ({ n: i + 1, street: clean(item.address), color: PIN_COLORS[i] })).filter((stop) => stop.street !== "");
   // Without near, the town of where they start (`from`, `./distance.js`): "…, Long Island City, NY 11101".
-  const from = typeof data.from === "string" && data.from.includes(",") ? data.from.slice(data.from.indexOf(",") + 1) : "";
-  const near = clean(typeof data.near === "string" && data.near.trim() !== "" ? data.near : from);
-  return items
-    .map((item, i) => ({ n: i + 1, street: clean(item.address), color: PIN_COLORS[i] }))
-    .filter((stop) => stop.street !== "")
-    .map((stop) => ({ ...stop, address: whole(stop.street, near) }));
+  const from = typeof data.from === "string" && data.from.includes(",") ? clean(data.from.slice(data.from.indexOf(",") + 1)) : "";
+  const near = clean(typeof data.near === "string" && data.near.trim() !== "" ? data.near : from) || sharedTown(stops.map((stop) => stop.street));
+  return stops.map((stop) => ({ ...stop, address: whole(stop.street, near) }));
+}
+
+/** The town at an address's end, as a US address writes it: "New York, NY" or "New York, NY 10011". */
+const TOWN = /,\s*([^,]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?)\s*$/;
+export const townOf = (address) => TOWN.exec(address)?.[1].trim() ?? "";
+
+/** The town most of the addresses name, or "". */
+function sharedTown(addresses) {
+  const counts = new Map();
+  for (const town of addresses.map(townOf).filter(Boolean)) counts.set(town, (counts.get(town) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
 }
 
 /** An address as a map service is sent it: no separators a request could be split on, and short. */
@@ -68,7 +80,7 @@ function clean(value) {
 }
 
 function whole(street, near) {
-  if (near === "" || street.toLowerCase().includes(near.split(",")[0].trim().toLowerCase())) return street;
+  if (near === "" || townOf(street) !== "" || street.toLowerCase().includes(near.split(",")[0].trim().toLowerCase())) return street;
   return `${street}, ${near}`.slice(0, MAX_ADDRESS);
 }
 
@@ -148,35 +160,48 @@ export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT } = 
  * downloaded picture as [address, data]; the map names them as
  * `card-photo:N`, numbered after the `offset` photos already there.
  */
+/** One line per card map, codes and counts only (never an address), so a missing map can be told apart in the logs. */
+function logMap(outcome, fields = {}) {
+  console.log(JSON.stringify({ event: "card_map", outcome, ...fields }));
+}
+
+function none(reason, said = null) {
+  logMap("none", { reason });
+  return { map: null, reason: said };
+}
+
 export async function drawMap(template, data, { key = "", geocode = null, locates = null, read = "", fetchImpl = fetch, offset = 0, height = MAP_HEIGHT } = {}) {
   const all = mapStops(template, data);
-  if (all.length === 0) return { map: null, reason: template === "map" ? "No stop had an address, so the map was left off." : null };
+  if (all.length === 0) return none("no_address", template === "map" ? "No stop had an address, so the map was left off." : null);
   const stops = all.filter((stop) => vouchedAddress(stop.street, { locates, read }));
-  if (stops.length === 0) return { map: null, reason: "Map left off: put each place's street address as you read it." };
-  const unnamed = stops.some((stop) => stop.address === stop.street && !stop.street.includes(","));
-  if (unnamed) return { map: null, reason: "Map left off: give near (the town or neighbourhood, 'Long Island City, NY') so each pin lands in the right place." };
+  if (stops.length === 0) return none("unseen", "Map left off: put each place's street address as you read it.");
+  // A bare street with no town anywhere on the card could be in any city: its pin is left off, the rest still drawn.
+  const placed = stops.filter((stop) => stop.address !== stop.street || stop.street.includes(","));
+  if (placed.length === 0) return none("no_town", "Map left off: give near (the town or neighbourhood, 'Long Island City, NY') so each pin lands in the right place.");
   const route = template === "map" && data.route === true;
   const token = (i) => `card-photo:${offset + i + 1}`;
   if (typeof key === "string" && key !== "") {
-    const url = googleMapUrl(stops, { key, height, route });
+    const url = googleMapUrl(placed, { key, height, route });
     const image = await downloadPhoto(url, fetchImpl);
-    if (image === null) return { map: null, reason: null };
+    if (image === null) return none("google_failed");
+    logMap("drawn", { provider: "google", pins: placed.length });
     return { map: { kind: "google", image: token(0), height }, pictures: [["google-static-map", image]] };
   }
-  if (typeof geocode !== "function") return { map: null, reason: null };
-  const found = await Promise.all(stops.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null)));
+  if (typeof geocode !== "function") return none("no_geocoder");
+  const found = await Promise.all(placed.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null)));
   // The geocoder (`./distance.js`) answers { lat, lon }.
-  const points = stops
+  const points = placed
     .map((stop, i) => ({ ...stop, lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng }))
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
   // A shop of the same name in another city would zoom the map out to a continent: keep the biggest group within 50 km.
   const near50 = (a) => points.filter((b) => kmBetween(a, { lat: b.lat, lon: b.lng }) <= 50);
   const kept = points.map((p) => near50({ lat: p.lat, lon: p.lng })).sort((a, b) => b.length - a.length)[0] ?? [];
-  if (kept.length === 0) return { map: null, reason: null };
+  if (kept.length === 0) return none("geocode_failed");
   const layout = tileLayout(kept, { height });
-  if (layout.tiles.length === 0 || layout.tiles.length > MAX_TILES) return { map: null, reason: null };
+  if (layout.tiles.length === 0 || layout.tiles.length > MAX_TILES) return none("no_tiles");
   const images = await Promise.all(layout.tiles.map((tile) => downloadPhoto(tile.url, fetchImpl, TILE_FETCH)));
-  if (images.some((image) => image === null)) return { map: null, reason: null };
+  if (images.some((image) => image === null)) return none("tiles_failed");
+  logMap("drawn", { provider: "osm", pins: kept.length });
   return {
     map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route },
     pictures: layout.tiles.map((tile, i) => [tile.url, images[i]]),

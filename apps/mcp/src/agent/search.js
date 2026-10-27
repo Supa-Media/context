@@ -6,6 +6,7 @@
  * writes itself. Brave Search is the first provider (the owner's pick):
  *
  *     searcher.search(query) → [{ title, url, description }]
+ *     searcher.searchPictures(query) → [{ title, page, src, copy }]
  *
  * `AGENT_SEARCH` picks the provider (default `brave`); a provider with no key
  * is no searcher at all, so a gateway without `BRAVE_SEARCH_API_KEY` (a
@@ -31,6 +32,9 @@ export const MAX_SEARCHES_PER_TURN_OPEN_WEB = 50;
 
 /** Results one search returns to the model. */
 export const RESULTS_PER_SEARCH = 6;
+
+/** Pictures one picture search returns to the model. */
+export const PICTURES_PER_SEARCH = 8;
 
 /** Brave refuses longer queries; anything past this is not a search. */
 export const MAX_QUERY_CHARS = 300;
@@ -80,6 +84,29 @@ function braveSearcher(env, fetchImpl) {
         }))
         .filter((result) => result.url !== "")
         .slice(0, RESULTS_PER_SEARCH);
+    },
+    // Pictures by words, for a card with none on the pages read (owner, 2026-10-27: "why isn't it adding images?").
+    async searchPictures(query) {
+      const url = new URL("https://api.search.brave.com/res/v1/images/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("count", String(PICTURES_PER_SEARCH));
+      url.searchParams.set("safesearch", "strict");
+      const response = await fetchImpl(url.toString(), {
+        headers: { accept: "application/json", "x-subscription-token": key.trim() },
+        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`picture search refused (${response.status})`);
+      const body = await response.json().catch(() => null);
+      const https = (value) => (typeof value === "string" && value.startsWith("https://") ? value : "");
+      return (Array.isArray(body?.results) ? body.results : [])
+        .map((result) => ({
+          title: plain(result?.title).slice(0, 120),
+          page: https(result?.url),
+          src: https(result?.properties?.url) || https(result?.thumbnail?.src),
+          copy: https(result?.thumbnail?.src),
+        }))
+        .filter((result) => result.src !== "")
+        .slice(0, PICTURES_PER_SEARCH);
     },
   };
 }
