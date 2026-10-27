@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { groupLineFor } from "./groupLine";
 import { lineFor } from "./line";
-import { linkAfterCard, noteCardDrawer } from "./noteCards";
+import { noteCardDrawer } from "./noteCards";
 import { sendblueChatId } from "./sendblue";
 import type { Fetch } from "./clients";
 import type { NoteLink } from "./appCards";
@@ -24,7 +24,7 @@ function sendblue(calls: Call[], mediaStatus = 200): Fetch {
 }
 
 describe("a note link texted with its picture", () => {
-  it("sends the note's card, then the link inside a sentence, both threaded", async () => {
+  it("sends the note's card, then the link alone in its own text, both threaded", async () => {
     const calls: Call[] = [];
     const drawn: NoteLink[] = [];
     const line = lineFor(
@@ -41,16 +41,9 @@ describe("a note link texted with its picture", () => {
     expect(drawn).toEqual([{ url: LINK, slug: "dev2", folder: "1-projects/tex", caption: "Launch plan" }]);
     expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual([
       "https://agent.example/media/abc.png",
-      `Open it in Context: ${LINK} (tap the link)`,
+      LINK,
     ]);
     expect(calls.every((call) => (call.body.reply_to as { message_handle?: string })?.message_handle === "mh_0")).toBe(true);
-  });
-
-  it("keeps the link off either end of its text, where Messages would draw a box to load", () => {
-    const text = linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "Plan" });
-    expect(text.startsWith(LINK)).toBe(false);
-    expect(text.trimEnd().endsWith(LINK)).toBe(false);
-    expect(text).toContain(` ${LINK} `);
   });
 
   it("sends the link alone when no card is drawn, hosting fails, or the line refuses the picture", async () => {
@@ -109,12 +102,12 @@ describe("drawing the card", () => {
 describe("a note link texted into a group", () => {
   const place = { line: LINE, groupId: "group-1" };
 
-  it("sends the card, then the link inside a sentence, as in a 1:1 chat", async () => {
+  it("sends the card, then the link alone, as in a 1:1 chat", async () => {
     const calls: Call[] = [];
     const deps = { fetch: sendblue(calls), sendblue: KEYS, hostPicture: async () => "https://agent.example/media/abc.png", noteCardPicture: async () => PNG };
     expect(await groupLineFor(deps, "group-1").sendText(place, LINK, "mh_0")).toBe("mh_1");
     expect(calls.map((call) => call.path)).toEqual(["/api/send-group-message", "/api/send-group-message"]);
-    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "" })]);
+    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", LINK]);
     expect(calls.every((call) => call.body.group_id === "group-1")).toBe(true);
   });
 

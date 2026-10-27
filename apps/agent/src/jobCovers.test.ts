@@ -17,7 +17,6 @@ import type { Fetch } from "./clients";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
 import { chatJobs, MAX_JOB_PICTURE_CHARS, readJobUpdate, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate, type JobTextDeps } from "./jobTexts";
-import { linkAfterCard } from "./noteCards";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { sendblueChatId } from "./sendblue";
 
@@ -112,8 +111,7 @@ describe("a job's cover picture", () => {
     const update: JobUpdate = { id, state: "done", status: "Planned it.", pictures: [COVER], texts: ["Planned it.", LINK], first: 0 };
     expect(await jobUpdate(storage, deps, update)).toBe(true);
     expect(await jobUpdate(storage, deps, update)).toBe(true);
-    const link = linkAfterCard({ url: LINK, slug: "dev2", folder: "projects/trip", caption: "" });
-    expect(said(calls)).toEqual([HOSTED, "Planned it.", link]);
+    expect(said(calls)).toEqual([HOSTED, "Planned it.", LINK]);
     expect(deps.drawn).not.toHaveBeenCalled();
     expect(calls.every((call) => (call.body.reply_to as { message_handle?: string })?.message_handle === "mh_ask")).toBe(true);
     expect((await storage.get<JobEntry>(`job:${id}`))?.sent).toBe(3);
@@ -127,7 +125,7 @@ describe("a job's cover picture", () => {
     // The cover went last time; the texts did not.
     await jobUpdate(storage, deps, { id, state: "running", pictures: [COVER], first: 0 });
     await jobUpdate(storage, deps, { id, state: "done", pictures: [COVER], texts: [LINK], first: 0 });
-    expect(said(calls)).toEqual([HOSTED, linkAfterCard({ url: LINK, slug: "", folder: "", caption: "" })]);
+    expect(said(calls)).toEqual([HOSTED, LINK]);
     expect(deps.drawn).not.toHaveBeenCalled();
   });
 
@@ -146,7 +144,7 @@ describe("a job's cover picture", () => {
     });
     expect(await jobUpdate(storage, deps, { id, state: "done", pictures: [COVER], texts: [LINK], first: 0 })).toBe(true);
     expect(deps.drawn).toHaveBeenCalledTimes(1);
-    expect(said(calls)).toEqual([HOSTED, linkAfterCard({ url: LINK, slug: "", folder: "", caption: "" })]);
+    expect(said(calls)).toEqual([HOSTED, LINK]);
     expect((await storage.get<JobEntry>(`job:${id}`))?.sent).toBe(2);
   });
 
@@ -182,7 +180,7 @@ describe("a job's cover picture", () => {
     expect(await jobUpdate(storage, deps, update)).toBe(true);
     expect(await jobUpdate(storage, deps, update)).toBe(true);
     expect(calls.map((call) => call.path)).toEqual(["/api/send-group-message", "/api/send-group-message"]);
-    expect(said(calls)).toEqual([HOSTED, linkAfterCard({ url: LINK, slug: "", folder: "", caption: "" })]);
+    expect(said(calls)).toEqual([HOSTED, LINK]);
     expect(deps.drawn).not.toHaveBeenCalled();
   });
 });
