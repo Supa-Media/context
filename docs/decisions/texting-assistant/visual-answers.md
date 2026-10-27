@@ -236,3 +236,34 @@ put in it. The owner chose OpenStreetMap now and Google later (2026-10-27);
 What fails if reversed: `test/agentDistance.test.mjs`, "an address the turn
 never saw is never sent to the geocoder" and "their about-me address is a
 start the card may measure from".
+
+## Maps on cards (2026-10-27)
+
+The owner, on a florists card that listed four addresses: "there was a map
+one specifically that would've been great here". A places card now has a map
+above its rows, each pin numbered and coloured like its row, and the `map`
+template is stops on a map (a day's errands, a trip's sights), with a dotted
+line between them when the order is the way to go
+(`apps/mcp/src/agent/visuals/map.js`).
+
+- **Google when there is a key, OpenStreetMap until then** (owner's pick,
+  2026-10-27: "OSM now, Google later"). With `GOOGLE_MAPS_KEY` set, the map
+  is one Google Static Maps picture; without it, the gateway finds each
+  address with the geocoder (`visuals/distance.js`), lays out OpenStreetMap
+  tiles by Web Mercator (12 at most) and draws the pins in HTML, with
+  OpenStreetMap's credit on the map, a user agent that names the app, and
+  tiles cached a week, as its tile policy asks.
+- **The map is the gateway's, never the model's.** It is drawn from the
+  card's addresses after the card's photos, downloaded and put in the page as
+  data like them, so the key never reaches the page or the model. A `map` in
+  the model's data is dropped. A map whose tiles do not all come is left off
+  whole: a map with a hole reads as broken.
+- **Only an address the turn saw goes to a map service**, by the rule
+  distances keep (`outgoingPictures.locates`): their words, a tool result
+  this turn, or their about-me note. A made-up address is never sent.
+- **A bare street address needs `near`** ("Long Island City, NY"), or the
+  town in `from`; without either no map is drawn and the model is told to add it, because a pin on the
+  wrong 2807 Jackson Ave is worse than no map.
+
+What reversing it costs: places answers back to a list of addresses nobody
+can picture, or a key in the page. Tests: `apps/mcp/test/agentMapCard.test.mjs`.

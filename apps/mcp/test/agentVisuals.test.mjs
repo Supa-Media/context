@@ -74,6 +74,7 @@ const EXAMPLES = {
   gallery: { style: "editorial", title: "Three that fit the brief", items: [{ name: "Wrap midi", price: "$128", pick: true }, { name: "Slip dress", price: "$98" }] },
   versus: { title: "B wins 4 of 6", items: [{ name: "Bed-Stuy" }, { name: "Crown Heights" }], rows: [{ label: "Rent", a: "$2,650", b: "$2,800", better: "a" }] },
   places: { title: "3 within 10 minutes", items: [{ name: "Casa Enrique", distance: "4 min" }] },
+  map: { title: "Saturday errands", near: "Brooklyn, NY", route: true, stops: [{ name: "Dry cleaner", address: "12 Smith St", time: "10:00" }, { name: "Florist", note: "Pick up the tulips" }] },
   tickets: { title: "The 6pm gets you home sooner", items: [{ name: "Delta 1421", depart: "6:00", arrive: "8:25", price: "$189", pick: true }] },
   trip: { title: "Your weekend", days: [{ name: "Saturday", stops: [{ time: "9:40 AM", what: "Land YUL" }] }] },
   day: { title: "Free 1–3", events: [{ start: "9:00", end: "10:00", title: "Standup" }, { start: "1 PM", end: "3 PM", title: "Free", kind: "free" }] },

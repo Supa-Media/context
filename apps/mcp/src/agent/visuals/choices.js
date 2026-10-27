@@ -5,6 +5,7 @@
  */
 
 import { CARD_HEIGHT, DARK, LIGHT, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
+import { mapBlock } from "./map.js";
 
 /** Options ranked against a limit: catering quotes, phone plans, anything with one number that decides. */
 export function compare(data, theme) {
@@ -172,14 +173,48 @@ ${pic ? `<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, { hei
 ${chips ? `<div style="display: flex; flex-wrap: wrap; gap: 6px">${chips}</div>` : ""}${lines}${item.note ? `<div style="font-size: 15px; line-height: 1.3; font-weight: 600; color: ${colors[i]}">${esc(item.note, 140)}</div>` : ""}</div>
 ${distance ? `<div style="text-align: right; flex-shrink: 0; padding-right: 4px"><div style="font-size: 22px; font-weight: 800">${esc(item.distance, 12)}</div>${item.distance_label ? `<div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label, 14)}</div>` : ""}</div>` : ""}</div>`;
   });
-  // The card grows with what it holds rather than cutting a line short.
-  const height = clamp(170 + items.length * 150 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
+  // The card grows with what it holds rather than cutting a line short; the map (`./map.js`) sits above the rows, its pins numbered like them.
+  const map = mapBlock(c, data.map);
+  const height = clamp(170 + items.length * 150 + (data.footer ? 50 : 0) + (map ? Number(data.map.height) + 20 : 0), CARD_HEIGHT, 1200);
   return {
     html: page(
       `${heading(c, data.kicker, data.title, { size: 36 })}
+${map}
 <div style="display: flex; flex-direction: column; gap: 12px; flex-grow: 1">${rows.join("")}</div>
 ${data.footer ? footer(c, data.footer) : ""}`,
       { background: c.bg, ink: c.ink, height },
+    ),
+    height,
+  };
+}
+
+/**
+ * Stops on a map: a day's errands, a trip's sights, where to meet. The map is
+ * the gateway's (`./map.js`), numbered like the list under it; without one the
+ * list still reads on its own.
+ */
+export function mapCard(data, theme) {
+  const c = theme === "dark" ? DARK : LIGHT;
+  const stops = list(data.stops, 6);
+  const colors = [c.accent, c.warm, c.good, c.plum, c.gold, c.ink];
+  const map = mapBlock(c, data.map);
+  const rows = stops
+    .map(
+      (stop, i) => `<div style="display: flex; gap: 12px; align-items: center; background: ${c.surface}; border: 1px solid ${c.line}; border-radius: 14px; padding: 10px 14px">
+<div style="width: 26px; height: 26px; border-radius: 13px; background: ${colors[i]}; color: #FFFFFF; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div>
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><div style="font-size: 19px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${esc(stop.name, 50)}</div>
+${stop.note || stop.address ? `<div style="font-size: 14px; color: ${c.muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${esc(stop.note || stop.address, 80)}</div>` : ""}</div>
+${stop.time ? `<div style="font-size: 16px; font-weight: 700; flex-shrink: 0">${esc(stop.time, 12)}</div>` : ""}</div>`,
+    )
+    .join("");
+  const height = clamp(150 + (map ? Number(data.map.height) + 20 : 0) + stops.length * 70 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
+  return {
+    html: page(
+      `${heading(c, data.kicker, data.title, { size: 34 })}
+${map}
+<div style="display: flex; flex-direction: column; gap: 8px; flex-grow: 1">${rows}</div>
+${data.footer ? footer(c, data.footer) : ""}`,
+      { background: c.bg, ink: c.ink, gap: 16, height },
     ),
     height,
   };

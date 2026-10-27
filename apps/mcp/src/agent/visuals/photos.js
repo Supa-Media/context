@@ -131,10 +131,11 @@ function base64(bytes) {
 }
 
 /** One picture as a data address, or null when it will not come: refused, not a picture, too big or too slow. */
-export async function downloadPhoto(address, fetchImpl = fetch) {
+export async function downloadPhoto(address, fetchImpl = fetch, { headers = {}, cf } = {}) {
   try {
     const response = await fetchImpl(address, {
-      headers: { accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8", "user-agent": "Mozilla/5.0 (compatible; ContextTex/1.0; +https://context.lc)" },
+      headers: { accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8", "user-agent": "Mozilla/5.0 (compatible; ContextTex/1.0; +https://context.lc)", ...headers },
+      ...(cf ? { cf } : {}),
       redirect: "follow",
       signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS),
     });
