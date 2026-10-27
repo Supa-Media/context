@@ -4,6 +4,8 @@ import { CHAT_LOOK_PATH, chatRoutineMessage, chatRoutineRunOf, chatWhereOf, says
 import { runDueRoutines } from "./routines";
 import { fetchDueRoutines, type DueRoutine, type Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { isBound, setChatBound } from "./groupChat";
+import type { GroupMessage } from "./sendblueGroups";
 
 /*
  * A chat routine (the owner, 2026-10-27; docs/decisions/texting-assistant/chat-routines.md).
@@ -70,6 +72,17 @@ async function run(w: World, answers: { control?: unknown; answer?: string } = {
 }
 
 describe("a chat routine's run", () => {
+  it("leaves the chat bound to its people, so untagged texts after it are still read", async () => {
+    const w = world();
+    const storage = new MemoryStorage();
+    const said: GroupMessage = { kind: "group-message", eventId: "e1", groupId: GROUP, line: LINE, from: BO, participants: [LINE, ADA, BO], messageId: "m1", text: "which parts are out of date?" };
+    await setChatBound(storage, said);
+    expect(await acceptGroupRoutine(storage, RUN, 1_000)).toBe("queued");
+    await drainGroup(storage, deps(w));
+    expect(w.results[0]).toMatchObject({ outcome: "answered" });
+    expect(await isBound(storage, said)).toBe(true);
+  });
+
   it("is its writer's tag: checked like one, answered into the chat, reported", async () => {
     const w = world();
     await run(w);
