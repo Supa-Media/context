@@ -47,6 +47,7 @@
 import { askAgentStream, askLine, reportRoutineResult, ServiceError, type AgentAnswer, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
+import { noteGuestChat } from "./groupGuestPeople";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
@@ -431,6 +432,7 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (status === "not_allowed") {
     return void (await fixed(command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug)));
   }
+  if (status === "guests_off" || status === "invited") await noteGuestChat(storage, message, false);
   if (status === "invited") {
     await storage.delete(CHOICE_KEY);
     await setChatBound(storage, message);
@@ -449,6 +451,8 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
   await setChatBound(storage, message);
+  // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
+  await noteGuestChat(storage, message, asked.guest !== undefined);
   await keepNames(storage, asked.names ?? []);
   if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
   const guest = asked.guest;

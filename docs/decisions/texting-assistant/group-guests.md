@@ -30,7 +30,13 @@ blocker. They proposed guest mode, and chose every default below on
   no account is named at the first tag after they link a phone. Only account
   ids are written, never a number, and an owner who takes the folder from the
   group takes it from the chat's people too. Guest mode off takes back what
-  the chat added.
+  the chat added. Since 2026-10-27 this doesn't wait for a tag (the owner:
+  "automatically added/removed when they join or leave a chat"): any message
+  in a guest chat whose list of people changed since the control plane last
+  heard it sends the new list (`/agent-texts/group/people`,
+  `apps/agent/src/groupGuestPeople.ts`), with no turn, no grant and nothing
+  said in the chat. Someone who leaves is removed at the next message
+  anyone sends.
 - **Tex reads and writes only what is shared with the chat's group.** The
   chat's grant reads that workspace as a guest (`READS_AS_GUEST`): it holds
   the names of the rows granted to the group and nothing else, so `team`

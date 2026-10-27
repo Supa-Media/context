@@ -42,6 +42,7 @@ export function setup(
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
+  const people: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
@@ -85,6 +86,10 @@ export function setup(
       decided.push(body);
       await opts.decideWait?.();
       return Response.json((opts.decide ?? answerAll)(body));
+    }
+    if (path === "/agent-texts/group/people") {
+      people.push(body);
+      return Response.json({ ok: true });
     }
     if (path === "/agent-texts/group/engagement") {
       engagement.push(body);
@@ -159,7 +164,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, asks, control, engagement, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, asks, control, engagement, people, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */
