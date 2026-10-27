@@ -389,14 +389,13 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * day at most. Linq needs an outbound message in the chat first, which is why
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
- * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once
+ * per text. On Sendblue (and WhatsApp, as a contact) the card is a .vcf in the chat (`card.ts`), so once
  * a card went it never goes again in that chat, whatever `CARD_VERSION` says:
  * a new one arrived after a reply in the middle of a conversation (2026-10-19).
  * A new `CARD_VERSION` only sets the line's Name & Photo again, which is
  * shared apart from the card and is how a new photo reaches a chat.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
-  // A WhatsApp chat gets its card once, as a Sendblue chat does (`line.ts`).
   if (!isSendblueChat(chatId) && !isWhapiChat(chatId)) {
     const last = await storage.get<number>(CARD_KEY);
     if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
