@@ -29,6 +29,9 @@
  *     "inbound events, Tex's events and the members…" fails.
  * 11. `keepQuestionAlarm` not called after the drain → "the style question's
  *     half-hour alarm…" fails.
+ * 12. `whileRunning` leaving an addressed message as chat on a silent decide
+ *     (the asker's tail, or another sender's) → "addressed while a turn
+ *     runs…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -52,6 +55,21 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex check this link\nhttps://reasonmachines.example/page"]);
       expect(w.asks[0].covers).toHaveLength(2);
+    });
+
+    it("addressed while a turn runs, Ada's and Bo's are answered after it even when decide says silent", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? silent() : answerAll(body)) });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      expect(await acceptGroup(storage, w.message("Tex make it blue"), 10)).toBe("queued");
+      expect(await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 11)).toBe("queued");
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "Tex make it blue", "Tex where is it"]);
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
     it("decide down: the link after the tag is read with it, as before decide", async () => {

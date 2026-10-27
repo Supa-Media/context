@@ -129,7 +129,8 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
     return first === -1 ? { answer: [], chat: burst, drop: [] } : { answer: withJoins(burst, burst[first]), chat: burst.slice(0, first), drop: [] };
   }
   const floor = new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)));
-  const react = decision.act === "react" ? { react: burst.at(-1)![1].message } : {};
+  // No tapback on a message about to be answered: its answer gets one of its own (`answerGroup`).
+  const react = decision.act === "react" && !floor.has(burst.at(-1)!) ? { react: burst.at(-1)![1].message } : {};
   if (decision.act !== "answer") {
     return { answer: burst.filter((entry) => floor.has(entry)), chat: burst.filter((entry) => !floor.has(entry)), drop: [], ...react };
   }
@@ -161,8 +162,9 @@ export type WhileRunning = "folded" | "after" | "redecide" | "chat";
 /**
  * A message in a group while a turn runs there: decided with `running: true`.
  * Fold steers its words in; queue and restart answer it after (restart first
- * cancels the turn, and marks what it covered to be answered with this);
- * silent or react leave it as chat. Decide down: an addressed message waits
+ * cancels the turn, and marks what it covered to be answered with this; a
+ * cancel the gateway refuses is a queue); silent or react leave it as chat,
+ * unless it is addressed to Tex: then it is answered after (code's floor). Decide down: an addressed message waits
  * its turn, anything else is chat, as before.
  */
 export async function whileRunning(
@@ -181,7 +183,7 @@ export async function whileRunning(
   // Somebody else's is decided again after it (a repeat of the same ask may then need nothing), or answered as their own turn.
   // Never forced into a turn of their own: they get their own decide once the running turn is done (addressed, code's floor answers them).
   if (message.from !== running.asker) {
-    if (how === "fold" || how === "restart" || how === "queue") return "redecide";
+    if (how === "fold" || how === "restart" || how === "queue" || tagged) return "redecide";
     if (decision.act === "react") await react();
     return "chat";
   }
@@ -194,13 +196,15 @@ export async function whileRunning(
     return tagged ? "after" : "chat";
   }
   if (how === "restart") {
-    if (!(await restartTurn(running, message))) return tagged ? "after" : "chat";
+    // The gateway could not stop it: decide wanted this one in a turn, so it waits for the next.
+    if (!(await restartTurn(running, message))) return "after";
     for (const [key, item] of await storage.list<GroupPending>({ prefix: "gpending:" })) {
       if (item.ev !== undefined && running.covers.includes(item.ev)) await storage.put<GroupPending>(key, { ...item, force: true });
     }
     return "after";
   }
-  if (how === "queue") return "after";
+  // Addressed to Tex: answered after, whatever decide said (code's floor).
+  if (how === "queue" || tagged) return "after";
   if (decision.act === "react") await react();
   return "chat";
 }
