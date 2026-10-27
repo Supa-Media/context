@@ -34,9 +34,11 @@
  * the browser's menu are one **Shift-right-click** away — `LiveEditor.web.tsx`
  * leaves that chord alone precisely so this menu is never the *only* menu, and
  * spellcheck is on in this editor by deliberate decision (P1 in the sweep).
- * The menu says so in a browser (`spellingHint`); the desktop app asks the
- * operating system's checker and puts the suggestions at the top instead
- * (`spelling`, see `liveEditorWeb/spelling.ts`).
+ * Since 2026-10-27 the suggestions come from Context's own checker
+ * (`spelling/`) and sit at the top with Add to dictionary and Ignore under
+ * them; the Shift-right-click row (`spellingHint`) and the desktop app's
+ * operating-system checker are what is left for when its dictionary has not
+ * loaded (`liveEditorWeb/spelling.ts`).
  */
 
 import { describeBinding, type Command } from "../../design/keymap";
@@ -77,6 +79,10 @@ export type EditorMenuId =
   | `spelling:${number}`
   /** A flagged word the checker could not place. Inert. */
   | "noSuggestions"
+  /** Teach the checker the word, on the account (`spelling/store.ts`). */
+  | "spellingAdd"
+  /** Stop underlining the word in this note until it is closed. */
+  | "spellingIgnore"
   /** Where a browser keeps its suggestions. Inert. */
   | "spellingHint";
 
@@ -107,6 +113,18 @@ export interface EditorMenuContext {
    * and always in a browser, which has no checker a page can ask.
    */
   spelling?: { suggestions: readonly string[] } | null;
+  /**
+   * Whether the checker can learn and ignore words here — Context's own
+   * checker (`spelling/`), which can. The desktop app's operating-system
+   * checker, the fallback when ours has no dictionary, cannot.
+   */
+  spellingLearns?: boolean;
+  /**
+   * The click card (board 1): only the spelling rows. A plain click on an
+   * underlined word is a question about the word, not a request for the
+   * formatting menu.
+   */
+  spellingOnly?: boolean;
   /**
    * Say where the browser keeps its suggestions. True where no checker can be
    * asked — a browser, or a desktop app from before version 8.
@@ -161,7 +179,15 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
         items.push({ id: `spelling:${index}`, label: suggestion });
       });
     }
+    if (context.spellingLearns === true) {
+      items.push(
+        // A rule between the fixes and the two that keep the word as typed (board 1).
+        { id: "spellingAdd", label: "Add to dictionary", separatorBefore: items.length > 0 },
+        { id: "spellingIgnore", label: "Ignore in this note" },
+      );
+    }
   }
+  if (context.spellingOnly === true) return items;
 
   if (hasSelection) {
     if (canEdit) items.push({ id: "cut", label: "Cut" });

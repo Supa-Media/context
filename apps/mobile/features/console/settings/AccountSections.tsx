@@ -23,6 +23,7 @@ import { AccountSafetyCard } from "./panels/AccountSafetyCard";
 import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
+import { SpellingSettings } from "./panels/SpellingSettings";
 import { YourPicture } from "./panels/YourPicture";
 import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
@@ -72,6 +73,7 @@ export function AccountSection({
   const owned = personal !== undefined;
 
   if (section === "feedback") return <FeedbackSettings />;
+  if (section === "spelling") return <SpellingSettings />;
   if (section === "messages") return <MessagesPanel owned={owned} workspaceId={personal?.id ?? null} />;
 
   if (section === "texApps") {
@@ -191,6 +193,23 @@ export function AccountSection({
             <Text variant="rowTitle">Look</Text>
           </Grow>
           <AppearancePicker />
+        </Row>
+        {/* Spelling is a page of its own, reached from this row (board 4, 2026-10-27). */}
+        <Row divided>
+          <Grow>
+            <Text variant="rowTitle">Spelling</Text>
+            <Text variant="rowSub" style={styles.rowSub}>
+              Red underlines, the dictionary's language, and words you added.
+            </Text>
+          </Grow>
+          {onSelect === undefined ? null : (
+            <TextLink
+              label="Choose"
+              accessibilityLabel="Choose how spelling is checked"
+              onPress={() => onSelect("spelling")}
+              testID="profile-spelling-choose"
+            />
+          )}
         </Row>
         {/* Feedback is a page of its own, reached from this row. */}
         <Row divided>

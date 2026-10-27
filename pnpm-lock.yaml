@@ -356,9 +356,12 @@ importers:
       mermaid:
         specifier: 11.17.2
         version: 11.17.2
+      nspell:
+        specifier: 2.1.5
+        version: 2.1.5
       posthog-js:
         specifier: ^1.429.2
-        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0)
+        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0)
       posthog-react-native:
         specifier: ^4.68.6
         version: 4.68.9(ohiom62wyrczzcsohh7isxq75a)
@@ -429,6 +432,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
+      '@types/nspell':
+        specifier: ^2.1.6
+        version: 2.1.6
       '@types/react':
         specifier: ~19.1.0
         version: 19.1.17
@@ -441,6 +447,12 @@ importers:
       '@typescript-eslint/parser':
         specifier: ^8.0.0
         version: 8.68.0(eslint@8.57.1)(typescript@5.9.3)
+      dictionary-en:
+        specifier: 4.0.0
+        version: 4.0.0
+      dictionary-en-gb:
+        specifier: 3.0.0
+        version: 3.0.0
       eslint:
         specifier: ^8.57.0
         version: 8.57.1
@@ -3803,6 +3815,9 @@ packages:
   '@types/node@22.20.1':
     resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
 
+  '@types/nspell@2.1.6':
+    resolution: {integrity: sha512-PnWYqrBZhkKAreX2kIZDJcBeigZJzXC8VmSuNiXeILUNreczBZHLxGEv/pRT+zL8rsXLxT5bRbiIF9wuh6cGgg==}
+
   '@types/react-dom@19.1.11':
     resolution: {integrity: sha512-3BKc/yGdNTYQVVw4idqHtSOcFsgGuBbMveKCOgF8wQ5QtrYOc3jDIlzg3jef04zcXFIHLelyGlj0T+BJ8+KN+w==}
     peerDependencies:
@@ -4988,6 +5003,12 @@ packages:
   devtools-protocol@0.0.1299070:
     resolution: {integrity: sha512-+qtL3eX50qsJ7c+qVyagqi7AWMoQCBGNfoyJZMwm/NSXVqLYbuitrWEEIzxfUmTNy7//Xe8yhMmQ+elj3uAqSg==}
 
+  dictionary-en-gb@3.0.0:
+    resolution: {integrity: sha512-gU/dwC9xGYPh/0CCcmGNXO8OwSgOySAqevcSXxADCsgUD+tr6OJ52u7XaC7No7dNssvdUSfVjkzcqLrRZq3kPA==}
+
+  dictionary-en@4.0.0:
+    resolution: {integrity: sha512-3NHnE1uq33ZE/CIwaZ6gqxa4BnglHnxeAcTM0GJ7cmtRGcvX9InMK/IqLtYcUMFCUpUNgybH+DzkqdgAo3F1zg==}
+
   diff-sequences@29.6.3:
     resolution: {integrity: sha512-EjePK1srD3P08o2j4f0ExnylqRs5B9tJjcp9t1krH2qRi8CCdsYfwe9JgSLurFBWwq4uOlipzfk5fHNvwFKr8Q==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -6091,6 +6112,10 @@ packages:
     resolution: {integrity: sha512-ZMERYes6pDydyuGidse7OsHxtbI7WVeUEozgR/g7rd0xUimYNlvZRE/K2MgZTjWy725IfelLeVcEM97mmtRGXw==}
     engines: {node: '>=8'}
 
+  is-buffer@2.0.5:
+    resolution: {integrity: sha512-i2R6zNFDwgEHJyQUtJEk0XFi1i0dPFn/oqjK3/vPCcDeJvW5NQ83V8QbicfF1SupOaB0h8ntgBC2YiE7dfyctQ==}
+    engines: {node: '>=4'}
+
   is-callable@1.2.7:
     resolution: {integrity: sha512-1BC0BVFhS/p0qtw6enp8e+8OD0UrK0oFLztSjNzhcKA3WDuJxxAPXzPuPtKkjEY9UUoEWlX/8fgKeu2S8i9JTA==}
     engines: {node: '>= 0.4'}
@@ -7073,6 +7098,9 @@ packages:
   npm-run-path@4.0.1:
     resolution: {integrity: sha512-S48WzZW777zhNIrn7gxOlISNAqi9ZC/uQFnRdbeIHhZhCA6UqpkOT8T1G7BvfdgP4Er8gF4sUbaS0i7QvIfCWw==}
     engines: {node: '>=8'}
+
+  nspell@2.1.5:
+    resolution: {integrity: sha512-PSStyugKMiD9mHmqI/CR5xXrSIGejUXPlo88FBRq5Og1kO5QwQ5Ilu8D8O5I/SHpoS+mibpw6uKA8rd3vXd2Sg==}
 
   nth-check@2.1.1:
     resolution: {integrity: sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==}
@@ -12341,6 +12369,10 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/nspell@2.1.6':
+    dependencies:
+      '@types/node': 22.20.1
+
   '@types/react-dom@19.1.11(@types/react@19.1.17)':
     dependencies:
       '@types/react': 19.1.17
@@ -13658,6 +13690,10 @@ snapshots:
     optional: true
 
   devtools-protocol@0.0.1299070: {}
+
+  dictionary-en-gb@3.0.0: {}
+
+  dictionary-en@4.0.0: {}
 
   diff-sequences@29.6.3: {}
 
@@ -15001,6 +15037,8 @@ snapshots:
   is-binary-path@2.1.0:
     dependencies:
       binary-extensions: 2.3.0
+
+  is-buffer@2.0.5: {}
 
   is-callable@1.2.7: {}
 
@@ -16491,6 +16529,10 @@ snapshots:
     dependencies:
       path-key: 3.1.1
 
+  nspell@2.1.5:
+    dependencies:
+      is-buffer: 2.0.5
+
   nth-check@2.1.1:
     dependencies:
       boolbase: 1.0.0
@@ -16772,7 +16814,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0):
+  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0):
     dependencies:
       '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.53.1
@@ -16780,7 +16822,7 @@ snapshots:
       core-js: 3.50.0
       dompurify: 3.4.17
       fflate: 0.4.9
-      preact: 10.29.8(preact-render-to-string@6.5.11)
+      preact: 10.29.8(preact-render-to-string@6.5.11(preact@10.24.3))
       query-selector-shadow-dom: 1.0.1
       web-vitals: 6.2.1
       web-vitals-soft-navs: web-vitals@6.2.1
@@ -16814,16 +16856,11 @@ snapshots:
     dependencies:
       preact: 10.24.3
 
-  preact-render-to-string@6.5.11(preact@10.29.8):
-    dependencies:
-      preact: 10.29.8(preact-render-to-string@6.5.11)
-    optional: true
-
   preact@10.24.3: {}
 
-  preact@10.29.8(preact-render-to-string@6.5.11):
+  preact@10.29.8(preact-render-to-string@6.5.11(preact@10.24.3)):
     optionalDependencies:
-      preact-render-to-string: 6.5.11(preact@10.29.8)
+      preact-render-to-string: 6.5.11(preact@10.24.3)
 
   prelude-ls@1.2.1: {}
 

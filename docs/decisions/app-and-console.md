@@ -318,6 +318,10 @@ Moved to [Properties are edited in the panel, one line at a time](./app-and-cons
 
 In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-screen-a-tap-on-a-heading-does-not-reveal-its--2026-09-27).
 
+### Spelling is Context's own checker, and the fix is under the word (2026-10-27)
+
+In [spelling](./app-and-console/spelling.md).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).

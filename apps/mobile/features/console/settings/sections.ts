@@ -205,6 +205,22 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
     folded: true,
   },
+  {
+    /*
+      The note editor's spelling: on or off, the dictionary, and the words the
+      person added (Dev2, 2026-10-27, board 4). Account-wide, so it follows
+      them to every device; reached from Profile's Spelling row and by search.
+    */
+    key: "spelling",
+    keywords:
+      "spelling spell check spellcheck dictionary words typo typos misspelled red underline squiggle language english british american autocorrect ignore",
+    label: "Spelling",
+    scope: "account",
+    group: "You",
+    icon: "book",
+    personalOnly: false,
+    folded: true,
+  },
   /*
     From here the order is the settings artboard's (2026-09-29, approved by
     the owner): the workspace itself, who is in it, what is connected to it,

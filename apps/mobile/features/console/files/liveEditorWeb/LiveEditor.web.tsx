@@ -68,6 +68,7 @@ import { showTitleNote } from "./titleLine";
 import { showPropertySlot } from "./propertySlot";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
+import { forgetIgnoredWords } from "../spelling/extension";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
 import { hasMargin } from "../comments/model";
 import { redrawDiagrams } from "../livePreview/diagram";
@@ -555,6 +556,8 @@ export function LiveEditor({
   useEffect(() => {
     setMenuAt(null);
     setTableAt(null);
+    // "Ignore in this note" lasts until the note is closed (board 5).
+    if (view.current !== null) forgetIgnoredWords(view.current);
   }, [notePath]);
 
   // One menu id, run against the live editor — see `runEditorMenuAction`.
@@ -610,9 +613,22 @@ export function LiveEditor({
             canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,
             spellingHint: menuAt.spellingHint === true,
+            spellingLearns: menuAt.spellingLearns === true,
+            spellingOnly: menuAt.spellingOnly === true,
           })}
           anchor={menuAt}
-          title="Format"
+          /*
+            The click card leaves the keyboard with the note: a click inside a
+            red word is as often somebody about to fix it by hand, and their
+            next key — an arrow, a letter — closes the card and goes to the
+            note rather than being swallowed by a menu they did not ask for.
+          */
+          passiveKeys={menuAt.spellingOnly === true}
+          title={
+            menuAt.spellingOnly === true && menuAt.spelling != null
+              ? `\u201C${menuAt.spelling.word}\u201D isn\u2019t in the dictionary`
+              : "Format"
+          }
           onSelect={runMenuAction}
           onDismiss={() => setMenuAt(null)}
         />

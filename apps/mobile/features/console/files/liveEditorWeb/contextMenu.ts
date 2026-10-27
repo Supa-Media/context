@@ -19,6 +19,8 @@ import { listHost } from "../listBlock/model";
 import type { EditorHandlers, MenuOpen, MenuPoint } from "./contract";
 import { applySpellingFix, desktopSpeller, hasFinePointer, wordUnder, type SpellingFix } from "./spelling";
 import { canComment, startComment } from "../comments/extension";
+import { checkerRunning, ignoreInNote, misspellingAt } from "../spelling/extension";
+import { learnWord } from "../spelling/store";
 
 /** How long a right-click waits on the desktop checker before opening without it. */
 const SPELLING_WAIT_MS = 250;
@@ -136,12 +138,24 @@ export function contextMenuListener({
     setTableAt(null);
 
     const canEdit = !created.state.readOnly;
+    const ticket = ++latest;
+    /*
+      Context's own checker first (`spelling/`): the word under the click and
+      its suggestions are already known, so the menu opens at once with the
+      fix on top and Add / Ignore under it — in a browser as well as the Mac
+      app (board 2). The browser signpost and the desktop's operating-system
+      route below are what is left for when ours has no dictionary.
+    */
+    if (checkerRunning()) {
+      const fix = created.state.selection.main.empty ? misspellingAt(created.state, position) : null;
+      setMenuAt({ ...at, spelling: fix, spellingLearns: fix !== null });
+      return;
+    }
     const check = canEdit ? desktopSpeller() : null;
     const target =
       check !== null && created.state.selection.main.empty
         ? wordUnder(created.state, position)
         : null;
-    const ticket = ++latest;
     if (check === null || target === null) {
       setMenuAt({ ...at, spellingHint: canEdit && check === null && hasFinePointer() });
       return;
@@ -234,6 +248,16 @@ export function runEditorMenuAction(
         if (editor.state.sliceDoc(from, to) !== text) return;
         editor.dispatch({ changes: { from, to, insert: "" }, userEvent: "delete.cut" });
       });
+    }
+    current.focus();
+    return;
+  }
+
+  if (id === "spellingAdd" || id === "spellingIgnore") {
+    const word = menuAt?.spelling?.word;
+    if (word !== undefined) {
+      if (id === "spellingAdd") learnWord(word);
+      else ignoreInNote(current, word);
     }
     current.focus();
     return;

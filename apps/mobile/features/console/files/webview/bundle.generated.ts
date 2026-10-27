@@ -47,7 +47,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/comments/sheet.ts": "dfc474091055d05ec0dfad0ec6c6108277dcfe79b16d5f403b459b2dd3a88060",
   "apps/mobile/features/console/files/comments/styles.ts": "95dd81028bfd3a732b669ed8daece07db22921f68afd8280d53067a3f9e9e43d",
   "apps/mobile/features/console/files/dictate.ts": "9f2956b51062539111e7be74c9652001e65c00d4e934d8400ce76307f79d8d10",
-  "apps/mobile/features/console/files/editorSetup.ts": "028b116b1970e3a59d1989e0cfd654defcea64fa99b365e72c26237bb3d6ba11",
+  "apps/mobile/features/console/files/editorSetup.ts": "337fd666a910279c377234255bf0b24983c7ac3d92231963e4acfa82c0c9c066",
   "apps/mobile/features/console/files/emoji/emojiComplete.ts": "9b9beeea0c51c4a7eab16e7b6772ccf2d83ae4ef6176ae7e2620da2a121f4187",
   "apps/mobile/features/console/files/emoji/emojiInline.ts": "002e66d767205bbc550a9917c317ea4e450928b735c6500c696543df3444e3e9",
   "apps/mobile/features/console/files/emoji/host.ts": "df52d3b23399905ae4967d3ec3d3cef43402445dfe1d73e5ada119e184b2a914",
