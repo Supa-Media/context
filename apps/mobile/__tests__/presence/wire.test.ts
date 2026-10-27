@@ -13,7 +13,10 @@ import {
   initialPresenceState,
   presenceReducer,
   presenceSummary,
+  savesToBucket,
+  shownMembers,
 } from "../../features/console/presence/session";
+import { peersFrom } from "../../features/console/presence/peers";
 import { createSharedDoc, seedSharedDoc } from "../../features/console/presence/sharedDoc";
 import { cursorPositions } from "../../features/console/presence/sync";
 
@@ -69,6 +72,45 @@ describe("the presence wire", () => {
     expect(state.you).toBe("me");
     expect(state.members.map((peer) => peer.name)).toEqual(["@ana"]);
     expect(presenceSummary(state)).toBe("1 here");
+  });
+
+  test("your own other window is kept for the election and never drawn", () => {
+    // Dev2, 2026-10-27: a caret wearing their own name, parked where they had
+    // last typed, with one tab open. It was their Mac app (or this tab before a
+    // reconnect), and the room says so with `me`.
+    const frame = decodeServerFrame(JSON.stringify({
+      t: "welcome", v: 2, you: "m5",
+      members: [
+        { id: "m5", name: "@seyi", w: true, me: true },
+        { id: "m1", name: "@seyi", w: true, me: true, a: "AQ==", h: "AQ==" },
+        { id: "m3", name: "@ana", w: true },
+      ],
+    }));
+    let state = presenceReducer({ ...initialPresenceState, notePath: "a.md" }, {
+      type: "frame", notePath: "a.md", frame: frame!,
+    });
+    expect(shownMembers(state).map((peer) => peer.name)).toEqual(["@ana"]);
+    expect(presenceSummary(state)).toBe("1 here");
+    // Still a member: the lower id saves, and that is the other window.
+    expect(state.members.map((peer) => peer.id)).toEqual(["m1", "m3"]);
+    expect(savesToBucket(state)).toBe(false);
+    expect(peersFrom(state.members, new Map([
+      ["m1", { x: 1, y: 1, selected: [] }],
+      ["m3", { x: 2, y: 2, selected: [] }],
+    ])).map((peer) => peer.id)).toEqual(["m3"]);
+
+    // A later arrival marked as you is held back the same way; one that is
+    // not marked is drawn, whatever name it carries.
+    for (const member of [
+      { id: "m7", name: "@seyi", w: true, me: true },
+      { id: "m8", name: "@seyi", w: true },
+    ]) {
+      state = presenceReducer(state, {
+        type: "frame", notePath: "a.md", frame: decodeServerFrame(JSON.stringify({ t: "join", member }))!,
+      });
+    }
+    expect(shownMembers(state).map((peer) => peer.id)).toEqual(["m3", "m8"]);
+    expect(presenceSummary(state)).toBe("2 here");
   });
 
   test("a member without an id is dropped from the roster rather than drawn", () => {

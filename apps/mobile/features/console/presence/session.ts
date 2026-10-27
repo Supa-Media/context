@@ -239,11 +239,24 @@ export const PROBE_GRACE_MS = 5_000;
  */
 export const REFRESH_AFTER_UNOPENED = 2;
 
+/**
+ * The members a person is shown: everybody but their own other windows.
+ *
+ * `members` keeps those, because the election runs over it and your Mac app
+ * saves like anyone else. Only the drawing and the count leave them out — a
+ * caret wearing your own name, sitting where you last typed, is not somebody
+ * else in your note (Dev2, 2026-10-27).
+ */
+export function shownMembers(state: PresenceState): PresenceMember[] {
+  return state.members.filter((one) => !one.isYou);
+}
+
 /** What the header says. Empty when there is nothing worth saying. */
 export function presenceSummary(state: PresenceState): string {
   if (state.phase === "reconnecting") return "Reconnecting";
-  if (state.members.length === 0) return "";
-  return state.members.length === 1 ? "1 here" : `${state.members.length} here`;
+  const shown = shownMembers(state).length;
+  if (shown === 0) return "";
+  return shown === 1 ? "1 here" : `${shown} here`;
 }
 
 /**

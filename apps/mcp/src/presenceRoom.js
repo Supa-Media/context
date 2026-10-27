@@ -303,6 +303,25 @@ export class PresenceRoom {
     }
   }
 
+  /**
+   * A member arrived: everybody is told, and the arrival's own other windows
+   * are told it is them (`markSamePerson`), so they never draw it as a peer.
+   */
+  broadcastJoin(member, accountKey, except) {
+    const plain = JSON.stringify({ t: "join", member });
+    const mine = JSON.stringify({ t: "join", member: { ...member, me: true } });
+    for (const ws of this.openSockets()) {
+      if (ws === except) continue;
+      const held = ws.deserializeAttachment();
+      const same = typeof accountKey === "string" && accountKey !== "" && held?.accountKey === accountKey;
+      try {
+        ws.send(same ? mine : plain);
+      } catch {
+        // See `broadcast`.
+      }
+    }
+  }
+
   releaseSocket(ws) {
     const attachment = ws.deserializeAttachment();
     if (!attachment || typeof attachment.id !== "string") return;

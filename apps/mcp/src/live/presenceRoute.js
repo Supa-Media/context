@@ -219,6 +219,18 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
         which is exactly the distinction that has to be drawn.
       */
       clientKey: await presenceClientKey(session.actorClientId),
+      /*
+        **Which person this socket belongs to, so your own other windows are
+        told apart from colleagues.**
+
+        The same person in the Mac app, a phone and a browser tab is three
+        members, and each of them used to draw the other two as somebody else's
+        caret: your own name, in a colour you never chose, parked where you
+        last typed. The room uses this only to tell a socket which of its peers
+        are the same person; it never goes on the wire. A digest, like the
+        client key, so the room holds no account id.
+      */
+      accountKey: await presenceClientKey(`person:${session.actorUserId}`),
       ...(collaborationV2
         ? {
             grantId: session.grantId,

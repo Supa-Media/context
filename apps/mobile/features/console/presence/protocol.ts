@@ -61,6 +61,16 @@ export interface PresenceMember {
    * the only thing a caret can honestly claim.
    */
   isAgent: boolean;
+  /**
+   * Whether this member is **you**, in another window: the Mac app, a phone, a
+   * second tab, or this tab's own socket from before a reconnect.
+   *
+   * Said by the room, which knows whose grant each socket holds; never worked
+   * out here from a name, since two people can share one. Still a member for
+   * the election (it saves like any other), but never drawn: a caret with your
+   * own name, parked where you last typed, reads as a stranger in your note.
+   */
+  isYou: boolean;
 }
 
 export type ServerFrame =
@@ -223,6 +233,7 @@ function member(value: unknown): PresenceMember | null {
     // roster, and one that includes somebody the room refuses costs every save.
     canWrite: raw.w === true,
     isAgent: raw.g === true,
+    isYou: raw.me === true,
   };
 }
 

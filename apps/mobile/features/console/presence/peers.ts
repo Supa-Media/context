@@ -26,6 +26,8 @@ export function peersFrom(
 ): PeerPointer[] {
   const out: PeerPointer[] = [];
   for (const member of members) {
+    // Your own other window points too, and is not a peer. See `shownMembers`.
+    if (member.isYou) continue;
     const at = pointers.get(member.id);
     if (!at) continue;
     out.push({
