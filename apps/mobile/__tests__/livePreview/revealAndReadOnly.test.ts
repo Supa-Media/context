@@ -153,7 +153,8 @@ describe("styling is unconditional — that is the 'live' in Live Preview", () =
   test("heading levels map to their own classes", () => {
     expect(styleClassFor("ATXHeading1")).toBe("cm-lp-h1");
     expect(styleClassFor("ATXHeading3")).toBe("cm-lp-h3");
-    expect(styleClassFor("SetextHeading2")).toBe("cm-lp-h2");
+    // Setext headings are not parsed at all — see `noSetextHeadings.test.ts`.
+    expect(styleClassFor("SetextHeading2")).toBeNull();
   });
 
   test("a paragraph is not styled", () => {

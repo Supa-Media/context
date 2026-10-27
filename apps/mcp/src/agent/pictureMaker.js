@@ -54,7 +54,7 @@ import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
-import { fillDistances, geocode } from "./visuals/distance.js";
+import { fillDistances, geocoderFor } from "./visuals/distance.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -268,12 +268,13 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
     const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
     // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
-    const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl);
+    const find = mapGeocode ?? geocoderFor(fetchImpl, { key: env?.GOOGLE_MAPS_KEY });
+    const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl, { find });
     const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
     const photos = [...(await downloadPhotos(read, fetchImpl, sparesIn(outgoing?.read?.() ?? "")))];
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
     // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
-    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: mapGeocode ?? ((address) => geocode(address, fetchImpl)), locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
+    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: find, locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
     photos.push(...(drawnMap.pictures ?? []));
     const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
     if (built.error) return say(built.error, true);

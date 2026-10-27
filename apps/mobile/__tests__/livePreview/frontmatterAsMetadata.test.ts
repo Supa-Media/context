@@ -158,16 +158,23 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     return found;
   }
 
-  test("the grammar really does call it a heading", () => {
+  test("the grammar really does read it as ordinary text between two rules", () => {
     /*
       The premise, asserted rather than assumed. If a future grammar learns
       about frontmatter this fails, and the fix is to delete the workaround
       rather than to discover it is now doing nothing.
+
+      It used to be a level-2 setext heading; the editor's grammar dropped
+      setext headings (see `markdownLanguage`), so now the keys are a
+      paragraph between two horizontal rules — still drawn as content, not
+      metadata, without the workaround.
     */
     const state = stateFor(FRONT);
     const names: string[] = [];
     syntaxTree(state).iterate({ enter: (node) => void names.push(node.name) });
-    expect(names).toContain("SetextHeading2");
+    expect(names.filter((name) => name === "HorizontalRule")).toHaveLength(2);
+    expect(names).toContain("Paragraph");
+    expect(names.some((name) => name.startsWith("SetextHeading"))).toBe(false);
   });
 
   /**
@@ -244,10 +251,11 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
 
   test("both fences are visible once it is revealed, not just the opening one", () => {
     /*
-      The asymmetry this rules out. The opening `---` parses as a
+      The asymmetry this rules out. The opening `---` parsed as a
       HorizontalRule and the closing one as a setext HeaderMark, so ordinary
       mark-hiding removed the closing fence and left the opening one — and the
-      block read as an unterminated rule above two stray keys.
+      block read as an unterminated rule above two stray keys. Both are rules
+      now, and this still holds.
 
       Read with the caret inside, which is the only state the block is drawn
       in now. With it away the whole thing is gone, fences included, which is
