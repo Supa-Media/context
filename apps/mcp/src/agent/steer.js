@@ -36,6 +36,7 @@
 
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
+import { toolIsWriting } from "../tools/registry.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 /** A group chat's grant (`apps/convex/functions/textGroups.ts`): only its background jobs name a turn. */
@@ -46,6 +47,11 @@ const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 export const MAX_STEER_TEXT = 4_000;
 export const CANCEL_PREFIX = ".context/agent/cancel/";
+/** A named turn while it runs: `{ user, wrote }` (`wrote`: a call that changed something or went out succeeded). */
+export const RUNNING_PREFIX = ".context/agent/running/";
+/** Calls outside the MCP's own tools that only read; any other one that succeeds may have changed something. */
+const READS = new Set(["search_web", "open_page", "read_skill", "read_learned_skill", "travel_time"]);
+const commits = (name, result) => result?.isError !== true && result?.held !== true && !READS.has(name) && toolIsWriting(name);
 /** The most texts one turn takes in. */
 export const MAX_STEERED = 5;
 
@@ -81,6 +87,13 @@ export async function handleSteer(request, store, session) {
 export function steerFor(store, session, body) {
   if (!texting(session) || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
   const prefix = `${STEER_PREFIX}${body.turn}/`;
+  const running = `${RUNNING_PREFIX}${body.turn}.json`;
+  let wrote = false;
+  const committed = async (name, result) => {
+    if (wrote || !commits(name, result)) return;
+    wrote = true;
+    await store.put(running, JSON.stringify({ user: session.actorUserId, wrote: true })).catch(() => {});
+  };
   const seen = new Set();
   const taken = [];
   const words = [];
@@ -125,6 +138,31 @@ export function steerFor(store, session, body) {
         return false;
       }
     },
+    /** Mark the turn running, so `/agent/cancel` may stop it. */
+    async begin() {
+      await store.put(running, JSON.stringify({ user: session.actorUserId, wrote: false })).catch(() => {});
+    },
+    /** A tool call (or a web one, `web`) whose success marks the turn as having changed something: no cancel after it. */
+    track(call) {
+      return async (name, args) => {
+        const result = await call(name, args);
+        await committed(name, result);
+        return result;
+      };
+    },
+    trackWeb(web) {
+      return web === null ? null : { ...web, call: this.track((name, args) => web.call(name, args)) };
+    },
+    /**
+     * At the turn's end, before it answers: no longer running, then whether a
+     * cancel landed after its last look. In that order, against `/agent/cancel`
+     * writing its mark before reading the running one: a cancel that saw the
+     * turn running is always seen here.
+     */
+    async endCancelled() {
+      await store.delete(running).catch(() => {});
+      return this.cancelled();
+    },
     /** Whether the Worker cancelled this turn. */
     async cancelled() {
       try {
@@ -137,6 +175,7 @@ export function steerFor(store, session, body) {
     async clear() {
       try {
         await store.delete(`${CANCEL_PREFIX}${body.turn}.json`);
+        await store.delete(running);
         const page = await store.list({ prefix, limit: 100 });
         await Promise.all((page?.objects ?? []).map((object) => store.delete(object.key)));
       } catch {
@@ -144,6 +183,30 @@ export function steerFor(store, session, body) {
       }
     },
   };
+}
+
+/**
+ * `/agent/cancel`'s side: marks a turn cancelled only while it runs, for this
+ * person, and has not yet changed anything; else nothing, and false.
+ */
+export async function cancelTurn(store, session, turn) {
+  const state = async () => {
+    try {
+      const object = await store.get(`${RUNNING_PREFIX}${turn}.json`);
+      return object === null ? null : JSON.parse(await object.text());
+    } catch {
+      return null;
+    }
+  };
+  const before = await state();
+  if (before?.user !== session.actorUserId || before.wrote === true) return false;
+  const mark = `${CANCEL_PREFIX}${turn}.json`;
+  await store.put(mark, JSON.stringify({ at: Date.now() }));
+  // Ended meanwhile: whether it saw the mark cannot be told, so this says no; the turn's own answer says `cancelled` if it did.
+  const now = await state();
+  if (now?.user === session.actorUserId && now.wrote !== true) return true;
+  await store.delete(mark).catch(() => {});
+  return false;
 }
 
 /** How a taken text reaches the model, and the conversation. */

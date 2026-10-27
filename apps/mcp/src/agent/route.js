@@ -36,7 +36,7 @@ import { withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { loggedTurn, recordTurn, turnHistory } from "./loggedTurn.js";
+import { loggedTurn, recordedTurn, turnHistory } from "./loggedTurn.js";
 import { deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
@@ -105,7 +105,11 @@ const CONSOLE_CLIENT_ID = "context_console";
  * lives in this deployment's own logs, because a provider's error body quotes
  * the request that produced it — the customer's question and their notes.
  */
-export async function handleAgent(request, env, store, session, controlPlane, { progress = null, step = null } = {}) {
+export function handleAgent(request, env, store, session, controlPlane, options = {}) {
+  return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, options, outcome)); // every exit of a named turn is recorded (`loggedTurn.js`)
+}
+
+async function agentTurn(request, env, store, session, controlPlane, { progress = null, step = null }, outcome) {
   const received = Date.now();
   let body;
   try {
@@ -117,6 +121,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
   }
 
+  outcome.turn = body.turn;
   /*
     A routine's connection runs routines and nothing else, and nothing else runs
     one: both decided by the grant's client, never by the body. A routine grant
@@ -214,7 +219,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       told: body.told,
       thumbsUp,
     });
-    if (settled?.answer !== undefined) return json(settled);
+    if (settled?.answer !== undefined) return (outcome.clean = true), json(settled); // the gateway's words, nothing read
     ({ setAside = [], dropped = [] } = settled ?? {});
     paid = settled?.allowed ?? [];
   }
@@ -222,6 +227,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   try {
     await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
+    outcome.clean = true; // no model ran: the reply is the gateway's
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
     if (error instanceof AgentRefusal && error.code === "daily_limit") {
       return json(
@@ -480,6 +486,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
+    await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     const turn = await runTurn({
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
       question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted)].filter(Boolean).join("\n\n"),
@@ -497,12 +504,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
       answerCheck: claims?.check ?? null,
-      callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
+      callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
           withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group, question }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
         ))),
-      )))),
+      ))))),
       pictures: texted || group !== null,
       attachments,
       env,
@@ -518,7 +525,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           ...(production !== null ? { setup: production.version } : {}),
         },
       },
-      web: claims?.wrapWeb(web) ?? web, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
+      web: steer?.trackWeb(claims?.wrapWeb(web) ?? web) ?? claims?.wrapWeb(web) ?? web, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + (texted && job === null ? await googleOfferLine(store, shown) : ""), steer,
       local: earlier,
@@ -550,8 +557,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (opened !== null) await afterAnswer(opened.close());
     await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
-    // Cancelled by the Worker (`steer.js`): its asks are withdrawn, nothing is kept as said, and nothing is texted.
-    if (turn.cancelled) return await cancelledTurn(store, session, { ledger, steer, transcript, steps: turn.steps });
+    outcome.clean = ledger.untrusted !== true;
+    // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
+    if (turn.cancelled || (steer !== null && (await steer.endCancelled()))) return await cancelledTurn(store, session, { ledger, steer, transcript, steps: turn.steps });
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
@@ -612,8 +620,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await steer.pending())) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
     if (steer !== null) await afterAnswer(steer.clear());
-    // Before the answer, never deferred; a record that failed to write leaves the turn unproven, so untrusted (`loggedTurn.js`).
-    if (steer !== null) await recordTurn(store, body.turn, ledger.untrusted !== true).catch(() => {});
     // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
@@ -654,6 +660,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
     });
   } catch (error) {
+    outcome.clean = false;
+    if (steer !== null) await steer.clear();
     if (opened !== null) await afterAnswer(opened.close());
     if (transcript !== null) await afterAnswer(transcript.finish({ answer: "", outcome: "the turn failed" }));
     await meter(null, true);

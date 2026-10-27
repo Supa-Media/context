@@ -40,6 +40,21 @@ export async function recordTurn(store, turn, clean) {
   await store.put(`${TURNS_PREFIX}${turn}.json`, JSON.stringify({ clean: clean === true }));
 }
 
+/**
+ * Run a turn and record it on every exit (`recordTurn`), before its answer:
+ * `run(outcome)` names the turn (`outcome.turn`) and says whether it stayed
+ * clean (`outcome.clean`). A gateway reply with no model (a texted yes, a
+ * refusal) is clean; a turn that threw, or whose `clean` was never set, is not.
+ */
+export async function recordedTurn(store, run) {
+  const outcome = { turn: undefined, clean: false };
+  try {
+    return await run(outcome);
+  } finally {
+    await recordTurn(store, outcome.turn, outcome.clean === true).catch(() => {});
+  }
+}
+
 /** Whether a turn has a record saying it was clean; anything else is not. */
 async function cleanTurn(store, turn) {
   if (typeof turn !== "string" || !TURN.test(turn)) return false;
