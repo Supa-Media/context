@@ -4,7 +4,7 @@
  * tickets. Each takes the model's data and returns the card's inner HTML.
  */
 
-import { CARD_HEIGHT, DARK, LIGHT, SERIF, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
+import { CARD_HEIGHT, DARK, FIT_MAX, LIGHT, SERIF, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
 import { mapBlock } from "./map.js";
 
 /** Options ranked against a limit: catering quotes, phone plans, anything with one number that decides. */
@@ -143,10 +143,24 @@ export function versus(data, theme) {
   );
 }
 
+/** The shortest a fitted card is drawn. */
+const MIN_FIT = 360;
+
+/** About how tall one place's row is drawn, a little over, for a screenshot Worker that can't fit the card to it. */
+function placeRow(item) {
+  const said = (text) => typeof text === "string" && text.trim() !== "";
+  const wide = (photoUrl(item.photo) ? 410 : 536) - (said(item.distance) ? 84 : 0);
+  const lines = (text, px) => (said(text) ? Math.ceil(Math.min(text.length, 140) / (wide / px)) : 0);
+  const where = [item.hours, item.address].filter(said).join(" · ");
+  const text = 30 + 27 * Math.max(1, lines(item.name, 12)) + (said(item.cuisine) || said(item.price) ? 22 : 0) + 22 * (lines(item.detail, 7) + lines(where, 7)) + (said(item.note) ? 6 + 22 * lines(item.note, 7.6) : 0);
+  return Math.max(text, photoUrl(item.photo) ? 141 : 0);
+}
+
 /** Places to go: restaurants, hotels, doctors. Numbered, a photo each, with how far. */
 export function places(data, theme) {
   const c = theme === "dark" ? DARK : LIGHT;
-  const items = list(data.items, 4);
+  // As many as they asked for: "top 5" is five rows, not four (owner, 2026-10-27).
+  const items = list(data.items, 6);
   // No photo, no slot: an empty coloured block reads as a picture that failed (owner, 2026-10-26).
   const size = 112;
   const rows = items.map((item, i) => {
@@ -169,19 +183,19 @@ ${pic ? `<div style="width: ${size}px; flex-shrink: 0">${photo(item.photo, { hei
 ${kind ? `<div style="font-size: 14px; color: ${c.muted}">${kind}</div>` : ""}${lines}${item.note ? `<div style="font-family: ${SERIF}; font-size: 16px; line-height: 1.35; color: ${c.body}">${esc(item.note, 140)}</div>` : ""}</div>
 ${distance ? `<div style="text-align: right; flex-shrink: 0; padding-right: 4px"><div style="font-size: 18px; font-weight: 600">${esc(item.distance, 12)}</div>${item.distance_label ? `<div style="font-size: 13px; color: ${c.muted}">${esc(item.distance_label, 14)}</div>` : ""}</div>` : ""}</div>`;
   });
-  // The card grows with what it holds rather than cutting a line short; the map (`./map.js`) sits above the rows, its pins numbered like them.
+  // The card is as tall as what it holds (`fit`), so a short list leaves no empty band; the map (`./map.js`) sits above the rows, its pins numbered like them.
   const map = mapBlock(c, data.map);
-  const height = clamp(170 + items.length * 150 + (data.footer ? 50 : 0) + (map ? Number(data.map.height) + 20 : 0), CARD_HEIGHT, 1200);
+  const height = clamp(140 + items.reduce((sum, item) => sum + placeRow(item), 0) + (data.footer ? 50 : 0) + (map ? Number(data.map.height) + 20 : 0), MIN_FIT, FIT_MAX);
   return {
     html: page(
       `${heading(c, data.kicker, data.title, { size: 36 })}
 ${map}
 <div style="display: flex; flex-direction: column; border-bottom: 1px solid ${c.line}">${rows.join("")}</div>
-<div style="flex-grow: 1"></div>
 ${data.footer ? footer(c, data.footer) : ""}`,
-      { background: c.bg, ink: c.ink, height },
+      { background: c.bg, ink: c.ink, height, fit: true },
     ),
     height,
+    fit: true,
   };
 }
 
@@ -203,17 +217,17 @@ ${stop.note || stop.address ? `<div style="font-size: 14px; line-height: 1.3; co
 ${stop.time ? `<div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; color: ${c.muted}; flex-shrink: 0; max-width: 150px; text-align: right; line-height: 1.3">${esc(stop.time, 24)}</div>` : ""}</div>`,
     )
     .join("");
-  const height = clamp(150 + (map ? Number(data.map.height) + 20 : 0) + stops.length * 84 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
+  const height = clamp(140 + (map ? Number(data.map.height) + 16 : 0) + stops.length * 84 + (data.footer ? 46 : 0), MIN_FIT, FIT_MAX);
   return {
     html: page(
       `${heading(c, data.kicker, data.title, { size: 34 })}
 ${map}
 <div style="display: flex; flex-direction: column; border-bottom: 1px solid ${c.line}">${rows}</div>
-<div style="flex-grow: 1"></div>
 ${data.footer ? footer(c, data.footer) : ""}`,
-      { background: c.bg, ink: c.ink, gap: 16, height },
+      { background: c.bg, ink: c.ink, gap: 16, height, fit: true },
     ),
     height,
+    fit: true,
   };
 }
 

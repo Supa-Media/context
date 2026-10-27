@@ -254,7 +254,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const response = await shots.fetch("https://site-shots/render", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ html: page, width: args.width, height: args.height, allow }),
+      // A card may be cut to what it holds (`./visuals/kit.js` `fit`); a page the model wrote keeps the size it asked for.
+      body: JSON.stringify({ html: page, width: args.width, height: args.height, allow, ...(card && args.fit === true ? { fit: true } : {}) }),
     });
     const body = await response.json().catch(() => null);
     if (response.status === 400) return say("That size or page could not be drawn: keep width 200-2000 and height 200-2400.", true);
