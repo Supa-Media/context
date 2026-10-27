@@ -42,7 +42,8 @@ export const GOOGLE_STATIC = "https://maps.googleapis.com/maps/api/staticmap";
 /** OpenStreetMap's tile policy asks for a user agent that names the app, and that tiles be cached. */
 const TILE_FETCH = { headers: { "user-agent": "ContextTex/1.0 (+https://context.lc)" }, cf: { cacheEverything: true, cacheTtl: 7 * 24 * 3600 } };
 /** Pin colours, by number: the places card's row colours (`./choices.js`). */
-const PIN_COLORS = ["#1F5FD1", "#B4540A", "#1E7B4A", "#7A4BC2", "#C79A1B", "#16161A"];
+// Every pin is the card's one accent, numbered like the rows under it (Context's look, owner 2026-10-27).
+const PIN_COLORS = Array(6).fill("#2A45CF");
 
 /**
  * The stops a card's map shows, numbered as the card numbers them: a places
@@ -103,8 +104,13 @@ export function googleMapUrl(stops, { key, width = MAP_WIDTH, height = MAP_HEIGH
   // Other businesses' pins and transit icons crowd out the ones Tex is pointing at.
   url.searchParams.append("style", "feature:poi|visibility:off");
   url.searchParams.append("style", "feature:transit|element:labels.icon|visibility:off");
+  // Context's paper and ink rather than Google's default colours, so the map sits in the card.
+  url.searchParams.append("style", "feature:landscape|element:geometry|color:0xf0ece3");
+  url.searchParams.append("style", "feature:road|element:geometry|color:0xfffdf9");
+  url.searchParams.append("style", "feature:water|element:geometry|color:0xdfe3ea");
+  url.searchParams.append("style", "element:labels.text.fill|color:0x635c52");
   for (const stop of stops) url.searchParams.append("markers", `size:mid|color:0x${stop.color.slice(1)}|label:${stop.n}|${stop.address}`);
-  if (route && stops.length > 1) url.searchParams.append("path", `color:0x16161ACC|weight:4|${stops.map((stop) => stop.address).join("|")}`);
+  if (route && stops.length > 1) url.searchParams.append("path", `color:0x1A1714CC|weight:4|${stops.map((stop) => stop.address).join("|")}`);
   if (stops.length === 1) url.searchParams.set("zoom", "15");
   url.searchParams.set("key", key);
   return url.toString();
@@ -210,8 +216,8 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
 
 /** A numbered teardrop pin, its tip on the point: a 30px square turned 45°, so the tip is 21px below its centre. */
 function pin(p) {
-  return `<div style="position: absolute; left: ${p.left - 15}px; top: ${p.top - 36}px; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: ${p.color}; border: 2px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.35)"></div>
-<div style="position: absolute; left: ${p.left - 15}px; top: ${p.top - 36}px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-weight: 800; font-size: 14px">${Number(p.n)}</div>`;
+  return `<div style="position: absolute; left: ${p.left - 15}px; top: ${p.top - 36}px; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: ${p.color}; border: 2px solid #FFFDF9; box-shadow: 0 2px 6px rgba(16,16,28,0.30)"></div>
+<div style="position: absolute; left: ${p.left - 15}px; top: ${p.top - 36}px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-weight: 600; font-size: 14px">${Number(p.n)}</div>`;
 }
 
 /**
@@ -222,7 +228,7 @@ export function mapBlock(c, map) {
   if (!map || typeof map !== "object") return "";
   const height = Number(map.height) || MAP_HEIGHT;
   const frame = (inner) =>
-    `<div style="position: relative; flex-shrink: 0; width: ${MAP_WIDTH}px; height: ${height}px; border-radius: 16px; overflow: hidden; border: 1px solid ${c.line}; background: ${c.track}">${inner}</div>`;
+    `<div style="position: relative; flex-shrink: 0; width: ${MAP_WIDTH}px; height: ${height}px; border-radius: 10px; overflow: hidden; border: 1px solid ${c.line}; background: ${c.track}">${inner}</div>`;
   if (map.kind === "google" && /^card-photo:\d{1,2}$/.test(map.image)) {
     return frame(`<div style="position: absolute; inset: 0; background: url('${map.image}') center / cover no-repeat"></div>`);
   }
@@ -234,9 +240,9 @@ export function mapBlock(c, map) {
   const pins = Array.isArray(map.pins) ? map.pins.filter((p) => Number.isFinite(p.left) && Number.isFinite(p.top)) : [];
   const line =
     map.route && pins.length > 1
-      ? `<svg width="${MAP_WIDTH}" height="${height}" style="position: absolute; left: 0; top: 0"><polyline points="${pins.map((p) => `${p.left},${p.top}`).join(" ")}" fill="none" stroke="#16161A" stroke-opacity="0.75" stroke-width="4" stroke-linejoin="round" stroke-dasharray="2 8" stroke-linecap="round"/></svg>`
+      ? `<svg width="${MAP_WIDTH}" height="${height}" style="position: absolute; left: 0; top: 0"><polyline points="${pins.map((p) => `${p.left},${p.top}`).join(" ")}" fill="none" stroke="#2A45CF" stroke-opacity="0.85" stroke-width="3" stroke-linejoin="round" stroke-dasharray="2 8" stroke-linecap="round"/></svg>`
       : "";
   // OpenStreetMap's licence asks for its credit on every map drawn from its tiles.
-  const credit = `<div style="position: absolute; right: 0; bottom: 0; padding: 2px 6px; font-size: 10px; background: rgba(255,255,255,0.8); color: #3E3E44; border-top-left-radius: 6px">${esc("© OpenStreetMap contributors")}</div>`;
+  const credit = `<div style="position: absolute; right: 0; bottom: 0; padding: 2px 6px; font-size: 10px; background: rgba(255,253,249,0.85); color: #4A443C; border-top-left-radius: 6px">${esc("© OpenStreetMap contributors")}</div>`;
   return frame(`${tiles}${line}${pins.map(pin).join("")}${credit}`);
 }

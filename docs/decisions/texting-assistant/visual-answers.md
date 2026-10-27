@@ -292,3 +292,27 @@ distances and its map (`geocoderFor`), and logs a `card_distance` reason
 code (no_from, from_unseen, from_not_found, some_missed, measured), never an
 address. Dev2's ice-cream card came back without distances while only
 Photon was looking, and nothing said why.
+
+## Cards look like Context (2026-10-27)
+
+The owner, on the first round of templates: "Could we redesign these card
+templates in context style? I don't like how it looks currently." After the
+mockups: "this is ok for now. will work on better design elements later".
+
+- **Palettes are the app's tokens.** `kit.js` `LIGHT` and `DARK` mirror
+  `apps/mobile/features/design/tokens/colors.ts`: paper `#FFFDF9`, ink
+  `#1A1714`, hairlines rather than grey fills, one indigo accent. The
+  fixed-palette templates (tickets, streak, the gallery styles) use the same
+  tokens, so no card brings its own navy or green.
+- **Type.** Instrument Sans at weight 600 at most (the app's face), never the
+  old heavy Inter Tight 800. Names and notes are set in a reading serif
+  (Source Serif 4, standing in for the app's Libron, which is self-hosted and
+  not on Google Fonts). Kickers are sentence case, not tracked capitals.
+- **Lists are hairline rows**, like a Context list, not boxed tiles. Numbers
+  and map pins share the one accent, so pin 3 and row 3 match by number,
+  not colour. Google Static Maps is styled in the card's paper and ink.
+- **The footer signs "Tex · Context".**
+
+What it does not change: any template's fields, what the model is told, or
+the copy on a card. Reverting is `kit.js`'s palettes and fonts plus the
+inline styles; `agentVisuals.test.mjs` still draws every template.
