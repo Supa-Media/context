@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useScheme } from "../../../design/theme";
 import { webUrl } from "../webUrl";
+import { dialUrl } from "./pageHost";
 import type { PageViewProps } from "./props";
 import { PAGE_CHANNEL, pageChange, pageFrameUrls, readPageMessage } from "./pageHost";
 
@@ -54,6 +55,8 @@ export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadI
       dark: now.dark,
       editable: now.editable && now.onEdit !== undefined,
       canComment: now.editable && now.onEdit !== undefined && now.author !== null,
+      // Their own name, so the vote they cast shows as theirs; votes are written by `pageChange`, never by the frame.
+      me: now.author,
     });
   }, [post]);
 
@@ -83,7 +86,10 @@ export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadI
           setHeight(Math.max(120, message.height));
           return;
         case "open":
-          if (typeof window !== "undefined" && webUrl(message.href) === message.href) window.open(message.href, "_blank", "noopener,noreferrer");
+          if (typeof window === "undefined") return;
+          if (webUrl(message.href) === message.href) window.open(message.href, "_blank", "noopener,noreferrer");
+          // A contact's Call and Text buttons: handed to the phone or the system, which never leaves the page.
+          else if (dialUrl(message.href) === message.href) window.location.assign(message.href);
           return;
         case "note":
           now.onOpenNote?.(message.target);

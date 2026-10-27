@@ -14,8 +14,9 @@
  * are served from:
  *
  *  - `index.html`: our runtime. One script, ours (`'self'`); styles inline
- *    (the note's CSS is a stylesheet); pictures only as `data:`; frames only
- *    `box.html` beside it. No fetch, no fonts, no forms, nothing else.
+ *    (the note's CSS is a stylesheet); pictures and our own two fonts only
+ *    as `data:`; frames only `box.html` beside it. No fetch, no forms,
+ *    nothing else.
  *  - `box.html`: one note's ```` ```box ```` code. Its own inline script and
  *    styles run, and it can load nothing at all, so whatever it is handed
  *    stays in it.
@@ -25,7 +26,7 @@
  */
 
 import { build } from "esbuild";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,7 +35,7 @@ const SOURCE = path.join(ROOT, "apps", "mobile", "page-frame");
 const OUT = path.join(ROOT, "apps", "mobile", "public", "drawing-assets", "page");
 
 export const PAGE_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'";
 export const BOX_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'";
 
@@ -50,7 +51,26 @@ const CHROME_CSS = `
 .pg-msg b{display:block;color:var(--pg-ink);font-size:12px}
 `;
 
-function pageHtml() {
+/**
+ * Context's own faces, Instrument Sans and JetBrains Mono (the app's, from
+ * `@fontsource`, latin only), carried in the page as data: the frame's CSP
+ * loads nothing, so a font can only arrive inside it.
+ */
+const FONTS = [
+  ["Instrument Sans", "@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2", "400 700"],
+  ["JetBrains Mono", "@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2", "500"],
+];
+
+async function fontCss() {
+  const faces = [];
+  for (const [family, file, weight] of FONTS) {
+    const bytes = await readFile(path.join(ROOT, "apps", "mobile", "node_modules", file));
+    faces.push(`@font-face{font-family:"${family}";font-style:normal;font-weight:${weight};font-display:block;src:url(data:font/woff2;base64,${bytes.toString("base64")}) format("woff2")}`);
+  }
+  return faces.join("\n");
+}
+
+function pageHtml(fonts) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -59,6 +79,7 @@ function pageHtml() {
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Page</title>
+    <style>${fonts}</style>
     <style id="tokens"></style>
     <style id="base"></style>
     <style>${CHROME_CSS}</style>
@@ -108,7 +129,7 @@ export async function buildPageFrame() {
       logLevel: "warning",
     });
   }
-  await writeFile(path.join(OUT, "index.html"), pageHtml());
+  await writeFile(path.join(OUT, "index.html"), pageHtml(await fontCss()));
   await writeFile(path.join(OUT, "box.html"), boxHtml());
   const bytes = (await stat(path.join(OUT, "frame.js"))).size;
   console.log(`built the page runtime: ${(bytes / 1024).toFixed(0)}KB of script, into apps/mobile/public/drawing-assets/page`);

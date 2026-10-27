@@ -417,6 +417,12 @@ importers:
       '@eslint/js':
         specifier: ^8.57.1
         version: 8.57.1
+      '@fontsource-variable/instrument-sans':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/jetbrains-mono':
+        specifier: 5.3.0
+        version: 5.3.0
       '@playwright/test':
         specifier: 1.56.1
         version: 1.56.1
@@ -2155,6 +2161,12 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource-variable/instrument-sans@5.3.0':
+    resolution: {integrity: sha512-u4gKbDBTNFGkg997tfQn3eHOhHuquWUFTRT/rwzuKtrxX5P2ekfs2x+LgBPP4P32+cC+vUwF1Cr+IdRoPQbrGw==}
+
+  '@fontsource/jetbrains-mono@5.3.0':
+    resolution: {integrity: sha512-fqDfB5I9f1p1TV486aUgB9t8zP84P0O1FtQR5Ol9vjwPy+S+EIGlVYm1cvj2W5shcZMTg2nZFdVMoH5wFu8a1A==}
 
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
@@ -10573,6 +10585,10 @@ snapshots:
       react-dom: 19.1.0(react@19.1.0)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource-variable/instrument-sans@5.3.0': {}
+
+  '@fontsource/jetbrains-mono@5.3.0': {}
 
   '@humanwhocodes/config-array@0.13.0':
     dependencies:

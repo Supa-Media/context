@@ -15,7 +15,7 @@
  */
 
 import { addThread, appendEvent, applyChanges } from "@context/shared/src/comments.cjs";
-import { applyRunEdits, chooseOption, commentableRange, toggleTask } from "@context/shared/src/pages/index.cjs";
+import { applyRunEdits, castVote, chooseOption, commentableRange, toggleTask } from "@context/shared/src/pages/index.cjs";
 
 export const PAGE_CHANNEL = "context-page";
 
@@ -45,12 +45,18 @@ export function pageFrameUrls(location: { hostname: string; origin: string }, sl
   return [`https://${label}.ctxlc.site/_page/index.html`, local];
 }
 
+/** A phone number to call or text (`tel:`, `sms:`), as a contact's buttons write one, or null. */
+export function dialUrl(href: string): string | null {
+  return /^(?:tel|sms):\+?\d{3,20}$/.test(href) ? href : null;
+}
+
 export type PageMessage =
   | { type: "ready" }
   | { type: "height"; height: number }
   | { type: "edit"; edits: { from: number; to: number; text: string }[] }
   | { type: "task"; at: number; checked: boolean }
   | { type: "choose"; block: number; option: string }
+  | { type: "vote"; block: number; option: string }
   | { type: "comment"; from: number; to: number; body: string }
   | { type: "reply" | "resolve" | "reopen"; thread: string; body: string }
   | { type: "open"; href: string }
@@ -87,9 +93,10 @@ export function readPageMessage(data: unknown): PageMessage | null {
     }
     case "task":
       return position(m.at) && typeof m.checked === "boolean" ? { type: "task", at: m.at, checked: m.checked } : null;
-    case "choose": {
+    case "choose":
+    case "vote": {
       const option = text(m.option, 300);
-      return position(m.block) && option !== null ? { type: "choose", block: m.block, option } : null;
+      return position(m.block) && option !== null ? { type: m.type, block: m.block, option } : null;
     }
     case "comment": {
       const body = text(m.body, MAX_BODY);
@@ -131,7 +138,7 @@ export type PageChange = { text: string } | { error: string };
  */
 export function pageChange(current: string, shown: string, message: PageMessage, author: string | null): PageChange | null {
   if (current !== shown) {
-    if (message.type === "edit" || message.type === "task" || message.type === "choose" || message.type === "comment") return { error: "stale" };
+    if (message.type === "edit" || message.type === "task" || message.type === "choose" || message.type === "vote" || message.type === "comment") return { error: "stale" };
   }
   switch (message.type) {
     case "edit":
@@ -140,6 +147,10 @@ export function pageChange(current: string, shown: string, message: PageMessage,
       return toggleTask(current, message.at, message.checked);
     case "choose":
       return chooseOption(current, message.block, message.option);
+    case "vote":
+      // Cast as the signed-in person: the frame says which option, never whose vote.
+      if (author === null) return { error: "Sign in to vote." };
+      return castVote(current, message.block, message.option, author);
     case "comment": {
       if (author === null) return { error: "This note can't take comments here." };
       if (!commentableRange(current, message.from, message.to)) return { error: "stale" };

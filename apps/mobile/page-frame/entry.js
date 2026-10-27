@@ -22,11 +22,11 @@
  * ## The protocol (channel `context-page`)
  *
  *   frame → app   ready | height {height} | edit {edits:[{from,to,text}]}
- *                 | task {at, checked} | choose {block, option}
+ *                 | task {at, checked} | choose {block, option} | vote {block, option}
  *                 | comment {from, to, quote, body} | reply {thread, body}
  *                 | resolve {thread} | reopen {thread}
  *                 | open {href} | note {target} | image {src}
- *   app → frame   render {source, dark, editable, canComment}
+ *   app → frame   render {source, dark, editable, canComment, me}
  *                 | image {src, data}
  */
 
@@ -42,7 +42,7 @@ const userStyle = document.getElementById("user-css");
 const tokens = document.getElementById("tokens");
 document.getElementById("base").textContent = pages.BASE_CSS;
 
-let state = { source: "", dark: false, editable: false, canComment: false };
+let state = { source: "", dark: false, editable: false, canComment: false, me: null };
 let page = null;
 let pending = null; // a render held back while the reader is typing
 const images = new Map();
@@ -63,7 +63,7 @@ function draw() {
   page = pages.parsePage(state.source);
   const threads = commentsLayer.threads(state.source);
   const open = new Set(threads.filter((thread) => thread.status === "open").map((thread) => thread.id));
-  const { html, boxes: found, css } = pages.renderPage(page, { open });
+  const { html, boxes: found, css } = pages.renderPage(page, { open, me: state.me });
   const { vars, dark } = pages.pageTokens(page.fields, state.dark);
   tokens.textContent = `:root{${vars}}`;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -86,7 +86,7 @@ function draw() {
 /** What only a script can add: editing, sort buttons, tabs. */
 function decorate() {
   for (const el of root.querySelectorAll("[data-edit]")) {
-    const inside = el.closest(".pg-option");
+    const inside = el.closest(".pg-option, .pg-vopt");
     if (state.editable && !inside && el.querySelector("[data-f]")) {
       el.contentEditable = "true";
       el.spellcheck = true;
@@ -227,10 +227,16 @@ root.addEventListener("click", (event) => {
     reportHeight();
     return;
   }
+  const vote = event.target.closest("[data-vote]");
+  if (vote && state.editable) {
+    tell({ type: "vote", block: Number(vote.closest("[data-block]").dataset.block), option: vote.dataset.vote });
+    return;
+  }
   const option = event.target.closest("[data-choose]");
   if (option && state.editable) {
     const block = Number(option.closest("[data-block]").dataset.block);
-    tell({ type: "choose", block, option: option.classList.contains("on") ? "" : option.dataset.choose });
+    const on = option.classList.contains("on") || option.getAttribute("aria-pressed") === "true";
+    tell({ type: "choose", block, option: on ? "" : option.dataset.choose });
     return;
   }
   const link = event.target.closest("a");
@@ -245,8 +251,8 @@ root.addEventListener("click", (event) => {
 });
 
 root.addEventListener("keydown", (event) => {
-  const option = event.target.closest && event.target.closest("[data-choose]");
-  if (option && (event.key === "Enter" || event.key === " ")) {
+  const option = event.target.closest && event.target.closest("[data-choose], [data-vote]");
+  if (option && option.tagName !== "BUTTON" && (event.key === "Enter" || event.key === " ")) {
     event.preventDefault();
     option.click();
   }
@@ -297,6 +303,7 @@ window.addEventListener("message", (event) => {
         dark: message.dark === true,
         editable: message.editable === true,
         canComment: message.canComment === true,
+        me: typeof message.me === "string" ? message.me.slice(0, 60) : null,
       };
       if (editing() && state.source !== "") {
         pending = next;

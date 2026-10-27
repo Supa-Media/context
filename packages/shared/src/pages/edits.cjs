@@ -25,9 +25,11 @@ function editableRuns(page) {
     if (node.type === "list") for (const item of node.items) add(item.runs);
     if (node.type === "table") for (const row of [node.head, ...node.rows]) for (const cell of row) add(cell);
     if (node.type === "block") {
+      add(node.words);
       for (const item of node.items) {
         if (item.label) add(item.label.runs);
         for (const part of item.parts) add(part.runs);
+        for (const field of item.fields ?? []) add(field.value.runs);
       }
     }
   }
@@ -67,13 +69,17 @@ function toggleTask(source, at, checked) {
   return { error: "stale" };
 }
 
+/** The blocks a reader settles with one tap, written back as `chosen:`. */
+const CHOOSING = new Set(["choose", "vote", "tiers"]);
+
 /**
- * Write the reader's pick into a `choose` block as its `chosen:` setting, or
- * clear it with an empty option. Only a name the block offers is written.
+ * Write the reader's pick into a `choose`, `vote` or `tiers` block as its
+ * `chosen:` setting, or clear it with an empty option. Only a name the block
+ * offers is written.
  */
 function chooseOption(source, blockFrom, option) {
   const page = parsePage(source);
-  const block = page.nodes.find((node) => node.type === "block" && node.kind === "choose" && node.from === blockFrom);
+  const block = page.nodes.find((node) => node.type === "block" && CHOOSING.has(node.kind) && node.from === blockFrom);
   if (!block) return { error: "stale" };
   const names = block.items.map((item) => (item.label ? item.label : item.parts[0]).runs.map((run) => run.text ?? "").join("").trim());
   const value = typeof option === "string" ? option.trim() : "";
@@ -86,6 +92,46 @@ function chooseOption(source, blockFrom, option) {
   return { text: source.slice(0, block.closeFrom) + `chosen: ${written}\n` + source.slice(block.closeFrom) };
 }
 
+/**
+ * The reader's vote in a `vote` block: their name moves to the option they
+ * tapped (`votes:` under it), off any other, and off this one when it was
+ * already theirs. The name is the signed-in person's, from the app, never
+ * the frame's, and only an option the block offers takes it.
+ */
+function castVote(source, blockFrom, option, author) {
+  const name = typeof author === "string" ? author.replace(/[,\r\n|;:]+/g, " ").trim().slice(0, 60) : "";
+  if (name === "") return { error: "no voter" };
+  const page = parsePage(source);
+  const block = page.nodes.find((node) => node.type === "block" && node.kind === "vote" && node.from === blockFrom);
+  if (!block) return { error: "stale" };
+  const nameOf = (item) => (item.label ? item.label : item.parts[0]).runs.map((run) => run.text ?? "").join("").trim();
+  const target = block.items.find((item) => nameOf(item) === (typeof option === "string" ? option.trim() : ""));
+  if (!target) return { error: "not an option" };
+  const same = (a) => a.toLowerCase() === name.toLowerCase();
+  const changes = [];
+  for (const item of block.items) {
+    const field = (item.fields ?? []).find((f) => f.key === "votes");
+    const had = field ? field.value.text.split(",").map((n) => n.trim()).filter((n) => n && !/^(none|-)$/i.test(n)) : [];
+    const mine = had.some(same);
+    const kept = had.filter((n) => !same(n));
+    const next = item === target && !mine ? [...kept, name] : kept;
+    if (next.length === had.length && next.every((n, i) => n === had[i])) continue;
+    if (!field) {
+      changes.push({ from: item.to, to: item.to, text: `\n  votes: ${escapeText(name)}` });
+    } else if (next.length > 0) {
+      changes.push({ from: field.value.from, to: field.value.to, text: next.map(escapeText).join(", ") });
+    } else if (field.line.alone) {
+      // The whole line goes, with the line break before it.
+      changes.push({ from: field.line.from - 1, to: field.line.to, text: "" });
+    } else {
+      changes.push({ from: field.value.from, to: field.value.to, text: "none" });
+    }
+  }
+  let text = source;
+  for (const change of changes.sort((a, b) => b.from - a.from)) text = text.slice(0, change.from) + change.text + text.slice(change.to);
+  return { text };
+}
+
 /** Whether `[from, to)` is words a reader sees: both ends inside editable runs, and not empty. */
 function commentableRange(source, from, to) {
   if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from || to - from > 2000) return false;
@@ -94,4 +140,4 @@ function commentableRange(source, from, to) {
   return inside(from, false) && inside(to, true);
 }
 
-module.exports = { editableRuns, applyRunEdits, toggleTask, chooseOption, commentableRange };
+module.exports = { editableRuns, applyRunEdits, toggleTask, chooseOption, castVote, commentableRange };

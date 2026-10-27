@@ -13,9 +13,11 @@
  *   `applyRunEdits` accepts any range, not only runs          → "front matter" and "comments block" fail
  *   `chooseOption` writes any option                          → "not an option" fails
  *   `pageFrameUrls` puts the local copy first in production   → "sites domain first" fails
+ *   `pageChange` casting a vote under a name the frame sent     → "a vote is cast as the signed-in person" fails
+ *   `dialUrl` passing any scheme                              → "only a phone number" fails
  */
 
-import { pageChange, pageFrameUrls, readPageMessage, type PageMessage } from "../features/console/files/pageView/pageHost";
+import { dialUrl, pageChange, pageFrameUrls, readPageMessage, type PageMessage } from "../features/console/files/pageView/pageHost";
 import { parsePage } from "@context/shared/src/pages/index.cjs";
 
 const NOTE = [
@@ -115,6 +117,52 @@ describe("pageChange", () => {
     expect(pageChange(NOTE, NOTE, { type: "comment", from: run.from, to: run.from + 5, body: "Nice" }, null)).toEqual({
       error: "This note can't take comments here.",
     });
+  });
+});
+
+const VOTE = [
+  "# Venues",
+  "",
+  "```vote Ask The Stand first",
+  "- The Stand | Union Square",
+  "  votes: Sam",
+  "- 3 West Club | Midtown",
+  "```",
+  "",
+].join("\n");
+const voteBlock = (source: string) => parsePage(source).nodes.find((node) => (node as { kind?: string }).kind === "vote")!.from;
+
+describe("votes", () => {
+  test("a vote is cast as the signed-in person, never as a name the frame sends", () => {
+    const message = msg({ type: "vote", block: voteBlock(VOTE), option: "3 West Club", author: "Mallory" }) as PageMessage;
+    expect(message).toEqual({ type: "vote", block: voteBlock(VOTE), option: "3 West Club" });
+    const cast = pageChange(VOTE, VOTE, message, "Ada Lovelace") as { text: string };
+    expect(cast.text).toContain("- 3 West Club | Midtown\n  votes: Ada Lovelace");
+    expect(cast.text).not.toContain("Mallory");
+    // Moving it takes it off the other option; tapping your own again takes it back.
+    const moved = pageChange(cast.text, cast.text, { type: "vote", block: voteBlock(cast.text), option: "The Stand" }, "Ada Lovelace") as { text: string };
+    expect(moved.text).toContain("  votes: Sam, Ada Lovelace");
+    expect(moved.text).not.toContain("- 3 West Club | Midtown\n  votes:");
+    const undone = pageChange(moved.text, moved.text, { type: "vote", block: voteBlock(moved.text), option: "The Stand" }, "Ada Lovelace") as { text: string };
+    expect(undone.text).toBe(VOTE);
+  });
+
+  test("nobody signed in, an option the block lacks, or a stale copy cast nothing", () => {
+    const block = voteBlock(VOTE);
+    expect(pageChange(VOTE, VOTE, { type: "vote", block, option: "The Stand" }, null)).toEqual({ error: "Sign in to vote." });
+    expect(pageChange(VOTE, VOTE, { type: "vote", block, option: "Somewhere else" }, "Ada")).toEqual({ error: "not an option" });
+    expect(pageChange(VOTE, `${VOTE}x`, { type: "vote", block, option: "The Stand" }, "Ada")).toEqual({ error: "stale" });
+  });
+
+  test("the vote's button decides, as chosen:", () => {
+    const decided = pageChange(VOTE, VOTE, { type: "choose", block: voteBlock(VOTE), option: "The Stand" }, "Ada") as { text: string };
+    expect(decided.text).toContain("chosen: The Stand\n```");
+  });
+
+  test("only a phone number is dialled or texted", () => {
+    expect(dialUrl("tel:+12125550101")).toBe("tel:+12125550101");
+    expect(dialUrl("sms:2125550101")).toBe("sms:2125550101");
+    for (const href of ["javascript:alert(1)", "tel:12", "tel:212 555", "sms:+1;x", "facetime:2125550101"]) expect(dialUrl(href)).toBeNull();
   });
 });
 
