@@ -7,6 +7,10 @@
 # and service. Every one of those is a code the Worker chose, never a person's
 # words, number or chat id, so nothing anyone texted reaches this public run
 # page. A line without an `event` key is counted, not printed.
+#
+# `tail` mode instead watches the Worker live for the given minutes (at most
+# 15) with `wrangler tail`, for when the token cannot read Observability: send
+# the text again while it runs. The same keys are printed, nothing else.
 name: Texting assistant logs
 
 on:
@@ -20,6 +24,10 @@ on:
         description: "Only lines whose event starts with this (blank for all), e.g. group_ or whapi"
         required: false
         default: ""
+      tail:
+        description: "Watch live for the given minutes (at most 15) instead of reading the past"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,9 +37,42 @@ jobs:
     name: Read the texting assistant's recent log codes
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v5
+        if: ${{ inputs.tail }}
+
+      - name: Watch the Worker live
+        if: ${{ inputs.tail }}
+        working-directory: apps/agent
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.minutes }}
+          EVENT_PREFIX: ${{ inputs.event }}
+        run: |
+          set -uo pipefail
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
+          case "$EVENT_PREFIX" in *[!a-z0-9_]*) echo "event must be lowercase letters, digits and underscores" >&2; exit 1 ;; esac
+          seconds=$(( (MINUTES > 15 ? 15 : (MINUTES < 1 ? 1 : MINUTES)) * 60 ))
+          echo "Watching context-agent for $seconds seconds."
+          # Only lines carrying a JSON log with an event code reach the filter; it prints the same fixed keys.
+          timeout "$seconds" npx --yes wrangler@4 tail context-agent --format pretty 2>/dev/null \
+            | grep --line-buffered -o '{"event":.*}' \
+            | node -e '
+              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts"];
+              const prefix = process.env.EVENT_PREFIX ?? "";
+              require("readline").createInterface({ input: process.stdin }).on("line", (line) => {
+                let source;
+                try { source = JSON.parse(line); } catch { return; }
+                if (typeof source?.event !== "string" || !source.event.startsWith(prefix)) return;
+                const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${String(source[k]).replace(/[^\w.:-]/g, "").slice(0, 60)}`);
+                console.log(`${new Date().toISOString()} ${picked.join(" ")}`);
+              });'
+          echo "Done watching."
+
       - name: Query Workers Observability
+        if: ${{ !inputs.tail }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
