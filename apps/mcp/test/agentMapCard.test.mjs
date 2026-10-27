@@ -176,7 +176,7 @@ test("an address the turn never read goes to no map service", async () => {
   const drawn = await drawMap("places", { near: "Brooklyn, NY", items: [{ name: "Home", address: "99 Secret Ln" }] }, { key: KEY, geocode, read: READ, fetchImpl: web.fetchImpl });
   assert.equal(drawn.map, null);
   assert.equal(web.asked.length, 0);
-  assert.match(drawn.reason, /street address as you read it/);
+  assert.match(drawn.reason, /Look each place up \(search_web/, "told how to make the address one it read");
 });
 
 test("without near, a bare street address draws no map, and the model is told what to add", async () => {

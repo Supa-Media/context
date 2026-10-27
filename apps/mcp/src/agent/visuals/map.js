@@ -92,8 +92,10 @@ function whole(street, near) {
  * names its street part as whole words.
  */
 export function vouchedAddress(street, { locates = null, read = "" } = {}) {
-  if (typeof locates === "function") return locates(street) === true || locates(street.split(",")[0]) === true;
-  return typeof read === "string" && names(read, street.split(",")[0]);
+  // "360 E 55th St (at 1st Ave), New York": the street part is what a page writes the same way.
+  const part = street.replace(/\([^)]*\)/g, " ").split(",")[0].replace(/\s+/g, " ").trim();
+  if (typeof locates === "function") return locates(street) === true || locates(part) === true;
+  return typeof read === "string" && names(read, part);
 }
 
 /** Google's map of the stops: one picture, pins numbered and coloured like the card's rows. */
@@ -198,7 +200,7 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
     const which = unseen.map((stop) => stop.n).join(", ");
     return refused("unseen_stop", `Not drawn: stop ${which} has an address you didn't read this turn, so it can't go on the map. Look each one up (search_web '<place> address'), put the street address you read, and draw again.`);
   }
-  if (stops.length === 0) return none("unseen", "Map left off: put each place's street address as you read it.");
+  if (stops.length === 0) return none("unseen", `Map left off: no address on the card was in anything you read this turn. Look each place up (search_web '<place> address'), put the street address as the page writes it, and draw again.`);
   const route = template === "map" && (data.route === true || data.loop === true);
   // A bare street with no town anywhere on the card could be in any city: its pin is left off, the rest still drawn.
   const placed = stops.filter((stop) => stop.address !== stop.street || stop.street.includes(","));
@@ -209,13 +211,14 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   const found = (route || !google) && typeof geocode === "function" ? await Promise.all(placed.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null))) : [];
   const way = route ? await routeThrough(placed.map((stop, i) => ({ lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng })), { loop: data.loop === true, travel: data.travel, fetchImpl }) : null;
   const length = way ? lengthWords(way.meters, townOf(placed[0].address) !== "") : null;
+  const partly = unseen.length > 0 ? `No pin for place ${unseen.map((stop) => stop.n).join(", ")}: its address wasn't in anything you read this turn. Look it up and draw again, or say which ones the map lacks.` : null;
   const measured = way ? `The ${data.loop === true ? "loop" : "route"} measures ${length} along streets; say that length.` : route ? "The way along streets could not be found, so the line is straight between stops; don't claim a length you didn't measure." : null;
   if (google) {
     const url = googleMapUrl(placed, { key, height, route, path: way?.polyline ?? null });
     const image = await downloadPhoto(url, fetchImpl);
     if (image === null) return none("google_failed");
     logMap("drawn", { provider: "google", pins: placed.length, routed: way !== null });
-    return { map: { kind: "google", image: token(0), height, length }, pictures: [["google-static-map", image]], reason: measured };
+    return { map: { kind: "google", image: token(0), height, length }, pictures: [["google-static-map", image]], reason: [measured, partly].filter(Boolean).join(" ") || null };
   }
   if (typeof geocode !== "function") return none("no_geocoder");
   // The geocoder (`./distance.js`) answers { lat, lon }.
@@ -234,7 +237,7 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   return {
     map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route, line: layout.line, length },
     pictures: layout.tiles.map((tile, i) => [tile.url, images[i]]),
-    reason: measured,
+    reason: [measured, partly].filter(Boolean).join(" ") || null,
   };
 }
 

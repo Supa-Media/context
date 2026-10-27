@@ -35,7 +35,7 @@
  *   Either with `provider: "browserbase"` drives the person's Browserbase
  *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
  *   one secret, the Browserbase key, which never leaves this Worker.
- *   POST /render  `{ html, width?, height?, allow? }` → `{ png, width, height,
+ *   POST /render  `{ html, width?, height?, allow?, fit? }` → `{ png, width, height,
  *                 blocked }`: a page the texting assistant wrote, as a
  *                 picture, reaching only the addresses in `allow` (./render.ts)
  *   POST /view/frame `{ owner }`, /view/input `{ owner, action }`: the

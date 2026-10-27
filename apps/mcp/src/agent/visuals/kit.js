@@ -109,12 +109,20 @@ ${kicker ? `<div style="font-size: 16px; font-weight: 500; color: ${kickerColor}
 </div>`;
 }
 
-/** The whole page: one fixed card, photographed at `SCALE`. */
-export function page(inner, { background, ink, font = SANS, padding = "36px 32px 28px", gap = 20, height = CARD_HEIGHT }) {
+/** The tallest a card that fits its content may grow (the screenshot Worker's limit, at `SCALE`). */
+export const FIT_MAX = 1200;
+
+/**
+ * The whole page: one fixed card, photographed at `SCALE`. A `fit` card is as
+ * tall as what it holds, up to `FIT_MAX`, so a short list has no empty band
+ * under it (owner, 2026-10-27); `height` is then only the guess the picture is
+ * taken at by a screenshot Worker that can't fit.
+ */
+export function page(inner, { background, ink, font = SANS, padding = "36px 32px 28px", gap = 20, height = CARD_HEIGHT, fit = false }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="${FONTS.replace(/&/g, "&amp;")}">
 <style>html,body{margin:0;background:${background}}*{box-sizing:border-box}</style></head>
-<body><div style="zoom: ${SCALE}; width: ${CARD_WIDTH}px; height: ${height}px; overflow: hidden; padding: ${padding}; background: ${background}; color: ${ink}; font-family: ${font}; display: flex; flex-direction: column; gap: ${gap}px">
+<body><div style="zoom: ${SCALE}; width: ${CARD_WIDTH}px; ${fit ? `max-height: ${FIT_MAX}px` : `height: ${height}px`}; overflow: hidden; padding: ${padding}; background: ${background}; color: ${ink}; font-family: ${font}; display: flex; flex-direction: column; gap: ${gap}px">
 ${inner}
 </div></body></html>`;
 }

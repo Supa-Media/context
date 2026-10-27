@@ -108,8 +108,32 @@ function webAddress(value) {
 
 /** The shortest address worth looking up: "Main" alone could be anywhere, and anything. */
 const MIN_ADDRESS = 6;
-/** An address as it is compared: case, commas and spacing aside. */
-const plainAddress = (value) => (typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : "");
+/**
+ * The words an address is written in either way, as one spelling: a page says
+ * "48 East 7th Street" where the card says "48 E 7th St" (owner, 2026-10-27:
+ * an ice cream card's map was left off over exactly that). Only spelling is
+ * forgiven; the address still has to be in what the turn read.
+ */
+const SPELLED = new Map(
+  Object.entries({
+    street: "st", avenue: "ave", av: "ave", boulevard: "blvd", road: "rd", drive: "dr", place: "pl", lane: "ln", parkway: "pkwy",
+    square: "sq", court: "ct", terrace: "ter", highway: "hwy", plaza: "plz", saint: "st",
+    east: "e", west: "w", north: "n", south: "s",
+    first: "1st", second: "2nd", third: "3rd", fourth: "4th", fifth: "5th", sixth: "6th", seventh: "7th", eighth: "8th", ninth: "9th", tenth: "10th", eleventh: "11th", twelfth: "12th",
+  }),
+);
+/** An address as it is compared: case, commas, spacing and the spellings above aside. */
+const plainAddress = (value) =>
+  typeof value === "string"
+    ? value
+        .toLowerCase()
+        .replace(/avenue of the americas/g, "6th ave")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .split(" ")
+        .map((word) => SPELLED.get(word) ?? word)
+        .join(" ")
+    : "";
 
 /**
  * One turn's pictures. `enabled` is false for every turn that is not a text
@@ -223,9 +247,16 @@ export function outgoingPictures({ enabled, question = "" }) {
     return notes;
   };
   /** Whether an address was in their words, a tool result this turn, or their about-me note, so it may go to a geocoder. */
+  // The turn's text as compared, kept until more is read: a card asks about each of its addresses.
+  let plain = { length: -1, text: "" };
+  const plainSeen = () => {
+    if (plain.length !== text.length) plain = { length: text.length, text: ` ${plainAddress(text)} ` };
+    return plain.text;
+  };
   const locates = (address) => {
     const wanted = plainAddress(address);
-    return wanted.length >= MIN_ADDRESS && (plainAddress(text).includes(wanted) || plainAddress(known).includes(wanted));
+    // Whole words only, so "8 W 9th St" is not found inside "48 W 9th St".
+    return wanted.length >= MIN_ADDRESS && (plainSeen().includes(` ${wanted} `) || ` ${plainAddress(known)} `.includes(` ${wanted} `));
   };
 
   return { wrap, take, picture, made, vouches, read, knows, locates };

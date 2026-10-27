@@ -99,7 +99,9 @@ test("every template draws from its example, at 1200x1500, with its words on the
     const built = buildVisual({ template, data: EXAMPLES[template] });
     assert.equal(built.error, undefined, template);
     assert.equal(built.width, 1200);
-    assert.equal(built.height, 1500);
+    // A list of places or stops is as tall as it is (`fit`), so a short one has no empty band under it.
+    if (built.fit) assert.ok(["places", "map"].includes(template) && built.height <= 2400 && built.html.includes("max-height: 1200px"), template);
+    else assert.equal(built.height, 1500, template);
     assert.ok(built.html.includes(esc(EXAMPLES[template].title ?? EXAMPLES[template].total ?? EXAMPLES[template].name)), `${template} shows its title`);
     assert.doesNotMatch(built.html, /undefined|NaN|\[object Object\]/, `${template} has no holes`);
   }
@@ -189,6 +191,11 @@ test("a photo they sent or a picture shown this turn goes into the card as data"
   const maker = pictureMaker(shots, { outgoing, attachments: [{ name: "me.jpg", mediaType: "image/jpeg", data: "TUU=" }] });
   await maker.call(VISUAL_TOOL, { template: "versus", data: { title: "x", items: [{ name: "A", photo: "attachment:1" }, { name: "B" }] } });
   assert.match(shots.calls[0].body.html, /url\('data:image\/jpeg;base64,TUU='\)/);
+  assert.equal(shots.calls[0].body.fit, undefined, "a fixed card is taken at its size");
+  await maker.call(VISUAL_TOOL, { template: "places", data: { title: "x", items: [{ name: "A" }] } });
+  assert.equal(shots.calls[1].body.fit, true, "a places card is cut to its rows");
+  await maker.call(DRAW_TOOL, { html: "<p>x</p>", width: 1080, height: 1080, fit: true });
+  assert.equal(shots.calls[2].body.fit, undefined, "a page the model wrote is never cut");
 });
 
 test("only a picture this turn drew or made is kept in a note by its number", async () => {
@@ -325,7 +332,15 @@ test("a places card shows cuisine, price and hours in full, and no empty photo s
   for (const text of ["Ethiopian and Nordic", "$60 three-course prix fixe", "Mon to Wed 5 to 10 pm, Thu to Sat to 10:30", "Marcus Samuelsson&#39;s place, takes bookings"]) assert.ok(built.html.includes(text), text);
   assert.doesNotMatch(built.html, />away</, "no distance, no distance column");
   assert.equal((built.html.match(/background-image: url\(/g) ?? []).length, 1, "one photo slot, for the one photo it has");
-  assert.ok(built.height > 1500, "four places get a taller card instead of cut lines");
+  assert.ok(built.fit && built.html.includes("width: 600px; max-height: 1200px; overflow: hidden"), "the card grows with its rows instead of cutting lines");
+  // Dev2's "top 5 ice cream shops in manhattan" (2026-10-27) came back as four, with an empty band under them.
+  const shops = Array.from({ length: 7 }, (_, i) => ({ name: `Shop ${i + 1}`, cuisine: "Ice cream", address: `${i + 1}0 E 7th St` }));
+  const five = buildVisual({ template: "places", data: { title: "Top 5", items: shops.slice(0, 5) } });
+  for (const n of [1, 2, 3, 4, 5]) assert.ok(five.html.includes(`Shop ${n}<`), `shop ${n} of five is on the card`);
+  const seven = buildVisual({ template: "places", data: { title: "Lots", items: shops } });
+  assert.ok(seven.html.includes("Shop 6<") && !seven.html.includes("Shop 7<"), "six at most");
+  const two = buildVisual({ template: "places", data: { title: "Two", items: shops.slice(0, 2) } });
+  assert.ok(two.height < 1500 && two.height < five.height, "a short list is drawn short");
   const unread = buildVisual({ template: "places", data: { title: "x", items: [{ name: "A", photo: "https://never.example/a.jpg" }] } }, { canLoad: () => false });
   assert.doesNotMatch(unread.html, /never\.example|background-image/, "a photo it can't load is left off");
   assert.equal(unread.dropped, 1);

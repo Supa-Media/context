@@ -350,3 +350,31 @@ and "it should critique itself and think".
   result; when it can't run, the picture goes. `CARD_CHECK=off` turns it off.
 
 Tests: `apps/mcp/test/agentRouteCheck.test.mjs`.
+
+## The count asked for, a map from addresses spelled either way, and no empty band (2026-10-27)
+
+Dev2 asked "show me the top 5 ice cream shops in manhattan" and got four,
+then "couldn't show it to me in a map?" and got "the map wouldn't draw
+pins", on cards with a wide empty band under the rows.
+
+- **The count asked for.** A places card holds up to six rows, and the tool
+  description says to give as many as were asked ("top 5" is five).
+- **Addresses spelled either way.** Only an address the turn saw may go to a
+  map service (`outgoingPictures.locates`). That stays, but the comparison
+  now forgives spelling: "48 E 7th St" is found in "48 East Seventh Street",
+  "6th Ave" in "Avenue of the Americas". It also matches whole words only, so
+  "8 E 7th St" is no longer found inside "48 E 7th St". A parenthetical
+  ("(at 1st Ave)") is dropped from the street part. When no pin can be
+  drawn, or some are missing, the model is told which places to look up, not
+  just that the map was left off.
+- **Cards as tall as their rows.** Places and map cards ask the screenshot
+  Worker to `fit`: the page is taken from a short viewport as a whole-page
+  picture, so it is exactly as tall as what it holds, up to the height asked
+  (a longer page is taken at that height, as before). The height sent is a
+  close estimate, so a Worker without `fit` still draws it with little band.
+  Pages the model writes itself are never fitted.
+
+Reverting the spelling map or the whole-word match fails "an address the
+turn read is found however its street words are spelled" in
+`agentDistance.test.mjs`; dropping `fit` fails the places checks in
+`agentVisuals.test.mjs` and the `render fit` checks in site-shots.
