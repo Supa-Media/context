@@ -52,7 +52,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
+import { ENOUGH_SITES, aSiteFailed, asksForPublishedText, hostsAsked, otherSitesNotice, publishedTextNotice } from "./otherSites.js";
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { mayAsk } from "./handbackJudge.js";
@@ -450,8 +450,10 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
-  // Published text (verses, lyrics) asked of them, or a failed page read never tried in the browser (`publishedText.js`).
+  // A give-up after a site failed with few sites tried, or published text asked of them (`otherSites.js`).
+  let sitesNoticed = false;
   let pasteNoticed = false;
+  const sitesTried = new Set();
   // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
   let shortNoticed = false;
   let askFirstNoticed = false;
@@ -480,6 +482,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         ...web,
         call: async (name, args) => {
           triedWeb = true;
+          for (const host of hostsAsked(name, args)) sitesTried.add(host);
           const result = await web.call(name, args);
           steps.push({ name, ok: result?.isError !== true });
           if (BROWSER_TOOLS.has(name)) {
@@ -545,15 +548,15 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       retryNoticed = true;
       return BROWSER_RETRY_NOTICE;
     }
+    // A page read failed and the answer gives up with few sites tried: the same content is on others.
+    if (!sitesNoticed && aSiteFailed(steps) && sitesTried.size < ENOUGH_SITES && (saysItCouldNot(answer) || givesUp(answer) || asksForPublishedText(answer))) {
+      sitesNoticed = true;
+      return otherSitesNotice({ sites: Math.max(1, sitesTried.size), canBrowse: canBrowse() });
+    }
     // A browser it never tried this turn, said to have failed: try it first.
     if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
       retryNoticed = true;
       return BROWSER_UNTRIED_NOTICE;
-    }
-    // A page read failed and the answer gives up on it, with the browser on offer and never tried.
-    if (!retryNoticed && !browserTried && canBrowse() && aPageReadFailed(steps) && saysItCouldNot(answer)) {
-      retryNoticed = true;
-      return READ_FAILED_NOTICE;
     }
     // "Paste them in": published text asked of them, which is Tex's to find, tried or not.
     if (!pasteNoticed && hadWeb && asksForPublishedText(answer)) {

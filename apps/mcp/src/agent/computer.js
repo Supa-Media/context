@@ -36,7 +36,7 @@
  * so it is allowed to open exactly as a link on a page is.
  */
 
-import { thinPageHint } from "./publishedText.js";
+import { READ_FAILED_NEXT, thinPageHint } from "./otherSites.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
@@ -199,11 +199,11 @@ export function webPrompt(webNames) {
         ? "You can open search results and web pages the person gives you with send action open_page, and follow links on them."
         : "You can open web pages the person gives you with send action open_page, and follow links on them.",
     );
-    // `publishedText.js`: "Paste them in and I'll quote them" for a Bible chapter (2026-10-27).
+    // `otherSites.js`: one refused page made Tex ask for a Bible chapter to be pasted (2026-10-27).
     lines.push(
-      "Published text (a Bible passage in a named translation, lyrics, an article) is yours to find: when one page won't show it, " +
+      "When a page won't open or doesn't show what you need, " +
         (webNames.has(BROWSE_TOOL) ? "open it with browse or " : "") +
-        "find the same text on another site. Never ask them to paste or send it.",
+        "find the same content on another site; one site failing never means it isn't out there. Never ask them to paste or send something that is published.",
     );
   }
   if (webNames.has(TRAVEL_TIME_TOOL)) {
@@ -432,8 +432,8 @@ export function webSession(computer, question, { decide = null, search = null, a
           if (href) allowed.add(href);
         }
       }
-      if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
-      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page)));
+      if (pages.every((page) => page === null)) return text(`That page could not be opened. ${READ_FAILED_NEXT}`, true);
+      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened. ${READ_FAILED_NEXT}` : pageText(page)));
       const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.
