@@ -176,8 +176,9 @@ export async function accept(
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
-  const ev = await logInbound(storage, message, now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, ev });
+  // An SMS is never logged as the person's words: anyone can send one that shows their number.
+  const ev = message.sms ? undefined : await logInbound(storage, message, now);
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -193,7 +194,7 @@ export async function accept(
   const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
-  await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ev }, () => now, async (text) => {
+  await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
     const running = runningTurn(storage, text.chatId);
     if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
       await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));

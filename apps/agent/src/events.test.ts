@@ -115,11 +115,14 @@ describe("a person's chat as events", () => {
       expect(await unwritten(storage)).toEqual([]);
     });
 
+  }
+
+  // Linq uploads to its own host (outgoing.test.ts); Sendblue and Whapi through `hostPicture`.
+  for (const line of LINES.filter(({ name }) => name !== "Linq")) {
     it(`a picture that could not be uploaded is an event that never went (${line.name})`, async () => {
       const storage = new MemoryStorage();
-      const w = world({ agent: { answer: "Here it is.", pictures: [{ name: "p.png", mediaType: "image/png", data: "iVBORw0KGgo=" }] }, hostFails: line.name !== "Linq" });
+      const w = world({ agent: { answer: "Here it is.", pictures: [{ name: "p.png", mediaType: "image/png", data: "iVBORw0KGgo=" }] }, hostFails: true });
       await accept(storage, msg(line.chatId, "e1", "draw me a dog"), 1_000);
-      if (line.name === "Linq") return; // Linq uploads to its own host; covered by outgoing.test.ts
       await drain(storage, w.deps);
       const outs = (await keptEvents(storage, line.chatId)).filter((event) => event.from.kind === "tex");
       expect(outs.map((event) => [event.kind, event.delivered, event.reason])).toEqual([

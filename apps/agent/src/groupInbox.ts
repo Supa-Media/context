@@ -69,7 +69,7 @@ import { addEvent, flushChat, kindOf, logAsk, type Conversation } from "./events
 import { runningTurn, startTurn } from "./steer";
 import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
-import { ENGAGEMENT_QUESTION, engagementChoice, groupStyle, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
+import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -385,6 +385,13 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
     await storage.put("gseq", seq);
     await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now(), byCode: true });
   }
+  // A style question nobody answered in time: the message it held is answered after all.
+  const unanswered = await expiredQuestion<Pending>(storage, deps.now());
+  if (unanswered !== undefined) {
+    const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
+    await storage.put("gseq", seq);
+    await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
+  }
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
     const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
     if (pending.length === 0) break;
@@ -396,8 +403,11 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
         burst.push(entry);
       }
       const choice = await chooseGroupTurn(storage, deps, burst);
-      // Left as chat: each is already one of the chat's lines (`acceptGroup`).
-      for (const [key] of choice.chat) await storage.delete(key);
+      // Left as chat: an untagged one is already one of the chat's lines (`acceptGroup`); an addressed one becomes one.
+      for (const [key, item] of choice.chat) {
+        if (!item.soft) await keepChatLine(storage, item.message, item.at ?? deps.now());
+        await storage.delete(key);
+      }
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.react) {
         await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
@@ -490,13 +500,14 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
   const conversation: Conversation = { group: message.groupId };
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
+  if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
   // The first time Tex is asked something in a group whose style nobody chose, it asks that first and holds the message.
   if (asked.engagementChosen === false && !item.styleAsked && message.reaction === undefined && !(await questionOpen(storage, deps.now()))) {
     await openQuestion<Pending>(storage, deps.now(), { ...item, message, covers });
     await fixed(ENGAGEMENT_QUESTION);
     return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
   }
-  if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });

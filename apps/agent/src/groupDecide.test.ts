@@ -13,6 +13,8 @@
  * 11. `whileRunning` without its asker check (`steerInto`/`restartTurn`
  *     refusing anyone else too, both dropped) → "three people's repeats…"
  *     and "somebody else's queue or restart…" fail.
+ * 13. `expiredQuestion` never closing → "a style question nobody answers…"
+ *     fails.
  * 12. `ownTurn` merging every sender into the asker's turn → "covers holding
  *     Ada's and Bo's messages…" and "somebody the control plane does not
  *     know…" fail.
@@ -393,6 +395,18 @@ for (const { name, groupId } of LINES) {
       expect(w.texts[1]).toBe('Got it, Follow-along (set by bo). To change it later, text "Tex, settings".');
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
       expect(w.texts[2]).toBe("answer to Tex what's on tonight");
+    });
+
+    it("a style question nobody answers in half an hour closes, and the message it held is answered anyway", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { control: { engagementChosen: false } });
+      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      await drainGroup(storage, w.deps);
+      expect(w.texts).toEqual([ENGAGEMENT_QUESTION]);
+      await drainGroup(storage, { ...w.deps, now: () => 1_000 + 31 * 60_000 });
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
+      expect(w.texts).toHaveLength(2);
+      expect(await storage.get("gengask")).toBeUndefined();
     });
 
     it("a style's name sets it too, any case; \"Tex, settings\" asks again", async () => {

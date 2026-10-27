@@ -13,7 +13,8 @@
  * What it keeps, never text: `gstyle` the style and whether it was chosen,
  * as the control plane last said; `gfollow` how many untagged texts went by
  * since Tex last spoke; `gengask` while the style question is open, the
- * message it held back (answered once someone chooses), for half an hour.
+ * message it held back (answered once someone chooses, or when half an hour
+ * passes with no choice).
  */
 
 import type { GroupStyle } from "./decide";
@@ -105,9 +106,18 @@ export async function reachesDecide(storage: InboxStorage, style: GroupStyle, as
 
 export type HeldOriginal<T> = { item: T; at: number };
 
-/** The style question went: open for a choice, holding the message it was asked before. */
+/** The style question went: open for a choice, holding the message it was asked before, and woken when it closes unanswered. */
 export async function openQuestion<T>(storage: InboxStorage, now: number, original?: T): Promise<void> {
   await storage.put(QUESTION_KEY, { at: now, ...(original !== undefined ? { original } : {}) });
+  if (original !== undefined) await storage.setAlarm(now + QUESTION_OPEN_MS);
+}
+
+/** A question nobody answered in time is closed; the message it held, to answer anyway. */
+export async function expiredQuestion<T>(storage: InboxStorage, now: number): Promise<T | undefined> {
+  const open = await storage.get<{ at: number; original?: T }>(QUESTION_KEY);
+  if (open === undefined || now - open.at < QUESTION_OPEN_MS) return undefined;
+  await storage.delete(QUESTION_KEY);
+  return open.original;
 }
 
 /** Whether the style question is still open. */

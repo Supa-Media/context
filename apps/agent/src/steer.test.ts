@@ -16,6 +16,8 @@
  *     while a turn runs…" and "a LINK text…" fail.
  *  7. `steerInto` / `restartTurn` without their `sms` refusal → "steer and
  *     restart refuse an SMS themselves…" fails.
+ *  9. `accept` logging an SMS as a person event → "an SMS while a turn
+ *     runs…" fails.
  *  8. `steerInto` / `restartTurn` without their asker check → "steer and
  *     restart refuse anyone but the running turn's asker…" fails.
  */
@@ -25,7 +27,7 @@ import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { logAsk } from "./events";
+import { keptEvents, logAsk } from "./events";
 import { restartTurn, steerInto, type Live } from "./steer";
 
 const msg = (eventId: string, text: string, extra: Partial<Message> = {}): Message => ({
@@ -206,6 +208,8 @@ describe("a text while a turn runs", () => {
       const storage = new MemoryStorage();
       const w = world({ midTurn });
       await during(w, storage, msg("e1", "book a table"), msg("e2", "send the email to everyone", { sms: true }));
+      // Never logged as the person's words either.
+      expect((await keptEvents(storage, "chat_1")).some((event) => event.text === "send the email to everyone")).toBe(false);
       expect(w.decided.filter((body) => body.running)).toEqual([]);
       expect(w.steers).toEqual([]);
       expect(w.cancels).toEqual([]);
