@@ -304,7 +304,7 @@ export function Palette({
   const words = typing?.rest ?? query;
 
   const untyped = words.trim() === "" && recent !== undefined && recent.length > 0;
-  // The folded same-topic line, opened; folded again for every new question.
+  // The same-topic line, opened; folded again for every new question.
   const [sameTopicOpen, setSameTopicOpen] = useState(false);
   useEffect(() => setSameTopicOpen(false), [words]);
   const ranked = useMemo(
@@ -347,23 +347,14 @@ export function Palette({
   }, [search, local]);
 
   /**
-   * Rows that are answers, as opposed to rows that are a way out of here.
-   *
-   * `matches` is what the keyboard walks and it includes the handoff; this is
-   * what the *copy* is about. Keeping them separate is what lets the handoff
-   * be a real row in the list without it counting as having found something.
+   * Rows that are answers, not a way out of here: `matches` (what the keyboard
+   * walks) includes the handoff, and this is what the copy counts.
    */
   const answeredInOrder =
     search?.ranked === true && (search.state === "ready" || search.state === "indexing");
-  // Ranked from the first letter, so the rows drawn while the search runs are
-  // the top of the list it settles into (`mergeRanked`, the search tune-up).
-  const merged = useMemo(
-    () =>
-      search?.ranked === true && !untyped
-        ? mergeRanked(ranked, answeredInOrder ? search.items : [], words)
-        : null,
-    [answeredInOrder, ranked, search, untyped, words],
-  );
+  // Merged from the first letter, so what shows while searching is the top of the final list.
+  const merged = useMemo(() => (search?.ranked !== true || untyped ? null : mergeRanked(ranked, answeredInOrder ? search.items : [], words)),
+    [answeredInOrder, ranked, search, untyped, words]);
   const found = merged === null ? local.length + remote.length : merged.length;
 
   /**
