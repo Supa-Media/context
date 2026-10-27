@@ -98,6 +98,8 @@ the rest of the job, retries included. Tests: `agentReplyChecks.test.mjs`.
 
 ### A correction never leaves the ask it corrects waiting for a yes (2026-10-26)
 
+> **Superseded in part (Dev2, 2026-10-26):** the decide step now judges whether a message makes a waiting ask stale; the rule below stays as a code rail that can only end an ask sooner. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 Agreed with Dev2. An ask stays armed through the person's side texts ("one
 sec", 2026-10-22), and the model is told to draft again only if their text
 changes it. When their text was a correction ("actually send it to Bo
