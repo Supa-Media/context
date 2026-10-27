@@ -43,6 +43,8 @@
  * grant a text would get, re-issued when it runs.
  */
 
+import { PAGE_JOB_LINE } from "../pages.js";
+
 export const START_JOB_TOOL = "start_background_job";
 export const STEER_JOB_TOOL = "steer_background_job";
 /** Their later texts a job's turn is shown, newest last. */
@@ -361,8 +363,10 @@ export function jobPrompt(job) {
     "sides and drinks included), not part of it with a next step named. Looking up published menus and prices is yours to do; only " +
     "contacting someone waits for their yes." +
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
-    "before you finish, even if some of it is unfinished, and say what's missing in it. End with the result in a few lines and the " +
-    "note's link: that is what gets texted to them. No progress texts unless something needs them, like a sign-in link."
+    "before you finish, even if some of it is unfinished, and say what's missing in it. " +
+    `${PAGE_JOB_LINE} ` +
+    "Then draw_visual template page with its path, so its first screen is texted with the link. End with the result in a few lines and the " +
+    "page's link: that is what gets texted to them. No progress texts unless something needs them, like a sign-in link."
   );
 }
 

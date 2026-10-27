@@ -29,7 +29,7 @@ export function coreToolDefinitions() {
             description:
               "Optional. One part of the manual instead of the overview: \"tools\" for every tool and action " +
               "with its arguments, an action's name (e.g. \"move\") for that action in full, \"access\" for " +
-              "what you may write where, \"website\" for building the site, \"health\" for how tidy it is.",
+              "what you may write where, \"website\" for building the site, \"pages\" for the .page.md format, \"health\" for how tidy it is.",
           },
         },
         additionalProperties: false,

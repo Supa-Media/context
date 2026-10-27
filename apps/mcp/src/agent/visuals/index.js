@@ -18,6 +18,7 @@ import { CARD_HEIGHT, CARD_WIDTH, SCALE } from "./kit.js";
 import { compare, gallery, mapCard, option, places, tickets, versus } from "./choices.js";
 import { day, plan, streak, trip } from "./time.js";
 import { board, chart, people, spending, steps, system } from "./status.js";
+import { PAGE_TEMPLATE, PAGE_TEMPLATE_LINE } from "./page.js";
 
 export const VISUAL_TOOL = "draw_visual";
 
@@ -53,11 +54,13 @@ export const VISUAL_DEFINITION = {
     "theme 'dark' or 'light' (default) for the plain ones.\nTemplates:\n" +
     Object.entries(TEMPLATES)
       .map(([name, [, line]]) => `- ${name}: ${line}`)
-      .join("\n"),
+      .join("\n") +
+    `\n- ${PAGE_TEMPLATE}: ${PAGE_TEMPLATE_LINE}`,
   inputSchema: {
     type: "object",
     properties: {
-      template: { type: "string", enum: VISUAL_TEMPLATES },
+      // The cards, and a page's cover, which `../pictureMaker.js` draws from the note (`./page.js`).
+      template: { type: "string", enum: [...VISUAL_TEMPLATES, PAGE_TEMPLATE] },
       data: { type: "object", description: "The template's fields, as listed for it." },
       theme: { type: "string", enum: ["light", "dark"] },
     },

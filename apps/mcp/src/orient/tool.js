@@ -21,6 +21,7 @@ import { PROPOSAL_PENDING_PREFIX } from "../tools/proposals.js";
 import { firstParagraphOf, readFrontPage, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { WEBSITE_GUIDE, hasWebsiteFolder } from "./websiteGuide.js";
+import { PAGE_GUIDE } from "../pages.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
 import { inV2Names } from "../tools/v2/speak.js";
 import { toolNewsSection } from "../tools/news.js";
@@ -50,7 +51,7 @@ export const SIX_TOOLS_LINE =
   "Six tools: orient, search, fetch, write, manage, send. orient about: \"tools\" lists every action and its arguments.";
 
 /** The values `about` takes besides an action name. `website` is also an action name, and the guide wins. */
-const ABOUT_WORDS = ["tools", "access", "website", "health"];
+const ABOUT_WORDS = ["tools", "access", "website", "pages", "health"];
 
 /** Trim, and read the legacy `tools: true` as `about: "tools"`. Null for the overview. */
 function aboutOf({ about, tools } = {}) {
@@ -134,6 +135,7 @@ async function aboutAnswer(store, scope, rules, overrides, about) {
         : "This workspace has no website/ folder yet. The guide to building one:\n\n";
     return toolText(note + WEBSITE_GUIDE);
   }
+  if (about === "pages") return toolText(PAGE_GUIDE);
   if (about === "health") return toolText(await healthAnswer(store, scope, rules, overrides));
   const found = findAction(about, scope);
   if (found) return toolText(actionManual(found));
