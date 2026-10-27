@@ -1,13 +1,16 @@
 import { View } from "react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
 import { DeadLinkScreen } from "../../features/app/DeadLinkScreen";
 import { GuestNoteScreen } from "../../features/guest/GuestNoteScreen";
+import { grantHrefOf } from "../../features/console/shared/SharedGrantView";
 import { useColors } from "../../features/design/theme";
 import {
   canonicalHrefFor,
   noteAddressFromSegments,
   noteLinkPath,
+  type NoteAddress,
 } from "../../features/console/noteLink";
 
 /**
@@ -53,6 +56,17 @@ import {
  * code, and the note, read only (`features/guest/GuestNoteScreen.tsx`). It
  * keeps "Have one? Sign in" one tap away, carrying the canonical URL, so a
  * member who is signed out still lands on the note in the console.
+ *
+ * ## And for somebody signed in who isn't a member
+ *
+ * The console address opens only a member's notes; anyone else landed on their
+ * own home with no word about the note (the owner, 2026-10-27: a chat guest
+ * with an account tapped Tex's link and saw his own workspace). So a signed-in
+ * caller is asked where the link opens for them (`noteLinks.target`): a member
+ * goes to the console as before, someone named on the note or a folder above it
+ * reads it in @shared, where every outsider grant opens, someone invited there
+ * still goes to the console (which shows the invitation), and anyone else is
+ * told the note isn't open to them.
  */
 export default function NoteLinkRoute() {
   const params = useLocalSearchParams<{ address?: string | string[] }>();
@@ -74,6 +88,26 @@ export default function NoteLinkRoute() {
   }
   if (auth.isLoading) return <Waiting />;
   if (!auth.isAuthenticated) return <GuestNoteScreen address={address} />;
+  return <SignedInNoteLink address={address} />;
+}
+
+function SignedInNoteLink({ address }: { address: NoteAddress }) {
+  const target = useQuery(api.functions.noteLinks.target, { slug: address.slug, path: address.path });
+  // An invitation not yet answered: the console address takes them to it, carrying the note.
+  const invitations = useQuery(api.functions.invitations.listMyInvitations, {});
+  if (target === undefined) return <Waiting />;
+  if (target.kind === "granted") {
+    return <Redirect href={grantHrefOf({ workspaceId: target.workspaceId, ref: { by: "path", path: target.path }, folder: false })} />;
+  }
+  if (target.kind === "none" && invitations === undefined) return <Waiting />;
+  if (target.kind === "none" && !invitations?.some((invitation) => invitation.slug === address.slug)) {
+    return (
+      <DeadLinkScreen
+        title="This note isn't open to you"
+        detail={`Your account can't open this note in @${address.slug}. It may have been moved, or not shared with you. Ask whoever sent it, or Tex in the chat, to share it with you.`}
+      />
+    );
+  }
   return <Redirect href={canonicalHrefFor(address)} />;
 }
 

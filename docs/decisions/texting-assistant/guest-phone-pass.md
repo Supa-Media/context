@@ -39,6 +39,15 @@ saw the four-screen mock, and chose every default below on 2026-10-27
   by "This wasn't me" gets no sign-in code, only what a guest gets. Saying a
   number holds an account tells nobody more than the sign-in page already
   does.
+- **Signed in but not a member opens it in @shared** (the owner, 2026-10-27,
+  after a chat guest with an account tapped a note link from a WhatsApp guest
+  chat and landed on his own workspace). The console address opens only a
+  member's notes and sent anyone else to their own home with no word about the
+  note. A signed-in caller now asks `noteLinks.target` first: a member goes to
+  the console, someone named on the note or a folder above it (as a guest
+  chat names its account holders on the chat's folder) reads it in @shared,
+  someone invited there goes to the console's invitation, and anyone else is
+  told the note isn't open to them, one answer whether it exists or not.
 - **A pass, not an account.** The code gives the browser a random pass, kept
   in its storage and on the server only as a hash (`guestPasses`). It lasts a
   year from its last use, and "Sign out" forgets it. No user row, no
