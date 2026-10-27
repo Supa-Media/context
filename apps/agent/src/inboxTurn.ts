@@ -41,6 +41,8 @@ export type Pending = {
   /** On a reply kept for a retry: the events it answers, and its turn, for the log. */
   covers?: string[];
   turn?: string;
+  /** The approval records the turn armed, logged as asks once its words went. */
+  asks?: string[];
 };
 export type Entry = [string, Pending];
 
@@ -175,7 +177,8 @@ export async function decideWhileRunning(
   acknowledge: (message: Message) => Promise<void>,
 ): Promise<void> {
   const running = runningTurn(storage, item.message.chatId);
-  if (running === undefined || item.ev === undefined) return;
+  // An SMS (its sender can be faked), LINK, UNLINK or a saved login's turn is never put into a running turn: it waits and is answered on its own.
+  if (running === undefined || item.ev === undefined || decidedByCode(item.message)) return;
   const keep = async (patch: Partial<Pending>) => {
     const current = await storage.get<Pending>(key);
     if (current !== undefined) await storage.put<Pending>(key, { ...current, ...patch });
@@ -184,11 +187,11 @@ export async function decideWhileRunning(
   if (!decision.ok) return void (await keep({ force: true }));
   const how = decision.midTurn ?? (decision.act === "answer" ? "queue" : undefined);
   if (how === "fold") {
-    if (!(await steerInto(running, item.message.eventId, steerWords(item.message)))) await keep({ force: true });
+    if (!(await steerInto(running, item.message, steerWords(item.message)))) await keep({ force: true });
     return;
   }
   if (how === "restart") {
-    await restartTurn(running);
+    if (!(await restartTurn(running, item.message))) return void (await keep({ force: true }));
     // The cancelled turn's texts and this one: the next turn answers them together.
     for (const [other, waiting] of await storage.list<Pending>({ prefix: "pending:" })) {
       if (waiting.ev !== undefined && running.covers.includes(waiting.ev)) await storage.put<Pending>(other, { ...waiting, force: true });

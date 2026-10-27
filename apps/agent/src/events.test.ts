@@ -130,6 +130,42 @@ describe("a person's chat as events", () => {
     });
   }
 
+  it("every approval a turn armed is an ask event with its record, after the words, under the turn", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ agent: { answer: "Here's the email I'd send. Give it a 👍 and I'll send it.", askIds: ["rec_1"] } });
+    await accept(storage, msg("chat_1", "e1", "email Bo"), 1_000);
+    await drain(storage, w.deps);
+    const outs = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind === "tex");
+    expect(outs.map((event) => event.kind)).toEqual(["text", "ask"]);
+    expect(outs[1]).toMatchObject({ ask: "rec_1", turn: outs[0].turn });
+    expect(outs.every((event) => typeof event.turn === "string")).toBe(true);
+  });
+
+  it("a turn the gateway says was cancelled sends nothing", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ agent: { cancelled: true, answer: "", asked: 0 } });
+    await accept(storage, msg("chat_1", "e1", "do it"), 1_000);
+    await drain(storage, w.deps);
+    expect(w.sends).toEqual([]);
+  });
+
+  it("a batch the gateway refuses as malformed is dropped, never retried forever", async () => {
+    const storage = new MemoryStorage();
+    await addEvent(storage, { at: 1_000, chat: "c", from: { kind: "person" }, kind: "text", text: "x" });
+    const refusing = (async () => Response.json({ error: "invalid_request", error_description: "events[0].from" }, { status: 400 })) as unknown as Fetch;
+    await flushEvents(storage, { fetch: refusing, gatewayOrigin: "https://gw.example" }, "tok", "texts");
+    expect(await unwritten(storage)).toEqual([]);
+  });
+
+  it("display names are cut to what the gateway takes", async () => {
+    const storage = new MemoryStorage();
+    await addEvent(storage, { at: 1, chat: "g", from: { kind: "person", name: "Ada <script>🎉" }, kind: "text", text: "x" });
+    await addEvent(storage, { at: 2, chat: "g", from: { kind: "person", name: "🎉🎉" }, kind: "text", text: "y" });
+    const [one, two] = await keptEvents(storage, "g");
+    expect(one.from.name).toBe("Ada script");
+    expect(two.from).toEqual({ kind: "person" });
+  });
+
   it("the chat's events are written before the turn reads the log", async () => {
     const storage = new MemoryStorage();
     const w = world();
@@ -169,7 +205,7 @@ describe("told", () => {
     await noteTold(storage, "ready_late", "chat_1", 1_002);
     await flushEvents(storage, world().deps, "tok", "texts");
     expect(await owedTold(storage)).toEqual([]);
-    expect(all(w.posted)[0]).toMatchObject({ from: { kind: "tex" }, kind: "text", told: "setup", delivered: true });
+    expect(all(w.posted)[0]).toMatchObject({ from: { kind: "system" }, kind: "text", told: "setup", delivered: true });
     expect(all(w.posted)[0].text).toBeUndefined();
   });
 

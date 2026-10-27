@@ -26,6 +26,9 @@ export type ControlAnswer =
       names?: { phone: string; handle: string }[];
       guest?: GuestInfo;
       guests?: { phone: string; label: string }[];
+      /** When Tex speaks up here (`groupStyle.ts`); absent from a control plane that has none. */
+      engagement?: GroupStyle;
+      engagementChosen?: boolean;
     };
 
 /** A guest chat's group, three words and folder (`apps/convex/functions/lib/textGroupGuests.ts`). */
@@ -42,7 +45,7 @@ function guestInfoOf(value: unknown): GuestInfo | undefined {
 }
 
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
-  const wire = command === null || command.kind === "status" ? undefined : command;
+  const wire = command === null || command.kind === "status" || command.kind === "settings" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
     groupId: message.groupId,
@@ -94,6 +97,8 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
         ),
+        ...(GROUP_STYLES.includes(body.engagement as GroupStyle) ? { engagement: body.engagement as GroupStyle } : {}),
+        ...(typeof body.engagementChosen === "boolean" ? { engagementChosen: body.engagementChosen } : {}),
       };
     default:
       throw new ServiceError("control_plane", status);

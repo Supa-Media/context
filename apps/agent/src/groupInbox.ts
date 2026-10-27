@@ -87,7 +87,8 @@ export type Command =
   | { kind: "start" }
   | { kind: "use"; slug: string }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
-  | { kind: "status" };
+  | { kind: "status" }
+  | { kind: "settings" };
 /** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
 type Pending = { message: GroupMessage; attempts: number; at?: number };
 
@@ -189,6 +190,7 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^(?:stop|be quiet|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
+  if (/^settings\??$/.test(rest)) return { kind: "settings" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
   const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);

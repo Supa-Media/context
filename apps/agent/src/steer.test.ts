@@ -12,6 +12,10 @@
  *  4. `answerTurn` sending a cancelled turn's answer → "restart cancels…"
  *     fails.
  *  5. `markStale` not owing the ids → "stale asks are disarmed…" fails.
+ *  6. `decideWhileRunning` without its `decidedByCode` return → "an SMS
+ *     while a turn runs…" and "a LINK text…" fail.
+ *  7. `steerInto` / `restartTurn` without their `sms` refusal → "steer and
+ *     restart refuse an SMS themselves…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,7 +23,8 @@ import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { noteAsk } from "./events";
+import { logAsk } from "./events";
+import { restartTurn, steerInto } from "./steer";
 
 const msg = (eventId: string, text: string, extra: Partial<Message> = {}): Message => ({
   kind: "message",
@@ -205,15 +210,16 @@ describe("a text while a turn runs", () => {
 
   it("stale asks are disarmed at the gateway with the chat's own session, and never sent twice", async () => {
     const storage = new MemoryStorage();
+    await logAsk(storage, { at: 500, chat: "chat_1", from: { kind: "tex" }, turn: "turn_before" }, "approval_1");
     const ask = "0000000000500-000001";
-    await noteAsk(storage, ask, 500);
     const w = world({ stale: [ask, "0000000000600-000099"] });
     w.release();
     await accept(storage, msg("e1", "never mind that email"), 1_000);
     await drain(storage, w.deps);
     // Only an ask it was told is waiting; an id it made up is dropped.
     expect(w.decided[0]).toMatchObject({ waitingAsks: [ask] });
-    expect(w.stale).toEqual([{ asks: [ask] }]);
+    // Disarmed by its approval record, never by the event id.
+    expect(w.stale).toEqual([{ asks: ["approval_1"] }]);
     await accept(storage, msg("e2", "thanks"), 2_000);
     await drain(storage, w.deps);
     expect(w.stale).toHaveLength(1);

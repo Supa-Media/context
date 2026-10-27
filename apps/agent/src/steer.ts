@@ -75,17 +75,21 @@ export function runningTurn(storage: InboxStorage, chat: string): Live | undefin
   return running !== undefined && running.chat === chat && running.accessToken !== undefined && !running.cancelled ? running : undefined;
 }
 
-/** Hand `text` to the running turn (fold). Whether the gateway took it; untaken, it is answered after. */
-export async function steerInto(running: Live, id: string, text: string): Promise<boolean> {
+/**
+ * Hand a message's words to the running turn (fold). Whether the gateway took
+ * it; untaken, it is answered after. Never an SMS: its sender can be faked,
+ * so it never reaches a turn that runs with somebody's own session.
+ */
+export async function steerInto(running: Live, message: { eventId: string; sms?: true }, text: string): Promise<boolean> {
   const words = text.trim().slice(0, MAX_STEER_TEXT);
-  if (running.accessToken === undefined || words === "") return false;
+  if (message.sms || running.accessToken === undefined || words === "") return false;
   try {
     const { status } = await post(
       running.deps.fetch,
       "gateway",
       `${running.deps.gatewayOrigin}/agent/steer`,
       running.accessToken,
-      { turn: running.turn, id, text: words },
+      { turn: running.turn, id: message.eventId, text: words },
       STEER_TIMEOUT_MS,
     );
     return status === 200;
@@ -94,8 +98,10 @@ export async function steerInto(running: Live, id: string, text: string): Promis
   }
 }
 
-/** Cancel the running turn (restart): whatever it says after is never sent. */
-export async function restartTurn(running: Live): Promise<void> {
+/** Cancel the running turn (restart): whatever it says after is never sent. Never for an SMS, whose sender can be faked. Whether it was cancelled. */
+export async function restartTurn(running: Live, message: { sms?: true }): Promise<boolean> {
+  if (message.sms) return false;
   running.cancelled = true;
   if (running.accessToken !== undefined) await cancelTurn(running.deps, running.accessToken, running.turn);
+  return true;
 }

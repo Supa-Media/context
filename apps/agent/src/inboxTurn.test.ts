@@ -42,7 +42,7 @@ type Decided = { style: string; candidates: string[]; newest: string; running: b
 
 function world(decision: (body: Decided) => unknown) {
   const decided: Decided[] = [];
-  const asks: { question: string; covers?: string[] }[] = [];
+  const asks: { question: string; covers?: string[]; chat?: string }[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
   const fetcher = (async (url: string, init?: RequestInit) => {
@@ -56,7 +56,7 @@ function world(decision: (body: Decided) => unknown) {
     }
     if (path === "/agent/events") return Response.json({ written: [] });
     if (path === "/agent") {
-      asks.push({ question: body.question, covers: body.covers });
+      asks.push({ question: body.question, covers: body.covers, ...(body.chat ? { chat: body.chat } : {}) });
       return Response.json({ answer: `answer to ${body.question}` });
     }
     if (path === "/api/send-reaction" || (parsed.host === "gate.whapi.cloud" && path.startsWith("/messages/") && init?.method === "PUT")) {
@@ -98,7 +98,8 @@ describe("decide in a person's own chat", () => {
       expect(w.decided[0].candidates).toHaveLength(2);
       expect(w.decided[0].newest).toBe(w.decided[0].candidates[1]);
       expect(w.decided[0].transcript).toContain("Tex check this link out");
-      expect(w.asks).toEqual([{ question: "Tex check this link out\nhttps://reasonmachines.example/page", covers: w.decided[0].candidates }]);
+      // `covers` goes with the chat key the events carry, so the gateway reads this chat's log.
+      expect(w.asks).toEqual([{ question: "Tex check this link out\nhttps://reasonmachines.example/page", covers: w.decided[0].candidates, chat: line.chatId }]);
       // One answer (its link goes as a text of its own, as every link does).
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
     });

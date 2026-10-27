@@ -19,7 +19,8 @@ export type Told = "setup" | "ready" | "ready_late" | "gmail_main" | "gmail";
 
 /** Log that this fixed text went to `chat`. */
 export async function noteTold(storage: InboxStorage, told: Told, chat: string, now: number): Promise<void> {
-  await addEvent(storage, { at: now, chat, from: { kind: "tex" }, kind: "text", delivered: true, told });
+  // A fixed Worker text is the system's, not a turn's: the gateway takes `told` only from it.
+  await addEvent(storage, { at: now, chat, from: { kind: "system" }, kind: "text", delivered: true, told });
 }
 
 /** The fixed texts the gateway has not written yet, oldest first. */

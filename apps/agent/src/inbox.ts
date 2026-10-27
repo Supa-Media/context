@@ -60,10 +60,10 @@ import { noteTold } from "./told";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsYes, holdThumb, looksLikeAsk, onTheAsk, rememberAskReply } from "./thumbs";
+import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, merged, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, noteAsk, type TexEvent } from "./events";
+import { addEvent, flushChat, kindOf, logAsk, type TexEvent } from "./events";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation } from "./reviewWatch";
@@ -329,7 +329,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     await storage.delete(NEW_LINE_KEY);
   }
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
-  const ready: Pending = { message, reply, attempts: 0, covers, turn: turn.turn };
+  const ready: Pending = { message, reply, attempts: 0, covers, turn: turn.turn, ...(turn.asks.length > 0 ? { asks: turn.asks } : {}) };
   await storage.put<Pending>(key, ready);
   return await sendReply(storage, deps, [key, ready]);
 }
@@ -384,13 +384,16 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       if (typeof part === "string") {
         const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
-        const id = await out(partEvent(part));
-        if (looksLikeAsk(part)) await noteAsk(storage, id, deps.now());
+        await out(partEvent(part));
       } else {
         const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
         await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
       }
       sent = index + 1;
+    }
+    // One ask event per approval the turn armed, after the words that ask it.
+    for (const record of item.asks ?? []) {
+      await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record);
     }
     await storage.delete(key);
     await flushOwed(storage, deps);
@@ -478,10 +481,11 @@ export const ACKNOWLEDGE_AFTER_MS = 10_000;
  * key, and are not retried with the answer: a line about where a task had got
  * to is stale by the time a retry would send it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[] };
 
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[]): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
+  let asks: string[] = [];
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
   const onSetUp = () =>
     oweReadyText(
@@ -514,11 +518,12 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent) => void (pictures = sent),
+      onAsks: (armed) => void (asks = armed),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks });
   if (live.cancelled) return done([]);
   await clearReactions(storage, reacted);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).

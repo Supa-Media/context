@@ -223,7 +223,10 @@ export type AgentAnswer =
   /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps; `unfinished`: a job's answer stopped short of the ask. */
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string }
+  /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
+  | { kind: "cancelled" }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -275,6 +278,7 @@ export async function askAgent(
     onStep,
     event,
     covers,
+    chat,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -287,8 +291,9 @@ export async function askAgent(
     onStep?: (text: string) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
     event?: "vault_saved";
-    /** The chat's event ids this turn answers (`events.ts`). */
+    /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
     covers?: string[];
+    chat?: string;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -306,7 +311,7 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
-    ...(covers && covers.length > 0 ? { covers } : {}),
+    ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -335,12 +340,16 @@ function readVerbatim(value: unknown, answer: string): string[] {
 
 export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
+  if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
     const steers = readSteers(body.steers);
+    const askIds = Array.isArray(body.askIds)
+      ? body.askIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(id)).slice(0, 8)
+      : [];
     return {
       kind: "answer",
       text: body.answer.trim(),
@@ -352,6 +361,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
       ...(body.unfinished === true ? { unfinished: true as const } : {}),
       ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
+      ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
     };
   }

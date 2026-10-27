@@ -35,6 +35,8 @@ export type TexEvent = {
   covers?: string[];
   people?: string;
   told?: string;
+  /** On kind "ask" only: the approval record the gateway armed. */
+  ask?: string;
 };
 
 /** Where the gateway files a chat's events: the person's own texts, or a group's chat. */
@@ -64,12 +66,21 @@ export function kindOf(text: string, attachments: readonly { filename: string; m
 }
 
 /** Append one event; its id, which sorts by time. */
+/** A display name as the gateway takes one: letters, digits and ` ._-'@`, at most 64; none when nothing is left. */
+export function displayName(name: string | undefined): string | undefined {
+  const kept = (name ?? "").replace(/[^\p{L}\p{N} ._\-'@]/gu, "").trim().slice(0, 64);
+  return kept === "" ? undefined : kept;
+}
+
 export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id">): Promise<string> {
   const seq = ((await storage.get<number>(SEQ)) ?? 0) + 1;
   await storage.put(SEQ, seq);
-  const id = `${String(Math.max(0, Math.floor(event.at))).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
+  const at = Math.max(0, Math.floor(event.at));
+  const id = `${String(at).padStart(13, "0")}-${String(seq % 1_000_000).padStart(6, "0")}`;
   const text = event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) };
-  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, id } });
+  const name = displayName(event.from.name);
+  const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
+  await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, from, at, id } });
   await prune(storage, event.at);
   return id;
 }
@@ -98,14 +109,26 @@ export async function flushEvents(
   chat?: string,
 ): Promise<void> {
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
-  for (let start = 0; start < waiting.length; start += EVENTS_PER_POST) {
-    const events = waiting.slice(start, start + EVENTS_PER_POST);
+  // Every event in one call is the same chat's.
+  const batches: TexEvent[][] = [];
+  for (const key of new Set(waiting.map((event) => event.chat))) {
+    const ofChat = waiting.filter((event) => event.chat === key);
+    for (let start = 0; start < ofChat.length; start += EVENTS_PER_POST) batches.push(ofChat.slice(start, start + EVENTS_PER_POST));
+  }
+  for (const events of batches) {
     let written: string[];
     try {
       const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS);
-      if (status !== 200) return;
-      const list = record(json).written;
-      written = Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
+      if (status === 400) {
+        // Refused as malformed: retrying the same batch would be refused forever, so it is dropped from the queue (kept for the window).
+        const field = record(json).error_description;
+        console.log(JSON.stringify({ event: "tex_events", outcome: "refused", ...(typeof field === "string" && /^[\w.\[\]-]{1,64}$/.test(field) ? { field } : {}) }));
+        written = events.map((event) => event.id);
+      } else if (status !== 200) return;
+      else {
+        const list = record(json).written;
+        written = Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
+      }
     } catch {
       return;
     }
@@ -139,11 +162,14 @@ const STALE_KEY = "ev-stale";
 /** As long as a held ask stays armed (`apps/mcp/src/tools/approvals.js`). */
 export const ASK_ARMED_MS = 12 * 60 * 60 * 1000;
 const MOST_ASKS = 8;
-type Ask = { id: string; at: number };
+/** `id` the ask event's id, `record` the approval record it stands for. */
+type Ask = { id: string; record: string; at: number };
 
-export async function noteAsk(storage: InboxStorage, id: string, now: number): Promise<void> {
-  const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => now - ask.at < ASK_ARMED_MS);
-  await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, at: now }].slice(-MOST_ASKS));
+/** Log one ask Tex sent (`kind: "ask"`), and keep it waiting for a yes. */
+export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string): Promise<void> {
+  const id = await addEvent(storage, { ...event, kind: "ask", ask: record });
+  const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => event.at - ask.at < ASK_ARMED_MS);
+  await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at }].slice(-MOST_ASKS));
 }
 
 export async function waitingAsks(storage: InboxStorage, now: number): Promise<string[]> {
@@ -155,8 +181,10 @@ export async function markStale(storage: InboxStorage, ids: readonly string[]): 
   if (ids.length === 0) return;
   const asks = (await storage.get<Ask[]>(ASKS_KEY)) ?? [];
   await storage.put<Ask[]>(ASKS_KEY, asks.filter((ask) => !ids.includes(ask.id)));
+  // The gateway disarms by approval record, never by event id.
+  const records = asks.filter((ask) => ids.includes(ask.id)).map((ask) => ask.record);
   const owed = (await storage.get<string[]>(STALE_KEY)) ?? [];
-  await storage.put<string[]>(STALE_KEY, [...new Set([...owed, ...ids])].slice(-MOST_ASKS));
+  await storage.put<string[]>(STALE_KEY, [...new Set([...owed, ...records])].slice(-MOST_ASKS));
 }
 
 /** Everything owed to the gateway for this chat, sent with a session's token: the buffered events, then stale asks. */

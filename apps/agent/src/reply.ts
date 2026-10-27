@@ -84,8 +84,10 @@ export type ReplyDeps = {
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
   steer?: Steer;
-  /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers`. */
+  /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
   covers?: string[];
+  /** Handed the approval records the turn armed, so each is logged as an ask (`events.ts`). */
+  onAsks?: (askIds: string[]) => void;
   /**
    * The chat's background jobs, shown to the turn, and handed the ones it
    * started (`jobs.ts`). Absent, the turn is offered none.
@@ -225,9 +227,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId },
     );
+    // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
+    if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
+      if (answer.askIds) deps.onAsks?.(answer.askIds);
       if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);
