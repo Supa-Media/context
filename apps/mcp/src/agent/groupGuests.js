@@ -64,7 +64,8 @@ export function guestPrompt(group, workspace) {
     `You can read only what is shared with this chat in ${where}${named}: its folder ${folder} and whatever someone shared with the chat's group. ` +
     "Nothing else there exists for you, so never guess at it; someone can share a note with the chat's group for you to read. " +
     `Write what you make for the chat in ${folder}. A note shared with the chat to view can be read, never changed. ` +
-    "You can't publish, share, link or change who sees anything from here. " +
+    "You can't publish, share or change who sees anything from here. " +
+    "The link: line on a note you read or write opens it for everyone here, guests included: a guest types the number they text this chat from and a texted code, no account needed, and it stays signed in on their phone. " +
     "Nobody's personal notes, mail, calendar or saved logins can be read from here, so never offer them. " +
     `An email or a calendar change goes only from the account of someone here who is on Context (${members}): always pass as with their handle, ` +
     "even when they are the one asking. They are shown the exact copy and only their 👍 or yes makes it; anyone may ask for changes first, and anyone else's yes does nothing. " +

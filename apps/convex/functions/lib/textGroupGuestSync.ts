@@ -12,7 +12,7 @@
  *    reach nothing for them (`resolveGroupMembers` keeps members only), and making them a member is an invitation,
  *    which is the owner's.
  *  - **Somebody with no account** has nothing to be given until they link a phone; the first tag after that names
- *    them like anyone else. Their number is never kept.
+ *    them like anyone else. Their number is kept only as a keyed hash, beside this (`guestPhones.ts`).
  *
  * Only people already linked to an account are ever written, by account id.
  */

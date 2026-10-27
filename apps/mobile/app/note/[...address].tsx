@@ -1,5 +1,9 @@
+import { View } from "react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
+import { useConvexAuth } from "convex/react";
 import { DeadLinkScreen } from "../../features/app/DeadLinkScreen";
+import { GuestNoteScreen } from "../../features/guest/GuestNoteScreen";
+import { useColors } from "../../features/design/theme";
 import {
   canonicalHrefFor,
   noteAddressFromSegments,
@@ -40,10 +44,20 @@ import {
  *
  * `Redirect` rather than an effect: it acts during render, so there is no frame
  * in which this route is mounted and painting.
+ *
+ * ## Except for somebody signed out, who may be a guest
+ *
+ * Tex sends this same link to a group chat, and a guest in a guest-mode chat
+ * has no account to sign in to (the owner, 2026-10-27). So a signed-out
+ * visitor gets the guest page instead of the sign-in: their number, a texted
+ * code, and the note, read only (`features/guest/GuestNoteScreen.tsx`). It
+ * keeps "Have one? Sign in" one tap away, carrying the canonical URL, so a
+ * member who is signed out still lands on the note in the console.
  */
 export default function NoteLinkRoute() {
   const params = useLocalSearchParams<{ address?: string | string[] }>();
   const address = noteAddressFromSegments(segmentsOf(params.address));
+  const auth = useConvexAuth();
 
   if (address === null) {
     return (
@@ -58,7 +72,15 @@ export default function NoteLinkRoute() {
       />
     );
   }
+  if (auth.isLoading) return <Waiting />;
+  if (!auth.isAuthenticated) return <GuestNoteScreen address={address} />;
   return <Redirect href={canonicalHrefFor(address)} />;
+}
+
+/** Auth settling: one frame of ground, never a flash of the guest page for somebody signed in. */
+function Waiting() {
+  const colors = useColors();
+  return <View style={{ flex: 1, backgroundColor: colors.ground }} />;
 }
 
 /**

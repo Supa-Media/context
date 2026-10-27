@@ -115,6 +115,8 @@ test("a guest chat reads only what is shared with the chat, and is told so", asy
   assert.match(system, /GROUP CHAT WITH GUESTS/);
   assert.match(system, /A guest in this chat tagged you/);
   assert.ok(system.includes(`${FOLDER}/`), "told where to write");
+  // A guest opens a note link with a texted code (`docs/decisions/texting-assistant/guest-phone-pass.md`), so Tex sends it.
+  assert.match(system, /guests included: a guest types the number they text this chat from and a texted code/);
 });
 
 test("a note shared to view is read, never changed; the chat's folder is written; nothing is published or moved out", async () => {
