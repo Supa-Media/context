@@ -21,8 +21,6 @@ export type Style = (typeof STYLES)[number];
 export const MAX_TRANSCRIPT = 24_000;
 export const MAX_CANDIDATES = 32;
 export const MAX_WAITING_ASKS = 8;
-/** At or above this a candidate is one the answer covers. */
-export const COVERS_AT = 0.5;
 /** At or above this a waiting ask is stale: the model may end an ask sooner, so it has to be fairly sure. */
 export const STALE_AT = 0.7;
 /** Sendblue's group ids are uuids; anything much longer is not one (as `/agent-texts/group`). */
@@ -96,7 +94,7 @@ const STYLE_RULES: Record<Style, string> = {
     "This is a one-to-one chat with Tex: every message is to Tex. Answer, unless the newest message is a pure acknowledgement (a tapback, \"ok\", \"thanks\") that asks nothing: only then silent, or a react.",
 };
 
-/** The typed questions, at most 16: act, covers, midTurn when a turn runs, one per waiting ask, movedOn. */
+/** The typed questions, at most 16: act, start, midTurn when a turn runs, one per waiting ask, movedOn. */
 export function decideRequest(body: DecideBody): JevRequest {
   const questions: Record<string, unknown> = {
     act: {
@@ -108,9 +106,9 @@ export function decideRequest(body: DecideBody): JevRequest {
         answer: "Tex replies in words",
       },
     },
-    covers: {
+    start: {
       type: "choice",
-      instructions: "Which of these recent messages would Tex's answer respond to? Pick each message the answer has to address.",
+      instructions: "Which message does the request Tex is answering start at?",
       criteria: Object.fromEntries(body.candidates.map((id) => [id, `the message with event id ${id} in the transcript`])),
     },
   };
@@ -156,9 +154,12 @@ export function readDecideAnswers(body: DecideBody, answers: JevAnswers): Decide
   const choice = act?.choice;
   if (choice !== "silent" && choice !== "react" && choice !== "answer") return { ok: false, reason: "unavailable" };
   const confidence = typeof act?.confidence === "number" && Number.isFinite(act.confidence) ? act.confidence : 0;
-  const probabilities = answerOf(answers, "covers")?.probabilities;
-  const odds = probabilities && typeof probabilities === "object" ? (probabilities as Record<string, unknown>) : {};
-  const covers = body.candidates.filter((id) => (id === body.newest && choice === "answer") || (typeof odds[id] === "number" && (odds[id] as number) >= COVERS_AT));
+  // An answer covers the request from where it starts through the newest message, in id order; a start that is not
+  // a candidate (or comes after newest) covers just the newest. Silent and react cover nothing.
+  const start = answerOf(answers, "start")?.choice;
+  const ordered = [...body.candidates].sort();
+  const from = typeof start === "string" && start <= body.newest ? ordered.indexOf(start) : -1;
+  const covers = choice !== "answer" ? [] : from < 0 ? [body.newest] : ordered.slice(from, ordered.indexOf(body.newest) + 1);
   let midTurn: "fold" | "queue" | "restart" | undefined;
   if (body.running) {
     const mid = answerOf(answers, "midTurn")?.choice;

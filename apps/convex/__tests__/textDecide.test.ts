@@ -10,7 +10,8 @@
  *   `agentWorkerRoute` dropped from the decide route (no secret check)       1 failed ("refuses without the secret")
  *   `readDecideBody` not requiring `newest` in `candidates`                  1 failed ("refuses a malformed body")
  *   `STALE_AT` lowered to 0.5                                                1 failed ("stale only at 0.7")
- *   `readDecideAnswers` not adding `newest` on answer                        1 failed ("covers: at 0.5, and newest")
+ *   covers returning only [start, newest], not the range                    1 failed ("a split request: start ... full range")
+ *   covers kept on silent (not [])                                           1 failed ("not answering: covers nothing")
  *   the switch refusal mapped to "unavailable"                               1 failed ("off and capped")
  *   `setGroupEngagement` creating a row for an unknown chat                  1 failed ("engagement set and get")
  */
@@ -96,7 +97,7 @@ function clef(answers: Record<string, unknown> | null) {
 
 const ANSWER = {
   act: { type: "choice", choice: "answer", confidence: 0.83, probabilities: { silent: 0.1, react: 0.07, answer: 0.83 } },
-  covers: { type: "choice", choice: id(1), confidence: 0.6, probabilities: { [id(1)]: 0.6, [id(2)]: 0.49, [NEWEST]: 0.1 } },
+  start: { type: "choice", choice: id(2), confidence: 0.6, probabilities: { [id(1)]: 0.3, [id(2)]: 0.6, [NEWEST]: 0.1 } },
   movedOn: { type: "noul", noul: 0.2 },
 };
 
@@ -147,18 +148,18 @@ describe("the door", () => {
 });
 
 describe("the decision", () => {
-  test("asks typed questions over the transcript and maps the answers; covers: at 0.5, and newest", async () => {
+  test("asks typed questions over the transcript and maps the answers", async () => {
     const t = setupTest();
     const { studio } = await boundGroup(t);
     const sent = clef(ANSWER);
     const logs: string[] = [];
     vi.spyOn(console, "info").mockImplementation((line: unknown) => void logs.push(String(line)));
     const response = await decide(t);
-    expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(1), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
+    expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "covers", "movedOn"]);
-    expect(Object.keys(sent[0]!.questions.covers!.criteria)).toEqual([id(1), id(2), NEWEST]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "movedOn"]);
+    expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
     expect(logs.join("\n")).not.toContain("pineapple");
@@ -167,11 +168,26 @@ describe("the decision", () => {
     expect(rows.map((row) => [row.feature, row.workspaceId, row.calls, row.day])).toEqual([["textDecide", studio, 1, utcDay(Date.now())]]);
   });
 
-  test("not answering: newest is not added", async () => {
+  test("not answering: covers nothing", async () => {
     const t = setupTest();
     await boundGroup(t);
     clef({ ...ANSWER, act: { type: "choice", choice: "silent", confidence: 0.9 } });
-    expect((await decide(t)).json).toMatchObject({ ok: true, act: "silent", covers: [id(1)], confidence: 0.9 });
+    expect((await decide(t)).json).toMatchObject({ ok: true, act: "silent", covers: [], confidence: 0.9 });
+  });
+
+  test("a split request: start at an earlier id gives the full range through newest, in id order", async () => {
+    const t = setupTest();
+    await boundGroup(t);
+    clef({ ...ANSWER, start: { type: "choice", choice: id(1), confidence: 0.7 } });
+    // Sent out of order, answered in id order.
+    expect((await decide(t, { candidates: [NEWEST, id(2), id(1)] })).json).toMatchObject({ covers: [id(1), id(2), NEWEST] });
+  });
+
+  test("a start that is not a candidate covers just the newest", async () => {
+    const t = setupTest();
+    await boundGroup(t);
+    clef({ ...ANSWER, start: { type: "choice", choice: id(9), confidence: 0.7 } });
+    expect((await decide(t)).json).toMatchObject({ covers: [NEWEST] });
   });
 
   test("mid-turn and stale only at 0.7", async () => {
@@ -188,7 +204,7 @@ describe("the decision", () => {
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "covers", "midTurn", "stale_0", "stale_1", "stale_2", "movedOn"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "midTurn", "stale_0", "stale_1", "stale_2", "movedOn"]);
     expect(Object.keys(sent[0]!.questions.midTurn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
