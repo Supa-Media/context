@@ -7,9 +7,10 @@ import { TextField } from "../../design/components/Input";
 import { Dot } from "../../design/components/Dot";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { PluginSettingControl, PluginSettingRow, RuntimeView } from "./runtime";
+import { densityFor } from "../../app/frame";
 
 /**
  * A plugin's own settings pane, drawn by the console.
@@ -58,7 +59,7 @@ export function PluginSettingsPane({ runtime }: { runtime?: RuntimeView }) {
 
   if (pane === null) return null;
 
-  const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
+  const touch = Platform.OS !== "web" || densityFor(width) === "compact";
 
   return (
     <Modal

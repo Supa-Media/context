@@ -10,6 +10,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { layout, radii, space } from "../../design/tokens";
 import { PLATFORM_ORIGIN } from "../../site/host";
 import { DEVLOG_ROUTE, savedOn, shippedLines, type WhatsNewState } from "./whatsNew";
+import { densityFor } from "../../app/frame";
 
 /** The width of the panel at pointer widths: the projects side peek's. */
 const PANEL_WIDTH = 440;
@@ -34,7 +35,7 @@ export function WhatsNewPanel({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   const insets = useSafeAreaInsets();
   const week = state.kind === "ready" || state.kind === "offline" ? state.week : null;
 

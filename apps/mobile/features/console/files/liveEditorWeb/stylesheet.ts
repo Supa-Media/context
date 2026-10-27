@@ -204,7 +204,7 @@ export function ensureStyles(colors: Colors): void {
   over and the other had not. (No backticks in here: this comment is inside a
   template literal, and one would end the string.)
 */
-@media (max-width: ${layout.narrowBreakpoint - 0.02}px) {
+@media (max-width: ${layout.narrowBreakpoint - 0.02}px) and (pointer: coarse) {
   .cm-lp-root .cm-scroller {
     /*
       Measured off Obsidian mobile: 16px on a 24px line box, 24px of side

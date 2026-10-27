@@ -16,6 +16,7 @@ import { Text } from "./Text";
 import { layout, radii, space } from "../tokens";
 
 import { useColors, useThemedStyles, type Colors } from "../theme";
+import { densityFor } from "../../app/frame";
 
 /**
  * The settings surface: a page over the page, rather than a page you went to.
@@ -136,7 +137,7 @@ export function Overlay({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
     A `Modal` is its own root view, so nothing above it pays the notch — the
     defect `__tests__/safeArea.test.ts` exists for, whose header records the

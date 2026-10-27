@@ -1,7 +1,6 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
-import { layout } from "../../../design/tokens";
 import { Card } from "../../../design/components/Card";
 import { Icon } from "../../../design/components/Icon";
 import { FormError } from "../../../design/components/Input";
@@ -19,6 +18,7 @@ import type { AuditView } from "../../advanced/advanced";
 import type { ConsoleMember } from "../../members/members";
 import { PanelHead } from "./PanelHead";
 import { PickMenu } from "./PickMenu";
+import { densityFor } from "../../../app/frame";
 
 /** The menu's key for no filter; not a name anybody can have, being empty. */
 const ANYONE = "";
@@ -41,7 +41,7 @@ export function ActivityPanel({
   sectioned: boolean;
 }) {
   // A phone gets the shorter subtitle the artboard drew there.
-  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   const styles = useThemedStyles(makeStyles);
   const names = useMemo(() => {
     const byId = new Map<string, string>();
