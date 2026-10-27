@@ -485,7 +485,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const forwarding = runner ? [...(await standingForwardTools(store, routine.path, offered)), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
   const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
-  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
+  // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
+  const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
+  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover });
   try {
     await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     const turn = await runTurn({

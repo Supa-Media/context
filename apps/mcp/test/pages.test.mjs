@@ -19,6 +19,8 @@
  *     style element" fails.
  *   the job line dropped from `jobPrompt` → "a background job delivers a page"
  *     fails.
+ *   `keepCover` not called after the draw → "a drawn cover is kept for the
+ *     page's link card" fails.
  */
 
 import assert from "node:assert/strict";
@@ -29,6 +31,7 @@ import { toolWriteNote } from "../src/tools/notes/write.js";
 import { jobPrompt } from "../src/agent/background.js";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
+import { createTreeMethods, MAX_COVER_CHARS } from "../src/controlPlane/tree.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL } from "../src/agent/visuals/index.js";
 import { pageCover } from "../src/agent/visuals/page.js";
 import { BLOCK_KINDS } from "../../../packages/shared/src/pages/blocks.cjs";
@@ -126,6 +129,19 @@ test("the cover is the page, read as the turn may read it", async () => {
   assert.doesNotMatch(drawn.content[1].text, /did not load/);
 });
 
+test("a drawn cover is kept for the page's link card, and a failed keep costs nothing", async () => {
+  const kept = [];
+  const read = async (_name, args) => ({ content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${GOOD}` }] });
+  const keeping = pictureMaker(siteShots(), { outgoing: outgoingPictures({ enabled: true }), keepCover: async (path, png) => (kept.push([path, png]), true) });
+  await withPictureMaker(keeping, read)(VISUAL_TOOL, { template: "page", data: { path: "projects/dinner.page.md" } });
+  // Another context's page is not this turn's to keep.
+  await withPictureMaker(keeping, read)(VISUAL_TOOL, { template: "page", data: { path: "@band/projects/dinner.page.md" } });
+  assert.deepEqual(kept, [["projects/dinner.page.md", "iVBORw0KGgo="]]);
+  const failing = pictureMaker(siteShots(), { outgoing: outgoingPictures({ enabled: true }), keepCover: async () => { throw new Error("down"); } });
+  const drawn = await withPictureMaker(failing, read)(VISUAL_TOOL, { template: "page", data: { path: "projects/dinner.page.md" } });
+  assert.equal(drawn.content[0].type, "image");
+});
+
 test("a cover is only ever of a page that exists", async () => {
   const shots = siteShots();
   const maker = pictureMaker(shots, { outgoing: outgoingPictures({ enabled: true }) });
@@ -157,4 +173,13 @@ test("a page's words are escaped on the cover, and its CSS cannot end the cover'
   assert.equal(html.match(/<\/style/gi).length, 1);
   assert.equal(html.match(/<style/gi).length, 1);
   assert.doesNotMatch(html.split("</style>")[1], /<script/);
+});
+
+test("a cover goes to the control plane with the person's own token, and a huge one does not go", async () => {
+  const posts = [];
+  const tree = createTreeMethods({ post: async (path, body) => (posts.push([path, body]), { recorded: true }) });
+  assert.equal(await tree.recordPageCover("tok", "ws1", "projects/dinner.page.md", "iVBORw0KGgo="), true);
+  assert.deepEqual(posts, [["/gateway/page-cover", { path: "projects/dinner.page.md", png: "iVBORw0KGgo=", accessToken: "tok", expectedWorkspaceId: "ws1" }]]);
+  assert.equal(await tree.recordPageCover("tok", "ws1", "projects/dinner.page.md", "A".repeat(MAX_COVER_CHARS + 1)), false);
+  assert.equal(posts.length, 1);
 });

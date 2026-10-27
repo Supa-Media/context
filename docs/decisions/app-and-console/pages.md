@@ -72,6 +72,11 @@ in the job's object until it does. Messages cannot draw a rich preview for a
 link sent from an API line (Sendblue has no rich-link send), which is why
 the picture is texted rather than left to the link.
 
+A linked page's preview is the same cover, for a team link as well as a link
+for anyone (owner, 2026-10-27): the gateway keeps each cover it draws in the
+person's bucket and the link's card shows it. The privacy trade is in
+[page covers](../privacy-and-sharing/page-covers.md).
+
 **What a simplification would cost.**
 
 - *Store the page as HTML.* Loses editing in place, comments, search and the

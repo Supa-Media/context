@@ -65,14 +65,14 @@ export async function shareShortLinkPreviewHandler(
   // on this one is a shape that varies with whether the body parsed, which is
   // the failure `unauthenticatedRouteResponses` exists to catch — and it did.
   if (handle === null || slug === null)
-    return json({ title: null, cardVersion: null });
+    return json({ title: null, cardVersion: null, cover: false });
 
   const website = await ctx.runQuery(
     internal.functions.websites.previewAddress,
     { handle, slug, ...(routePath === null ? {} : { routePath }) },
   );
   if (website.owned) {
-    return json({ title: website.title, cardVersion: null });
+    return json({ title: website.title, cardVersion: null, cover: false });
   }
   const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
     handle,
@@ -80,7 +80,8 @@ export async function shareShortLinkPreviewHandler(
   });
   // Named rather than spread, for the reason `http.ts` states over the other
   // unauthenticated routes: a spread is a shape nobody reviewed.
-  return json({ title: result.title, cardVersion: result.cardVersion });
+  // `cover`: the card is a linked page's cover (`lib/shares/pageCover.ts`), drawn portrait.
+  return json({ title: result.title, cardVersion: result.cardVersion, cover: "cover" in result && result.cover === true });
 }
 
 export async function shareShortLinkCardHandler(
