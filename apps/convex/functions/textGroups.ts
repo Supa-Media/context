@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { phoneSignInPaused } from "./lib/emailProof";
 import { recordAudit } from "./lib/audit";
@@ -59,6 +59,16 @@ const MEMBERSHIP_SCAN = 200;
 /** The longest workspace slug a command may name. */
 const MAX_SLUG = 64;
 
+/** How much Tex joins in a group (`textGroups.engagement`); the contract's closed set. */
+export const ENGAGEMENT_STYLES = ["quiet", "attentive", "followAlong", "helpful"] as const;
+export type Engagement = (typeof ENGAGEMENT_STYLES)[number];
+const engagementValidator = v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
+
+/** What the Worker is told about a chat's style: the choice, and whether anyone made one. */
+function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean } {
+  return chat.engagement === undefined ? { engagementChosen: false } : { engagement: chat.engagement, engagementChosen: true };
+}
+
 const commandValidator = v.union(
   v.object({ kind: v.literal("stop") }),
   v.object({ kind: v.literal("start") }),
@@ -102,6 +112,9 @@ export const groupAnswerValidator = v.union(
     guest: v.optional(v.object({ group: v.string(), words: v.string(), folder: v.string() })),
     guests: v.optional(v.array(v.object({ phone: v.string(), label: v.string() }))),
     guestTagger: v.optional(v.string()),
+    /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
+    engagement: v.optional(engagementValidator),
+    engagementChosen: v.boolean(),
   }),
 );
 
@@ -124,6 +137,8 @@ export type GroupAnswer =
       guest?: GuestInfo;
       guests?: { phone: string; label: string }[];
       guestTagger?: string;
+      engagement?: Engagement;
+      engagementChosen: boolean;
     };
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */
@@ -272,7 +287,7 @@ export const applyGroupTurn = internalMutation({
     const names: { phone: string; handle: string }[] = [];
     for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
     const handle = await handleOf(ctx, senderUser);
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names };
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group) };
   },
 });
 
@@ -347,7 +362,7 @@ async function guestTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const tagger = taggerMember ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
   const handle = taggerMember ? await handleOf(ctx, actor) : "";
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -413,7 +428,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat) };
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
@@ -569,3 +584,35 @@ async function ensureGroupClient(ctx: MutationCtx): Promise<void> {
     createdAt: Date.now(),
   });
 }
+
+/**
+ * A group's style, chosen by someone in it (contract section 4). Only for a chat Tex already has a row for: a choice
+ * never creates one. A number given as `setBy` is kept only as a `groupKey`-salted hash, like `toldUnknown`.
+ */
+export const setGroupEngagement = internalMutation({
+  args: { groupKey: v.string(), style: engagementValidator, setBy: v.string() },
+  returns: v.union(v.literal("set"), v.literal("unknown")),
+  handler: async (ctx, args) => {
+    const chat = await ctx.db
+      .query("textGroups")
+      .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
+      .unique();
+    if (chat === null) return "unknown";
+    const setBy = isPhoneNumber(args.setBy) ? await hashToken(`${args.groupKey}:${args.setBy}`) : args.setBy;
+    await ctx.db.patch(chat._id, { engagement: args.style, engagementSetBy: setBy, engagementSetAt: Date.now() });
+    return "set";
+  },
+});
+
+/** The workspace a decision is metered against: a group's bound workspace, or null when it has none yet. */
+export const groupDecideWorkspace = internalQuery({
+  args: { groupKey: v.string() },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, args) => {
+    const chat = await ctx.db
+      .query("textGroups")
+      .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
+      .unique();
+    return chat?.workspaceId ?? null;
+  },
+});
