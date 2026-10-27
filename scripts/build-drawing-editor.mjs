@@ -31,6 +31,7 @@
 
 import { build } from "esbuild";
 import { buildSpellingDictionaries } from "./build-spelling-dictionaries.mjs";
+import { buildPageFrame } from "./build-page-frame.mjs";
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -239,6 +240,8 @@ async function main() {
   if (result.warnings.length > 0) console.log(`${result.warnings.length} esbuild warning(s)`);
 
   await buildDiagramFrame();
+  // The page runtime `.page.md` notes are drawn in, a sealed frame like the diagram's.
+  await buildPageFrame();
   // The note editor's spelling dictionaries, served beside it for the same reason.
   await buildSpellingDictionaries();
 }

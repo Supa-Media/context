@@ -392,6 +392,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A public list block reads its rows from the facts, and the facts carry the website flags](./app-and-console/convex-facts.md) (2026-10-15)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - [No full-tree reread on a timer, and no write per save to a row every listing reads](./app-and-console/convex-cost.md) (2026-10-19)
+- [A page is a Markdown note named `<name>.page.md`, with blocks and sealed code boxes](./app-and-console/pages.md) (2026-10-27)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate

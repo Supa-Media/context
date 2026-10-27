@@ -55,6 +55,8 @@ import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js"
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
+import { PAGE_TEMPLATE, pageCover } from "./visuals/page.js";
+import { readTexNote } from "./aboutMe.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -264,7 +266,14 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   }
 
   /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
-  async function visual(args) {
+  async function visual(args, callTool) {
+    // A page's cover is drawn from the note, read as this turn may read it (`./visuals/page.js`).
+    if (args?.template === PAGE_TEMPLATE) {
+      const path = typeof args?.data?.path === "string" ? args.data.path.trim() : "";
+      const text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
+      const cover = pageCover(path, text, args?.theme);
+      return cover.error ? say(cover.error, true) : draw(cover, { card: true });
+    }
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
     const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
     // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
@@ -338,7 +347,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   return {
     tools,
     has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: (name, args) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args) : make(args)),
+    call: (name, args, callTool) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)),
   };
 }
 
@@ -396,7 +405,7 @@ export function withDrawnImages(outgoing, callTool) {
 
 export function withPictureMaker(maker, callTool) {
   if (maker === null) return callTool;
-  return (name, args) => (maker.has(name) ? maker.call(name, args) : callTool(name, args));
+  return (name, args) => (maker.has(name) ? maker.call(name, args, callTool) : callTool(name, args));
 }
 
 /**
