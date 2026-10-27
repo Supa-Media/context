@@ -85,6 +85,26 @@ export function chatRoutineQuestion(path: string, lastRan: string | null = null)
   );
 }
 
+/** The path the control plane hands a chat's own look at its shared mail under (`textGroupMailLooks.ts`): no note. */
+export const CHAT_MAIL_LOOK_PATH = "(shared mail)";
+
+/**
+ * What a chat's look at its shared mail is asked (the owner, 2026-10-27: "it
+ * should just work, and know when an email needs to go to the group vs me
+ * personally"). Mail that needs only the mailbox's own person is theirs: their
+ * own check-ins text them about it.
+ */
+export function chatMailLookQuestion(since: number | undefined, lastRan: string | null): string {
+  const after = since === undefined ? "" : ` (search with after:${Math.floor(since / 1000)})`;
+  return (
+    `(Time to check the mail shared with this chat for anything new${lastRan === null ? "" : ` since ${lastRan}`}${after}. ` +
+    "Post here only what someone in this chat needs to act on or know for the work you share, in one short message: " +
+    "what came in, who should handle it, and one next step you can take for them. " +
+    "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
+    "Newsletters, receipts and automated notices are not worth a message. If nothing needs the chat, answer exactly SKIP.)"
+  );
+}
+
 /** The message a run is queued as: from its writer, threaded under nothing, with no picture. */
 export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
   return {
@@ -95,7 +115,10 @@ export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
     from: run.phone,
     participants: [],
     messageId: "",
-    text: chatRoutineQuestion(run.path, lastRanWords(run.since, run.timeZone)),
+    text:
+      run.path === CHAT_MAIL_LOOK_PATH
+        ? chatMailLookQuestion(run.since, lastRanWords(run.since, run.timeZone))
+        : chatRoutineQuestion(run.path, lastRanWords(run.since, run.timeZone)),
     routine: { runId: run.runId, path: run.path },
   };
 }

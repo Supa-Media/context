@@ -71,6 +71,8 @@ type Mailbox = {
   /** Shared with a group chat: every read of it is narrowed by this search (`lib/textGroupMail.ts`). */
   filter?: string;
   shared?: true;
+  /** Also watched by group chats in these workspaces (`lib/textGroupMailLooks.ts`). */
+  watchedIn?: string[];
 };
 
 /**
@@ -214,7 +216,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   log({ route: "search", outcome: "ok", results: results.length, mailboxes: claimed.mailboxes.length, failed: unanswered.length });
   // Each mailbox's folder, where its synced day notes are: the gateway reads
   // them for a mailbox Gmail did not answer for.
-  const mailboxes = claimed.mailboxes.map(({ address, folder }: Mailbox) => ({ address, folder }));
+  const mailboxes = claimed.mailboxes.map(({ address, folder, watchedIn }: Mailbox) => ({ address, folder, ...(watchedIn ? { watchedIn } : {}) }));
   return json({
     ok: true,
     results,
