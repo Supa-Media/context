@@ -30,6 +30,15 @@ import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * A phone invitation's life: a year (the owner, 2026-10-27). Nothing is sent
+ * for one, so there is no link to go stale in somebody's inbox; it is the
+ * number a family member already texts Tex from, and it counts in that chat
+ * until they sign in with it (`docs/decisions/texting-assistant/invited-family.md`).
+ * The owner takes it back from Members like any other.
+ */
+export const PHONE_INVITATION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
  * Caps on how many rows one response carries, and on how many invitations one
  * context may have outstanding.
  *
@@ -105,6 +114,23 @@ export async function inviteMemberHandler(
   args: InviteRequest,
   { actorClientId }: { actorClientId?: string } = {},
 ): Promise<null> {
+  await inviteMemberWithId(ctx, userId, args, { actorClientId });
+  return null;
+}
+
+/**
+ * `inviteMemberHandler`, handing back the row it wrote, for a caller that is
+ * the owner already acting on the result: Tex adding everyone in a group chat
+ * (`lib/textGroupInvited.ts`), where the owner named the people by being in
+ * the chat with them. Never returned to a client, for the module's reasons.
+ * `null` when it deliberately did nothing (already a member).
+ */
+export async function inviteMemberWithId(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: InviteRequest,
+  { actorClientId }: { actorClientId?: string } = {},
+): Promise<Id<"workspaceInvitations"> | null> {
   await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
   // Pure, and deliberately before any lookup: a refusal here is about the
@@ -154,7 +180,7 @@ export async function inviteMemberHandler(
     invitedBy: userId,
     token: randomOpaqueToken(32),
     status: "pending" as const,
-    expiresAt: now + INVITATION_TTL_MS,
+    expiresAt: now + (parsed.invitee.kind === "phone" ? PHONE_INVITATION_TTL_MS : INVITATION_TTL_MS),
     createdAt: now,
     respondedAt: undefined,
     // A superseding offer is a new offer: new token, new expiry, and the
@@ -200,11 +226,15 @@ export async function inviteMemberHandler(
   // For a `@name` too. The scheduled job resolves the handle to its account's
   // verified address, which is safe *there* for the reason above and would
   // not be safe here; the inviter never learns whether it found one.
-  await ctx.scheduler.runAfter(
-    0,
-    internal.functions.invitationEmail.sendInvitationEmail,
-    { invitationId, inviteeKind: parsed.invitee.kind },
-  );
+  // A phone invitation is never sent anything: Tex never texts first, and the
+  // person is already in the chat it was made from.
+  if (parsed.invitee.kind !== "phone") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.invitationEmail.sendInvitationEmail,
+      { invitationId, inviteeKind: parsed.invitee.kind },
+    );
+  }
 
-  return null;
+  return invitationId;
 }

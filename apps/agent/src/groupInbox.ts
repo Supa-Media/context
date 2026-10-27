@@ -73,7 +73,12 @@ export function groupInboxName(groupId: string): string {
   return `sendblue-group:${groupId}`;
 }
 
-type Command = { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "status" };
+type Command =
+  | { kind: "stop" }
+  | { kind: "start" }
+  | { kind: "use"; slug: string }
+  | { kind: "invite"; slug: string; role?: "editor" | "member" }
+  | { kind: "status" };
 /** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
 type Pending = { message: GroupMessage; attempts: number; at?: number };
 
@@ -142,6 +147,14 @@ export const GROUP_LINES = {
     `I keep what I make in ${guest.folder}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
   guestStatus: (slug: string, guest: GuestInfo) => `In this chat I can see only notes shared with @${guest.group} in @${slug}.`,
   notAllowed: (slug: string) => `Only an owner or editor of @${slug} can bring it into this chat. One of them can say "Tex use @${slug}".`,
+  // Invited family (`docs/decisions/texting-assistant/invited-family.md`): an owner adds everyone here by number.
+  invited: (slug: string, count: number, role: string) =>
+    count === 0
+      ? `Everyone here is already in @${slug}, so I'll use it in this chat.`
+      : `Done. I invited ${count === 1 ? "1 person" : `${count} people`} here to @${slug} as ${role === "member" ? "members who can read" : "editors"}. ` +
+        `Their invitation counts in this chat, so I can use all of @${slug} here now. ` +
+        "Each of them joins for good the first time they text me or sign in to Context with the number they use here.",
+  notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
   guestsOff:
     "The person who brought me into this chat can't share that workspace here anymore, so I'm stepping back. " +
     'An owner or editor can say "Tex use @name" to start again.',
@@ -216,6 +229,8 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^(?:stop|be quiet|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
+  const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
+  if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
   const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
   if (use) return { kind: "use", slug: use[1] };
   const named = BARE_NAME.exec(rest);
@@ -392,7 +407,15 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
-  if (status === "not_allowed") return void (await say(storage, deps, message, GROUP_LINES.notAllowed(asked.slug)));
+  if (status === "not_allowed") {
+    const line = command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug);
+    return void (await say(storage, deps, message, line));
+  }
+  if (status === "invited") {
+    await storage.delete(CHOICE_KEY);
+    await setChatBound(storage, message);
+    return void (await say(storage, deps, message, GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
+  }
   if (status === "guests_off") return void (await say(storage, deps, message, GROUP_LINES.guestsOff));
   if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
   if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
@@ -524,6 +547,7 @@ export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
+  | { status: "invited"; slug: string; count: number; role: string }
   | { status: "guests_off" }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
@@ -581,6 +605,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
       return { status: "not_allowed", slug: body.slug as string };
     case "guests_off":
       return { status: "guests_off" };
+    case "invited":
+      if (!slug(body.slug) || typeof body.count !== "number" || !Number.isInteger(body.count) || body.count < 0) throw new ServiceError("control_plane", status);
+      return { status: "invited", slug: body.slug as string, count: Math.min(body.count, 64), role: body.role === "member" ? "member" : "editor" };
     case "choose": {
       const slugs = Array.isArray(body.slugs) ? body.slugs.filter(slug) : [];
       if (slugs.length === 0) throw new ServiceError("control_plane", status);

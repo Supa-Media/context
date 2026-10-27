@@ -86,8 +86,8 @@ import { findName } from "./lib/nameClaims";
 import { purgeExpiredInvitationsHandler } from "./lib/invitations/sweep";
 import { invitationForCaller, isPending } from "./lib/invitations/forCaller";
 import { MAX_INVITATIONS_RETURNED, inviteMemberHandler } from "./lib/invitations/invite";
+import { joinByInvitation } from "./lib/invitations/join";
 import { hasBlocked } from "./lib/blocks";
-import { clearGroupNames } from "./lib/workspaces/groupNames";
 import {
   getMembership,
   requireWorkspaceAccess,
@@ -420,48 +420,11 @@ export const acceptInvitation = mutation({
     const now = Date.now();
 
     const invitation = await resolveInvitationForCaller(ctx, args.token, userId, now);
-    const workspace = await ctx.db.get(invitation.workspaceId);
     // An invitation to a context that no longer exists is not answerable, and
     // the caller learns only what they already knew: this token does nothing.
-    if (workspace === null) throw invitationNotFound();
-
-    // Spend it first. Everything after this is idempotent, so a retry that
-    // races itself joins once.
-    await ctx.db.patch(invitation._id, { status: "accepted", respondedAt: now });
-    // The link has been answered, by somebody who is signed in as we speak, so
-    // the code it carried has no remaining job. Leaving it would be a standing
-    // credential in a mail archive outliving the thing it was minted for.
-    await invalidateInvitationSignInCode(ctx, invitation);
-
-    const existing = await getMembership(ctx, workspace._id, userId);
-    if (existing !== null) {
-      return { workspaceId: workspace._id, slug: workspace.slug, role: existing.role };
-    }
-
-    // `resolveGroupMembers` and `grantedNamesFor` intersect a group row with live
-    // membership, so every group name this person was left in when they were
-    // removed comes back the moment the row below lands. Rejoining starts from
-    // no names; the owner names them again if that is what they meant. Ahead
-    // of the insert for readability only — one mutation is one transaction, so
-    // nothing observes the order. See `lib/workspaces/groupNames.ts`.
-    await clearGroupNames(ctx, workspace._id, userId);
-
-    await ctx.db.insert("workspaceMembers", {
-      workspaceId: workspace._id,
-      userId,
-      role: invitation.role,
-      invitedBy: invitation.invitedBy,
-      joinedAt: now,
-    });
-
-    await recordAudit(ctx, {
-      workspaceId: workspace._id,
-      actorUserId: userId,
-      action: "member.joined",
-      details: { role: invitation.role, invitedBy: invitation.invitedBy },
-    });
-
-    return { workspaceId: workspace._id, slug: workspace.slug, role: invitation.role };
+    const joined = await joinByInvitation(ctx, invitation, userId, now);
+    if (joined === null) throw invitationNotFound();
+    return { workspaceId: joined.workspace._id, slug: joined.workspace.slug, role: joined.role };
   },
 });
 
