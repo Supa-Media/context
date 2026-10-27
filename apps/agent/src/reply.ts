@@ -38,6 +38,7 @@ import {
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
+import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
 import type { OutgoingPicture } from "./outgoing";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
@@ -64,14 +65,8 @@ export type ReplyDeps = {
   images?: ImagesLike;
   /** Told when setup started a bucket, so the ready text is owed (`ready.ts`); absent, none is. */
   onSetUp?: () => Promise<void>;
-  /**
-   * The fixed texts sent outside a turn that the next turn's history is owed
-   * (`told.ts`): named to the gateway with the next text, and `onToldDelivered`
-   * once a turn answered with them. `onTold` notes a setup that finished.
-   */
-  told?: Told[];
+  /** Notes a fixed text sent outside a turn, a setup that finished, for the chat's event log (`told.ts`). */
   onTold?: (told: Told) => Promise<void>;
-  onToldDelivered?: () => Promise<void>;
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
@@ -88,7 +83,9 @@ export type ReplyDeps = {
    * `onSession` is handed the session the turn runs as, and `onSteered` the
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
-  steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
+  steer?: Steer;
+  /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers`. */
+  covers?: string[];
   /**
    * The chat's background jobs, shown to the turn, and handed the ones it
    * started (`jobs.ts`). Absent, the turn is offered none.
@@ -215,7 +212,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     const attachments = message.attachments?.length
       ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
       : [];
-    deps.steer?.onSession(session.accessToken);
+    // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
+    await deps.steer?.onSession(session.accessToken);
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -226,12 +224,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       attachments,
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
-      deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers },
     );
     if (answer.kind === "answer") {
-      await deps.onToldDelivered?.();
       if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);

@@ -52,6 +52,8 @@ function unlinkedDeps(linqCalls: string[]): InboxDeps {
     if (path === "/agent-texts/session") return Response.json({ status: "unlinked" });
     if (path === "/agent-texts/setup") return Response.json({ status: "not_eligible" });
     if (path === "/agent-texts/invite") return Response.json({ status: "issued", url: LINK });
+    // Whether to answer is the control plane's (`decide.ts`), not a call to Linq; unreachable, every text is answered.
+    if (path === "/agent-texts/decide") return Response.json({ error: "unauthorized" }, { status: 401 });
     linqCalls.push(url);
     return new Response("{}", { status: 200 });
   }) as unknown as Fetch;

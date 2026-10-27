@@ -36,7 +36,11 @@
  *   only while it is bound (`groupChat.ts`).
  */
 
-import { askAgentStream, post, record, ServiceError, type Fetch } from "./clients";
+import { askAgentStream, ServiceError, type Fetch } from "./clients";
+import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
+import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
+export { askControlPlane, GROUP_LINES, PICTURE_LINE };
+export type { ControlAnswer, GuestInfo };
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
@@ -78,7 +82,7 @@ export function groupInboxName(groupId: string): string {
   return `sendblue-group:${groupId}`;
 }
 
-type Command =
+export type Command =
   | { kind: "stop" }
   | { kind: "start" }
   | { kind: "use"; slug: string }
@@ -112,8 +116,6 @@ export const GROUP_TEXT_WAIT_MS = 4_000;
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
 export const MAX_GROUP_FILES = 4;
-/** How a picture sent without words reads in the chat Tex is handed. */
-export const PICTURE_LINE = "(sent a picture or file)";
 /** How long a yes Tex asked for stays the asker's to give without its name. */
 export const ASK_OPEN_MS = 30 * 60_000;
 const ASK_KEY = "gask";
@@ -122,53 +124,6 @@ type OpenAsk = { from: string; at: number };
 const ANSWERS_ASK =
   /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
 const pendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
-
-/** The fixed lines, sent with no model. */
-export const GROUP_LINES = {
-  intro: (slug: string) =>
-    `Hi, I'm Tex. Start a message with "Tex" and I'll answer here, using only @${slug}, the workspace everyone in this chat shares. ` +
-    `I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
-  unknown: "I answer people who've set me up. Text me on your own to start.",
-  noShared:
-    "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
-  choose: (slugs: string[]) =>
-    `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
-  notShared: (slugs: string[]) =>
-    "That isn't a workspace everyone in this chat shares." +
-    (slugs.length > 0 ? ` You all share ${slugs.map((slug) => `@${slug}`).join(", ")}. Say "Tex use @${slugs[0]}" to pick one.` : ""),
-  bound: (slug: string, intro = false) =>
-    `Got it, I'll use @${slug} in this chat.` +
-    (intro
-      ? ` Start a message with "Tex" when you need me. I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. ` +
-        `"Tex, stop" mutes me and "Tex, start" brings me back.`
-      : ""),
-  status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
-  // Guest mode (`docs/decisions/texting-assistant/group-guests.md`): people here who aren't on Context are guests.
-  guestBound: (slug: string, guest: GuestInfo) =>
-    `Got it. Everyone here is a guest of @${slug} now, as the group @${guest.group}. I only see notes shared with that group, ` +
-    `and I keep what I make for this chat in ${guest.folder}. Anyone here can start a message with "Tex" to ask me something. "Tex, stop" mutes me.`,
-  guestIntro: (slug: string, guest: GuestInfo) =>
-    `Hi, I'm Tex. Anyone here can start a message with "Tex" and I'll answer, using only notes shared with @${guest.group} in @${slug}. ` +
-    `I keep what I make in ${guest.folder}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
-  guestStatus: (slug: string, guest: GuestInfo) => `In this chat I can see only notes shared with @${guest.group} in @${slug}.`,
-  notAllowed: (slug: string) => `Only an owner or editor of @${slug} can bring it into this chat. One of them can say "Tex use @${slug}".`,
-  // Invited family (`docs/decisions/texting-assistant/invited-family.md`): an owner adds everyone here by number.
-  invited: (slug: string, count: number, role: string) =>
-    count === 0
-      ? `Everyone here is already in @${slug}, so I'll use it in this chat.`
-      : `Done. I invited ${count === 1 ? "1 person" : `${count} people`} here to @${slug} as ${role === "member" ? "members who can read" : "editors"}. ` +
-        `Their invitation counts in this chat, so I can use all of @${slug} here now. ` +
-        "Each of them joins for good the first time they text me or sign in to Context with the number they use here.",
-  notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
-  guestsOff:
-    "The person who brought me into this chat can't share that workspace here anymore, so I'm stepping back. " +
-    'An owner or editor can say "Tex use @name" to start again.',
-  stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
-  started: "I'm back. Start a message with \"Tex\" when you need me.",
-  joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
-  sms: "I only answer in iMessage group chats.",
-  failed: "I couldn't answer that one. Try again in a bit.",
-} as const;
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -546,98 +501,6 @@ export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, upd
     await noteJobSent(storage, update.id, index + 1);
   }
   return true;
-}
-
-export type ControlAnswer =
-  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
-  | { status: "not_shared"; slugs: string[] }
-  | { status: "not_allowed"; slug: string }
-  | { status: "invited"; slug: string; count: number; role: string }
-  | { status: "guests_off" }
-  | { status: "unknown_sender"; tell?: boolean }
-  | { status: "choose"; slugs: string[] }
-  | {
-      status: "ready";
-      slug: string;
-      intro: boolean;
-      timeZone?: string;
-      handle?: string;
-      accessToken?: string;
-      names?: { phone: string; handle: string }[];
-      guest?: GuestInfo;
-      guests?: { phone: string; label: string }[];
-    };
-
-/** A guest chat's group, three words and folder (`apps/convex/functions/lib/textGroupGuests.ts`). */
-export type GuestInfo = { group: string; words: string; folder: string };
-
-const LABEL = /^guest-[0-9a-f]{4}$/;
-const WORDS = /^[a-z]{2,12}-[a-z]{2,12}-[a-z]{2,12}$/;
-
-function guestInfoOf(value: unknown): GuestInfo | undefined {
-  const info = record(value);
-  if (typeof info.group !== "string" || !/^[a-z0-9][a-z0-9-]{1,99}$/.test(info.group)) return undefined;
-  if (typeof info.words !== "string" || !WORDS.test(info.words) || typeof info.folder !== "string") return undefined;
-  return { group: info.group, words: info.words, folder: info.folder };
-}
-
-export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
-  const wire = command === null || command.kind === "status" ? undefined : command;
-  const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
-    line: message.line,
-    groupId: message.groupId,
-    sender: message.from,
-    participants: people.includes(message.from) ? people : [...people, message.from],
-    ...(wire !== undefined ? { command: wire } : {}),
-    ...(command === null ? { mint: true } : {}),
-  });
-  if (status !== 200) throw new ServiceError("control_plane", status);
-  const body = record(json);
-  const slug = (value: unknown) => typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,64}$/.test(value);
-  switch (body.status) {
-    case "refused":
-    case "muted":
-    case "stopped":
-    case "started":
-    case "no_shared":
-      return { status: body.status };
-    case "not_shared":
-      return { status: "not_shared", slugs: (Array.isArray(body.slugs) ? body.slugs.filter(slug) : []).slice(0, 8) as string[] };
-    case "unknown_sender":
-      return { status: "unknown_sender", tell: body.tell === true };
-    case "not_allowed":
-      if (!slug(body.slug)) throw new ServiceError("control_plane", status);
-      return { status: "not_allowed", slug: body.slug as string };
-    case "guests_off":
-      return { status: "guests_off" };
-    case "invited":
-      if (!slug(body.slug) || typeof body.count !== "number" || !Number.isInteger(body.count) || body.count < 0) throw new ServiceError("control_plane", status);
-      return { status: "invited", slug: body.slug as string, count: Math.min(body.count, 64), role: body.role === "member" ? "member" : "editor" };
-    case "choose": {
-      const slugs = Array.isArray(body.slugs) ? body.slugs.filter(slug) : [];
-      if (slugs.length === 0) throw new ServiceError("control_plane", status);
-      return { status: "choose", slugs: slugs as string[] };
-    }
-    case "ready":
-      if (!slug(body.slug)) throw new ServiceError("control_plane", status);
-      return {
-        status: "ready",
-        slug: body.slug as string,
-        intro: body.intro === true,
-        ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
-        ...(slug(body.handle) ? { handle: body.handle as string } : {}),
-        ...(typeof body.accessToken === "string" && body.accessToken !== "" ? { accessToken: body.accessToken } : {}),
-        names: (Array.isArray(body.names) ? body.names : []).map(record).flatMap((entry) =>
-          typeof entry.phone === "string" && slug(entry.handle) ? [{ phone: entry.phone, handle: entry.handle as string }] : [],
-        ),
-        ...(guestInfoOf(body.guest) ? { guest: guestInfoOf(body.guest) } : {}),
-        guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
-          typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
-        ),
-      };
-    default:
-      throw new ServiceError("control_plane", status);
-  }
 }
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex. */

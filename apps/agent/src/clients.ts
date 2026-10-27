@@ -259,8 +259,6 @@ export async function askAgent(
    * could not be read, sent as `replied` so the turn still knows it was one.
    */
   quoted?: string,
-  /** The fixed texts sent since the last turn, by name, for its history (`told.ts`). */
-  told: readonly string[] = [],
   /** The words that started the thread an inline reply was typed in, apart like `quoted`. */
   threadStart?: string,
   /**
@@ -276,6 +274,7 @@ export async function askAgent(
     job,
     onStep,
     event,
+    covers,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -288,6 +287,8 @@ export async function askAgent(
     onStep?: (text: string) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
     event?: "vault_saved";
+    /** The chat's event ids this turn answers (`events.ts`). */
+    covers?: string[];
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -299,13 +300,13 @@ export async function askAgent(
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(quoted ? { quoted } : quoted === "" ? { replied: true } : {}),
     ...(quoted && threadStart ? { threadStart } : {}),
-    ...(told.length > 0 ? { told } : {}),
     ...(quoted && tapback ? { tapback } : {}),
     ...(reacted.length > 0 ? { reacted } : {}),
     ...(turn ? { turn } : {}),
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
+    ...(covers && covers.length > 0 ? { covers } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };

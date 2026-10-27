@@ -16,15 +16,17 @@
  *     fails (worker.test.ts).
  *  4. `threadContext` keeping a parent from another thread → "a reply typed
  *     inside a thread is about that thread" fails.
- *  5. `sameBurst` returning false → "inline replies sent back to back…" and
- *     "plain texts sent back to back…" fail; dropping its `quoted` check →
- *     "a reply to other words…" fails.
+ *  5. `chooseTurn` (`inboxTurn.ts`) answering only the first text decide
+ *     covers → "inline replies sent back to back…" and "plain texts sent
+ *     back to back…" fail; joining texts decide left out → "a reply to other
+ *     words…" fails. (Which texts are one turn is decide's since 2026-10-26.)
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { askAgent, type Fetch } from "./clients";
 import { accept, CHAT_KEY, drain, NEW_TOPIC_AFTER_MS, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { coverAll, coverNewest } from "./decideStub.testing";
 import type { Message } from "./reply";
 import { parseSendblueInbound, repliedToText, sendblueChatId, sendSendblueText, threadContext } from "./sendblue";
 
@@ -36,7 +38,12 @@ const CHAT = sendblueChatId(LINE, PHONE);
 type Call = { path: string; body: Record<string, unknown> };
 
 /** Sendblue and the gateway, answering each question with words only. */
-function fake(calls: Call[], agent: Record<string, unknown>[] = [], status: (body: Record<string, unknown>) => number = () => 200): Fetch {
+function fake(
+  calls: Call[],
+  agent: Record<string, unknown>[] = [],
+  status: (body: Record<string, unknown>) => number = () => 200,
+  decided: (init: RequestInit) => Response = coverNewest,
+): Fetch {
   return (async (url: string, init: RequestInit) => {
     const parsed = new URL(url);
     const body = init.body === undefined ? {} : JSON.parse(String(init.body));
@@ -48,6 +55,8 @@ function fake(calls: Call[], agent: Record<string, unknown>[] = [], status: (bod
       return new Response('{"status":"QUEUED"}', { status: status(body) });
     }
     if (parsed.pathname === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
+    if (parsed.pathname === "/agent-texts/decide") return decided(init);
+    if (parsed.pathname === "/agent/events") return Response.json({ written: [] });
     if (parsed.pathname === "/agent") {
       agent.push(body);
       return Response.json({ answer: `answer to ${body.question}` });
@@ -130,7 +139,7 @@ describe("Tex answers inside iMessage threads", () => {
     await accept(storage, message("mh_3", "not me", { threaded: true, quoted }), 1_000);
     const calls: Call[] = [];
     const agent: Record<string, unknown>[] = [];
-    await drain(storage, deps(fake(calls, agent)));
+    await drain(storage, deps(fake(calls, agent, undefined, coverAll)));
     expect(agent.map((a) => a.question)).toEqual(["yes\nand the receipts go to Ada\nnot me"]);
     expect(agent[0]).toMatchObject({ quoted });
     expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_3" }]);
@@ -143,11 +152,11 @@ describe("Tex answers inside iMessage threads", () => {
     await accept(storage, message("mh_p1", "what's on my list"), 1_000);
     await accept(storage, message("mh_p2", "for today"), 1_000);
     const agent: Record<string, unknown>[] = [];
-    await drain(storage, deps(fake([], agent)));
+    await drain(storage, deps(fake([], agent, undefined, coverAll)));
     expect(agent.map((a) => a.question)).toEqual(["what's on my list\nfor today"]);
   });
 
-  it("a reply to other words, a plain text after a reply, a tapback or an SMS is answered on its own", async () => {
+  it("a reply to other words, a plain text after a reply, a tapback or an SMS that decide leaves apart is answered on its own", async () => {
     for (const second of [
       message("mh_b", "this one", { threaded: true, quoted: "other words" }),
       message("mh_b", "this one"),
@@ -237,9 +246,9 @@ describe("Tex answers inside iMessage threads", () => {
     expect(parseSendblueInbound(inbound)).toMatchObject({ replyTo: "mh_retry", threadRoot: "mh_poster" });
     expect(parseSendblueInbound({ ...inbound, reply_to: undefined })).not.toHaveProperty("threadRoot");
     const agent: Record<string, unknown>[] = [];
-    await askAgent(fake([], agent), "https://gw.example", "t", "location central park", undefined, undefined, [], "swap them in", [], "Make me a poster");
+    await askAgent(fake([], agent), "https://gw.example", "t", "location central park", undefined, undefined, [], "swap them in", "Make me a poster");
     expect(agent[0]).toMatchObject({ quoted: "swap them in", threadStart: "Make me a poster" });
-    await askAgent(fake([], agent), "https://gw.example", "t", "hi", undefined, undefined, [], "", [], "Make me a poster");
+    await askAgent(fake([], agent), "https://gw.example", "t", "hi", undefined, undefined, [], "", "Make me a poster");
     expect(agent[1]).not.toHaveProperty("threadStart");
   });
 

@@ -276,7 +276,6 @@ async function phoneTurn(
     session.timeZone,
     [],
     undefined,
-    [],
     undefined,
     { job, turn: turn.turn, onStep },
   );
