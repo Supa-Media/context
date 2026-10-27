@@ -25,6 +25,10 @@ export interface RoutineSettings {
   send: "text" | "note" | "both";
   /** Handles without the @, lower-cased. */
   to: string[];
+  /** The group chat a shared workspace's routine answers into: 16 hex (`chatRoutineId`). */
+  chat: string | null;
+  /** `wake: new mail`: a chat routine also runs soon after new mail in a mailbox shared with its chat. */
+  wake: "mail" | null;
   until: string | null;
   paused: boolean;
   timeZone: string | null;
@@ -69,6 +73,7 @@ export function nextRunAt(
   timeZone: string,
   afterMs: number,
 ): number | null;
+export function chatRoutineId(groupKey: string): string | null;
 export function describeSchedule(cadence: RoutineCadence, settings: Partial<RoutineSettings> | null): string;
 export function routineRunsKey(path: string): string;
 export function wallClock(

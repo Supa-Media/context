@@ -19,6 +19,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { markPushPending, type PushProduct } from "./lib/googlePush/pending";
+import { wakeMailRoutines } from "./lib/routines/wake";
 import { googlePushValidator } from "./lib/schema/googlePush";
 
 const productValidator = v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"));
@@ -79,6 +80,8 @@ export const pokeFromPubsub = internalMutation({
         row.push = { ...row.push, chat: { ...row.push.chat, expiresAt: 0 } };
       }
       await markPushPending(ctx, row, product, now);
+      // New mail in a mailbox shared with a group chat: that chat's mail routines look soon.
+      if (product === "gmail") await wakeMailRoutines(ctx, row, now);
       poked += 1;
     }
     return { poked };

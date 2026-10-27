@@ -130,8 +130,10 @@ other people's words are in its history.
   once from their own account (`likedPreview.js`), replacing anything held for
   them before. Anybody else's 👍 on it is no yes. `apps/mcp/test/agentGroupOffer.test.mjs`
   and `apps/agent/src/groupInbox.test.ts` fail if either rule is dropped.
-- **Never read mail.** `claimPersonMailRead` needs an owner of the personal
-  workspace with `context:private`; a group grant is neither.
+- **Never read mail, unless its own person shares it here.** `claimPersonMailRead`
+  needs an owner of the personal workspace with `context:private`; a group
+  grant is neither. Since 2026-10-27 a mailbox's own person may share it with
+  one chat, narrowed by a search ([chat-mail](./chat-mail.md)).
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
 - **Use the web with the chat's own browser, never the tagger's**

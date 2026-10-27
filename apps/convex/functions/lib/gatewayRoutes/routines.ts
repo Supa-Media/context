@@ -72,7 +72,8 @@ export async function agentRoutinesDueHandler(
   }
   const claimed = await ctx.runMutation(internal.functions.routines.claimDueRoutines, { runIds, tokens });
   return json({
-    runs: claimed.map(({ token, ...run }) => ({ ...run, accessToken: plaintext[token]! })),
+    // A chat routine's run carries no token: the chat's own turn mints one.
+    runs: claimed.map(({ token, ...run }) => (token === undefined ? run : { ...run, accessToken: plaintext[token]! })),
   });
 }
 

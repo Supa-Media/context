@@ -70,13 +70,16 @@ export async function userForActorName(
 }
 
 /**
- * Whether routines run in this workspace at all: only a personal one (decided
- * by the owner, 2026-10-18). Tex is a personal assistant; a routine in a shared
- * workspace texted one person what another had asked for. A personal routine
- * can still read the shared workspaces its writer belongs to.
+ * Whether this routine runs here. In a personal workspace, every one, and it
+ * texts its writer. In a shared one, only a chat routine (decided by the
+ * owner, 2026-10-27; `docs/decisions/texting-assistant/chat-routines.md`): it
+ * answers into the group chat its `chat:` names, bound to this workspace, and
+ * never into one person's texts. That keeps the rule of 2026-10-18, which
+ * stopped a shared workspace's routine texting one person what another had
+ * asked for: a chat routine speaks only where everyone it concerns reads it.
  */
-export function runsRoutines(workspace: Pick<Doc<"workspaces">, "kind">): boolean {
-  return workspace.kind === "personal";
+export function runsRoutine(workspace: Pick<Doc<"workspaces">, "kind">, routine: { chat?: string }): boolean {
+  return workspace.kind === "personal" || routine.chat !== undefined;
 }
 
 /**

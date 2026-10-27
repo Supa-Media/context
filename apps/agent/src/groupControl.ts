@@ -14,6 +14,9 @@ export type ControlAnswer =
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "guests_off" }
+  | { status: "mail_shared"; address: string; narrowed: boolean }
+  | { status: "mail_unshared"; count: number }
+  | { status: "mail_refused" }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -26,6 +29,8 @@ export type ControlAnswer =
       names?: { phone: string; handle: string }[];
       guest?: GuestInfo;
       guests?: { phone: string; label: string }[];
+      /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
+      mail?: { handle: string; address: string }[];
       /** When Tex speaks up here (`groupStyle.ts`); absent from a control plane that has none. */
       engagement?: GroupStyle;
       engagementChosen?: boolean;
@@ -35,6 +40,7 @@ export type ControlAnswer =
 export type GuestInfo = { group: string; words: string; folder: string };
 
 const LABEL = /^guest-[0-9a-f]{4}$/;
+const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
 const WORDS = /^[a-z]{2,12}-[a-z]{2,12}-[a-z]{2,12}$/;
 
 function guestInfoOf(value: unknown): GuestInfo | undefined {
@@ -73,6 +79,13 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
       return { status: "not_allowed", slug: body.slug as string };
     case "guests_off":
       return { status: "guests_off" };
+    case "mail_shared":
+      if (typeof body.address !== "string" || !MAIL_ADDRESS.test(body.address)) throw new ServiceError("control_plane", status);
+      return { status: "mail_shared", address: body.address, narrowed: body.narrowed === true };
+    case "mail_unshared":
+      return { status: "mail_unshared", count: typeof body.count === "number" && Number.isInteger(body.count) ? Math.max(0, Math.min(body.count, 10)) : 0 };
+    case "mail_refused":
+      return { status: "mail_refused" };
     case "invited":
       if (!slug(body.slug) || typeof body.count !== "number" || !Number.isInteger(body.count) || body.count < 0) throw new ServiceError("control_plane", status);
       return { status: "invited", slug: body.slug as string, count: Math.min(body.count, 64), role: body.role === "member" ? "member" : "editor" };
@@ -96,6 +109,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ...(guestInfoOf(body.guest) ? { guest: guestInfoOf(body.guest) } : {}),
         guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
+        ),
+        mail: (Array.isArray(body.mail) ? body.mail : []).slice(0, 10).map(record).flatMap((entry) =>
+          slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],
         ),
         ...(GROUP_STYLES.includes(body.engagement as GroupStyle) ? { engagement: body.engagement as GroupStyle } : {}),
         ...(typeof body.engagementChosen === "boolean" ? { engagementChosen: body.engagementChosen } : {}),

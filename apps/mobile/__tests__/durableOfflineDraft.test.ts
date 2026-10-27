@@ -15,6 +15,7 @@ import { createSharedDoc } from "../features/console/presence/sharedDoc";
 import { DurableCollaborationController, type CollaborationResponse } from "../features/console/collaboration/durable";
 import { documentIdOf } from "../features/console/collaboration/offlineDraft";
 import { waitingOnDevice } from "../features/offline/cache";
+import { scopedKeyFor } from "../features/offline/keys";
 
 const BASE = "c2.doc-1.r1";
 
@@ -204,11 +205,17 @@ describe("offline drafts of a shared note", () => {
     slow.controller.stop();
   });
 
-  test("no draft without a shared version to merge against, over a legacy queue, or for a reader", async () => {
+  /*
+    A legacy draft with a shared version to merge against is no longer a reason
+    to refuse typing: it is the editor's own unsaved typing on a note that just
+    turned shared (Dev2, 2026-10-27, "I have to wait about 5 seconds"), and it
+    is taken up as the draft, below. One with no shared version still waits.
+  */
+  test("no draft without a shared version to merge against, over a legacy queue without one, or for a reader", async () => {
     for (const more of [
       { initialEtag: null },
       { initialEtag: "plain-etag" },
-      { legacyDraft: { baseline: "hello", desired: "hello!", baseEtag: BASE } },
+      { legacyDraft: { baseline: "hello", desired: "hello!", baseEtag: "plain-etag" } },
       { canWrite: () => false },
     ]) {
       const offline = setup(never, { online: () => false, ...more });
@@ -218,6 +225,68 @@ describe("offline drafts of a shared note", () => {
       expect(offline.controller.state.text).not.toBe("typed");
       offline.controller.stop();
     }
+  });
+
+  describe("the editor's own typing, on a note that just turned shared", () => {
+    const legacyDraft = { baseline: "hello", desired: "hello there", baseEtag: BASE };
+
+    test("is a draft from the controller's first moment, before anything is read", () => {
+      const fresh = setup(never, { legacyDraft });
+      expect(fresh.controller.state.drafting).toBe(true);
+      expect(fresh.controller.state.text).toBe("hello there");
+      fresh.controller.changeForHook("hello there, and more");
+      expect(fresh.controller.state.text).toBe("hello there, and more");
+      fresh.controller.stop();
+    });
+
+    test("goes as one replacement against its version, typing on top included, and clears the queue it came from", async () => {
+      const sent: Body[] = [];
+      const taken = setup(async (body) => {
+        sent.push(body);
+        return answer(body.replacement?.text ?? "hello");
+      }, { legacyDraft });
+      taken.controller.changeForHook("hello there, and more");
+      await taken.controller.start();
+      await tick();
+      expect(sent.map((body) => body.replacement)).toEqual([{ expectedEtag: BASE, text: "hello there, and more" }]);
+      expect(sent.every((body) => body.update === undefined)).toBe(true);
+      expect(taken.controller.state.ready).toBe(true);
+      expect(taken.controller.state.text).toBe("hello there, and more");
+      // The full-text save it began as is matched by what it was, not by what it became.
+      expect(taken.states.map((state) => (state as { legacyAdopted?: unknown }).legacyAdopted).filter(Boolean))
+        .toEqual([{ path: "notes/a.md", text: "hello there", baseEtag: BASE }]);
+      taken.controller.stop();
+    });
+
+    test("typed before the device's record is read, it is laid over a record that holds nothing yet", async () => {
+      const store = memoryStore();
+      const key = scopedKeyFor("collaboration", "private", "workspace", "notes/a.md");
+      // The marker a controller writes before its first read (`start`).
+      await store.set(key, JSON.stringify({ version: 1, documentId: null, etag: null, snapshot: "", pending: [] }));
+      const taken = setup(never, { legacyDraft, store, online: () => false });
+      taken.controller.changeForHook("hello there, typed at once");
+      await taken.controller.start();
+      await tick();
+      expect(taken.controller.state.drafting).toBe(true);
+      expect(taken.controller.state.text).toBe("hello there, typed at once");
+      expect(JSON.parse((await store.get(key))!).recovery.desired).toBe("hello there, typed at once");
+      taken.controller.stop();
+    });
+
+    test("and never written over a record with unsent typing of its own, which is kept as it was", async () => {
+      const store = memoryStore();
+      const key = scopedKeyFor("collaboration", "private", "workspace", "notes/a.md");
+      const earlier = { version: 1, documentId: "doc-1", etag: BASE, snapshot: "", pending: [{ id: "earlier", update: "AAA=" }] };
+      await store.set(key, JSON.stringify(earlier));
+      const taken = setup(never, { legacyDraft, store, online: () => false });
+      taken.controller.changeForHook("hello there, typed at once");
+      await taken.controller.start();
+      await tick();
+      const kept = JSON.parse((await store.get(key))!);
+      expect(kept.pending).toEqual(earlier.pending);
+      expect(kept.recovery).toBeUndefined();
+      taken.controller.stop();
+    });
   });
 
   test("a first read that fails never reports the note as empty (the note that vanished)", async () => {

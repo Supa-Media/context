@@ -43,6 +43,14 @@ export const GROUP_LINES = {
       : `Done. I invited ${count === 1 ? "1 person" : `${count} people`} here to @${slug} as ${role === "member" ? "members who can read" : "editors"}. ` +
         `Their invitation counts in this chat, so I can use all of @${slug} here now. ` +
         "Each of them joins for good the first time they text me or sign in to Context with the number they use here.",
+  // A mailbox shared with the chat (`docs/decisions/texting-assistant/chat-mail.md`): only by its own person.
+  mailShared: (address: string, narrowed: boolean) =>
+    `Done. Anyone here can ask me about ${narrowed ? "the mail you described in " : ""}${address}, and I'll keep an eye on it for this chat. ` +
+    `Replies go from it only when you say yes. "Tex, stop sharing my mail" ends it.`,
+  mailUnshared: (count: number) => (count === 0 ? "You weren't sharing any mail here." : "Done. I can't read that mail here anymore."),
+  mailRefused:
+    "I can only share a Gmail you've connected to Context yourself, in a chat that uses a workspace you can edit. " +
+    "Text me on your own to connect it, then ask here again.",
   notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
   guestsOff:
     "The person who brought me into this chat can't share that workspace here anymore, so I'm stepping back. " +

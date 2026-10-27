@@ -53,6 +53,8 @@ export type GroupMessage = {
    * A link's preview card is not one (`isLinkPreview`).
    */
   attachments?: InboundAttachment[];
+  /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
+  routine?: { runId: string; path: string };
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

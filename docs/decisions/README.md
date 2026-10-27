@@ -62,6 +62,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Permissions, stable identity, and verification are release gates
 - A live connection recovers on its own, and only the control plane says no
 - A shared note takes typing before its document arrives
+- A note that turns shared under the person typing keeps taking typing
 - A closed shared note's unsent typing is sent without opening it
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
@@ -728,6 +729,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
 - [A workspace keeps one playbook its group chats follow (2026-10-27)](./texting-assistant/group-playbook.md)
+- [A group chat sets routines that answer in the chat (2026-10-27)](./texting-assistant/chat-routines.md)
+- [A mailbox is shared with one group chat by its own person (2026-10-27)](./texting-assistant/chat-mail.md)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)

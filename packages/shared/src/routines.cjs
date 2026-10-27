@@ -254,6 +254,14 @@ function isTimeZone(value) {
   }
 }
 
+/** A chat routine's `chat:` id: the first 16 hex of the chat's key (`chatRoutineId`). */
+const CHAT_ID = /^[0-9a-f]{16}$/;
+
+/** The `chat:` id of a group chat, from its 64-hex key. */
+function chatRoutineId(groupKey) {
+  return typeof groupKey === "string" && /^[0-9a-f]{64}$/.test(groupKey) ? groupKey.slice(0, 16) : null;
+}
+
 const YES = new Set(["yes", "true", "on", "y"]);
 const NO = new Set(["no", "false", "off", "n", ""]);
 
@@ -274,6 +282,8 @@ function routineSettings(text, cadence) {
     monthDay: null,
     send: "text",
     to: [],
+    chat: null,
+    wake: null,
     until: null,
     paused: false,
     timeZone: null,
@@ -333,6 +343,19 @@ function routineSettings(text, cadence) {
       .map((handle) => handle.replace(/^@/, "").toLowerCase());
     if (handles.every((handle) => /^[a-z0-9][a-z0-9_-]{0,38}$/.test(handle))) settings.to = handles;
     else problems.push(`"to: ${fields.to}" should list people as @handles.`);
+  }
+  // `chat:` names the group chat a shared workspace's routine answers into
+  // (`docs/decisions/texting-assistant/chat-routines.md`): the id Tex writes there.
+  if (fields.chat !== undefined && fields.chat !== "") {
+    const chat = fields.chat.trim().toLowerCase();
+    if (CHAT_ID.test(chat)) settings.chat = chat;
+    else problems.push(`"chat: ${fields.chat}" isn't a chat. Ask Tex in the chat to set the routine up.`);
+  }
+  // `wake: new mail` also runs a chat routine soon after new mail reaches a
+  // mailbox shared with its chat (`docs/decisions/texting-assistant/chat-mail.md`).
+  if (fields.wake !== undefined && fields.wake !== "") {
+    if (/^new (?:mail|email)$/i.test(fields.wake.trim())) settings.wake = "mail";
+    else problems.push(`"wake: ${fields.wake}" isn't something a routine can wake on. Use "wake: new mail".`);
   }
   if (fields.until !== undefined && fields.until !== "") settings.until = fields.until;
   if (fields.paused !== undefined) {
@@ -599,6 +622,7 @@ module.exports = {
   parseDate,
   parseDateTime,
   routineSettings,
+  chatRoutineId,
   nextRunAt,
   describeSchedule,
   routineRunsKey,

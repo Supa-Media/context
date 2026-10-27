@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { phoneSignInPaused } from "./lib/emailProof";
@@ -12,6 +12,7 @@ import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
 import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
+import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -74,6 +75,8 @@ const commandValidator = v.union(
   v.object({ kind: v.literal("start") }),
   v.object({ kind: v.literal("use"), slug: v.string() }),
   v.object({ kind: v.literal("invite"), slug: v.string(), role: v.optional(v.union(v.literal("editor"), v.literal("member"))) }),
+  v.object({ kind: v.literal("share_mail"), address: v.string(), query: v.optional(v.string()) }),
+  v.object({ kind: v.literal("unshare_mail"), address: v.optional(v.string()) }),
 );
 
 export const groupAnswerValidator = v.union(
@@ -92,6 +95,10 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("guests_off") }),
   /** "Tex, add everyone here to @slug": how many people here were invited, as what (`lib/textGroupInvited.ts`). */
   v.object({ status: v.literal("invited"), slug: v.string(), count: v.number(), role: v.string() }),
+  /** A mailbox shared with the chat, or the sender's shares ended (`lib/textGroupMail.ts`); refused is one answer for every reason. */
+  v.object({ status: v.literal("mail_shared"), address: v.string(), narrowed: v.boolean() }),
+  v.object({ status: v.literal("mail_unshared"), count: v.number() }),
+  v.object({ status: v.literal("mail_refused") }),
   v.object({
     status: v.literal("ready"),
     slug: v.string(),
@@ -115,6 +122,8 @@ export const groupAnswerValidator = v.union(
     /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
     engagement: v.optional(engagementValidator),
     engagementChosen: v.boolean(),
+    /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
+    mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   }),
 );
 
@@ -123,6 +132,9 @@ export type GroupAnswer =
   | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
+  | { status: "mail_shared"; address: string; narrowed: boolean }
+  | { status: "mail_unshared"; count: number }
+  | { status: "mail_refused" }
   | { status: "unknown_sender"; tell: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -187,6 +199,18 @@ export const applyGroupTurn = internalMutation({
       return { status: "started" };
     }
     if (group.mutedAt !== undefined) return { status: "muted" };
+
+    // "Tex, share my mail from me@work.example here" (`lib/textGroupMail.ts`): only the mailbox's own person.
+    if (args.command?.kind === "share_mail") {
+      const address = cleanAddress(args.command.address);
+      const query = cleanShareQuery(args.command.query);
+      const shared = senderUser === null || address === null || query === null ? null : await shareMail(ctx, group, senderUser, address, query, now);
+      return shared === null ? { status: "mail_refused" } : { status: "mail_shared", ...shared };
+    }
+    if (args.command?.kind === "unshare_mail") {
+      const address = args.command.address === undefined ? undefined : cleanAddress(args.command.address) ?? "";
+      return { status: "mail_unshared", count: senderUser === null ? 0 : await unshareMail(ctx, group, senderUser, address) };
+    }
 
     // "Tex, add everyone here to @slug" (`lib/textGroupInvited.ts`): only an owner there, and then the chat uses it.
     if (args.command?.kind === "invite") {
@@ -287,14 +311,15 @@ export const applyGroupTurn = internalMutation({
     const names: { phone: string; handle: string }[] = [];
     for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
     const handle = await handleOf(ctx, senderUser);
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group) };
+    const mail = await mailSharesNamed(ctx, (await ctx.db.get(group._id)) ?? group);
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(mail.length > 0 ? { mail } : {}) };
   },
 });
 
 type TurnArgs = {
   groupKey: string;
   sender: string;
-  command?: { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "invite"; slug: string; role?: "editor" | "member" };
+  command?: Infer<typeof commandValidator>;
   mint: boolean;
   hashedAccessToken: string;
   hashedRefreshToken: string;
@@ -428,7 +453,8 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat) };
+  const mail = await mailSharesNamed(ctx, (await ctx.db.get(chat._id)) ?? chat);
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(mail.length > 0 ? { mail } : {}) };
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
