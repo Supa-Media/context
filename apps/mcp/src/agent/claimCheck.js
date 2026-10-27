@@ -58,6 +58,7 @@ import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } fr
 import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
+import { confessionNotice, contradictedConfession } from "./confession.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
@@ -423,7 +424,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [] }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -463,6 +464,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let bugNoticed = false;
   // A waiting ask the answer said had changed, with nothing held again (rule 6).
   let supersedeNoticed = false;
+  // A confession the turn's own record contradicts (`confession.js`).
+  let confessNoticed = false;
   // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
   let keptRead = false;
   let keptNoticed = false;
@@ -535,6 +538,12 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // "I hadn't checked your calendar" when it had: check the reads before agreeing.
+    const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
+    if (confessed !== null) {
+      confessNoticed = true;
+      return confessionNotice(confessed);
+    }
     // "The PDF won't load" or "paste its text" with the file kept and unread this turn: read it.
     if (!keptNoticed && kept.length > 0 && !keptRead && givesUpOnAFile(answer)) {
       keptNoticed = true;
