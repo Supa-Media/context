@@ -336,6 +336,15 @@ describe("the event buffer", () => {
     expect(storage.alarm).toBe(2_000 + KEEP_EVENTS_MS);
   });
 
+  it("a text that arrived during the drain keeps its due alarm: the day's alarm never pushes it back", async () => {
+    const storage = new AlarmStorage();
+    await addEvent(storage, { at: 1_000, chat: "c", from: { kind: "person" }, kind: "text", text: "x" });
+    storage.fire(); // the drain's alarm is running
+    await storage.setAlarm(2_000); // a text landed mid-drain: answer it in a moment
+    await pruneEvents(storage, 9_000); // the drain ends after that moment has passed
+    expect(storage.alarm).toBe(2_000);
+  });
+
   it("a newcomer's transcript starts where they were there", () => {
     const events: TexEvent[] = [
       { id: "1", at: 1, chat: "g", from: { kind: "person", name: "Ada" }, kind: "text", text: "before Cy", people: "ab" },

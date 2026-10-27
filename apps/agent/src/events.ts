@@ -90,15 +90,17 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
 }
 
 /**
- * Wake no later than `at`: a sooner alarm still to come is kept (a Durable
- * Object has one alarm, and `setAlarm` replaces it). One already due (the
- * one firing now) counts as none.
+ * Wake no later than `at`: any alarm already set for sooner, a due one
+ * included, is kept (a Durable Object has one alarm, and `setAlarm` replaces
+ * it). A due one is a text that arrived while a drain was running and set
+ * the alarm to answer it; replacing it pushed that answer back a day. The
+ * alarm firing now is cleared before its handler runs, so it reads as none.
  */
-export async function armBy(storage: InboxStorage, at: number, now: number): Promise<void> {
+export async function armBy(storage: InboxStorage, at: number, _now: number): Promise<void> {
   // A storage that cannot say which alarm is set (some tests' fakes) is left alone rather than overwritten.
   if (storage.getAlarm === undefined) return;
   const current = await storage.getAlarm();
-  if (current === null || current <= now || current > at) await storage.setAlarm(at);
+  if (current === null || current > at) await storage.setAlarm(at);
 }
 
 /** Called from the alarm: events past the day go, and the alarm stays set for the oldest left. */
