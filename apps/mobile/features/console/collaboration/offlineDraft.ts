@@ -33,6 +33,51 @@ export interface Recovery {
   baseEtag?: string | null;
   /** Typed here before the shared document arrived; see this file. Absent on an older legacy draft. */
   offline?: true;
+  /**
+   * The editor's own draft this one started from (`legacyDraftFor`), as it was
+   * typed before the note was shared: what clears that draft and its queued
+   * write once this lands, whatever was typed on top of it since.
+   */
+  adopt?: { text: string; baseEtag: string };
+}
+
+/**
+ * Typing the editor already held when the note turned shared under it — the
+ * read after a rename, or after a new note's first save, is the first to come
+ * back with a `c2.` version — taken up as a draft at once, so the note goes on
+ * taking typing while that typing is sent. It used to wait for a read and then
+ * a replacement with the note read-only, about five seconds after every
+ * rename typed straight through (Dev2, 2026-10-27). `undefined` without a
+ * shared version to send it against: that one still waits for the read.
+ */
+export function draftFromLegacy(legacy: { baseline: string; desired: string; baseEtag?: string | null } | undefined): Recovery | undefined {
+  const baseEtag = legacy?.baseEtag;
+  if (legacy === undefined || typeof baseEtag !== "string" || documentIdOf(baseEtag) === null) return undefined;
+  return { baseline: legacy.baseline, desired: legacy.desired, baseEtag, offline: true, adopt: { text: legacy.desired, baseEtag } };
+}
+
+/**
+ * The record this device kept for the note, read when the controller starts,
+ * with a draft the controller was already holding (`draftFromLegacy`, and any
+ * typing since) laid over it — only over a record that holds nothing of the
+ * note yet, as the editor's draft was only ever carried onto a cold start. A
+ * record with a document, unsent updates or a draft of its own is kept as it
+ * is: carrying whole text over unsent updates of the same words would send
+ * them twice.
+ */
+export function keptOver<R extends { documentId: string | null; snapshot: string; pending: unknown[]; recovery?: Recovery }>(stored: R, held: R): R {
+  if (held.recovery === undefined || stored.recovery !== undefined || stored.pending.length > 0 || holdsDocument(stored.snapshot)) return stored;
+  if (stored.documentId !== null && stored.documentId !== held.documentId) return stored;
+  return { ...stored, documentId: held.documentId, recovery: held.recovery };
+}
+
+/**
+ * Whether carrying `draft` onto `note` loses none of the note's words. Only its
+ * opening heading may be replaced, since that is the title a person retitles.
+ */
+export function keepsEveryWord(draft: string, note: string): boolean {
+  const body = note.replace(/^\s*#[^\n]*(\n|$)/, "").trim();
+  return body === "" || draft.includes(body);
 }
 
 const C2 = /^c2\.([A-Za-z0-9-]+)\.([A-Za-z0-9-]+)$/;
