@@ -285,3 +285,26 @@ with its menu link and a price for 30, and one useful question.
 `apps/agent/src/jobs.test.ts`; hand-back bench case 9
 (`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`).
 Sabotage records in the tests' headers.
+
+## Published text is Tex's to find (owner, 2026-10-27)
+
+Asked to fill in a Bible study note's verse analysis, Tex texted "I couldn't
+open the LSB text for chapter 32 from here, so I haven't quoted any verses.
+Paste them in and I'll quote them from your text." The owner: "why is this a
+problem for tex?" It was the second time (chapters 28 and 29 on 2026-10-22).
+None of the checks caught it: `TRY_NOTICE` only fires when nothing on the web
+was tried, the browser checks wanted the answer to name a page or a failed
+browse step, and nothing treated "paste them in" as handing work back. The
+hand-back judge never saw it either, because the answer had no question mark.
+
+So a passage, lyrics or an article asked of the person goes back once, told
+to search with the translation's name, open a refused or empty page with
+browse, and try the next site that carries it (`publishedText.js`); a failed
+page read given up on with the browser untried goes back once to browse it; a
+page read that comes back nearly empty says it may need a browser; and the
+web prompt says published text is never theirs to paste. Removing the paste
+check lets "Paste them in" go out again after any failed read.
+
+**Tests.** `apps/mcp/test/agentPublishedText.test.mjs`; hand-back bench case
+13 (`sites/scripture.example.md`, `sites/versereader.example.md`). Sabotage
+record in the test's header.

@@ -36,6 +36,7 @@
  * so it is allowed to open exactly as a link on a page is.
  */
 
+import { thinPageHint } from "./publishedText.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
@@ -198,6 +199,12 @@ export function webPrompt(webNames) {
         ? "You can open search results and web pages the person gives you with send action open_page, and follow links on them."
         : "You can open web pages the person gives you with send action open_page, and follow links on them.",
     );
+    // `publishedText.js`: "Paste them in and I'll quote them" for a Bible chapter (2026-10-27).
+    lines.push(
+      "Published text (a Bible passage in a named translation, lyrics, an article) is yours to find: when one page won't show it, " +
+        (webNames.has(BROWSE_TOOL) ? "open it with browse or " : "") +
+        "find the same text on another site. Never ask them to paste or send it.",
+    );
   }
   if (webNames.has(TRAVEL_TIME_TOOL)) {
     lines.push(
@@ -257,6 +264,7 @@ function pageText(page) {
     `Address: ${page.url}`,
     "",
     body || "(no text)",
+    ...(thinPageHint(page.text) ? ["", thinPageHint(page.text)] : []),
     ...(links ? ["", "Links you can open:", links] : []),
     ...(pictures ? ["", "Pictures on the page (a photo for draw_visual, or [picture <address>] to text one):", pictures] : []),
     ...(typeof page.logo === "string" && page.logo.startsWith("https://") ? ["", `Logo (a logo for draw_visual): ${page.logo}`] : []),
