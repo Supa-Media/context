@@ -91,7 +91,7 @@ test("the saved conversation names what was sent, never its bytes", async () => 
     assert.ok(keys.includes(KEPT_PHOTOS_PATH));
     const saved = keys.filter((key) => key !== KEPT_PHOTOS_PATH).map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
     // The picture is named with where today's transcript keeps it, so a later text can look again.
-    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/transcripts\/\d{4}-\d{2}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again\.\]/);
+    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/transcripts\/\d{4}-\d{2}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again; to email one, attach takes the same words \(<image> in <note>\), never the browser\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
   } finally {
     world.restore();

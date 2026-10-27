@@ -25,19 +25,29 @@ const READ_TIMEOUT_MS = 25_000;
  */
 export const ATTACHMENT_RESPONSE_BYTE_CAP = 15_000_000;
 
+/** `{ attached }`: the files Gmail says it holds (`personEmailCheck.ts`), each `{ filename, size }`; nothing when it was not read back. */
+function attachedOf(answer) {
+  if (!Array.isArray(answer?.attached)) return {};
+  const attached = answer.attached
+    .filter((file) => typeof file?.filename === "string" && Number.isFinite(file?.size))
+    .slice(0, 50)
+    .map((file) => ({ filename: file.filename.slice(0, 200), size: Math.max(0, Math.floor(file.size)) }));
+  return { attached };
+}
+
 const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required"]);
 
 export function createEmailMethods({ post }) {
   return {
     async sendPersonEmail(accessToken, expectedWorkspaceId, email, { check = false } = {}) {
       const answer = await post("/gateway/email/send", { accessToken, expectedWorkspaceId, email, check }, { timeoutMs: SEND_TIMEOUT_MS });
-      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
+      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
     /** The same email saved as a draft in their Gmail, sent to nobody (`tools/email.js`). */
     async savePersonEmailDraft(accessToken, expectedWorkspaceId, email) {
       const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email }, { timeoutMs: SEND_TIMEOUT_MS });
-      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
+      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */

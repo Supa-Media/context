@@ -12,7 +12,8 @@
  * the person's words with all of its attachments (`lib/personEmailForward.ts`),
  * sent through Gmail's upload endpoint, which takes a message that size.
  * Answers `{ ok: true, from }` (with `check`, nothing is sent) or
- * `{ ok: false, refused }`.
+ * `{ ok: false, refused }`. An email with the AI's own files also answers
+ * `attached`, each file as Gmail holds it once taken (`personEmailCheck.ts`).
  *
  * The gateway calls this only for an email the person said yes to, word for
  * word (`apps/mcp/src/tools/emailGate.js`). What is decided here is what the
@@ -35,6 +36,7 @@ import { gmailRaw, headerText, readPersonEmail, recipientLimitKey, recipientsOf,
 import { getReplyHeaders } from "../../../../mcp/src/communications/gmailSync.js";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 import { findReplyThread } from "../personEmailThread";
+import { attachedInGmail } from "../personEmailCheck";
 import { forwardBody, forwardHeaders, forwardMime, newBoundary, readForwarded } from "../personEmailForward";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
@@ -168,6 +170,7 @@ async function sendWithFiles(accessToken: string, email: PersonEmail, from: stri
     ...(thread ? [`In-Reply-To: ${thread.inReplyTo}`, `References: ${thread.references.join(" ")}`] : []),
   ];
   const mime = forwardMime(headers, email.body, email.files, newBoundary());
+  let created: unknown = null;
   if (thread !== null && mime.length > THREADED_MIME_BYTES) {
     log({ outcome: "too_large", draft, files: email.files.length });
     return json({ ok: false, refused: "too_large" });
@@ -190,11 +193,15 @@ async function sendWithFiles(accessToken: string, email: PersonEmail, from: stri
     }
     log({ outcome: response.ok ? (draft ? "drafted" : "sent") : "http_error", status: response.status, recipients, draft, files: email.files.length });
     if (!response.ok) return json({ ok: false, refused: "unavailable" });
+    created = await response.json().catch(() => null);
   } catch {
     log({ outcome: "transport_error", draft, files: email.files.length });
     return json({ ok: false, refused: "unavailable" });
   }
-  return json({ ok: true, from });
+  // What Gmail holds, read back, so the AI says "attached" from Gmail's answer (`personEmailCheck.ts`).
+  const attached = await attachedInGmail(accessToken, created, draft);
+  if (attached !== null && attached.length < email.files.length) log({ outcome: "attachments_missing", draft, files: email.files.length, held: attached.length });
+  return json({ ok: true, from, ...(attached !== null ? { attached } : {}) });
 }
 
 /** Under the 5 MB Gmail's JSON send takes, once base64url has grown the message by a third. */

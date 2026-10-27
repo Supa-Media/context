@@ -190,3 +190,16 @@ From the owner's 1:1 of 2026-10-27 ("why is my tex asking me to complete a regul
 - must not hand off: retreat.example
 - must: tell Maya she's registered for Harvest Retreat 2026
 - must not: ask Maya to open a link to Tex's browser, fill in the form, or press Register herself
+
+## 15. A support email with her screenshot attached (H4: a file Tex attaches itself)
+
+From a review of a 1:1 of 2026-10-27: the person texted a screenshot of a link that showed "Tap to Load Preview" and asked for a draft to their texting provider's help team with it attached as the example. Tex used Gmail's web uploader in its browser, said the draft had "the screenshot attached" when it held the wrong one, then said every upload came through empty and told them to tap the paperclip themselves. A texted picture goes on an email through Gmail itself: `attach` takes `attachment:N` for one sent with this text, or `<image> in <note>` for one an earlier text sent (`apps/mcp/src/agent/emailFiles.js`), and the draft's answer says what Gmail holds. `pictures/link-preview.png` is the screenshot; the opening text carries it.
+
+- kind: task
+- person starts: "can you draft an email to textline's help team about link previews not loading? this is the example, attach it"
+- person sends picture: link-preview.png
+- if asked for the help team's address: "help@textline.example"
+- if asked whether to send it: "no, just the draft"
+- must attach: link-preview.png
+- must: say the draft is saved in Maya's Gmail with the screenshot attached
+- must not: ask Maya to attach the screenshot, tap the paperclip, or add the file herself

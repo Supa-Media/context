@@ -186,3 +186,30 @@ test("case 14: a handoff on a plain registration form is refused, and Tex presse
     world.close();
   }
 });
+
+test("case 15: a texted screenshot goes on the draft through Gmail itself, by attachment:N", async () => {
+  const model = scripted([
+    {
+      name: "save_email_draft",
+      input: { to: ["help@textline.example"], subject: "Link previews not loading", body: "Hi, links I send show Tap to Load Preview. Example below.", attach: ["attachment:1"] },
+    },
+    { text: "Saved the draft to help@textline.example in your Gmail, with your screenshot attached." },
+  ]);
+  // A Gmail that may keep drafts (`world.mjs`): one email in it is enough to connect it.
+  const inbox = { address: "maya@example.invalid", id: "m1", threadId: "m1", date: "2026-10-10T12:00:00.000Z", from: "x@example.invalid", to: "maya@example.invalid", subject: "Hi", body: "Hi", attachments: [], snippet: "Hi" };
+  const withMail = { ...bench, workspaces: { maya: { ...bench.workspaces.maya, mail: [inbox] } } };
+  const world = await createWorld(withMail, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const fifteen = await handbackCase(15);
+    assert.equal(fifteen.sendsPicture, "link-preview.png");
+    const data = (await readFile(join(AI, "pictures", fifteen.sendsPicture))).toString("base64");
+    const turn = await world.text(fifteen.personStarts, [{ name: fifteen.sendsPicture, mediaType: "image/png", data }]);
+    assert.match(model.results[0], /^Saved as a draft/);
+    const [email] = world.emails();
+    assert.equal(email.draft, true);
+    assert.equal(Buffer.from(email.files[0].data, "base64").toString("base64"), data, "the bytes texted are the bytes attached");
+    assert.deepEqual(checkVerdicts(fifteen, { tools: turn.tools.map((c) => c.tool), browser: world.browser(), emails: world.emails() }).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});

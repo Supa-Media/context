@@ -168,3 +168,31 @@ And because a search for one first name found two people, the referral used
 the other person's work: every turn is told a fact is someone's only when
 what was read ties it to that person, never a shared first name
 (`SAME_NAME_LINE`, `prompt.js`).
+
+## A texted picture goes on an email through Gmail, and "attached" is Gmail's word (review, 2026-10-27)
+
+Asked for a draft to a support team "with the example image attached", Tex
+had no way to name a texted picture in `attach` (it took only `download:`
+ids), so it opened Gmail in its browser and used the web uploader: the draft
+got the wrong screenshot, then an empty file, and Tex told the person to tap
+the paperclip themselves.
+
+- **`attach` takes what Tex was shown, in the words it was shown it**
+  (`apps/mcp/src/agent/emailFiles.js`): `attachment:N` for a file sent with
+  this text, `<image> in <note>` for a picture an earlier text sent (as the
+  saved conversation names it), or a file in their notes by path. Each is read
+  through the turn's own `callTool` (so the privacy engine and a group chat's
+  limits decide), kept as a download, and handed on as its `download:` id, so
+  the email gate, a held email and a 👍 work as for any downloaded file. An
+  email's own attachments are not named here; they go on with `forward`.
+- **After an email with files is saved or sent, the control plane reads it
+  back from Gmail** (`apps/convex/functions/lib/personEmailCheck.ts`) and
+  answers each file as Gmail holds it. The tool says "attached" only when
+  Gmail shows every file with bytes; fewer or an empty one is said plainly,
+  with "try again", never "attach it yourself".
+- "Tap the paperclip" and "I couldn't attach it" are hand-backs
+  (`claimCheck.js` `FILE_HANDBACK`).
+
+Reversing it: drop `withEmailFiles` and `agentEmailFiles.test.mjs` and bench
+hand-back case 15 fail; drop the read-back and `personEmailAttached.test.ts`
+fails.

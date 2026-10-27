@@ -399,7 +399,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   return {
     /** One texted message, answered with the conversation so far. */
-    async text(message) {
+    async text(message, attachments = []) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -413,7 +413,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-          body: JSON.stringify({ question: message, conversation: "texts" }),
+          body: JSON.stringify({ question: message, conversation: "texts", ...(attachments.length > 0 ? { attachments } : {}) }),
         }),
         env,
         ctx,
