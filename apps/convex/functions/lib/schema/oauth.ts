@@ -198,6 +198,13 @@ export const oauthTables = {
          */
         guestGroupId: v.optional(v.id("workspaceGroups")),
         guestTagger: v.optional(v.boolean()),
+        /**
+         * Invited family (`lib/textGroupInvited.ts`): the phone invitations the chat counted as members, each of
+         * which must still count for the grant to resolve, and the invitation's role when an invited person tagged
+         * Tex, so the grant is the binder's, clamped to that role, and acts for nobody's own account.
+         */
+        coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
+        invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
       }),
     ),
     workspaceId: v.id("workspaces"),

@@ -72,6 +72,7 @@ export async function resolveAddressedUser(
   ctx: QueryCtx,
   addressee: Invitee,
 ): Promise<Id<"users"> | null> {
+  if (addressee.kind === "phone") return await accountForPhone(ctx, addressee.value);
   if (addressee.kind === "email") {
     // The main address or one added on Account settings, verified either way:
     // an unverified address proves nothing about who holds the mailbox, and a
@@ -94,6 +95,38 @@ export async function resolveAddressedUser(
     .take(MAX_MEMBERS_SCANNED);
   const owners = members.filter((member) => member.role === "owner");
   return owners.length === 1 ? owners[0].userId : null;
+}
+
+/**
+ * The account a phone number answers for: the one it is linked to by a texted
+ * code (`phoneLinks`, one account per number), else the one account that
+ * verified it at a phone sign-in. Two verified accounts on one number resolve
+ * to `null`, like every other ambiguity here.
+ */
+export async function accountForPhone(ctx: QueryCtx, phone: string): Promise<Id<"users"> | null> {
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .first();
+  if (link !== null) return link.userId;
+  const verified = (
+    await ctx.db
+      .query("users")
+      .withIndex("by_phone", (q) => q.eq("phone", phone))
+      .take(10)
+  ).filter((user) => user.phoneVerificationTime !== undefined);
+  return verified.length === 1 ? verified[0]._id : null;
+}
+
+/** The numbers this account answers to: its texted link and its verified sign-in number. */
+async function phonesOf(ctx: QueryCtx, userId: Id<"users">, me: { phone?: string; phoneVerificationTime?: number }): Promise<string[]> {
+  const links = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(10);
+  const phones = links.map((link) => link.phone);
+  if (me.phone !== undefined && me.phoneVerificationTime !== undefined) phones.push(me.phone);
+  return [...new Set(phones)];
 }
 
 /**
@@ -132,6 +165,9 @@ export async function identifiersForUser(
   }
   for (const email of await attachedEmailsOf(ctx, userId)) {
     identifiers.push({ kind: "email", value: email });
+  }
+  for (const phone of await phonesOf(ctx, userId, me)) {
+    identifiers.push({ kind: "phone", value: phone });
   }
 
   const claims = await ctx.db

@@ -200,7 +200,7 @@ export function describeMembersFailure(error: unknown): MembersFailure {
     case "INVALID_INVITEE":
       return {
         headline: errorMessageOf(error) ?? "That is not a @name or an email address.",
-        next: "Invite somebody by their @name, or by the address they signed up with.",
+        next: "Invite somebody by their @name, the address they signed up with, or their phone number.",
       };
     case "INSUFFICIENT_ROLE":
       return {

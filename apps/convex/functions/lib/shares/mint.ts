@@ -77,6 +77,7 @@ import {
   formatInvitee,
   inviteeRejectionError,
   parseInvitee,
+  shareableInvitee,
 } from "../invitees";
 import { normalizePreviewTitle, titleFromPath } from "../shareTitle";
 import { scheduleCardRender } from "../../shareCard";
@@ -131,6 +132,11 @@ export async function createShareHandler(
 
   const parsed = parseInvitee(args.recipient);
   if (!parsed.ok) throw inviteeRejectionError(parsed.reason);
+  // A phone number invites to a workspace from a Tex chat (`lib/textGroupInvited.ts`); a note is shared by name or address.
+  const recipient = parsed.invitee;
+  if (!shareableInvitee(recipient)) {
+    throw new ConvexError({ code: "INVALID_INVITEE", reason: "phone", message: "Share a note with a @name or an email address." });
+  }
 
   const now = Date.now();
   // `??` rather than a plain default: an owner who typed a title that
@@ -144,7 +150,7 @@ export async function createShareHandler(
     ctx,
     args.workspaceId,
     pathCheck.path,
-    parsed.invitee,
+    recipient,
   );
 
   if (existing !== null && existing.status === "active") {
@@ -211,7 +217,7 @@ export async function createShareHandler(
       workspaceId: args.workspaceId,
       entryPath: pathCheck.path,
       entryNoteId,
-      recipientKind: parsed.invitee.kind,
+      recipientKind: recipient.kind,
       recipient: parsed.invitee.value,
       recipientHeldSince: heldSince,
       createdBy: userId,

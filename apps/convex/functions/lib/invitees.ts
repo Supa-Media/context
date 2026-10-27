@@ -1,8 +1,8 @@
 /**
  * Parsing who an invitation is addressed to.
  *
- * Sharing is addressed by name (`@lk`) or by email, and this module turns what
- * somebody typed into one of those two, or rejects it. It is **pure** — no
+ * Sharing is addressed by name (`@lk`), by email or by phone number, and this
+ * module turns what somebody typed into one of those, or rejects it. It is **pure** — no
  * database, no `ctx` — and that is a security property rather than a taste in
  * module boundaries:
  *
@@ -23,8 +23,14 @@ import { ConvexError } from "convex/values";
 import { normalizeEmail } from "@context/shared";
 import { validateName, type NameRejection } from "./names";
 
-/** How an invitation names its recipient. */
-export type InviteeKind = "name" | "email";
+/**
+ * How an invitation names its recipient. `phone` is an E.164 number (the
+ * owner, 2026-10-27): family in a Tex group chat who will never click an
+ * invitation are invited by the number they text from, and that invitation
+ * counts in the chat until they sign in with it
+ * (`docs/decisions/texting-assistant/invited-family.md`).
+ */
+export type InviteeKind = "name" | "email" | "phone";
 
 export interface Invitee {
   kind: InviteeKind;
@@ -39,6 +45,7 @@ export interface Invitee {
 export type InviteeRejection =
   | "empty"
   | "invalid_email"
+  | "invalid_phone"
   | { name: NameRejection };
 
 export type InviteeParse =
@@ -79,6 +86,34 @@ function looksLikeEmail(trimmed: string): boolean {
 }
 
 /**
+ * Whether the string is trying to be a phone number rather than a handle: a
+ * leading `+`, or digits written the way people write numbers (spaces, dashes,
+ * dots, brackets). A bare run of digits stays a handle, so no handle that is
+ * all digits is reinterpreted, except the two shapes a US number is typed in
+ * (ten digits, or eleven starting with 1), which no person picks as a name.
+ */
+const PHONE_SHAPE = /^\+?[\d\s().-]+$/;
+function looksLikePhone(trimmed: string): boolean {
+  if (!PHONE_SHAPE.test(trimmed) || !/\d/.test(trimmed)) return false;
+  if (trimmed.startsWith("+") || /[\s().-]/.test(trimmed)) return true;
+  return /^(?:1)?\d{10}$/.test(trimmed);
+}
+
+/** E.164, the shape every phone column in the control plane holds (`textLinks.ts`). */
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+/** The number as E.164, or null. A number without a country code is read as a US one. */
+function normalizePhone(trimmed: string): string | null {
+  const digits = trimmed.replace(/\D/g, "");
+  let value: string;
+  if (trimmed.startsWith("+")) value = `+${digits}`;
+  else if (digits.length === 10) value = `+1${digits}`;
+  else if (digits.length === 11 && digits.startsWith("1")) value = `+${digits}`;
+  else return null;
+  return E164.test(value) ? value : null;
+}
+
+/**
  * Parse an invitee, or say why not. Never touches a database.
  *
  * Emails are lowercased, by the shared `normalizeEmail`. That is not strictly
@@ -103,6 +138,12 @@ export function parseInvitee(raw: string): InviteeParse {
     return { ok: true, invitee: { kind: "email", value } };
   }
 
+  if (looksLikePhone(trimmed)) {
+    const value = normalizePhone(trimmed);
+    if (value === null) return { ok: false, reason: "invalid_phone" };
+    return { ok: true, invitee: { kind: "phone", value } };
+  }
+
   // One leading sigil, and only one: `@@lk` is not a handle.
   const candidate = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   const validation = validateName(candidate);
@@ -110,6 +151,11 @@ export function parseInvitee(raw: string): InviteeParse {
     return { ok: false, reason: { name: validation.reason } };
   }
   return { ok: true, invitee: { kind: "name", value: validation.normalized } };
+}
+
+/** Whether a note may be shared with this invitee: a @name or an address, never a phone number. */
+export function shareableInvitee(invitee: Invitee): invitee is Invitee & { kind: "name" | "email" } {
+  return invitee.kind === "name" || invitee.kind === "email";
 }
 
 /** How an invitee is shown, and how it is written into an audit row. */
@@ -132,6 +178,13 @@ export function inviteeRejectionError(
       code: "INVALID_INVITEE",
       reason: "empty",
       message: "Enter a @name or an email address.",
+    });
+  }
+  if (reason === "invalid_phone") {
+    return new ConvexError({
+      code: "INVALID_INVITEE",
+      reason: "invalid_phone",
+      message: "That does not look like a phone number. Include the country code, like +1.",
     });
   }
   if (reason === "invalid_email") {

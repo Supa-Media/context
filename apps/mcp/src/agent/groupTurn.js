@@ -91,7 +91,11 @@ export function groupOwnAccountTools(definitions) {
  *
  * A guest chat (`groupGuests.js`) is known by the session's names, and then
  * `guest` is its group and folder as the Worker names them, and a turn with
- * no tagger handle is a guest's (`guestTagger`).
+ * no tagger handle is a guest's (`guestTagger`). Outside guest mode a turn
+ * with no tagger handle is an invited person's (the owner, 2026-10-27;
+ * `docs/decisions/texting-assistant/invited-family.md`): they have no account,
+ * so the grant is the binder's, and it is marked the same way so it acts for
+ * nobody's own account.
  */
 export function groupOf(body, session = null) {
   const group = body?.group;
@@ -99,7 +103,7 @@ export function groupOf(body, session = null) {
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
   const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat) };
-  if (!isGuestChat(session)) return kept;
+  if (!isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
   return { ...kept, guestChat: true, guest: guestInfoOf(group.guest), guestTagger: from === "" };
 }
 
@@ -282,12 +286,34 @@ export const GROUP_CODE_SIGN_IN_LINE =
   "and when someone in the chat texts it, type it into the same browser right away. Never refuse it for want of a vault login. ";
 
 /** What a group turn is told, after the built-in words. */
+/** An invited person's tag: an email or calendar change only with `as` naming a member here, as a guest's. */
+function noAccountTaggerCallTool(callTool, group) {
+  return async (name, args) => {
+    const supplied = args ?? {};
+    if (GROUP_OWN_ACCOUNT_TOOLS.includes(name) && supplied.as === undefined) {
+      const members = group.people.map((handle) => `@${handle}`).join(", ");
+      return toolError(
+        members
+          ? `Not done: the person who asked isn't on Context yet, so it goes from the account of someone here who is. Make the same call with as naming one of ${members}; only their yes sends it.`
+          : "Not done: nobody in this chat is on Context with an account it could go from. Say so in a line.",
+      );
+    }
+    return await callTool(name, supplied);
+  };
+}
+
+/** What an invited person's tag adds to the group words: they can ask anything, and sends go from a member. */
+export const INVITED_TAGGER_LINE =
+  "The person who tagged you is invited to this workspace and not on Context yet; they can ask you for anything here. " +
+  "An email or calendar change goes only from the account of someone here who is on Context: pass as with their handle, and only their 👍 or yes sends it. ";
+
 export function groupPrompt(group, workspace) {
   if (group.guestChat) return guestPrompt(group, workspace);
   const where = workspace ? `@${workspace}` : "one shared workspace";
   const who = group.from ? `@${group.from} tagged you` : "Someone tagged you";
   return (
     `\n\nTHIS IS AN IMESSAGE GROUP CHAT. ${who}, and everyone in the chat reads your answer. ` +
+    (group.guestTagger ? INVITED_TAGGER_LINE : "") +
     `You can read only ${where}, the shared workspace every person here is a member of, and only what its whole team can see. ` +
     "Nobody's personal notes, mail, calendar or saved logins can be read from here, so never offer them; " +
     "say the person can text you on their own for that. " +
@@ -390,5 +416,7 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
     return texting(name, args);
   };
   // A guest chat's narrower writes go first (`groupGuests.js`).
-  return group?.guestChat ? guestAwareCallTool(grouped, { store, group, guestTagger: group.guestTagger === true }) : grouped;
+  if (group?.guestChat) return guestAwareCallTool(grouped, { store, group, guestTagger: group.guestTagger === true });
+  // An invited person's tag sends nothing from the binder's account: only from a member's, on their own yes.
+  return group?.guestTagger === true ? noAccountTaggerCallTool(grouped, group) : grouped;
 }

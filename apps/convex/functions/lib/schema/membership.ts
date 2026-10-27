@@ -120,11 +120,13 @@ export const membershipTables = {
     /**
      * `name` — a `@handle` out of the shared namespace, stored undecorated.
      * `email` — a lowercased address.
+     * `phone` — an E.164 number (2026-10-27): resolved to the account that
+     *   number is linked to or verified on, and never mailed or texted.
      *
      * Kept as an explicit field rather than derived from the string's shape, so
      * no reader has to guess and no two readers can guess differently.
      */
-    inviteeKind: v.union(v.literal("name"), v.literal("email")),
+    inviteeKind: v.union(v.literal("name"), v.literal("email"), v.literal("phone")),
     invitee: v.string(),
     role: v.union(v.literal("editor"), v.literal("member")),
     invitedBy: v.id("users"),

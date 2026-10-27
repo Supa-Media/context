@@ -18,7 +18,11 @@ import { groupKeyOf, MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_GRANT_TTL_MS, type Grou
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
 
-type Command = { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string };
+type Command =
+  | { kind: "stop" }
+  | { kind: "start" }
+  | { kind: "use"; slug: string }
+  | { kind: "invite"; slug: string; role?: "editor" | "member" };
 
 function readCommand(value: unknown): Command | null | undefined {
   if (value === undefined) return undefined;
@@ -26,7 +30,13 @@ function readCommand(value: unknown): Command | null | undefined {
   const kind = (value as { kind?: unknown }).kind;
   if (kind === "stop" || kind === "start") return { kind };
   const slug = (value as { slug?: unknown }).slug;
-  if (kind === "use" && typeof slug === "string" && slug.length > 0 && slug.length <= 65) return { kind, slug };
+  if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;
+  if (kind === "use") return { kind, slug };
+  if (kind === "invite") {
+    const role = (value as { role?: unknown }).role;
+    if (role === undefined) return { kind, slug };
+    return role === "editor" || role === "member" ? { kind, slug, role } : null;
+  }
   return null;
 }
 
