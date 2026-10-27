@@ -59,7 +59,7 @@ import { mayAsk } from "./handbackJudge.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
-import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
+import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -593,9 +593,11 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       captchaNoticed = true;
       return CAPTCHA_NOTICE;
     }
-    if (!laterNoticed && !keptPromise && promisesLater(answer)) {
+    // A promise to text later, or to check in at a set time, that nothing in the turn keeps.
+    const later = !laterNoticed && !keptPromise ? laterNotice(answer) : null;
+    if (later !== null) {
       laterNoticed = true;
-      return LATER_NOTICE;
+      return later;
     }
     // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
     // An answer asking them something ("Who should it go to?") waits on them instead.
