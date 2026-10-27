@@ -8,6 +8,8 @@ import { accessoryUp } from "../accessory";
 import { saveButton } from "../editor";
 import { noteHeadingSource, splitNote } from "../frontmatter";
 import { isDrawingPath } from "@context/drawings";
+import { isPagePath } from "@context/shared/src/pages/index.cjs";
+import { PAGE_VIEW_AVAILABLE } from "../pageView/PageView";
 import { ACTIVITY_PATH } from "../../activity/activity";
 import { isPassphraseNote } from "../../encryption/envelope";
 import type { EditorControls } from "../LiveEditor";
@@ -197,6 +199,15 @@ export function NoteEditor({
     one whose read was refused, opens the file as the note it is, which is the
     honest fallback rather than an empty screen.
   */
+  /*
+    A `.page.md` note is drawn as a page by default, decided by its path like a
+    drawing; "Edit as text" swaps in the editor over the same file, and the
+    choice resets when another note opens (`docs/decisions/app-and-console/pages.md`).
+  */
+  const [pageAsText, setPageAsText] = useState(false);
+  useEffect(() => setPageAsText(false), [state.path]);
+  const pageNote = PAGE_VIEW_AVAILABLE && !passphraseLocked && !state.encrypted && isPagePath(state.path ?? "");
+  const pageView = pageNote && !pageAsText;
   const isActivityNote = !passphraseLocked && activity !== undefined && state.path === ACTIVITY_PATH;
   /**
    * The activity file drawn as the list rather than as its Markdown.
@@ -299,7 +310,7 @@ export function NoteEditor({
     the same order") is what catches that, and it only catches it when the list
     is actually one of the conditions.
   */
-  const liveEditorOnScreen = !activityList && !drawing && !passphraseLocked;
+  const liveEditorOnScreen = !activityList && !drawing && !passphraseLocked && !pageView;
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -443,7 +454,7 @@ export function NoteEditor({
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
     folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
-    styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
+    styles, editable, passphraseLocked, drawing, activityList, pageNote, pageView, setPageAsText, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
     setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,

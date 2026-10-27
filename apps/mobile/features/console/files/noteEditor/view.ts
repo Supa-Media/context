@@ -26,6 +26,10 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   passphraseLocked: boolean;
   drawing: boolean;
   activityList: boolean;
+  /** A `.page.md` note, and whether it is drawn as the page (rather than its text) right now. */
+  pageNote: boolean;
+  pageView: boolean;
+  setPageAsText: (asText: boolean) => void;
   openedAt: number;
   button: ReturnType<typeof saveButton>;
   compact: boolean;

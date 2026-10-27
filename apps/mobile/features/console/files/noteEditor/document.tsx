@@ -3,6 +3,8 @@ import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
+import { PageView } from "../pageView/PageView";
+import { PageToggle } from "../pageView/PageToggle";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { ACTIVITY_PATH } from "../../activity/activity";
 import { lastChangeOf } from "../../activity/lastChange";
@@ -55,6 +57,9 @@ export function noteDocument(view: NoteView) {
     activityEditable,
     onOpenNote,
     drawing,
+    pageNote,
+    pageView,
+    setPageAsText,
     canEdit,
     onChange,
     drawingCollaboration,
@@ -205,6 +210,7 @@ export function noteDocument(view: NoteView) {
           Properties and body (`communications/ContactHeader.tsx`). Nothing
           for any other note.
         */}
+        {pageNote ? <PageToggle asText={!pageView} onChange={setPageAsText} gutter={gutter} /> : null}
         {passphraseLocked || drawing || activityList ? null : (
           <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
         )}
@@ -275,6 +281,23 @@ export function noteDocument(view: NoteView) {
             source={state.draft}
             editable={activityEditable}
             onOpen={onOpenNote ?? (() => {})}
+          />
+        ) : pageView ? (
+          /*
+            A `.page.md` note, drawn as the page it is written to be, in the
+            sealed page runtime (`pageView/`). Its edits go through `wholeEdit`,
+            the Properties panel's path, so a word typed on the page merges into
+            a collaborator's typing and saves exactly as if it were typed in the
+            editor. The toggle above swaps in the editor over the same file.
+          */
+          <PageView
+            source={presence?.collaboration?.text ?? state.draft}
+            editable={wholeEdit !== undefined}
+            author={commenter ?? null}
+            onEdit={wholeEdit}
+            onOpenNote={onOpenLink === undefined ? undefined : (target) => onOpenLink(target, "foreground")}
+            onLoadImage={onLoadImage}
+            scrolls={!compact}
           />
         ) : drawing ? (
           /*
