@@ -2,9 +2,8 @@
  * The Messages backup, from the console, for its owner
  * (`docs/decisions/communications/messages-backup.md`):
  *
- *  - in their Download as folders: the texts, one Markdown file per
- *    conversation per month under `Messages/`, rendered in the console from
- *    the log this reads (`packages/communications/src/backupTranscript.js`).
+ *  - in their Download as folders: the texts as kept, the log's JSON-lines
+ *    objects this reads, under `Messages/log/` at their own paths.
  *    Only the texts travel this way; the pictures are too large for a page an
  *    action answers and a zip the browser holds.
  *  - Delete the backup: every key under `.context/messages/imessage/`, a page

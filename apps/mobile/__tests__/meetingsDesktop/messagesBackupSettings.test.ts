@@ -204,7 +204,7 @@ describe("Settings › Messages", () => {
     await settle();
 
     expect(mounted.container.textContent).toContain("Your copy");
-    expect(mounted.container.textContent).toContain("One file per conversation per month, with the pictures");
+    expect(mounted.container.textContent).toContain("Your texts as they're kept, in JSON lines, with the pictures");
     press(mounted.container, "messages-download");
     await settle();
     expect(shell.calls).toContain("imessage.download");

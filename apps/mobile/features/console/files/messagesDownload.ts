@@ -1,16 +1,15 @@
 /**
  * The Messages backup in a whole-workspace Download as folders, for its
- * owner: the texts as one Markdown file per conversation per month, under
- * `Messages/` (owner, 2026-10-26; `docs/decisions/communications/messages-backup.md`).
+ * owner: the texts as they are kept, the log's JSON-lines objects under
+ * `Messages/log/` at their own paths (owner, 2026-10-26 and 2026-10-27;
+ * `docs/decisions/communications/messages-backup.md`).
  *
  * The server hands back the log a page at a time (`messagesExport.readLogForExport`,
- * an empty page for anyone else), and the transcripts are made here, by the
- * same fold and rendering the Mac app uses. Only the texts: a picture is named
- * where it was sent, and the pictures themselves come with Download messages.
+ * an empty page for anyone else). Only the texts: the pictures come with
+ * Download messages on the Mac app, which writes the same `log/` beside them.
  */
 
-import { normalizeBackupRecord } from "@context/communications/backup";
-import { foldRecords, transcriptFiles } from "@context/communications/backupTranscript";
+import { copyPathOf } from "@context/communications/backupLog";
 import type { ZipEntry } from "./zip";
 
 /** The folder a whole-workspace archive keeps the texts in. */
@@ -44,27 +43,22 @@ export function messagesFolderFor(paths: readonly string[]): string {
   return taken(MESSAGES_FOLDER) ? `${MESSAGES_FOLDER} (backup)` : MESSAGES_FOLDER;
 }
 
-/** Every page of the log, folded and rendered under `folder`; nothing at all when it could not be read to the end. */
+/** Every page of the log, as kept, under `folder`; nothing at all when it could not be read to the end. */
 export async function collectMessages(
   readPage: (after: string | undefined) => Promise<LogPage>,
   folder: string = MESSAGES_FOLDER,
 ): Promise<MessagesOutcome> {
-  const records: unknown[] = [];
+  const encoder = new TextEncoder();
+  const entries: ZipEntry[] = [];
   let after: string | undefined;
   try {
     for (let page = 0; ; page += 1) {
       if (page >= MOST_PAGES) return { entries: [], short: true };
       const answer = await readPage(after);
       for (const object of answer.objects) {
-        for (const line of object.text.split("\n")) {
-          if (line.trim() === "") continue;
-          try {
-            const record = normalizeBackupRecord(JSON.parse(line));
-            if (record !== null) records.push(record);
-          } catch {
-            // A line that is not a record is not a text.
-          }
-        }
+        const path = copyPathOf(object.key);
+        // A key that is not a log object's is not copied, wherever it says it goes.
+        if (path !== null) entries.push({ path: `${folder}/${path}`, bytes: encoder.encode(object.text) });
       }
       if (answer.next === null) break;
       // A page that does not move would be read for ever: said to be short instead.
@@ -74,10 +68,5 @@ export async function collectMessages(
   } catch {
     return { entries: [], short: true };
   }
-  const encoder = new TextEncoder();
-  const entries = transcriptFiles(foldRecords(records), { links: false }).map((file) => ({
-    path: `${folder}/${file.path}`,
-    bytes: encoder.encode(file.text),
-  }));
   return { entries, short: false };
 }

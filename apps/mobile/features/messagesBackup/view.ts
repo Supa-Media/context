@@ -145,7 +145,7 @@ export function downloadLine(result: MessagesBackupDownload): string {
   const plural = (n: number, one: string, many: string) => `${count(n)} ${n === 1 ? one : many}`;
   const saved = `Saved ${plural(result.conversations, "conversation", "conversations")}${result.pictures > 0 ? ` and ${plural(result.pictures, "picture", "pictures")}` : ""} to Downloads.`;
   if (result.notCopied === 0) return saved;
-  return `${saved} ${plural(result.notCopied, "file was", "files were")} never copied, so ${result.notCopied === 1 ? "it is" : "they are"} named instead.`;
+  return `${saved} ${plural(result.notCopied, "file was", "files were")} never copied, so ${result.notCopied === 1 ? "it isn't" : "they aren't"} in it.`;
 }
 
 /** One read in the read history (board 2, "Who reads them"), finished from the closed set of kinds. */

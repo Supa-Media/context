@@ -8,7 +8,7 @@
 // in key order is reading in the order the fold needs. A page ends at a key
 // and the next starts after it.
 
-import { BACKUP_PREFIX } from "./backup.js";
+import { BACKUP_PREFIX, recordKey } from "./backup.js";
 
 export const BACKUP_LOG_PREFIX = `${BACKUP_PREFIX}log/`;
 /** The gateway route that answers a page to the owner (`apps/mcp/src/communications/messagesBackupRead.js`). */
@@ -49,4 +49,46 @@ export async function readLogPage(store, after) {
   if (objects.length === 0) return { objects, next: listed?.truncated ? (after ?? null) : null };
   const finished = objects.length === keys.length && !listed?.truncated;
   return { objects, next: finished ? null : objects.at(-1).key };
+}
+
+// A copy of the backup is the backup as it is kept (owner, 2026-10-27): the
+// log's JSON-lines objects and the files, at the paths they have under
+// `BACKUP_PREFIX`, so what the person takes home reads the same as what the
+// bucket holds and any tool that reads one reads the other.
+
+/** One path segment of a key a copy writes: letters, digits, `.`, `_`, `-`, never a dot first. */
+const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Where a log object sits in a copy, `log/<group>/<name>.jsonl`, or null for a
+ * key that is not one: outside the log, or with a segment no file system
+ * should be handed.
+ */
+export function copyPathOf(key) {
+  if (typeof key !== "string" || !key.startsWith(BACKUP_LOG_PREFIX)) return null;
+  const relative = key.slice(BACKUP_PREFIX.length);
+  return relative.split("/").every((segment) => SEGMENT.test(segment)) ? relative : null;
+}
+
+/**
+ * Fold records, given in the order they arrived: the later one with the same
+ * key wins, as everywhere the backup is read. What a copy needs of it is
+ * which conversations there are and which files the live messages hold.
+ *
+ * @param {Iterable<any>} records
+ */
+export function foldRecords(records) {
+  const latest = new Map();
+  for (const record of records) {
+    if (record && typeof record === "object" && typeof record.kind === "string") latest.set(recordKey(record), record);
+  }
+  /** @type {{ messages: any[], chats: Set<string> }} */
+  const fold = { messages: [], chats: new Set() };
+  for (const record of latest.values()) {
+    if (record.kind === "message") {
+      fold.messages.push(record);
+      fold.chats.add(record.chat);
+    }
+  }
+  return fold;
 }
