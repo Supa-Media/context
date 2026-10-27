@@ -241,7 +241,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
     log({ route: "read", outcome: "refused", reason: claimed.refused });
     return json({ ok: false, refused: claimed.refused });
   }
-  const mailbox = claimed.mailboxes[0]!;
+  const mailbox: Mailbox = claimed.mailboxes[0]!;
   const token = await tokenFor(ctx, mailbox);
   if (token === null) return json({ ok: false, refused: "unavailable" });
   let message;
