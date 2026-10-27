@@ -36,7 +36,7 @@
  *     after the turn returned.
  * 11. `route.js` not asking `steer.endCancelled()` after the turn → "a cancel
  *     after the last round still withdraws the turn's asks".
- * 12. `steer.js` `track` not marking a write (drop `await committed(...)`) →
+ * 12. `steer.js` `track` not marking a write (drop `await (marked ??= mark(true))`) →
  *     "no cancel once the turn has changed something".
  * 13. `cancelTurn` not checking the running state (drop the `before?.user`
  *     test) together with its re-check after marking (always `return true`)
@@ -52,6 +52,12 @@
  * 16. `route.js` recording any named turn, not only steer's (set
  *     `outcome.turn = body.turn` unconditionally) → "only a texted turn the
  *     Worker named is recorded".
+ * 17. `turn.js` asking `steer.cancelled()` after a write started (drop
+ *     `steer.wrote !== true &&`), or `endCancelled` reading the mark after
+ *     one (drop `open === 0 &&`) → "a cancel mark set after a write started
+ *     is ignored by the turn" (each run 2026-10-27, each failed it).
+ * 18. `track` not taking back the mark of a held call → "a cancel after the
+ *     last round still withdraws the turn's asks" (run 2026-10-27).
  *
  * Changed behaviour (2026-10-27, not a sabotage): `/agent/cancel` answers
  * `{ cancelled: false }` and marks nothing unless the named turn is running
@@ -151,7 +157,7 @@ function event(fields = {}) {
 }
 
 before(async () => {
-  const s3 = createS3Backend(S3_ENDPOINT);
+  const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() }); // dated as S3 does: turn records older than 48h are pruned (`loggedTurn.js`)
   restore.push(s3.install());
   restore.push(controlPlane.install());
   const below = globalThis.fetch;
@@ -281,7 +287,7 @@ test("a cancelled turn stops after its current round", async () => {
 });
 
 test("a turn nobody cancelled runs as before, and clears nothing of another turn's", async () => {
-  bucket.set(`${CANCEL_PREFIX}turn-other-0001.json`, { body: "{}", etag: "c0" });
+  bucket.set(`${CANCEL_PREFIX}turn-other-0001.json`, { body: "{}", etag: "c0", lastModified: new Date().toISOString() });
   script = [{ calls: [["fetch", { id: "1-projects/plan.md" }]] }, { text: "Here's the plan." }];
   const response = await call("/agent", { question: "read my plan", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.equal(response.body.answer, "Here's the plan.");
@@ -293,7 +299,7 @@ test("a turn nobody cancelled runs as before, and clears nothing of another turn
 
 test("no cancel for a turn that is not running, or not this person's", async () => {
   assert.deepEqual((await call("/agent/cancel", { turn: TURN })).body, { cancelled: false });
-  bucket.set(`${RUNNING_PREFIX}${TURN}.json`, { body: JSON.stringify({ user: "user_someone_else", wrote: false }), etag: "r0" });
+  bucket.set(`${RUNNING_PREFIX}${TURN}.json`, { body: JSON.stringify({ user: "user_someone_else", wrote: false }), etag: "r0", lastModified: new Date().toISOString() });
   assert.deepEqual((await call("/agent/cancel", { turn: TURN })).body, { cancelled: false });
   assert.deepEqual(liveKeys(CANCEL_PREFIX), [], "nothing marked");
 });
@@ -310,6 +316,22 @@ test("no cancel once the turn has changed something", async () => {
   assert.equal(response.body.cancelled, undefined);
   assert.equal(response.body.answer, "Wrote it.");
   assert.deepEqual(liveKeys(CANCEL_PREFIX), []);
+});
+
+test("a cancel mark set after a write started is ignored by the turn", async () => {
+  for (const [script_, at] of [
+    [[{ calls: [["write_note", { path: "1-projects/a.md", content: "# A\n" }]] }, { calls: [["fetch", { id: "1-projects/plan.md" }]] }, { text: "Wrote it." }], 2], // seen after a round (`turn.js`)
+    [[{ calls: [["write_note", { path: "1-projects/b.md", content: "# B\n" }]] }, { text: "Wrote it." }], 2], // seen at the end (`endCancelled`)
+  ]) {
+    script = script_;
+    requests.length = 0;
+    during = async (n) => {
+      if (n === at) bucket.set(`${CANCEL_PREFIX}${TURN}.json`, { body: "{}", etag: "cx", lastModified: new Date().toISOString() }); // the mark a racing cancel leaves before it takes it back
+    };
+    const response = await call("/agent", { question: "write a note", timeZone: "UTC", conversation: "texts", turn: TURN });
+    assert.equal(response.body.cancelled, undefined);
+    assert.equal(response.body.answer, "Wrote it.");
+  }
 });
 
 test("a cancel after the last round still withdraws the turn's asks", async () => {
@@ -395,13 +417,13 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
   const fresh = event({ text: "ok do it" });
   await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
   const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
-  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0" });
+  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
   script = [{ text: "Clean so far." }];
   await call("/agent", ask);
   assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "a clean record: nothing tainted");
   assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
   for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
-  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1" });
+  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1", lastModified: new Date().toISOString() });
   script = [{ text: "Doing it." }];
   await call("/agent", ask);
   assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
@@ -468,7 +490,7 @@ test("a turn that fails is recorded not clean", async () => {
 
 test("a reused tainted turn id stays tainted, whatever exit it takes", async () => {
   const key = `${TURNS_PREFIX}${TURN}.json`;
-  bucket.set(key, { body: JSON.stringify({ clean: false }), etag: "t0" });
+  bucket.set(key, { body: JSON.stringify({ clean: false }), etag: "t0", lastModified: new Date().toISOString() });
   const scratch = memoryStore();
   await createPending(scratch, { name: "send_email", args: { to: "a@example.com" }, actor: { clientId: "context_texts", userId: "user_troutes" }, texting: true });
   for (const [k, body] of scratch.data) bucket.set(k, { body, etag: `e-${k.length}` });
@@ -481,7 +503,7 @@ test("a reused tainted turn id stays tainted, whatever exit it takes", async () 
 
 test("a reused clean turn id is tainted by a tainted turn", async () => {
   const key = `${TURNS_PREFIX}${TURN}.json`;
-  bucket.set(key, { body: JSON.stringify({ clean: true }), etag: "t0" });
+  bucket.set(key, { body: JSON.stringify({ clean: true }), etag: "t0", lastModified: new Date().toISOString() });
   script = [{ fail: true }];
   await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false });

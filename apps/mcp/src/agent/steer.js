@@ -47,11 +47,13 @@ const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 export const MAX_STEER_TEXT = 4_000;
 export const CANCEL_PREFIX = ".context/agent/cancel/";
-/** A named turn while it runs: `{ user, wrote }` (`wrote`: a call that changed something or went out succeeded). */
+/** A named turn while it runs: `{ user, wrote }` (`wrote`: a writing call may have started; written before it runs). */
 export const RUNNING_PREFIX = ".context/agent/running/";
 /** Calls outside the MCP's own tools that only read; any other one that succeeds may have changed something. */
 const READS = new Set(["search_web", "open_page", "read_skill", "read_learned_skill", "travel_time"]);
-const commits = (name, result) => result?.isError !== true && result?.held !== true && !READS.has(name) && toolIsWriting(name);
+const writing = (name) => !READS.has(name) && toolIsWriting(name);
+/** Refused when the running record cannot say a write may start: a cancel could otherwise succeed after it. */
+const UNRECORDED = { isError: true, content: [{ type: "text", text: "Could not record that this turn is about to change something, so it did not run. Try again." }] };
 /** The most texts one turn takes in. */
 export const MAX_STEERED = 5;
 
@@ -88,18 +90,19 @@ export function steerFor(store, session, body) {
   if (!texting(session) || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
   const prefix = `${STEER_PREFIX}${body.turn}/`;
   const running = `${RUNNING_PREFIX}${body.turn}.json`;
-  let wrote = false;
-  const committed = async (name, result) => {
-    if (wrote || !commits(name, result)) return;
-    wrote = true;
-    await store.put(running, JSON.stringify({ user: session.actorUserId, wrote: true })).catch(() => {});
-  };
+  let open = 0; // writing calls started and not shown held
+  let marked = null; // the running record's `wrote: true`, once written
+  const mark = (value) => store.put(running, JSON.stringify({ user: session.actorUserId, wrote: value }));
   const seen = new Set();
   const taken = [];
   const words = [];
   return {
     taken,
     words,
+    /** Whether a writing call may have started: from then on no cancel stops the turn. */
+    get wrote() {
+      return open > 0;
+    },
     /** The line the turn is given after a tool round, or null when nothing came. */
     async next() {
       const texts = await this.take();
@@ -142,11 +145,28 @@ export function steerFor(store, session, body) {
     async begin() {
       await store.put(running, JSON.stringify({ user: session.actorUserId, wrote: false })).catch(() => {});
     },
-    /** A tool call (or a web one, `web`) whose success marks the turn as having changed something: no cancel after it. */
+    /**
+     * A tool call (or a web one, `web`). A writing one marks the turn as having
+     * changed something before it runs (pessimistic), and does not run when
+     * that mark cannot be written: no cancel after it. Only a call held for a
+     * yes, which ran nothing, takes the mark back.
+     */
     track(call) {
       return async (name, args) => {
+        if (!writing(name)) return call(name, args);
+        open += 1;
+        try {
+          await (marked ??= mark(true));
+        } catch {
+          open -= 1;
+          marked = null;
+          return UNRECORDED;
+        }
         const result = await call(name, args);
-        await committed(name, result);
+        if (result?.held === true && --open === 0) {
+          marked = null;
+          await mark(false).catch(() => {}); // left true, a cancel is only refused
+        }
         return result;
       };
     },
@@ -161,7 +181,7 @@ export function steerFor(store, session, body) {
      */
     async endCancelled() {
       await store.delete(running).catch(() => {});
-      return this.cancelled();
+      return open === 0 && this.cancelled();
     },
     /** Whether the Worker cancelled this turn. */
     async cancelled() {
