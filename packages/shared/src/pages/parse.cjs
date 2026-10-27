@@ -268,12 +268,23 @@ function fenced(source, info, bodyLines, where) {
   const items = [];
   const settings = {};
   const problems = [];
+  const words = [];
   for (const line of bodyLines) {
     if (line.text.trim() === "") continue;
     const item = /^[ \t]*(?:[-*+]|\d{1,3}[.)])[ \t]+(.*)$/.exec(line.text);
     if (item) {
       items.push(blockItem(source, line.to - item[1].length, line.to, line));
       continue;
+    }
+    // Indented `key: value` lines under an item are that item's fields (`photo:`, `seats:`, a fact).
+    const last = items[items.length - 1];
+    if (last && /^[ \t]{2,}\S/.test(line.text)) {
+      const fields = itemFields(source, line);
+      if (fields) {
+        last.fields.push(...fields);
+        last.to = line.to;
+        continue;
+      }
     }
     const setting = /^[ \t]*([a-z][a-z _-]{0,24}):[ \t]*(.*?)[ \t]*$/i.exec(line.text);
     if (setting) {
@@ -282,9 +293,15 @@ function fenced(source, info, bodyLines, where) {
       settings[key] = { value: setting[2], from: setting[2] === "" ? line.to : valueFrom, to: setting[2] === "" ? line.to : valueFrom + setting[2].length, lineFrom: line.from, lineTo: line.to };
       continue;
     }
-    problems.push({ message: `"${line.text.trim().slice(0, 40)}" is not an item ("- ...") or a setting ("key: value").` });
+    // A kind that takes words (a vote's reason) keeps plain lines written before its items.
+    if (BLOCK_KINDS[word].words && items.length === 0) {
+      const from = line.from + (line.text.length - line.text.trimStart().length);
+      words.push(...(words.length ? [{ text: " ", from, to: from, editable: false, anchors: [] }] : []), ...inlineRuns(source, from, line.to));
+      continue;
+    }
+    problems.push({ message: `"${line.text.trim().slice(0, 40)}" is not an item ("- ..."), a setting ("key: value") or, indented under an item, one of its fields.` });
   }
-  const block = { type: "block", kind: word, title: rest, items, settings, problems, ...where };
+  const block = { type: "block", kind: word, title: rest, items, settings, words, problems, ...where };
   for (const message of checkBlock(block)) problems.push({ message });
   return block;
 }
@@ -321,7 +338,43 @@ function blockItem(source, from, to, line) {
     parts[0] = { from: v, to: first.to };
   }
   const read = (part) => ({ ...part, text: source.slice(part.from, part.to), runs: inlineRuns(source, part.from, part.to) });
-  return { label: label ? read(label) : null, parts: parts.map(read), from: line.from, to: line.to };
+  return { label: label ? read(label) : null, parts: parts.map(read), fields: [], from: line.from, to: line.to };
+}
+
+/** A field's name as written ("On the L") and as looked up ("on_the_l"). */
+const FIELD = /^([A-Za-z0-9][^:;|]{0,30}?):[ \t]+(\S.*)$/;
+
+/**
+ * One indented line of fields: `seats: 300-500`, or several facts on one line
+ * split at `; ` (`kitchen: yes; on the L: no`). Null when the line is not
+ * fields at all, so the caller can say so.
+ */
+function itemFields(source, line) {
+  const start = line.from + (line.text.length - line.text.trimStart().length);
+  const text = source.slice(start, line.to).replace(/\s+$/, "");
+  const segments = [];
+  const splitter = /;[ \t]+(?=[A-Za-z0-9][^:;|]{0,30}?:[ \t])/g;
+  let at = 0;
+  for (const m of text.matchAll(splitter)) {
+    segments.push([at, m.index]);
+    at = m.index + m[0].length;
+  }
+  segments.push([at, text.length]);
+  const fields = [];
+  for (const [a, b] of segments) {
+    const m = FIELD.exec(text.slice(a, b));
+    if (!m) return null;
+    const keyFrom = start + a;
+    const valueFrom = keyFrom + m[0].length - m[2].length;
+    const valueTo = start + b;
+    fields.push({
+      name: m[1].trim(),
+      key: m[1].trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+      value: { from: valueFrom, to: valueTo, text: source.slice(valueFrom, valueTo), runs: inlineRuns(source, valueFrom, valueTo) },
+      line: { from: line.from, to: line.to, alone: segments.length === 1 },
+    });
+  }
+  return fields;
 }
 
 /** Where a label ends: the first unescaped `:` followed by a space, outside a link or code. */

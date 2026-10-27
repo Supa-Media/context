@@ -305,7 +305,29 @@ function rewriteCodeReferences(content, byName, embedded) {
       .replace(url, (_, lead, quote, dot, close) => `${lead}${quote}${dot}${image.leaf}${quote}${close}`);
     if (next !== before) embedded.add(name);
   }
-  return next;
+  return rewritePageFields(next, byName, embedded);
+}
+
+/**
+ * A page (`.page.md`) names its pictures in fields, not embeds: `photo:
+ * stand.jpg`, `photos: a.jpg, b.jpg`, `cover:` and a places block's `map:`
+ * (`packages/shared/src/pages/`). Each value that is exactly an attached
+ * name becomes the stored copy's name, so the page shows the picture where
+ * the writer put it, and it is not tacked on below as an embed.
+ */
+const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map)[ \t]*:[ \t]*)(.+)$/gim;
+
+function rewritePageFields(content, byName, embedded) {
+  return content.replace(PAGE_PICTURE_FIELD, (_, lead, value) => {
+    const names = value.split(",").map((part) => {
+      const name = part.trim();
+      const image = byName.get(name) ?? byName.get(name.replace(/^\.\//, ""));
+      if (!image) return part;
+      embedded.add(image.name);
+      return part.replace(name, image.leaf);
+    });
+    return lead + names.join(",");
+  });
 }
 
 /** Put every prepared image in the opaque store. Content-addressed, so a repeat is a no-op in effect. */

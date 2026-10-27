@@ -38,7 +38,7 @@ import { isDrawingPath, parseDrawing } from "../../../../../packages/drawings/sr
 import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
 import { parseFormBlocks } from "../../forms.js";
-import { isPagePath, pageProblems } from "../../pages.js";
+import { isPagePath, pageProblems, pageSkillMissing } from "../../pages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
@@ -119,7 +119,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   }
   // A `.page.md` note is checked the same way: a block an agent got wrong (a
   // chart with no numbers, a choice of one) is told while the text is in hand.
-  const pageRefusal = isPagePath(path) ? pageProblems(content) : null;
+  // And a page is written only by a caller who read the page design skill as it is now (`pageSkill.js`).
+  const pageRefusal = isPagePath(path) ? pageSkillMissing(content) ?? pageProblems(content) : null;
   if (pageRefusal) return toolError(pageRefusal);
   // Any override that is not `team` is a destination a team connection may not
   // write, and `!== "team"` rather than `=== "private"` is the whole of it.

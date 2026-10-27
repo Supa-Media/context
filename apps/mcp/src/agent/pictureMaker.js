@@ -55,7 +55,7 @@ import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js"
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
-import { PAGE_TEMPLATE, pageCover } from "./visuals/page.js";
+import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
 
 export const DRAW_TOOL = "draw_picture";
@@ -271,7 +271,14 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (args?.template === PAGE_TEMPLATE) {
       const path = typeof args?.data?.path === "string" ? args.data.path.trim() : "";
       const text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
-      const cover = pageCover(path, text, args?.theme);
+      // Its photos, each read through the page's own note as this turn may read it, and drawn in as bytes.
+      const images = new Map();
+      for (const src of coverPictures(text)) {
+        const read = await Promise.resolve(callTool("read_image", { note: path, image: src })).catch(() => null);
+        const part = read?.isError ? null : read?.content?.find((item) => item.type === "image");
+        if (part?.data) images.set(src, `data:${part.mimeType};base64,${part.data}`);
+      }
+      const cover = pageCover(path, text, args?.theme, images);
       if (cover.error) return say(cover.error, true);
       const drawn = await draw(cover, { card: true });
       // Kept for the page's link card (`/gateway/page-cover`); a page in another context is not this turn's to keep.

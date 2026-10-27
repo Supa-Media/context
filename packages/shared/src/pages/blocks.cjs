@@ -46,6 +46,25 @@ function shareIn(value) {
   return n !== null && n >= 0 && n <= 1 ? n : null;
 }
 
+/** An item's field by any of its names (`photo`, `photos`), or null. */
+function fieldOf(item, ...keys) {
+  return (item.fields ?? []).find((field) => keys.includes(field.key)) ?? null;
+}
+
+/** "Ask", "?", "TBD", "not listed": a price the writer does not know, drawn as one to ask for. */
+const UNKNOWN = /^\s*(\?|ask\b.*|tbd|unknown|not (?:listed|published)|by (?:email|phone|quote))\s*$/i;
+
+/** A seat count or range ("300-500", "225") as its top number, or null. */
+function seatsIn(value) {
+  const nums = String(value ?? "").match(/\d[\d,]*/g);
+  return nums ? Math.max(...nums.map((n) => Number(n.replace(/,/g, "")))) : null;
+}
+
+const optionsCheck = (block, least, most) => [
+  ...(block.items.length < least ? [`Give at least ${least} options.`] : []),
+  ...(block.items.length > most ? [`At most ${most} options; put the rest in a places or prices block.`] : []),
+];
+
 const labelled = (block, what) =>
   block.items.filter((item) => item.label === null).map((item) => `"${item.parts[0].text.slice(0, 40)}" needs a label first: "- ${what}: ...".`);
 
@@ -55,7 +74,7 @@ const labelled = (block, what) =>
  */
 const BLOCK_KINDS = {
   stats: {
-    about: "a row of headline numbers. - Label: value | note (up to 6)",
+    about: "headline numbers, big, on hairlines. - Label: value | note (up to 6)",
     settings: [],
     check: (block) => [...labelled(block, "Budget"), ...(block.items.length > 6 ? ["A stats row holds at most 6 numbers."] : [])],
   },
@@ -90,7 +109,7 @@ const BLOCK_KINDS = {
     ],
   },
   timeline: {
-    about: "things in time order: a day, a trip, a plan. - When: what | detail",
+    about: "things in time order: deadlines, milestones. - When: what | detail. Field: state (done or now)",
     settings: [],
     check: (block) => labelled(block, "Sat 9:00"),
   },
@@ -106,7 +125,7 @@ const BLOCK_KINDS = {
     check: (block) => (block.items.length < 2 ? ["A choice needs at least two options."] : []),
   },
   board: {
-    about: "work by status, as columns. - Column: card | note (e.g. - Doing: Book the van | Zay)",
+    about: "work by status, as lanes. - Column: card | who (e.g. - Doing: Book the van | Zay)",
     settings: [],
     check: (block) => labelled(block, "Doing"),
   },
@@ -116,9 +135,57 @@ const BLOCK_KINDS = {
     check: (block) => labelled(block, "Zay"),
   },
   places: {
-    about: "places to go, numbered, each opening in a map app. - Name: street address | note. Setting: near (the town, so addresses resolve)",
-    settings: ["near"],
+    about:
+      "places to go, each a spread with photos, a price, how many it holds against what you need, and a fact strip. - Name: street address | why it fits. " +
+      "Fields, indented under it: price ($2,850, or Ask), seats (300-500), photo or photos (file names; filled for you when left out), and any facts as `key: yes|no|?|words` (kitchen: yes; on the L: no). " +
+      "Settings: near (the town), need (\"200 seats\", drawn against each seats), map (filled for you)",
+    settings: ["near", "need", "map"],
     check: (block) => labelled(block, "Casa Lola"),
+  },
+  vote: {
+    words: true,
+    about:
+      "your pick, and the options people vote on, in one dark card: the caption is the pick in a few words, the line under it is why, then one option per line. " +
+      "- Option | detail. Fields: photo, votes (names who picked it). Settings: action (the button, with {pick}: \"Ask {pick} for a quote\"), chosen (empty until someone decides), voters (how many are voting). Put it right after the opening words",
+    settings: ["action", "chosen", "voters"],
+    check: (block) => [
+      ...optionsCheck(block, 2, 6),
+      ...(block.title ? [] : ['vote needs your pick as its caption: "```vote Ask The Stand first".']),
+    ],
+  },
+  prices: {
+    about:
+      "prices on one shared axis, so the gap is visible, with a total for the group. - Name: $14 | what you get (? or Ask when not listed). Fields: photo. Settings: per (guest), for (30, the group size for totals), pick (the name to mark)",
+    settings: ["per", "for", "pick"],
+    check: (block) => [
+      ...labelled(block, "Smart Value"),
+      ...block.items
+        .filter((item) => item.label && numberIn(item.parts[0].text) === null && !UNKNOWN.test(item.parts[0].text))
+        .map((item) => `${item.label.text} needs a price, or ? when it is not listed.`),
+      ...(block.items.length < 2 ? ["Show at least two prices."] : []),
+      ...(block.settings.for && numberIn(block.settings.for.value) === null ? ["for: needs a number of people."] : []),
+    ],
+  },
+  itinerary: {
+    about: "a day or a night as stops with photos and the walk between them. - 7:00: Dinner at the grill house | Table for 8. Fields: photo, walk (to the next stop: \"6 min · 0.3 mi\")",
+    settings: [],
+    check: (block) => labelled(block, "7:00"),
+  },
+  tiers: {
+    about:
+      "two to four budgets side by side, each with what it buys. - Good: $85 | a head. Fields: photos, votes, and each thing it buys as `Korean BBQ: $48`. Settings: pick (your pick), chosen (empty until someone decides)",
+    settings: ["pick", "chosen"],
+    check: (block) => [...labelled(block, "Good"), ...optionsCheck(block, 2, 4)],
+  },
+  contacts: {
+    about: "who to call or write, with buttons. - Name: role | note. Fields: phone, email, text (a number to text), site",
+    settings: [],
+    check: (block) => [
+      ...labelled(block, "Smart Value"),
+      ...block.items
+        .filter((item) => !fieldOf(item, "phone", "email", "text", "site"))
+        .map((item) => `${item.label ? item.label.text : "A contact"} needs a phone:, email:, text: or site: field under it.`),
+    ],
   },
   versus: {
     about: "two things side by side, row by row. Settings: a, b (their names). - Row: a's value | b's value",
@@ -145,4 +212,4 @@ function checkBlock(block) {
   return [...problems, ...kind.check(block)].map((problem) => `${block.kind}${block.title ? ` "${block.title}"` : ""}: ${problem}`);
 }
 
-module.exports = { BLOCK_KINDS, checkBlock, numberIn, shareIn };
+module.exports = { BLOCK_KINDS, checkBlock, numberIn, shareIn, fieldOf, seatsIn, UNKNOWN };
