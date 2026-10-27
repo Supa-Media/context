@@ -178,7 +178,7 @@ From the owner's 1:1 of 2026-10-27: asked to fill in a Bible study note's verse 
 
 ## 14. Register me for the retreat (H4: a form Tex fills and sends itself; F1 is fair)
 
-From the owner's 1:1 of 2026-10-27 ("why is my tex asking me to complete a regular form myself?"): asked to register them for a church conference, Tex asked the four questions the form needed (fair, F1), got every answer, filled the form, and when its Register click ran out of time it texted "Open this to take over the browser" instead of reading the page and pressing Register again. Since PR #PRNUM the gateway refuses a handoff on a page with no sign-in, code, captcha or card box (`apps/mcp/src/agent/handoffGate.js`). `sites/retreat.example.md` is a free registration form with four required choices.
+From the owner's 1:1 of 2026-10-27 ("why is my tex asking me to complete a regular form myself?"): asked to register them for a church conference, Tex asked the four questions the form needed (fair, F1), got every answer, filled the form, and when its Register click ran out of time it texted "Open this to take over the browser" instead of reading the page and pressing Register again. Since PR #2291 the gateway refuses a handoff on a page with no sign-in, code, captcha or card box (`apps/mcp/src/agent/handoffGate.js`). `sites/retreat.example.md` is a free registration form with four required choices.
 
 - kind: task
 - person starts: "can you register me for the harvest retreat? retreat.example"
