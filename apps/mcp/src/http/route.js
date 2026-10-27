@@ -71,7 +71,7 @@ import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
-import { handleSteer } from "../agent/steer.js";
+import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
@@ -231,7 +231,7 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
-      path === "/agent/steer" ||
+      TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
       approvalsRoute ||
@@ -679,8 +679,8 @@ export async function route(request, env, ctx) {
       }
       // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
       // setup an @context-lc editor picked, then a judge turn on its rules.
-      // A text sent while a texted turn runs, for that turn to take in (`agent/steer.js`).
-      if (path === "/agent/steer") return await handleSteer(request, store, session);
+      // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
+      if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));

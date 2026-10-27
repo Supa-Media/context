@@ -12,6 +12,16 @@
  * from its queue. A text that lands after the turn's last look is answered
  * on its own, as before.
  *
+ * Any kind of message the Worker forwards is steered (Dev2, 2026-10-26,
+ * reversing "replies, tapbacks and photos are never steered"): a text, an
+ * inline reply's words, a tapback's words, a picture's caption. Each is words
+ * only, capped the same (`MAX_STEER_TEXT`, `MAX_STEERED`), and vouches for
+ * nothing, as below.
+ *
+ * A turn the Worker cancels (`POST /agent/cancel`, `textingRoutes.js`) is
+ * marked under `.context/agent/cancel/<turn>.json`; the running turn asks
+ * `cancelled()` after each round, where it takes steered texts, and stops.
+ *
  * A background job's turn (`background.js`) is named the same way, by the
  * job's own object, in a 1:1 chat or a group: a follow-up the chat's turn
  * passed to the job arrives here with the job's grant. A group's ordinary
@@ -35,6 +45,7 @@ export const STEER_PREFIX = ".context/agent/steer/";
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 export const MAX_STEER_TEXT = 4_000;
+export const CANCEL_PREFIX = ".context/agent/cancel/";
 /** The most texts one turn takes in. */
 export const MAX_STEERED = 5;
 
@@ -114,9 +125,18 @@ export function steerFor(store, session, body) {
         return false;
       }
     },
-    /** Clear what this turn was sent, taken or not: one not taken is answered on its own. */
+    /** Whether the Worker cancelled this turn. */
+    async cancelled() {
+      try {
+        return (await store.get(`${CANCEL_PREFIX}${body.turn}.json`)) !== null;
+      } catch {
+        return false;
+      }
+    },
+    /** Clear what this turn was sent, taken or not: one not taken is answered on its own; and its cancel mark. */
     async clear() {
       try {
+        await store.delete(`${CANCEL_PREFIX}${body.turn}.json`);
         const page = await store.list({ prefix, limit: 100 });
         await Promise.all((page?.objects ?? []).map((object) => store.delete(object.key)));
       } catch {

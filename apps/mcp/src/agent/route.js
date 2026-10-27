@@ -35,7 +35,10 @@ import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
 import { withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
-import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
+import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
+import { loggedTurn, turnHistory } from "./loggedTurn.js";
+import { deferred } from "./deferred.js";
+import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { withFolderFit } from "./folderFit.js";
@@ -56,7 +59,7 @@ import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
-import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
+import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -276,19 +279,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     ...(group !== null ? { group: { from: group.from, people: group.people } } : {}), // who an email may be offered to (`offerFor.js`)
   };
 
-  /*
-    A named conversation carries its recent turns into this one. Only a name
-    from `conversation.js`'s fixed list, never a path, and only on a grant that
-    can write: the history is a file in the bucket, and a read-only grant writes
-    nothing, so it gets a turn with no memory rather than a write it does not
-    hold. Kept in the default context, the one this grant was approved against.
-  */
-  const conversation =
-    !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
-      ? body.conversation
-      : null;
-  // A group chat remembers in its own file, never the tagger's texts; its turns are other people's words, so untrusted (`groupTurn.js`).
-  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await readConversation(store, conversation);
+  // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
+  const { conversation, history } = await turnHistory(store, session, body, { runner, group, dispatch });
+  const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE });
   const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
@@ -488,7 +481,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
+      question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
@@ -525,7 +519,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         },
       },
       web: claims?.wrapWeb(web) ?? web, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
-      history: shown,
+      history: logged?.history ?? shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + (texted && job === null ? await googleOfferLine(store, shown) : ""), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
@@ -556,6 +550,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (opened !== null) await afterAnswer(opened.close());
     await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
+    // Cancelled by the Worker (`steer.js`): its asks are withdrawn, nothing is kept as said, and nothing is texted.
+    if (turn.cancelled) return await cancelledTurn(store, session, { ledger, steer, transcript, steps: turn.steps });
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
@@ -683,18 +679,5 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       return json({ error: "model_unavailable" }, 502);
     }
     throw error;
-  }
-}
-
-/**
- * Work that is ours rather than the person's runs after the answer has gone,
- * where the host lets it, rather than before.
- */
-async function deferred(store, work) {
-  try {
-    if (typeof store.defer !== "function") throw new Error("no defer");
-    store.defer(work);
-  } catch {
-    await work;
   }
 }
