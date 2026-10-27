@@ -28,7 +28,7 @@ import { JSDOM } from "jsdom";
 
 const BOX = readFileSync(path.join(__dirname, "..", "page-frame", "box.js"), "utf8");
 
-const HTML = '<p id="drawn">hello</p><script>window.__boxScriptRan = true;<\/script>';
+const HTML = '<p id="drawn">hello</p><script>window.__boxScriptRan = true;</script>';
 
 type Run = { ran: boolean; drawn: boolean; posted: { type?: string }[] };
 
