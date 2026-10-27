@@ -484,6 +484,25 @@ describe("sendblue sending", () => {
     expect(texts).toEqual([NEW_LINE_TEXT, "answer to q", "answer to q [quoting x]"]);
   });
 
+  it("never says it to someone coming back from WhatsApp, and says it only once", async () => {
+    const back = new MemoryStorage();
+    await back.put(CHAT_KEY, { chatId: "whapi:+15555550199:+15555550100", at: 500 });
+    await accept(back, message("sendblue:mh_w1"), 1_000);
+    const calls: Call[] = [];
+    await drain(back, deps(fakeSendblue(calls), []));
+    expect(calls.some((c) => c.body.content === NEW_LINE_TEXT)).toBe(false);
+
+    const twice = new MemoryStorage();
+    await twice.put(CHAT_KEY, { chatId: "chat_linq", at: 500 });
+    await accept(twice, message("sendblue:mh_t1"), 1_000);
+    await drain(twice, deps(fakeSendblue([]), []));
+    await twice.put(CHAT_KEY, { chatId: "chat_linq", at: 2_000 });
+    await accept(twice, message("sendblue:mh_t2"), 3_000);
+    const later: Call[] = [];
+    await drain(twice, deps(fakeSendblue(later), []));
+    expect(later.some((c) => c.body.content === NEW_LINE_TEXT)).toBe(false);
+  });
+
   it("never says it to someone new to Tex, or on the old line", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("sendblue:mh_f1"), 1_000);
