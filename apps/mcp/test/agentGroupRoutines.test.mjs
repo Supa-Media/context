@@ -84,10 +84,3 @@ test("somebody with no account sets no routine", async () => {
   assert.match(toolReplies(world.model.requests.at(-1))[0], /Only someone here who is on Context/);
   assert.ok(!saved("tex/routines/daily/invited.md"));
 });
-
-test("a chat with shared mail is told a routine can wake on new mail; one without is not", async () => {
-  const { chatRoutinePrompt } = await import("../src/agent/groupRoutines.js");
-  const key = "e".repeat(64);
-  assert.match(chatRoutinePrompt({ key, mail: [{ handle: "seyi", address: "seyi@work.example" }] }), /wake: new mail/);
-  assert.doesNotMatch(chatRoutinePrompt({ key }), /wake: new mail/);
-});

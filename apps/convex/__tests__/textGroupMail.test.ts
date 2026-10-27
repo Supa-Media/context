@@ -17,7 +17,10 @@
  *  - drop `insideShare` from the read: "a message outside the share" fails;
  *  - drop the `writingRole` check in `liveMailShares`: "losing edit ends it" fails;
  *  - drop the `wake` or `chat` match in `wakeMailRoutines`: "new mail brings
- *    forward only" fails; drop the gap: "never sooner than" fails.
+ *    forward only" fails; drop the gap: "never sooner than" fails;
+ *  - the chat's own look (`textGroupMailLooks.ts`): dropping its wake, its
+ *    claim, its result, its lease, its live-chat check, its gap, or the
+ *    personal `watchedIn` each fails a test in "the chat watches shared mail".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -27,6 +30,8 @@ import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogle
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { withinShare } from "../functions/lib/gatewayRoutes/personMail";
 import { MAIL_WAKE_DELAY_MS, MAIL_WAKE_GAP_MS } from "../functions/lib/routines/wake";
+import { CHAT_MAIL_LOOK_PATH, LOOK_DELAY_MS, LOOK_GAP_MS } from "../functions/lib/textGroupMailLooks";
+import { registerClient, seedConnectedClient } from "./controlPlane/fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
 const LINE = "+15555550001";
@@ -272,5 +277,79 @@ describe("new mail wakes the chat's mail routine", () => {
     await turn(t, SEYI, { command: { kind: "unshare_mail" } });
     await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
     expect((await t.run((ctx) => ctx.db.get(id)))!.nextRunAt).toBeGreaterThan(Date.now() + 11 * HOUR);
+  });
+});
+
+describe("the chat watches shared mail on its own", () => {
+  async function shared(t: T) {
+    const fam = await family(t);
+    await t.run((ctx) => ctx.db.patch(fam.connectionId, { push: { gmail: { address: WORK } } }));
+    await turn(t, SEYI, share(WORK));
+    return fam;
+  }
+  const lookRow = async (t: T) => (await t.run(async (ctx) => await ctx.db.query("chatMailShares").first()))!;
+  const dueRuns = async (t: T) => ((await agentPost(t, "/agent-texts/routines/due", {})).runs ?? []) as Array<Record<string, unknown>>;
+
+  test("new mail makes the chat's look due with no routine, and the cron hands it out as a chat run", async () => {
+    gmail();
+    const t = setupTest();
+    await shared(t);
+    const before = Date.now();
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    const row = await lookRow(t);
+    expect(row.nextLookAt).toBeGreaterThanOrEqual(before + LOOK_DELAY_MS);
+    await t.run((ctx) => ctx.db.patch(row._id, { nextLookAt: Date.now() - 1 }));
+
+    const runs = await dueRuns(t);
+    expect(runs).toEqual([
+      expect.objectContaining({ path: CHAT_MAIL_LOOK_PATH, chat: row.groupKey, phones: [SEYI], since: row.createdAt }),
+    ]);
+    expect(runs[0]!.accessToken).toBeUndefined();
+    // Handed out once: only new mail makes it due again, and not while this one is still out.
+    expect(await dueRuns(t)).toEqual([]);
+    await t.run((ctx) => ctx.db.patch(row._id, { nextLookAt: Date.now() - 1 }));
+    expect(await dueRuns(t)).toEqual([]);
+    const outcome = await agentPost(t, "/agent-texts/routines/result", { runId: runs[0]!.runId, outcome: "skipped", texted: 0 });
+    expect(outcome.status).not.toBe("unknown");
+    const after = await lookRow(t);
+    expect(after.lookRunId).toBeUndefined();
+    expect(after.lastLookAt).toBeGreaterThanOrEqual(before);
+    expect((await t.run(async (ctx) => await ctx.db.query("auditEvents").collect())).map((row) => row.action)).toContain("mail.chat_look");
+  });
+
+  test("a burst of mail is one look, never sooner than the gap after the last", async () => {
+    gmail();
+    const t = setupTest();
+    await shared(t);
+    const lastLookAt = Date.now();
+    await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("chatMailShares").first())!._id, { lastLookAt }));
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    expect((await lookRow(t)).nextLookAt).toBe(lastLookAt + LOOK_GAP_MS);
+  });
+
+  test("a chat that can no longer hear it drops the look", async () => {
+    gmail();
+    const t = setupTest();
+    await shared(t);
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    await t.run(async (ctx) => {
+      for (const group of await ctx.db.query("textGroups").collect()) await ctx.db.patch(group._id, { mutedAt: Date.now() });
+      await ctx.db.patch((await ctx.db.query("chatMailShares").first())!._id, { nextLookAt: Date.now() - 1 });
+    });
+    expect(await dueRuns(t)).toEqual([]);
+    expect((await lookRow(t)).nextLookAt).toBeUndefined();
+  });
+
+  test("the person's own check-in is told which of their mailboxes a chat watches", async () => {
+    const queries = gmail();
+    const t = setupTest();
+    const { seyi } = await shared(t);
+    const own = "cat_seyi_own_check_in_not_real";
+    await registerClient(t, "context_heartbeat");
+    await seedConnectedClient(t, { workspaceId: seyi.workspaceId, userId: seyi.userId, clientId: "context_heartbeat", accessToken: own, scopes: ["context:read", "context:write", "context:private"] });
+    const answer = await search(t, own, seyi.workspaceId);
+    expect(answer.mailboxes).toEqual([expect.objectContaining({ address: WORK, watchedIn: ["crystal-care"] })]);
+    expect(queries.length).toBeGreaterThan(0);
   });
 });

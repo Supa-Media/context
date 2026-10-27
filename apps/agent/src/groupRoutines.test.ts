@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroupRoutine, drainGroup, type GroupDeps } from "./groupInbox";
-import { chatRoutineMessage, chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { CHAT_MAIL_LOOK_PATH, chatRoutineMessage, chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { runDueRoutines } from "./routines";
 import { fetchDueRoutines, type DueRoutine, type Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -162,6 +162,14 @@ describe("handing a chat routine out", () => {
     const text = chatRoutineMessage({ ...RUN, timeZone: "America/New_York", since: Date.UTC(2026, 9, 27, 13, 5) }).text;
     expect(text).toContain("It last ran Oct 27, 9:05 AM EDT");
     expect(chatRoutineMessage(RUN).text).not.toContain("last ran");
+  });
+
+  it("a chat's own mail look asks about new shared mail, never a note, and leaves personal mail to its owner", () => {
+    const text = chatRoutineMessage({ ...RUN, path: CHAT_MAIL_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000 }).text;
+    expect(text).toContain("after:1700000000");
+    expect(text).toContain("concerns only the mailbox's owner personally");
+    expect(text).toContain("SKIP");
+    expect(text).not.toContain("routine");
     expect(saysSkip("Skip the meeting today")).toBe(false);
   });
 });

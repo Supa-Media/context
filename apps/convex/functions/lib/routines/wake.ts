@@ -11,6 +11,7 @@
 
 import type { Doc } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
+import { wakeChatMailLooks } from "../textGroupMailLooks";
 
 /** How long after a notification the look starts, so the mail that came with it has landed. */
 export const MAIL_WAKE_DELAY_MS = 60_000;
@@ -27,7 +28,8 @@ export async function wakeMailRoutines(ctx: MutationCtx, row: Doc<"googleConnect
   const shares = (await ctx.db.query("chatMailShares").withIndex("by_user", (q) => q.eq("userId", owner)).take(50)).filter(
     (share) => share.address === address,
   );
-  let woken = 0;
+  // The chat's own look, which needs no routine (`textGroupMailLooks.ts`).
+  let woken = await wakeChatMailLooks(ctx, owner, address, now);
   for (const share of shares) {
     // A routine's `chat:` is the first 16 hex of its chat's key (`chats.ts`).
     const chat = share.groupKey.slice(0, 16);

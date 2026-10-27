@@ -79,3 +79,35 @@ test("a chat with nothing shared is offered no mail", async () => {
   assert.doesNotMatch(toolReplies(world.model.requests.at(-1))[0], /Invoice 1042/);
   assert.equal(world.controlPlane.mailReadCalls.length, before, "the control plane was never asked");
 });
+
+test("a chat with shared mail is told it watches that mail itself, with nothing to set up", async () => {
+  const { chatMailPrompt } = await import("../src/agent/groupMail.js");
+  const prompt = chatMailPrompt({ mail: [{ handle: "seyi", address: "seyi@work.example" }] });
+  assert.match(prompt, /You watch this mail for the chat on your own/);
+  assert.match(prompt, /Nobody has to set that up/);
+});
+
+test("a check-in marks its person's mail a group chat also watches, and is told to leave the group's to it", async () => {
+  const { newMailSection, newMailSince } = await import("../src/agent/newMail.js");
+  const store = {
+    email: {
+      search: async () => ({
+        ok: true,
+        results: [
+          { address: "seyi@work.example", id: "m1", date: "Oct 27", from: "Client <c@example.invalid>", subject: "Invoice", snippet: "" },
+          { address: "seyi@home.example", id: "m2", date: "Oct 27", from: "Mom <m@example.invalid>", subject: "Dinner", snippet: "" },
+        ],
+        mailboxes: [
+          { address: "seyi@work.example", folder: "x", watchedIn: ["crystal-care", "Not A Slug"] },
+          { address: "seyi@home.example", folder: "y" },
+        ],
+      }),
+    },
+  };
+  const mail = await newMailSince(store, 0);
+  assert.match(mail[0].line, /also watched in the @crystal-care group chat/);
+  assert.doesNotMatch(mail[0].line, /Not A Slug/);
+  assert.doesNotMatch(mail[1].line, /also watched/);
+  assert.match(newMailSection(mail), /only when it needs them personally rather than the group/);
+  assert.doesNotMatch(newMailSection([mail[1]]), /rather than the group/);
+});

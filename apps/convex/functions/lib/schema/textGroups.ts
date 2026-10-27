@@ -70,7 +70,18 @@ export const textGroupTables = {
     /** A Gmail search every read is narrowed by, or none for the whole mailbox. */
     query: v.optional(v.string()),
     createdAt: v.number(),
+    /**
+     * The chat's own look at new mail (`lib/textGroupMailLooks.ts`): due when
+     * new mail reaches a mailbox shared there, the last one handed out, and
+     * the lease of the one out now.
+     */
+    nextLookAt: v.optional(v.number()),
+    lastLookAt: v.optional(v.number()),
+    lookRunId: v.optional(v.string()),
+    lookClaimedAt: v.optional(v.number()),
   })
     .index("by_group", ["groupKey"])
-    .index("by_user", ["userId"]),
+    .index("by_user", ["userId"])
+    .index("by_nextLookAt", ["nextLookAt"])
+    .index("by_look_run", ["lookRunId"]),
 };

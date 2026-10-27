@@ -192,3 +192,18 @@ export async function chatMailClearance(
   if (group === null || group.workspaceId !== live.grant.workspaceId) return null;
   return await liveMailShares(ctx, group);
 }
+
+/** The workspaces, by slug, whose group chats a person's own mailbox is shared with now. */
+export async function chatsWatching(ctx: QueryCtx, userId: Id<"users">, address: string): Promise<string[]> {
+  const shares = (await ctx.db.query("chatMailShares").withIndex("by_user", (q) => q.eq("userId", userId)).take(50)).filter(
+    (share) => share.address === address,
+  );
+  const slugs = new Set<string>();
+  for (const share of shares) {
+    const group = (await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", share.groupKey)).first()) ?? null;
+    if (group === null || group.workspaceId !== share.workspaceId || group.mutedAt !== undefined || group.guestGroupId !== undefined) continue;
+    const workspace = await ctx.db.get(share.workspaceId);
+    if (workspace !== null) slugs.add(workspace.slug);
+  }
+  return [...slugs];
+}

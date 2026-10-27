@@ -13,7 +13,7 @@
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
-import { chatMailClearance } from "./lib/textGroupMail";
+import { chatMailClearance, chatsWatching } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -32,6 +32,8 @@ const mailbox = v.object({
   filter: v.optional(v.string()),
   /** A mailbox shared with a group chat: read whole, never through the chat's notes. */
   shared: v.optional(v.literal(true)),
+  /** The person's own mailbox that group chats also watch: those chats' workspaces, by slug (`lib/textGroupMailLooks.ts`). */
+  watchedIn: v.optional(v.array(v.string())),
 });
 
 /** A mailbox's address and the folder its synced day notes are in. */
@@ -87,6 +89,11 @@ export const claimPersonMailRead = internalMutation({
         syncedFrom: row.createdAt,
         ...(row.gmail!.lastSyncedAt === undefined ? {} : { syncedThrough: row.gmail!.lastSyncedAt }),
       }));
+    // Which of them a group chat also watches, so the person's own check-ins leave the chat's mail to it.
+    for (const mailbox of mailboxes) {
+      const watchedIn = await chatsWatching(ctx, userId, mailbox.address);
+      if (watchedIn.length > 0) Object.assign(mailbox, { watchedIn });
+    }
     if (mailboxes.length === 0) {
       return reconnect.length > 0
         ? { ok: false as const, refused: "reconnect_required" as const, reconnect }
