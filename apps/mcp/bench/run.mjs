@@ -155,6 +155,12 @@ export function handOffAnswer(turn, question, events) {
   return null;
 }
 
+/** A picture a test sends with its opening text (`- person sends picture:`), from the repository's `ai/pictures/`. */
+async function benchPicture(name) {
+  const data = await readFile(fileURLToPath(new URL(`./ai/pictures/${name}`, import.meta.url)));
+  return { name, mediaType: /\.png$/i.test(name) ? "image/png" : "image/jpeg", data: data.toString("base64") };
+}
+
 /** One conversation: the person's opening text, then as many turns as they take. */
 export async function converse(world, question, person, mode = null) {
   if (mode === "housekeeping") return await keepHouse(world, question);
@@ -163,9 +169,10 @@ export async function converse(world, question, person, mode = null) {
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
-    conversation.push({ from: "person", text: message });
+    const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
+    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
     const seen = world.browser().length;
-    const turn = await world.text(message);
+    const turn = await world.text(message, pictures);
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];

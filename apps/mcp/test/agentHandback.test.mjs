@@ -22,6 +22,9 @@
  *  4. `handsWorkBack` without `FILE_HANDBACK` (the Google Voice invoice
  *     Tex said it couldn't put in an email). → "the texts that handed the
  *     receipt back are read as handing work back" fails.
+ *  6. FILE_HANDBACK without its 2026-10-27 paperclip and "couldn't attach"
+ *     lines (applied, observed failing) → "the texts that handed the
+ *     receipt back are read as handing work back".
  *  5. `handsWorkBack` without `CHANGE_HANDBACK` (applied 2026-10-23,
  *     observed failing) → "the texts that handed the receipt back are read
  *     as handing work back" (the calendar changes handed back).
@@ -47,6 +50,9 @@ test("the texts that handed the receipt back are read as handing work back", () 
     "I can't put a file from the admin console into an email myself.",
     "Tap the download arrow next to September, attach it to the draft to Kansi, and it's ready to send.",
     "Click the download button and attach the PDF to your email.",
+    // 2026-10-27, a texted screenshot for a support email: Tex's to attach through Gmail.
+    "Open the draft, tap the paperclip, and add that screenshot from your Messages or Photos.",
+    "Your example is the Vamoose text, and I couldn't attach it: every upload came through as an empty file.",
     // 2026-10-22 and 23: a calendar change handed back.
     "Move it to 9:00 pm yourself in Google Calendar, and it will tell her.",
     "Still open: add 150 McGuinness Blvd Apt 2, Brooklyn to Lau's party event yourself, since I can't edit an existing event's location.",
@@ -71,6 +77,7 @@ test("a step only they can take, an offer, a report, or their own to-do is not h
     "I'll attach it to the email once you say yes.",
     "Added the address to Lau's party.",
     "You said you'd book it yourself, so I left it.",
+    "Drafted it with your screenshot attached; Gmail shows the file.",
   ]) {
     assert.ok(!handsWorkBack(said), said);
   }

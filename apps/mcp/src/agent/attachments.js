@@ -210,7 +210,7 @@ function describe(attachments) {
       return `${n}. ${attachment.name}: a file they sent earlier in this chat, kept as ${attachment.kept.id} and shown above again so you can read it now.${rest}`;
     }
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
-    if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above.`;
+    if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above. To email it, send_email or save_email_draft with attach: ["attachment:${n}"].`;
     if (attachment.mediaType === PDF) return `${n}. ${attachment.name}: a PDF, shown above.`;
     if (attachment.heard) return `${n}. ${attachment.name}: a voice message; what they said is transcribed above. Answer it as if they had typed it.`;
     const length = attachment.text.length;
@@ -312,7 +312,7 @@ export function attachmentsLine(all, kept = []) {
   });
   const lost = attachments.some((attachment) => !attachment.kept && !attachment.heard);
   const again = [
-    ...(where.size > 0 ? [" read_image with that note and image shows it again."] : []),
+    ...(where.size > 0 ? [' read_image with that note and image shows it again; to email one, attach takes the same words (<image> in <note>), never the browser.'] : []),
     ...(attachments.some((attachment) => attachment.kept) ? [' read_file with path "download:…" reads a kept file again; never ask them to resend it.'] : []),
   ].join("");
   const line = `[Sent with this text: ${names.join(", ")}.${lost ? " Seen only on that turn." : ""}${again}]`;

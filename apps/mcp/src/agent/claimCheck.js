@@ -206,6 +206,9 @@ const FILE_HANDBACK = [
   /\b(?:can't|cannot|can not)\s+(?:put|attach|add|include)\b[^.?!\n]{0,80}?\b(?:into|in|to|on)\s+(?:an?|the|your|that)\s+(?:email|draft|message|reply)\b/i,
   /\b(?:tap|click|press|hit)\s+(?:the|its|that)\s+(?:\w+\s+)?download\b/i,
   /(?:^|,\s*|\b(?:and|then|please|just)\s+)attach (?:it|them|the \w+|that \w+|this \w+)\s+(?:to|in|on)\s+(?:the|your|that|a)\s+(?:\w+\s+)?(?:email|draft|message|reply)\b/i,
+  // A texted screenshot handed back (2026-10-27): "Open the draft, tap the paperclip, and add that screenshot".
+  /\b(?:tap|click|press|hit|use)\s+(?:the|its|gmail's)\s+(?:paper ?clip|attach(?:ment)?\s+(?:button|icon))\b/i,
+  /\b(?:couldn't|could not|wasn't able to|was unable to)\s+(?:attach|add|include|upload)\b[^.?!\n]{0,60}?\b(?:it|them|files?|pdfs?|screenshots?|photos?|pictures?|images?|attachments?)\b/i,
 ];
 /*
   A CHANGE TEX CAN MAKE, HANDED BACK (2026-10-22 and 23): "Move it to 9:00 pm
