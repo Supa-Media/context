@@ -99,7 +99,10 @@ breaking one, stop and say so rather than working around it.
    a group are all absent through it. It publishes what the folder already
    published to the workspace and never more, which is why this is a wider
    *locator* and not a wider *tier*. The whole context is never the subject of
-   one. See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
+   one. A page (`.page.md`) linked for the team or for anyone previews its
+   cover, its first screen (decided by the owner, 2026-10-27;
+   [page-covers](./docs/decisions/privacy-and-sharing/page-covers.md)).
+   See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
    A workspace's **website** is this exception for `website/` and the folders
    its pages name with `folder:`: turning it on is the owner minting that
    locator, and every page, referenced notes included, resolves the same way,

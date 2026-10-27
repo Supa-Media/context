@@ -6,10 +6,10 @@
  * this mirrors.
  */
 
-import { GENERIC_PREVIEW, ORIGIN, type PreviewMeta } from "./meta";
+import { coverPreview, GENERIC_PREVIEW, ORIGIN, type PreviewMeta } from "./meta";
 import { decodeSafely, boundTitle } from "./textBounds";
 import { normalisePath } from "./meta";
-import { shareCardPath } from "./shareLinks";
+import { SHARE_CARD_PREFIX, shareCardPath } from "./shareLinks";
 
 /**
  * A readable team link: `/console/@seyi?note=1-projects/plan.md`.
@@ -335,6 +335,8 @@ export function previewForNote(
   title: string | null | undefined,
   cardToken?: string | null,
   children?: readonly unknown[] | null,
+  /** A linked page's cover version: the card is then its cover (`coverPreview`). */
+  cover?: string | null,
 ): PreviewMeta {
   const bounded = boundTitle(title);
   if (bounded === null) return GENERIC_PREVIEW;
@@ -353,5 +355,6 @@ export function previewForNote(
       cardToken === undefined || cardToken === null
         ? undefined
         : `${ORIGIN}${shareCardPath(cardToken, bounded, inside)}`,
+    ...coverPreview(typeof cardToken === "string" ? `${SHARE_CARD_PREFIX}${cardToken}.png` : null, cover),
   };
 }

@@ -205,7 +205,8 @@ export const shareTables = {
      * A per-share choice because it is a per-share disclosure: the card is
      * rendered for an unauthenticated crawler, so whoever holds the URL learns
      * the title without signing in. Content is never on the card at any
-     * setting. Defaults to `true` — a link that previews as bare product
+     * setting, with one exception the owner chose: a linked page's card is
+     * its cover (`lib/shares/pageCover.ts`), and this switch takes it off too. Defaults to `true` — a link that previews as bare product
      * branding does not get clicked, and a share nobody opens is a share that
      * did not happen.
      */

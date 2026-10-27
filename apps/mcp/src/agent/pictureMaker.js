@@ -197,7 +197,7 @@ export async function keepPhotos(store, attachments) {
  * this turn may write the kept picture (a texted turn that keeps its
  * conversation); `meter` reports the image model's tokens.
  */
-export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null } = {}) {
+export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null, keepCover = null } = {}) {
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
@@ -272,7 +272,12 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       const path = typeof args?.data?.path === "string" ? args.data.path.trim() : "";
       const text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
       const cover = pageCover(path, text, args?.theme);
-      return cover.error ? say(cover.error, true) : draw(cover, { card: true });
+      if (cover.error) return say(cover.error, true);
+      const drawn = await draw(cover, { card: true });
+      // Kept for the page's link card (`/gateway/page-cover`); a page in another context is not this turn's to keep.
+      const png = drawn.isError ? null : drawn.content?.find((part) => part.type === "image")?.data;
+      if (png && typeof keepCover === "function" && !path.startsWith("@")) await keepCover(path, png).catch(() => false);
+      return drawn;
     }
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
     const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
@@ -357,7 +362,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
  * them. `meter` is the turn's own; the image model's spend is reported as a
  * part of the turn, not a turn of its own.
  */
-export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId }) {
+export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId, keepCover = null }) {
   const outgoing = outgoingPictures({ enabled: texted, question });
   const maker = texted
     ? pictureMaker(env, {
@@ -368,6 +373,7 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         keep,
         meter: (usage, failed, model) => meter(usage, failed, model, false),
         metadata: { workspace: String(workspaceId), client: "texts" },
+        keepCover,
       })
     : null;
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.

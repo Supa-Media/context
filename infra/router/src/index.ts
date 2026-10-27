@@ -33,6 +33,7 @@ import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 import { withSecurityHeaders } from "./securityHeaders";
+import { coverOf, noteTitle, SHARE_TITLE_TIMEOUT_MS } from "./previewTitles";
 
 export type { Env } from "./env";
 import type { Env } from "./env";
@@ -106,11 +107,11 @@ async function respond(
         // exception to the frozen-card rule, argued in preview.ts. Everything
         // about this branch is built so that failing produces the frozen card
         // rather than an error or a partial one.
-        const [title, openToAnyone] = await shareTitle(
+        const [title, openToAnyone, cover] = await shareTitle(
           decision.token,
           readOrigin(env.CONVEX_ORIGIN),
         );
-        const meta = previewForShare(title, decision.token, openToAnyone);
+        const meta = previewForShare(title, decision.token, openToAnyone, cover);
         return new Response(renderPreviewHtml(meta), {
           status: 200,
           headers: {
@@ -158,7 +159,7 @@ async function respond(
       }
 
       case "short-link-preview": {
-        const [shortTitle, cardVersion] = await shortLinkPreview(
+        const [shortTitle, cardVersion, cover] = await shortLinkPreview(
           decision.handle,
           decision.slug,
           readOrigin(env.CONVEX_ORIGIN),
@@ -169,6 +170,7 @@ async function respond(
           decision.handle,
           decision.slug,
           cardVersion,
+          cover,
         );
         return new Response(renderPreviewHtml(meta), {
           status: 200,
@@ -282,15 +284,6 @@ async function respond(
 }
 
 /**
- * How long the control plane gets to answer before the card falls back.
- *
- * An unfurler waits a second or two and then shows nothing, so a slow lookup is
- * not worth having: a frozen card beats no card, and no card is what a timeout
- * upstream of us produces.
- */
-const SHARE_TITLE_TIMEOUT_MS = 1_500;
-
-/**
  * The title for a share token, or `null`.
  *
  * `null` on every failure, and the list of failures is deliberately everything:
@@ -311,7 +304,7 @@ const SHARE_TITLE_TIMEOUT_MS = 1_500;
 async function shareTitle(
   token: string,
   convexOrigin: string | null,
-): Promise<[string | null, boolean]> {
+): Promise<[string | null, boolean, string | null]> {
   // Every failure below answers the same pair, and it has to be the *pair*
   // rather than the title alone: an absence that came back "sign-in required"
   // and a live open link that came back "no sign-in" would be two answers where
@@ -319,7 +312,7 @@ async function shareTitle(
   // GENERIC_PREVIEW whatever the second value is, so the pair is belt and
   // braces rather than the only guard — which is how two copies of a rule are
   // held here.
-  if (!convexOrigin) return [null, false];
+  if (!convexOrigin) return [null, false, null];
 
   const timeout =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
@@ -333,18 +326,18 @@ async function shareTitle(
       body: JSON.stringify({ token }),
       ...(timeout ? { signal: timeout } : {}),
     });
-    if (!response.ok) return [null, false];
+    if (!response.ok) return [null, false, null];
     const body: unknown = await response.json();
     const payload = body as { title?: unknown; openToAnyone?: unknown } | null;
     const title = payload?.title;
-    if (typeof title !== "string" || title.trim() === "") return [null, false];
+    if (typeof title !== "string" || title.trim() === "") return [null, false, null];
     // Strictly `=== true`, so an upstream that is older than this deployment —
     // or newer, or compromised — sends the reader to sign in rather than
     // telling them they need no account. The direction an unknown falls is
     // the same one the whole file falls in: towards saying less.
-    return [title, payload?.openToAnyone === true];
+    return [title, payload?.openToAnyone === true, coverOf((payload as { cover?: unknown }).cover)];
   } catch {
-    return [null, false];
+    return [null, false, null];
   }
 }
 
@@ -609,8 +602,8 @@ async function shortLinkPreview(
   slug: string,
   convexOrigin: string | null,
   routePath?: string,
-): Promise<[string | null, string | null]> {
-  if (!convexOrigin) return [null, null];
+): Promise<[string | null, string | null, boolean]> {
+  if (!convexOrigin) return [null, null, false];
 
   const timeout =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
@@ -628,9 +621,9 @@ async function shortLinkPreview(
       }),
       ...(timeout ? { signal: timeout } : {}),
     });
-    if (!response.ok) return [null, null];
+    if (!response.ok) return [null, null, false];
     const body: unknown = await response.json();
-    const payload = body as { title?: unknown; cardVersion?: unknown } | null;
+    const payload = body as { title?: unknown; cardVersion?: unknown; cover?: unknown } | null;
     const title = payload?.title;
     const version = payload?.cardVersion;
     return [
@@ -640,60 +633,9 @@ async function shortLinkPreview(
       // anything else" is the assumption that makes a path built by
       // concatenation into a redirect.
       typeof version === "string" && /^[0-9a-f]{8}$/.test(version) ? version : null,
+      payload?.cover === true,
     ];
   } catch {
-    return [null, null];
-  }
-}
-
-/**
- * The title, card and folder contents for a readable team link, or nothing.
- *
- * `[null, null, []]` on every failure — no CONVEX_ORIGIN, a non-200, a body
- * that is not JSON, a timeout, a thrown fetch — and `previewForNote(null)`
- * renders GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link
- * and a control plane mid-deploy are one answer, which is what keeps the probe
- * to "which notes has the owner published a card for".
- *
- * The third element is **only ever a decoration on a card that already has a
- * title.** It is passed through untouched here and bounded inside
- * `previewForNote`, which is also where a falsy title short-circuits to the
- * frozen card — so a control plane that answered with children and no title
- * publishes nothing at all.
- *
- * POST, like every route it talks to: a GET would put a handle and a note path
- * in this Worker's outbound URL and from there into logs.
- */
-async function noteTitle(
-  slug: string,
-  path: string,
-  convexOrigin: string | null,
-): Promise<[string | null, string | null, unknown[]]> {
-  if (!convexOrigin) return [null, null, []];
-
-  const timeout =
-    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(SHARE_TITLE_TIMEOUT_MS)
-      : undefined;
-
-  try {
-    const response = await fetch(`${convexOrigin}/share/note`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, path }),
-      ...(timeout ? { signal: timeout } : {}),
-    });
-    if (!response.ok) return [null, null, []];
-    const body: unknown = await response.json();
-    const title = (body as { title?: unknown } | null)?.title;
-    const cardToken = (body as { cardToken?: unknown } | null)?.cardToken;
-    const children = (body as { children?: unknown } | null)?.children;
-    return [
-      typeof title === "string" && title.trim() !== "" ? title : null,
-      typeof cardToken === "string" && /^[0-9a-f]{64}$/.test(cardToken) ? cardToken : null,
-      Array.isArray(children) ? children : [],
-    ];
-  } catch {
-    return [null, null, []];
+    return [null, null, false];
   }
 }

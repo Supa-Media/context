@@ -113,6 +113,7 @@ import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as googleChat from "./functions/lib/gatewayRoutes/googleChat";
 import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
+import { gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES } from "./functions/lib/gatewayRoutes/pageCover";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as texReview from "./functions/lib/gatewayRoutes/texReview";
@@ -343,6 +344,7 @@ export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler)
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+export const gatewayPageCover = gatewayRoute(gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES); // a page's cover, for its link's card
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
@@ -808,6 +810,7 @@ http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
+http.route({ path: "/gateway/page-cover", method: "POST", handler: gatewayPageCover });
 http.route({ path: "/gateway/note-ids/lookup", method: "POST", handler: gatewayNoteIdsLookup });
 http.route({ path: "/gateway/note-ids/wrote", method: "POST", handler: gatewayNoteIdsWrote });
 http.route({ path: "/gateway/note-ids/resolve", method: "POST", handler: gatewayNoteIdsResolve });

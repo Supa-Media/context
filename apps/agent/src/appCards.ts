@@ -54,7 +54,8 @@ function decoded(segment: string): string | null {
 
 /** "1-projects/tex/launch-plan.md" → "Launch plan". */
 function titleOf(file: string): string {
-  const words = file.replace(/\.md$/i, "").replace(/[-_]+/g, " ").trim();
+  // A page (`plan.page.md`) is named without its `.page`, as everywhere else.
+  const words = file.replace(/(\.page)?\.md$/i, "").replace(/[-_]+/g, " ").trim();
   return (words.charAt(0).toUpperCase() + words.slice(1)).slice(0, MAX_CAPTION);
 }
 

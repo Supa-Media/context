@@ -45,7 +45,7 @@ export async function sharePreviewHandler(
 ): Promise<Response> {
   const body = await readJsonBody(request);
   const token = body === null ? null : stringField(body, "token");
-  if (token === null) return json({ title: null, openToAnyone: false });
+  if (token === null) return json({ title: null, openToAnyone: false, cover: null });
 
   const result = await ctx.runQuery(api.functions.shares.previewTitleForToken, {
     token,
@@ -54,7 +54,8 @@ export async function sharePreviewHandler(
   // unauthenticated route is a field added upstream arriving here by a spread
   // nobody looked at — which is why `structure.test.ts` pins this handler's
   // fields by name and refuses one.
-  return json({ title: result.title, openToAnyone: result.openToAnyone });
+  // `cover`: a linked page's cover version (`lib/shares/pageCover.ts`), `null` otherwise.
+  return json({ title: result.title, openToAnyone: result.openToAnyone, cover: "cover" in result ? (result.cover ?? null) : null });
 }
 
 /**
@@ -132,7 +133,7 @@ export async function shareNotePreviewHandler(
   const slug = body === null ? null : stringField(body, "slug");
   const path = body === null ? null : stringField(body, "path");
   if (slug === null || path === null) {
-    return json({ title: null, cardToken: null, children: [] });
+    return json({ title: null, cardToken: null, children: [], cover: null });
   }
 
   const result = await ctx.runQuery(api.functions.shares.previewForNote, {
@@ -146,5 +147,7 @@ export async function shareNotePreviewHandler(
     title: result.title,
     cardToken: result.cardToken,
     children: result.children,
+    // A linked page's cover version (`lib/shares/pageCover.ts`), `null` otherwise.
+    cover: "cover" in result ? (result.cover ?? null) : null,
   });
 }
