@@ -22,8 +22,9 @@
  *     covers logged events is shown the transcript".
  *  7. `route.js` asking only `historyIsTainted(shown)` (drop `logged?.tainted`)
  *     → "a turn shown an answer from a tainted turn is untrusted, …".
- *  8. `route.js` not recording a tainted named turn (drop `markTainted`) →
- *     the same test, "… and this turn is recorded as tainted in turn".
+ *  8. `route.js` not recording a named turn (drop `recordTurn`), or recording
+ *     it after the answer (`afterAnswer`) → "a named turn's record is written
+ *     before its answer".
  */
 
 import assert from "node:assert/strict";
@@ -32,7 +33,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { cancelledTurn } from "../src/agent/textingRoutes.js";
 import { logPrefix } from "../src/agent/log.js";
-import { LOG_PREFACE, TAINTED_PREFIX } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
 import { CANCEL_PREFIX, steerFor } from "../src/agent/steer.js";
 import { createPending, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
@@ -243,6 +244,7 @@ test("a turn nobody cancelled runs as before, and clears nothing of another turn
   const response = await call("/agent", { question: "read my plan", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.equal(response.body.answer, "Here's the plan.");
   assert.equal(response.body.cancelled, undefined);
+  assert.deepEqual(response.body.askIds, [], "no asks armed, none named");
   assert.deepEqual(liveKeys(CANCEL_PREFIX), [`${CANCEL_PREFIX}turn-other-0001.json`]);
 });
 
@@ -311,17 +313,40 @@ test("a turn shown an answer from a tainted turn is untrusted, and so is what it
   const fresh = event({ text: "ok do it" });
   await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
   const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
+  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: true }), etag: "t0" });
   script = [{ text: "Clean so far." }];
   await call("/agent", ask);
-  assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "nothing marked: nothing tainted");
-  assert.deepEqual(liveKeys(TAINTED_PREFIX), []);
+  assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "a clean record: nothing tainted");
+  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: true });
   for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
-  bucket.set(`${TAINTED_PREFIX}turn-dirty-0001.json`, { body: "{}", etag: "t1" });
+  bucket.set(`${TURNS_PREFIX}turn-dirty-0001.json`, { body: JSON.stringify({ clean: false }), etag: "t1" });
   script = [{ text: "Doing it." }];
   await call("/agent", ask);
   assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
-  assert.ok(live(`${TAINTED_PREFIX}${TURN}.json`), "and this turn is recorded as tainted in turn");
+  assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false }, "and this turn is recorded as not clean in turn");
   assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");
+});
+
+test("a named turn's record is written before its answer", async () => {
+  script = [{ text: "Hi." }];
+  // The record's write is slow, so an answer that did not wait for it returns first.
+  const below = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.includes(".context/agent/turns/") && (init?.method ?? input.method) === "PUT") await new Promise((resolve) => setTimeout(resolve, 100));
+    return below(input, init);
+  };
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/agent", { method: "POST", headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json" }, body: JSON.stringify({ question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN }) }),
+    env,
+    ctx,
+  );
+  assert.equal(response.status, 200);
+  assert.ok(live(`${TURNS_PREFIX}${TURN}.json`), "there when the answer is, before deferred work settles");
+  await response.text();
+  await settle();
+  globalThis.fetch = below;
 });
 
 test("a turn with no log for its chat is today's turn", async () => {

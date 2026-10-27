@@ -15,10 +15,13 @@
  * A turn that read from outside the workspace taints what it said. The log's
  * events are the Worker's, so the Worker can never say an answer was clean:
  * `tainted` is not an Event field (`log.js` refuses it). The gateway keeps its
- * own record instead, by the turn's id (`.context/agent/tainted/<turn>.json`,
- * `markTainted`), and a turn shown a Tex event from a tainted turn is
- * untrusted (`tainted`), as one shown a tainted kept answer is
- * (`historyIsTainted`, which `route.js` still asks of today's history).
+ * own record of every named turn it finishes, before it answers
+ * (`.context/agent/turns/<turn>.json` = `{ clean }`, `recordTurn`), and it
+ * fails closed: a Tex event shown is trusted only when its `turn` has a record
+ * saying `clean: true`. No turn, no record, an unreadable one or `clean: false`
+ * makes the new turn untrusted (`tainted`), as a tainted kept answer does
+ * (`historyIsTainted`, which `route.js` still asks of today's history). The
+ * Worker's fixed texts are `system` events (`log.js`), never Tex's.
  */
 
 import { conversationPath, readConversation } from "./conversation.js";
@@ -29,23 +32,30 @@ import { renderEvents, seenBy, speaker, words } from "./logRender.js";
 
 const MAX_COVERS = 32;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
-export const TAINTED_PREFIX = ".context/agent/tainted/";
+export const TURNS_PREFIX = ".context/agent/turns/";
 
-/** Record that a named turn read from outside the workspace. */
-export async function markTainted(store, turn) {
+/** Record whether a named turn stayed inside the workspace. Throws when it cannot: no record is untrusted. */
+export async function recordTurn(store, turn, clean) {
   if (typeof turn !== "string" || !TURN.test(turn)) return;
-  await store.put(`${TAINTED_PREFIX}${turn}.json`, JSON.stringify({ at: Date.now() }));
+  await store.put(`${TURNS_PREFIX}${turn}.json`, JSON.stringify({ clean: clean === true }));
 }
 
-/** Whether any of Tex's events shown came from a turn recorded as tainted. Unreadable is tainted. */
-async function showsTainted(store, events) {
-  const turns = new Set(events.filter((event) => event.from?.kind === "tex" && typeof event.turn === "string").map((event) => event.turn));
+/** Whether a turn has a record saying it was clean; anything else is not. */
+async function cleanTurn(store, turn) {
+  if (typeof turn !== "string" || !TURN.test(turn)) return false;
   try {
-    for (const turn of turns) if ((await store.get(`${TAINTED_PREFIX}${turn}.json`)) !== null) return true;
-    return false;
+    const object = await store.get(`${TURNS_PREFIX}${turn}.json`);
+    return object !== null && JSON.parse(await object.text())?.clean === true;
   } catch {
-    return true;
+    return false;
   }
+}
+
+/** Whether any of Tex's events shown is not proven clean. */
+async function showsTainted(store, events) {
+  const turns = new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn));
+  for (const turn of turns) if (!(await cleanTurn(store, turn))) return true;
+  return false;
 }
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 

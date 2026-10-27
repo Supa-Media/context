@@ -30,13 +30,15 @@ const MAX_COVERS = 32;
 export const EVENT_KINDS = new Set(["text", "picture", "file", "link", "reaction", "ask", "ask_settled", "delivery"]);
 export const FROM_KINDS = new Set(["person", "tex", "system"]);
 export const REASONS = new Set(["upload_failed", "send_refused", "held_newcomer", "failed", "timed_out", "too_long"]);
-const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told"]);
+const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask"]);
 const FROM_FIELDS = new Set(["kind", "who", "name"]);
 
 export const EVENT_ID = /^\d{13}-\d{6}$/;
 const CHAT = /^[A-Za-z0-9_.:@+=-]{1,128}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
+/** The approval record an ask event shows (`tools/approvals.js`): only on `kind: "ask"`. */
+const ASK = /^[A-Za-z0-9_-]{8,64}$/;
 /** A display handle: letters, digits, space and . _ - ' @, at most 64; never a line break or a control character. */
 const NAME = /^[\p{L}\p{N} ._\-'@]{1,64}$/u;
 
@@ -80,9 +82,11 @@ export function checkEvent(event, { chat, now }) {
   if (event.turn !== undefined && (typeof event.turn !== "string" || !TURN.test(event.turn))) throw new EventRefusal("turn");
   if (event.covers !== undefined && (!Array.isArray(event.covers) || event.covers.length > MAX_COVERS || !event.covers.every((cover) => typeof cover === "string" && EVENT_ID.test(cover)))) throw new EventRefusal("covers");
   if (event.people !== undefined && (typeof event.people !== "string" || !HEX64.test(event.people))) throw new EventRefusal("people");
-  if (event.told !== undefined && (typeof event.told !== "string" || !Object.hasOwn(TOLD, event.told))) throw new EventRefusal("told");
+  // A fixed Worker text is the Worker's, never a turn's: a `system` event only (`loggedTurn.js` trusts Tex events by their turn).
+  if (event.told !== undefined && (typeof event.told !== "string" || !Object.hasOwn(TOLD, event.told) || from.kind !== "system")) throw new EventRefusal("told");
+  if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
-  for (const field of ["text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told"]) {
+  for (const field of ["text", "replyTo", "delivered", "reason", "turn", "covers", "people", "told", "ask"]) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
   return kept;

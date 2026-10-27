@@ -9,6 +9,8 @@
  *     "closed sets refuse what is not in them".
  *  2. `checkEvent` not checking the id names its `at` → "a bad id is refused".
  *  3. `checkEvent` not bounding `at` → "an at more than a day away is refused".
+ * 11. `checkEvent` taking `ask` on any kind (drop `event.kind !== "ask" ||`) →
+ *     "an ask event carries its approval record, and only an ask event may".
  *  4. `checkEvent` taking unknown fields (drop `onlyKeys(event, FIELDS)`) →
  *     "closed sets refuse what is not in them". Copying only the contract's
  *     fields is a second layer behind it ("only the contract's fields are
@@ -23,6 +25,11 @@
  *     "a display name with a line break or a control character is refused".
  * 10. `showsTainted` always answering false → "a turn shown an answer from a
  *     tainted turn is tainted".
+ * 12. `showsTainted` trusting a Tex event with no turn, or with no record, or
+ *     `cleanTurn` taking any record as clean → "a Tex event is trusted only by
+ *     its turn's clean record".
+ * 13. `checkEvent` taking `told` on any `from.kind` → "a fixed Worker text is
+ *     only ever a system event".
  */
 
 import assert from "node:assert/strict";
@@ -30,7 +37,7 @@ import { test } from "node:test";
 
 import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
 import { renderEvents } from "../src/agent/logRender.js";
-import { LOG_PREFACE, loggedTurn, markTainted } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, loggedTurn, recordTurn } from "../src/agent/loggedTurn.js";
 import { TOLD } from "../src/agent/conversation.js";
 
 const NOW = Date.UTC(2026, 9, 26, 16, 16, 0); // Monday, Oct 26, 12:16 PM in New York
@@ -89,7 +96,7 @@ test("closed sets refuse what is not in them", () => {
   assert.equal(check({ told: "anything" }), "told");
   assert.equal(check({ result: "a tool said this" }), "event", "an unknown field refuses the event");
   assert.equal(check({ from: { kind: "person", secret: 1 } }), "from");
-  assert.equal(check({ told: "ready" }), null);
+  assert.equal(check({ told: "ready", from: { kind: "system" } }), null);
 });
 
 test("caps refuse what is too long", () => {
@@ -193,8 +200,12 @@ test("a newcomer's view starts where they joined", () => {
 });
 
 test("a fixed Worker text is shown in the gateway's words for it", () => {
-  const told = event({ from: { kind: "tex" }, told: "ready", text: undefined });
-  assert.equal(renderEvents([told], { timeZone: NY }).split("\n")[1], `[12:16 PM] You: ${TOLD.ready}`);
+  const told = event({ from: { kind: "system" }, told: "ready", text: undefined });
+  assert.equal(renderEvents([told], { timeZone: NY }).split("\n")[1], `[12:16 PM] Context: ${TOLD.ready}`);
+});
+
+test("a fixed Worker text is only ever a system event", () => {
+  for (const kind of ["tex", "person"]) assert.equal(refusedField(() => checkEvent(event({ from: { kind }, told: "ready" }), { chat: CHAT, now: NOW })), "told");
 });
 
 /* ---------------- what a turn is shown ---------------- */
@@ -242,17 +253,39 @@ test("a display name with a line break or a control character is refused", () =>
   assert.equal(check("Zoë O'Neil-Smith @ada_1."), null);
 });
 
+test("an ask event carries its approval record, and only an ask event may", () => {
+  const record = "0f8e2c1a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+  const ask = event({ from: { kind: "tex" }, kind: "ask", text: "Send the email to Bo? Reply yes.", ask: record });
+  assert.deepEqual(checkEvent(ask, { chat: CHAT, now: NOW }), ask);
+  const check = (fields) => refusedField(() => checkEvent(event(fields), { chat: CHAT, now: NOW }));
+  assert.equal(check({ kind: "text", ask: record }), "ask");
+  assert.equal(check({ kind: "ask", ask: "short" }), "ask");
+  assert.equal(check({ kind: "ask", ask: "../../x/y/zzzz" }), "ask");
+  assert.equal(renderEvents([ask], { timeZone: NY }).split("\n")[1], "[12:16 PM] You: Send the email to Bo? Reply yes.");
+});
+
 test("the Worker cannot say an event is clean", () => {
   assert.equal(refusedField(() => checkEvent(event({ from: { kind: "tex" }, tainted: false }), { chat: CHAT, now: NOW })), "event");
 });
 
-test("a turn shown an answer from a tainted turn is tainted", async () => {
+async function shownTainted(answerFields, setup = async () => {}) {
   const store = memoryStore();
   const old = event({ text: "read that page" });
-  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says...", turn: "turn-tainted-01", covers: [old.id] });
+  const answer = event({ at: NOW + 1, from: { kind: "tex" }, text: "It says...", covers: [old.id], ...answerFields });
   const fresh = event({ at: NOW + 2, text: "and then?" });
   await appendEvents(store, CHAT, [old, answer, fresh], { now: NOW });
-  assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] })).tainted, false);
-  await markTainted(store, "turn-tainted-01");
-  assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] })).tainted, true);
+  await setup(store);
+  return (await loggedTurn(store, { chat: CHAT, covers: [fresh.id] })).tainted;
+}
+
+test("a turn shown an answer from a tainted turn is tainted", async () => {
+  assert.equal(await shownTainted({ turn: "turn-tainted-01" }, (store) => recordTurn(store, "turn-tainted-01", false)), true);
+});
+
+test("a Tex event is trusted only by its turn's clean record", async () => {
+  assert.equal(await shownTainted({}), true, "no turn");
+  assert.equal(await shownTainted({ turn: "turn-unknown-01" }), true, "no record");
+  assert.equal(await shownTainted({ turn: "turn-garbled-1" }, (store) => store.put(".context/agent/turns/turn-garbled-1.json", "not json")), true, "unreadable");
+  assert.equal(await shownTainted({ turn: "turn-other-001" }, (store) => recordTurn(store, "turn-clean-001", true)), true, "another turn's record");
+  assert.equal(await shownTainted({ turn: "turn-clean-001" }, (store) => recordTurn(store, "turn-clean-001", true)), false, "clean");
 });
