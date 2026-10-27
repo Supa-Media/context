@@ -8,8 +8,8 @@
  * A job's answer may carry pictures, a page's cover above all (owner,
  * 2026-10-27: "the first screen image should be the og image preview ... that
  * way we can just send the link"). They go first, counted with the texts, and
- * once one went a bare note link is texted with no name card drawn for it
- * (`noteCards.ts`): one picture, then the link alone.
+ * once one went a bare note link is texted inside a sentence, so Tex does not
+ * also draw the link's name card (`noteCards.ts`): one picture, then the link.
  * A cover that would not send is skipped, and the link then gets its name
  * card as before: the picture is never the only way to the page.
  */
@@ -20,6 +20,8 @@ import { rememberText } from "./threads";
 import { type GroupDeps } from "./groupInbox";
 import { groupLineFor } from "./groupLine";
 import { logOut, say } from "./groupSay";
+import { noteLinkOf } from "./appCards";
+import { linkAfterCard } from "./noteCards";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import { JOB_PREFIX, log, noteJobSent, noteJobUpdate, type JobEntry, type JobUpdate } from "./jobs";
 import type { InboxStorage } from "./inbox";
@@ -37,9 +39,10 @@ function itemsOf(update: JobUpdate): Item[] {
   ];
 }
 
-/** Once a picture went, a note link draws no name card of its own (`noteCards.ts`). */
-function afterPicture<T extends { noteCardPicture?: unknown }>(deps: T, pictured: boolean): T {
-  return pictured ? { ...deps, noteCardPicture: undefined } : deps;
+/** A bare note link after a picture went: inside a sentence, so no name card is drawn for it. */
+function afterPicture(text: string, pictured: boolean): string {
+  const link = pictured ? noteLinkOf(text) : null;
+  return link ? linkAfterCard(link) : text;
 }
 
 /** `POST /job-update`: false only when the job is not this chat's. Throws when a text failed, so the job offers it again. */
@@ -74,10 +77,10 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
         }
       }
     } else if (!done) {
-      const text = item.text;
+      const text = afterPicture(item.text, pictured);
       if (noted.channel === "simulator") await record(storage, "in", text, deps.now());
       else {
-        const handle = await lineFor(afterPicture(deps, pictured), chatId).sendText(chatId, text, `job:${update.id}:${index}`, noted.messageId);
+        const handle = await line.sendText(chatId, text, `job:${update.id}:${index}`, noted.messageId);
         await rememberText(storage, chatId, handle, text, deps.now());
       }
     }
@@ -108,7 +111,7 @@ async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: Jo
           log("picture_failed", update.id);
         }
       }
-    } else if (!done) await say(storage, afterPicture(deps, pictured), where, item.text);
+    } else if (!done) await say(storage, deps, where, afterPicture(item.text, pictured));
     if (!done) await noteJobSent(storage, update.id, index + 1);
   }
   return true;
