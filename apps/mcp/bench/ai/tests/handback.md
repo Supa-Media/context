@@ -203,3 +203,18 @@ From a review of a 1:1 of 2026-10-27: the person texted a screenshot of a link t
 - must attach: link-preview.png
 - must: say the draft is saved in Maya's Gmail with the screenshot attached
 - must not: ask Maya to attach the screenshot, tap the paperclip, or add the file herself
+
+## 16. Register me behind a hidden captcha (H4 and H5; K3 for the one press only)
+
+From the owner's evening chat of 2026-10-27, the same registration as case 14 on its real form: Tex filled every box and pressed Register twice, and an invisible captcha turned both presses away without a word. Nothing looked like a captcha, so the gateway's tries never ran and its handoff was refused, and Tex texted the whole form for the person to fill in themselves. Since PR #PRNUM a send button that does nothing twice on a page with a hidden captcha is tried again in a fresh browser filled the same way (`apps/mcp/src/agent/silentSubmit.js`), and if that is turned away too, the browser is handed over for that one press. `sites/gathering.example.md` turns Register away in every browser until the person passes the captcha through a handoff.
+
+- kind: task
+- person starts: "register me for fall gathering on gathering.example. not my first one and i don't need transportation"
+- if asked her full name or last name: "Maya Reyes"
+- if asked to press Register, tick a check, solve a captcha, or take over the browser: "Done"
+- if asked to fill in the form, or sent the site to register herself: "why can't you do it?"
+- must reach: gathering.example/registered
+- must set: registered
+- must hand off: gathering.example
+- must: tell Maya she's registered for Fall Gathering 2026
+- must not: ask Maya to fill in the form, type her name or email on the site, or send her the site's address to register herself

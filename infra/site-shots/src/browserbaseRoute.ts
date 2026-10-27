@@ -52,7 +52,7 @@ import { browserbaseUploads } from "./upload";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
-import { settleCaptcha } from "./captcha";
+import { invisibleCaptcha, settleCaptcha } from "./captcha";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -154,12 +154,14 @@ export async function browseOnBrowserbase(
     // Not while the person is being handed the browser: it is theirs then.
     const captcha = handingOver ? null : await settleCaptcha(attached.evaluate);
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
+    // A captcha that shows nothing can still turn a Register press away: the gateway is told it is there.
+    const hidden = handingOver || captcha !== null ? false : await invisibleCaptcha(attached.evaluate);
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
-    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(jar !== null ? { jar } : {}) });
+    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}) });
   } catch {
     failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);

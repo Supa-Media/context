@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAPTCHA_PROBE, captchaPending, settleCaptcha } from "./captcha";
+import { CAPTCHA_PROBE, captchaPending, invisibleCaptcha, settleCaptcha } from "./captcha";
 
 const clear = { widget: false, answered: false, wall: false };
 
@@ -54,10 +54,10 @@ describe("settleCaptcha", () => {
         selector === "iframe" ? frames.map((f) => ({ ...f, getBoundingClientRect: () => ({ width: 300, height: 80 }) })) : boxes,
     });
     const run = (document: unknown) => new Function("document", `return ${CAPTCHA_PROBE}`)(document);
-    expect(run(page("Just a moment...", "account 4471 secret"))).toEqual({ widget: false, answered: false, wall: true });
-    expect(run(page("Shop", "hello", [{ value: "" }], [{ src: "https://www.google.com/recaptcha/api2/anchor?k=x" }]))).toEqual({ widget: true, answered: false, wall: false });
-    expect(run(page("Shop", "hello", [{ value: "tok" }], [{ src: "https://www.google.com/recaptcha/api2/anchor?k=x" }]))).toEqual({ widget: true, answered: true, wall: false });
-    expect(run(page("Shop", "hello", [], [{ src: "https://www.google.com/recaptcha/api2/anchor?size=invisible" }]))).toEqual({ widget: false, answered: false, wall: false });
+    expect(run(page("Just a moment...", "account 4471 secret"))).toEqual({ widget: false, answered: false, wall: true, invisible: false });
+    expect(run(page("Shop", "hello", [{ value: "" }], [{ src: "https://www.google.com/recaptcha/api2/anchor?k=x" }]))).toEqual({ widget: true, answered: false, wall: false, invisible: false });
+    expect(run(page("Shop", "hello", [{ value: "tok" }], [{ src: "https://www.google.com/recaptcha/api2/anchor?k=x" }]))).toEqual({ widget: true, answered: true, wall: false, invisible: false });
+    expect(run(page("Shop", "hello", [], [{ src: "https://www.google.com/recaptcha/api2/anchor?size=invisible" }]))).toEqual({ widget: false, answered: false, wall: false, invisible: true });
   });
 
   it("knows a picture check by its words and an AWS WAF puzzle by its frame (Instacart, 2026-10-24)", () => {
@@ -72,6 +72,22 @@ describe("settleCaptcha", () => {
     expect(run(page("Let's confirm you're human. Select all images with a bus")).wall).toBe(true);
     expect(run(page("Please solve this puzzle to continue")).wall).toBe(true);
     expect(run(page("Sign in", [{ src: "https://abc.token.awswaf.com/captcha" }])).widget).toBe(true);
-    expect(run(page("Your cart: 26 items, select all to remove"))).toEqual({ widget: false, answered: false, wall: false });
+    expect(run(page("Your cart: 26 items, select all to remove"))).toEqual({ widget: false, answered: false, wall: false, invisible: false });
+  });
+});
+
+describe("invisibleCaptcha", () => {
+  it("finds a captcha that shows nothing until a form is sent, by its badge or its script (the owner's registration form, 2026-10-27)", async () => {
+    const page = (found: string | null) => ({
+      title: "Register",
+      body: { innerText: "Register for the conference" },
+      querySelector: (selector: string) => (found !== null && selector.includes(found) ? {} : null),
+      querySelectorAll: () => [],
+    });
+    const run = (document: unknown) => async () => new Function("document", `return ${CAPTCHA_PROBE}`)(document);
+    expect(await invisibleCaptcha(run(page(".grecaptcha-badge")))).toBe(true);
+    expect(await invisibleCaptcha(run(page("recaptcha/enterprise.js")))).toBe(true);
+    expect(await invisibleCaptcha(run(page(null)))).toBe(false);
+    expect(await invisibleCaptcha(async () => Promise.reject(new Error("the page threw")))).toBe(false);
   });
 });

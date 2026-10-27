@@ -34,6 +34,13 @@ export interface CaptchaSigns {
   answered: boolean;
   /** A whole-page bot wall ("Just a moment…", "verify you are human", "press and hold"). */
   wall: boolean;
+  /**
+   * A captcha that shows nothing until a form is sent (invisible reCAPTCHA,
+   * reCAPTCHA v3 or Enterprise, an invisible hCaptcha or Turnstile). It can
+   * reject a Register press without a word on the page (the owner's
+   * registration form, 2026-10-27), so the gateway is told it is there.
+   */
+  invisible?: boolean;
 }
 
 /** Whether these signs mean a captcha still stands between Tex and the page. */
@@ -55,13 +62,20 @@ export const CAPTCHA_PROBE = `(() => {
   const answered = boxes.length > 0 && boxes.every((b) => (b.value || "").length > 0);
   const words = ((document.title || "") + " " + (document.body ? document.body.innerText : "")).slice(0, 3000);
   const wall = /just a moment\\.\\.\\.|(verify|confirm|prove) (that )?you('re| are) (a )?human|are you a robot|press (&|and) hold|unusual traffic from your|checking (if the site connection is secure|your browser)|select all (the )?(images|squares|pictures)|(complete|solve) (the|this) (puzzle|challenge)/i.test(words);
-  return { widget, answered, wall };
+  const invisible = [...document.querySelectorAll("iframe")].some((f) => hosts.test(f.src || "") && /size=invisible/.test(f.src || "")) ||
+    !!document.querySelector('.grecaptcha-badge, [data-size="invisible"], script[src*="recaptcha/api.js?render="], script[src*="recaptcha/enterprise.js"], script[src*="hcaptcha.com/1/api.js"], script[src*="challenges.cloudflare.com/turnstile"]');
+  return { widget, answered, wall, invisible };
 })()`;
 
 function asSigns(value: unknown): CaptchaSigns | null {
   if (value === null || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
-  return { widget: v.widget === true, answered: v.answered === true, wall: v.wall === true };
+  return { widget: v.widget === true, answered: v.answered === true, wall: v.wall === true, invisible: v.invisible === true };
+}
+
+/** Whether the page carries a captcha that shows nothing until a form is sent. A probe that fails says no. */
+export async function invisibleCaptcha(evaluate: (source: string) => Promise<unknown>): Promise<boolean> {
+  return asSigns(await evaluate(CAPTCHA_PROBE).catch(() => null))?.invisible === true;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
