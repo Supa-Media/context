@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
 import { useScheme } from "../../../design/theme";
 import { webUrl } from "../webUrl";
 import type { PageViewProps } from "./props";
@@ -27,8 +26,8 @@ export const PAGE_VIEW_AVAILABLE = true;
  */
 export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadImage, scrolls = false }: PageViewProps) {
   const scheme = useScheme();
-  const params = useLocalSearchParams<{ slug?: string | string[] }>();
-  const rawSlug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
+  // The workspace in the address (`/console/<slug>/…`), read from the location rather than the router so this stays a leaf.
+  const rawSlug = typeof window === "undefined" ? undefined : /^\/console\/([^/]+)/.exec(window.location.pathname)?.[1];
   const slug = typeof rawSlug === "string" ? rawSlug.replace(/^@/, "").toLowerCase() : null;
   const [urls] = useState(() =>
     typeof window === "undefined" ? [] : pageFrameUrls({ hostname: window.location.hostname, origin: window.location.origin }, slug),

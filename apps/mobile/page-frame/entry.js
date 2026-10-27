@@ -45,7 +45,6 @@ document.getElementById("base").textContent = pages.BASE_CSS;
 let state = { source: "", dark: false, editable: false, canComment: false };
 let page = null;
 let pending = null; // a render held back while the reader is typing
-let boxes = [];
 const images = new Map();
 const originals = new Map();
 const owned = new Map(); // editable element → the runs drawn in it
@@ -75,7 +74,7 @@ function draw() {
   owned.clear();
   for (const span of root.querySelectorAll("[data-f]")) originals.set(span, span.textContent);
   for (const el of root.querySelectorAll("[data-edit]")) owned.set(el, [...el.querySelectorAll("[data-f]")]);
-  boxes = found;
+  boxFrames.clear(); // the old boxes went with the old HTML
   for (const slot of root.querySelectorAll("[data-box]")) mountBox(slot, found[Number(slot.dataset.box)]);
   for (const img of root.querySelectorAll("img[data-src]")) loadImage(img);
   decorate();
