@@ -57,6 +57,7 @@ import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visu
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
+import { MAX_HELD, cardCheckFor } from "./cardCheck.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -197,7 +198,7 @@ export async function keepPhotos(store, attachments) {
  * this turn may write the kept picture (a texted turn that keeps its
  * conversation); `meter` reports the image model's tokens.
  */
-export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null, keepCover = null } = {}) {
+export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null, keepCover = null, check = null } = {}) {
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
@@ -296,6 +297,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
     // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
     const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: find, locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
+    if (drawnMap.refuse) return say(drawnMap.reason, true);
     photos.push(...(drawnMap.pictures ?? []));
     const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
     if (built.error) return say(built.error, true);
@@ -356,10 +358,29 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     }
   }
 
+  let held = 0;
+  /**
+   * Every picture is looked at before the turn may send it (`./cardCheck.js`):
+   * one the check would not send comes back as its critique, without the
+   * picture, so it is redrawn or answered in words. After `MAX_HELD` the
+   * critique rides along with the picture instead, so a turn always ends.
+   */
+  async function looked(name, args, result) {
+    const image = Array.isArray(result?.content) ? result.content.find((part) => part?.type === "image") : null;
+    if (typeof check !== "function" || result?.isError || !image) return result;
+    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType } });
+    if (verdict === null || verdict.send) return result;
+    if (held < MAX_HELD) {
+      held += 1;
+      return say(`Not sent: you looked at this picture before sending it and it doesn't pass: ${verdict.critique} Fix that and draw it again, or answer in words without a picture.`, true);
+    }
+    return { ...result, content: [...result.content, { type: "text", text: `Looked at before sending: ${verdict.critique} If you send it, say what it lacks in a few words.` }] };
+  }
+
   return {
     tools,
     has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: (name, args, callTool) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)),
+    call: async (name, args, callTool) => looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args))),
   };
 }
 
@@ -381,6 +402,8 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         meter: (usage, failed, model) => meter(usage, failed, model, false),
         metadata: { workspace: String(workspaceId), client: "texts" },
         keepCover,
+        // Every picture is looked at before it may go (owner, 2026-10-27: "always look at a card before sending it").
+        check: env?.CARD_CHECK === "off" ? null : cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } }),
       })
     : null;
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.

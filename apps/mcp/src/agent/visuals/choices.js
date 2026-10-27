@@ -199,11 +199,11 @@ export function mapCard(data, theme) {
       (stop, i) => `<div style="display: flex; gap: 12px; align-items: center; border-top: 1px solid ${c.line}; padding: 11px 0">
 <div style="width: 26px; height: 26px; border-radius: 13px; background: ${c.accent}; color: ${c.onAccent}; font-weight: 600; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div>
 <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><div style="font-family: ${SERIF}; font-size: 19px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${esc(stop.name, 50)}</div>
-${stop.note || stop.address ? `<div style="font-size: 14px; color: ${c.muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${esc(stop.note || stop.address, 80)}</div>` : ""}</div>
-${stop.time ? `<div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; color: ${c.muted}; flex-shrink: 0">${esc(stop.time, 12)}</div>` : ""}</div>`,
+${stop.note || stop.address ? `<div style="font-size: 14px; line-height: 1.3; color: ${c.muted}">${esc(stop.note || stop.address, 90)}</div>` : ""}</div>
+${stop.time ? `<div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; color: ${c.muted}; flex-shrink: 0; max-width: 150px; text-align: right; line-height: 1.3">${esc(stop.time, 24)}</div>` : ""}</div>`,
     )
     .join("");
-  const height = clamp(150 + (map ? Number(data.map.height) + 20 : 0) + stops.length * 70 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
+  const height = clamp(150 + (map ? Number(data.map.height) + 20 : 0) + stops.length * 84 + (data.footer ? 50 : 0), CARD_HEIGHT, 1200);
   return {
     html: page(
       `${heading(c, data.kicker, data.title, { size: 34 })}

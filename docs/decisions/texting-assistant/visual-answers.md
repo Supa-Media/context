@@ -316,3 +316,37 @@ mockups: "this is ok for now. will work on better design elements later".
 What it does not change: any template's fields, what the model is told, or
 the copy on a card. Reverting is `kit.js`'s palettes and fonts plus the
 inline styles; `agentVisuals.test.mjs` still draws every template.
+
+## A route shows its path, and Tex looks at every picture before it goes (2026-10-27)
+
+Dev2's "3 mile run loop from my house in LIC" came back as a map card with
+one pin, no line and a cut-off "1.7 miles o…": "what even is this? does Tex
+think critically at all and ask itself if it answered the question? and if
+the visual helps? i don't even see the path". Then: "Tex should always look
+at a card before sending it, and self approve whatever it's about to send",
+and "it should critique itself and think".
+
+- **A route is drawn along streets.** A `map` card with `route` or `loop`
+  (back to stop 1) asks OpenStreetMap's router (FOSSGIS
+  `routing.openstreetmap.de`, foot by default, `travel` bike or drive) for
+  the way through its stops, sending the stops' points only. Google Static
+  Maps draws that polyline (`enc:`); the tiles draw it as a line the map is
+  fitted to. The router's length goes on the map ("3.1 mi") and to the model
+  ("say that length"); without the router the line is straight and the model
+  is told not to claim a length (`apps/mcp/src/agent/visuals/route.js`).
+- **A map card missing a stop is not drawn.** Dropping a stop the turn never
+  looked up turned a three-stop loop into one pin. The tool now refuses and
+  tells the model which stops to look up; the rule that only an address the
+  turn saw goes to a map service is unchanged.
+- **Every picture is looked at before it may go** (`apps/mcp/src/agent/cardCheck.js`).
+  Each picture a texted turn makes, in a 1:1 chat or a group, is shown with
+  the person's text to Haiku, which thinks (effort medium) and critiques it:
+  what was asked, does this answer it at a glance, what is missing or wrong,
+  can every word be read, would a sentence do better. A picture it would not
+  send comes back to Tex as the critique, without the picture, so it is
+  never sent, even unnamed; Tex redraws it or answers in words. After two
+  held pictures in one turn the critique rides along instead, so a turn
+  always ends. It reads the person's text and the picture, never a tool
+  result; when it can't run, the picture goes. `CARD_CHECK=off` turns it off.
+
+Tests: `apps/mcp/test/agentRouteCheck.test.mjs`.
