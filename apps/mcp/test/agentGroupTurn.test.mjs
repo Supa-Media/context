@@ -210,7 +210,7 @@ test("a group turn changes notes as a text does: edit by etag, make, move and ar
     },
     { text: "Done." },
   ]);
-  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in, add a closer, and file friday under gigs", group: chat() });
+  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in as a plain note, add a closer, and file friday under gigs", group: chat() });
   assert.equal(status, 200, JSON.stringify(body));
   const [changed, moved] = toolResults(world.model.requests[2]).slice(-2);
   assert.match(changed, /written: 1-projects\/setlist\.md/, changed);
@@ -226,7 +226,7 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
     { text: "Saved it in 1-projects." },
     { text: "It's there." },
   ]);
-  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures", group: people });
+  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures as a plain note", group: people });
   await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
   const system = JSON.stringify(world.model.requests.at(-1).system);
   assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);

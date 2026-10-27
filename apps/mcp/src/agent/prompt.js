@@ -227,6 +227,19 @@ export const REORGANIZE_LINE =
   "do it yourself in this turn: a move keeps who can see each note, so you don't ask first. Several notes go in one move_notes. " +
   "If a move is refused, read why and fix the call rather than telling them it needs their OK.";
 
+/**
+ * Every new note Tex makes is a designed page (the owner, 2026-10-27, after
+ * "a detailed plan for putting on a 100 person concert in nyc" came back as a
+ * plain checklist: "THIS SHOULD HAVE BEEN A WELL DESIGNED PAGE", then "by
+ * default every note that tex produces should be a page, and only ever a
+ * regular note when the user explicitly asks"). Only background jobs had been
+ * told about pages (`PAGE_JOB_LINE`); `pageNotice.js` sends a plain new note back.
+ */
+export const PAGES_LINE =
+  "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
+  "Read the page design skill first (orient about: \"pages\") and follow it. A change to a note they already have keeps its form, and your own tex/ notes, " +
+  "about-me and todo.md stay plain. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
+
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
@@ -374,7 +387,7 @@ export function systemPrompt(
         RESEARCH_LINE,
         // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
         OPINION_LINE,
-        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
+        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

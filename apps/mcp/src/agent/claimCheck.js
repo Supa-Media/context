@@ -56,6 +56,7 @@ import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTex
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { mayAsk } from "./handbackJudge.js";
+import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
@@ -464,6 +465,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let cardNoticed = false;
   let owedNoticed = false;
   let notePictureNoticed = false;
+  // A plan or research saved as a plain note instead of a page (`pageNotice.js`), and the turn's note writes.
+  let pageNoticed = false;
+  const noteWrites = [];
   let bugNoticed = false;
   // A waiting ask the answer said had changed, with nothing held again (rule 6).
   let supersedeNoticed = false;
@@ -511,6 +515,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
+          const written = noteWrite(name, args, result);
+          if (written !== null) noteWrites.push(written);
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;
           if (/^(?:tex\/)?routines\//.test(path)) keptPromise = true;
@@ -626,6 +632,13 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
       notePictureNoticed = true;
       return NOTE_PICTURE_NOTICE;
+    }
+    // A plan, research or itinerary saved as a plain note: write it as a page.
+    const plain = pageNoticed || held ? null : wantsAPage(noteWrites, question);
+    if (plain !== null) {
+      pageNoticed = true;
+      cardNoticed = true;
+      return pageNotice(plain);
     }
     // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
     if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {

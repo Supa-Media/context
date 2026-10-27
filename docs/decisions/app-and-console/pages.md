@@ -147,13 +147,32 @@ required when making pages".
   saved the research as a plain note, telling the chat pages "wouldn't save
   from this chat". The refusal also says never to fall back to a plain note.)
 
+- **Every note Tex makes is a page** (owner, 2026-10-27: "by default every
+  note that tex produces should be a page, and only ever a regular note when
+  the user explicitly asks"). Asked by text for a detailed concert plan, Tex
+  had saved a plain checklist: only background jobs were told to write pages.
+  The texting prompt now says it (`PAGES_LINE` in `apps/mcp/src/agent/prompt.js`),
+  and a texted or group turn that still creates a plain `.md` goes back once
+  with the skill attached (`agent/pageNotice.js`, read by `claimCheck.js`).
+  Left plain: a change to a note that already exists (an etag was passed),
+  Tex's own `tex/` notes, `about-me`, `todo.md`, index pages, the inbox and
+  routines, and any turn where the person asked for a plain note.
+- **A page opens bare** (owner, same day: "no properties, no floating
+  buttons, nothing but the page please, maybe 1 menu to hide actions"). On a
+  page the note screen draws no contact header, properties or routine bar,
+  the Page | Text switch is gone, and the phone's bottom bar of note actions
+  and compose button is hidden. The one ••• menu holds the rest, with "Edit as
+  text" / "View as page" in place of reading mode (`pageView/pageText.ts`).
+
 What a "simplification" would cost: dropping the stamp check lets agents write
 pages from memory of an older format, which is how the first pages came out
 as styled Markdown; letting the frame name the voter lets any page's script
 vote as anyone. Tests: `apps/mcp/test/pages.test.mjs` ("a page is written only
 by a caller who read the page design skill"), `pagesDesign.test.mjs`, and
 `apps/mobile/__tests__/pageHost.test.ts` ("a vote is cast as the signed-in
-person").
+person"), `agentPageNotice.test.mjs` ("a plan saved as a plain note goes
+back to be a page"), `noteActions.test.ts` ("a page swaps reading mode for Edit
+as text").
 
 Not built yet: the "N changes since you looked" line, and drawing a map from
 the addresses on the server without the agent asking (the skill has the agent

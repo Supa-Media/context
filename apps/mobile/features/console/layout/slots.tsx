@@ -5,6 +5,9 @@ import { noteQuickActions, type NoteQuickId } from "../NoteQuickBar";
 import type { FileEntry } from "../files/types";
 import { noteActionItems } from "./noteActions";
 import { runNoteAction } from "./NoteActionsSheet";
+import { isPagePath } from "@context/shared/src/pages/index.cjs";
+import { PAGE_VIEW_AVAILABLE } from "../files/pageView/PageView";
+import { pageAsText } from "../files/pageView/pageText";
 import { Explorer, type Dialog } from "../files/Explorer";
 import type { TreePick } from "../files/selection";
 import { saveChip } from "../files/status";
@@ -280,8 +283,11 @@ export function consoleBottomBar({
           onAction: (id: NoteQuickId) =>
             runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog }),
         };
+  // A page opens as nothing but the page: no bar of note actions or compose button under it (owner, 2026-10-27);
+  // its ••• sheet has them. Shown as text ("Edit as text"), it is a note being edited and gets the bar back.
+  const page = note !== null && PAGE_VIEW_AVAILABLE && isPagePath(note.entry.path) && !pageAsText(note.entry.path);
   return (
-    browsing && !mapOpen ? (
+    browsing && !mapOpen && !page ? (
       <ConsoleBottomBar
         data={data}
         note={quick}

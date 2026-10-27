@@ -310,7 +310,7 @@ test("no cancel once the turn has changed something", async () => {
   during = async (n) => {
     if (n === 2) cancelled = (await call("/agent/cancel", { turn: TURN })).body;
   };
-  const response = await call("/agent", { question: "write a note called new", timeZone: "UTC", conversation: "texts", turn: TURN });
+  const response = await call("/agent", { question: "write a plain note called new", timeZone: "UTC", conversation: "texts", turn: TURN });
   assert.ok(response.body.steps.some((step) => step.tool === "write_note" && step.ok), "the write ran");
   assert.deepEqual(cancelled, { cancelled: false });
   assert.equal(response.body.cancelled, undefined);
@@ -328,7 +328,7 @@ test("a cancel mark set after a write started is ignored by the turn", async () 
     during = async (n) => {
       if (n === at) bucket.set(`${CANCEL_PREFIX}${TURN}.json`, { body: "{}", etag: "cx", lastModified: new Date().toISOString() }); // the mark a racing cancel leaves before it takes it back
     };
-    const response = await call("/agent", { question: "write a note", timeZone: "UTC", conversation: "texts", turn: TURN });
+    const response = await call("/agent", { question: "write a plain note", timeZone: "UTC", conversation: "texts", turn: TURN });
     assert.equal(response.body.cancelled, undefined);
     assert.equal(response.body.answer, "Wrote it.");
   }
