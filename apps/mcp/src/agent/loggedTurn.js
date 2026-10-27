@@ -11,15 +11,42 @@
  * judge, a texted yes) still reads the request's `question` and today's
  * history, never this. An old chat with no log, or a request naming events
  * not yet logged, is today's turn.
+ *
+ * A turn that read from outside the workspace taints what it said. The log's
+ * events are the Worker's, so the Worker can never say an answer was clean:
+ * `tainted` is not an Event field (`log.js` refuses it). The gateway keeps its
+ * own record instead, by the turn's id (`.context/agent/tainted/<turn>.json`,
+ * `markTainted`), and a turn shown a Tex event from a tainted turn is
+ * untrusted (`tainted`), as one shown a tainted kept answer is
+ * (`historyIsTainted`, which `route.js` still asks of today's history).
  */
 
 import { conversationPath, readConversation } from "./conversation.js";
 import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
-import { renderEvents, speaker, words } from "./logRender.js";
+import { renderEvents, seenBy, speaker, words } from "./logRender.js";
 
 const MAX_COVERS = 32;
+const TURN = /^[A-Za-z0-9_-]{8,64}$/;
+export const TAINTED_PREFIX = ".context/agent/tainted/";
+
+/** Record that a named turn read from outside the workspace. */
+export async function markTainted(store, turn) {
+  if (typeof turn !== "string" || !TURN.test(turn)) return;
+  await store.put(`${TAINTED_PREFIX}${turn}.json`, JSON.stringify({ at: Date.now() }));
+}
+
+/** Whether any of Tex's events shown came from a turn recorded as tainted. Unreadable is tainted. */
+async function showsTainted(store, events) {
+  const turns = new Set(events.filter((event) => event.from?.kind === "tex" && typeof event.turn === "string").map((event) => event.turn));
+  try {
+    for (const turn of turns) if ((await store.get(`${TAINTED_PREFIX}${turn}.json`)) !== null) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 
 /*
@@ -51,6 +78,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC" }
     .map((event) => (group !== null ? `${speaker(event.from)}: ${words(event)}` : words(event)))
     .join("\n");
   if (question === "") return null;
-  const transcript = renderEvents(events.filter((event) => !wanted.has(event.id)), { timeZone, people: group?.members ?? null, answeredBy: events });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question };
+  const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
+  const transcript = renderEvents(shown, { timeZone, answeredBy: events });
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown) };
 }

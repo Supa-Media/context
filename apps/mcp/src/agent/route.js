@@ -36,7 +36,7 @@ import { withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { loggedTurn, turnHistory } from "./loggedTurn.js";
+import { loggedTurn, markTainted, turnHistory } from "./loggedTurn.js";
 import { deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
@@ -359,7 +359,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
   const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
-  if (historyIsTainted(shown)) markUntrusted(ledger);
+  if (historyIsTainted(shown) || logged?.tainted === true) markUntrusted(ledger); // and what the log shows of a tainted turn (`loggedTurn.js`)
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
   const earlier = group !== null ? [earlierChatTool(history)] : conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
@@ -611,7 +611,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await steer.pending())) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
-    if (steer !== null) await afterAnswer(steer.clear());
+    if (steer !== null) await afterAnswer(Promise.all([steer.clear(), ledger.untrusted === true ? markTainted(store, body.turn).catch(() => {}) : null]));
     // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 

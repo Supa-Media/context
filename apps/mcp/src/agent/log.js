@@ -37,7 +37,8 @@ export const EVENT_ID = /^\d{13}-\d{6}$/;
 const CHAT = /^[A-Za-z0-9_.:@+=-]{1,128}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
-const MAX_NAME = 64;
+/** A display handle: letters, digits, space and . _ - ' @, at most 64; never a line break or a control character. */
+const NAME = /^[\p{L}\p{N} ._\-'@]{1,64}$/u;
 
 export class EventRefusal extends Error {
   constructor(field) {
@@ -70,7 +71,7 @@ export function checkEvent(event, { chat, now }) {
   if (event.chat !== chat) throw new EventRefusal("chat");
   if (!plainObject(from) || !onlyKeys(from, FROM_FIELDS) || !FROM_KINDS.has(from.kind)) throw new EventRefusal("from");
   if (from.who !== undefined && (typeof from.who !== "string" || !HEX64.test(from.who))) throw new EventRefusal("from");
-  if (from.name !== undefined && (typeof from.name !== "string" || from.name.length === 0 || from.name.length > MAX_NAME)) throw new EventRefusal("from");
+  if (from.name !== undefined && (typeof from.name !== "string" || !NAME.test(from.name))) throw new EventRefusal("from");
   if (!EVENT_KINDS.has(event.kind)) throw new EventRefusal("kind");
   if (event.text !== undefined && (typeof event.text !== "string" || event.text.length > MAX_EVENT_TEXT)) throw new EventRefusal("text");
   if (event.replyTo !== undefined && (typeof event.replyTo !== "string" || !EVENT_ID.test(event.replyTo))) throw new EventRefusal("replyTo");

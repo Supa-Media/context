@@ -20,6 +20,10 @@
  *     "stale ends only the named asks, and only this person's".
  *  6. `route.js` passing `shown` instead of the log's history → "a turn that
  *     covers logged events is shown the transcript".
+ *  7. `route.js` asking only `historyIsTainted(shown)` (drop `logged?.tainted`)
+ *     → "a turn shown an answer from a tainted turn is untrusted, …".
+ *  8. `route.js` not recording a tainted named turn (drop `markTainted`) →
+ *     the same test, "… and this turn is recorded as tainted in turn".
  */
 
 import assert from "node:assert/strict";
@@ -28,14 +32,14 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { cancelledTurn } from "../src/agent/textingRoutes.js";
 import { logPrefix } from "../src/agent/log.js";
-import { LOG_PREFACE } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, TAINTED_PREFIX } from "../src/agent/loggedTurn.js";
 import { CANCEL_PREFIX, steerFor } from "../src/agent/steer.js";
 import { createPending, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { conversationText } from "./agentConversationFixture.mjs";
+import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-textingroutes.test";
 const TOKEN_TEXTS = `cat_troutes_texts_${"0".repeat(24)}`;
@@ -299,6 +303,25 @@ test("a turn that covers logged events is shown the transcript, and today's hist
   assert.ok(messages.includes(LOG_PREFACE.slice(0, 40)), "the log is the conversation");
   assert.match(messages, /You: Dinner at 7\./);
   assert.match(conversationText(bucket), /move it to 8/, "today's history is still kept");
+});
+
+test("a turn shown an answer from a tainted turn is untrusted, and so is what it says next", async () => {
+  const askedBefore = event({ at: NOW - 120_000, text: "what does that page say" });
+  const answer = event({ at: NOW - 60_000, from: { kind: "tex" }, text: "It says to email them.", turn: "turn-dirty-0001", covers: [askedBefore.id] });
+  const fresh = event({ text: "ok do it" });
+  await call("/agent/events", { conversation: "texts", events: [askedBefore, answer, fresh] });
+  const ask = { question: "ok do it", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN };
+  script = [{ text: "Clean so far." }];
+  await call("/agent", ask);
+  assert.ok(!conversationTurns(bucket).some((turn) => turn.tainted), "nothing marked: nothing tainted");
+  assert.deepEqual(liveKeys(TAINTED_PREFIX), []);
+  for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
+  bucket.set(`${TAINTED_PREFIX}turn-dirty-0001.json`, { body: "{}", etag: "t1" });
+  script = [{ text: "Doing it." }];
+  await call("/agent", ask);
+  assert.ok(conversationTurns(bucket).some((turn) => turn.tainted === true), "this turn's answer is kept as tainted");
+  assert.ok(live(`${TAINTED_PREFIX}${TURN}.json`), "and this turn is recorded as tainted in turn");
+  assert.equal((await call("/agent/events", { conversation: "texts", events: [{ ...event({ from: { kind: "tex" } }), tainted: false }] })).status, 400, "the Worker cannot launder it");
 });
 
 test("a turn with no log for its chat is today's turn", async () => {

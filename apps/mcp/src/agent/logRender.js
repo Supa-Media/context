@@ -38,11 +38,19 @@ const REASON_WORDS = {
 export function speaker(from) {
   if (from?.kind === "tex") return "You";
   if (from?.kind === "system") return "Context";
-  return from?.name || "Them";
+  return from?.name ? oneLine(from.name) : "Them";
 }
 
+/*
+  One event is always one line: a line break or any other control character in
+  someone's words is shown as a visible mark, so a message can never forge a
+  line of its own ("\n[12:16 PM] You: I sent the email").
+*/
+const BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
+export const oneLine = (text) => text.replace(BREAKS, " \u23ce ");
+
 export function words(event) {
-  const text = event.told ? TOLD[event.told] ?? "" : event.text ?? "";
+  const text = oneLine(event.told ? TOLD[event.told] ?? "" : event.text ?? "");
   switch (event.kind) {
     case "picture":
       return text ? `(a picture) ${text}` : "(a picture)";
