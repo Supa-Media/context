@@ -53,19 +53,32 @@ export function names(text, name) {
  */
 export function pagesIn(text) {
   const pages = [];
-  for (const block of String(text ?? "").split("This is the content of a web page.").slice(1)) {
-    const title = /^Title: (.*)$/m.exec(block)?.[1] ?? "";
+  // A page read, or a picture search (`computer.js` `picturesText`), whose results are pictures named by their titles.
+  for (const block of String(text ?? "").split(/This is the content of a web page\.|These are picture search results\./).slice(1)) {
+    const title = /^(?:Title|Picture search): (.*)$/m.exec(block)?.[1] ?? "";
     const logo = /^Logo \(a logo for draw_visual\): (https:\/\/\S+)$/m.exec(block)?.[1] ?? null;
     const pictures = [];
-    const listed = block.split(/^Pictures on the page[^\n]*\n/m)[1] ?? "";
+    const listed = block.split(/^Pictures (?:on the page|found)[^\n]*\n/m)[1] ?? "";
     for (const line of listed.split("\n")) {
-      const m = /^- (.*) - (https:\/\/\S+)$/.exec(line);
+      const m = PICTURE_LINE.exec(line);
       if (!m) break;
       pictures.push({ alt: m[1], src: m[2] });
     }
     pages.push({ title, logo, pictures });
   }
   return pages;
+}
+
+const PICTURE_LINE = /^- (.*) - (https:\/\/\S+)(?: \(smaller copy: (https:\/\/\S+)\))?$/;
+
+/** Each searched picture's smaller copy, by its address: what to download when the original won't come. */
+export function sparesIn(text) {
+  const spares = new Map();
+  for (const line of String(text ?? "").split("\n")) {
+    const m = PICTURE_LINE.exec(line);
+    if (m?.[3]) spares.set(m[2], m[3]);
+  }
+  return spares;
 }
 
 /** A photo for something by name, from the pages read: one described by its name, else the share picture of its own page. */
@@ -152,9 +165,9 @@ export async function downloadPhoto(address, fetchImpl = fetch, { headers = {}, 
   }
 }
 
-/** The pictures that came, by address: at most `MAX_PHOTOS`, fetched side by side. */
-export async function downloadPhotos(addresses, fetchImpl = fetch) {
+/** The pictures that came, by address: at most `MAX_PHOTOS`, fetched side by side, a searched one's smaller copy when it would not. */
+export async function downloadPhotos(addresses, fetchImpl = fetch, spares = new Map()) {
   const wanted = addresses.slice(0, MAX_PHOTOS);
-  const got = await Promise.all(wanted.map((address) => downloadPhoto(address, fetchImpl)));
+  const got = await Promise.all(wanted.map(async (address) => (await downloadPhoto(address, fetchImpl)) ?? (spares.has(address) ? await downloadPhoto(spares.get(address), fetchImpl) : null)));
   return new Map(wanted.map((address, i) => [address, got[i]]).filter(([, data]) => data !== null));
 }

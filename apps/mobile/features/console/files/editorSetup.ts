@@ -48,6 +48,7 @@ import { titleLock } from "./titleLock";
 import { emojiHost, type EmojiHostRef } from "./emoji/host";
 import { emojiInline } from "./emoji/emojiInline";
 import { emojiTyping } from "./emoji/emojiComplete";
+import { wrapOnType } from "./wrapOnType";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 import { applyLink, cancelLink, requestLink } from "./linkSelection";
@@ -711,6 +712,8 @@ export function editorExtensions(options: {
     ...(emoji === undefined ? [] : [emojiHost.of(emoji)]),
     emojiInline(),
     emojiTyping(),
+    // A mark typed over selected words wraps them: `[` twice links them. See `wrapOnType.ts`.
+    wrapOnType(),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),

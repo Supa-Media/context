@@ -245,3 +245,4 @@ test/agentTextingRoutes.test.mjs
 test/agentDistance.test.mjs
 test/agentMapCard.test.mjs
 test/agentSameAsk.test.mjs
+test/agentPictureSearch.test.mjs
