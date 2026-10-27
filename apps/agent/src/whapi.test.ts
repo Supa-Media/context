@@ -11,6 +11,7 @@ import {
   readWhapiGroupMembers,
   readWhapiMessage,
   sendWhapiContact,
+  sendWhapiLinkPreview,
   sendWhapiMedia,
   sendWhapiText,
   startWhapiTyping,
@@ -397,5 +398,32 @@ describe("readWhapiGroupMembers", () => {
     expect(await readWhapiGroupMembers(fakeWhapi(() => ({ status: 403 })).fetcher, KEYS, GROUP)).toBeNull();
     expect(await readWhapiGroupMembers(fakeWhapi(() => new Error("down")).fetcher, KEYS, GROUP)).toBeNull();
     expect(await readWhapiGroupMembers(fakeWhapi(() => ({ status: 200, body: { id: GROUP } })).fetcher, KEYS, GROUP)).toBeNull();
+  });
+});
+
+describe("whapi link previews", () => {
+  const PREVIEW = { body: "https://example.com/note/@team/plan.md", title: "Plan", description: "A note in @team", canonical: "https://example.com/note/@team/plan.md", media: "https://example.com/m/card.png" };
+
+  it("sends the link with Tex's own title and picture", async () => {
+    const { fetcher, calls } = fakeWhapi();
+    expect(await sendWhapiLinkPreview(fetcher, KEYS, PHONE, PREVIEW)).toBe("3EB0C767-AAAAAAAAAAAA");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://gate.whapi.cloud/messages/link_preview");
+    expect(calls[0].body).toEqual({ to: PHONE.slice(1), ...PREVIEW });
+  });
+
+  it("tries again without the picture on a 4xx, then gives up so the caller sends the text plain", async () => {
+    const { fetcher, calls } = fakeWhapi((_url, _method, body) => (body?.media ? { status: 400 } : { status: 200, body: SENT }));
+    expect(await sendWhapiLinkPreview(fetcher, KEYS, GROUP, PREVIEW)).toBe("3EB0C767-AAAAAAAAAAAA");
+    expect(calls.map((c) => "media" in (c.body ?? {}))).toEqual([true, false]);
+    const refused = fakeWhapi(() => ({ status: 422 }));
+    expect(await sendWhapiLinkPreview(refused.fetcher, KEYS, GROUP, PREVIEW)).toBeNull();
+    expect(refused.calls).toHaveLength(2);
+  });
+
+  it("throws on a server error rather than resending", async () => {
+    const { fetcher, calls } = fakeWhapi(() => ({ status: 503 }));
+    await expect(sendWhapiLinkPreview(fetcher, KEYS, PHONE, PREVIEW)).rejects.toBeInstanceOf(ServiceError);
+    expect(calls).toHaveLength(1);
   });
 });

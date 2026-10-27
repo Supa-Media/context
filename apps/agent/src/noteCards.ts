@@ -17,6 +17,7 @@
 import { post, type Fetch } from "./clients";
 import { noteLinkOf, type NoteLink } from "./appCards";
 import type { Picture } from "./line";
+import type { WhapiLinkPreview } from "./whapi";
 
 /** Long enough for a cold renderer, short enough that the link is not held up for long. */
 export const NOTE_CARD_TIMEOUT_MS = 8_000;
@@ -68,4 +69,29 @@ export async function hostedNoteCard(
   const picture = await draw(link);
   const address = picture ? await host(picture).catch(() => null) : null;
   return address ? { link, address } : null;
+}
+
+/**
+ * A text that is only a note's link, as the preview WhatsApp shows under it:
+ * the note's name, its workspace, and its card when one was drawn. WhatsApp
+ * draws a link's preview from what the sender attaches, so without this the
+ * link shows the site's front page (2026-10-27). Null for any other text.
+ * Never throws.
+ */
+export async function whapiNotePreview(
+  text: string,
+  draw: NoteCardDrawer | undefined,
+  host: ((picture: Picture) => Promise<string>) | undefined,
+): Promise<WhapiLinkPreview | null> {
+  const link = noteLinkOf(text);
+  if (!link) return null;
+  const picture = draw && host ? await draw(link) : null;
+  const media = picture && host ? await host(picture).catch(() => null) : null;
+  return {
+    body: link.url,
+    title: link.caption,
+    description: `A note in @${link.slug} · open it in Context`,
+    canonical: link.url,
+    ...(media ? { media } : {}),
+  };
 }

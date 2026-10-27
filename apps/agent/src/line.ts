@@ -12,7 +12,7 @@ import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, Serv
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { noteCard, type AppCardConfig } from "./appCards";
-import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
+import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
@@ -34,6 +34,7 @@ import {
   parseWhapiChat,
   reactWhapi,
   sendWhapiContact,
+  sendWhapiLinkPreview,
   sendWhapiMedia,
   sendWhapiText,
   startWhapiTyping,
@@ -175,8 +176,8 @@ function sendblueLine(deps: LineDeps): Line {
 /**
  * WhatsApp through Whapi (`whapi.ts`). A reply quotes the person's message
  * where the inbox threads one (WhatsApp's reply); no carousels and no cards,
- * so pictures go one by one and a note's link goes as a link, which WhatsApp
- * previews itself. The contact card is a WhatsApp contact message; the name
+ * so pictures go one by one, and a note's link goes with the preview Tex
+ * draws for it (`whapiNotePreview`). The contact card is a WhatsApp contact message; the name
  * and photo at the top of the chat are the account's own profile, set once
  * on the channel, so there is nothing to share per chat.
  */
@@ -192,7 +193,12 @@ function whapiLine(deps: LineDeps): Line {
     return toOfPhone(chat.phone);
   };
   return {
-    sendText: (chatId, text, _key, replyTo) => sendWhapiText(fetch, keys(), to(chatId), text, replyTo),
+    sendText: async (chatId, text, _key, replyTo) => {
+      // A note's link carries its own preview (`noteCards.ts`); one Whapi refuses goes plain.
+      const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);
+      const sent = preview ? await sendWhapiLinkPreview(fetch, keys(), to(chatId), preview, replyTo) : null;
+      return sent !== null ? sent : await sendWhapiText(fetch, keys(), to(chatId), text, replyTo);
+    },
     sendMedia: async (chatId, media, _key, replyTo) => {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("whapi", 400);

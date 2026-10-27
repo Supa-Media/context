@@ -168,6 +168,38 @@ export async function sendWhapiMedia(fetcher: Fetch, keys: WhapiKeys, to: string
   await sendMessage(fetcher, keys, "/messages/document", { to: address, media: url, filename: name.slice(0, MAX_FILE_NAME) || "file" }, quoted);
 }
 
+/** A link sent with the preview Tex draws for it, since WhatsApp's own reads only the page's public tags. */
+export type WhapiLinkPreview = { body: string; title: string; description: string; canonical: string; media?: string };
+
+/**
+ * One text whose link shows the preview given (`/messages/link_preview`):
+ * a note's name and picture where WhatsApp would show the site's front page.
+ * A preview Whapi refuses with a 4xx is tried once more without its picture;
+ * null when that is refused too, so the caller sends the text plain. Quoted
+ * like a text. Any other failure throws `ServiceError("whapi", status)`.
+ */
+export async function sendWhapiLinkPreview(
+  fetcher: Fetch,
+  keys: WhapiKeys,
+  to: string,
+  preview: WhapiLinkPreview,
+  quoted?: string,
+): Promise<string | undefined | null> {
+  const address = addressOf(to);
+  if (address === null) throw new ServiceError("whapi", null);
+  const { media, ...plain } = preview;
+  const tries = media === undefined ? [plain] : [{ ...plain, media }, plain];
+  for (const fields of tries) {
+    try {
+      return await sendMessage(fetcher, keys, "/messages/link_preview", { to: address, ...fields, body: fields.body.slice(0, MAX_REPLY_TEXT) }, quoted);
+    } catch (error) {
+      if (!(error instanceof ServiceError) || error.status === null || error.status < 400 || error.status >= 500) throw error;
+      console.log(JSON.stringify({ event: "whapi_link_preview", outcome: "refused", status: error.status }));
+    }
+  }
+  return null;
+}
+
 /** Tex's contact card, as a WhatsApp contact message; whether Whapi took it. Never throws. */
 export async function sendWhapiContact(fetcher: Fetch, keys: WhapiKeys, to: string, name: string, vcard: string): Promise<boolean> {
   const address = addressOf(to);

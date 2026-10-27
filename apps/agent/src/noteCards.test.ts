@@ -4,6 +4,7 @@ import { groupLineFor } from "./groupLine";
 import { lineFor } from "./line";
 import { linkAfterCard, noteCardDrawer } from "./noteCards";
 import { sendblueChatId } from "./sendblue";
+import { whapiChatId, whapiGroupId } from "./whapi";
 import type { Fetch } from "./clients";
 import type { NoteLink } from "./appCards";
 
@@ -129,5 +130,51 @@ describe("a note link texted into a group", () => {
     expect(calls.map((call) => call.body.content)).toEqual([LINK]);
     expect(refused.map((call) => call.body.content ?? "picture")).toEqual(["picture", LINK]);
     expect(draw).not.toHaveBeenCalled();
+  });
+});
+
+describe("a note link texted on WhatsApp", () => {
+  const WHAPI = { token: "wt", line: LINE };
+  type WhapiCall = { path: string; body: Record<string, unknown> };
+  function whapi(calls: WhapiCall[], previewStatus = 200): Fetch {
+    return (async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      calls.push({ path, body: JSON.parse(String(init.body)) });
+      const status = path === "/messages/link_preview" ? previewStatus : 200;
+      return new Response(status === 200 ? '{"sent":true,"message":{"id":"wamid-1"}}' : null, { status });
+    }) as unknown as Fetch;
+  }
+  const hostPicture = async () => "https://agent.example/media/abc.png";
+
+  it("sends the link with the note's name and card as its preview, in a 1:1 chat and a group", async () => {
+    const chat = whapiChatId(LINE, PHONE);
+    const calls: WhapiCall[] = [];
+    const line = lineFor({ fetch: whapi(calls), linqApiKey: "", whapi: WHAPI, hostPicture, noteCardPicture: async () => PNG }, chat);
+    expect(await line.sendText(chat, LINK, "k", "wamid-0")).toBe("wamid-1");
+    const group = whapiGroupId("120363012345678901@g.us");
+    await groupLineFor({ fetch: whapi(calls), whapi: WHAPI, hostPicture, noteCardPicture: async () => PNG }, group).sendText({ line: LINE, groupId: group }, LINK);
+    expect(calls.map((c) => c.path)).toEqual(["/messages/link_preview", "/messages/link_preview"]);
+    expect(calls[0].body).toMatchObject({ body: LINK, title: "Launch plan", description: "A note in @dev2 · open it in Context", canonical: LINK, media: "https://agent.example/media/abc.png", quoted: "wamid-0" });
+    expect(calls[1].body).toMatchObject({ to: "120363012345678901@g.us", title: "Launch plan" });
+  });
+
+  it("still names the note with no card, and sends the link plain when Whapi refuses the preview", async () => {
+    const chat = whapiChatId(LINE, PHONE);
+    const calls: WhapiCall[] = [];
+    await lineFor({ fetch: whapi(calls), linqApiKey: "", whapi: WHAPI, hostPicture, noteCardPicture: async () => null }, chat).sendText(chat, LINK, "k");
+    expect(calls[0]).toMatchObject({ path: "/messages/link_preview", body: { title: "Launch plan" } });
+    expect("media" in calls[0].body).toBe(false);
+    const refused: WhapiCall[] = [];
+    await lineFor({ fetch: whapi(refused, 400), linqApiKey: "", whapi: WHAPI, hostPicture, noteCardPicture: async () => PNG }, chat).sendText(chat, LINK, "k");
+    expect(refused.map((c) => c.path)).toEqual(["/messages/link_preview", "/messages/link_preview", "/messages/text"]);
+    expect(refused[2].body.body).toBe(LINK);
+  });
+
+  it("sends words and other links as text", async () => {
+    const chat = whapiChatId(LINE, PHONE);
+    const calls: WhapiCall[] = [];
+    const line = lineFor({ fetch: whapi(calls), linqApiKey: "", whapi: WHAPI, hostPicture, noteCardPicture: async () => PNG }, chat);
+    for (const text of ["Saved it.", "https://example.com/page", `Here: ${LINK}`]) await line.sendText(chat, text, "k");
+    expect(calls.map((c) => c.path)).toEqual(["/messages/text", "/messages/text", "/messages/text"]);
   });
 });

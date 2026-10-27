@@ -18,7 +18,7 @@
 import { ServiceError, type Fetch } from "./clients";
 import { isRefusal } from "./carousel";
 import type { Picture } from "./line";
-import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
+import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
@@ -27,6 +27,7 @@ import {
   reactWhapi,
   readWhapiGroupMembers,
   readWhapiMessage,
+  sendWhapiLinkPreview,
   sendWhapiMedia,
   sendWhapiText,
   type WhapiKeys,
@@ -102,7 +103,12 @@ function whapiGroupLine(deps: GroupLineDeps): GroupLine {
     return found;
   };
   return {
-    sendText: (place, text, replyTo) => sendWhapiText(deps.fetch, keys(), jid(place), text, replyTo),
+    sendText: async (place, text, replyTo) => {
+      // A note's link carries its own preview, as in a 1:1 chat (`noteCards.ts`); one Whapi refuses goes plain.
+      const preview = await whapiNotePreview(text, deps.noteCardPicture, deps.hostPicture);
+      const sent = preview ? await sendWhapiLinkPreview(deps.fetch, keys(), jid(place), preview, replyTo) : null;
+      return sent !== null ? sent : await sendWhapiText(deps.fetch, keys(), jid(place), text, replyTo);
+    },
     sendMedia: (place, url, replyTo) => sendWhapiMedia(deps.fetch, keys(), jid(place), url, replyTo),
     react: async (_place, messageId, emoji) => {
       if (!deps.whapi) return;

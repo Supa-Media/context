@@ -26,6 +26,10 @@ on:
         description: "Send the settings (false = dry run, nothing is changed)"
         type: boolean
         default: false
+      probe:
+        description: "Also print the shapes Whapi uses for @mentions and link previews (no words, numbers or names)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,6 +45,7 @@ jobs:
       APPLY: ${{ inputs.apply }}
       WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
       WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
+      WHAPI_LINE: ${{ secrets.WHAPI_LINE }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
@@ -99,6 +104,80 @@ jobs:
             if (!linked) console.log("::warning::The channel is not linked to a phone yet. Scan its QR code in Whapi before Tex can reply on WhatsApp.");
           ' "$out"
           rm -f "$out"
+
+      # Shapes only: which fields Whapi fills, and whether a mention is Tex's
+      # number, a @lid that resolves to it, or someone else. Never a value.
+      - name: Probe mention and link preview shapes
+        if: ${{ inputs.probe }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$WHAPI_TOKEN"
+          node - <<'JS'
+          const api = "https://gate.whapi.cloud";
+          const auth = { authorization: `Bearer ${process.env.WHAPI_TOKEN}` };
+          const line = String(process.env.WHAPI_LINE ?? "").replace(/^\+/, "");
+          const get = async (path) => {
+            const r = await fetch(api + path, { headers: auth }).catch(() => null);
+            if (r === null) return { status: 0, body: null };
+            return { status: r.status, body: await r.json().catch(() => null) };
+          };
+          const shape = (v) => {
+            if (typeof v !== "string") return typeof v;
+            const d = v.replace(/@.*$/, "");
+            const suffix = v.includes("@") ? v.slice(v.indexOf("@")) : "";
+            return `${d === line ? "TEX" : /^\d+$/.test(d) ? `digits${d.length}` : "text"}${suffix.replace(/[^@a-z.]/g, "")}`;
+          };
+          const health = await get("/health");
+          const user = health.body?.user ?? {};
+          console.log("health user fields:", Object.entries(user).map(([k, v]) => `${k}=${shape(v)}`).join(" "));
+          for (const path of ["/users/profile", "/settings"]) {
+            const r = await get(path);
+            console.log(path, r.status, Object.keys(r.body ?? {}).join(","));
+          }
+          const list = await get("/messages/list?count=100");
+          const messages = list.body?.messages ?? [];
+          console.log("messages read:", list.status, messages.length);
+          const self = new Set();
+          for (const m of messages) {
+            const ctx = m.context ?? {};
+            const mentions = Array.isArray(ctx.mentions) ? ctx.mentions : [];
+            const body = String(m.text?.body ?? m.link_preview?.body ?? "");
+            const inBody = [...body.matchAll(/@(\d{5,})/g)].map((x) => x[1]);
+            if (mentions.length === 0 && inBody.length === 0) continue;
+            const group = String(m.chat_id ?? "").endsWith("@g.us");
+            const parts = [];
+            for (const id of mentions.slice(0, 5)) {
+              let resolved = "";
+              if (String(id).endsWith("@lid") || !String(id).includes("@")) {
+                const bare = String(id).replace(/@.*$/, "");
+                for (const q of [`${bare}@lid`, bare]) {
+                  const r = await get(`/contacts/ids/${encodeURIComponent(q)}`);
+                  const text = JSON.stringify(r.body ?? "");
+                  resolved += ` ids(${q.includes("@") ? "lid" : "bare"})=${r.status}${line && text.includes(line) ? ":TEX" : ""}`;
+                  if (line && text.includes(line)) self.add(bare);
+                }
+              }
+              parts.push(`${shape(String(id))} inBody=${body.includes("@" + String(id).replace(/@.*$/, ""))}${resolved}`);
+            }
+            console.log(`${group ? "group" : "dm"} type=${m.type} fromMe=${m.from_me === true} ctxKeys=${Object.keys(ctx).join(",")} mentions=[${parts.join(" | ")}] bodyAts=[${inBody.map(shape).join(",")}]`);
+          }
+          console.log("lids resolving to Tex:", self.size);
+          for (const path of ["/openapi.json", "/docs/openapi.json", "/swagger.json"]) {
+            const r = await get(path);
+            if (r.status !== 200 || !r.body?.paths) { console.log(path, r.status); continue; }
+            for (const [p, ops] of Object.entries(r.body.paths)) {
+              if (!/link|lid|mention|ids/i.test(p)) continue;
+              for (const [verb, op] of Object.entries(ops)) {
+                const schema = op.requestBody?.content?.["application/json"]?.schema;
+                const ref = schema?.$ref?.split("/").pop();
+                const props = ref ? Object.keys(r.body.components?.schemas?.[ref]?.properties ?? {}) : Object.keys(schema?.properties ?? {});
+                const required = ref ? r.body.components?.schemas?.[ref]?.required ?? [] : schema?.required ?? [];
+                console.log(`${verb.toUpperCase()} ${p} props=${props.join(",")} required=${required.join(",")}`);
+              }
+            }
+            break;
+          }
+          JS
 
       - name: Build the settings
         run: |
