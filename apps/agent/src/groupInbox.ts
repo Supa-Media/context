@@ -75,6 +75,7 @@ import { staleAsks } from "./decide";
 import { runningTurn, startTurn } from "./steer";
 import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
+import { handedTurnWaits, handOff } from "./groupTurnRun";
 import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
 
 export type GroupDeps = {
@@ -96,6 +97,8 @@ export type GroupDeps = {
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
   /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
   steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
+  /** Starts the workflow that answers a chosen turn (`groupTurnWorkflow.ts`); absent, the turn is answered here. */
+  startTurn?: (turn: string) => Promise<void>;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
@@ -351,6 +354,8 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
   }
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
+    // One turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`).
+    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) return;
     const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
@@ -373,34 +378,44 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       entries = ownTurn(choice.answer);
       if (entries.length === 0) continue;
     }
-    const [key, item] = entries.at(-1)!;
-    try {
-      const outcome = await answerGroup(storage, entries, deps);
-      // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
-      if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
-    } catch (error) {
-      const attempts = item.attempts + 1;
-      const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
-      log("failed", reason);
-      if (attempts < MAX_ATTEMPTS) {
-        // Retried as the same turn: the others it covered go with it.
-        for (const [other] of entries.slice(0, -1)) await storage.delete(other);
-        await storage.put<Pending>(key, { ...item, message: mergedGroup(entries.map(([, entry]) => entry.message)), attempts, byCode: true, covers: coversOf(entries) });
-        await storage.setAlarm(deps.now() + RETRY_MS);
-        return;
-      }
-      for (const [done] of entries) await storage.delete(done);
-      const timedOut = error instanceof ServiceError && error.status === 504;
-      // A routine nobody asked for just now fails quietly: the chat didn't ask, so it is told nothing.
-      if (item.message.routine !== undefined) await routineDone(deps, item.message, "failed");
-      else await say(storage, deps, item.message, GROUP_LINES.failed, { system: true, reason: timedOut ? "timed_out" : "failed" }).catch(() => {});
-    }
+    if (deps.startTurn !== undefined && (await handOff(storage, deps, entries))) return;
+    if (await answerInline(storage, entries, deps)) return;
   }
   await pruneSeen(storage, deps.now());
 }
 
+/** One turn answered here, as before workflows: retried by the alarm, then given up on. True when the drain stops for the retry. */
+export async function answerInline(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<boolean> {
+  const [key, item] = entries.at(-1)!;
+  try {
+    const outcome = await answerGroup(storage, entries, deps);
+    // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
+    if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
+  } catch (error) {
+    const attempts = item.attempts + 1;
+    const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
+    log("failed", reason);
+    if (attempts < MAX_ATTEMPTS) {
+      // Retried as the same turn: the others it covered go with it.
+      for (const [other] of entries.slice(0, -1)) await storage.delete(other);
+      await storage.put<Pending>(key, { ...item, message: mergedGroup(entries.map(([, entry]) => entry.message)), attempts, byCode: true, covers: coversOf(entries) });
+      await storage.setAlarm(deps.now() + RETRY_MS);
+      return true;
+    }
+    for (const [done] of entries) await storage.delete(done);
+    await turnFailed(storage, deps, item.message, error instanceof ServiceError && error.status === 504);
+  }
+  return false;
+}
+
+/** A turn given up on: a routine nobody asked for just now fails quietly (the chat didn't ask, so it is told nothing); anyone else is told. */
+export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, timedOut: boolean): Promise<void> {
+  if (message.routine !== undefined) await routineDone(deps, message, "failed");
+  else await say(storage, deps, message, GROUP_LINES.failed, { system: true, reason: timedOut ? "timed_out" : "failed" }).catch(() => {});
+}
+
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
-async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
+export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
   const item = entries.at(-1)![1];
   const message = mergedGroup(entries.map(([, entry]) => entry.message));
   // What the chat said before the first message it answers is its context; the rest it answers.

@@ -56,9 +56,14 @@ import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
 import { holdsAsYes, takesBackYes } from "./thumbs";
+import { answerHanded, failHanded } from "./groupTurnRun";
+import type { GroupTurnParams } from "./groupTurnWorkflow";
+export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
+  /** Sees each group turn through, with retries (`groupTurnWorkflow.ts`); absent, group turns are answered in their object. */
+  GROUP_TURN?: Workflow<GroupTurnParams>;
   /** Linq's `whsec_…` webhook signing secret. */
   LINQ_WEBHOOK_SECRET: string;
   /** Linq Partner API key, used to send replies. */
@@ -488,6 +493,13 @@ export class SenderInbox implements DurableObject {
       await syncGuestPeople(this.state.storage, this.deps(), message);
       return Response.json({ outcome });
     }
+    // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
+    if (path === "/group-answer" || path === "/group-failed") {
+      const { turn } = (await request.json()) as { turn?: unknown };
+      if (typeof turn !== "string") return new Response(null, { status: 400 });
+      const deps = this.deps();
+      return Response.json({ outcome: await (path === "/group-answer" ? answerHanded : failHanded)(this.state.storage, deps, turn) });
+    }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());
       if (run === null) return new Response(null, { status: 400 });
@@ -575,8 +587,10 @@ export class SenderInbox implements DurableObject {
     }
   }
 
-  private deps(): InboxDeps {
+  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void> } {
+    const workflow = this.env.GROUP_TURN;
     return {
+      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn) } : {}),
       fetch: (input, init) => fetch(input, init),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
@@ -607,5 +621,16 @@ export class SenderInbox implements DurableObject {
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
     };
+  }
+}
+
+/** Start the workflow for one group turn; one already started under this id counts as started. */
+async function startGroupTurn(workflow: Workflow<GroupTurnParams>, inbox: string, turn: string): Promise<void> {
+  try {
+    await workflow.create({ id: turn, params: { inbox, turn } });
+  } catch (error) {
+    await workflow.get(turn).catch(() => {
+      throw error;
+    });
   }
 }
