@@ -14,6 +14,12 @@
  * against the tools this turn and the last few texts actually ran. When the
  * record says otherwise, the model gets one more round to look at what those
  * reads returned and say plainly which part of the correction is right.
+ *
+ * The same day, in a WhatsApp group, Tex saved a page and said "Done". Someone
+ * joked "Tex are you real? Or are you tripping?" and Tex answered "my last
+ * 'Done' was wrong. The page wasn't saved", then wrote a second, plain copy.
+ * The save had worked. A retracted save is checked the same way: when the
+ * record shows the write succeeded, the model is told so before the answer goes.
  */
 
 /** What a person calls a source, and the tools that read it. */
@@ -31,6 +37,20 @@ const MADE_UP = /\bI\s+(?:just\s+)?(?:made\s+(?:it|that|this|those|them|\S+)\s+u
 
 /** An answer conceding a correction: "made up" alone may be an honest "the invite has no end, so I guessed 4". */
 const CONCEDES = /\byou(?:'|’)?re right\b|\byou are right\b|\bI was wrong\b|\bsorry\b|\bmy (?:bad|mistake)\b|\bI shouldn(?:'|’)?t have\b/i;
+
+/** The tools that save a note; the history keeps only calls that succeeded (`route.js`). */
+const WRITES = ["write_note", "edit_note", "append_note", "update_note"];
+
+/** "my last Done was wrong", "the page wasn't saved", "I never actually saved it". */
+const UNSAVED = new RegExp(
+  [
+    String.raw`\bmy\s+(?:last\s+|earlier\s+)?["“']?done["”']?\s+was\s+(?:wrong|not\s+true|false)`,
+    String.raw`\b(?:the|that|this|your)\s+(?:page|note|file|doc|document|plan|list)\s+(?:was\s*n[o']t|wasn['’]t|did\s*n[o']t|didn['’]t|never|had\s*n[o']t|hadn['’]t)\s+(?:actually\s+|really\s+)?(?:get\s+|got\s+|been\s+)?(?:saved|save|written|write|made|created|stored)`,
+    String.raw`\b(?:it|that)\s+(?:was\s*n[o']t|wasn['’]t|did\s*n[o']t\s+get|didn['’]t\s+get|never\s+got)\s+(?:actually\s+|really\s+)?saved`,
+    String.raw`\bI\s+(?:had\s*n[o']t|hadn['’]t|did\s*n[o']t|didn['’]t|never|have\s*n[o']t|haven['’]t)\s+(?:actually\s+|really\s+)?(?:save|saved|write|wrote|written|make|made|create|created)\s+(?:(?:it|that)\b(?!\s+(?:to|in|into|under|as)\b)|(?:the|your)\b)`,
+  ].join("|"),
+  "i",
+);
 
 /** How many of the latest texts count as "what I said I checked". */
 const RECENT_TEXTS = 6;
@@ -57,14 +77,22 @@ export function contradictedConfession(answer, { history = [], steps = [] } = {}
       if (source.words.test(clause) && source.tools.some((tool) => ran.has(tool)) && !disowned.includes(source.name)) disowned.push(source.name);
     }
   }
+  const unsaved = UNSAVED.test(said) && WRITES.some((tool) => ran.has(tool));
   const madeUp = MADE_UP.test(said) && CONCEDES.test(said) && SOURCES.some((source) => source.tools.some((tool) => ran.has(tool)));
-  if (disowned.length === 0 && !madeUp) return null;
-  const tools = [...ran].filter((name) => SOURCES.some((source) => source.tools.includes(name)));
-  return { disowned, madeUp, tools };
+  if (disowned.length === 0 && !madeUp && !unsaved) return null;
+  const tools = [...ran].filter((name) => WRITES.includes(name) || SOURCES.some((source) => source.tools.includes(name)));
+  return { disowned, madeUp, unsaved, tools };
 }
 
 /** The notice for `contradictedConfession`. */
-export function confessionNotice({ disowned, madeUp, tools }) {
+export function confessionNotice({ disowned, madeUp, unsaved = false, tools }) {
+  if (unsaved && disowned.length === 0 && !madeUp) {
+    return (
+      `Before this goes: your answer takes back a save, but your own record shows saves that worked in this chat: ${tools.filter((name) => WRITES.includes(name)).join(", ")} succeeded. ` +
+      "A joke, a tease or a question (\"are you real?\", \"where is it?\") is not a correction, and nothing in the record says the save failed. " +
+      "If that is the save you mean, stand by it: say it's saved and give its link again. If you wrote it a second time this turn, say plainly the first one was already saved and this one is a copy. No apology."
+    );
+  }
   const what = disowned.length > 0 ? `you never read their ${disowned.join(" or ")}` : "you made a figure up";
   return (
     `Before this goes: your answer says ${what}, but your own record shows these ran in this chat: ${tools.join(", ")}. ` +
