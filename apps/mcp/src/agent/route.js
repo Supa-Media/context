@@ -287,7 +287,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const { conversation, history } = await turnHistory(store, session, body, { runner, group, dispatch });
-  const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE });
+  const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId });
   const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;

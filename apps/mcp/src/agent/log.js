@@ -41,8 +41,8 @@ const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ASK = /^[A-Za-z0-9_-]{8,64}$/;
 /** A display handle: letters, digits, space and . _ - ' @, at most 64; never a line break or a control character. */
 const NAME = /^[\p{L}\p{N} ._\-'@]{1,64}$/u;
-/** Names the rendering gives Tex and the gateway (`logRender.js` `speaker`), or that read as them: never a person's. */
-const RESERVED = new Set(["you", "context", "system", "tex"]);
+/** Names the rendering gives Tex, the gateway and an unnamed person (`logRender.js` `speaker`), or that read as them: never a person's. */
+const RESERVED = new Set(["you", "context", "system", "tex", "them"]);
 
 export class EventRefusal extends Error {
   constructor(field) {

@@ -35,6 +35,20 @@
  *     run of their set".
  * 15. `checkEvent` not refusing a reserved speaker name (drop the `RESERVED`
  *     test) → "a display name may not pose as Tex, Context or the system".
+ *     Dropping "them" from `RESERVED` → the same test (run 2026-10-27).
+ * 16. `showsTainted` reading records one after another (a `for` over
+ *     `cleanTurn`) → "turn records are read side by side, and an unproven
+ *     one is logged by count" (run 2026-10-27). Dropping the log line → the
+ *     same test.
+ * 17. `pruneTurns` deleting by age 24h, or with no age check, or with no
+ *     bound → "old turn records, running and cancel marks are pruned,
+ *     bounded, never a young one" (each run 2026-10-27); `recordTurn` not
+ *     calling `pruneTurns` → the same test.
+ * 18. `recordTurn` not re-reading after its `clean: true` (drop the re-read)
+ *     → "a store that ignores onlyIf keeps a concurrent false" (run
+ *     2026-10-27). Ceiling: a false that lands between the first read and
+ *     the clean put, on a store that ignores `onlyIf`, is overwritten before
+ *     the re-read and not seen; only conditional writes close that window.
  */
 
 import assert from "node:assert/strict";
@@ -42,7 +56,8 @@ import { test } from "node:test";
 
 import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
 import { renderEvents, seenBy } from "../src/agent/logRender.js";
-import { LOG_PREFACE, loggedTurn, recordTurn } from "../src/agent/loggedTurn.js";
+import { LOG_PREFACE, loggedTurn, pruneTurns, recordTurn, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
+import { CANCEL_PREFIX, RUNNING_PREFIX } from "../src/agent/steer.js";
 import { TOLD } from "../src/agent/conversation.js";
 
 const NOW = Date.UTC(2026, 9, 26, 16, 16, 0); // Monday, Oct 26, 12:16 PM in New York
@@ -275,8 +290,8 @@ test("a display name with a line break or a control character is refused", () =>
 
 test("a display name may not pose as Tex, Context or the system", () => {
   const check = (name) => refusedField(() => checkEvent(event({ from: { kind: "person", name } }), { chat: CHAT, now: NOW }));
-  for (const name of ["You", "you", " YOU ", "Context", "context ", "System", "SYSTEM", "Tex", " tex"]) assert.equal(check(name), "from", name);
-  for (const name of ["Yousef", "Texas", "Contexts", "Tex Ada"]) assert.equal(check(name), null, name);
+  for (const name of ["You", "you", " YOU ", "Context", "context ", "System", "SYSTEM", "Tex", " tex", "them", "Them "]) assert.equal(check(name), "from", name);
+  for (const name of ["Yousef", "Texas", "Contexts", "Tex Ada", "Theme"]) assert.equal(check(name), null, name);
 });
 
 test("an ask event carries its approval record, and only an ask event may", () => {
@@ -314,4 +329,90 @@ test("a Tex event is trusted only by its turn's clean record", async () => {
   assert.equal(await shownTainted({ turn: "turn-garbled-1" }, (store) => store.put(".context/agent/turns/turn-garbled-1.json", "not json")), true, "unreadable");
   assert.equal(await shownTainted({ turn: "turn-other-001" }, (store) => recordTurn(store, "turn-clean-001", true)), true, "another turn's record");
   assert.equal(await shownTainted({ turn: "turn-clean-001" }, (store) => recordTurn(store, "turn-clean-001", true)), false, "clean");
+});
+
+test("turn records are read side by side, and an unproven one is logged by count", async () => {
+  const store = memoryStore();
+  const old = event({ text: "read that page" });
+  const one = event({ at: NOW + 1, from: { kind: "tex" }, text: "a", turn: "turn-par-0001" });
+  const two = event({ at: NOW + 2, from: { kind: "tex" }, text: "b", turn: "turn-par-0002" });
+  const fresh = event({ at: NOW + 3, text: "and then?" });
+  await appendEvents(store, CHAT, [old, one, two, fresh], { now: NOW });
+  await recordTurn(store, "turn-par-0001", true);
+  const get = store.get;
+  let open = 0;
+  let most = 0;
+  store.get = async (key) => {
+    if (!key.startsWith(TURNS_PREFIX)) return get(key);
+    open += 1;
+    most = Math.max(most, open);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    open -= 1;
+    return get(key);
+  };
+  const lines = [];
+  const log = console.log;
+  console.log = (line) => lines.push(line);
+  try {
+    assert.equal((await loggedTurn(store, { chat: CHAT, covers: [fresh.id] }, { workspace: "ws_1" })).tainted, true);
+  } finally {
+    console.log = log;
+  }
+  assert.equal(most, 2, "both read at once");
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [{ event: "tex_turn_unproven", workspace: "ws_1", count: 1 }]);
+});
+
+function datedStore(now) {
+  const data = new Map();
+  return {
+    data,
+    deleted: [],
+    async put(key, body, { age = 0 } = {}) {
+      data.set(key, { body, uploaded: new Date(now - age) });
+    },
+    async get(key) {
+      return data.has(key) ? { text: async () => data.get(key).body } : null;
+    },
+    async list({ prefix }) {
+      return { objects: [...data.keys()].filter((key) => key.startsWith(prefix)).map((key) => ({ key, uploaded: data.get(key).uploaded })) };
+    },
+    async delete(key) {
+      this.deleted.push(key);
+      data.delete(key);
+    },
+  };
+}
+
+test("old turn records, running and cancel marks are pruned, bounded, never a young one", async () => {
+  const HOUR = 3_600_000;
+  const store = datedStore(NOW);
+  for (let i = 0; i < 120; i += 1) await store.put(`${TURNS_PREFIX}turn-old-${String(i).padStart(4, "0")}.json`, "{}", { age: 49 * HOUR });
+  await store.put(`${TURNS_PREFIX}turn-young-0001.json`, "{}", { age: 30 * HOUR });
+  await store.put(`${RUNNING_PREFIX}turn-run-00001.json`, "{}", { age: 49 * HOUR });
+  await store.put(`${CANCEL_PREFIX}turn-can-00001.json`, "{}", { age: 49 * HOUR });
+  await store.put(`${RUNNING_PREFIX}turn-run-00002.json`, "{}", { age: 1 * HOUR });
+  await pruneTurns(store, NOW);
+  assert.equal(store.deleted.length, 100, "at most 100 per call");
+  assert.ok(store.data.has(`${TURNS_PREFIX}turn-young-0001.json`));
+  assert.ok(store.data.has(`${RUNNING_PREFIX}turn-run-00002.json`));
+  await pruneTurns(store, NOW);
+  assert.deepEqual([...store.data.keys()].sort(), [`${RUNNING_PREFIX}turn-run-00002.json`, `${TURNS_PREFIX}turn-young-0001.json`]);
+  await store.put(`${CANCEL_PREFIX}turn-can-00002.json`, "{}", { age: 49 * HOUR });
+  await recordTurn(store, "turn-new-00001", false, { now: NOW });
+  assert.equal(store.data.has(`${CANCEL_PREFIX}turn-can-00002.json`), false, "recordTurn prunes as it records");
+});
+
+test("a store that ignores onlyIf keeps a concurrent false", async () => {
+  const store = memoryStore();
+  const key = `${TURNS_PREFIX}turn-race-0001.json`;
+  const put = store.put;
+  const puts = [];
+  store.put = async (k, body) => {
+    puts.push(body);
+    await put(k, body); // onlyIf ignored
+    if (JSON.parse(body).clean === true) await put(k, JSON.stringify({ clean: false })); // a tainted exit lands just after
+  };
+  await recordTurn(store, "turn-race-0001", true);
+  assert.deepEqual(JSON.parse(store.data.get(key)), { clean: false });
+  assert.deepEqual(puts.map((body) => JSON.parse(body).clean), [true, false], "re-read, and false rewritten");
 });

@@ -29,10 +29,14 @@ import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
 import { renderEvents, seenBy, speaker, words } from "./logRender.js";
+import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
 
 const MAX_COVERS = 32;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 export const TURNS_PREFIX = ".context/agent/turns/";
+/** Older than this, a turn record or a running or cancel mark is pruned: twice the log's 24h window. */
+const KEEP_MS = 48 * 3_600_000;
+const MAX_PRUNED = 100;
 
 /**
  * Record whether a named turn stayed inside the workspace. Throws when it
@@ -41,13 +45,40 @@ export const TURNS_PREFIX = ".context/agent/turns/";
  * first for a store that ignores the condition), and `clean: false` always
  * wins. So a caller that reuses a tainted turn's id on a clean exit never
  * launders it, and one that reuses a clean id on a tainted turn taints it.
+ * On a store that ignores the condition (B2, Wasabi), the clean record is
+ * read back, and a `clean: false` that landed meanwhile is written again.
+ * Each call also prunes old records (`pruneTurns`).
  */
-export async function recordTurn(store, turn, clean) {
+export async function recordTurn(store, turn, clean, { now = Date.now() } = {}) {
   if (typeof turn !== "string" || !TURN.test(turn)) return;
   const key = `${TURNS_PREFIX}${turn}.json`;
-  if (clean !== true) return void (await store.put(key, JSON.stringify({ clean: false })));
-  if ((await store.get(key)) !== null) return;
-  await store.put(key, JSON.stringify({ clean: true }), { onlyIf: { absent: true } });
+  const tainted = JSON.stringify({ clean: false });
+  if (clean !== true) await store.put(key, tainted);
+  else if ((await store.get(key)) === null) {
+    await store.put(key, JSON.stringify({ clean: true }), { onlyIf: { absent: true } });
+    const back = await store.get(key);
+    if (back !== null && JSON.parse(await back.text())?.clean !== true) await store.put(key, tainted);
+  }
+  await pruneTurns(store, now).catch(() => {}); // left over, a record is only kept longer
+}
+
+/**
+ * Delete turn records and stray running and cancel marks older than 48h, at
+ * most 100 a call. One the store cannot date is kept.
+ */
+export async function pruneTurns(store, now = Date.now()) {
+  let room = MAX_PRUNED;
+  for (const prefix of [TURNS_PREFIX, RUNNING_PREFIX, CANCEL_PREFIX]) {
+    // lean: first listing page per prefix only, enough while a bucket gains under 1000 a day; page with a cursor past that.
+    const page = await store.list({ prefix });
+    for (const object of page?.objects ?? []) {
+      if (room === 0) return;
+      const at = new Date(object.uploaded ?? 0).getTime();
+      if (!(at > 0) || now - at <= KEEP_MS) continue;
+      await store.delete(object.key);
+      room -= 1;
+    }
+  }
 }
 
 /**
@@ -79,11 +110,12 @@ async function cleanTurn(store, turn) {
   }
 }
 
-/** Whether any of Tex's events shown is not proven clean. */
-async function showsTainted(store, events) {
-  const turns = new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn));
-  for (const turn of turns) if (!(await cleanTurn(store, turn))) return true;
-  return false;
+/** Whether any of Tex's events shown is not proven clean; logs how many were not, by count only. */
+async function showsTainted(store, events, workspace) {
+  const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
+  const count = (await Promise.all(turns.map((turn) => cleanTurn(store, turn)))).filter((clean) => !clean).length;
+  if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
+  return count > 0;
 }
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 
@@ -103,7 +135,7 @@ export async function turnHistory(store, session, body, { runner, group, dispatc
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC" } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
@@ -118,5 +150,5 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC" }
   if (question === "") return null;
   const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
   const transcript = renderEvents(shown, { timeZone, answeredBy: events });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown) };
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace) };
 }
