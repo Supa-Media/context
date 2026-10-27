@@ -21,6 +21,7 @@ import type { Env } from "./index";
 import type { RouteDecision } from "./route";
 import { SITE_MISSING_HTML, siteRoute, type SiteBinding } from "./site";
 import { isSitePageRequest, sitePageResponse } from "./sitePages";
+import { isPageFrameRequest, pageFrameResponse } from "./pageFrame";
 
 const RESOLVE_TIMEOUT_MS = 1_500;
 const BINDING_CACHE_SECONDS = 60;
@@ -165,6 +166,11 @@ export async function siteResponse(
     return plain(405, "Method not allowed\n", "text/plain; charset=utf-8");
   }
   const hostname = url.hostname.toLowerCase();
+  // The page runtime's static files, on any sites-domain label and before any
+  // lookup: no workspace is involved (`pageFrame.ts`).
+  if (hostname.endsWith(`.${SITES_DOMAIN}`) && hostname !== `www.${SITES_DOMAIN}` && isPageFrameRequest(url)) {
+    return await pageFrameResponse(request, url, env);
+  }
   if (hostname === SITES_DOMAIN || hostname === `www.${SITES_DOMAIN}`) {
     const response = plain(301, "", "text/plain; charset=utf-8", "public, max-age=3600");
     response.headers.set("Location", "https://context.lc/");

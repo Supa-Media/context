@@ -21,6 +21,8 @@
  * their sites have a routing table and headers of their own (`site.ts`).
  */
 
+import { isPageBoxPath } from "./pageFrame";
+
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Strict-Transport-Security": "max-age=31536000",
   "X-Frame-Options": "SAMEORIGIN",
@@ -29,15 +31,24 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
 };
 
+/** The two headers that say who may frame a response. */
+const FRAMING = new Set(["X-Frame-Options", "Content-Security-Policy"]);
+
 /**
  * `response` with every header in `SECURITY_HEADERS` it does not already set.
+ *
+ * The framing rule is left off the one static file framed by a sealed frame
+ * of our own (a page's box, `isPageBoxPath` in `pageFrame.ts`, found by the
+ * request's `pathname`): its ancestor has an opaque origin, which neither
+ * header can ever match.
  *
  * A WebSocket upgrade (101) is returned untouched: its `webSocket` does not
  * survive being copied into a new Response.
  */
-export function withSecurityHeaders(response: Response): Response {
+export function withSecurityHeaders(response: Response, pathname = ""): Response {
   if (response.status === 101) return response;
-  const missing = Object.entries(SECURITY_HEADERS).filter(([name]) => !response.headers.has(name));
+  const framable = isPageBoxPath(pathname);
+  const missing = Object.entries(SECURITY_HEADERS).filter(([name]) => !response.headers.has(name) && !(framable && FRAMING.has(name)));
   if (missing.length === 0) return response;
   const hardened = new Response(response.body, response);
   for (const [name, value] of missing) hardened.headers.set(name, value);
