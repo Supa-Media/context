@@ -2,6 +2,13 @@
  * The shared parts of Tex's visual answers (`./index.js`): escaping, the two
  * palettes, the page every template sits in, and the photo slot.
  *
+ * The look is Context's own (owner, 2026-10-27: "redesign these card
+ * templates in context style"): the app's paper and ink, one indigo accent,
+ * Instrument Sans at medium weight, a reading serif for names and notes, and
+ * hairline rows rather than boxed tiles. The palettes mirror the app's tokens
+ * (`apps/mobile/features/design/tokens/colors.ts`); the serif stands in for
+ * the app's Libron, which is not on Google Fonts.
+ *
  * Every word on a visual is the model's, and so is every address, so nothing
  * it hands over is ever written into the page unescaped: text goes through
  * `esc`, an address through `photoUrl`, a colour or a length is chosen here
@@ -15,22 +22,28 @@ export const CARD_HEIGHT = 750;
 export const SCALE = 2;
 
 const FONTS =
-  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@600;700;800" +
-  "&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=JetBrains+Mono:wght@500;700&family=Caveat:wght@600;700&display=swap";
+  "https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600" +
+  "&family=JetBrains+Mono:wght@500;600&family=Caveat:wght@600;700&display=swap";
+
+/** The interface voice, and the serif a name or a note is read in. */
+export const SANS = "'Instrument Sans', ui-sans-serif, system-ui, sans-serif";
+export const SERIF = "'Source Serif 4', Georgia, serif";
 
 export const LIGHT = {
-  bg: "#F6F5F1", surface: "#FFFFFF", ink: "#16161A", body: "#3E3E44", muted: "#5F5F66", line: "#E3E1DA", track: "#ECEAE3",
-  accent: "#1F5FD1", accentSoft: "#E3ECFB", accentInk: "#16244A", warm: "#B4540A", warmSoft: "#FBEBDD", warmInk: "#5A2C05",
-  good: "#1E7B4A", goodSoft: "#E2F0E7", plum: "#7A4BC2", gold: "#C79A1B", grey: "#8B8B95",
+  bg: "#FFFDF9", surface: "#F7F4ED", ink: "#1A1714", body: "#4A443C", muted: "#635C52", line: "rgba(26,23,20,0.09)", track: "#F0ECE3",
+  accent: "#2A45CF", accentSoft: "rgba(42,69,207,0.10)", accentInk: "#1F35A3", onAccent: "#FFFFFF",
+  warm: "#96600A", warmSoft: "rgba(150,96,10,0.12)", warmInk: "#7A4E08",
+  good: "#3E7A4E", goodSoft: "rgba(62,122,78,0.10)", plum: "#6A46B8", gold: "#B08A2E", grey: "#8D857B",
 };
 export const DARK = {
-  bg: "#121316", surface: "#1C1D21", ink: "#F1F1F3", body: "#D2D2D8", muted: "#A9A9B3", line: "#2E3036", track: "#2A2C31",
-  accent: "#7AA7FF", accentSoft: "#1E2A44", accentInk: "#C9DAFF", warm: "#F0A35C", warmSoft: "#3A2A1C", warmInk: "#F6D2B0",
-  good: "#6FD9A3", goodSoft: "#1E3A2B", plum: "#B595F0", gold: "#E8C35A", grey: "#8B8B95",
+  bg: "#191715", surface: "#201E1B", ink: "#EDE8E0", body: "#C3BCB2", muted: "#A79F95", line: "rgba(237,232,224,0.10)", track: "#2B2825",
+  accent: "#8A9BF2", accentSoft: "rgba(138,155,242,0.14)", accentInk: "#C9D2FA", onAccent: "#100F0E",
+  warm: "#DFAC52", warmSoft: "rgba(223,172,82,0.12)", warmInk: "#E9C47E",
+  good: "#82C98E", goodSoft: "rgba(130,201,142,0.12)", plum: "#B9A3F2", gold: "#DFAC52", grey: "#8D857B",
 };
 
 /** Soft fills for photo slots, cycled, so an empty slot still reads as a picture's place. */
-export const TONES = ["#D6CBB8", "#C8D2DC", "#D9C9D3", "#C9D3BE", "#E1C9A9", "#CFC6B8"];
+export const TONES = ["#E7DCCB", "#DCD3E0", "#D3DCCB", "#E5D6C3", "#D6DCE3", "#E0D8CC"];
 
 const ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
@@ -84,20 +97,20 @@ export function photoUrl(value) {
 export function photo(value, { height, radius = 14, tone = TONES[0], label = "", extra = "", style = "" } = {}) {
   const url = photoUrl(value);
   const image = url ? `background-image: url('${url}'); background-size: cover; background-position: center;` : "";
-  const tag = label ? `<div style="position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 6px; background: rgba(255,255,255,0.88); color: #16161A">${label}</div>` : "";
+  const tag = label ? `<div style="position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 6px; background: rgba(255,253,249,0.92); color: #1A1714">${label}</div>` : "";
   return `<div style="position: relative; height: ${height}px; border-radius: ${radius}px; background-color: ${tone}; ${image} ${style}">${tag}${extra}</div>`;
 }
 
-/** The small heading every card opens with: a kicker line and a title. */
-export function heading(c, kicker, title, { size = 38, font = "'Inter Tight', Inter, sans-serif", kickerColor = c.muted } = {}) {
-  return `<div style="display: flex; flex-direction: column; gap: 8px">
-${kicker ? `<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${kickerColor}">${esc(kicker, 70)}</div>` : ""}
-<div style="font-family: ${font}; font-size: ${size}px; line-height: 1.05; font-weight: 800; letter-spacing: -0.02em">${esc(title, 70)}</div>
+/** The small heading every card opens with: a quiet line naming what it is, and a title. */
+export function heading(c, kicker, title, { size = 38, font = SANS, kickerColor = c.muted } = {}) {
+  return `<div style="display: flex; flex-direction: column; gap: 6px">
+${kicker ? `<div style="font-size: 16px; font-weight: 500; color: ${kickerColor}">${esc(kicker, 70)}</div>` : ""}
+<div style="font-family: ${font}; font-size: ${Math.round(size * 0.86)}px; line-height: 1.12; font-weight: 600; letter-spacing: -0.015em">${esc(title, 70)}</div>
 </div>`;
 }
 
 /** The whole page: one fixed card, photographed at `SCALE`. */
-export function page(inner, { background, ink, font = "Inter, system-ui, sans-serif", padding = "36px 32px 28px", gap = 20, height = CARD_HEIGHT }) {
+export function page(inner, { background, ink, font = SANS, padding = "36px 32px 28px", gap = 20, height = CARD_HEIGHT }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="${FONTS.replace(/&/g, "&amp;")}">
 <style>html,body{margin:0;background:${background}}*{box-sizing:border-box}</style></head>
