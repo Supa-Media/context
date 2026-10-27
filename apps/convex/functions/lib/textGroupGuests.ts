@@ -19,6 +19,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { MAX_GROUPS_PER_WORKSPACE } from "../groups";
 import { phoneSignInPaused } from "./emailProof";
 import { recordAudit } from "./audit";
+import { clearChatPhones } from "./guestPhones";
 import { hashToken } from "./crypto";
 import { buildGroupName } from "./names";
 import { newNoteId } from "./nodes/noteIds";
@@ -140,6 +141,7 @@ export async function clearGuests(ctx: MutationCtx, chat: Doc<"textGroups">): Pr
   if (chat.guestGroupId === undefined && chat.guestFolder === undefined && chat.guestToken === undefined) return;
   // What the chat added for its people goes with it (`textGroupGuestSync.ts`).
   await unsyncChatPeople(ctx, chat);
+  await clearChatPhones(ctx, chat._id);
   await ctx.db.patch(chat._id, {
     guestGroupId: undefined,
     guestFolder: undefined,

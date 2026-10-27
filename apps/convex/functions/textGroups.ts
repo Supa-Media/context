@@ -10,6 +10,7 @@ import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
+import { syncChatPhones } from "./lib/guestPhones";
 import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
@@ -349,7 +350,11 @@ export const syncGuestPeople = internalMutation({
       else people.outsiders.push(userId);
     }
     const current = await ctx.db.get(chat._id);
-    if (current !== null) await syncChatPeople(ctx, current, binder, people);
+    if (current !== null) {
+      await syncChatPeople(ctx, current, binder, people);
+      // Their numbers too, hashed, so who may open the chat's notes by code moves with them (`lib/guestPhones.ts`).
+      await syncChatPhones(ctx, current, args.participants.filter((entry) => entry !== args.line));
+    }
     return null;
   },
 });
@@ -403,7 +408,11 @@ async function guestTurn(
   }
   // Who is here now, in the chat's group and on its folder (`lib/textGroupGuestSync.ts`).
   const current = await ctx.db.get(chat._id);
-  if (current !== null) await syncChatPeople(ctx, current, binder, people);
+  if (current !== null) {
+    await syncChatPeople(ctx, current, binder, people);
+    // And by number, hashed, so a guest can open what the chat reads with a texted code (`lib/guestPhones.ts`).
+    await syncChatPhones(ctx, current, others);
+  }
   const actor = taggerMember && senderUser !== null ? senderUser : binder;
   const minted = args.mint && args.command === undefined;
   if (minted) {

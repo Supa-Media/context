@@ -39,6 +39,7 @@ import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { textGroupTables } from "./functions/lib/schema/textGroups";
+import { guestPassTables } from "./functions/lib/schema/guestPasses";
 import { vaultTables } from "./functions/lib/schema/vault";
 import { connectionTables } from "./functions/lib/schema/connections";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
@@ -130,6 +131,7 @@ const schema = defineSchema({
   ...feedbackTables,
   ...textLinkTables,
   ...textGroupTables,
+  ...guestPassTables,
   ...texReviewTables,
   ...vaultTables,
   ...connectionTables,

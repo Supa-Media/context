@@ -28,7 +28,9 @@ blocker. They proposed guest mode, and chose every default below on
   and nothing else of the workspace (a group row would reach nothing for
   them, and membership is an invitation, which is the owner's). Someone with
   no account is named at the first tag after they link a phone. Only account
-  ids are written, never a number, and an owner who takes the folder from the
+  ids are written on rows, never a number (a guest's number is kept only as a
+  keyed hash, so they can open the chat's notes with a texted code:
+  [guest-phone-pass](./guest-phone-pass.md)), and an owner who takes the folder from the
   group takes it from the chat's people too. Guest mode off takes back what
   the chat added. Since 2026-10-27 this doesn't wait for a tag (the owner:
   "automatically added/removed when they join or leave a chat"): any message

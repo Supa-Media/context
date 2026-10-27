@@ -7,9 +7,10 @@ import { v } from "convex/values";
  * Metadata only, never a message: which workspace the chat is bound to, who
  * muted it, and whether its intro went. A chat is named by a hash of its line
  * and Sendblue's `group_id`, so this table never holds the id itself, and the
- * participants are never stored at all: they arrive with every message and are
+ * participants are never stored here: they arrive with every message and are
  * resolved again each time (decided by the owner, 2026-10-20;
- * `docs/decisions/texting-assistant/groups.md`).
+ * `docs/decisions/texting-assistant/groups.md`). A guest chat's numbers are kept
+ * beside it as keyed hashes only (`chatGuestPhones`, `lib/guestPhones.ts`).
  */
 export const textGroupTables = {
   textGroups: defineTable({

@@ -61,6 +61,7 @@ import type * as functions_foundingPremium from "../functions/foundingPremium.js
 import type * as functions_gatewayWorkspaces from "../functions/gatewayWorkspaces.js";
 import type * as functions_grants from "../functions/grants.js";
 import type * as functions_groups from "../functions/groups.js";
+import type * as functions_guestPass from "../functions/guestPass.js";
 import type * as functions_ingestion from "../functions/ingestion.js";
 import type * as functions_ingestionGateway from "../functions/ingestionGateway.js";
 import type * as functions_invitationEmail from "../functions/invitationEmail.js";
@@ -284,6 +285,7 @@ declare const fullApi: ApiFromModules<{
   "functions/gatewayWorkspaces": typeof functions_gatewayWorkspaces;
   "functions/grants": typeof functions_grants;
   "functions/groups": typeof functions_groups;
+  "functions/guestPass": typeof functions_guestPass;
   "functions/ingestion": typeof functions_ingestion;
   "functions/ingestionGateway": typeof functions_ingestionGateway;
   "functions/invitationEmail": typeof functions_invitationEmail;
