@@ -16,6 +16,9 @@
  */
 
 import { ServiceError, type Fetch } from "./clients";
+import { isRefusal } from "./carousel";
+import type { Picture } from "./line";
+import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
@@ -45,7 +48,15 @@ export interface GroupLine {
   readOwnMessage(place: GroupPlace, messageId: string): Promise<string | null>;
 }
 
-export type GroupLineDeps = { fetch: Fetch; sendblue?: SendblueKeys | null; whapi?: WhapiKeys | null };
+export type GroupLineDeps = {
+  fetch: Fetch;
+  sendblue?: SendblueKeys | null;
+  whapi?: WhapiKeys | null;
+  /** Serves a picture at a short-lived address the app fetches (`media.ts`). */
+  hostPicture?: (picture: Picture) => Promise<string>;
+  /** Draws a note link's picture (`noteCards.ts`), sent before the link on iMessage, as in a 1:1 chat. */
+  noteCardPicture?: NoteCardDrawer;
+};
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   return isWhapiGroup(groupId) ? whapiGroupLine(deps) : sendblueGroupLine(deps);
@@ -57,7 +68,20 @@ function sendblueGroupLine(deps: GroupLineDeps): GroupLine {
     return deps.sendblue;
   };
   return {
-    sendText: (place, text, replyTo) => sendGroupText(deps.fetch, keys(), place, text, replyTo),
+    sendText: async (place, text, replyTo) => {
+      // A note's link goes as its picture, then the link inside a sentence, as in a 1:1 chat (`noteCards.ts`).
+      const drawn = await hostedNoteCard(text, deps.noteCardPicture, deps.hostPicture);
+      if (drawn) {
+        try {
+          await sendGroupMedia(deps.fetch, keys(), place, drawn.address, replyTo);
+          return await sendGroupText(deps.fetch, keys(), place, linkAfterCard(drawn.link), replyTo);
+        } catch (error) {
+          // A picture the app would not take: the link alone, as before.
+          if (!isRefusal(error)) throw error;
+        }
+      }
+      return await sendGroupText(deps.fetch, keys(), place, text, replyTo);
+    },
     sendMedia: (place, url, replyTo) => sendGroupMedia(deps.fetch, keys(), place, url, replyTo),
     react: async (place, messageId, emoji) => {
       if (deps.sendblue) await reactInGroup(deps.fetch, deps.sendblue, place, messageId, emoji);

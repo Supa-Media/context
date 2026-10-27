@@ -64,6 +64,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
+import type { NoteCardDrawer } from "./noteCards";
 import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
@@ -88,6 +89,8 @@ export type GroupDeps = {
   images?: ImagesLike;
   /** Serves a picture Tex sends at a short-lived address Sendblue fetches (`media.ts`); absent, pictures aren't sent. */
   hostPicture?: (picture: Picture) => Promise<string>;
+  /** Draws a note link's picture, sent before the link (`noteCards.ts`); absent, the link goes alone. */
+  noteCardPicture?: NoteCardDrawer;
   now: () => number;
   /** Starts a background job in an object of its own (`jobs.ts`); absent, the chat's turns are offered none. */
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
