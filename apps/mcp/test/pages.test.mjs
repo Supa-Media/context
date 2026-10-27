@@ -96,11 +96,17 @@ test("a page is written only by a caller who read the page design skill as it is
   assert.match(pageSkillMissing(unread), /read the page design skill first/);
   assert.match(pageSkillMissing(unread), /orient about: "pages"/);
   assert.match(pageSkillMissing(GOOD.replace(PAGE_SKILL_STAMP, "pages-00000000")), /older page design skill/);
+  // The refusal is the read: it carries the whole skill and its stamp, and says to write the page again, never a plain
+  // note (2026-10-27: refused in a WhatsApp group, Tex saved a plain note and said pages "wouldn't save from this chat").
+  assert.ok(pageSkillMissing(unread).includes(PAGE_SKILL));
+  assert.ok(pageSkillMissing(unread).includes(`skill: ${PAGE_SKILL_STAMP} in its front matter`));
+  assert.match(pageSkillMissing(unread), /Never save it as a plain note instead/);
   // Refused before anything is looked up, and only for pages.
   const store = new Proxy({}, { get: (_, key) => (key === "then" ? undefined : () => assert.fail(`store.${String(key)} was used`)) });
   const refused = await toolWriteNote(store, { kind: "private" }, {}, {}, { path: "projects/dinner.page.md", content: unread });
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /page design skill/);
+  assert.ok(refused.content[0].text.includes(PAGE_SKILL_STAMP), "the refused writer is handed the stamp with the skill");
   const plain = await toolWriteNote({}, { kind: "private" }, {}, {}, { path: "projects/dinner.md", content: unread }).catch((error) => ({ thrown: error }));
   assert.doesNotMatch(JSON.stringify(plain), /page design skill/);
 });
