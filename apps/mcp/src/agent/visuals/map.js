@@ -22,6 +22,7 @@
  */
 
 import { esc, list } from "./kit.js";
+import { kmBetween } from "./distance.js";
 import { downloadPhoto, names } from "./photos.js";
 
 export const MAP_WIDTH = 536;
@@ -168,8 +169,11 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   const points = stops
     .map((stop, i) => ({ ...stop, lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng }))
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
-  if (points.length === 0) return { map: null, reason: null };
-  const layout = tileLayout(points, { height });
+  // A shop of the same name in another city would zoom the map out to a continent: keep the biggest group within 50 km.
+  const near50 = (a) => points.filter((b) => kmBetween(a, { lat: b.lat, lon: b.lng }) <= 50);
+  const kept = points.map((p) => near50({ lat: p.lat, lon: p.lng })).sort((a, b) => b.length - a.length)[0] ?? [];
+  if (kept.length === 0) return { map: null, reason: null };
+  const layout = tileLayout(kept, { height });
   if (layout.tiles.length === 0 || layout.tiles.length > MAX_TILES) return { map: null, reason: null };
   const images = await Promise.all(layout.tiles.map((tile) => downloadPhoto(tile.url, fetchImpl, TILE_FETCH)));
   if (images.some((image) => image === null)) return { map: null, reason: null };

@@ -162,6 +162,14 @@ test("without near, a bare street address draws no map, and the model is told wh
   assert.equal(web.asked.length, 0);
 });
 
+test("a same-named shop in another city is left off the map rather than zooming it out to a continent", async () => {
+  const web = mapWeb();
+  const far = async (address) => (address.startsWith("2337") ? { lat: 34.05, lon: -118.24 } : geocode(address));
+  const drawn = await drawMap("places", FLORISTS, { geocode: far, read: READ, fetchImpl: web.fetchImpl });
+  assert.deepEqual(drawn.map.pins.map((p) => p.n), [1, 2]);
+  assert.ok(drawn.map.tiles.length <= MAX_TILES);
+});
+
 test("a map whose tiles do not all come is left off whole, and the card still draws", async () => {
   let n = 0;
   const web = mapWeb(() => ++n === 2);
