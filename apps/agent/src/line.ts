@@ -11,8 +11,8 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
-import { noteCard, noteLinkOf, type AppCardConfig } from "./appCards";
-import { linkAfterCard, type NoteCardDrawer } from "./noteCards";
+import { noteCard, type AppCardConfig } from "./appCards";
+import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
@@ -121,13 +121,11 @@ function sendblueLine(deps: LineDeps): Line {
         }
       }
       // No card: the note's picture first, then the link inside a sentence (`noteCards.ts`).
-      const link = deps.noteCardPicture && deps.hostPicture ? noteLinkOf(text) : null;
-      const picture = link && deps.noteCardPicture ? await deps.noteCardPicture(link) : null;
-      const address = picture && deps.hostPicture ? await deps.hostPicture(picture).catch(() => null) : null;
-      if (link && address) {
+      const drawn = await hostedNoteCard(text, deps.noteCardPicture, deps.hostPicture);
+      if (drawn) {
         try {
-          await sendSendblueMedia(fetch, keys(), chatId, address, replyTo);
-          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(link), replyTo);
+          await sendSendblueMedia(fetch, keys(), chatId, drawn.address, replyTo);
+          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(drawn.link), replyTo);
         } catch (error) {
           // A picture the line would not take: the link alone, as before.
           if (!isRefusal(error)) throw error;

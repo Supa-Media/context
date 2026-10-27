@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { groupLineFor } from "./groupLine";
 import { lineFor } from "./line";
 import { linkAfterCard, noteCardDrawer } from "./noteCards";
 import { sendblueChatId } from "./sendblue";
@@ -102,5 +103,31 @@ describe("drawing the card", () => {
     for (const answer of answers) {
       expect(await noteCardDrawer(answer as unknown as Fetch, "https://cp.example", "s")(link)).toBeNull();
     }
+  });
+});
+
+describe("a note link texted into a group", () => {
+  const place = { line: LINE, groupId: "group-1" };
+
+  it("sends the card, then the link inside a sentence, as in a 1:1 chat", async () => {
+    const calls: Call[] = [];
+    const deps = { fetch: sendblue(calls), sendblue: KEYS, hostPicture: async () => "https://agent.example/media/abc.png", noteCardPicture: async () => PNG };
+    expect(await groupLineFor(deps, "group-1").sendText(place, LINK, "mh_0")).toBe("mh_1");
+    expect(calls.map((call) => call.path)).toEqual(["/api/send-group-message", "/api/send-group-message"]);
+    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "" })]);
+    expect(calls.every((call) => call.body.group_id === "group-1")).toBe(true);
+  });
+
+  it("sends the link alone when there is no card, and words as they are", async () => {
+    const calls: Call[] = [];
+    await groupLineFor({ fetch: sendblue(calls), sendblue: KEYS, hostPicture: async () => "x", noteCardPicture: async () => null }, "group-1").sendText(place, LINK);
+    const refused: Call[] = [];
+    await groupLineFor({ fetch: sendblue(refused, 400), sendblue: KEYS, hostPicture: async () => "x", noteCardPicture: async () => PNG }, "group-1").sendText(place, LINK);
+    const words: Call[] = [];
+    const draw = vi.fn(async () => PNG);
+    await groupLineFor({ fetch: sendblue(words), sendblue: KEYS, hostPicture: async () => "x", noteCardPicture: draw }, "group-1").sendText(place, "Saved it.");
+    expect(calls.map((call) => call.body.content)).toEqual([LINK]);
+    expect(refused.map((call) => call.body.content ?? "picture")).toEqual(["picture", LINK]);
+    expect(draw).not.toHaveBeenCalled();
   });
 });

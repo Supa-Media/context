@@ -15,7 +15,7 @@
  */
 
 import { post, type Fetch } from "./clients";
-import type { NoteLink } from "./appCards";
+import { noteLinkOf, type NoteLink } from "./appCards";
 import type { Picture } from "./line";
 
 /** Long enough for a cold renderer, short enough that the link is not held up for long. */
@@ -47,4 +47,21 @@ export function noteCardDrawer(fetcher: Fetch, controlPlaneOrigin: string, worke
 /** The link sent after its card: inside a sentence, so Messages draws no preview box under the picture. */
 export function linkAfterCard(link: NoteLink): string {
   return `Open it in Context: ${link.url} (tap the link)`;
+}
+
+/**
+ * The picture for a text that is only a note's link, hosted where the app can
+ * fetch it, with the link it shows; null to send the text as it is. Shared by
+ * a 1:1 chat (`line.ts`) and a group (`groupLine.ts`). Never throws.
+ */
+export async function hostedNoteCard(
+  text: string,
+  draw: NoteCardDrawer | undefined,
+  host: ((picture: Picture) => Promise<string>) | undefined,
+): Promise<{ link: NoteLink; address: string } | null> {
+  const link = draw && host ? noteLinkOf(text) : null;
+  if (!link || !draw || !host) return null;
+  const picture = await draw(link);
+  const address = picture ? await host(picture).catch(() => null) : null;
+  return address ? { link, address } : null;
 }
