@@ -268,8 +268,14 @@ const TOLD_WORDS: Record<string, string> = {
 };
 
 /**
+ * A person as decide reads them: always "@" and a name, "@someone" with none,
+ * so no name (a look-alike of "You" included) can read as Tex or the system.
+ */
+const speaker = (name: string | undefined): string => `@${oneLine(name ?? "").replace(/^@+/, "").trim() || "someone"}`;
+
+/**
  * The transcript decide is shown (section 5), newest last, at most `limit`
- * characters: oldest lines go first. "You" is Tex. A person's event no
+ * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event no
  * delivered answer of Tex's covers is "(not answered)". With `people`, only
  * events said in front of exactly those people: a newcomer never sees what
  * came before they joined.
@@ -287,7 +293,7 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const today = day(event.at);
     if (today !== lastDay) lines.push(`--- ${today} ---`);
     lastDay = today;
-    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : oneLine(event.from.name ?? "Them");
+    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : speaker(event.from.name);
     const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
     const words = said || (event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && !answered.has(event.id) ? "   (not answered)" : "";
