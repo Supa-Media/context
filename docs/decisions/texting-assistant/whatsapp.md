@@ -105,3 +105,18 @@ secret is never a failed deploy.
 deploy until WhatsApp is set up, which is the wrong direction for an optional
 line. Letting the setup run without the dry run means one wrong click points
 the live channel at the wrong Worker, with no print of what was sent.
+
+## Tex's own texts stay on iMessage
+
+Decided 2026-10-27, after the owner's check-ins moved to WhatsApp the morning
+after they first texted Tex there. Replies go to the chat a text came from, on
+either line. A text Tex starts itself (a check-in, reminder or heartbeat, all
+through `textRoutine`) goes to the person's home chat (`apps/agent/src/homeChat.ts`):
+the last chat they texted from that is not WhatsApp. WhatsApp is home only for
+someone who has never texted Tex anywhere else, and one text on iMessage moves
+it back.
+
+**What a simplification would cost:** going back to "the last chat they texted
+from" moves every check-in to WhatsApp the first time someone tries the add-on
+line, which is the line more likely to be dropped (a linked device can be
+logged out without warning). `homeChat.test.ts` fails if it is reversed.

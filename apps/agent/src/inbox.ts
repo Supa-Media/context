@@ -57,6 +57,7 @@ import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
+import { rememberChat } from "./homeChat";
 import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
@@ -108,8 +109,9 @@ export const MAX_ANSWER_ATTEMPTS = 3;
 export const MAX_PENDING = 20;
 
 /**
- * Where a routine's text goes: the chat this sender last texted from. The
- * simulator's own chats are marked, so a routine there lands in its log.
+ * The chat this sender last texted from; a routine's text goes to their home
+ * chat (`homeChat.ts`). The simulator's own chats are marked, so a routine
+ * there lands in its log.
  */
 export const CHAT_KEY = "chat";
 /** A plain text after this long without one from the person starts a new topic, answered in a thread under it. */
@@ -185,7 +187,7 @@ export async function accept(
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
   }
-  await storage.put<RememberedChat>(CHAT_KEY, {
+  await rememberChat(storage, {
     chatId: message.chatId,
     ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
     at: now,

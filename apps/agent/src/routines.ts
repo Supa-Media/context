@@ -28,7 +28,8 @@ import {
   type RoutineOutcome,
 } from "./clients";
 import { textsFromAnswer } from "./format";
-import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
+import type { InboxStorage } from "./inbox";
+import { homeChat } from "./homeChat";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
@@ -171,7 +172,7 @@ export type RoutineTextDeps = LineDeps & {
 };
 
 /**
- * Text this sender a routine's answer, in the chat they last texted from,
+ * Text this sender a routine's answer, in their home chat (`homeChat.ts`),
  * split the way a reply is, under the earlier text it `continues` when that
  * one is remembered (a check-in's). The answer itself is not stored: only
  * each sent text's handle and a salted hash of its opening words
@@ -182,7 +183,7 @@ export async function textRoutine(
   body: { text: string; idempotencyKey: string; continues?: string },
   deps: RoutineTextDeps,
 ): Promise<PhoneTexted> {
-  const chat = await storage.get<RememberedChat>(CHAT_KEY);
+  const chat = await homeChat(storage);
   if (!chat || typeof chat.chatId !== "string" || chat.chatId === "") return "no_chat";
   const texts = textsFromAnswer(body.text);
   if (chat.channel === "simulator") {
