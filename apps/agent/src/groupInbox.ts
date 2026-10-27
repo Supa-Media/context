@@ -69,7 +69,7 @@ import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHas
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
-import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
 import { staleAsks } from "./decide";
 import { runningTurn, startTurn } from "./steer";
@@ -637,20 +637,6 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
     if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
     await storage.delete(key);
   }
-}
-
-/** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
-export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
-  const entry = await noteJobUpdate(storage, update, deps.now());
-  if (entry === null || entry.quiet || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
-  const where = { line: entry.line, groupId: entry.groupId, messageId: entry.messageId };
-  for (const [i, text] of (update.texts ?? []).entries()) {
-    const index = (update.first ?? 0) + i;
-    if (index < (entry.sent ?? 0)) continue;
-    await say(storage, deps, where, text);
-    await noteJobSent(storage, update.id, index + 1);
-  }
-  return true;
 }
 
 /** The names this chat was asked to pick from, while that question is still open. */
