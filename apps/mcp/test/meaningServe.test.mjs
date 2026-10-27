@@ -15,6 +15,8 @@
  *   `MEANING_MIN_SCORE` back at 0.55                 → "a match at the closeness real questions reach…" fails
  *   loose hits fused evenly again                    → "a loose word hit comes after every meaning match…" fails
  *   `meaningPassages` dropping `indexableText`       → "an encrypted note found by meaning shows its title only" fails
+ *   the with-words floor not applied               → "once the words found the note, a loosely related one…" fails
+ *   the with-words floor applied to loose hits too → "…while a question the words could not answer keeps…" fails
  */
 
 import test from "node:test";
@@ -23,6 +25,7 @@ import { MEANING_DIMENSIONS } from "../src/search/meaning/embed.js";
 import { attachMeaningIndex } from "../src/search/meaning/store.js";
 import { MARKER_KEY } from "../src/encryption/primitives.js";
 import {
+  MEANING_EXTRA_FLOOR_WITH_WORDS,
   MEANING_MIN_SCORE,
   MEANING_SNIPPET_READS,
   MEANING_SNIPPET_READS_LOOSE,
@@ -237,6 +240,30 @@ test("when no note held every word, more of the meaning half is read, and nothin
     const result = await withMeaning(store, { hits, matchCount: hits.length }, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
     assert.equal(reads.length, MEANING_SNIPPET_READS_LOOSE);
     assert.ok(result.hits.every((hit) => !("loose" in hit)));
+  }
+});
+
+/**
+ * The search review (2026-10-27): "one search bar" answered with unrelated
+ * benchmark tables found only by meaning, under the note the words found.
+ */
+test("once the words found the note, a loosely related one found only by meaning is left out", async () => {
+  const loose = MEANING_EXTRA_FLOOR_WITH_WORDS - 0.06;
+  const index = fakeIndex([match("close.md", MEANING_EXTRA_FLOOR_WITH_WORDS + 0.05), match("bench.md", loose), match("w.md", loose)]);
+  const notes = { "close.md": "# Close\n\nabout it\n", "bench.md": "# Bench\n\ntables\n" };
+  const { store } = storeWith(notes);
+  const found = { hits: [{ key: "w.md", title: "W", snippets: [] }], matchCount: 1 };
+  const result = await withMeaning(store, found, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
+  assert.deepEqual(result.hits.map((hit) => hit.key).sort(), ["close.md", "w.md"]);
+  assert.equal(result.evidence["w.md"].meaningScore, loose, "a weak match the words also found still counts toward its rank");
+});
+
+test("while a question the words could not answer keeps every match over the noise floor", async () => {
+  const index = fakeIndex([match("meant.md", MEANING_MIN_SCORE + 0.03)]);
+  const { store } = storeWith({ "meant.md": "# Meant\n\nthe answer\n" });
+  for (const hits of [[], [{ key: "w.md", title: "W", snippets: [], loose: true }]]) {
+    const result = await withMeaning(store, { hits, matchCount: hits.length }, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
+    assert.ok(result.hits.some((hit) => hit.key === "meant.md"));
   }
 });
 

@@ -87,6 +87,28 @@ export function toMatchExpression(query) {
   return tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
+/**
+ * The strict expression as a search box asks it: every word, and the last one
+ * also as the start of a longer word, so "weekly meet" finds the note about
+ * the weekly meeting while the person is still typing (the search tune-up,
+ * 2026-10-27). Only the last word, because it is the one being typed; the
+ * words before it are finished and mean themselves. A last word shorter than
+ * `RELAXED_PREFIX_MIN` stays exact, since two letters as a prefix match half
+ * the context.
+ *
+ * `null` exactly where `toMatchExpression` is.
+ */
+export function toTypingMatchExpression(query) {
+  const strict = toMatchExpression(query);
+  if (strict === null) return null;
+  const tokens = query
+    .split(/[^\p{L}\p{N}_]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  const last = tokens[tokens.length - 1];
+  return [...last].length >= RELAXED_PREFIX_MIN ? `${strict}*` : strict;
+}
+
 /** Shortest token that also matches as the start of a longer word. */
 export const RELAXED_PREFIX_MIN = 3;
 

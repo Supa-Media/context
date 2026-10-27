@@ -52,6 +52,22 @@ import { passageSnippets } from "../d1/passages.js";
  */
 export const MEANING_MIN_SCORE = DEFAULT_SEARCH_SETTINGS.minScore;
 
+/**
+ * The closeness a note found ONLY by meaning needs when the words already
+ * found notes holding every word typed.
+ *
+ * `MEANING_MIN_SCORE` is low on purpose: a question in a person's own words
+ * ("who left the team") matches what they meant at 0.40 to 0.63, and when the
+ * words find nothing those matches are the answer. When the words did find
+ * the note, the same low floor only adds what is loosely nearby: the search
+ * review (2026-10-27) found "one search bar" answered with unrelated benchmark
+ * tables at 0.4-something, under the right note. Measured on the same indexes
+ * as the floor, a loosely related match reaches 0.44, so above that and below
+ * where a plainly-worded question's real matches mostly sit. A meaning match
+ * the words also found is never dropped by this; it only ranks.
+ */
+export const MEANING_EXTRA_FLOOR_WITH_WORDS = 0.5;
+
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;
 
@@ -273,9 +289,15 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
     return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
   }
   // `every` of none is true: a word search that found nothing is the loosest.
-  const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
+  const loosest = found.hits.every((hit) => hit.loose === true);
+  const readCap = loosest ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
   const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
-  const merged = mergeHits(found.hits, matches, keyField);
+  // Words found notes with every word: a note only meaning found has to be
+  // close to be worth a row (`MEANING_EXTRA_FLOOR_WITH_WORDS`).
+  const kept = loosest
+    ? matches
+    : matches.filter((match) => wordRanks.has(match.path) || match.score >= MEANING_EXTRA_FLOOR_WITH_WORDS);
+  const merged = mergeHits(found.hits, kept, keyField);
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
   const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
