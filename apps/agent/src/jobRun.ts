@@ -28,8 +28,9 @@ import { askAgent, askAgentStream, openSession, post, ServiceError, type AgentAn
 import { textsFromAnswer, textsWithExact } from "./format";
 import { askControlPlane, GROUP_LINES } from "./groupInbox";
 import { peopleOf, sha256Hex } from "./groupChat";
-import { readGroupMembers } from "./sendblueGroups";
+import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
+import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
 import { JOB_LINES, log, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -40,6 +41,7 @@ export type JobDeps = {
   workerSecret: string;
   gatewayOrigin: string;
   sendblue?: SendblueKeys | null;
+  whapi?: WhapiKeys | null;
   now: () => number;
   /** Tell the chat's inbox; true once it took the update (and sent its texts). */
   report: (inbox: string, update: JobUpdate) => Promise<boolean>;
@@ -284,12 +286,14 @@ async function phoneTurn(
 }
 
 async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, onStep: (text: string) => Promise<void>): Promise<Outcome> {
-  if (run.origin.kind !== "group" || !deps.sendblue) return { kind: "stop" };
+  if (run.origin.kind !== "group") return { kind: "stop" };
   const message = run.origin.message;
+  const app = groupLineFor(deps, message.groupId);
+  const place = { line: message.line, groupId: message.groupId };
   // Read again now: more people only ever narrow what Tex may use.
-  const members = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
+  const members = await app.readMembers(place);
   const people = peopleOf(message.line, message.participants, members);
-  const asked = await askControlPlane({ ...deps, sendblue: deps.sendblue }, message, people, null);
+  const asked = await askControlPlane(deps, message, people, null);
   // Muted, stopped or no longer shared: the chat said so, and the job ends quietly.
   if (asked.status !== "ready" || asked.accessToken === undefined) return { kind: "stop" };
   turn.accessToken = asked.accessToken;
@@ -312,7 +316,7 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
   const outcome = outcomeOf(answer, textsFromAnswer);
   if (outcome.kind !== "answer") return outcome;
   // Sent only to the people it was written for, as a group's answer is (`groupInbox.ts`).
-  const now = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
+  const now = await app.readMembers(place);
   if (now === null) return { kind: "stop", text: GROUP_LINES.failed };
   if (now.some((phone) => phone !== message.line && !people.includes(phone))) return { kind: "stop", text: GROUP_LINES.joined };
   return outcome;

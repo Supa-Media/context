@@ -115,6 +115,9 @@ jobs:
           SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
           SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
           SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
+          WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
+          WHAPI_LINE: ${{ secrets.WHAPI_LINE }}
+          WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
@@ -126,6 +129,15 @@ jobs:
               printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
             else
               echo "::warning::$name is not set in the production environment; the texting assistant stays inert until it is."
+            fi
+          done
+          # WhatsApp (Whapi.Cloud) is optional: absent, that line is simply off, and
+          # it is a notice rather than a warning because nothing else is broken.
+          for name in WHAPI_TOKEN WHAPI_LINE WHAPI_WEBHOOK_SECRET; do
+            if [ -n "${!name:-}" ]; then
+              printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
+            else
+              echo "::notice::$name is not set in the production environment; Tex's WhatsApp line stays off until it is."
             fi
           done
 
@@ -156,8 +168,8 @@ jobs:
               console.error("The texting assistant is misconfigured: " + JSON.stringify({ ok: d.ok, controlPlane: d.controlPlane, gatewayOrigin: d.gatewayOrigin }));
               process.exit(1);
             }
-            for (const [key, name] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET"], ["workerSecret", "AGENT_WORKER_SECRET"]]) {
-              if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it answers no texts.");
+            for (const [key, name, off] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET", "answers no texts"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET", "answers no texts"], ["workerSecret", "AGENT_WORKER_SECRET", "answers no texts"], ["whapiWebhook", "WHAPI_WEBHOOK_SECRET", "keeps WhatsApp off"], ["whapiReplies", "WHAPI_TOKEN and WHAPI_LINE", "keeps WhatsApp off"]]) {
+              if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it " + off + ".");
             }
             require("fs").writeFileSync("/tmp/agent-gateway", d.gatewayOrigin);
           '

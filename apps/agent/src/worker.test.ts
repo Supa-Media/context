@@ -275,6 +275,8 @@ describe("worker", () => {
       replies: true,
       sendblueWebhook: false,
       sendblueReplies: false,
+      whapiWebhook: false,
+      whapiReplies: false,
       workerSecret: true,
       controlPlane: true,
       gatewayOrigin: "https://gw.example",
