@@ -213,3 +213,26 @@ The kept line now lists each thing on the card with the facts beside it
 a card, from the data it was drawn with; never a photo's address
 (`apps/mcp/src/agent/visuals/said.js`). Test: "the saved conversation keeps
 what a card showed" in `apps/mcp/test/agentVisuals.test.mjs`.
+
+## A places card's distances are measured, never guessed (2026-10-27)
+
+Dev2's places card for flower shops had no distances: "tex knows my address
+yet no distance was put for these places". The model cannot measure, and a
+guessed "4 min" is worse than none. So a places card names `from` (where they
+start, usually the address in their about-me note), and the gateway geocodes
+the start and each place's address (Photon, OpenStreetMap data) and fills a
+straight-line distance with a walking time when it is under half an hour
+(`apps/mcp/src/agent/visuals/distance.js`). Miles in the US, km elsewhere. A
+distance the model wrote is kept; a place found more than 80 km away is a
+same-named shop elsewhere and gets none.
+
+A lookup sends an address to an outside service, so an address goes only if
+the turn saw it: their words, a tool result this turn, or their about-me note
+(`outgoingPictures.locates`, fed by `knows` in `route.js`). An address the
+model made up is never looked up, because it could carry whatever the model
+put in it. The owner chose OpenStreetMap now and Google later (2026-10-27);
+`GOOGLE_MAPS_KEY` is being provisioned for that.
+
+What fails if reversed: `test/agentDistance.test.mjs`, "an address the turn
+never saw is never sent to the geocoder" and "their about-me address is a
+start the card may measure from".

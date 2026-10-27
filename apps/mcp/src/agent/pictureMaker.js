@@ -53,6 +53,7 @@ import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
 import { downloadPhotos, fillPictures, pictureAddresses } from "./visuals/photos.js";
+import { fillDistances } from "./visuals/distance.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -264,7 +265,9 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
   async function visual(args) {
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
-    const { data, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
+    const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl);
     const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
     const photos = [...(await downloadPhotos(read, fetchImpl))];
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
@@ -275,6 +278,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (drawn.isError) return drawn;
     const notes = [];
     if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
+    if (measured) notes.push(measured);
     if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo) and draw again.`);
     if (notes.length === 0) return drawn;
     return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };

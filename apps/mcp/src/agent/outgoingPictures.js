@@ -106,6 +106,11 @@ function webAddress(value) {
   return url.href;
 }
 
+/** The shortest address worth looking up: "Main" alone could be anywhere, and anything. */
+const MIN_ADDRESS = 6;
+/** An address as it is compared: case, commas and spacing aside. */
+const plainAddress = (value) => (typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : "");
+
 /**
  * One turn's pictures. `enabled` is false for every turn that is not a text
  * from the person's phone; such a turn's tool results and answers pass through
@@ -210,7 +215,20 @@ export function outgoingPictures({ enabled, question = "" }) {
   /** Every word the turn's tool results showed, for finding a card's photos among them (`visuals/photos.js`). */
   const read = () => text;
 
-  return { wrap, take, picture, made, vouches, read };
+  // Their about-me note, which names where they live: a places card's start (`visuals/distance.js`).
+  let known = "";
+  /** Keeps a texted turn's Tex notes' about-me text and hands the notes back, for `locates`. */
+  const knows = (notes) => {
+    if (typeof notes?.aboutMe === "string") known = notes.aboutMe.slice(0, MAX_SEEN_TEXT);
+    return notes;
+  };
+  /** Whether an address was in their words, a tool result this turn, or their about-me note, so it may go to a geocoder. */
+  const locates = (address) => {
+    const wanted = plainAddress(address);
+    return wanted.length >= MIN_ADDRESS && (plainAddress(text).includes(wanted) || plainAddress(known).includes(wanted));
+  };
+
+  return { wrap, take, picture, made, vouches, read, knows, locates };
 }
 
 /**
