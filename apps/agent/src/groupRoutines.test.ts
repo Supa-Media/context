@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroupRoutine, drainGroup, type GroupDeps } from "./groupInbox";
-import { CHAT_MAIL_LOOK_PATH, chatRoutineMessage, chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { CHAT_LOOK_PATH, chatRoutineMessage, chatRoutineRunOf, chatWhereOf, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { runDueRoutines } from "./routines";
 import { fetchDueRoutines, type DueRoutine, type Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -73,7 +73,7 @@ describe("a chat routine's run", () => {
   it("is its writer's tag: checked like one, answered into the chat, reported", async () => {
     const w = world();
     await run(w);
-    expect(w.control[0]).toMatchObject({ sender: ADA, mint: true, participants: [ADA, BO] });
+    expect(w.control[0]).toMatchObject({ sender: ADA, mint: true, participants: [ADA, BO], routine: true });
     expect(String(w.asks[0]!.question)).toContain("tex/routines/daily/shifts.md");
     expect(w.sends.map((send) => send.content)).toEqual(["On shift today: Bo."]);
     expect(w.sends[0]!.reply_to).toBeUndefined();
@@ -164,9 +164,10 @@ describe("handing a chat routine out", () => {
     expect(chatRoutineMessage(RUN).text).not.toContain("last ran");
   });
 
-  it("a chat's own mail look asks about new shared mail, never a note, and leaves personal mail to its owner", () => {
-    const text = chatRoutineMessage({ ...RUN, path: CHAT_MAIL_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000 }).text;
+  it("a chat's own check-in looks at the workspace's activity and shared mail, never a note, and leaves personal mail to its owner", () => {
+    const text = chatRoutineMessage({ ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000 }).text;
     expect(text).toContain("after:1700000000");
+    expect(text).toContain("fetch activity:");
     expect(text).toContain("concerns only the mailbox's owner personally");
     expect(text).toContain("SKIP");
     expect(text).not.toContain("routine");

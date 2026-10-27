@@ -51,9 +51,20 @@ export const textGroupTables = {
     engagementSetBy: v.optional(v.string()),
     engagementSetAt: v.optional(v.number()),
     lastSeenAt: v.number(),
+    /**
+     * The chat's own check-in (`lib/textGroupLooks.ts`, decided by the owner, 2026-10-27): when the next look is
+     * due (a daily slot, or sooner for new mail shared here), when the last was handed out, and the lease of the one
+     * out now. Times only, never what it saw.
+     */
+    nextLookAt: v.optional(v.number()),
+    lastLookAt: v.optional(v.number()),
+    lookRunId: v.optional(v.string()),
+    lookClaimedAt: v.optional(v.number()),
   })
     .index("by_key", ["groupKey"])
-    .index("by_workspace", ["workspaceId"]),
+    .index("by_workspace", ["workspaceId"])
+    .index("by_nextLookAt", ["nextLookAt"])
+    .index("by_look_run", ["lookRunId"]),
   /**
    * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
    * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):
@@ -71,9 +82,8 @@ export const textGroupTables = {
     query: v.optional(v.string()),
     createdAt: v.number(),
     /**
-     * The chat's own look at new mail (`lib/textGroupMailLooks.ts`): due when
-     * new mail reaches a mailbox shared there, the last one handed out, and
-     * the lease of the one out now.
+     * Retired the day they were added (2026-10-27): the chat's look moved to its own row (`textGroups.nextLookAt`).
+     * Left so rows written that day still match; nothing reads or writes them.
      */
     nextLookAt: v.optional(v.number()),
     lastLookAt: v.optional(v.number()),
@@ -81,7 +91,5 @@ export const textGroupTables = {
     lookClaimedAt: v.optional(v.number()),
   })
     .index("by_group", ["groupKey"])
-    .index("by_user", ["userId"])
-    .index("by_nextLookAt", ["nextLookAt"])
-    .index("by_look_run", ["lookRunId"]),
+    .index("by_user", ["userId"]),
 };

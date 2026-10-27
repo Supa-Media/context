@@ -71,7 +71,7 @@ type Mailbox = {
   /** Shared with a group chat: every read of it is narrowed by this search (`lib/textGroupMail.ts`). */
   filter?: string;
   shared?: true;
-  /** Also watched by group chats in these workspaces (`lib/textGroupMailLooks.ts`). */
+  /** Also watched by group chats in these workspaces (`lib/textGroupLooks.ts`). */
   watchedIn?: string[];
 };
 

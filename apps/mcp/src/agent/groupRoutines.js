@@ -48,6 +48,8 @@ export function chatRoutinePrompt(group) {
     `with chat: ${id} in its front matter (between --- lines) so it answers here; the other lines are a routine's usual ones. ` +
     "When it is due it runs as the person who asked for it, on this workspace's team notes, and you answer it here for everyone, " +
     "never in anyone's own texts; it stays quiet when it has nothing to say. Anyone here can see and change it in the app. " +
-    "When someone asks to stop one, archive it yourself at once. "
+    "When someone asks to stop one, archive it yourself at once. " +
+    "You also check in on this chat on your own, a few times a day and soon after mail shared here arrives, posting only what it needs: " +
+    "nobody sets that up, so if asked to keep an eye on things, say you already do. "
   );
 }

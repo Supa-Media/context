@@ -13,6 +13,7 @@ import { syncChatPeople } from "./lib/textGroupGuestSync";
 import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
+import { armChatLook } from "./lib/textGroupLooks";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -170,6 +171,8 @@ export const applyGroupTurn = internalMutation({
     participants: v.array(v.string()),
     command: v.optional(commandValidator),
     mint: v.boolean(),
+    /** A routine's or check-in's own run: not somebody talking, so the chat's last word stays when it was. */
+    routine: v.optional(v.boolean()),
     hashedAccessToken: v.string(),
     hashedRefreshToken: v.string(),
     expiresAt: v.number(),
@@ -186,7 +189,7 @@ export const applyGroupTurn = internalMutation({
     if (!others.includes(args.sender)) return { status: "refused" };
 
     const now = Date.now();
-    const group = await groupRow(ctx, args.groupKey, now);
+    const group = await groupRow(ctx, args.groupKey, now, args.routine !== true);
     const senderUser = await linkedUser(ctx, args.sender);
 
     // Anyone in the chat may stop Tex or start it again: it cannot leave a group.
@@ -199,6 +202,8 @@ export const applyGroupTurn = internalMutation({
       return { status: "started" };
     }
     if (group.mutedAt !== undefined) return { status: "muted" };
+    // A bound chat checks in on its own, as a person's Tex does; any word here arms it (`lib/textGroupLooks.ts`).
+    await armChatLook(ctx, group, now);
 
     // "Tex, share my mail from me@work.example here" (`lib/textGroupMail.ts`): only the mailbox's own person.
     if (args.command?.kind === "share_mail") {
@@ -463,11 +468,12 @@ async function handleOf(ctx: MutationCtx, userId: Id<"users">): Promise<string> 
   return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
 }
 
-async function groupRow(ctx: MutationCtx, groupKey: string, now: number): Promise<Doc<"textGroups">> {
+async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: boolean): Promise<Doc<"textGroups">> {
   const existing = await ctx.db
     .query("textGroups")
     .withIndex("by_key", (q) => q.eq("groupKey", groupKey))
     .unique();
+  if (existing !== null && !touch) return existing;
   if (existing !== null) {
     await ctx.db.patch(existing._id, { lastSeenAt: now });
     return { ...existing, lastSeenAt: now };

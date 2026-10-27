@@ -18,9 +18,11 @@
  *  - drop the `writingRole` check in `liveMailShares`: "losing edit ends it" fails;
  *  - drop the `wake` or `chat` match in `wakeMailRoutines`: "new mail brings
  *    forward only" fails; drop the gap: "never sooner than" fails;
- *  - the chat's own look (`textGroupMailLooks.ts`): dropping its wake, its
- *    claim, its result, its lease, its live-chat check, its gap, or the
- *    personal `watchedIn` each fails a test in "the chat watches shared mail".
+ *  - the chat's own check-in (`textGroupLooks.ts`): dropping its wake, its
+ *    claim, its result, its lease, its live-chat check, its gap, the
+ *    personal `watchedIn`, the arming on a turn or daily, the next slot set
+ *    at claim, or the quiet/dormant drop each fails a test in "the chat
+ *    checks in on its own".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -30,7 +32,7 @@ import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogle
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { withinShare } from "../functions/lib/gatewayRoutes/personMail";
 import { MAIL_WAKE_DELAY_MS, MAIL_WAKE_GAP_MS } from "../functions/lib/routines/wake";
-import { CHAT_MAIL_LOOK_PATH, LOOK_DELAY_MS, LOOK_GAP_MS } from "../functions/lib/textGroupMailLooks";
+import { CHAT_LOOK_PATH, DORMANT_MS, FIRST_LOOK_MS, LOOK_DELAY_MS, LOOK_GAP_MS } from "../functions/lib/textGroupLooks";
 import { registerClient, seedConnectedClient } from "./controlPlane/fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -280,17 +282,44 @@ describe("new mail wakes the chat's mail routine", () => {
   });
 });
 
-describe("the chat watches shared mail on its own", () => {
+describe("the chat checks in on its own", () => {
   async function shared(t: T) {
     const fam = await family(t);
     await t.run((ctx) => ctx.db.patch(fam.connectionId, { push: { gmail: { address: WORK } } }));
     await turn(t, SEYI, share(WORK));
     return fam;
   }
-  const lookRow = async (t: T) => (await t.run(async (ctx) => await ctx.db.query("chatMailShares").first()))!;
+  const lookRow = async (t: T) => (await t.run(async (ctx) => await ctx.db.query("textGroups").first()))!;
+  const patchLook = async (t: T, fields: Record<string, unknown>) =>
+    await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("textGroups").first())!._id, fields));
   const dueRuns = async (t: T) => ((await agentPost(t, "/agent-texts/routines/due", {})).runs ?? []) as Array<Record<string, unknown>>;
 
-  test("new mail makes the chat's look due with no routine, and the cron hands it out as a chat run", async () => {
+  test("a bound chat has its next daily look with nothing set up, handed out as a chat run as its binder", async () => {
+    const t = setupTest();
+    await family(t);
+    await turn(t, SEYI);
+    const row = await lookRow(t);
+    expect(row.nextLookAt).toBeGreaterThan(Date.now());
+    expect(row.nextLookAt).toBeLessThanOrEqual(Date.now() + 24 * HOUR);
+    await patchLook(t, { nextLookAt: Date.now() - 1 });
+    const claimedAt = Date.now();
+    const runs = await dueRuns(t);
+    expect(runs).toEqual([expect.objectContaining({ path: CHAT_LOOK_PATH, chat: row.groupKey, phones: [SEYI] })]);
+    expect(runs[0]!.since).toBeGreaterThanOrEqual(claimedAt - FIRST_LOOK_MS);
+    expect(runs[0]!.since).toBeLessThan(claimedAt);
+    // Handing it out sets the next slot at once.
+    expect((await lookRow(t)).nextLookAt).toBeGreaterThan(Date.now());
+  });
+
+  test("the daily arming reaches a bound chat that has had no turn since", async () => {
+    const t = setupTest();
+    await family(t);
+    await patchLook(t, { nextLookAt: undefined });
+    await t.mutation(internal.functions.heartbeats.armLinkedHeartbeats, {});
+    expect((await lookRow(t)).nextLookAt).toBeGreaterThan(Date.now());
+  });
+
+  test("new mail brings the look forward, and the cron hands it out once, leased", async () => {
     gmail();
     const t = setupTest();
     await shared(t);
@@ -298,23 +327,22 @@ describe("the chat watches shared mail on its own", () => {
     await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
     const row = await lookRow(t);
     expect(row.nextLookAt).toBeGreaterThanOrEqual(before + LOOK_DELAY_MS);
-    await t.run((ctx) => ctx.db.patch(row._id, { nextLookAt: Date.now() - 1 }));
+    expect(row.nextLookAt).toBeLessThan(Date.now() + LOOK_DELAY_MS + 60_000);
+    await patchLook(t, { nextLookAt: Date.now() - 1 });
 
     const runs = await dueRuns(t);
-    expect(runs).toEqual([
-      expect.objectContaining({ path: CHAT_MAIL_LOOK_PATH, chat: row.groupKey, phones: [SEYI], since: row.createdAt }),
-    ]);
+    expect(runs).toEqual([expect.objectContaining({ path: CHAT_LOOK_PATH, chat: row.groupKey, phones: [SEYI] })]);
     expect(runs[0]!.accessToken).toBeUndefined();
-    // Handed out once: only new mail makes it due again, and not while this one is still out.
     expect(await dueRuns(t)).toEqual([]);
-    await t.run((ctx) => ctx.db.patch(row._id, { nextLookAt: Date.now() - 1 }));
+    // Not again while this one is still out.
+    await patchLook(t, { nextLookAt: Date.now() - 1 });
     expect(await dueRuns(t)).toEqual([]);
     const outcome = await agentPost(t, "/agent-texts/routines/result", { runId: runs[0]!.runId, outcome: "skipped", texted: 0 });
     expect(outcome.status).not.toBe("unknown");
     const after = await lookRow(t);
     expect(after.lookRunId).toBeUndefined();
     expect(after.lastLookAt).toBeGreaterThanOrEqual(before);
-    expect((await t.run(async (ctx) => await ctx.db.query("auditEvents").collect())).map((row) => row.action)).toContain("mail.chat_look");
+    expect((await t.run(async (ctx) => await ctx.db.query("auditEvents").collect())).map((row) => row.action)).toContain("chat.look");
   });
 
   test("a burst of mail is one look, never sooner than the gap after the last", async () => {
@@ -322,7 +350,7 @@ describe("the chat watches shared mail on its own", () => {
     const t = setupTest();
     await shared(t);
     const lastLookAt = Date.now();
-    await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("chatMailShares").first())!._id, { lastLookAt }));
+    await patchLook(t, { lastLookAt, nextLookAt: undefined });
     await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
     await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
     expect((await lookRow(t)).nextLookAt).toBe(lastLookAt + LOOK_GAP_MS);
@@ -332,13 +360,33 @@ describe("the chat watches shared mail on its own", () => {
     gmail();
     const t = setupTest();
     await shared(t);
-    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
-    await t.run(async (ctx) => {
-      for (const group of await ctx.db.query("textGroups").collect()) await ctx.db.patch(group._id, { mutedAt: Date.now() });
-      await ctx.db.patch((await ctx.db.query("chatMailShares").first())!._id, { nextLookAt: Date.now() - 1 });
-    });
+    await patchLook(t, { mutedAt: Date.now(), nextLookAt: Date.now() - 1 });
     expect(await dueRuns(t)).toEqual([]);
     expect((await lookRow(t)).nextLookAt).toBeUndefined();
+  });
+
+  test("a quiet or long-silent chat looks only when mail is shared with it, and its next turn arms it again", async () => {
+    gmail();
+    const t = setupTest();
+    await family(t);
+    const silentSince = Date.now() - DORMANT_MS - 1;
+    // A look's own turn is nobody talking: it never keeps a silent chat looking.
+    await patchLook(t, { lastSeenAt: silentSince });
+    await turn(t, SEYI, { routine: true });
+    expect((await lookRow(t)).lastSeenAt).toBe(silentSince);
+    await patchLook(t, { nextLookAt: Date.now() - 1 });
+    expect(await dueRuns(t)).toEqual([]);
+    expect((await lookRow(t)).nextLookAt).toBeUndefined();
+    await patchLook(t, { engagement: "quiet", lastSeenAt: Date.now(), nextLookAt: Date.now() - 1 });
+    expect(await dueRuns(t)).toEqual([]);
+
+    await turn(t, SEYI);
+    expect((await lookRow(t)).nextLookAt).toBeGreaterThan(Date.now());
+    const { connectionId } = { connectionId: (await t.run(async (ctx) => await ctx.db.query("googleConnections").first()))!._id };
+    await t.run((ctx) => ctx.db.patch(connectionId, { push: { gmail: { address: WORK } } }));
+    await turn(t, SEYI, share(WORK));
+    await patchLook(t, { lastSeenAt: Date.now() - DORMANT_MS - 1, nextLookAt: Date.now() - 1 });
+    expect(await dueRuns(t)).toEqual([expect.objectContaining({ path: CHAT_LOOK_PATH })]);
   });
 
   test("the person's own check-in is told which of their mailboxes a chat watches", async () => {

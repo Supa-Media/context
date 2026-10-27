@@ -73,6 +73,7 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     participants: listed,
     ...(command !== undefined ? { command } : {}),
     mint,
+    ...(body.routine === true ? { routine: true } : {}),
     hashedAccessToken: await hashToken(accessToken),
     // The hash of a value nobody was given: this grant has no refresh token.
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),

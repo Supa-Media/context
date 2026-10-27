@@ -14,7 +14,7 @@ import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
 import { accountTimeZone, routineRecipients, runsRoutine, writingRole } from "./access";
 import { routineChat } from "./chats";
-import { claimChatMailLooks, finishChatMailLook } from "../textGroupMailLooks";
+import { claimChatLooks, finishChatLook } from "../textGroupLooks";
 import {
   MAX_DUE_RUNS,
   ONE_OFF_RETRY_EVERY_MS,
@@ -179,7 +179,7 @@ export async function claimDueRoutinesHandler(
     });
   }
   // A chat's own look at the mail shared with it is a chat run with no note behind it.
-  runs.push(...(await claimChatMailLooks(ctx, args.runIds.slice(runs.length, limit), now)));
+  runs.push(...(await claimChatLooks(ctx, args.runIds.slice(runs.length, limit), now)));
   return runs;
 }
 
@@ -262,7 +262,7 @@ export async function recordRoutineResultHandler(
     .query("routines")
     .withIndex("by_run_id", (q) => q.eq("runId", args.runId))
     .unique();
-  if (row === null) return (await finishChatMailLook(ctx, args.runId)) ? "recorded" : "unknown";
+  if (row === null) return (await finishChatLook(ctx, args.runId)) ? "recorded" : "unknown";
   const now = Date.now();
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,
