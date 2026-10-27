@@ -17,7 +17,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
@@ -267,4 +267,14 @@ describe("a tag keeps the chat's numbers", () => {
     expect(await hashes()).toEqual([await guestPhoneHash(STRANGER)]);
   });
 
+  test("a message whose people changed moves them too, tag or not (syncGuestPeople)", async () => {
+    const w = await world();
+    const { chatId } = await guestChat(w);
+    const pass = await passFor(w, FRIEND);
+    const LINE = "+15555550001";
+    await w.t.mutation(internal.functions.textGroups.syncGuestPeople, { line: LINE, groupKey: "a".repeat(64), participants: [LINE, STRANGER] });
+    const kept = await w.t.run(async (ctx) => await ctx.db.query("chatGuestPhones").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
+    expect(kept.map((row) => row.phoneHash)).toEqual([await guestPhoneHash(STRANGER)]);
+    expect(await read(w, pass, PLAN)).toEqual({ status: "unavailable" });
+  });
 });

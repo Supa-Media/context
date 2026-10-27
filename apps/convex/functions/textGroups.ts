@@ -350,7 +350,11 @@ export const syncGuestPeople = internalMutation({
       else people.outsiders.push(userId);
     }
     const current = await ctx.db.get(chat._id);
-    if (current !== null) await syncChatPeople(ctx, current, binder, people);
+    if (current !== null) {
+      await syncChatPeople(ctx, current, binder, people);
+      // Their numbers too, hashed, so who may open the chat's notes by code moves with them (`lib/guestPhones.ts`).
+      await syncChatPhones(ctx, current, args.participants.filter((entry) => entry !== args.line));
+    }
     return null;
   },
 });
