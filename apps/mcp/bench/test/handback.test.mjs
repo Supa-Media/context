@@ -157,3 +157,32 @@ test("case 11: a seat-map popup is closed, both buses are picked, the card boxes
     world.close();
   }
 });
+
+test("case 14: a handoff on a plain registration form is refused, and Tex presses Register itself", async () => {
+  const model = scripted([
+    browse({ do: "goto", url: "https://retreat.example/register" }),
+    browse(
+      { do: "type", ref: 1, text: "Maya Reyes" },
+      { do: "type", ref: 2, text: "maya@example.invalid" },
+      { do: "select", ref: 3, option: "No" },
+      { do: "select", ref: 4, option: "No" },
+      { do: "select", ref: 5, option: "No" },
+      { do: "select", ref: 6, option: "Graduated/Working Professional" },
+      { do: "handoff" },
+    ),
+    browse({ do: "click", ref: 7 }),
+    { text: "You're registered for Harvest Retreat 2026." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const turn = await world.text("can you register me for the harvest retreat? retreat.example");
+    assert.match(model.results[1], /Not handed over: nothing on this page is the person's to do/);
+    assert.match(model.results[2], /You're registered/);
+    assert.ok(!world.browser().some((e) => e.startsWith("handoff ")), "the browser was never handed over");
+    assert.doesNotMatch(turn.reply ?? "", /take over the browser/);
+    const fourteen = await handbackCase(14);
+    assert.deepEqual(checkVerdicts(fourteen, { tools: turn.tools.map((c) => c.tool), browser: world.browser() }).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});

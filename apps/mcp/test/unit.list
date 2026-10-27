@@ -247,3 +247,4 @@ test/agentMapCard.test.mjs
 test/agentSameAsk.test.mjs
 test/agentPictureSearch.test.mjs
 test/agentPublishedText.test.mjs
+test/agentHandoffGate.test.mjs

@@ -308,3 +308,33 @@ check lets "Paste them in" go out again after any failed read.
 **Tests.** `apps/mcp/test/agentPublishedText.test.mjs`; hand-back bench case
 13 (`sites/scripture.example.md`, `sites/versereader.example.md`). Sabotage
 record in the test's header.
+
+## The browser is handed over only for what the page shows is theirs (2026-10-27)
+
+The owner asked Tex to register them for a church conference. Tex asked the
+four questions the form needed, got every answer, typed their name and
+email, chose the answers and pressed Register. That click ran out of time,
+and after two looks Tex added a handoff step. The gateway texts "Open this to
+take over the browser" the moment the link exists, mid-turn, so the
+hand-back judge, which reads only the finished answer, never saw it. The
+owner: "why is my tex asking me to complete a regular form myself?"
+
+So the handoff step itself is checked (`apps/mcp/src/agent/handoffGate.js`),
+against the reading the steps before it left, before any link is made. It
+goes ahead only for a fair ask a page can show: a sign-in (a password box,
+or a page whose title or address says it is a sign-in or consent screen,
+K1), a code or an approval on their phone (K2), a captcha that outlasted
+every try or a page that still says it is one (K3), card boxes (Y1), or the
+person's own words this question asking to do it themselves. Anything else
+is refused, and the model is told to finish the page itself and to ask, in
+its reply, for the one fact only they know if one is missing.
+
+**What a simplification would cost.** Without the check, any page the model
+gives up on (a form, a picker, a slow button) becomes the person's, and the
+link goes out before any check on the answer runs.
+
+**Tests.** `apps/mcp/test/agentHandoffGate.test.mjs` (a registration form is
+never handed over and no link is texted; zip and promo codes are not sign-in
+codes; each fair ask still is; sabotage record in its header) and hand-back
+bench case 14 (`bench/ai/tests/handback.md`, `sites/retreat.example.md`,
+`bench/test/handback.test.mjs`).
