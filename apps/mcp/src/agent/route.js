@@ -506,7 +506,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
-          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
+          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group, question }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
         ))),
       )))),
       pictures: texted || group !== null,
