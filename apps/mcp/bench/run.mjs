@@ -123,7 +123,9 @@ async function readSetups(dir, job, only) {
  * change included, because production asks on exactly these turns and the
  * round measures what the person gets: the extra text, its time, its words.
  */
-export function personAnswers(turn) {
+export function personAnswers(turn, question = null) {
+  // Unless the case plays the asks too (`- person answers asks`, tests/corrections.md).
+  if (question?.answersAsks === true) return null;
   return turn.asked > 0 ? "YES" : null;
 }
 
@@ -186,7 +188,7 @@ export async function converse(world, question, person, mode = null) {
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
     message =
-      personAnswers(turn) ??
+      personAnswers(turn, question) ??
       handOffAnswer(turn, question, world.browser().slice(seen)) ??
       (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;

@@ -56,6 +56,7 @@ import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
+import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
@@ -504,12 +505,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
       answerCheck: claims?.check ?? null,
-      callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
+      callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
           withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group, question }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
         ))),
-      ))))),
+      )))))),
       pictures: texted || group !== null,
       attachments,
       env,
