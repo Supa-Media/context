@@ -52,6 +52,7 @@ export function member(over: Partial<PresenceMember> = {}): PresenceMember {
     head: "p:0",
     canWrite: true,
     isAgent: false,
+    isYou: false,
     ...over,
   };
 }

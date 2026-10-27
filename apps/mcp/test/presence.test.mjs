@@ -123,6 +123,7 @@ import { runPresenceSeedingAndSweepChecks } from "./presence/seedingAndSweep.tes
 import { runPresencePeerSyncAndAgentWriteChecks } from "./presence/peerSyncAndAgentWrites.test.mjs";
 import { runPresenceRelayV2SpeculativeUpdateChecks } from "./presence/relayV2SpeculativeUpdates.test.mjs";
 import { runPresenceRouteChecks } from "./presence/route.test.mjs";
+import { runPresenceSamePersonChecks } from "./presence/samePerson.test.mjs";
 
 export async function runPresenceChecks(check) {
   await runPresenceRoomKeysAndFramesChecks(check);
@@ -130,4 +131,5 @@ export async function runPresenceChecks(check) {
   await runPresencePeerSyncAndAgentWriteChecks(check);
   await runPresenceRelayV2SpeculativeUpdateChecks(check);
   await runPresenceRouteChecks(check);
+  await runPresenceSamePersonChecks(check);
 }
