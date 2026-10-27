@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // Spelling: on or off, a language, and the words they added.
+  const spellingPreferences = await ctx.db
+    .query("spellingPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of spellingPreferences) await ctx.db.delete(row._id);
+
   // Their yes to sharing finished conversations with Tex (`texReviews.ts`): a time.
   const texReviewSharing = await ctx.db
     .query("texReviewSharing")

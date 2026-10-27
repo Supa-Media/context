@@ -73,6 +73,13 @@ export interface MenuProps<Id extends string = MenuActionId> {
    * written out identically.
    */
   sheet?: { items: MenuItem<Id>[]; header?: ReactNode };
+  /**
+   * The popover leaves the keyboard alone: Escape closes it, and any other
+   * key closes it *and* goes to whatever had focus. For a card opened by a
+   * plain click on a word (the note's spelling card), where the next key is
+   * usually the person carrying on typing. The sheet is modal and has no keyboard state, so native ignores it.
+   */
+  passiveKeys?: boolean;
   onSelect: (id: Id) => void;
   onDismiss: () => void;
 }

@@ -182,6 +182,9 @@ had nothing under it. It is answered in the preload by `webFrame` — the checke
 that drew the underline — and crosses no IPC channel, so the word never reaches
 the main process. A browser, and a shell older than 8, gets a menu row pointing
 at Shift-right-click, which has always fallen through to the browser's menu.
+Since 2026-10-27 both are the fallback only: the note checks spelling itself
+([spelling](../app-and-console/spelling.md)) and asks this member only while
+its own dictionary has not loaded.
 
 Four decisions inside that shape.
 

@@ -1,5 +1,7 @@
 /**
- * Spelling suggestions for the note's right-click menu.
+ * Spelling suggestions for the note's right-click menu, when Context's own
+ * checker (`../spelling/`, 2026-10-27) has no dictionary yet — offline on a
+ * first visit. While it runs, nothing here is asked.
  *
  * The note replaces the browser's context menu with its own, and the browser's
  * menu is the only place a page's spelling suggestions live — the web has no
