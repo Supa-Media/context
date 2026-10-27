@@ -82,6 +82,8 @@ test("a places card's stops are its addresses, numbered like its rows, each made
   ]);
   assert.equal(mapStops("places", { near: "Brooklyn", items: [{ address: "12 Smith St, Brooklyn" }] })[0].address, "12 Smith St, Brooklyn", "an address that names its town is left as it is");
   assert.deepEqual(mapStops("compare", FLORISTS), [], "only places and map cards have a map");
+  const { near, ...fromOnly } = FLORISTS;
+  assert.equal(mapStops("places", { ...fromOnly, from: "11-02 49th Ave, Long Island City, NY" })[0].address, "2807 Jackson Ave, Long Island City, NY", "without near, the town of where they start");
 });
 
 test("an address cannot add a marker or a style to Google's request", () => {
@@ -109,7 +111,7 @@ test("a places card is drawn with OpenStreetMap tiles and numbered pins, all as 
   const shots = siteShots();
   const web = mapWeb();
   const outgoing = outgoingPictures({ enabled: true, question: "show me the best places to find flowers around me" });
-  const maker = pictureMaker(shots, { outgoing, fetchImpl: web.fetchImpl, geocode });
+  const maker = pictureMaker(shots, { outgoing, fetchImpl: web.fetchImpl, mapGeocode: geocode });
   const call = outgoing.wrap(withPictureMaker(maker, async () => ({ content: [{ type: "text", text: READ }] })));
   await call("web_search", { query: "florists long island city" });
   const result = await call(VISUAL_TOOL, { template: "places", data: FLORISTS });
@@ -128,7 +130,7 @@ test("with GOOGLE_MAPS_KEY the map is Google's, and the key never reaches the pa
   const shots = siteShots({ GOOGLE_MAPS_KEY: KEY });
   const web = mapWeb();
   const outgoing = outgoingPictures({ enabled: true, question: "florists near me" });
-  const maker = pictureMaker(shots, { outgoing, fetchImpl: web.fetchImpl, geocode });
+  const maker = pictureMaker(shots, { outgoing, fetchImpl: web.fetchImpl, mapGeocode: geocode });
   const call = outgoing.wrap(withPictureMaker(maker, async () => ({ content: [{ type: "text", text: READ }] })));
   await call("web_search", { query: "florists" });
   const result = await call(VISUAL_TOOL, { template: "places", data: FLORISTS });

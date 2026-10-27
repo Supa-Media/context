@@ -195,8 +195,7 @@ export async function keepPhotos(store, attachments) {
  * this turn may write the kept picture (a texted turn that keeps its
  * conversation); `meter` reports the image model's tokens.
  */
-export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, geocode = null } = {}) {
-  const mapGeocoder = geocode;
+export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null } = {}) {
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
@@ -274,7 +273,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const photos = [...(await downloadPhotos(read, fetchImpl))];
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
     // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
-    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: mapGeocoder ?? ((address) => geocode(address, fetchImpl)), locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
+    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: mapGeocode ?? ((address) => geocode(address, fetchImpl)), locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
     photos.push(...(drawnMap.pictures ?? []));
     const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
     if (built.error) return say(built.error, true);
