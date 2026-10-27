@@ -123,3 +123,18 @@ words ("Updated your list") and missed "Sure, Bo it is".
 Reverse it and "a correction the model does not
 act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
 fails.
+
+### A check-in promised for a set time is set in the same turn, or not promised (2026-10-27)
+
+Two self-reviews in 18 hours (@context-lc
+`areas/tex-reviews/themes/promised-checkin-not-set.md`): "I'll check with you
+tonight" and "I'll check the log at 4:30 and text you", each with only
+`read_note` and `write_note` in the turn. The first never says "text you"; in
+the second, "4:30" was not a word to `PROMISE`, so neither reached
+`LATER_NOTICE`. `otherRoutes.js` now lets a promise's words carry a clock
+time, and `checksInAt` counts a check-in, follow-up or reminder ("I'll check
+with you", "I'll remind you", "I'll look") with a set time ("tonight", "at
+4:30", "tomorrow", "after lunch") as a promise. Its notice, `CHECK_IN_NOTICE`,
+asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
+promise taken out; an untimed later keeps the hourly routine. A routine
+written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.
