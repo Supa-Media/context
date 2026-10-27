@@ -64,7 +64,7 @@ import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
-import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, wordsOnly, type Entry, type Pending } from "./inboxTurn";
+import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
@@ -195,12 +195,16 @@ export async function accept(
   const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
-  await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
-    const running = runningTurn(storage, text.chatId);
-    if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-      await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));
-    }
-  });
+  try {
+    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
+      const running = runningTurn(storage, text.chatId);
+      if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
+        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));
+      }
+    });
+  } catch {
+    // Seen and queued already: a throw while deciding it leaves it waiting, decided again when the turn is done.
+  }
   return "queued";
 }
 
@@ -288,12 +292,21 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     }
     // Read, the bubble and the tapback timer start before decide is asked: a slow decide never leaves the text sitting unread.
     const first = pending[0][1].message;
-    const presence = first.channel === "simulator" ? undefined : await startPresence(lineFor(lineDeps(deps), first.chatId), first);
+    const line = first.channel === "simulator" ? undefined : lineFor(lineDeps(deps), first.chatId);
+    // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
+    const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
+    if (acksOnly) await line?.markRead(first.chatId, first.messageId);
+    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
-      if (choice.react !== undefined) await acknowledgeText(deps, choice.react);
+      // One tapback per text: decide's, or else presence's on the text being answered.
+      if (choice.react !== undefined) {
+        await acknowledgeText(deps, choice.react);
+        presence?.dropTapback();
+      }
+      if (choice.answer.length > 0) presence?.aim(choice.answer.at(-1)![1].message);
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();
@@ -342,7 +355,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
   // One of the Worker's own texts (a failure, a limit, setup) is the system's: no turn the gateway recorded wrote it.
   const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
-  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks } : {}) };
+  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}) };
   await storage.put<Pending>(key, ready);
   return await sendReply(storage, deps, [key, ready]);
 }
@@ -406,7 +419,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     }
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
-      await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from));
+      await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
     }
     await storage.delete(key);
     await flushOwed(storage, deps, item.message.from);
@@ -479,11 +492,12 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; fixed: boolean };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
 
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let asks: string[] = [];
+  let askText = "";
   let modelWrote = false;
   // The fixed texts sent since the last turn, named to this one for today's history too (`told.ts`); read before the session writes the events.
   const told = await owedTold(storage);
@@ -523,13 +537,13 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent) => void (pictures = sent),
-      onAsks: (armed) => void (asks = armed),
+      onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
     presence,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, fixed: !modelWrote });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);

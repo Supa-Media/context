@@ -22,6 +22,10 @@
  * 10. `addEvent` not arming the day alarm → "the drain's alarm prunes…" fails.
  * 11. `askAgent` not sending `told` → "the next /agent call still names
  *     them…" fails.
+ * 12. the reserved-name check removed from `displayName` (W18) → "a name
+ *     decide's transcript reserves…" fails.
+ * 13. `logAsk` not setting `text` (W19) → "every approval a turn armed…"
+ *     fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -151,6 +155,8 @@ describe("a person's chat as events", () => {
     const outs = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind === "tex");
     expect(outs.map((event) => event.kind)).toEqual(["text", "ask"]);
     expect(outs[1]).toMatchObject({ ask: "rec_00000001", turn: outs[0].turn });
+    // The ask carries the words it showed, so decide can tell what is held (no verbatim part: the whole answer).
+    expect(outs[1].text).toBe("Here's the email I'd send. Give it a 👍 and I'll send it.");
     expect(outs.every((event) => typeof event.turn === "string")).toBe(true);
   });
 
@@ -168,6 +174,26 @@ describe("a person's chat as events", () => {
     const refusing = (async () => Response.json({ error: "invalid_request", error_description: "events[0].from" }, { status: 400 })) as unknown as Fetch;
     await flushEvents(storage, { fetch: refusing, gatewayOrigin: "https://gw.example", now: () => 1_000 }, "tok", "texts");
     expect(await unwritten(storage)).toEqual([]);
+  });
+
+  it("a name decide's transcript reserves (you, tex, context, system, them) is sent as no name, and the batch still goes", async () => {
+    const storage = new MemoryStorage();
+    for (const [at, name] of ["You", " tex ", "CONTEXT", "System", "them", "Ada"].entries()) {
+      await addEvent(storage, { at: at + 1, chat: "g", from: { kind: "person", name }, kind: "text", text: "x" });
+    }
+    expect((await keptEvents(storage, "g")).map((event) => event.from.name)).toEqual([undefined, undefined, undefined, undefined, undefined, "Ada"]);
+    const posts: TexEvent[][] = [];
+    const gateway = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      posts.push(body.events);
+      return Response.json({ written: body.events.map((event: TexEvent) => event.id) });
+    }) as unknown as Fetch;
+    await flushEvents(storage, { fetch: gateway, gatewayOrigin: "https://gw.example", now: () => 10 }, "tok", "texts");
+    expect(posts.flat()).toHaveLength(6);
+    expect(await unwritten(storage)).toEqual([]);
+    // A name that only starts like one is a name.
+    await addEvent(storage, { at: 9, chat: "h", from: { kind: "person", name: "Texas" }, kind: "text", text: "x" });
+    expect((await keptEvents(storage, "h"))[0].from.name).toBe("Texas");
   });
 
   it("display names are cut to what the gateway takes", async () => {

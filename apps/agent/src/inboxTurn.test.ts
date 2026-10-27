@@ -21,10 +21,17 @@
  * 10. a fixed reply logged under the turn → "a fixed text (no model…" fails.
  * 11. the simulator put to decide → "the simulator is answered directly…"
  *     fails.
+ * 12. `drain` starting presence for a burst of pure acks (W16) → "only
+ *     'ok', decide silent…" fails.
+ * 13. `presence.aim` not called (W17) → "decide react with an answer…"
+ *     fails (tapback on the dropped "thanks"); `dropTapback` a no-op →
+ *     "presence's tapback, once dropped…" fails.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { IDLE_DECIDE_MS } from "./decide";
+import { ACKNOWLEDGE_AFTER_MS, startPresence } from "./presence";
+import type { Line } from "./line";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
@@ -52,12 +59,14 @@ const msg = (chatId: string, eventId: string, text: string, extra: Partial<Messa
 
 type Decided = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; sender?: string };
 
-function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean } = {}) {
+function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean; agentTakes?: number } = {}) {
   const decided: Decided[] = [];
   const asks: { question: string; covers?: string[]; chat?: string }[] = [];
   const agentBodies: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
+  /** The message each tapback went on: Sendblue's handle, or Whapi's id in the path. */
+  const reactedOn: string[] = [];
   /** The order of what the person can see and what was asked: read, typing, decide, agent. */
   const calls: string[] = [];
   const fetcher = (async (url: string, init?: RequestInit) => {
@@ -80,11 +89,13 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     if (path === "/agent") {
       calls.push("agent");
       agentBodies.push(body);
+      if (opts.agentTakes) await new Promise((resolve) => setTimeout(resolve, opts.agentTakes));
       asks.push({ question: body.question, covers: body.covers, ...(body.chat ? { chat: body.chat } : {}) });
       return Response.json({ answer: `answer to ${body.question}` });
     }
     if (path === "/api/send-reaction" || (parsed.host === "gate.whapi.cloud" && path.endsWith("/reaction"))) {
       reactions.push(body.reaction ?? body.emoji);
+      reactedOn.push(body.message_handle ?? decodeURIComponent(path.split("/")[2]));
       return Response.json({ status: "OK", sent: true });
     }
     if (path === "/api/send-message" || path === "/messages/text") {
@@ -103,7 +114,7 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     whapi: { token: "wt", line: LINE },
     now: () => 5_000,
   };
-  return { deps, decided, asks, agentBodies, texts, reactions, calls };
+  return { deps, decided, asks, agentBodies, texts, reactions, reactedOn, calls };
 }
 
 const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
@@ -189,6 +200,59 @@ describe("decide in a person's own chat", () => {
       }
     });
   }
+
+  it("only 'ok', decide silent: read, never the bubble, no reply", async () => {
+    const storage = new MemoryStorage();
+    const w = world(act("silent"));
+    await accept(storage, msg(LINES[0].chatId, "e1", "ok"), 1_000);
+    await drain(storage, w.deps);
+    expect(w.calls).toEqual(["read", "decide"]);
+    expect(w.texts).toEqual([]);
+  });
+
+  it("only 'thanks', decide answers: the bubble starts once decide picked the answer", async () => {
+    const storage = new MemoryStorage();
+    const w = world(all);
+    await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
+    await drain(storage, w.deps);
+    expect(w.calls.indexOf("typing")).toBeGreaterThan(w.calls.indexOf("decide"));
+    expect(w.asks).toHaveLength(1);
+  });
+
+  it("decide react with an answer over 10s: exactly one tapback, on the text being answered", async () => {
+    vi.useFakeTimers();
+    try {
+      const storage = new MemoryStorage();
+      const w = world(act("react"), { agentTakes: 12_000 });
+      await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
+      await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
+      const draining = drain(storage, w.deps);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await draining;
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
+      expect(w.reactedOn).toEqual(["m_e2"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("presence's tapback, once dropped (decide's react went), never goes; aimed, it goes on the aimed text", async () => {
+    vi.useFakeTimers();
+    try {
+      const acks: string[] = [];
+      const line = { markRead: async () => {}, startTyping: async () => {}, acknowledge: async (_chat: string, id: string) => void acks.push(id) } as unknown as Line;
+      const dropped = await startPresence(line, msg("c", "e1", "thanks"));
+      dropped.dropTapback();
+      const aimed = await startPresence(line, msg("c", "e2", "thanks"));
+      aimed.aim(msg("c", "e3", "what's on"));
+      await vi.advanceTimersByTimeAsync(ACKNOWLEDGE_AFTER_MS + 100);
+      await dropped.stop();
+      await aimed.stop();
+      expect(acks).toEqual(["m_e3"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("silent never leaves a real question unanswered in a person's own chat", async () => {
     const storage = new MemoryStorage();

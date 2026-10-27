@@ -87,14 +87,14 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
 
 /**
  * `POST /agent/cancel { turn }`: the running turn stops, and its held asks are
- * withdrawn. True only when the gateway says it cancelled it: `cancelled:
- * false` (the turn already wrote or sent something, or there is no such turn)
- * or no answer means it runs on, and the new message waits its turn.
+ * withdrawn. True only when the gateway says `cancelled: true`; anything else
+ * (`false`: a write may have started, or there is no such turn; a missing or
+ * odd field; no answer) means it runs on, and the new message waits its turn.
  */
 export async function cancelTurn(deps: { fetch: Fetch; gatewayOrigin: string }, accessToken: string, turn: string): Promise<boolean> {
   try {
     const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/cancel`, accessToken, { turn }, RUNNING_DECIDE_MS);
-    return status === 200 && record(json).cancelled !== false;
+    return status === 200 && record(json).cancelled === true;
   } catch {
     return false;
   }

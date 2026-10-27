@@ -44,6 +44,8 @@ export type Pending = {
   turn?: string;
   /** The approval records the turn armed, logged as asks once its words went. */
   asks?: string[];
+  /** The ask line Tex showed for `asks` (`events.ts` `logAsk`). */
+  askText?: string;
   /** The reply is one of the Worker's own texts, logged as the system's with no turn (`inbox.ts` `sendReply`). */
   system?: true;
 };

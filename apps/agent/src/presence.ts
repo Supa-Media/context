@@ -32,6 +32,10 @@ export type Presence = {
   typing: () => Promise<void>;
   /** Stop renewing and cancel a tapback not yet sent; waits for any still in flight. */
   stop: () => Promise<void>;
+  /** The tapback, if it still goes, goes on `message`: the text decide chose to answer, not merely the first waiting. */
+  aim: (message: Message) => void;
+  /** Cancel the tapback not yet sent (decide's `react` already sent one); the bubble stays. */
+  dropTapback: () => void;
 };
 
 /**
@@ -51,19 +55,19 @@ export async function startPresence(line: Line, message: Message): Promise<Prese
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
-  // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
-  const messageId = message.tapback || !message.messageId ? undefined : message.messageId;
+  let target = message;
   let acknowledged: Promise<void> = Promise.resolve();
-  const acknowledge =
-    messageId === undefined
-      ? undefined
-      : setTimeout(() => {
-          // A tapback is a message of ours, which can clear the bubble; the task is still going.
-          acknowledged = line.acknowledge(message.chatId, messageId, ackEmoji(message.text)).then(typing);
-        }, ACKNOWLEDGE_AFTER_MS);
+  const acknowledge = setTimeout(() => {
+    // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
+    if (target.tapback || !target.messageId) return;
+    // A tapback is a message of ours, which can clear the bubble; the task is still going.
+    acknowledged = line.acknowledge(target.chatId, target.messageId, ackEmoji(target.text)).then(typing);
+  }, ACKNOWLEDGE_AFTER_MS);
   let stopped: Promise<void> | undefined;
   return {
     typing,
+    aim: (next) => void (target = next),
+    dropTapback: () => clearTimeout(acknowledge),
     stop: () =>
       (stopped ??= (async () => {
         clearTimeout(again);

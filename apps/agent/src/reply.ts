@@ -28,6 +28,7 @@
 
 import {
   askAgent,
+  askLine,
   linkPhone,
   openSession,
   requestLinkInvite,
@@ -95,8 +96,8 @@ export type ReplyDeps = {
   steer?: Steer;
   /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
   covers?: string[];
-  /** Handed the approval records the turn armed, so each is logged as an ask (`events.ts`). */
-  onAsks?: (askIds: string[]) => void;
+  /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
+  onAsks?: (askIds: string[], askText: string) => void;
   /**
    * The chat's background jobs, shown to the turn, and handed the ones it
    * started (`jobs.ts`). Absent, the turn is offered none.
@@ -243,7 +244,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (answer.kind === "answer") {
       deps.onAnswered?.();
       await deps.onToldDelivered?.();
-      if (answer.askIds) deps.onAsks?.(answer.askIds);
+      if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);

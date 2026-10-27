@@ -26,6 +26,13 @@
  *  9. `ask` in `groupTurn.ts` rendering without `people` → "decide never
  *     shows a newcomer…" fails.
  * 10. `isAsker` true for anyone → "a guest's yes never releases…" fails.
+ * 14. `acceptGroup` without the unbound check before logging mid-turn (W20)
+ *     → "an untagged message during a turn in a chat that is not bound…"
+ *     fails.
+ * 15. `acceptGroup` without its catch around `whileRunning` (W21) → "a
+ *     message seen mid-turn is never lost…" fails.
+ * 16. `askLine` returning "" (W19) → "an ask event carries the ask line…"
+ *     fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -344,6 +351,55 @@ for (const { name, groupId } of LINES) {
       expect(w.decided.length).toBe(before + 1);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex draft the email", "yes"]);
       expect(w.control.at(-1)).toMatchObject({ sender: ADA });
+    });
+
+    it("an ask event carries the ask line Tex showed (its verbatim part)", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { agent: () => ({ answer: "Here's the email I'd send. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."], askIds: ["rec_00000001"] }) });
+      await acceptGroup(storage, w.message("Tex draft the email to the venue"), 0);
+      await drainGroup(storage, w.deps);
+      const ask = (await keptEvents(storage, groupId)).find((event) => event.kind === "ask");
+      expect(ask).toMatchObject({ ask: "rec_00000001", text: "Give it a 👍 and I'll send it." });
+    });
+
+    it("an untagged message during a turn in a chat that is not bound is never logged, as when idle", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? silent() : answerAll(body)) });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      // Bound for Ada and Bo; with Cy in the chat these people are not the ones it is bound for.
+      expect(await acceptGroup(storage, w.message("lol nice", { from: BO, participants: [ADA, BO, CY, LINE] }), 10)).toBe("ignored");
+      w.release();
+      await draining;
+      expect((await keptEvents(storage, groupId)).map((event) => event.text)).not.toContain("lol nice");
+      expect(w.decided.filter((body) => body.running)).toEqual([]);
+    });
+
+    it("a message seen mid-turn is never lost when deciding it throws: it is queued and answered after", async () => {
+      // Throws on the read of the waiting asks, which mid-turn decide makes first, once armed.
+      class Failing extends MemoryStorage {
+        armed = false;
+        override async get<T>(key: string) {
+          if (this.armed && key === "ev-asks") {
+            this.armed = false;
+            throw new Error("storage down");
+          }
+          return super.get<T>(key);
+        }
+      }
+      const storage = new Failing();
+      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : answerAll(body)) });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      storage.armed = true;
+      expect(await acceptGroup(storage, w.message("Tex and a poster"), 10)).toBe("queued");
+      expect(storage.armed).toBe(false);
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "Tex and a poster"]);
     });
 
     it("a picture that could not be hosted is an event that never went", async () => {

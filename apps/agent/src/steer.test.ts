@@ -27,6 +27,10 @@
  *     restart the gateway could not do…" fails.
  * 12. `answering` not posting `/agent/stale` for a cancelled turn's askIds →
  *     "an answer that comes back for a turn cancelled here…" fails.
+ * 13. `cancelTurn` back to `cancelled !== false` (W22) → "a cancel answered
+ *     200 without `cancelled: true`…" fails.
+ * 14. `accept` without its catch around `decideWhileRunning` (W21) → "a
+ *     text whose mid-turn decide throws…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -205,6 +209,42 @@ describe("a text while a turn runs", () => {
     expect(pendingKeys(storage)).toEqual([]);
   });
 
+  it("a cancel answered 200 without `cancelled: true` is a queue: only a yes cancels (fail closed)", async () => {
+    for (const answer of [{}, { cancelled: "yes" }, { ok: true }]) {
+      const storage = new MemoryStorage();
+      const w = world({ midTurn: "restart" });
+      const odd = (async (url: string, init: RequestInit) =>
+        new URL(url).pathname === "/agent/cancel" ? Response.json(answer) : w.deps.fetch(url, init)) as unknown as Fetch;
+      await during({ ...w, deps: { ...w.deps, fetch: odd } }, storage, msg("e1", "book a table for 4"), msg("e2", "no wait, for 6"));
+      expect(w.sent).toEqual(["answer to book a table for 4", "answer to no wait, for 6"]);
+    }
+  });
+
+  it("a text whose mid-turn decide throws is still queued and answered after, never lost", async () => {
+    // Throws on the read of the waiting asks, which mid-turn decide makes first, once armed.
+    class Failing extends MemoryStorage {
+      armed = false;
+      override async get<T>(key: string) {
+        if (this.armed && key === "ev-asks") {
+          this.armed = false;
+          throw new Error("storage down");
+        }
+        return super.get<T>(key);
+      }
+    }
+    const storage = new Failing();
+    const w = world({ midTurn: "fold" });
+    await accept(storage, msg("e1", "book a table"), 1_000);
+    const draining = drain(storage, w.deps);
+    await w.running;
+    storage.armed = true;
+    expect(await accept(storage, msg("e2", "and a cab"), 1_100)).toBe("queued");
+    expect(storage.armed).toBe(false);
+    w.release();
+    await draining;
+    expect(w.sent).toEqual(["answer to book a table", "answer to and a cab"]);
+  });
+
   it("a cancel that fails outright is a queue too", async () => {
     const storage = new MemoryStorage();
     const w = world({ midTurn: "restart" });
@@ -286,7 +326,7 @@ describe("a text while a turn runs", () => {
 
   it("stale asks are disarmed at the gateway with the chat's own session, and never sent twice", async () => {
     const storage = new MemoryStorage();
-    await logAsk(storage, { at: 500, chat: "chat_1", from: { kind: "tex" }, turn: "turn_before" }, "approval_1", await sha256Hex("+15555550100"));
+    await logAsk(storage, { at: 500, chat: "chat_1", from: { kind: "tex" }, turn: "turn_before" }, "approval_1", await sha256Hex("+15555550100"), "Give it a 👍 and I'll send it.");
     const ask = "0000000000500-000001";
     const w = world({ stale: [ask, "0000000000600-000099"] });
     w.release();

@@ -646,3 +646,6 @@ export async function runRoutine(
   if (result.status === 429) return { ...failed, outcome: "daily_limit" };
   return failed;
 }
+
+/** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */
+export const askLine = (answer: { text: string; verbatim?: string[] }): string => answer.verbatim?.join("\n") || answer.text;

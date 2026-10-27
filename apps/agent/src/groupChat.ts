@@ -80,11 +80,16 @@ export async function eventPeople(storage: InboxStorage, message: GroupMessage):
   return seen?.webhook === webhook ? seen.full : webhook;
 }
 
+/** Whether `message` was said in front of the people the chat is bound for. */
+export async function isBound(storage: InboxStorage, message: GroupMessage): Promise<boolean> {
+  return (await storage.get<string>(BOUND_KEY)) === (await peopleKey(message));
+}
+
 /** Keep one untagged message, when the chat is bound. Whether it was kept. */
 export async function keepChatLine(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
   if (message.sms) return false;
+  if (!(await isBound(storage, message))) return false;
   const people = await peopleKey(message);
-  if ((await storage.get<string>(BOUND_KEY)) !== people) return false;
   const seq = ((await storage.get<number>(CHAT_SEQ)) ?? 0) + 1;
   await storage.put(CHAT_SEQ, seq);
   const files = message.attachments?.length ? { attachments: message.attachments } : {};

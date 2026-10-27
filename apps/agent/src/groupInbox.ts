@@ -44,7 +44,7 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
-import { askAgentStream, ServiceError, type AgentAnswer, type Fetch } from "./clients";
+import { askAgentStream, askLine, ServiceError, type AgentAnswer, type Fetch } from "./clients";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
@@ -64,7 +64,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
-import { chatBefore, dropChatLines, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -158,18 +158,22 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   // Never the model's: an SMS (anyone can fake its sender), the asker's yes, a style choice, a command.
   const byCode = message.sms === true || yes || engagement !== null || (addressed && groupCommand(message.text, choices) !== null);
   const running = runningTurn(storage, message.groupId);
-  if (!tagged && running === undefined) {
+  // Untagged and idle: kept as chat if bound, and to decide as the style says. `ev` given: it was logged already.
+  const idleUntagged = async (logged?: string): Promise<"kept" | "queued" | "ignored"> => {
     // Right after the sender's own waiting tag, it always goes to decide with it.
     const follows = await followsOwnTag(storage, message, now);
     // Kept as what the chat said only while it is bound; then the style says whether decide reads it too.
     const kept = await keepChatLine(storage, message, now);
     if (!kept && !follows) return "ignored";
     await storage.put(seen, now);
-    const ev = await logGroupInbound(storage, message, now);
+    const ev = logged ?? (await logGroupInbound(storage, message, now));
     const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     return kept ? "kept" : "queued";
-  }
+  };
+  if (!tagged && running === undefined) return await idleUntagged();
+  // Untagged in a chat that is not bound: never logged, mid-turn or not (it would be dropped idle).
+  if (!tagged && !(await isBound(storage, message)) && !(await followsOwnTag(storage, message, now))) return "ignored";
   // Nothing of an SMS group is logged: its sender vouches for nothing.
   const ev = message.sms ? undefined : await logGroupInbound(storage, message, now);
   const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}) };
@@ -177,9 +181,15 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   if (running !== undefined && ev !== undefined && !byCode) {
     // Seen before decide is asked: a webhook redelivered while decide is slow is a duplicate, never decided twice.
     await storage.put(seen, now);
-    const how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
-      groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
-    );
+    let how: Awaited<ReturnType<typeof whileRunning>>;
+    try {
+      how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
+        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
+      );
+    } catch {
+      // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
+      return tagged ? await enqueue(storage, message, extra, repliesToTex, seen, now) : await idleUntagged(ev);
+    }
     if (how === "folded") {
       await storage.put(seen, now);
       return "queued";
@@ -558,7 +568,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
-  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho);
+  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
   await texSpoke(storage);
   log("answered");
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).

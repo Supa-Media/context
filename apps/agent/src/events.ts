@@ -68,10 +68,13 @@ export function kindOf(text: string, attachments: readonly { filename: string; m
 }
 
 /** Append one event; its id, which sorts by time. */
-/** A display name as the gateway takes one: letters, digits and ` ._-'@`, at most 64; none when nothing is left. */
+/** Names decide's transcript already uses for its own speakers: someone named one could pass as Tex, the system or the person. */
+const RESERVED_NAMES = new Set(["you", "tex", "context", "system", "them"]);
+
+/** A display name as the gateway takes one: letters, digits and ` ._-'@`, at most 64; none when nothing is left or it is reserved. */
 export function displayName(name: string | undefined): string | undefined {
   const kept = (name ?? "").replace(/[^\p{L}\p{N} ._\-'@]/gu, "").trim().slice(0, 64);
-  return kept === "" ? undefined : kept;
+  return kept === "" || RESERVED_NAMES.has(kept.toLowerCase()) ? undefined : kept;
 }
 
 export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id">): Promise<string> {
@@ -193,9 +196,9 @@ type Ask = { id: string; record: string; at: number; who: string };
 /** A record owed to the gateway to disarm, and whose ask it is: only that person's session disarms it. */
 type Owed = { record: string; who: string };
 
-/** Log one ask Tex sent (`kind: "ask"`) to the person hashed `who`, and keep it waiting for their yes. */
-export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string, who: string): Promise<void> {
-  const id = await addEvent(storage, { ...event, kind: "ask", ask: record });
+/** Log one ask Tex sent (`kind: "ask"`) to the person hashed `who`, with the ask line it showed (`text`), and keep it waiting for their yes. */
+export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string, who: string, text: string): Promise<void> {
+  const id = await addEvent(storage, { ...event, kind: "ask", ask: record, text: oneLine(text).slice(0, MAX_EVENT_TEXT) });
   const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => event.at - ask.at < ASK_ARMED_MS);
   await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at, who }].slice(-MOST_ASKS));
 }
