@@ -653,3 +653,37 @@ describe("adding everyone here (invited family)", () => {
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notOwner("crystal-care")]);
   });
 });
+
+describe("a mailbox shared with the chat (chat-mail.md)", () => {
+  it("reads sharing and unsharing a mailbox, narrowed by a search or not", () => {
+    expect(groupCommand("Tex, share my mail from Me@Work.example here")).toEqual({ kind: "share_mail", address: "me@work.example" });
+    expect(groupCommand("Tex share my work inbox me@work.example matching to:clients@work.example")).toEqual({ kind: "share_mail", address: "me@work.example", query: "to:clients@work.example" });
+    expect(groupCommand("Tex, stop sharing my mail")).toEqual({ kind: "unshare_mail" });
+    expect(groupCommand("Tex unshare my email me@work.example here")).toEqual({ kind: "unshare_mail", address: "me@work.example" });
+    expect(groupCommand("Tex share the photos from saturday")).toBeNull();
+    expect(addressesTex("Tex share my mail from me@work.example here", false)).toBe(true);
+  });
+
+  it("asks the control plane with the command and answers its verdict with no model", async () => {
+    const lines = [];
+    for (const control of [{ status: "mail_shared", address: "me@work.example", narrowed: true }, { status: "mail_unshared", count: 1 }, { status: "mail_refused" }]) {
+      const storage = new MemoryStorage();
+      const w = world();
+      await acceptGroup(storage, message("Tex, share my mail from me@work.example here"), 0);
+      await drainGroup(storage, deps(w, { control }));
+      expect(w.control[0]?.command).toEqual({ kind: "share_mail", address: "me@work.example" });
+      expect(w.asks).toEqual([]);
+      lines.push(...w.sends.map((sent) => sent.content));
+    }
+    expect(lines).toEqual([GROUP_LINES.mailShared("me@work.example", true), GROUP_LINES.mailUnshared(1), GROUP_LINES.mailRefused]);
+  });
+
+  it("names the shared mailboxes to the turn, dropping any malformed entry", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex what came in today?"), 0);
+    const ready = { status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
+    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
+    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
+  });
+});

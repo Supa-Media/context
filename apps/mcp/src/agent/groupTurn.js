@@ -37,6 +37,7 @@ import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, share
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
+import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
@@ -103,7 +104,8 @@ export function groupOf(body, session = null) {
   if (group === null || typeof group !== "object" || Array.isArray(group)) return null;
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
-  const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat) };
+  const mail = chatMailOf(group.mail);
+  const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat), ...(mail.length > 0 ? { mail } : {}) };
   if (!isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
   return { ...kept, guestChat: true, guest: guestInfoOf(group.guest), guestTagger: from === "" };
 }
@@ -318,8 +320,7 @@ export function groupPrompt(group, workspace) {
     `\n\nTHIS IS AN IMESSAGE GROUP CHAT. ${who}, and everyone in the chat reads your answer. ` +
     (group.guestTagger ? INVITED_TAGGER_LINE : "") +
     `You can read only ${where}, the shared workspace every person here is a member of, and only what its whole team can see. ` +
-    "Nobody's personal notes, mail, calendar or saved logins can be read from here, so never offer them; " +
-    "say the person can text you on their own for that. " +
+    chatMailPrompt(group) +
     "You can do anything with notes there that you can in a text, by the role of whoever tagged you; never say you can't change a note from here. " +
     "Never write into a form's responses note (the gateway writes those) or a note that says it is generated. " +
     "You can add, edit, move or cancel one event on someone's own calendar, or answer an invite, or send one email from someone's own Gmail. " +
@@ -380,7 +381,7 @@ export function groupWriteTools(offered, group = null) {
   const text = textingWriteTools(offered, { texting: true }).filter(
     (tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name) && !SOMEBODYS_ALONE.has(tool.name) && (!group?.guestChat || GUEST_NOTE_TOOLS.includes(tool.name)),
   );
-  return [...text, ...groupOwnAccountTools(toolDefinitions())];
+  return [...text, ...groupOwnAccountTools(toolDefinitions()), ...chatMailTools(offered, group)];
 }
 
 /**

@@ -11,8 +11,9 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, type MutationCtx } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
+import { chatMailClearance } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -27,6 +28,10 @@ const mailbox = v.object({
   syncedFrom: v.number(),
   /** The last pass that read mail; newer mail may not be in the notes yet. */
   syncedThrough: v.optional(v.number()),
+  /** A mailbox shared with a group chat: the Gmail search every read of it is narrowed by (`lib/textGroupMail.ts`). */
+  filter: v.optional(v.string()),
+  /** A mailbox shared with a group chat: read whole, never through the chat's notes. */
+  shared: v.optional(v.literal(true)),
 });
 
 /** A mailbox's address and the folder its synced day notes are in. */
@@ -52,7 +57,7 @@ export const claimPersonMailRead = internalMutation({
   ),
   handler: async (ctx, args) => {
     const cleared = await personalOwnerReadClearance(ctx, args);
-    if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
+    if (cleared === null) return await chatMailRead(ctx, args);
     const { workspace, userId } = cleared;
 
     const connections = await ctx.db
@@ -100,3 +105,39 @@ export const claimPersonMailRead = internalMutation({
     return { ok: true as const, mailboxes, reconnect };
   },
 });
+
+/**
+ * A group chat's read of the mailboxes shared with it (`lib/textGroupMail.ts`):
+ * each narrowed by its share's search, each against its own person's hourly
+ * reads. Not one, and the answer is the same as for any connection that may
+ * read nobody's mail.
+ */
+async function chatMailRead(
+  ctx: MutationCtx,
+  args: { hashedAccessToken: string; expectedWorkspaceId: string; address: string | null },
+) {
+  const shares = await chatMailClearance(ctx, args);
+  const wanted = (shares ?? []).filter(({ share }) => args.address === null || share.address === args.address);
+  if (wanted.length === 0) return { ok: false as const, refused: "not_allowed" as const };
+  const usable = wanted.filter(({ connection }) => connection.health !== "reconnect_required");
+  const reconnect = wanted
+    .filter(({ connection }) => connection.health === "reconnect_required")
+    .map(({ share }) => ({ address: share.address, folder: CHAT_MAIL_FOLDER }));
+  if (usable.length === 0) return { ok: false as const, refused: "reconnect_required" as const, reconnect };
+  for (const userId of new Set(usable.map(({ share }) => share.userId))) {
+    const room = await tryConsumeRateLimit(ctx, { key: `person.mail.read:${userId}`, limit: PERSON_MAIL_READS_PER_HOUR, windowMs: 60 * 60 * 1000 });
+    if (!room) return { ok: false as const, refused: "rate_limited" as const, mailboxes: [], reconnect };
+  }
+  const mailboxes = usable.map(({ share, connection }) => ({
+    connectionId: connection._id,
+    address: share.address,
+    folder: CHAT_MAIL_FOLDER,
+    syncedFrom: connection.createdAt,
+    ...(share.query !== undefined ? { filter: share.query } : {}),
+    shared: true as const,
+  }));
+  return { ok: true as const, mailboxes, reconnect };
+}
+
+/** No chat keeps a shared mailbox's mail in notes: its stand-in folder holds none. */
+const CHAT_MAIL_FOLDER = "tex/groups/mail";

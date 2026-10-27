@@ -46,4 +46,23 @@ export const textGroupTables = {
   })
     .index("by_key", ["groupKey"])
     .index("by_workspace", ["workspaceId"]),
+  /**
+   * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
+   * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):
+   * the chat's turns may search and open that Gmail, narrowed by `query`, while
+   * the chat is bound to `workspaceId` and the sharer still writes there. The
+   * address is the sharer's own; no message is ever kept here.
+   */
+  chatMailShares: defineTable({
+    groupKey: v.string(),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    /** Lower-cased: one of the sharer's own connected Gmail addresses. */
+    address: v.string(),
+    /** A Gmail search every read is narrowed by, or none for the whole mailbox. */
+    query: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_group", ["groupKey"])
+    .index("by_user", ["userId"]),
 };

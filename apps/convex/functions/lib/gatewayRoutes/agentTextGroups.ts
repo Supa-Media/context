@@ -22,13 +22,16 @@ type Command =
   | { kind: "stop" }
   | { kind: "start" }
   | { kind: "use"; slug: string }
-  | { kind: "invite"; slug: string; role?: "editor" | "member" };
+  | { kind: "invite"; slug: string; role?: "editor" | "member" }
+  | { kind: "share_mail"; address: string; query?: string }
+  | { kind: "unshare_mail"; address?: string };
 
 function readCommand(value: unknown): Command | null | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const kind = (value as { kind?: unknown }).kind;
   if (kind === "stop" || kind === "start") return { kind };
+  if (kind === "share_mail" || kind === "unshare_mail") return readMailCommand(kind, value as Record<string, unknown>);
   const slug = (value as { slug?: unknown }).slug;
   if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;
   if (kind === "use") return { kind, slug };
@@ -38,6 +41,17 @@ function readCommand(value: unknown): Command | null | undefined {
     return role === "editor" || role === "member" ? { kind, slug, role } : null;
   }
   return null;
+}
+
+/** A mailbox shared with the chat, or no longer (`lib/textGroupMail.ts`). Bounds only; the mutation decides. */
+function readMailCommand(kind: "share_mail" | "unshare_mail", value: Record<string, unknown>): Command | null {
+  const address = value.address;
+  const query = value.query;
+  if (address !== undefined && (typeof address !== "string" || address.length === 0 || address.length > 254)) return null;
+  if (query !== undefined && (typeof query !== "string" || query.length > 300)) return null;
+  if (kind === "unshare_mail") return address === undefined ? { kind } : { kind, address };
+  if (address === undefined) return null;
+  return query === undefined ? { kind, address } : { kind, address, query };
 }
 
 export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
