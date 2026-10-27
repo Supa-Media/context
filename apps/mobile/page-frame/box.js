@@ -18,6 +18,29 @@
 
 const CHANNEL = "context-page-box";
 
+/**
+ * The box draws only where the runtime puts it: an `<iframe sandbox="allow-scripts">`
+ * with no `allow-same-origin`, whose origin is opaque and reads as "null".
+ *
+ * It runs the HTML its parent hands it, scripts and all, and it cannot check
+ * who that parent is — across an opaque origin there is no origin to compare.
+ * That is safe only while the box is opaque itself. This file is served with
+ * no framing header, because neither `X-Frame-Options` nor `frame-ancestors`
+ * can match an opaque ancestor and both would blank every box
+ * (`infra/router/src/securityHeaders.ts`), so any page may frame it — and one
+ * that leaves the sandbox off would get a real document of the site this file
+ * came from, still talking to a parent the box cannot check. So when the box
+ * can see a real origin of its own, it is not where it belongs: it draws
+ * nothing and says nothing.
+ */
+const SEALED = (() => {
+  try {
+    return typeof window.origin !== "string" || window.origin === "null" || window.origin === "";
+  } catch {
+    return true;
+  }
+})();
+
 function fromParent(event) {
   return event.source === window.parent && event.data && event.data.channel === CHANNEL;
 }
@@ -29,7 +52,7 @@ function tell(message) {
 let drawn = false;
 
 window.addEventListener("message", (event) => {
-  if (!fromParent(event) || event.data.type !== "box" || drawn) return;
+  if (!SEALED || !fromParent(event) || event.data.type !== "box" || drawn) return;
   drawn = true;
   const data = JSON.parse(JSON.stringify(event.data.page ?? {}));
   Object.defineProperty(window, "page", { value: deepFreeze(data), writable: false, configurable: false });
@@ -64,6 +87,7 @@ function report() {
   last = height;
   tell({ type: "height", height });
 }
-new ResizeObserver(report).observe(document.documentElement);
-
-tell({ type: "ready" });
+if (SEALED) {
+  new ResizeObserver(report).observe(document.documentElement);
+  tell({ type: "ready" });
+}

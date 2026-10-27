@@ -230,6 +230,7 @@ test/keyedCollabRename.test.mjs
 test/agentStopsShort.test.mjs
 test/relatedNotes.test.mjs
 test/housekeepingByName.test.mjs
+test/agentCheckInPromise.test.mjs
 test/agentCheckout.test.mjs
 test/messagesBackup.test.mjs
 test/messagesBackupFiles.test.mjs
@@ -250,3 +251,4 @@ test/agentPublishedText.test.mjs
 test/agentHandoffGate.test.mjs
 test/pages.test.mjs
 test/pagesFormat.test.mjs
+test/agentConfession.test.mjs

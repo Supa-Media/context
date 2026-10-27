@@ -738,6 +738,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A group chat checks in on its own, like a person's Tex (2026-10-27)](./texting-assistant/chat-mail.md#the-chat-checks-in-on-its-own)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
+- [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does

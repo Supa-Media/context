@@ -141,7 +141,9 @@ export async function toolListChanges(store, scope, rules, overrides, limitArg, 
   const lines = visible.map((entry) => {
     const pathText = entry.paths.join(" → ");
     const count = entry.details?.count ? ` (${entry.details.count} objects)` : "";
-    return { at: entry.at, text: `${entry.at} — ${entry.action}${count} — ${pathText}` };
+    // Its own writes named as such: a texted "your last edit was 10:03" was Tex's own save (2026-10-27).
+    const mine = entry.actor_client_id != null && entry.actor_client_id === store.actor?.clientId ? " (by you, this assistant)" : "";
+    return { at: entry.at, text: `${entry.at} — ${entry.action}${count}${mine} — ${pathText}` };
   });
   // Without reads, exactly the audit's own newest-first order, as before.
   const merged = (reads ? [...lines, ...readLines.lines].sort((a, b) => String(b.at).localeCompare(String(a.at))) : lines)
