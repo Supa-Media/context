@@ -596,3 +596,21 @@ export const textsTimeZone = internalQuery({
     return effectiveTimeZone(undefined, link === null ? null : await accountTimeZone(ctx, link.userId));
   },
 });
+
+/**
+ * The workspace a 1:1 text's decision is metered against: the sender's personal workspace, resolved as
+ * `applyTextsGrant` resolves it (a phone linked by code, texting not paused). Null when they would get no session.
+ */
+export const textsDecideWorkspace = internalQuery({
+  args: { phone: v.string() },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, args) => {
+    if (!isPhoneNumber(args.phone)) return null;
+    const link = await ctx.db
+      .query("phoneLinks")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .first();
+    if (link === null || (await phoneSignInPaused(ctx, link.userId))) return null;
+    return await personalWorkspaceOf(ctx, link.userId);
+  },
+});
