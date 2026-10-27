@@ -149,7 +149,7 @@
  */
 
 import { layout } from "../design/tokens";
-export { densityFor, pageInDesktopShell, type Density } from "./density";
+export { densityFor, pageInDesktopShell, pageOnComputer, type Density } from "./density";
 import type { Density } from "./density";
 
 /**

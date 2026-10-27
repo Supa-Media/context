@@ -451,7 +451,7 @@ export const listProjectStyles = `/*
   so a title keeps the room, the menu's rows are a thumb's height, and a
   board is columns a thumb swipes through, one and a bit at a time.
 */
-@media (max-width: 879.98px) {
+@media (max-width: 879.98px) and (pointer: coarse) {
   .cm-lp-list-sub { padding-left: 32px; }
   .cm-lp-list-progress-bar { display: none; }
   .cm-lp-list-twisty { width: 28px; height: 28px; margin: 0 -10px 0 -9px; }

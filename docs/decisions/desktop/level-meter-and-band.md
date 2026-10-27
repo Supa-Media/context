@@ -378,3 +378,18 @@ media queries still change type at that width; with the shell's floor in place
 they are never reached, and on an old build before it updates they cost phone
 typography in the note, not the phone layout. `shellTitleBand.test.ts` fails if
 the shell stops counting or a planted, unfrozen `desktop` global starts to.
+
+**And then every computer, not just the Mac app.** On 2026-10-27 Dev2 saw the
+phone layout in a narrow browser tab on context.lc: "why web version
+transforming into mobile UI?" The phone layout is for a hand holding a touch
+screen, not for a narrow window, so `compact` now needs both a width under
+`layout.narrowBreakpoint` and a page that is not on a computer.
+`pageOnComputer()` in `apps/mobile/features/app/density.ts` is the Mac app's
+bridge or a main pointer that hovers and is fine (`(hover: hover) and
+(pointer: fine)`, a mouse or trackpad). A phone, a tablet in the hand, the
+native app (no `matchMedia`) and jsdom keep the width rule. The editor's
+phone CSS asks the same with `and (pointer: coarse)`, which also retires the
+caveat above about phone typography on an old Mac build. A narrow computer
+window is `medium`; the explorer can be folded with the sidebar button.
+`densityOnComputer.test.ts` fails if a fine pointer is ignored or the first
+browser's answer is cached forever.
