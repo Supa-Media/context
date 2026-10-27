@@ -560,7 +560,7 @@ test("a calendar day in the repo's bench is served as Google's answer, never pla
   assert.ok(!Object.keys(maya.files).some((path) => path.includes("calendar/")), "no calendar day is a note");
   assert.ok(maya.calendar.some((day) => day.date === "2026-10-09" && day.address === "maya@example.invalid"));
   assert.deepEqual(expandWorkspaces(bench).workspaces.maya.calendar, maya.calendar);
-  const { calendarAnswer } = await import("../world.mjs");
+  const { calendarAnswer } = await import("../calendar.mjs");
   const answer = calendarAnswer(maya.calendar)({ date: "2026-10-09", days: 2 });
   assert.equal(answer.ok, true);
   assert.deepEqual([...new Set(answer.days.map((day) => day.date))].sort(), ["2026-10-09", "2026-10-10"]);
@@ -578,4 +578,14 @@ test("an email in the repo's bench stays in her Gmail once fluff is written out,
   assert.ok(maya.mail.some((email) => email.id === "19a3c0servingrq"), "the serving request is in her Gmail");
   assert.ok(!Object.keys(maya.files).some((path) => path.includes("gmail/")), "no email is a note");
   assert.deepEqual(expandWorkspaces(bench).workspaces.maya.mail, maya.mail);
+});
+
+test("a calendar with guests may be changed, and its moves tell the guests", async () => {
+  const { calendarWrites } = await import("../calendar.mjs");
+  const bench = await readBenchFolder(new URL("../ai", import.meta.url).pathname);
+  assert.deepEqual(calendarWrites(bench.workspaces.maya.calendar), {
+    calendarAddress: "maya@example.invalid",
+    calendarGuests: ["austin@example.invalid", "sarah@example.invalid"],
+  });
+  assert.deepEqual(calendarWrites([{ date: "2026-10-08", address: "a@example.invalid", text: "### 07:00 · Pilates" }]), {}, "no guests, no calendar to change");
 });

@@ -36,6 +36,7 @@ import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+import { calendarAnswer, calendarWrites } from "./calendar.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
 const BRAVE_SEARCH = "https://api.search.brave.com/";
@@ -190,16 +191,6 @@ export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null
   return ids;
 }
 
-/** The live calendar route's answer, from the calendar days a workspace's fixture holds. */
-export function calendarAnswer(days) {
-  if (days.length === 0) return null;
-  return ({ date, days: count = 1 }) => {
-    const start = Date.parse(`${date}T00:00:00Z`);
-    const wanted = Array.from({ length: count }, (_, i) => new Date(start + i * 86_400_000).toISOString().slice(0, 10));
-    return { ok: true, days: days.filter((day) => wanted.includes(day.date)).map(({ date: on, address, text }) => ({ address, date: on, text })) };
-  };
-}
-
 /**
  * Build the world for one person.
  *
@@ -232,6 +223,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   controlPlane.flags.calendarDays = calendarAnswer(bench.workspaces[own.workspace]?.calendar ?? []);
+  Object.assign(controlPlane.flags, calendarWrites(bench.workspaces[own.workspace]?.calendar ?? []));
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each
