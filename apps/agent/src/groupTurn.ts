@@ -12,7 +12,7 @@
 
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
-import { decide, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
+import { decide, IDLE_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
@@ -88,8 +88,10 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       waitingAsks: await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
     },
-    running ? RUNNING_DECIDE_MS : undefined,
+    running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
   );
+  // Codes only: the act, or why decide could not answer.
+  console.log(JSON.stringify({ event: "group_decide", outcome: decision.ok ? decision.act : decision.reason, ...(running ? { kind: "running" } : {}) }));
   if (decision.ok) {
     await markStale(storage, decision.stale);
     if (decision.movedOn) await movedOn(storage);
@@ -118,14 +120,17 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
  * always answered, with what joined it: code's floor, whatever decide says
  * (Dev2's review, 2026-10-27). Decide chooses only whether untagged messages
  * are answered, and which of them an answer covers. Decide down: the oldest
- * addressed one with what joined it, and untagged ones become chat lines,
- * as before decide.
+ * addressed one with what joined it; with none, an untagged question that
+ * reached decide (its style reads it) is answered, so a follow-up is never
+ * dropped silently; other untagged ones become chat lines.
  */
 export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) {
     const first = burst.findIndex((entry) => !soft(entry));
+    const question = burst.map((entry) => entry[1].message.text.trim().endsWith("?")).lastIndexOf(true);
+    if (first === -1 && question !== -1) return { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
     return first === -1 ? { answer: [], chat: burst, drop: [] } : { answer: withJoins(burst, burst[first]), chat: burst.slice(0, first), drop: [] };
   }
   const floor = new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)));
