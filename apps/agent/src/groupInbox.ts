@@ -66,21 +66,10 @@ import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { addEvent, flushChat, kindOf, logAsk, type Conversation } from "./events";
-import { setEngagement, type GroupStyle } from "./decide";
 import { runningTurn, startTurn } from "./steer";
-import { chooseGroupTurn, keepNames, logGroupInbound, mergedGroup, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
-import {
-  closeQuestion,
-  ENGAGEMENT_QUESTION,
-  engagementChoice,
-  engagementSet,
-  groupStyle,
-  keepStyle,
-  openQuestion,
-  questionOpen,
-  reachesDecide,
-  texSpoke,
-} from "./groupStyle";
+import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseStyle } from "./groupChoose";
+import { ENGAGEMENT_QUESTION, engagementChoice, groupStyle, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -145,7 +134,6 @@ type OpenAsk = { from: string; at: number };
 /** Words that only answer a yes Tex asked for: a yes, a no, or "send it" (`apps/mcp/src/agent/textedApprovals.js` decides what they settle). A bare "ok" stays chat: it is not a yes to a send there, and would only disarm the ask. */
 const ANSWERS_ASK =
   /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
-const pendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -441,32 +429,6 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
   await pruneSeen(storage, deps.now());
 }
 
-/**
- * A group turn runs on one person's grant: the control plane resolves it for
- * whoever the message is from. So one turn answers one sender's messages. Of
- * what decide covered, the first message's sender is the asker; somebody
- * else's untagged line is only what the chat said around it (it is one of
- * the chat's lines already), and somebody else's request waits to be
- * answered as their own turn, on their own grant.
- */
-async function ownTurn(storage: InboxStorage, covered: GroupEntry[]): Promise<GroupEntry[]> {
-  const asker = covered[0]?.[1].message.from;
-  const own: GroupEntry[] = [];
-  let until = 0;
-  for (const entry of covered) {
-    const [key, item] = entry;
-    if (item.message.from === asker) own.push(entry);
-    else if (item.soft && !item.force) {
-      // Somebody else's line decide covered is context: the turn reads the chat up to it.
-      until = Math.max(until, item.at ?? 0);
-      await storage.delete(key);
-    } else await storage.put<Pending>(key, { ...item, force: true });
-  }
-  return own.map(([key, item], index) => (index === own.length - 1 ? [key, { ...item, contextUntil: until }] : [key, item]));
-}
-
-const coversOf = (entries: GroupEntry[]): string[] => [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))];
-
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
 async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
   const item = entries.at(-1)![1];
@@ -540,20 +502,6 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
   return outcome;
-}
-
-/** A member chose the style: saved for the group, confirmed with who set it, then the message the question held is answered. */
-async function chooseStyle(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, style: GroupStyle, asked: Extract<ControlAnswer, { status: "ready" }>): Promise<void> {
-  const setBy = asked.handle ?? asked.guests?.find((entry) => entry.phone === message.from)?.label ?? "someone here";
-  if (!(await setEngagement(deps, message.line, message.groupId, style, setBy))) throw new ServiceError("control_plane", null);
-  await keepStyle(storage, style, true);
-  await say(storage, deps, message, engagementSet(style, setBy), { system: true });
-  const held = await closeQuestion<Pending>(storage);
-  if (held === undefined) return;
-  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
-  await storage.put("gseq", seq);
-  await storage.put<Pending>(pendingKey(seq), { ...held, attempts: 0, byCode: true, styleAsked: true });
-  await storage.setAlarm(deps.now());
 }
 
 type TurnInput = {

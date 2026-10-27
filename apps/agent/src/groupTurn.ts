@@ -43,6 +43,7 @@ export type GroupPending = {
   contextUntil?: number;
 };
 export type GroupEntry = [string, GroupPending];
+export const groupPendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
 /** Handles by the hash of a phone, as the control plane last named them, never a number: so events can say who spoke. */
 const NAMES_KEY = "gnames";
@@ -183,3 +184,30 @@ export async function whileRunning(
   if (decision.act === "react") await react();
   return "chat";
 }
+
+/**
+ * A group turn runs on one person's grant: the control plane resolves it for
+ * whoever the message is from. So one turn answers one sender's messages. Of
+ * what decide covered, the first message's sender is the asker; somebody
+ * else's untagged line is only what the chat said around it (it is one of
+ * the chat's lines already), and somebody else's request waits to be
+ * answered as their own turn, on their own grant.
+ */
+export async function ownTurn(storage: InboxStorage, covered: GroupEntry[]): Promise<GroupEntry[]> {
+  const asker = covered[0]?.[1].message.from;
+  const own: GroupEntry[] = [];
+  let until = 0;
+  for (const entry of covered) {
+    const [key, item] = entry;
+    if (item.message.from === asker) own.push(entry);
+    else if (item.soft && !item.force) {
+      // Somebody else's line decide covered is context: the turn reads the chat up to it.
+      until = Math.max(until, item.at ?? 0);
+      await storage.delete(key);
+    } else await storage.put<GroupPending>(key, { ...item, force: true });
+  }
+  return own.map(([key, item], index) => (index === own.length - 1 ? [key, { ...item, contextUntil: until }] : [key, item]));
+}
+
+export const coversOf = (entries: GroupEntry[]): string[] => [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))];
+
