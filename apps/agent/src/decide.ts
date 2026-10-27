@@ -105,14 +105,16 @@ export async function staleAsks(deps: { fetch: Fetch; gatewayOrigin: string }, a
 }
 
 /** `POST /agent-texts/group/engagement`: a member chose when Tex speaks up in this group. Whether it was saved. */
-export async function setEngagement(deps: ControlDeps, groupId: string, style: GroupStyle, setBy: string): Promise<boolean> {
+/** `setBy`: the chooser's handle or guest label, shown back as "set by <handle>"; never a number. */
+export async function setEngagement(deps: ControlDeps, line: string, groupId: string, style: GroupStyle, setBy: string): Promise<boolean> {
   try {
     const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group/engagement`, deps.workerSecret, {
+      line,
       groupId,
       style,
       setBy,
     });
-    return status === 200 && record(json).ok !== false;
+    return status === 200 && record(json).ok === true;
   } catch {
     return false;
   }

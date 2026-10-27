@@ -233,7 +233,8 @@ export type AgentAnswer =
   | { kind: "not_started" }
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
-  | { kind: "unavailable" };
+  /** `timedOut`: a streamed turn that ran past its time, not one that failed. */
+  | { kind: "unavailable"; timedOut?: true };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -395,11 +396,16 @@ export async function askAgentStream(
   onStep?: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
-  const overall = setTimeout(() => abort.abort(), AGENT_STREAM_TIMEOUT_MS);
+  let timedOut = false;
+  const expire = () => {
+    timedOut = true;
+    abort.abort();
+  };
+  const overall = setTimeout(expire, AGENT_STREAM_TIMEOUT_MS);
   let idle: ReturnType<typeof setTimeout> | undefined;
   const touch = () => {
     clearTimeout(idle);
-    idle = setTimeout(() => abort.abort(), AGENT_STREAM_IDLE_MS);
+    idle = setTimeout(expire, AGENT_STREAM_IDLE_MS);
   };
   try {
     touch();
@@ -458,7 +464,7 @@ export async function askAgentStream(
     // The stream ended with no final line: the turn died on the way.
     return { kind: "unavailable" };
   } catch {
-    return { kind: "unavailable" };
+    return timedOut ? { kind: "unavailable", timedOut: true } : { kind: "unavailable" };
   } finally {
     clearTimeout(overall);
     clearTimeout(idle);

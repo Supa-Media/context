@@ -35,6 +35,10 @@ export type GroupPending = {
   force?: true;
   byCode?: true;
   engagement?: GroupStyle;
+  /** On a turn kept for a retry: the events it answers besides its own. */
+  covers?: string[];
+  /** The message the style question held: never asked about again. */
+  styleAsked?: true;
 };
 export type GroupEntry = [string, GroupPending];
 
@@ -150,7 +154,11 @@ export async function whileRunning(
   if (!decision.ok) return tagged ? "after" : "chat";
   const how = decision.midTurn ?? (decision.act === "answer" ? "queue" : undefined);
   if (how === "fold") {
-    if (await steerInto(running, message, message.text.trim() || PICTURE_LINE)) return "folded";
+    if (await steerInto(running, message, message.text.trim() || PICTURE_LINE)) {
+      // Taken into the running turn: its answer covers this one too.
+      running.covers.push(ev);
+      return "folded";
+    }
     return tagged ? "after" : "chat";
   }
   if (how === "restart") {

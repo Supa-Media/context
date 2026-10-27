@@ -39,8 +39,8 @@ export type TexEvent = {
   ask?: string;
 };
 
-/** Where the gateway files a chat's events: the person's own texts, or a group's chat. */
-export type Conversation = "texts" | { group: { key: string; members: string } };
+/** Where the gateway files a chat's events: the person's own texts, or a group's chat by its chat key (the group id). */
+export type Conversation = "texts" | { group: string };
 
 type Kept = { e: TexEvent; w?: true };
 

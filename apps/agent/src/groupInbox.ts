@@ -5,13 +5,15 @@
  * traffic never touches a person's own 1:1 object
  * (docs/decisions/texting-assistant/groups.md).
  *
- * Tex stays quiet in a group until it is addressed: its name opening or
- * closing the message, its name in a question, or an inline reply to one of
- * Tex's own texts in this group. An untagged message is never answered; while
- * the chat is bound it is kept until the next tag hands it over as what the
- * chat said (`groupChat.ts`). Tagged ones are answered one at a time, in
- * order, with no steering and no folding: two people's texts are two
- * questions.
+ * Tex answers in a group when it is addressed: its name opening or closing
+ * the message, its name in a question, or an inline reply to one of Tex's
+ * own texts in this group. Which untagged messages decide also reads is the
+ * group's style (`groupStyle.ts`); which waiting messages one turn answers,
+ * and what a message during a running turn does, is decide's
+ * (`groupTurn.ts`, Dev2, 2026-10-26, reversing "two people's texts are two
+ * questions"). Decide down, only addressed messages are answered, one at a
+ * time, as before. While the chat is bound, every untagged message is kept
+ * until the next turn hands it over as what the chat said (`groupChat.ts`).
  *
  * Every tagged message is resolved again by the control plane
  * (`/agent-texts/group`): who is in the chat (Sendblue's webhook list and
@@ -34,17 +36,23 @@
  *   inline reply to one wakes it.
  * - `gchat:<seq>` what the chat said since Tex last answered, with text,
  *   only while it is bound (`groupChat.ts`).
+ * - `ev:<id>` the chat's recent events, with text, buffered until the
+ *   gateway writes them to the bound workspace's log (`events.ts`); an
+ *   untagged message of a chat that is not bound is never one.
+ * - `gstyle`, `gfollow`, `gengask` the group's style (`groupStyle.ts`); the
+ *   last holds, for half an hour, the one message the style question held.
+ * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
-import { askAgentStream, ServiceError, type Fetch } from "./clients";
+import { askAgentStream, ServiceError, type AgentAnswer, type Fetch } from "./clients";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
-import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
+import { MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
-import { MAX_INBOUND_ATTACHMENTS, type InboundAttachment } from "./inbound";
+import type { InboundAttachment } from "./inbound";
 import { textsWithExact } from "./format";
 import { tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
@@ -52,11 +60,27 @@ import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
-import { groupLineFor, type GroupPlace } from "./groupLine";
+import { groupLineFor } from "./groupLine";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { addEvent, flushChat, kindOf, logAsk, type Conversation } from "./events";
+import { setEngagement, type GroupStyle } from "./decide";
+import { runningTurn, startTurn } from "./steer";
+import { chooseGroupTurn, keepNames, logGroupInbound, mergedGroup, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import {
+  closeQuestion,
+  ENGAGEMENT_QUESTION,
+  engagementChoice,
+  engagementSet,
+  groupStyle,
+  keepStyle,
+  openQuestion,
+  questionOpen,
+  reachesDecide,
+  texSpoke,
+} from "./groupStyle";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -89,15 +113,12 @@ export type Command =
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "status" }
   | { kind: "settings" };
-/** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
-type Pending = { message: GroupMessage; attempts: number; at?: number };
+type Pending = GroupPending;
 
 const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING = 10;
-const MAX_SENT = 30;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
-const SENT_KEY = "gsent";
 /** The workspace names Tex last asked this chat to pick from, never text: a bare "supa" then answers it. */
 const CHOICE_KEY = "gchoice";
 const CHOICE_FOR_MS = 24 * 60 * 60 * 1000;
@@ -217,25 +238,57 @@ export function offeredName(text: string, choices: readonly string[]): string | 
 export { peopleOf };
 
 /**
- * Accept a group message: answered later by the alarm when it is meant for
- * Tex; otherwise kept as what the chat said while the chat is bound, and
- * dropped right here while it is not.
+ * Accept a group message. Addressed (or a yes, a style choice, a command): it
+ * waits for the alarm. Not addressed: the group's style says whether decide
+ * reads it (`groupStyle.ts`); otherwise it is kept as what the chat said
+ * while the chat is bound, and dropped right here while it is not. While a
+ * turn runs here, any message is decided with the turn running
+ * (`groupTurn.ts`), except the ones code decides.
  */
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
   if (message.reaction !== undefined) return await acceptThumb(storage, message, message.reaction, now);
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  const tagged =
-    addressesTex(message.text, repliesToTex) ||
-    offeredName(message.text, await openChoice(storage, now)) !== null ||
-    (await answersOpenAsk(storage, message, now));
+  const choices = await openChoice(storage, now);
+  const yes = await answersOpenAsk(storage, message, now);
+  const engagement = (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
+  const addressed = addressesTex(message.text, repliesToTex) || offeredName(message.text, choices) !== null;
+  const tagged = addressed || yes || engagement !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
-  if (!tagged) {
-    if (await joinsWaitingTag(storage, message, now)) {
+  // Never the model's: an SMS (anyone can fake its sender), the asker's yes, a style choice, a command.
+  const byCode = message.sms === true || yes || engagement !== null || (addressed && groupCommand(message.text, choices) !== null);
+  const running = runningTurn(storage, message.groupId);
+  if (!tagged && running === undefined) {
+    // Right after the sender's own waiting tag, it always goes to decide with it.
+    const follows = await followsOwnTag(storage, message, now);
+    // Kept as what the chat said only while it is bound; then the style says whether decide reads it too.
+    const kept = await keepChatLine(storage, message, now);
+    if (!kept && !follows) return "ignored";
+    await storage.put(seen, now);
+    const ev = await logGroupInbound(storage, message, now);
+    const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
+    if (reaches) await enqueue(storage, message, { ev, soft: true }, repliesToTex, seen, now);
+    return kept ? "kept" : "queued";
+  }
+  // Nothing of an SMS group is logged: its sender vouches for nothing.
+  const ev = message.sms ? undefined : await logGroupInbound(storage, message, now);
+  const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}) };
+
+  if (running !== undefined && ev !== undefined && !byCode) {
+    const how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
+      groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
+    );
+    if (how === "folded") {
       await storage.put(seen, now);
       return "queued";
     }
+    if (how === "after") return await enqueue(storage, message, { ...extra, force: true }, repliesToTex, seen, now);
+    if (!(await keepChatLine(storage, message, now))) return "ignored";
+    await storage.put(seen, now);
+    return "kept";
+  }
+  if (!tagged) {
     if (!(await keepChatLine(storage, message, now))) return "ignored";
     await storage.put(seen, now);
     return "kept";
@@ -244,33 +297,39 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "duplicate";
   }
+  return await enqueue(storage, message, extra, repliesToTex, seen, now);
+}
+
+async function enqueue(
+  storage: InboxStorage,
+  message: GroupMessage,
+  extra: Partial<Pending>,
+  repliesToTex: boolean,
+  seen: string,
+  now: number,
+): Promise<"queued" | "full"> {
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
   await storage.put("gseq", seq);
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
-  await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now });
+  await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now, ...extra });
   // Words alone wait a moment for a picture to follow them; a tag that brought one goes now.
   await storage.setAlarm(message.attachments?.length ? now : now + GROUP_TEXT_WAIT_MS);
   return "queued";
 }
 
 /**
- * A picture sent without words by someone whose tag is still waiting to be
- * answered joins that tag (Jhon, 2026-10-23: "Tex, file this screenshot as a
- * bug report first", then the screenshot, and Tex answered that it couldn't
- * see one). Only their own tag, and only one sent a moment ago.
+ * Anything sent by someone whose tag is still waiting, a moment after it,
+ * goes to decide with it whatever the style, so one turn can read both: the
+ * screenshot after "Tex, file this screenshot as a bug report" (Jhon,
+ * 2026-10-23, Tex answered that it couldn't see one), the link after "Tex
+ * check this link out". Only their own tag, and only one sent a moment ago.
  */
-async function joinsWaitingTag(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
-  if (message.text !== "" || !message.attachments?.length) return false;
-  const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))].reverse();
-  const waiting = pending.find(([, item]) => item.message.from === message.from && item.attempts === 0 && now - (item.at ?? 0) < PICTURE_JOINS_MS);
-  if (waiting === undefined) return false;
-  const [key, item] = waiting;
-  const attachments = [...(item.message.attachments ?? []), ...message.attachments].slice(0, MAX_INBOUND_ATTACHMENTS);
-  await storage.put<Pending>(key, { ...item, message: { ...item.message, attachments } });
-  return true;
+async function followsOwnTag(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  const pending = [...(await storage.list<Pending>({ prefix: "gpending:" })).values()];
+  return pending.some((item) => item.message.from === message.from && item.attempts === 0 && !item.soft && now - (item.at ?? 0) < PICTURE_JOINS_MS);
 }
 
 /** The pictures and files a turn reads: the newest of its own and of what the chat sent since Tex last answered, oldest first. */
@@ -285,14 +344,20 @@ export function filesFor(message: GroupMessage, lines: readonly { attachments?: 
  * only the asker's yes can release what was held for them.
  */
 async function acceptThumb(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<"queued" | "ignored"> {
-  const ask = await storage.get<OpenAsk>(ASK_KEY);
-  if (ask === undefined || now - ask.at >= ASK_OPEN_MS || ask.from !== (await sha256Hex(message.from))) return "ignored";
+  if (!(await isAsker(storage, message, now))) return "ignored";
   if (reaction.removed) {
     await dropThumb(storage, reaction.words, GROUP_THUMB_KEY);
     return "ignored";
   }
+  await logGroupInbound(storage, message, now);
   await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
   return "queued";
+}
+
+/** Whether this is from the person Tex last asked for a yes, while that ask is open. */
+async function isAsker(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  const ask = await storage.get<OpenAsk>(ASK_KEY);
+  return ask !== undefined && now - ask.at < ASK_OPEN_MS && ask.from === (await sha256Hex(message.from));
 }
 
 /**
@@ -315,45 +380,76 @@ async function askedJustNow(storage: InboxStorage, message: GroupMessage, now: n
  */
 async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
   if (!ANSWERS_ASK.test(unquoted(message.text))) return false;
-  const ask = await storage.get<OpenAsk>(ASK_KEY);
-  return ask !== undefined && now - ask.at < ASK_OPEN_MS && ask.from === (await sha256Hex(message.from));
+  return await isAsker(storage, message, now);
 }
 
-/** Answer every tagged message waiting, oldest first. Called from the alarm. */
+/** Answer what is waiting, oldest first: code's messages one by one, the rest as decide groups them. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
   // A 👍 on the ask joins the queue as the asker's answer.
   const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
   if (thumb !== undefined) {
     const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
     await storage.put("gseq", seq);
-    await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now() });
+    await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now(), byCode: true });
   }
-  const pending = await storage.list<Pending>({ prefix: "gpending:" });
-  for (const [key, item] of pending) {
+  for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
+    const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
+    if (pending.length === 0) break;
+    let entries: GroupEntry[] = [pending[0]];
+    if (!pending[0][1].byCode && pending[0][1].attempts === 0) {
+      const burst: GroupEntry[] = [];
+      for (const entry of pending) {
+        if (entry[1].byCode) break;
+        burst.push(entry);
+      }
+      const choice = await chooseGroupTurn(storage, deps, burst);
+      // Left as chat: each is already one of the chat's lines (`acceptGroup`).
+      for (const [key] of choice.chat) await storage.delete(key);
+      for (const [key] of choice.drop) await storage.delete(key);
+      if (choice.react) {
+        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
+      }
+      entries = choice.answer;
+      if (entries.length === 0) continue;
+    }
+    const [key, item] = entries.at(-1)!;
     try {
-      await answerGroup(storage, item.message, item.at ?? deps.now(), deps);
-      await storage.delete(key);
+      const outcome = await answerGroup(storage, entries, deps);
+      // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
+      if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
     } catch (error) {
       const attempts = item.attempts + 1;
-      log("failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error");
+      const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
+      log("failed", reason);
       if (attempts < MAX_ATTEMPTS) {
-        await storage.put<Pending>(key, { ...item, attempts });
+        // Retried as the same turn: the others it covered go with it.
+        for (const [other] of entries.slice(0, -1)) await storage.delete(other);
+        await storage.put<Pending>(key, { ...item, message: mergedGroup(entries.map(([, entry]) => entry.message)), attempts, byCode: true, covers: coversOf(entries) });
         await storage.setAlarm(deps.now() + RETRY_MS);
         return;
       }
-      await storage.delete(key);
-      await say(storage, deps, item.message, GROUP_LINES.failed).catch(() => {});
+      for (const [done] of entries) await storage.delete(done);
+      const timedOut = error instanceof ServiceError && error.status === 504;
+      await say(storage, deps, item.message, GROUP_LINES.failed, { system: true, reason: timedOut ? "timed_out" : "failed" }).catch(() => {});
     }
   }
   await pruneSeen(storage, deps.now());
 }
 
-async function answerGroup(storage: InboxStorage, message: GroupMessage, acceptedAt: number, deps: GroupDeps): Promise<void> {
+const coversOf = (entries: GroupEntry[]): string[] => [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))];
+
+/** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
+async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
+  const item = entries.at(-1)![1];
+  const message = mergedGroup(entries.map(([, entry]) => entry.message));
+  // What the chat said before the first message it answers is its context; the rest it answers.
+  const acceptedAt = entries[0][1].at ?? deps.now();
+  const covers = coversOf(entries);
   const app = groupLineFor(deps, message.groupId);
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
-  if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms));
+  if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
-  const command = groupCommand(message.text, await openChoice(storage, deps.now()));
+  const command = item.engagement ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
 
   // The app's own list too: more people only ever narrows what Tex may use.
   const members = await app.readMembers(chat);
@@ -361,43 +457,96 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const people = peopleOf(message.line, message.participants, members);
   const asked = await askControlPlane(deps, message, people, command);
   const status = asked.status;
+  const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined) await app.react(chat, message.messageId, ackEmoji(message.text));
-  if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
-  if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
-  if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
+  if (command === null && message.reaction === undefined && !item.engagement) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
+  if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
+  if (status === "not_shared") return void (await fixed(GROUP_LINES.notShared(asked.slugs)));
   if (status === "not_allowed") {
-    const line = command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug);
-    return void (await say(storage, deps, message, line));
+    return void (await fixed(command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug)));
   }
   if (status === "invited") {
     await storage.delete(CHOICE_KEY);
     await setChatBound(storage, message);
-    return void (await say(storage, deps, message, GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
+    return void (await fixed(GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
   }
-  if (status === "guests_off") return void (await say(storage, deps, message, GROUP_LINES.guestsOff));
-  if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
-  if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
+  if (status === "guests_off") return void (await fixed(GROUP_LINES.guestsOff));
+  if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
+  if (status === "started") return void (await fixed(GROUP_LINES.started));
   if (status === "choose") {
     await storage.put<Choice>(CHOICE_KEY, { slugs: asked.slugs, at: deps.now() });
-    return void (await say(storage, deps, message, GROUP_LINES.choose(asked.slugs)));
+    return void (await fixed(GROUP_LINES.choose(asked.slugs)));
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
   await setChatBound(storage, message);
+  await keepNames(storage, asked.names ?? []);
+  if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
   const guest = asked.guest;
-  if (command?.kind === "use") {
-    return void (await say(storage, deps, message, guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
+  if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
+  if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
+  // "Tex, settings": the style question again (`groupStyle.ts`).
+  if (command?.kind === "settings") {
+    await openQuestion(storage, deps.now());
+    return void (await fixed(ENGAGEMENT_QUESTION));
   }
-  if (command?.kind === "status") return void (await say(storage, deps, message, guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
+  if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
-  if (asked.intro) await say(storage, deps, message, guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
+  // The chat's events reach its log before the turn reads it, written with the chat's own grant.
+  const conversation: Conversation = { group: message.groupId };
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  // The first time Tex is asked something in a group whose style nobody chose, it asks that first and holds the message.
+  if (asked.engagementChosen === false && !item.styleAsked && message.reaction === undefined && !(await questionOpen(storage, deps.now()))) {
+    await openQuestion<Pending>(storage, deps.now(), { ...item, message, covers });
+    await fixed(ENGAGEMENT_QUESTION);
+    return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  }
+  if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
+  const covered = entries.map(([, entry]) => entry.message);
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt, covers, people, asked, accessToken: asked.accessToken });
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  return outcome;
+}
 
+/** A member chose the style: saved for the group, confirmed with who set it, then the message the question held is answered. */
+async function chooseStyle(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, style: GroupStyle, asked: Extract<ControlAnswer, { status: "ready" }>): Promise<void> {
+  const setBy = asked.handle ?? asked.guests?.find((entry) => entry.phone === message.from)?.label ?? "someone here";
+  if (!(await setEngagement(deps, message.line, message.groupId, style, setBy))) throw new ServiceError("control_plane", null);
+  await keepStyle(storage, style, true);
+  await say(storage, deps, message, engagementSet(style, setBy), { system: true });
+  const held = await closeQuestion<Pending>(storage);
+  if (held === undefined) return;
+  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
+  await storage.put("gseq", seq);
+  await storage.put<Pending>(pendingKey(seq), { ...held, attempts: 0, byCode: true, styleAsked: true });
+  await storage.setAlarm(deps.now());
+}
+
+type TurnInput = {
+  message: GroupMessage;
+  /** The messages it answers, one by one. */
+  covered: GroupMessage[];
+  acceptedAt: number;
+  covers: string[];
+  people: string[];
+  asked: Extract<ControlAnswer, { status: "ready" }>;
+  accessToken: string;
+};
+
+/** The model's turn on a group message, its answer sent only to the people it was written for. */
+async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+  const app = groupLineFor(deps, message.groupId);
+  const chat = { line: message.line, groupId: message.groupId };
+  const guest = asked.guest;
   const quoted = message.replyTo === undefined ? null : await app.readOwnMessage(chat, message.replyTo);
-  const said = await chatBefore(storage, message, acceptedAt, deps.now());
+  const kept = await chatBefore(storage, message, acceptedAt, deps.now());
+  // A chat line this turn answers is its question, not what the chat said around it.
+  const asked_ = new Set(covered.map((entry) => `${entry.from}\n${entry.text}`));
+  const said = { keys: kept.keys, lines: kept.lines.filter((line) => !asked_.has(`${line.from}\n${line.text}`)) };
   const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
   // A guest is named in the chat's lines by a label from the control plane, never by number; never offered an email.
   const labels = new Map((asked.guests ?? []).map(({ phone, label }) => [phone, label]));
@@ -412,6 +561,10 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     people: [...new Set(handles.values())].filter(Boolean),
     ...(guest ? { guest } : {}),
   };
+  // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
+  const { steer, end, live } = startTurn(storage, message.groupId, deps, covers, (ids) => dropSteered(storage, ids, covers));
+  steer.onSession(accessToken);
+  const meta: SayMeta = { turn: steer.turn, covers, people: await sha256Hex(people.join(",")) };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
     "group Tex should literally be the same exact as DM Tex"): a long ask
@@ -421,31 +574,40 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const progress = async (text: string) => {
     const now = await app.readMembers(chat);
     if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) return;
-    await say(storage, deps, message, text);
+    await say(storage, deps, message, text, meta);
   };
-  const answer = await askAgentStream(
-    deps.fetch,
-    deps.gatewayOrigin,
-    asked.accessToken,
-    {
-      question: message.text,
-      group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
-      ...(attachments.length > 0 ? { attachments } : {}),
-      ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-      ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
-      ...(message.reaction !== undefined
-        ? { quoted: message.reaction.words, tapback: message.reaction.how }
-        : quoted !== null
-          ? { quoted }
-          : message.replyTo !== undefined
-            ? { replied: true }
-            : {}),
-    },
-    progress,
-  );
-  if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow."));
-  if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet."));
-  if (answer.kind !== "answer") throw new ServiceError("gateway", null);
+  let answer: AgentAnswer;
+  try {
+    answer = await askAgentStream(
+      deps.fetch,
+      deps.gatewayOrigin,
+      accessToken,
+      {
+        question: message.text,
+        group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
+        turn: steer.turn,
+        ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
+        ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
+        ...(message.reaction !== undefined
+          ? { quoted: message.reaction.words, tapback: message.reaction.how }
+          : quoted !== null
+            ? { quoted }
+            : message.replyTo !== undefined
+              ? { replied: true }
+              : {}),
+      },
+      progress,
+    );
+  } finally {
+    end();
+  }
+  if (live.cancelled || answer.kind === "cancelled") return "cancelled";
+  if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
+  if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
+  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "unavailable" && answer.timedOut ? 504 : null);
+  if (answer.steered) await dropSteered(storage, answer.steered, covers);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the one person it asks: the
@@ -462,18 +624,20 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // run the other way, and this is the only thing standing between an answer
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
-  const now = await app.readMembers(chat);
-  if (now === null) {
-    log("members_unread_after");
-    return void (await say(storage, deps, message, GROUP_LINES.failed));
-  }
-  const joined = now.some((phone) => phone !== message.line && !people.includes(phone));
-  if (joined) return void (await say(storage, deps, message, GROUP_LINES.joined));
   const texts = textsWithExact(answer.text, answer.verbatim);
+  const now = await app.readMembers(chat);
+  if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
+    log(now === null ? "members_unread_after" : "joined");
+    // Held for the newcomer: logged as never delivered, and the chat is told why.
+    for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
+    return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
+  }
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
-  for (const text of texts) await say(storage, deps, message, text);
+  for (const text of texts) await say(storage, deps, message, text, meta);
   // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
-  for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture);
+  for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
+  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record);
+  await texSpoke(storage);
   log("answered");
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());
@@ -491,6 +655,15 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
 }
 
+/** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
+async function dropSteered(storage: InboxStorage, ids: string[], covers: string[]): Promise<void> {
+  for (const [key, item] of await storage.list<Pending>({ prefix: "gpending:" })) {
+    if (!ids.includes(item.message.eventId)) continue;
+    if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
+    await storage.delete(key);
+  }
+}
+
 /** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
 export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
   const entry = await noteJobUpdate(storage, update, deps.now());
@@ -503,29 +676,6 @@ export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, upd
     await noteJobSent(storage, update.id, index + 1);
   }
   return true;
-}
-
-/** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex. */
-async function say(storage: InboxStorage, deps: GroupDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string): Promise<void> {
-  const place: GroupPlace = { line: message.line, groupId: message.groupId };
-  const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);
-  if (handle === undefined) return;
-  const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
-  await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
-}
-
-/** One picture into the chat; one the app refuses becomes a line saying so, as in a 1:1 text. */
-async function sendPicture(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, picture: OutgoingPicture): Promise<void> {
-  try {
-    const url = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
-    if (url === null) throw new ServiceError("sendblue", 400);
-    await groupLineFor(deps, message.groupId).sendMedia({ line: message.line, groupId: message.groupId }, url, message.messageId);
-  } catch (error) {
-    // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
-    // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.
-    log("picture_failed", error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "host");
-    await say(storage, deps, message, PICTURE_FAILED);
-  }
 }
 
 /** The names this chat was asked to pick from, while that question is still open. */
