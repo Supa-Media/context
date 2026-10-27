@@ -63,22 +63,26 @@ export async function recordTurn(store, turn, clean, { now = Date.now() } = {}) 
 }
 
 /**
- * Delete turn records and stray running and cancel marks older than 48h, at
- * most 100 a call. One the store cannot date is kept.
+ * Delete `clean: true` turn records and stray running and cancel marks older
+ * than 48h, at most 100 a call. One the store cannot date is kept, and so is
+ * every `clean: false` record: gone, a reused turn id could record clean over
+ * it and launder the events it said.
  */
 export async function pruneTurns(store, now = Date.now()) {
-  let room = MAX_PRUNED;
-  for (const prefix of [TURNS_PREFIX, RUNNING_PREFIX, CANCEL_PREFIX]) {
+  const old = async (prefix) => {
     // lean: first listing page per prefix only, enough while a bucket gains under 1000 a day; page with a cursor past that.
     const page = await store.list({ prefix });
-    for (const object of page?.objects ?? []) {
-      if (room === 0) return;
+    return (page?.objects ?? []).filter((object) => {
       const at = new Date(object.uploaded ?? 0).getTime();
-      if (!(at > 0) || now - at <= KEEP_MS) continue;
-      await store.delete(object.key);
-      room -= 1;
-    }
-  }
+      return at > 0 && now - at > KEEP_MS;
+    }).map((object) => object.key);
+  };
+  const [turns, running, cancels] = await Promise.all([TURNS_PREFIX, RUNNING_PREFIX, CANCEL_PREFIX].map(old));
+  const marks = [...running, ...cancels].slice(0, MAX_PRUNED);
+  // lean: kept false records are read again each call, at most 100; skip them by a listing marker if that cost shows.
+  const checked = turns.slice(0, MAX_PRUNED - marks.length);
+  const clean = await Promise.all(checked.map((key) => cleanTurn(store, key.slice(TURNS_PREFIX.length, -".json".length))));
+  await Promise.all([...marks, ...checked.filter((_, i) => clean[i] === true)].map((key) => store.delete(key)));
 }
 
 /**
@@ -99,23 +103,25 @@ export async function recordedTurn(store, run) {
   }
 }
 
-/** Whether a turn has a record saying it was clean; anything else is not. */
+/** A turn's record: `true` clean, `false` recorded not clean, `null` none or unreadable (failed closed). */
 async function cleanTurn(store, turn) {
-  if (typeof turn !== "string" || !TURN.test(turn)) return false;
+  if (typeof turn !== "string" || !TURN.test(turn)) return null;
   try {
     const object = await store.get(`${TURNS_PREFIX}${turn}.json`);
-    return object !== null && JSON.parse(await object.text())?.clean === true;
+    const clean = object === null ? undefined : JSON.parse(await object.text())?.clean;
+    return typeof clean === "boolean" ? clean : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Whether any of Tex's events shown is not proven clean; logs how many were not, by count only. */
+/** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
 async function showsTainted(store, events, workspace) {
   const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
-  const count = (await Promise.all(turns.map((turn) => cleanTurn(store, turn)))).filter((clean) => !clean).length;
+  const records = await Promise.all(turns.map((turn) => cleanTurn(store, turn)));
+  const count = records.filter((clean) => clean === null).length;
   if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
-  return count > 0;
+  return records.some((clean) => clean !== true);
 }
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 

@@ -40,7 +40,9 @@ const REASON_WORDS = {
 export function speaker(from) {
   if (from?.kind === "tex") return "You";
   if (from?.kind === "system") return "Context";
-  return from?.name ? oneLine(from.name) : "Them";
+  // A person is always "@name" ("@someone" unnamed): no name, a look-alike of "You" included, renders as Tex's or Context's label.
+  const name = typeof from?.name === "string" ? oneLine(from.name).replace(/^@+/, "") : "";
+  return `@${name || "someone"}`;
 }
 
 /*

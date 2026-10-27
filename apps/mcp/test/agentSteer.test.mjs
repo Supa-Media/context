@@ -12,8 +12,8 @@
  *  3. `handleSteer` taking another client's call → "only the texting Worker
  *     may steer".
  *  4. The route not clearing the turn's folder → "… and the folder is gone".
- *  5. `track` marking the write only after the call returns (move `mark(true)`
- *     below `call`) → "a cancel arriving after a write started is refused"
+ *  5. `track` not marking the write before the call (replace `await (marked ??=
+ *     mark(true))` with nothing) → "a cancel arriving after a write started is refused"
  *     (run 2026-10-27: failed, cancelTurn saw `wrote: false`).
  *  6. `track` swallowing the running put's error (`.catch(() => {})` on
  *     `mark(true)`) → "a write whose running mark cannot be written does not
