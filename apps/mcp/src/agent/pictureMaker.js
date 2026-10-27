@@ -53,7 +53,7 @@ import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
-import { downloadPhotos, fillPictures, pictureAddresses } from "./visuals/photos.js";
+import { downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { fillDistances, geocode } from "./visuals/distance.js";
 
 export const DRAW_TOOL = "draw_picture";
@@ -270,7 +270,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
     const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl);
     const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
-    const photos = [...(await downloadPhotos(read, fetchImpl))];
+    const photos = [...(await downloadPhotos(read, fetchImpl, sparesIn(outgoing?.read?.() ?? "")))];
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
     // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
     const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: mapGeocode ?? ((address) => geocode(address, fetchImpl)), locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
@@ -284,7 +284,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
     if (measured) notes.push(measured);
     if (drawnMap.reason) notes.push(drawnMap.reason);
-    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo) and draw again.`);
+    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
     if (notes.length === 0) return drawn;
     return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }

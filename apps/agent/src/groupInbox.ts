@@ -164,11 +164,12 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     const follows = await followsOwnTag(storage, message, now);
     // Kept as what the chat said only while it is bound; then the style says whether decide reads it too.
     const kept = await keepChatLine(storage, message, now);
-    if (!kept && !follows) return "ignored";
+    if (!kept && !follows) return log("untagged_ignored", "unbound"), "ignored";
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
     const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
+    log(reaches ? "untagged_to_decide" : "untagged_kept", reaches ? undefined : "style");
     return kept ? "kept" : "queued";
   };
   if (!tagged && running === undefined) return await idleUntagged();
