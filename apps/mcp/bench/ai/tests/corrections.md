@@ -22,12 +22,13 @@ every_answer:
 
 From a reviewed chat (2026-10-27, `areas/tex-reviews/themes/repeats-after-correction.md`): two meetings overlapped, the person asked to shorten one, and Tex put the same overlapping time to them twice after "they're both still at 6:30", opening each reply with "Sorry" and the whole change block, until a third, angry text. Three chats in twenty hours had this shape. The gateway now refuses a held change whose copy the person was already shown with no yes since (`apps/mcp/src/agent/sameAsk.js`), and a bare opening apology comes off the answer (`pushback.js`). This is the retest: a correction is carried into the very next proposal.
 
-Maya's calendar on Tuesday, October 20 has Austin / Maya at 6:30 to 6:45 pm and Sarah / Maya at 6:30 to 7 pm, each with a guest, so any move is put to her for a 👍 before Google tells the guest (`bench/calendar.mjs`). The repo copy is `apps/mcp/bench/ai/tests/corrections.md`.
+Maya's calendar on Tuesday, October 20 has Austin / Maya at 6:30 to 6:45 pm and Sarah / Maya at 6:30 to 7 pm, each with a guest, so any move is put to her for a 👍 before Google tells the guest (`bench/calendar.mjs`). The case plays her answers to those asks (`- person answers asks`) instead of the bench's automatic YES, so she can push back. The repo copy is `apps/mcp/bench/ai/tests/corrections.md`.
 
 ## 1. Make Sarah's meeting 15 minutes (the correction carried at once)
 
 - kind: task
 - person starts: "maybe make sarah's meeting tonight 15 min"
+- person answers asks
 - if asked to 👍 or OK a change that still starts Sarah's call at six thirty, or asked which one to move: "but they're both still at 6:30, i need to meet both of them. move sarah's to start after austin's"
 - if asked to 👍 or OK a change that moves Sarah's call to start at a quarter to seven: "👍"
 - if asked anything else: "just fix it so they don't overlap"
