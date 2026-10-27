@@ -1,15 +1,16 @@
 /**
- * Pages in the gateway: the check a `.page.md` write passes, and the format
- * guide agents are given (`orient about: "pages"`, and the line background
- * jobs are told). The format itself is `packages/shared/src/pages/`, the same
- * copy the app and the page runtime read.
+ * Pages in the gateway: the checks a `.page.md` write passes (its blocks can
+ * be drawn, and its writer read the page design skill), and what agents are
+ * given (`orient about: "pages"` answers the skill, `pageSkill.js`; background jobs are told the line below). The format
+ * itself is `packages/shared/src/pages/`, the same copy the app and the page
+ * runtime read.
  *
  * Decision: `docs/decisions/app-and-console/pages.md`.
  */
 
 // Each file by itself: Node's ESM import sees a CommonJS file's names only when it lists them plainly.
-import { isPagePath, parsePage } from "../../../packages/shared/src/pages/parse.cjs";
-import { BLOCK_KINDS } from "../../../packages/shared/src/pages/blocks.cjs";
+import { frontMatter, isPagePath, parsePage } from "../../../packages/shared/src/pages/parse.cjs";
+import { PAGE_SKILL, PAGE_SKILL_STAMP } from "./pageSkill.js";
 
 export { isPagePath };
 
@@ -40,35 +41,26 @@ export function pageProblems(content) {
   ].join("\n");
 }
 
-/** One line per block kind, from the kinds themselves, so the guide never drifts from the checks. */
-const KIND_LINES = Object.entries(BLOCK_KINDS).map(([kind, { about }]) => `- \`${kind}\`: ${about}`);
+/** What `orient about: "pages"` answers: the page design skill, which ends with its stamp (`pageSkill.js`). */
+export const PAGE_GUIDE = PAGE_SKILL;
 
-/** What `orient about: "pages"` answers. */
-export const PAGE_GUIDE = [
-  "## Pages (`<name>.page.md`)",
-  "",
-  "A note whose name ends in `.page.md` is drawn as a page: words, charts and choices people read, edit, tick and comment on in the app. It is still Markdown, so every word stays editable and searchable.",
-  "",
-  "- **Words** are ordinary Markdown: `#` title, `##` sections (each a section, or a tab with `layout: tabs`), lists, `- [ ]` tasks people tick, tables, `> [!NOTE]` callouts, links and `[[wiki links]]`.",
-  "- **Front matter**: `title`, `kicker` (a small line above the title), `theme` (light, paper, dark, night; else the reader's), `accent` (blue, green, orange, plum, red, ink), `layout: tabs`.",
-  "- **Blocks** are fenced data the page draws: the fence names the kind and an optional caption, then one `- ` line per item and `key: value` settings. An item is `|`-separated parts, the first may start with `Label: `. Example:",
-  "",
-  "  ```compare Quotes per head",
-  "  limit: 35",
-  "  - Casa Lola: $29 | Family style",
-  "  - Marlow's: $41 | Over budget",
-  "  ```",
-  "",
-  ...KIND_LINES,
-  "",
-  "- **Look**: a ```` ```css ```` fence restyles the page (`--pg-accent`, `.pg-stat`, `h1`); it can load nothing from the network.",
-  "- **Code boxes**: a ```` ```box height=320 ```` fence holds HTML and script for something no block draws (a calculator, a quiz, a custom chart). It runs sealed in its own frame, loads nothing, and reads the page's blocks as `window.page.blocks`. Prefer a block; reach for a box only when none fits.",
-  "- A write with a block that cannot be drawn is refused with the line to fix. A `choose` block's pick comes back as its `chosen:` line: read the note again to see it.",
-].join("\n");
+/**
+ * Why a page may not be written by this caller yet: its front matter does not
+ * carry the current skill stamp, so whoever wrote it has not read the page
+ * design skill as it is now (owner, 2026-10-27: "skill should be required
+ * when making pages"). Null when it does.
+ */
+export function pageSkillMissing(content) {
+  const { fields } = frontMatter(typeof content === "string" ? content : "");
+  if (String(fields.skill ?? "").trim() === PAGE_SKILL_STAMP) return null;
+  return [
+    fields.skill ? "this page was written to an older page design skill, so it was not saved." : "this page was not saved: read the page design skill first.",
+    'Read it with orient about: "pages", follow it, and put the stamp it ends with in the page\'s front matter (skill: ...).',
+  ].join(" ");
+}
 
 /** The line a background job is told about writing its result as a page. */
 export const PAGE_JOB_LINE =
-  "Write the deliverable as a page: a note named `<name>.page.md` that leads with the answer, then `##` sections. " +
-  "Put numbers and options in blocks people can read at a glance (```stats, ```compare, ```chart, ```timeline, ```choose, ```places, ```versus, ```progress, ```people, ```steps, ```board: " +
-  "one `- Label: value | detail` line per item), sources as links, and next steps as `- [ ]` tasks. " +
-  'orient about: "pages" has the whole format; a page that cannot be drawn is refused with the line to fix.';
+  "Write the deliverable as a page: a note named `<name>.page.md`. Read the page design skill first (orient about: \"pages\"): " +
+  "it says what goes first (the answer, then your pick as a vote), which block fits which facts (places, prices, tiers, itinerary, stats, timeline, contacts), " +
+  "and the stamp a page must carry; a page without it, or with a block that cannot be drawn, is refused with what to fix.";

@@ -21,12 +21,17 @@
  *     fails.
  *   `keepCover` not called after the draw → "a drawn cover is kept for the
  *     page's link card" fails.
+ *   `pageSkillMissing` dropped from `toolWriteNote` → "a page is written only
+ *     by a caller who read the page design skill" fails.
+ *   `pageCover` keeping any `data:` value → "a cover's photos are read through
+ *     the page's own note" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PAGE_GUIDE, pageProblems } from "../src/pages.js";
+import { PAGE_GUIDE, pageProblems, pageSkillMissing } from "../src/pages.js";
+import { PAGE_SKILL, PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { toolWriteNote } from "../src/tools/notes/write.js";
 import { jobPrompt } from "../src/agent/background.js";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
@@ -38,6 +43,7 @@ import { BLOCK_KINDS } from "../../../packages/shared/src/pages/blocks.cjs";
 
 const GOOD = [
   "---",
+  `skill: ${PAGE_SKILL_STAMP}`,
   "title: Dinner for 40",
   "kicker: Caterers",
   "---",
@@ -56,15 +62,15 @@ const GOOD = [
   "",
 ].join("\n");
 
-const BROKEN = ["# Sales", "", "```chart By month", "- Jan", "```", "", "```choose", "- Only one", "```", ""].join("\n");
+const BROKEN = ["---", `skill: ${PAGE_SKILL_STAMP}`, "---", "# Sales", "", "```chart By month", "- Jan", "```", "", "```choose", "- Only one", "```", ""].join("\n");
 
 test("a page whose blocks can be drawn passes; one that cannot names each line to fix", () => {
   assert.equal(pageProblems(GOOD), null);
   const refusal = pageProblems(BROKEN);
   assert.match(refusal, /not saved/);
-  assert.match(refusal, /line 3: chart "By month": "Jan" needs a label first/);
-  assert.match(refusal, /line 3: chart "By month": A chart needs at least two numbers/);
-  assert.match(refusal, /line 7: choose: A choice needs at least two options/);
+  assert.match(refusal, /line 6: chart "By month": "Jan" needs a label first/);
+  assert.match(refusal, /line 6: chart "By month": A chart needs at least two numbers/);
+  assert.match(refusal, /line 10: choose: A choice needs at least two options/);
   assert.match(refusal, /orient about: "pages"/);
 });
 
@@ -79,6 +85,26 @@ test("a page with a block that cannot be drawn is refused, before anything is lo
   assert.doesNotMatch(JSON.stringify(plain), /needs a label first/);
 });
 
+test("a page is written only by a caller who read the page design skill as it is now", async () => {
+  // The skill is what orient about: "pages" answers, and it ends with the stamp a page must carry.
+  assert.equal(PAGE_GUIDE, PAGE_SKILL);
+  assert.match(PAGE_SKILL, /^# Page design skill/);
+  assert.ok(PAGE_SKILL.trimEnd().endsWith(`skill: ${PAGE_SKILL_STAMP}\``));
+  assert.match(PAGE_SKILL_STAMP, /^pages-[0-9a-f]{8}$/);
+  assert.equal(pageSkillMissing(GOOD), null);
+  const unread = GOOD.replace(`skill: ${PAGE_SKILL_STAMP}\n`, "");
+  assert.match(pageSkillMissing(unread), /read the page design skill first/);
+  assert.match(pageSkillMissing(unread), /orient about: "pages"/);
+  assert.match(pageSkillMissing(GOOD.replace(PAGE_SKILL_STAMP, "pages-00000000")), /older page design skill/);
+  // Refused before anything is looked up, and only for pages.
+  const store = new Proxy({}, { get: (_, key) => (key === "then" ? undefined : () => assert.fail(`store.${String(key)} was used`)) });
+  const refused = await toolWriteNote(store, { kind: "private" }, {}, {}, { path: "projects/dinner.page.md", content: unread });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /page design skill/);
+  const plain = await toolWriteNote({}, { kind: "private" }, {}, {}, { path: "projects/dinner.md", content: unread }).catch((error) => ({ thrown: error }));
+  assert.doesNotMatch(JSON.stringify(plain), /page design skill/);
+});
+
 test("the format guide lists every block kind the checks know", () => {
   for (const kind of Object.keys(BLOCK_KINDS)) assert.match(PAGE_GUIDE, new RegExp(`\`${kind}\`: `), kind);
   assert.match(PAGE_GUIDE, /```` ```box height=320 ````/);
@@ -87,6 +113,7 @@ test("the format guide lists every block kind the checks know", () => {
 test("a background job delivers a page and texts its cover with the link", () => {
   const prompt = jobPrompt({ title: "Caterers", brief: "find three", doneWhen: "", attempt: 1, followUps: [], draft: "", unfinished: false });
   assert.match(prompt, /<name>\.page\.md/);
+  assert.match(prompt, /Read the page design skill first \(orient about: "pages"\)/);
   assert.match(prompt, /draw_visual template page/);
   assert.match(prompt, /page's link/);
 });
@@ -127,6 +154,32 @@ test("the cover is the page, read as the turn may read it", async () => {
   assert.doesNotMatch(html, /Book the caterer/);
   // And it says nothing about addresses it never tried to load.
   assert.doesNotMatch(drawn.content[1].text, /did not load/);
+});
+
+test("a cover's photos are read through the page's own note and drawn in as bytes", async () => {
+  const shots = siteShots();
+  const maker = pictureMaker(shots, { outgoing: outgoingPictures({ enabled: true }) });
+  const pictured = GOOD.replace("title: Dinner for 40", "title: Dinner for 40\nkind: plan\ncover: upload-1111111111111111.png, upload-2222222222222222.png");
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push([name, args]);
+    if (name === "read_note") return { content: [{ type: "text", text: `etag: "e1"\npath: ${args.path}\nvisibility: private\n\n${pictured}` }] };
+    // The first is there; the second the turn may not see.
+    if (args.image === "upload-1111111111111111.png") return { content: [{ type: "text", text: "image" }, { type: "image", data: "QUJD", mimeType: "image/png" }] };
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  await withPictureMaker(maker, callTool)(VISUAL_TOOL, { template: "page", data: { path: "projects/dinner.page.md" } });
+  assert.deepEqual(calls.slice(1), [
+    ["read_image", { note: "projects/dinner.page.md", image: "upload-1111111111111111.png" }],
+    ["read_image", { note: "projects/dinner.page.md", image: "upload-2222222222222222.png" }],
+  ]);
+  const { html } = shots.calls[0];
+  assert.match(html, /<img src="data:image\/png;base64,QUJD"/);
+  // Nothing on a cover loads by itself: the one it could not read is a slot with the page's initial.
+  assert.doesNotMatch(html, /data-src=/);
+  // Bytes that are not a picture are never drawn in.
+  const { html: odd } = pageCover("x.page.md", pictured, "light", new Map([["upload-1111111111111111.png", "data:text/html;base64,PHNjcmlwdD4="]]));
+  assert.doesNotMatch(odd, /data:text\/html/);
 });
 
 test("a drawn cover is kept for the page's link card, and a failed keep costs nothing", async () => {

@@ -204,7 +204,7 @@ export function noteWriteToolDefinitions() {
             type: "array",
             maxItems: 10,
             description:
-              "Images to store in this workspace and embed in the note. Each name is the placeholder the content embeds (![[chart.png]]); it is replaced by the stored image.",
+              "Images to store in this workspace and embed in the note. Each name is the placeholder the content embeds (![[chart.png]]), or names in a page's photo:, photos:, cover: or map: field; it is replaced by the stored image.",
             items: {
               type: "object",
               properties: {
