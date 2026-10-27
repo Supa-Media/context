@@ -236,6 +236,13 @@ export const operationValidator = v.union(
      * it false; `searchNotes` carries the arithmetic for why.
      */
     refreshOnMiss: v.optional(v.boolean()),
+    /**
+     * Half of a search, for a palette that draws the words before meaning
+     * joins (the search tune-up, 2026-10-27). Absent is both, merged.
+     */
+    half: v.optional(v.union(v.literal("words"), v.literal("meaning"))),
+    /** The question already embedded, once for every workspace a meaning half asks. */
+    vector: v.optional(v.array(v.float64())),
   }),
   /**
    * Every note path this scope may see, for the editor's link resolution.

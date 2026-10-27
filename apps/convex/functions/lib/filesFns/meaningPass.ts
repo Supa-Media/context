@@ -165,3 +165,32 @@ export async function runMeaningPass(
 }
 
 export { IDLE_MEANING, MEANING_PASS_CHAIN };
+
+/**
+ * The question as numbers, asked of the model once for every workspace a
+ * meaning half searches (the search tune-up, 2026-10-27). Each workspace used
+ * to embed the same words for itself: the same answer from the same model,
+ * five requests for five workspaces. The model and the account are the
+ * deployment's, not a workspace's, so one answer serves all of them.
+ *
+ * `null` when meaning search is not set up here or the model failed: each
+ * workspace then embeds for itself, as before, and a failure there is "words
+ * only", never an error.
+ */
+export async function embedQuestion(ctx: ActionCtx, query: string): Promise<number[] | null> {
+  try {
+    const [apiToken, accountId] = await Promise.all([
+      ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_TOKEN_SECRET }),
+      ctx.runAction(internal.functions.admin.readIntegrationSecret, { name: D1_ACCOUNT_SECRET }),
+    ]);
+    if (typeof apiToken !== "string" || !apiToken || typeof accountId !== "string" || !accountId) return null;
+    const embed = createRestEmbedder({ accountId, apiToken });
+    if (embed === null) return null;
+    const [vector] = (await embed([query.trim()])) as number[][];
+    return Array.isArray(vector) && vector.length > 0 ? vector : null;
+  } catch {
+    // Our code only: no provider words, no question.
+    console.error("meaning_search.embed_once_failed");
+    return null;
+  }
+}

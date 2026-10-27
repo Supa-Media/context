@@ -70,6 +70,13 @@ export interface SearchHit {
   meaningOnly?: boolean;
   /** Has some of the words typed, not all of them (the projection's relaxed any-word pass). */
   loose?: boolean;
+  /**
+   * How close a meaning half's match is (bge-m3 cosine, 0 to 1). Only a
+   * meaning half sets it: the palette ranks those rows across workspaces by
+   * it, and hides the ones under `MEANING_EXTRA_FLOOR_WITH_WORDS` when the
+   * words found notes with every word.
+   */
+  closeness?: number;
 }
 
 export interface SearchResults {
@@ -267,6 +274,19 @@ export async function searchNotes(
      * "no matches".
      */
     refreshOnMiss?: boolean;
+    /**
+     * Half of a search (the search tune-up, Dev2's pick, 2026-10-27). The
+     * palette asks the words and the meaning separately so the words, which
+     * are the faster half, are drawn without waiting for meaning; absent asks
+     * both and merges them, which is what an AI client and the search page's
+     * later pages get.
+     */
+    half?: "words" | "meaning";
+    /**
+     * The question already embedded, by a fan-out that asked the model once
+     * for every workspace. Absent, this workspace embeds the question itself.
+     */
+    vector?: number[];
   },
   projection: ProjectionClient | null = null,
 ): Promise<SearchResults> {
@@ -312,13 +332,15 @@ export async function searchNotes(
   // rejects: a failure is `null`, which leaves the word answer as it was.
   const started = Date.now();
   let meaningMs: number | undefined;
-  const meaningPending = meaningSearchable(store)
+  const vector = options.vector;
+  const meaningPending = options.half !== "words" && meaningSearchable(store)
     ? meaningMatches(store, {
         query,
         scope: options.clearance.scope,
         grantedGroups: options.clearance.names.size > 0,
         isVisible,
         prefix: underFolder,
+        ...(vector !== undefined && vector.length > 0 ? { embed: async () => [vector] } : {}),
       }).then((matches: unknown) => {
         meaningMs = Date.now() - started;
         return matches;
@@ -343,6 +365,8 @@ export async function searchNotes(
     const hits = (results as SearchResults).hits.map((hit) => (looseAt[hit.path]?.loose === true ? { ...hit, loose: true } : hit));
     return { ...(results as SearchResults), hits, timing: timed(wordsMs) };
   };
+
+  if (options.half === "meaning") return await meaningHalf(store, await meaningPending, projection, () => timed(0));
 
   /*
    * A context with a search database answers from it and nothing else, ready
@@ -438,6 +462,44 @@ export async function searchNotes(
     reducedRecallNotes: found.reducedRecallNotes ?? [],
     answeredBy: "index",
   });
+}
+
+/**
+ * The meaning half alone: the notes this question is about, each with the
+ * snippet of the passage that matched and how close it was, best first.
+ *
+ * It is `withMeaning` over no word hits, so the privacy filter, the snippet
+ * reads and their cap are the merged search's own, not a second copy. With no
+ * word hits it is "the loosest" search and reads `MEANING_SNIPPET_READS_LOOSE`
+ * notes, which is what the palette's folded line can hold. Meaning off or
+ * failed answers no hits, never an error: the words half is the answer then.
+ */
+async function meaningHalf(
+  store: FileStore,
+  matches: unknown,
+  projection: ProjectionClient | null,
+  timing: () => NonNullable<SearchResults["timing"]>,
+): Promise<SearchResults> {
+  const empty: SearchResults = {
+    hits: [],
+    matchCount: 0,
+    matchCountIsFloor: false,
+    indexIncomplete: false,
+    indexMissing: false,
+    reducedRecall: false,
+    reducedRecallNotes: [],
+    answeredBy: "none",
+  };
+  const merged = await withMeaning(store, empty, matches, {
+    keyField: "path",
+    ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
+  });
+  const evidence = (merged.evidence ?? {}) as Record<string, { meaningScore?: number | null } | undefined>;
+  const hits = (merged.hits as SearchHit[]).map((hit) => {
+    const score = evidence[hit.path]?.meaningScore;
+    return typeof score === "number" ? { ...hit, closeness: score } : hit;
+  });
+  return { ...empty, hits, matchCount: hits.length, timing: timing() };
 }
 
 /**
