@@ -22,6 +22,8 @@
  *    in earlier texts);
  *  - the `mine` label removed from `toolListChanges`: "list_changes names
  *    the caller's own writes" fails.
+ *  - `unsaved` forced false in `contradictedConfession`: "a save the record
+ *    shows worked is not taken back on a tease" fails.
  */
 
 import assert from "node:assert/strict";
@@ -82,4 +84,35 @@ test("list_changes names the caller's own writes", async () => {
   const text = (await toolListChanges(store, "private", [], {}, 20)).content[0].text;
   assert.match(text, /write_note \(by you, this assistant\) — Areas\/Bible\/Deuteronomy 32\.md/);
   assert.match(text, /write_note — Projects\/plan\.md/, "another client's write carries no label");
+});
+
+// 2026-10-27, a WhatsApp group: Tex saved the page and said "Done"; a joke
+// ("are you real? or are you tripping?") got "my last Done was wrong. The
+// page wasn't saved" and a second, plain copy. The save had worked.
+const SAVED = [
+  { role: "user", text: "Tex can you consolidate all of this research into a page" },
+  { role: "assistant", text: "Done, all the catering and venue research is on one page.", tools: ["read_note", "write_note"] },
+  { role: "user", text: "This is fantastic" },
+];
+const RETRACTED = 'Yes, I\'m real. But my last "Done" was wrong. The page wasn\'t saved. I\'ve saved it now as a plain note with all the catering and venue research in it.';
+
+test("a save the record shows worked is not taken back on a tease", async () => {
+  const found = contradictedConfession(RETRACTED, { history: SAVED });
+  assert.ok(found?.unsaved, "the record shows write_note succeeded");
+
+  const claims = claimCheck({ question: "Tex are you real? Or are you tripping?", history: SAVED });
+  const call = claims.wrap(async () => ({ content: [{ type: "text", text: "saved" }] }));
+  await call("write_note", { path: "tex/chats/pearl-ivory-arrow/sunday-services-research.md", content: "# Research" });
+  const notice = String(await claims.check(RETRACTED));
+  assert.match(notice, /takes back a save/);
+  assert.match(notice, /not a correction/);
+  assert.match(notice, /first one was already saved/);
+});
+
+test("a save that never succeeded can be owned up to, and other answers pass", () => {
+  const failed = [{ role: "user", text: "make it a page" }, { role: "assistant", text: "Done.", tools: ["read_note"] }];
+  assert.equal(contradictedConfession(RETRACTED, { history: failed }), null, "no successful write on record");
+  assert.equal(contradictedConfession(RETRACTED, { history: failed, steps: [{ name: "write_note", ok: false }] }), null, "a failed write is not a save");
+  assert.equal(contradictedConfession("Yes, I'm real, and the page is saved. Here it is again.", { history: SAVED }), null);
+  assert.equal(contradictedConfession("I didn't save it to your folder, it's in the chat's folder.", { history: SAVED }), null, "where it went, not whether");
 });
