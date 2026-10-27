@@ -387,6 +387,8 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
 /** One turn answered here, as before workflows: retried by the alarm, then given up on. True when the drain stops for the retry. */
 export async function answerInline(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<boolean> {
   const [key, item] = entries.at(-1)!;
+  // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
+  if (item.attempts === 0) log("inline");
   try {
     const outcome = await answerGroup(storage, entries, deps);
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
