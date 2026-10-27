@@ -47,6 +47,7 @@ import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
 import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
+import { silentSubmits } from "./silentSubmit.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -359,6 +360,9 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   let steps = 0;
   // A captcha is tried every other way before it is ever the person's (`captchaLadder.js`).
   const captchas = captchaLadder();
+  // And a hidden one, which only shows as a send button that does nothing (`silentSubmit.js`).
+  const submits = silentSubmits();
+  let shownElements = [];
   // The person's own page for taking the browser over (`context.lc/tex/<handle>`),
   // never the model's and never a link to the browser itself: texted the
   // moment it exists when the turn can text mid-task (`say`), else added to
@@ -407,7 +411,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const url = canonicalUrl(href);
       if (url) allowed.add(url);
     }
-    return { reading, ran: Array.isArray(result.ran) ? result.ran : [], file: result.file ?? null, captcha: result.captcha ?? null };
+    return { reading, ran: Array.isArray(result.ran) ? result.ran : [], file: result.file ?? null, captcha: result.captcha ?? null, invisible: result.invisibleCaptcha === true };
   }
 
   /** Keep a downloaded file in the person's bucket and say how to use it; the bytes never reach the model. */
@@ -557,10 +561,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         done = await run(planned);
         let cleared = false;
         if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
+        if (!cleared && captchaLine === "") ({ done, line: captchaLine } = await submits.settle(done, planned, shownElements, (s, o) => run(s, o)));
         // Got past a captcha: nothing is left for the person to do there.
         if (cleared) handoff = false;
         // Only a sign-in, a code, a captcha, a card or their own ask is theirs (`handoffGate.js`).
-        if (handoff && done !== null && !handoffIsTheirs({ reading: done.reading, stuck: captchas.stuck(), theirWords: addresses })) {
+        if (handoff && done !== null && !handoffIsTheirs({ reading: done.reading, stuck: captchas.stuck() || submits.stuck(), theirWords: addresses })) {
           handoff = false;
           notTheirs = true;
         }
@@ -601,6 +606,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           : handoff
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
             : "";
+      shownElements = done.reading.elements;
       const kept = done.file ? await keepFile(done.file) : "";
       const result = textResult(
         readingText(done.reading, done.ran, { from }) + captchaLine + (notTheirs ? NOT_THEIRS : "") + told + kept,
@@ -609,7 +615,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
       result.sources = [done.reading.url];
       // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).
-      if (captchas.stuck()) result.captchaStuck = true;
+      if (captchas.stuck() || submits.stuck()) result.captchaStuck = true;
       // A look's picture, after the words: what the page shows, for a click at a point on it.
       const shot = done.reading.shot;
       if (typeof shot?.data === "string" && shot.data.length > 0 && shot.data.length <= MAX_SHOT_CHARS) {

@@ -338,3 +338,18 @@ never handed over and no link is texted; zip and promo codes are not sign-in
 codes; each fair ask still is; sabotage record in its header) and hand-back
 bench case 14 (`bench/ai/tests/handback.md`, `sites/retreat.example.md`,
 `bench/test/handback.test.mjs`).
+
+**A hidden captcha (2026-10-27, the evening try).** On the real form, Tex
+filled every box and pressed Register twice, and an invisible captcha turned
+both presses away with nothing on the page. Nothing looked like a captcha,
+so the tries never ran and the check above refused the handoff, and Tex
+texted the person the whole form to fill in. The screenshot Worker now
+reports a captcha that shows nothing until a form is sent
+(`invisibleCaptcha`, `infra/site-shots/src/captcha.ts`), and a send button
+that leaves such a page exactly as it was twice running is that captcha
+saying no (`apps/mcp/src/agent/silentSubmit.js`). The gateway then fills the
+same form in a fresh browser and presses once more. If that is turned away
+too, the captcha counts as stuck, the handoff goes ahead for that one press
+with the form already filled, and the reading says so. Tests:
+`apps/mcp/test/agentSilentSubmit.test.mjs` (sabotage record in its header)
+and hand-back bench case 16 (`sites/gathering.example.md`).

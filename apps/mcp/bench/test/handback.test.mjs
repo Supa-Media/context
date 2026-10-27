@@ -213,3 +213,38 @@ test("case 15: a texted screenshot goes on the draft through Gmail itself, by at
     world.close();
   }
 });
+
+test("case 16: a Register a hidden captcha turns away is tried in a fresh browser, then only that press is handed over", async () => {
+  const fill = [
+    { do: "type", ref: 1, text: "Maya Reyes" },
+    { do: "type", ref: 2, text: "maya@example.invalid" },
+    { do: "select", ref: 3, option: "No" },
+    { do: "select", ref: 4, option: "No" },
+    { do: "click", ref: 5 },
+  ];
+  const model = scripted([
+    browse({ do: "goto", url: "https://gathering.example/register" }, ...fill),
+    browse({ do: "click", ref: 5 }),
+    browse({ do: "handoff" }),
+    { text: "A hidden captcha keeps turning my Register press away. The form's filled in: tap the link, press Register, and text me." },
+    browse({ do: "click", ref: 5 }),
+    { text: "You're registered for Fall Gathering 2026." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const first = await world.text("register me for fall gathering on gathering.example. not my first one and i don't need transportation");
+    assert.match(model.results[1], /only that one press is the person's now/);
+    assert.ok(!model.results[2].includes("Not handed over"), "the handoff for that press went through");
+    const events = world.browser();
+    assert.ok(events.includes("fresh browser"));
+    assert.equal(events.filter((e) => e.startsWith("turned away gathering.example/register")).length, 3, "twice here, once in the fresh browser");
+    assert.ok(events.includes("handoff gathering.example"));
+    const second = await world.text("Done");
+    assert.match(model.results.at(-1), /You're registered/);
+    const sixteen = await handbackCase(16);
+    const record = { tools: [...first.tools, ...second.tools].map((c) => c.tool), browser: world.browser() };
+    assert.deepEqual(checkVerdicts(sixteen, record).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});
