@@ -104,7 +104,6 @@ export type FileOperation =
       limit?: number;
       refreshOnMiss?: boolean;
       half?: "words" | "meaning";
-      vector?: number[];
     }
   | { kind: "notePaths" }
   | { kind: "workspaceGraph"; compact?: boolean }

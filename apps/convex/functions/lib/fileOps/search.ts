@@ -282,11 +282,6 @@ export async function searchNotes(
      * later pages get.
      */
     half?: "words" | "meaning";
-    /**
-     * The question already embedded, by a fan-out that asked the model once
-     * for every workspace. Absent, this workspace embeds the question itself.
-     */
-    vector?: number[];
   },
   projection: ProjectionClient | null = null,
 ): Promise<SearchResults> {
@@ -332,7 +327,6 @@ export async function searchNotes(
   // rejects: a failure is `null`, which leaves the word answer as it was.
   const started = Date.now();
   let meaningMs: number | undefined;
-  const vector = options.vector;
   const meaningPending = options.half !== "words" && meaningSearchable(store)
     ? meaningMatches(store, {
         query,
@@ -340,7 +334,6 @@ export async function searchNotes(
         grantedGroups: options.clearance.names.size > 0,
         isVisible,
         prefix: underFolder,
-        ...(vector !== undefined && vector.length > 0 ? { embed: async () => [vector] } : {}),
       }).then((matches: unknown) => {
         meaningMs = Date.now() - started;
         return matches;

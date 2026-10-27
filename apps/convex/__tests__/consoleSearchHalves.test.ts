@@ -3,25 +3,21 @@
  * 2026-10-27).
  *
  * The palette used to wait for both halves of a search in every workspace
- * before drawing a row, and each workspace embedded the same question for
- * itself. Now it asks the words and the meaning as two halves: the words are
- * drawn as soon as they land, and the meaning joins after, embedded once.
+ * before drawing a row. Now it asks the words and the meaning as two halves: the words are
+ * drawn as soon as they land, and the meaning joins after.
  * What is asserted:
  *
  *  - The words half asks no meaning index and sends nothing to the model.
  *  - The meaning half answers only notes found by meaning, each with how close
  *    it was, filtered by the caller's live `canSee` exactly like the merged
  *    search: a team caller is not handed a private note.
- *  - A question already embedded is not embedded again.
  *  - Through the control plane, a half is accepted and the words half answers
  *    what the merged search's words do.
  *
  * Sabotage record (temporary local edits, reverted, as measured):
  *   the `half !== "words"` guard removed in `searchNotes`  → "the words half asks…" fails
- *   the given `vector` not passed to `meaningMatches`      → "a question already embedded…" fails
- *   the meaning half not answered on its own               → "the meaning half answers…", "a question
- *                                                             already embedded…" and "the words half
- *                                                             answers…" fail
+ *   the meaning half not answered on its own               → "the meaning half answers…" and "the words
+ *                                                             half answers…" fail
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -101,25 +97,6 @@ describe("a search in two halves", () => {
       ["1-projects/vegetables.md", true, 0.85],
     ]);
     expect(meaning.hits[0]?.snippets).toEqual(["Tomatoes go by the south fence."]);
-  });
-
-  test("a question already embedded is not embedded again", async () => {
-    const store = bucket();
-    await indexed(store);
-    attachMeaningIndex(store, DESCRIPTOR, null);
-    const sent = stubCloudflare(["1-projects/garden.md"]);
-
-    const vector = Array<number>(MEANING_DIMENSIONS).fill(0.1);
-    const meaning = await searchNotes(store, {
-      query: "vegetables",
-      clearance: clearanceOf("private"),
-      refreshOnMiss: false,
-      half: "meaning",
-      vector,
-    });
-    expect(meaning.hits.map((hit) => hit.path)).toEqual(["1-projects/garden.md"]);
-    expect(sent.some((url) => url.includes("/ai/run/"))).toBe(false);
-    expect(sent.length).toBe(1);
   });
 
   test("a team caller's meaning half is not handed a private note", async () => {

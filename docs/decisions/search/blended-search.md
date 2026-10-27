@@ -180,18 +180,20 @@ and no longer does — it is in the scope, marked slow.)
 
 **The palette asks the words and the meaning as two halves** (the search
 tune-up, Dev2's pick, 2026-10-27). A merged answer waited, in every
-workspace, for the meaning lookup and its snippets before any row was drawn,
-and each workspace embedded the same question for itself. `searchContexts`
+workspace, for the meaning lookup and its snippets before any row was drawn.
+`searchContexts`
 takes `half: "words" | "meaning"`: the app asks both at once, draws the words
 the moment they land, and appends the meaning rows below them when they
 arrive, so no drawn row moves (`withMeaningRows`). The words half reads no
-meaning credential. The meaning half embeds the question once
-(`embedQuestion`), hands the vector to every workspace, ranks its rows across
+meaning credential. The meaning half ranks its rows across
 workspaces by closeness (one model scored them all, so here the scores are
 comparable), has one page, and marks each row `close` when it reaches
 `MEANING_EXTRA_FLOOR_WITH_WORDS`; when the words found notes with every word,
 only close rows join. Absent `half` is the merged search, which older apps and
 AI clients still get. Only the half a person waits on records a timing row.
+Each workspace still embeds the question for itself, in parallel: embedding
+once in the action would read the integration secret from a public function,
+which `__tests__/structure/` forbids, and the wait is the same.
 Reverting fails `apps/convex/__tests__/consoleSearchHalves.test.ts` and "words
 are drawn while meaning is still out" (`apps/mobile/__tests__/blendedSearchHook.test.ts`).
 

@@ -23,7 +23,6 @@ import { recordSearchTiming, timingOf } from "../searchTiming";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 import { type BlendedAnswer, SOURCE_DEADLINE_MS, withDeadline } from "./searchDeadline";
-import { embedQuestion } from "./meaningPass";
 import { MEANING_EXTRA_FLOOR_WITH_WORDS } from "../../../../mcp/src/search/meaning/serve.js";
 
 /**
@@ -321,8 +320,6 @@ export async function searchContextsHandler(
   // A meaning half is one page: its rows are the few notes about the question.
   const read = meaningHalf ? ({ kind: "fresh" } as const) : decodeCursor(args.cursor, fingerprint);
   const offsets = read.kind === "page" ? read.offsets : {};
-  // Embedded once here rather than once per workspace below (`embedQuestion`).
-  const vector = meaningHalf ? await embedQuestion(ctx, query) : null;
 
   /*
     ONE DEADLINE PER SOURCE, AND A SLOW CONTEXT COSTS ONLY ITSELF.
@@ -368,7 +365,6 @@ export async function searchContextsHandler(
                 // rule written for a single spinner.
                 refreshOnMiss: false,
                 ...(args.half === undefined ? {} : { half: args.half }),
-                ...(vector === null ? {} : { vector }),
               },
             },
           )) as Extract<OperationResult, { kind: "searchResults" }>;
