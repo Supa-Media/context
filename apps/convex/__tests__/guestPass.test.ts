@@ -10,6 +10,8 @@
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - skip the `guestChatsOf` check in `reserveSend`: "a number not in the chat is texted nothing" fails;
+ *  - drop the account branch in `reserveSend`: "is texted a sign-in code from any chat" fails;
+ *  - drop its pause check: "paused by \"This wasn't me\"" fails;
  *  - skip it in `issue`: "an approved code for a number not in the chat makes no pass" fails;
  *  - render the rows for a member in `guestReach`: "only what the chat's group can see" fails (the team note opens);
  *  - drop `clearChatPhones` from `clearGuests`: "guest mode off ends it" fails on the kept rows;
@@ -180,6 +182,35 @@ describe("a guest in the chat", () => {
     expect(await read(w, other, PLAN)).toEqual({ status: "signed_out" });
     await w.t.action(api.functions.guestPass.signOut, { pass });
     expect(await read(w, pass, PLAN)).toEqual({ status: "signed_out" });
+  });
+});
+
+describe("a number an account holds", () => {
+  const MEMBER = "+15555550177";
+
+  test("is texted a sign-in code from any chat, guest mode or not, and makes no guest pass", async () => {
+    const w = await world();
+    withTwilio(w);
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("users", { phone: MEMBER, phoneVerificationTime: 1, createdAt: 1 });
+    });
+    // In no guest chat at all, as in a members chat like the team's own.
+    expect(await w.t.action(api.functions.guestPass.start, { phone: MEMBER, slug: "acme" })).toEqual({ status: "sent", phone: MEMBER, account: true });
+    expect(texted).toEqual([MEMBER]);
+    // The code is for the ordinary sign-in: it makes no pass.
+    expect(await w.t.action(api.functions.guestPass.verify, { phone: MEMBER, code: GOOD_CODE })).toEqual({ status: "unavailable" });
+    expect(await w.t.run(async (ctx) => await ctx.db.query("guestPasses").collect())).toEqual([]);
+  });
+
+  test("paused by \"This wasn't me\", gets no sign-in code, only what a guest gets", async () => {
+    const w = await world();
+    await guestChat(w);
+    await w.t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { phone: FRIEND, phoneVerificationTime: 1, createdAt: 1 });
+      await ctx.db.insert("phoneSignInPauses", { userId, pausedAt: 1 });
+    });
+    expect(await w.t.action(api.functions.guestPass.start, { phone: FRIEND, slug: "acme" })).toEqual({ status: "sent", phone: FRIEND });
+    expect(texted).toEqual([FRIEND]);
   });
 });
 

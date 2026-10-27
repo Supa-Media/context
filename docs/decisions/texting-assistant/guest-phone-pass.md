@@ -29,6 +29,16 @@ saw the four-screen mock, and chose every default below on 2026-10-27
   link names, within the sign-in limits (five codes a number an hour). Every
   other number hears "sent" and is texted nothing, so the page can't text
   strangers or say whether a number is in a chat.
+- **A number an account holds signs in for real** (the owner, 2026-10-27,
+  after testing from a members chat: "I never get the code", "I should
+  already be signed in"). A members chat is not a guest chat, so its numbers
+  are never kept and the guest code went nowhere while the page said "sent".
+  Now a number an account holds is texted the ordinary sign-in code from any
+  chat, and the page signs in with `phone-verify`; the route then opens the
+  note in the console with everything the account may see. A number paused
+  by "This wasn't me" gets no sign-in code, only what a guest gets. Saying a
+  number holds an account tells nobody more than the sign-in page already
+  does.
 - **A pass, not an account.** The code gives the browser a random pass, kept
   in its storage and on the server only as a hash (`guestPasses`). It lasts a
   year from its last use, and "Sign out" forgets it. No user row, no

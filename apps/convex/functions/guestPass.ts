@@ -4,11 +4,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { guestChatsOf, guestNote, guestPhoneHash } from "./lib/guestPhones";
+import { phoneSignInPaused } from "./lib/emailProof";
 import { normalizePhone } from "./lib/phoneCheck";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { readThroughShare } from "./lib/shares/readPath";
 import { workspaceBySlug } from "./lib/textGroupInvited";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
+import { phoneHolder } from "./phoneSignIn";
 
 /**
  * A guest pass: opening a note from a Tex guest chat with a texted code, no account needed (the owner,
@@ -25,6 +27,10 @@ import { canTextCodes, checkCode, textCode } from "./phoneCodes";
  *    whether a number is in a chat.
  *  - **Read only.** Edits still go through Tex in the chat. A note that is sealed, or comments on it, never reach
  *    the page: it reads through the share path with `openToAnyone`, as a link does.
+ *  - **A number an account holds signs in for real** (the owner, 2026-10-27: "I should already be signed in"). It is
+ *    texted the ordinary sign-in code, whichever chat it is in, members chats included, and the page signs in with
+ *    `phone-verify`, landing on the note in the console with everything the account may see. Whether a number holds
+ *    an account is already what the public sign-in page answers, so saying so here tells nobody anything new.
  *  - **One answer for every refusal** (`unavailable`): not shared with the chat, not there, not a note. A pass that
  *    is unknown or expired says `signed_out`, which is about the browser, not the note.
  */
@@ -40,6 +46,8 @@ const SEND_PER_PHONE = 5;
 const SEND_PER_HOUR = 300;
 /** Numbers looked up per hour, everybody together. */
 const LOOKUPS_PER_HOUR = 1000;
+/** Sign-in codes texted per hour, everybody together, shared with the sign-in page (`phoneSignIn.ts`). */
+const SIGN_IN_SEND_PER_HOUR = 300;
 /** Codes typed for one phone per hour, right or wrong. */
 const CHECK_PER_PHONE = 10;
 /** Most passes one number holds; the oldest goes when a new one is made. */
@@ -53,13 +61,27 @@ const startStatus = v.union(
   v.literal("failed"),
 );
 
-/** Whether `phone` may be texted a guest code for the workspace `slug` names, spending one send when it may. */
+/**
+ * Whether `phone` may be texted a code from the note page, spending one send when it may: `account` for a number an
+ * account holds (a sign-in code), `ok` for one in a live guest chat of the workspace `slug` names (a guest code).
+ */
 export const reserveSend = internalMutation({
   args: { phone: v.string(), phoneHash: v.string(), slug: v.string() },
-  returns: v.union(v.literal("ok"), v.literal("skip"), v.literal("too_many")),
+  returns: v.union(v.literal("account"), v.literal("ok"), v.literal("skip"), v.literal("too_many")),
   handler: async (ctx, { phone, phoneHash, slug }) => {
     if (!(await tryConsumeRateLimit(ctx, { key: "guestPass.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
       return "too_many";
+    }
+    const holder = await phoneHolder(ctx, phone);
+    // Paused by "This wasn't me": no sign-in code, but a guest code can still open what the chat shares.
+    if (holder !== null && !(await phoneSignInPaused(ctx, holder))) {
+      if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.sendTo:${phone}`, limit: SEND_PER_PHONE, windowMs: WINDOW_MS }))) {
+        return "too_many";
+      }
+      if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.send", limit: SIGN_IN_SEND_PER_HOUR, windowMs: WINDOW_MS }))) {
+        throw new ConvexError({ code: "RATE_LIMITED", message: "too_many" });
+      }
+      return "account";
     }
     const workspace = await workspaceBySlug(ctx, slug);
     if (workspace === null || (await guestChatsOf(ctx, phoneHash, workspace._id)).length === 0) return "skip";
@@ -74,16 +96,19 @@ export const reserveSend = internalMutation({
   },
 });
 
-/** Text a code to open a note from a guest chat. Every number that isn't in one hears `sent` and is texted nothing. */
+/**
+ * Text a code to open a note link. `account` says the code signs in to an account (`phone-verify`), not a guest
+ * pass. Every other number that isn't in a guest chat hears `sent` and is texted nothing.
+ */
 export const start = action({
   args: { phone: v.string(), slug: v.string() },
-  returns: v.object({ status: startStatus, phone: v.optional(v.string()) }),
-  handler: async (ctx, args): Promise<{ status: typeof startStatus.type; phone?: string }> => {
+  returns: v.object({ status: startStatus, phone: v.optional(v.string()), account: v.optional(v.boolean()) }),
+  handler: async (ctx, args): Promise<{ status: typeof startStatus.type; phone?: string; account?: boolean }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
     const phoneHash = await guestPhoneHash(phone);
     if (phoneHash === null || !canTextCodes()) return { status: "unavailable", phone };
-    let reserved: "ok" | "skip" | "too_many";
+    let reserved: "account" | "ok" | "skip" | "too_many";
     try {
       reserved = await ctx.runMutation(internal.functions.guestPass.reserveSend, { phone, phoneHash, slug: args.slug.trim().replace(/^@/, "").toLowerCase() });
     } catch (error) {
@@ -93,7 +118,7 @@ export const start = action({
     if (reserved === "too_many") return { status: "too_many" };
     if (reserved === "skip") return { status: "sent", phone };
     const sent = await textCode(ctx, phone);
-    if (sent.ok) return { status: "sent", phone };
+    if (sent.ok) return reserved === "account" ? { status: "sent", phone, account: true } : { status: "sent", phone };
     return { status: sent.reason === "invalid_phone" ? "invalid_phone" : sent.reason === "too_many" ? "too_many" : "failed", phone };
   },
 });

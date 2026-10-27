@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAction } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
@@ -11,6 +12,7 @@ import { fonts, leading, pointerType as t, space, tracking } from "../design/tok
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "../auth/CodeBoxes";
 import { PhoneNumberField } from "../auth/PhoneNumberField";
+import { PHONE_VERIFY_PROVIDER } from "../auth/usePhoneSignIn";
 import { loginHref } from "../auth/redirect";
 import { canonicalHrefFor, type NoteAddress } from "../console/noteLink";
 import { NoteBody } from "../share/NoteBody";
@@ -34,15 +36,16 @@ import {
  * A guest in the chat has no account. They type the number they text the group from, get a code, and the note
  * opens; the pass the code gave is kept in this browser (`guestPass.ts`), so the next link opens with no code. The
  * server decides everything (`apps/convex/functions/guestPass.ts`): which numbers are texted, and what each pass
- * reads, worked out again on every read. Somebody with an account is one tap from the ordinary sign-in, which brings
- * them back to the console at the same note.
+ * reads, worked out again on every read. A number an account holds is texted a sign-in code instead (`account`), and
+ * the code signs that account in here: the route then opens the note in the console, with everything it may see
+ * (the owner, 2026-10-27: "I should already be signed in").
  *
  * Read only: edits go through Tex in the chat.
  */
 type Step =
   | { kind: "opening" }
   | { kind: "phone" }
-  | { kind: "code"; phone: string }
+  | { kind: "code"; phone: string; account: boolean }
   | { kind: "note"; path: string; text: string }
   | { kind: "unavailable" };
 
@@ -50,6 +53,7 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const router = useRouter();
+  const { signIn: signInWithCode } = useAuthActions();
   const start = useAction(api.functions.guestPass.start);
   const verify = useAction(api.functions.guestPass.verify);
   const readNote = useAction(api.functions.guestPass.readNote);
@@ -92,10 +96,11 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
       const result = (await start({ phone: step.kind === "code" ? step.phone : phone, slug: address.slug })) as {
         status: GuestStartStatus;
         phone?: string;
+        account?: boolean;
       };
       setError(guestStartError(result.status));
       if (result.status === "sent" && result.phone !== undefined) {
-        setStep({ kind: "code", phone: result.phone });
+        setStep({ kind: "code", phone: result.phone, account: result.account === true });
         setCode("");
         setResent(again);
       }
@@ -110,6 +115,22 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
     if (step.kind !== "code" || value.length !== OTP_LENGTH) return;
     setError(null);
     setSubmitting(true);
+    if (step.account) {
+      try {
+        // Signed in, the route swaps this page for the note in the console. A refused code answers "not signed in".
+        const result = await signInWithCode(PHONE_VERIFY_PROVIDER, { phone: step.phone, code: value });
+        if (!result.signingIn) {
+          setError(guestVerifyError("wrong"));
+          setCode("");
+        }
+      } catch {
+        setError(guestVerifyError("wrong"));
+        setCode("");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     try {
       const result = (await verify({ phone: step.phone, code: value })) as { status: GuestVerifyStatus; pass?: string };
       if (result.status === "ok" && result.pass !== undefined) {
@@ -161,7 +182,8 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
                 Open the note from your group chat
               </Text>
               <Text variant="rowSub" style={styles.sub}>
-                Enter the number you text the group from. We'll text you a code.
+                Enter the number you text the group from. We'll text you a code. If it's your Context number, the code
+                signs you in.
               </Text>
               <View style={styles.field}>
                 <PhoneNumberField
@@ -204,7 +226,16 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
                 Enter the code
               </Text>
               <Text variant="rowSub" style={styles.sub}>
-                If <Text style={styles.strong}>{step.phone}</Text> is in the chat, a code is on its way to it.
+                {step.account ? (
+                  <>
+                    A code is on its way to <Text style={styles.strong}>{step.phone}</Text>. It signs you in to your
+                    account.
+                  </>
+                ) : (
+                  <>
+                    If <Text style={styles.strong}>{step.phone}</Text> is in the chat, a code is on its way to it.
+                  </>
+                )}
               </Text>
               <View style={styles.field}>
                 <CodeBoxes
@@ -226,7 +257,7 @@ export function GuestNoteScreen({ address }: { address: NoteAddress }) {
               <Failure text={error} />
               <View style={styles.primaryRow}>
                 <Button
-                  label="Open the note"
+                  label={step.account ? "Sign in and open" : "Open the note"}
                   variant="accent"
                   disabled={submitting || code.length !== OTP_LENGTH}
                   onPress={() => void check()}
