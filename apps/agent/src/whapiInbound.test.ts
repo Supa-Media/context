@@ -287,6 +287,24 @@ describe("whapi webhook: groups", () => {
     expect(again).toMatchObject({ text: "Tex and Tex" });
   });
 
+  it("reads a @lid mention as Tex when context.mentions names Tex's number (WhatsApp's group shape)", () => {
+    const body = "@123456789012345 where is the page";
+    const [event] = parseWhapiWebhook(delivery(group({ text: { body }, context: { mentions: ["15550001111@s.whatsapp.net"] } })), LINE);
+    expect(event).toMatchObject({ kind: "group-message", text: "Tex where is the page" });
+    // Only the mention the list says is Tex: someone else's stays as it was.
+    const [two] = parseWhapiWebhook(
+      delivery(group({ text: { body: "@111111111111111 ask @222222222222222" }, context: { mentions: ["15551234567@s.whatsapp.net", "15550001111@s.whatsapp.net"] } })),
+      LINE,
+    );
+    expect(two).toMatchObject({ text: "@111111111111111 ask Tex" });
+    // Listed but not written as a mention: still addressed to Tex.
+    const [listed] = parseWhapiWebhook(delivery(group({ text: { body: "where is it" }, context: { mentions: ["15550001111@s.whatsapp.net"] } })), LINE);
+    expect(listed).toMatchObject({ text: "Tex where is it" });
+    // A mention of someone else only is never Tex.
+    const [other] = parseWhapiWebhook(delivery(group({ text: { body: "@123456789012345 hi" }, context: { mentions: ["15551234567@s.whatsapp.net"] } })), LINE);
+    expect(other).toMatchObject({ text: "@123456789012345 hi" });
+  });
+
   it("names a sender with only a @lid id as lid:<digits>, never as a phone", () => {
     const [event] = parseWhapiWebhook(
       delivery(group({ from: "98765432100123@lid", text: { body: "hi all" } })),
