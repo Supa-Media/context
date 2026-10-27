@@ -18,7 +18,7 @@
 import { ServiceError, type Fetch } from "./clients";
 import { isRefusal } from "./carousel";
 import type { Picture } from "./line";
-import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
+import { hostedNoteCard, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
@@ -69,12 +69,12 @@ function sendblueGroupLine(deps: GroupLineDeps): GroupLine {
   };
   return {
     sendText: async (place, text, replyTo) => {
-      // A note's link goes as its picture, then the link inside a sentence, as in a 1:1 chat (`noteCards.ts`).
+      // A note's link goes as its picture, then the link alone, as in a 1:1 chat (`noteCards.ts`).
       const drawn = await hostedNoteCard(text, deps.noteCardPicture, deps.hostPicture);
       if (drawn) {
         try {
           await sendGroupMedia(deps.fetch, keys(), place, drawn.address, replyTo);
-          return await sendGroupText(deps.fetch, keys(), place, linkAfterCard(drawn.link), replyTo);
+          return await sendGroupText(deps.fetch, keys(), place, drawn.link.url, replyTo);
         } catch (error) {
           // A picture the app would not take: the link alone, as before.
           if (!isRefusal(error)) throw error;
