@@ -52,6 +52,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
+import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { mayAsk } from "./handbackJudge.js";
@@ -449,6 +450,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
+  // Published text (verses, lyrics) asked of them, or a failed page read never tried in the browser (`publishedText.js`).
+  let pasteNoticed = false;
   // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
   let shortNoticed = false;
   let askFirstNoticed = false;
@@ -546,6 +549,16 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
       retryNoticed = true;
       return BROWSER_UNTRIED_NOTICE;
+    }
+    // A page read failed and the answer gives up on it, with the browser on offer and never tried.
+    if (!retryNoticed && !browserTried && canBrowse() && aPageReadFailed(steps) && saysItCouldNot(answer)) {
+      retryNoticed = true;
+      return READ_FAILED_NOTICE;
+    }
+    // "Paste them in": published text asked of them, which is Tex's to find, tried or not.
+    if (!pasteNoticed && hadWeb && asksForPublishedText(answer)) {
+      pasteNoticed = true;
+      return publishedTextNotice({ canBrowse: canBrowse() });
     }
     // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
     // more exact notice, since an answer that gives up also tends to hand the looking back.

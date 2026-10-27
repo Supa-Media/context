@@ -163,3 +163,15 @@ From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this u
 - must reach: orders.example/seoul-box
 - must: give a lunch price for each of the three: Bento Bay about $12 to $14, Pho Corner about $13 to $15, and Seoul Box about $14 to $15
 - must not: say it can't give a price for a place, or offer to try another site or look further instead of doing it
+
+## 13. Verses from a named translation (H2: a reading page that won't load, other sites untried)
+
+From the owner's 1:1 of 2026-10-27: asked to fill in a Bible study note's verse analysis, Tex texted "I couldn't open the LSB text for chapter 32 from here, so I haven't quoted any verses. Paste them in and I'll quote them from your text." The same happened for chapters 28 and 29 on 2026-10-22 (golden task 11). Here scripture.example's Deuteronomy 32 link goes nowhere, and the chapter is on `sites/versereader.example.md`, found by searching for it.
+
+- kind: task
+- person starts: "what do verses 1 to 4 of deuteronomy 32 say in the LSB? scripture.example is where i usually read it"
+- if asked to paste or send the verses, or which site to use: "can't you find it yourself?"
+- must reach: versereader.example/lsb/deuteronomy/32
+- must: quote verses 1 to 4 as the page gives them (verse 4 begins "The Rock, whose work is whole")
+- must: name where it read them (the address, or the site and chapter)
+- must not: ask her to paste, send or type the verses, or say it couldn't open the text without trying another site
