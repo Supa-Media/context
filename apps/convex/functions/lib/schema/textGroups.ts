@@ -42,6 +42,14 @@ export const textGroupTables = {
      * never a phone number.
      */
     guestFolderUsers: v.optional(v.array(v.id("users"))),
+    /**
+     * How much Tex joins in (Dev2, 2026-10-26; `docs/design/tex-event-log/CONTRACT.md` section 4). Absent: never
+     * chosen, so the Worker asks before its first answer and uses `followAlong` meanwhile.
+     */
+    engagement: v.optional(v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"))),
+    /** Who chose it: their display handle or label as the Worker named them, or a `groupKey`-salted hash of a number. */
+    engagementSetBy: v.optional(v.string()),
+    engagementSetAt: v.optional(v.number()),
     lastSeenAt: v.number(),
   })
     .index("by_key", ["groupKey"])

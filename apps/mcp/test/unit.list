@@ -240,3 +240,5 @@ test/agentGroupInvited.test.mjs
 test/agentGroupRoutines.test.mjs
 test/agentGroupMail.test.mjs
 test/agentGroupPlaybook.test.mjs
+test/agentEventLog.test.mjs
+test/agentTextingRoutes.test.mjs

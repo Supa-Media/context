@@ -111,7 +111,7 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     return;
   }
   // The next turn's history is owed this text, by name (`told.ts`).
-  await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late");
+  await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late", owed.chatId, now);
   await storage.delete(READY_KEY);
   // The Gmail it asked for is texted about when it connects (`gmailWatch.ts`).
   if (answer.status === "ready") {

@@ -11,7 +11,8 @@ export type Command =
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
-  | { kind: "status" };
+  | { kind: "status" }
+  | { kind: "settings" };
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -85,6 +86,7 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
+  if (/^settings\??$/.test(rest)) return { kind: "settings" };
   const shared = SHARE_MAIL.exec(rest);
   if (shared) return { kind: "share_mail", address: shared[1]!, ...(shared[2] ? { query: shared[2] } : {}) };
   const unshared = UNSHARE_MAIL.exec(rest);
