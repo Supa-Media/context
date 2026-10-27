@@ -4,11 +4,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ShellTitleBand } from "../../app/ShellTitleBandView";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, pointerType, radii, space, touchType } from "../../design/tokens";
+import { fonts, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { GuidePhone } from "./styles";
 import { Reveal } from "./parts";
+import { densityFor } from "../../app/frame";
 
 /**
  * The guide's page: one action per screen, over the workspace.
@@ -51,7 +52,7 @@ export function GuideFrame({
 }) {
   const colors = useColors();
   const s = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
 
@@ -112,7 +113,7 @@ export function GuideFrame({
 /** "← Back", quiet, as the foot's left side. */
 export function BackLink({ onPress }: { onPress: () => void }) {
   const s = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   return (
     <Pressable role="button" onPress={onPress} style={s.quietPress} testID="agent-setup-back">
       <Text style={[s.quiet, phone && s.quietPhone]}>← Back</Text>
@@ -123,7 +124,7 @@ export function BackLink({ onPress }: { onPress: () => void }) {
 /** A quiet word link in the foot: "Do this later", "Connect ChatGPT too". */
 export function QuietLink({ label, onPress, testID }: { label: string; onPress: () => void; testID?: string }) {
   const s = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   return (
     <Pressable role="button" onPress={onPress} style={s.quietPress} testID={testID}>
       <Text style={[s.quiet, phone && s.quietPhone]}>{label}</Text>
@@ -150,7 +151,7 @@ export function GuideButton({
   testID?: string;
 }) {
   const s = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   return (
     <Pressable
       role="button"

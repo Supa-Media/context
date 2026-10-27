@@ -70,8 +70,9 @@ export function decorationsFor(state: EditorState): DecorationSet {
   /*
     Frontmatter is decided from the text, before the tree is consulted, and
     everything the tree says inside it is discarded — see `frontmatterRange`.
-    The grammar reads the closing `---` as a setext underline, so without this
-    a note's metadata is drawn as its largest heading.
+    The grammar has no frontmatter node, so without this a note's metadata is
+    drawn as a paragraph between two rules (and, before setext headings were
+    dropped, as its largest heading).
   */
   const doc = state.doc.toString();
   const front = frontmatterRange(doc);

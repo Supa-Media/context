@@ -13,9 +13,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
+import { fonts, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { pluginWorkNote, type RuntimeView } from "./runtime";
+import { densityFor } from "../../app/frame";
 
 /**
  * The dialog a running plugin asked for, drawn by the console.
@@ -121,7 +122,7 @@ export function PluginSuggestDialog({ runtime }: { runtime?: RuntimeView }) {
     room, not the input device, so a desktop browser dragged narrow gets the
     sheet too.
   */
-  const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
+  const touch = Platform.OS !== "web" || densityFor(width) === "compact";
 
   if (modal === null) {
     if (failure === null) return null;

@@ -304,7 +304,7 @@ function shoot(
 
 const SCHEMES = ["light", "dark"] as const;
 
-/** A console window narrowed past `narrowBreakpoint` — the compact layout. */
+/** A console window narrowed past `narrowBreakpoint`: compact in a browser, medium in the Mac app. */
 const NARROW = { width: 760, height: HEIGHT };
 const FULL = { width: WIDTH, height: HEIGHT };
 
@@ -347,7 +347,7 @@ describe("shell title band shots", () => {
       expect(true).toBe(true);
     });
 
-    test(`the same window narrowed, ${scheme} — the band comes back`, () => {
+    test(`the same window narrowed, ${scheme} — still the desktop layout`, () => {
       installMacShell();
       shoot(
         `console-narrow-mac-shell-${scheme}`,
@@ -357,10 +357,11 @@ describe("shell title band shots", () => {
           children: createElement(ConsoleLayout as never),
         }),
         (container) => {
-          // The phone layout cannot hold them: its bar is absolute and over
-          // the note. The band is the fallback and this is the proof it works
-          // by dragging an edge, not only by owning a phone.
-          expect(find(container, "shell-title-band")).not.toBeNull();
+          // The Mac app never takes the phone layout (`pageInDesktopShell` in
+          // features/app/frame.ts), so a narrowed window is the medium one:
+          // the explorer folded, and the bar still holding the lights.
+          expect(find(container, "shell-title-band")).toBeNull();
+          expect(topBarLead(container)).toBe("84px");
         },
         NARROW,
       );

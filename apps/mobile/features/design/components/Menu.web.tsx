@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { layout, radii } from "../tokens";
+import { radii } from "../tokens";
 import { MARGIN, place, type Box } from "./popoverPlacement";
 import { ROW_HEIGHT, PADDING, BORDER, widthFor, heightFor, offsetOfRow, fixedAt } from "./menuGeometry";
 import { useThemedStyles, type Colors } from "../theme";
 import { ItemRow, Separator } from "./MenuRow";
 import { MenuSheet } from "./MenuSheet";
+import { densityFor } from "../../app/frame";
 
 /**
  * The action menu — **the browser**, which is both a desktop and a phone.
@@ -38,7 +39,7 @@ import { MenuSheet } from "./MenuSheet";
  * ## One rule, the same one `Palette.tsx` uses
  *
  * `Palette` picks its presentation with
- * `Platform.OS !== "web" || width < layout.narrowBreakpoint`. This file is the
+ * `Platform.OS !== "web" || densityFor(width) === "compact"`. This file is the
  * same rule with its first term already decided: it only ever runs on web —
  * native resolves to `Menu.tsx`, which is the sheet unconditionally — so what
  * is left to ask is the width.
@@ -430,7 +431,7 @@ export function Menu<Id extends string = MenuActionId>(props: MenuProps<Id>) {
    * instead of carrying a popover's keyboard state into a sheet that has no
    * keyboard.
    */
-  return width < layout.narrowBreakpoint ? <MenuSheet {...props} /> : <Popover {...props} />;
+  return densityFor(width) === "compact" ? <MenuSheet {...props} /> : <Popover {...props} />;
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({

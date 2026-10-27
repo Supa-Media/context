@@ -86,7 +86,8 @@ export function setAsideLine(setAside, dropped = []) {
   return (
     `(Context: you asked the person to give a 👍 or say yes to ${each}, and it still waits: their yes or 👍 makes it, nothing else is needed. ` +
     "This text is not that yes. Answer it; don't show it again or ask for the yes again. Only if this text changes what it should be, " +
-    "make the call again with the change, and they are asked about the new one instead.)"
+    "or says what is wrong with it (\"they're both still at 6:30\"), make the call again with that change, and they are asked about the new one instead; " +
+    "the same change again is never shown, and an apology is no answer.)"
   );
 }
 

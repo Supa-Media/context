@@ -122,6 +122,7 @@ test("the played person answers YES when the gateway held a call for their OK, a
   assert.equal(personAnswers({ asked: 2, answer: "…" }), "YES", "one yes answers every held call the ask named");
   assert.equal(personAnswers({ asked: 0, answer: "Done." }), null, "a clean turn is for the played person or nobody");
   assert.equal(personAnswers({ answer: "an older gateway with no asked field" }), null);
+  assert.equal(personAnswers({ asked: 1, answer: "Give it a 👍" }, { answersAsks: true }), null, "a case that plays its asks answers them from the brief");
 });
 
 test("a housekeeping test runs Tex's housekeeping once and records where each named note ended up", async () => {

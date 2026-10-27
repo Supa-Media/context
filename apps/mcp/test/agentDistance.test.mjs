@@ -22,7 +22,7 @@ import { test } from "node:test";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
 import { VISUAL_TOOL } from "../src/agent/visuals/index.js";
-import { distanceWords, fillDistances, kmBetween } from "../src/agent/visuals/distance.js";
+import { distanceWords, fillDistances, geocode, geocoderFor, kmBetween } from "../src/agent/visuals/distance.js";
 
 const CARD_PNG = "iVBORw0KGgo=";
 const HOME = "350 W 24th St, New York, NY 10011";
@@ -131,4 +131,26 @@ test("distances read the way people say them", () => {
   assert.deepEqual(distanceWords(0.7, "US"), { distance: "0.4 mi", distance_label: "11 min walk" });
   assert.deepEqual(distanceWords(12, "FR"), { distance: "12 km", distance_label: "away" });
   assert.ok(Math.abs(kmBetween({ lat: 51.5, lon: 0 }, { lat: 48.85, lon: 2.35 }) - 342) < 5, "London to Paris");
+});
+
+test("with a Google key, Google finds the address, Photon only on Google's miss, and a card looks each address up once", async () => {
+  const asked = [];
+  const fetchImpl = async (url) => {
+    asked.push(url);
+    const q = new URL(url).searchParams;
+    if (url.startsWith("https://maps.googleapis.com/maps/api/geocode/json")) {
+      const hit = q.get("address") === "Chelsea Market, New York";
+      return Response.json({ status: hit ? "OK" : "ZERO_RESULTS", results: hit ? [{ geometry: { location: { lat: 40.7424, lng: -74.0061 } }, address_components: [{ short_name: "US", types: ["country", "political"] }] }] : [] });
+    }
+    return Response.json({ features: [{ geometry: { coordinates: [-74.0, 40.75] }, properties: { countrycode: "US" } }] });
+  };
+  const find = geocoderFor(fetchImpl, { key: "example-maps-key" });
+  assert.deepEqual(await find("Chelsea Market, New York"), { lat: 40.7424, lon: -74.0061, country: "US" });
+  await find("Chelsea Market, New York");
+  assert.equal(asked.length, 1, "looked up once a card");
+  assert.deepEqual(await find("Somewhere Google missed"), { lat: 40.75, lon: -74.0, country: "US" });
+  assert.ok(asked[2].startsWith("https://photon.komoot.io/"), "Photon after Google's miss");
+  const plain = [];
+  await geocode("Chelsea Market", async (url) => (plain.push(url), Response.json({ features: [] })));
+  assert.ok(plain.every((url) => url.startsWith("https://photon.komoot.io/")), "with no key, never Google");
 });

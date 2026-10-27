@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { useWindowDimensions, View } from "react-native";
-import { layout } from "../../design/tokens";
 import { AGENT_NAMES, GUIDE_STEPS, type SetupAgent } from "../guides";
 import type { BringView } from "../guideState";
 import type { BringTopic } from "../bring";
@@ -8,6 +7,7 @@ import type { CheckItem } from "./parts";
 import { StepIllustration } from "./Illustrations";
 import { BackLink, GuideButton, GuideFrame, QuietLink } from "./GuideFrame";
 import { B, Checks, Gap, Heading, MenuPath, P, PromptBox, Reveal, Tips, TopicPicker, WrittenList } from "./parts";
+import { densityFor } from "../../app/frame";
 
 /**
  * The last step: bring over what the agent knows, and watch it arrive.
@@ -55,7 +55,7 @@ export function BringStep({
   const name = AGENT_NAMES[agent];
   const of = GUIDE_STEPS[agent].length;
   // A phone's foot has room for Back and one button; the quiet action goes in the page.
-  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
+  const phone = densityFor(useWindowDimensions().width) === "compact";
   const picture = <StepIllustration agent={agent} step="bring" slug={slug} />;
   const frame = (children: ReactNode, footLeft: ReactNode, footRight: ReactNode, counted = true, after?: ReactNode) => (
     <GuideFrame

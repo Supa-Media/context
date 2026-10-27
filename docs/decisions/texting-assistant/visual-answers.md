@@ -267,3 +267,28 @@ line between them when the order is the way to go
 
 What reversing it costs: places answers back to a list of addresses nobody
 can picture, or a key in the page. Tests: `apps/mcp/test/agentMapCard.test.mjs`.
+
+## Photos can be searched for, and an option card never shows a letter (2026-10-27)
+
+In a WhatsApp group Dev2 asked for a caterer's dishes "with pictures and
+prices", and the option cards went out with a big letter in a coloured block
+where each dish should be: "why isn't it adding images?" The caterer's site
+had no photo per dish, and the pages Tex read were its only source.
+
+- `search_web` takes `pictures: true` (Brave's image search). Results are
+  listed like a page's pictures, so they fill a card's photos by name
+  (`visuals/photos.js` `pagesIn`), and are vouched the same way: only an
+  address a result showed this turn is downloaded.
+- A searched picture that won't download falls back to the provider's
+  smaller copy (`sparesIn`), so a refusing host doesn't cost the photo.
+- An option card with no photo has no photo slot, and is as tall as what it
+  holds. A fact shows up to 60 characters, wrapped, not cut at 24.
+
+What fails if reversed: `apps/mcp/test/agentPictureSearch.test.mjs`.
+
+Since the same day, with `GOOGLE_MAPS_KEY` set, the geocoder is Google's,
+with Photon only on Google's miss; each card looks an address up once for its
+distances and its map (`geocoderFor`), and logs a `card_distance` reason
+code (no_from, from_unseen, from_not_found, some_missed, measured), never an
+address. Dev2's ice-cream card came back without distances while only
+Photon was looking, and nothing said why.

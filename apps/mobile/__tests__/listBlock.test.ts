@@ -188,8 +188,11 @@ describe("what a drawn list shows", () => {
 });
 
 describe("the phone layout", () => {
-  test("switches at the console's own narrow breakpoint", () => {
-    expect(livePreviewStyles).toContain(`@media (max-width: ${layout.narrowBreakpoint - 0.02}px) {\n  .cm-lp-list-row`);
+  test("switches at the console's own narrow breakpoint, on a touch screen only", () => {
+    // A narrow computer window keeps the desktop rows: `pageOnComputer` in features/app/density.ts.
+    expect(livePreviewStyles).toContain(
+      `@media (max-width: ${layout.narrowBreakpoint - 0.02}px) and (pointer: coarse) {\n  .cm-lp-list-row`,
+    );
   });
 });
 
