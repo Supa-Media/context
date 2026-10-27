@@ -38,9 +38,6 @@ export const GROUP_THUMB_KEY = "gthumb";
 const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
 
 /** Whether a tapback is a yes to hold: a like or a love on an ask. */
-/** Whether a text of Tex's asks for a yes (an ask event, `events.ts`). */
-export const looksLikeAsk = (text: string): boolean => ASK.test(text);
-
 export function holdsAsYes(reaction: Reaction): boolean {
   return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && ASK.test(reaction.words);
 }
