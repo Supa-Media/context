@@ -48,34 +48,48 @@ control plane with no model (`textGroups.applyGroupTurn`,
   on their own yes in the chat. Sharing a mailbox to read is not a yes to
   send from it.
 
-## The chat watches shared mail on its own
+## The chat checks in on its own
 
 The owner, 2026-10-27, after the first version asked for a routine: "shouldnt
 it monitor the inbox I share, and heartbeats and stuff just as dm Tex would
 do, I dont want to have to setup anything special for the group, it should
 just work, and know when an email needs to go to the group vs me personally."
 
-So sharing a mailbox is the whole setup (`functions/lib/textGroupMailLooks.ts`):
+So a bound chat has its own check-in, as a person's Tex does, and sharing a
+mailbox is the whole mail setup (`functions/lib/textGroupLooks.ts`):
 
-- **New mail brings the chat's own look.** A Gmail notification for a shared
-  mailbox makes the chat's look due a minute later, never sooner than five
-  minutes after its last, so a burst is one look. One look per chat, kept on
-  its earliest share. The cron hands it out beside routines as a chat run
-  with no note behind it, and it runs as that share's person tagging Tex in
-  the chat: the ordinary chat turn, re-checking who is in the chat, the
-  workspace it is bound to and the live shares. A chat that can no longer
-  hear it (muted, unbound, a guest chat, nothing shared live) drops it.
+- **A few times a day.** A chat bound to a shared workspace looks at the
+  person check-in's slots (10:00, 14:00, 18:00 in its binder's time zone). A
+  turn in the chat arms it, and the daily arming of check-ins arms every
+  bound chat that has none, so nobody sets anything up. The look reads the
+  workspace's recent activity and the mail shared there.
+- **New mail brings it forward.** A Gmail notification for a shared mailbox
+  makes the look due a minute later, never sooner than five minutes after
+  the last, so a burst is one look.
+- **One look per chat, on its own row** (`textGroups.nextLookAt`), run as
+  its binder tagging Tex in the chat (or the earliest person sharing mail,
+  if nobody bound it): the ordinary chat turn, re-checking who is in the
+  chat, the workspace it is bound to and the live shares. The cron hands it
+  out beside routines as a chat run with no note behind it, and sets the
+  next slot at once. A chat that can no longer hear it (muted, unbound, a
+  guest chat, its looker gone) drops it until its next turn.
+- **Not for a chat nobody reads.** A chat that chose to be quiet, or where
+  nobody has talked to Tex for fourteen days, looks only when mail is shared
+  with it: an unprompted look is a model turn, and a post nobody asked for.
+  A look's or routine's own turn is not somebody talking (the Worker marks
+  it `routine`), so looking never keeps a silent chat looking.
 - **Group or personal.** The look posts only what someone in the chat needs
   for the shared work, and leaves out mail that concerns only the mailbox's
-  owner (`chatMailLookQuestion`, `apps/agent/src/groupRoutines.ts`). The
-  owner's own check-in is told, per email, which group chats also watch that
-  mailbox (`watchedIn` on the person's own mail read, `newMail.js`), and texts
-  about such mail only when it needs them personally rather than the group.
+  owner (`chatLookQuestion`, `apps/agent/src/groupRoutines.ts`). The owner's
+  own check-in is told, per email, which group chats also watch that mailbox
+  (`watchedIn` on the person's own mail read, `newMail.js`), and texts about
+  such mail only when it needs them personally rather than the group.
 - A chat routine may still say `wake: new mail` to run on new mail too
-  ([chat-routines](./chat-routines.md)); nobody needs one to have mail watched.
+  ([chat-routines](./chat-routines.md)); nobody needs one.
 
-`textGroupMail.test.ts` "the chat watches shared mail on its own" fails if the
-wake, the claim, the result, the lease, the live-chat check, the gap or
+`textGroupMail.test.ts` "the chat checks in on its own" fails if the arming
+(on a turn or daily), the next slot at claim, the wake, the result, the
+lease, the live-chat check, the gap, the quiet or dormant drop, or
 `watchedIn` is dropped; `agentGroupMail.test.mjs` covers the check-in's marks.
 
 The audit records `mail.shared_with_chat` and `mail.unshared_from_chat` in the

@@ -731,6 +731,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A workspace keeps one playbook its group chats follow (2026-10-27)](./texting-assistant/group-playbook.md)
 - [A group chat sets routines that answer in the chat (2026-10-27)](./texting-assistant/chat-routines.md)
 - [A mailbox is shared with one group chat by its own person (2026-10-27)](./texting-assistant/chat-mail.md)
+- [A group chat checks in on its own, like a person's Tex (2026-10-27)](./texting-assistant/chat-mail.md#the-chat-checks-in-on-its-own)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)

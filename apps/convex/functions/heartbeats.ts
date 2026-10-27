@@ -14,6 +14,7 @@ import {
   recordHeartbeatResultHandler,
 } from "./lib/heartbeats/runs";
 import { requestAttentionHandler } from "./lib/attention/ask";
+import { armChatLooksHandler } from "./lib/textGroupLooks";
 
 export const claimDueHeartbeats = internalMutation({
   args: {
@@ -39,11 +40,11 @@ export const recordHeartbeatResult = internalMutation({
   handler: recordHeartbeatResultHandler,
 });
 
-/** Daily (`crons.ts`): a first check-in for everyone with a linked phone who has none. */
+/** Daily (`crons.ts`): a first check-in for everyone with a linked phone who has none, and for every bound group chat. */
 export const armLinkedHeartbeats = internalMutation({
   args: {},
   returns: v.number(),
-  handler: armLinkedHeartbeatsHandler,
+  handler: async (ctx) => (await armLinkedHeartbeatsHandler(ctx)) + (await armChatLooksHandler(ctx, Date.now())),
 });
 
 /**

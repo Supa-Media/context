@@ -59,6 +59,8 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     participants: people.includes(message.from) ? people : [...people, message.from],
     ...(wire !== undefined ? { command: wire } : {}),
     ...(command === null ? { mint: true } : {}),
+    // A routine's or check-in's own turn is nobody talking: the chat's last word stays when it was (`textGroupLooks.ts`).
+    ...(message.routine !== undefined ? { routine: true } : {}),
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);

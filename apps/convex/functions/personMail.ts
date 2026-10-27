@@ -32,7 +32,7 @@ const mailbox = v.object({
   filter: v.optional(v.string()),
   /** A mailbox shared with a group chat: read whole, never through the chat's notes. */
   shared: v.optional(v.literal(true)),
-  /** The person's own mailbox that group chats also watch: those chats' workspaces, by slug (`lib/textGroupMailLooks.ts`). */
+  /** The person's own mailbox that group chats also watch: those chats' workspaces, by slug (`lib/textGroupLooks.ts`). */
   watchedIn: v.optional(v.array(v.string())),
 });
 

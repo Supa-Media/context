@@ -59,6 +59,8 @@ test("a member's routine for this chat is saved, and the turn is told how", asyn
   assert.doesNotMatch(toolReplies(world.model.requests.at(-1))[0], /Not saved|can't be set/);
   assert.ok(saved("tex/routines/daily/shifts.md"), "the routine was written");
   assert.match(JSON.stringify(world.model.requests[0].system), new RegExp(`chat: ${ID}`));
+  // A chat checks in on its own, so the turn knows not to set a routine up for that (`textGroupLooks.ts`).
+  assert.match(JSON.stringify(world.model.requests[0].system), /check in on this chat on your own/);
 });
 
 test("a routine naming another chat, or none, is refused", async () => {
