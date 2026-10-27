@@ -139,7 +139,7 @@ test("a texted picture is kept in a note by reference", async () => {
       },
       { text: "Saved." },
     ]);
-    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save this", conversation: "texts", attachments: ATTACHED.slice(0, 1) });
+    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save this as a plain note", conversation: "texts", attachments: ATTACHED.slice(0, 1) });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const images = world.objectsUnder(".context/assets/images/");
     assert.equal(images.length, 1, `stored: ${images.join(", ")}`);

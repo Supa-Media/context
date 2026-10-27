@@ -54,4 +54,5 @@ export declare function sourceOffset(source: string, from: number, to: number, o
 export declare function applyRunEdits(source: string, edits: { from: number; to: number; text: string }[]): PageEditResult;
 export declare function toggleTask(source: string, at: number, checked: boolean): PageEditResult;
 export declare function chooseOption(source: string, blockFrom: number, option: string): PageEditResult;
+export declare function castVote(source: string, blockFrom: number, option: string, author: string): PageEditResult;
 export declare function commentableRange(source: string, from: number, to: number): boolean;

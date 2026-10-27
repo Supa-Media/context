@@ -258,7 +258,7 @@ test("a texted turn draws a card, texts one line, and keeps the card in the note
       { toolCalls: [{ name: "write", args: { action: "save", path: "catering-options.md", content: "# Catering options\n\n![[card.png]]\n\nBlend LIC is cheapest at $225.", args: { images: [{ name: "card.png", data: "picture:1" }] } } }] },
       { text: "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?\n\n[picture 1]" },
     ]);
-    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head", conversation: "texts" });
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head, in a plain note", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
     assert.equal(asked.body.answer, "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?");
     assert.deepEqual(asked.body.pictures, [{ name: "picture-1.png", mediaType: "image/png", data: CARD_PNG }]);

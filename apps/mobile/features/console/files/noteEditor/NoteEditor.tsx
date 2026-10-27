@@ -10,6 +10,7 @@ import { noteHeadingSource, splitNote } from "../frontmatter";
 import { isDrawingPath } from "@context/drawings";
 import { isPagePath } from "@context/shared/src/pages/index.cjs";
 import { PAGE_VIEW_AVAILABLE } from "../pageView/PageView";
+import { usePageAsText } from "../pageView/pageText";
 import { ACTIVITY_PATH } from "../../activity/activity";
 import { isPassphraseNote } from "../../encryption/envelope";
 import type { EditorControls } from "../LiveEditor";
@@ -201,11 +202,11 @@ export function NoteEditor({
   */
   /*
     A `.page.md` note is drawn as a page by default, decided by its path like a
-    drawing; "Edit as text" swaps in the editor over the same file, and the
-    choice resets when another note opens (`docs/decisions/app-and-console/pages.md`).
+    drawing, with nothing around it; the ••• sheet's "Edit as text" swaps in
+    the editor over the same file (`pageView/pageText.ts`), and another note
+    opens as its page again (`docs/decisions/app-and-console/pages.md`).
   */
-  const [pageAsText, setPageAsText] = useState(false);
-  useEffect(() => setPageAsText(false), [state.path]);
+  const pageAsText = usePageAsText(state.path);
   const pageNote = PAGE_VIEW_AVAILABLE && !passphraseLocked && !state.encrypted && isPagePath(state.path ?? "");
   const pageView = pageNote && !pageAsText;
   const isActivityNote = !passphraseLocked && activity !== undefined && state.path === ACTIVITY_PATH;
@@ -454,7 +455,7 @@ export function NoteEditor({
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
     folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
-    styles, editable, passphraseLocked, drawing, activityList, pageNote, pageView, setPageAsText, openedAt, button, compact,
+    styles, editable, passphraseLocked, drawing, activityList, pageView, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
     setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,

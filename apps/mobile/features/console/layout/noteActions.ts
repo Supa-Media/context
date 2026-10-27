@@ -29,7 +29,7 @@ import type { FileEntry } from "../files/types";
  * visitor's edits stay in their tab, so they may rename and move there, and
  * copy the page's link; they have no workspace to share into and no archive.
  */
-export type NoteActionId = "read" | "share" | "rename" | "moveTo" | "addProperty" | "copyLink" | "archive" | "restore";
+export type NoteActionId = "read" | "pageText" | "share" | "rename" | "moveTo" | "addProperty" | "copyLink" | "archive" | "restore";
 
 export interface NoteActionContext {
   /** The note or folder that is open. */
@@ -45,6 +45,12 @@ export interface NoteActionContext {
    * offers Share and Move.
    */
   reading?: boolean;
+  /**
+   * For a `.page.md` note drawn as a page: whether it is shown as its text
+   * right now. The sheet then offers "Edit as text" or "View as page" in place
+   * of reading mode and Add property, which a page has no use for.
+   */
+  pageAsText?: boolean;
 }
 
 export function noteActionItems({
@@ -53,6 +59,7 @@ export function noteActionItems({
   canShare,
   visitor,
   reading,
+  pageAsText,
 }: NoteActionContext): MenuItem<NoteActionId>[] {
   const writable = canEdit && !entry.readOnly;
   const archived = restoreTargetFor(entry.path) !== null;
@@ -64,7 +71,10 @@ export function noteActionItems({
     there, so it is a row now. Any note can be read, a read-only one included,
     so it has no permission to check. Named as the act, as the eye's label was.
   */
-  if (reading !== undefined && entry.kind === "file") {
+  const page = pageAsText !== undefined && entry.kind === "file";
+  if (page) {
+    items.push({ id: "pageText", label: pageAsText ? "View as page" : "Edit as text", testID: "note-action-page-text" });
+  } else if (reading !== undefined && entry.kind === "file") {
     items.push({
       id: "read",
       label: reading ? "Edit this note" : "Read this note",
@@ -84,7 +94,7 @@ export function noteActionItems({
     name on a phone (owner, 2026-10-18, board A of `loose-note-chips`). It
     opens the note's Properties card on its Add row (`addPropertyAsk.ts`).
   */
-  if (!visitor && writable && entry.kind === "file" && isMarkdown(entry.path) && chipsFit(entry.path)) {
+  if (!page && !visitor && writable && entry.kind === "file" && isMarkdown(entry.path) && chipsFit(entry.path)) {
     items.push({ id: "addProperty", label: "Add property", testID: "note-action-add-property" });
   }
   if (visitor || canShare) {
