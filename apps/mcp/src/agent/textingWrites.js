@@ -62,8 +62,9 @@ const ROUTINE_HELP =
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
   // A review, 2026-10-26: "through this week" read on the next Monday made a daily reminder say "This is the last one."
   "until: <when to stop, as a date like until: 2026-11-01 end of day, or something that will happen; never this week, today or tomorrow, which mean another day by the time it runs>, paused: yes. " +
-  // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it, and one in a shared workspace never runs.
-  "A routine texts only the person who wrote it, and runs only in their own personal workspace, never in a shared one. " +
+  // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it. Since 2026-10-27 a shared workspace runs
+  // only a chat routine, set up from its group chat, which answers into that chat (`groupRoutines.js`).
+  "A routine texts only the person who wrote it, and runs in their own personal workspace; in a shared one only a routine set up from its group chat runs, and it answers in that chat. " +
   "The body is plain instructions for the assistant, written as the person asked; " +
   "a reminder's body is the reminder itself, with any link they gave (\"Call Apple about the app review: <link>\"). " +
   // The owner, 2026-10-23: "stop the check please wth", after Tex sent a pause for approval.

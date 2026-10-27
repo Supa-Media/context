@@ -237,4 +237,5 @@ test/messagesBackupRead.test.mjs
 test/texts.test.mjs
 test/agentSupersededAsk.test.mjs
 test/agentGroupInvited.test.mjs
+test/agentGroupRoutines.test.mjs
 test/agentGroupPlaybook.test.mjs

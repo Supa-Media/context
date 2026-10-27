@@ -209,9 +209,15 @@ describe("the bar on screen", () => {
     loose.done();
   });
 
+  test("in a shared workspace a chat routine shows its schedule, and nothing to press", () => {
+    // The owner, 2026-10-27: a shared workspace runs its chat routines (`chat:`), answered in the chat.
+    const chat = TEXT.replace(/^---\n/, "---\nchat: 0123456789abcdef\n");
+    expect(routineBarView({ path: PATH, text: chat, row: null, now: NOW, shared: true }).kind).not.toBe("unscheduled");
+  });
+
   test("in a shared workspace it says routines run only in a personal one", () => {
-    // The owner, 2026-10-18: a shared workspace runs no routines, so its
-    // routine note gets one quiet line and nothing to press.
+    // The owner, 2026-10-18: a shared workspace runs no routine but a chat's, so another
+    // routine note there gets one quiet line and nothing to press.
     expect(routineBarView({ path: PATH, text: TEXT, row: null, now: NOW, shared: true })).toEqual({
       kind: "unscheduled",
       line: SHARED_WORKSPACE_WORDS,

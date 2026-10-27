@@ -49,6 +49,7 @@ const scheduleValidator = v.object({
   paused: v.boolean(),
   send: sendValidator,
   to: v.array(v.string()),
+  chat: v.optional(v.string()),
 });
 
 // ── Keeping the rows a description of the bucket ───────────────────────────
@@ -111,11 +112,12 @@ export const claimDueRoutines = internalMutation({
   returns: v.array(
     v.object({
       runId: v.string(),
-      token: v.number(),
+      token: v.optional(v.number()),
       path: v.string(),
       timeZone: v.string(),
       send: sendValidator,
       phones: v.array(v.string()),
+      chat: v.optional(v.string()),
     }),
   ),
   handler: claimDueRoutinesHandler,

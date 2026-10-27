@@ -727,6 +727,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
 - [A workspace keeps one playbook its group chats follow (2026-10-27)](./texting-assistant/group-playbook.md)
+- [A group chat sets routines that answer in the chat (2026-10-27)](./texting-assistant/chat-routines.md)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)

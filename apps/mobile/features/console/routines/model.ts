@@ -61,8 +61,8 @@ const WENT_WELL = new Set(["answered", "skipped", "finished"]);
 
 export const WRITER_GONE_WORDS = "Stopped: the writer can't edit here any more";
 export const WRITER_UNKNOWN_WORDS = "Waiting: save it once so it runs as you";
-/** The owner, 2026-10-18: routines run only in a personal workspace. */
-export const SHARED_WORKSPACE_WORDS = "Routines run only in your personal workspace.";
+/** The owner, 2026-10-18: routines run in a personal workspace; since 2026-10-27, a shared one runs only its chat routines. */
+export const SHARED_WORKSPACE_WORDS = "Here only a routine set up from a group chat runs. Your own go in your personal workspace.";
 
 /**
  * The bar for the note at `path` with this text.
@@ -75,12 +75,14 @@ export function routineBarView(options: {
   text: string;
   row: RoutineRow | null | undefined;
   now: number;
-  /** The note is in a shared workspace, where no routine runs. */
+  /** The note is in a shared workspace, where only a chat routine runs (`chat:`). */
   shared?: boolean;
 }): RoutineBarView {
   const found = options.path === null ? null : routineFromPath(options.path);
   if (found === null) return { kind: "none" };
-  if (options.shared === true) return { kind: "unscheduled", line: SHARED_WORKSPACE_WORDS };
+  if (options.shared === true && (found.kind !== "routine" || routineSettings(options.text, found.cadence).settings.chat === null)) {
+    return { kind: "unscheduled", line: SHARED_WORKSPACE_WORDS };
+  }
   if (found.kind === "unscheduled") return { kind: "unscheduled", line: found.reason };
   const { settings, problems } = routineSettings(options.text, found.cadence);
   const row = options.row;
