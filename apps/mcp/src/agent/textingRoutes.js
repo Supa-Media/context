@@ -8,9 +8,12 @@
  * - `POST /agent/events` `{ conversation: "texts" | { group }, events }` →
  *   `{ written }`: appends to the chat's event log (`log.js`).
  * - `POST /agent/cancel` `{ turn }` → `{ cancelled }`: marks a named turn
- *   cancelled. The turn stops after its current round and withdraws the asks
- *   it raised (`turn.js`, `route.js`). The gateway cannot tell whether that
- *   turn is still running, so `cancelled: true` means the mark was written.
+ *   cancelled. The turn stops after its current round, or at its end if the
+ *   mark landed after its last round, and withdraws the asks it raised
+ *   (`turn.js`, `route.js`). `cancelled: false`, with nothing marked, when no
+ *   turn of this person's runs under that id, or the running one already made
+ *   a call that changed something or went out (`steer.js` `cancelTurn`): the
+ *   Worker then queues the text instead.
  * - `POST /agent/stale` `{ asks }` → `{ disarmed }`: ends the named pending
  *   asks of this person (`disarmRecords`). It can only end an ask: a record
  *   is dropped or disarmed, never armed or extended.
@@ -20,7 +23,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { disarmRecords, listPending, withdrawPending } from "../tools/approvals.js";
 import { appendEvents, EventRefusal } from "./log.js";
-import { CANCEL_PREFIX, handleSteer } from "./steer.js";
+import { cancelTurn, handleSteer } from "./steer.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -64,8 +67,7 @@ export async function handleCancel(request, store, session) {
   if (!texting(session) || !hasScope(session, SCOPE_WRITE)) return forbidden();
   const turn = (await bodyOf(request))?.turn;
   if (typeof turn !== "string" || !TURN.test(turn)) return invalid("turn");
-  await store.put(`${CANCEL_PREFIX}${turn}.json`, JSON.stringify({ at: Date.now() }));
-  return json({ cancelled: true });
+  return json({ cancelled: await cancelTurn(store, session, turn) });
 }
 
 /**

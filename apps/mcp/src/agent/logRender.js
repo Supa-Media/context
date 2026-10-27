@@ -15,11 +15,13 @@
  *
  * A group newcomer never sees what was said before they joined. An event's
  * `people` is a hash of the whole participant set, so "includes the reader"
- * cannot be read from it; the rendering starts at the first event whose
- * `people` is the chat's current set (`group.members`), the same rule the
- * chat's memory is filed by (`groupTurn.js`). That shows less, never more:
- * a chat whose set changed starts again, and one with no matching event
- * shows nothing.
+ * cannot be read from it; the rendering is only the latest unbroken run of
+ * events whose `people` is the chat's current set (`group.members`), the
+ * same rule the chat's memory is filed by (`groupTurn.js`). It starts after
+ * the last event under any other set, or none, so someone who left and came
+ * back never sees what was said while they were gone. That shows less, never
+ * more: a chat whose set changed starts again, and one whose newest event is
+ * not under the current set shows nothing.
  */
 
 import { TOLD } from "./conversation.js";
@@ -67,11 +69,10 @@ export function words(event) {
   }
 }
 
-/** The events a group reader may see: from the first one filed under the chat's current people. */
+/** The events a group reader may see: the latest unbroken run filed under the chat's current people. */
 export function seenBy(events, people) {
   if (!people) return events;
-  const first = events.findIndex((event) => event.people === people);
-  return first === -1 ? [] : events.slice(first);
+  return events.slice(events.findLastIndex((event) => event.people !== people) + 1);
 }
 
 /**

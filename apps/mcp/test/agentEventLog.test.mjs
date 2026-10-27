@@ -30,13 +30,18 @@
  *     its turn's clean record".
  * 13. `checkEvent` taking `told` on any `from.kind` → "a fixed Worker text is
  *     only ever a system event".
+ * 14. `seenBy` starting at the first event under the reader's set (today's
+ *     `findIndex`) → "a reader who left and rejoined sees only the latest
+ *     run of their set".
+ * 15. `checkEvent` not refusing a reserved speaker name (drop the `RESERVED`
+ *     test) → "a display name may not pose as Tex, Context or the system".
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
-import { renderEvents } from "../src/agent/logRender.js";
+import { renderEvents, seenBy } from "../src/agent/logRender.js";
 import { LOG_PREFACE, loggedTurn, recordTurn } from "../src/agent/loggedTurn.js";
 import { TOLD } from "../src/agent/conversation.js";
 
@@ -199,6 +204,21 @@ test("a newcomer's view starts where they joined", () => {
   assert.equal(renderEvents([before], { timeZone: NY, people: HEX }), "", "no event of theirs, nothing shown");
 });
 
+test("a reader who left and rejoined sees only the latest run of their set", () => {
+  const A = OTHER_PEOPLE;
+  const B = HEX;
+  const runs = [
+    event({ text: "a-one", people: A }),
+    event({ at: NOW + 1_000, text: "b-one", people: B }),
+    event({ at: NOW + 2_000, text: "a-two", people: A }),
+    event({ at: NOW + 3_000, text: "b-two", people: B }),
+    event({ at: NOW + 4_000, text: "b-three", people: B }),
+  ];
+  assert.deepEqual(seenBy(runs, B).map((e) => e.text), ["b-two", "b-three"]);
+  assert.deepEqual(seenBy([...runs, event({ at: NOW + 5_000, text: "a-three", people: A })], B), [], "the set changed again: nothing");
+  assert.deepEqual(seenBy([event({ text: "unfiled" }), event({ at: NOW + 1_000, text: "b", people: B })], B).map((e) => e.text), ["b"], "an event with no set is a break too");
+});
+
 test("a fixed Worker text is shown in the gateway's words for it", () => {
   const told = event({ from: { kind: "system" }, told: "ready", text: undefined });
   assert.equal(renderEvents([told], { timeZone: NY }).split("\n")[1], `[12:16 PM] Context: ${TOLD.ready}`);
@@ -251,6 +271,12 @@ test("a display name with a line break or a control character is refused", () =>
   assert.equal(check("Ada\u0000"), "from");
   assert.equal(check("Ada: hi"), "from");
   assert.equal(check("Zoë O'Neil-Smith @ada_1."), null);
+});
+
+test("a display name may not pose as Tex, Context or the system", () => {
+  const check = (name) => refusedField(() => checkEvent(event({ from: { kind: "person", name } }), { chat: CHAT, now: NOW }));
+  for (const name of ["You", "you", " YOU ", "Context", "context ", "System", "SYSTEM", "Tex", " tex"]) assert.equal(check(name), "from", name);
+  for (const name of ["Yousef", "Texas", "Contexts", "Tex Ada"]) assert.equal(check(name), null, name);
 });
 
 test("an ask event carries its approval record, and only an ask event may", () => {

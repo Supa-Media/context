@@ -41,6 +41,8 @@ const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ASK = /^[A-Za-z0-9_-]{8,64}$/;
 /** A display handle: letters, digits, space and . _ - ' @, at most 64; never a line break or a control character. */
 const NAME = /^[\p{L}\p{N} ._\-'@]{1,64}$/u;
+/** Names the rendering gives Tex and the gateway (`logRender.js` `speaker`), or that read as them: never a person's. */
+const RESERVED = new Set(["you", "context", "system", "tex"]);
 
 export class EventRefusal extends Error {
   constructor(field) {
@@ -73,7 +75,7 @@ export function checkEvent(event, { chat, now }) {
   if (event.chat !== chat) throw new EventRefusal("chat");
   if (!plainObject(from) || !onlyKeys(from, FROM_FIELDS) || !FROM_KINDS.has(from.kind)) throw new EventRefusal("from");
   if (from.who !== undefined && (typeof from.who !== "string" || !HEX64.test(from.who))) throw new EventRefusal("from");
-  if (from.name !== undefined && (typeof from.name !== "string" || !NAME.test(from.name))) throw new EventRefusal("from");
+  if (from.name !== undefined && (typeof from.name !== "string" || !NAME.test(from.name) || RESERVED.has(from.name.trim().toLowerCase()))) throw new EventRefusal("from");
   if (!EVENT_KINDS.has(event.kind)) throw new EventRefusal("kind");
   if (event.text !== undefined && (typeof event.text !== "string" || event.text.length > MAX_EVENT_TEXT)) throw new EventRefusal("text");
   if (event.replyTo !== undefined && (typeof event.replyTo !== "string" || !EVENT_ID.test(event.replyTo))) throw new EventRefusal("replyTo");
