@@ -6,13 +6,16 @@
  *
  * Run as temporary edits and reverted (2026-10-26):
  *
- *   linking a picture the bucket does not hold                   1
+ *   writing a log object a key outside the log names             2
+ *   copying the files of a message taken back by an unsend       1
  *   a page that does not move read as the end                    1
  *   the token put in the URL                                     1
  *   insideFolder allowing a path outside the folder              1
  */
 
 import { digestId } from "../src/core/messages/files.ts";
+
+const LOG = ".context/messages/imessage/log/";
 import { readBackupFile, readBackupLogPage, runMessagesDownload } from "../src/core/messages/download.ts";
 import { createMessagesDownloader, freshFolder, insideFolder } from "../src/main/messagesDownload.ts";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -49,24 +52,37 @@ export async function runMessagesDownloadChecks(check) {
   const pages = {
     start: {
       ok: true,
-      objects: [{ key: "a", text: `${JSON.stringify({ v: 1, kind: "chat", id: "chat-ada", name: "Ada", members: [] })}\n${line("m-1", { text: "first" })}\n` }],
+      objects: [{ key: `${LOG}chats/0001-aa.jsonl`, text: `${JSON.stringify({ v: 1, kind: "chat", id: "chat-ada", name: "Ada", members: [] })}\n` }],
       next: "a",
     },
     a: {
       ok: true,
-      objects: [{ key: "b", text: `${line("m-1", { text: "Dinner at 5" })}\n${line("m-2", { text: "", files: [{ id: PIC, name: "IMG_1.HEIC" }, { id: GONE, name: "IMG_2.HEIC" }] })}\n` }],
+      objects: [
+        { key: `${LOG}2026/10/0002-aa.jsonl`, text: `${line("m-1", { text: "first" })}\n${line("m-3", { files: [{ id: PIC, name: "IMG_3.HEIC" }] })}\n` },
+        { key: `${LOG}2026/10/0003-aa.jsonl`, text: `${line("m-1", { text: "Dinner at 5" })}\n${line("m-2", { text: "", files: [{ id: PIC, name: "IMG_1.HEIC" }, { id: GONE, name: "IMG_2.HEIC" }] })}\n${line("m-3", { unsent: true, text: "" })}\n` },
+        { key: ".context/messages/imessage/reads/../../../x", text: "not a log object" },
+      ],
       next: null,
     },
   };
-  const files = new Map([[`${digestId("m-2")}/${PIC}`, { ok: true, bytes: new TextEncoder().encode("picture bytes") }]]);
+  const files = new Map([
+    [`${digestId("m-2")}/${PIC}`, { ok: true, bytes: new TextEncoder().encode("picture bytes") }],
+    [`${digestId("m-3")}/${PIC}`, { ok: true, bytes: new TextEncoder().encode("unsent picture") }],
+  ]);
   const w = world(pages, files);
   const result = await runMessagesDownload(w.deps);
   check("download: every page of the log is read", w.asked.length === 2 && w.asked[1] === "a");
-  check("download: one transcript a conversation a month, the later record winning", result.ok && result.transcripts === 1 && w.written.get("Ada/2026-10.md")?.includes("Dinner at 5") && !w.written.get("Ada/2026-10.md")?.includes("first"));
-  check("download: a picture the bucket holds lands beside its transcript and is linked", new TextDecoder().decode(w.written.get(`Ada/files/${PIC}-IMG_1.HEIC`) ?? new Uint8Array()) === "picture bytes" && w.written.get("Ada/2026-10.md").includes(`](files/${PIC}-IMG_1.HEIC)`));
-  check("download: one it does not hold is named, never a broken link", w.written.get("Ada/2026-10.md").includes("(IMG_2.HEIC)") && !w.written.get("Ada/2026-10.md").includes(GONE) && result.notCopied === 1 && result.pictures === 1);
+  check(
+    "download: each log object is written as it is kept, at its own path",
+    result.ok && result.transcripts === 3 && w.written.get("log/2026/10/0003-aa.jsonl") === pages.a.objects[1].text && w.written.has("log/chats/0001-aa.jsonl"),
+  );
+  check("download: a key outside the log is never written", ![...w.written.keys()].some((path) => !path.startsWith("log/") && !path.startsWith("files/")));
+  check("download: a file the bucket holds lands at its own path", new TextDecoder().decode(w.written.get(`files/${digestId("m-2")}/${PIC}`) ?? new Uint8Array()) === "picture bytes" && result.pictures === 1);
+  check("download: one it does not hold is counted, not written", result.notCopied === 1 && !w.written.has(`files/${digestId("m-2")}/${GONE}`));
+  check("download: a message taken back by an unsend has no files to copy", !w.written.has(`files/${digestId("m-3")}/${PIC}`));
+  check("download: conversations are counted", result.conversations === 1);
 
-  const failing = world({ start: { ok: true, objects: [{ key: "a", text: `${line("m-1")}\n` }], next: "a" }, a: { ok: false, retry: true, code: "offline" } }, new Map());
+  const failing = world({ start: { ok: true, objects: [{ key: `${LOG}2026/10/0001-aa.jsonl`, text: `${line("m-1")}\n` }], next: "a" }, a: { ok: false, retry: true, code: "offline" } }, new Map());
   const failed = await runMessagesDownload(failing.deps);
   check("download: a log that could not be read to its end writes nothing", !failed.ok && failed.code === "offline" && failing.written.size === 0);
   const stuck = world({ start: { ok: true, objects: [], next: "a" }, a: { ok: true, objects: [], next: "a" } }, new Map());
@@ -104,9 +120,9 @@ export async function runMessagesDownloadChecks(check) {
     const first = await freshFolder(downloads, "Messages backup 2026-10-26");
     const second = await freshFolder(downloads, "Messages backup 2026-10-26");
     check("download: a second download never shares the first one's folder", first !== second && second.endsWith("Messages backup 2026-10-26 2"));
-    check("download: a path that climbs out of the folder is refused", insideFolder(first, "../x") === null && insideFolder(first, "/etc/x") === null && insideFolder(first, "Ada/2026-10.md") !== null);
+    check("download: a path that climbs out of the folder is refused", insideFolder(first, "../x") === null && insideFolder(first, "/etc/x") === null && insideFolder(first, "log/2026/10/x.jsonl") !== null);
 
-    const logBody = JSON.stringify({ ok: true, objects: [{ key: "k", text: `${line("m-2", { text: "hello", files: [{ id: PIC, name: "IMG_1.HEIC" }] })}\n` }], next: null });
+    const logBody = JSON.stringify({ ok: true, objects: [{ key: `${LOG}2026/10/0001-aa.jsonl`, text: `${line("m-2", { text: "hello", files: [{ id: PIC, name: "IMG_1.HEIC" }] })}\n` }], next: null });
     const revealed = [];
     const download = createMessagesDownloader({
       connection: { baseUrl: () => "https://gateway.example.test", token: async () => "cat_fake_token" },
@@ -117,9 +133,9 @@ export async function runMessagesDownloadChecks(check) {
     });
     const done = await download();
     const folder = join(downloads, "Messages backup 2026-10-27");
-    const transcript = await readFile(join(folder, "chat-ada", "2026-10.md"), "utf8").catch(() => "");
-    const picture = await readFile(join(folder, "chat-ada", "files", `${PIC}-IMG_1.HEIC`), "utf8").catch(() => "");
-    check("download: the transcript and its picture land in a new folder in Downloads, which is shown", transcript.includes("hello") && picture === "picture bytes" && revealed[0] === folder);
+    const log = await readFile(join(folder, "log", "2026", "10", "0001-aa.jsonl"), "utf8").catch(() => "");
+    const picture = await readFile(join(folder, "files", digestId("m-2"), PIC), "utf8").catch(() => "");
+    check("download: the log and its picture land as kept in a new folder in Downloads, which is shown", log.includes("hello") && picture === "picture bytes" && revealed[0] === folder);
     check("download: the console is told counts, not where", done.ok && done.pictures === 1 && !JSON.stringify(done).includes(downloads));
     const offline = await createMessagesDownloader({
       connection: { baseUrl: () => "https://gateway.example.test", token: async () => "cat_fake_token" },

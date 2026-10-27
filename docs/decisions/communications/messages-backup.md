@@ -127,16 +127,26 @@ month's log objects that arrived from an hour before it was sent onwards,
 dropping its earlier lines and keeping every other line. Both finish before
 the batch is answered `ok`, so a failure is a refusal the Mac sends again.
 
+**A copy is the backup as it is kept, not a rendering of it** (owner,
+2026-10-27, replacing the Markdown transcripts of 2026-10-26: "we don't need
+to save as markdown, can we just save it as the native format it saves in?").
+Both downloads write the log's JSON-lines objects and the files at the paths
+they have under `.context/messages/imessage/`: `log/<yyyy>/<mm>/…jsonl`,
+`log/chats/…`, `log/people/…` and `files/<folder>/<id>`
+(`copyPathOf` in `packages/communications/src/backupLog.js`, which copies
+only keys inside the log made of plain segments). What the person takes home
+reads the same as what the bucket holds, so the record contract
+(`backup.js`) documents both, and a later record with the same key wins in
+either. A transcript would be a second format to keep in step and a lossy
+one.
+
 **The texts leave with Download as folders.** The owner's whole-workspace
-download carries the backup as one Markdown file per conversation per month
-under `Messages/` (`Messages (backup)/` when they already have a folder of that
-name), rendered in the console from the log by the same fold and transcript
-code the Mac uses (`packages/communications/src/backupTranscript.js`). The
-log is read a page at a time by key (`messagesExport.readLogForExport`, owner
-only, an empty page for anyone else), and a log that cannot be read to the
-end puts nothing in and says so. Pictures are named where they were sent but
-not carried: an archive the browser holds in memory, read through action
-answers capped well under their size, cannot take them.
+download carries the log under `Messages/log/` (`Messages (backup)/` when
+they already have a folder of that name). The log is read a page at a time by
+key (`messagesExport.readLogForExport`, owner only, an empty page for anyone
+else), and a log that cannot be read to the end puts nothing in and says so.
+Pictures are not carried: an archive the browser holds in memory, read
+through action answers capped well under their size, cannot take them.
 
 **Download messages, with the pictures, is the Mac app's.** It reads the
 backup back through the gateway, on exactly the terms that let it write
@@ -148,11 +158,11 @@ attachment of no type a browser runs, or 404 once an unsend took it back.
 Only those two are GETs; every other path under the backup still wants a
 POST. Settings › Messages › Your copy asks the Mac app over the bridge's
 optional `imessage.download` (`apps/desktop/src/main/messagesDownload.ts`):
-it reads the whole log before writing anything, fetches every picture the
-transcripts link, and writes into a new folder in Downloads
-(`Messages backup <date>`, never one that exists), checking every path stays
-inside it, then shows it in Finder. A picture the bucket does not hold is
-named, not linked, so no link in the folder is broken. The console is told
+it reads the whole log before writing anything, fetches every file a live
+message holds (the fold decides, so an unsent message's are not asked for),
+and writes into a new folder in Downloads (`Messages backup <date>`, never
+one that exists), checking every path stays inside it, then shows it in
+Finder. A file the bucket does not hold is counted, not written. The console is told
 counts and a closed code only, never where the folder is. Off the Mac app the
 row says the texts are in Download as folders.
 
@@ -205,9 +215,9 @@ the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
 page, never outside the log; Delete the backup erases every page and nothing
 else, and empties the index), `apps/mobile/__tests__/messagesDownload.test.ts`
-(a short log puts nothing in unsaid), `backupTranscript.test.mjs`,
+(a short log puts nothing in unsaid, only log keys copied), `backupCopy.test.mjs`,
 `backupReads.test.mjs` and the read test in `apps/mcp/test/texts.test.mjs`
 (who and what kind, never what; one read per download; none for a refusal),
 and
 `apps/desktop/test/messagesDownload.test.mjs` (nothing written before the
-log is read, no broken links, a new folder, no path outside it).
+log is read, objects as kept, no unsent files, a new folder, no path outside it).

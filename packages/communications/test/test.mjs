@@ -32,7 +32,7 @@ import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
 import { runBackupChecks } from "./backup.test.mjs";
 import { runBackupReadsChecks } from "./backupReads.test.mjs";
-import { runBackupTranscriptChecks } from "./backupTranscript.test.mjs";
+import { runBackupCopyChecks } from "./backupCopy.test.mjs";
 
 import * as index from "../src/index.js";
 import {
@@ -253,7 +253,7 @@ check(
 runPathChecks(check);
 await runBackupChecks(check);
 await runBackupReadsChecks(check);
-runBackupTranscriptChecks(check);
+runBackupCopyChecks(check);
 runAnchorChecks(check);
 runNoteChecks(check);
 runChatChecks(check);

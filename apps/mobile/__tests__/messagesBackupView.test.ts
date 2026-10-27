@@ -113,7 +113,7 @@ describe("what's copied", () => {
 
   test("a download says what it saved, what it could not, and never the shell's own words", () => {
     expect(downloadLine({ ok: true, conversations: 12, transcripts: 40, pictures: 1340, notCopied: 0 })).toBe("Saved 12 conversations and 1,340 pictures to Downloads.");
-    expect(downloadLine({ ok: true, conversations: 1, transcripts: 1, pictures: 0, notCopied: 1 })).toBe("Saved 1 conversation to Downloads. 1 file was never copied, so it is named instead.");
+    expect(downloadLine({ ok: true, conversations: 1, transcripts: 1, pictures: 0, notCopied: 1 })).toBe("Saved 1 conversation to Downloads. 1 file was never copied, so it isn't in it.");
     expect(downloadLine({ ok: true, conversations: 0, transcripts: 0, pictures: 0, notCopied: 0 })).toBe("Nothing is backed up yet.");
     expect(downloadLine({ ok: false, problem: "write_failed" })).toBe("Couldn't save to Downloads. Check there's room on this Mac, then try again.");
     expect(downloadLine({ ok: false, problem: "something new" })).toBe("Something went wrong. Try again.");

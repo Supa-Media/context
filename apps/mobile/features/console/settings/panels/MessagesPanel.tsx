@@ -151,9 +151,10 @@ function ThisMac({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
 }
 
 /**
- * Your copy (board 2): the backup downloaded into a folder in Downloads, one
- * file per conversation per month with the pictures. Only the Mac app can
- * write that folder; anywhere else, Download as folders carries the texts.
+ * Your copy (board 2): the backup downloaded into a folder in Downloads as it
+ * is kept, the texts as JSON lines with the pictures (owner, 2026-10-27). Only
+ * the Mac app can write that folder; anywhere else, Download as folders
+ * carries the texts.
  */
 function YourCopy({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
   const styles = useThemedStyles(makeStyles);
@@ -171,8 +172,8 @@ function YourCopy({ backup }: { backup: ReturnType<typeof useBackupStatus> }) {
             <Text variant="rowTitle">Download messages</Text>
             <Text variant="rowSub" style={styles.rowSub} testID="messages-download-detail">
               {download === null
-                ? "One file per conversation per month, with the pictures. Download them from the Mac app; Download as folders on your workspace has the texts."
-                : "One file per conversation per month, with the pictures, in a new folder in Downloads."}
+                ? "Your texts as they're kept, in JSON lines, with the pictures. Download them from the Mac app; Download as folders on your workspace has the texts."
+                : "Your texts as they're kept, in JSON lines, with the pictures, in a new folder in Downloads."}
             </Text>
             {said === null ? null : (
               <Text variant="rowSub" style={styles.rowSub} testID="messages-download-result">

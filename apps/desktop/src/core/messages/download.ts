@@ -1,17 +1,17 @@
 /**
  * Download messages: the backup read back from the person's bucket into a
- * folder on this Mac, one Markdown file per conversation per month with the
- * pictures beside it (board 2, "Your copy", owner 2026-10-26;
- * `docs/decisions/communications/messages-backup.md`).
+ * folder on this Mac, as it is kept (owner, 2026-10-27): the log's JSON-lines
+ * objects under `log/` and the pictures and documents under
+ * `files/<folder>/<id>`, the same paths they have in the bucket under
+ * `.context/messages/imessage/` (`docs/decisions/communications/messages-backup.md`).
  *
  * It reads what the bucket holds, not this Mac's Messages database, so it is
  * the same copy whichever Mac asks, and a Mac that never ran the backup can
  * still take it home. The log comes back a page at a time
- * (`GET /messages/imessage/log`), is folded and rendered by the transcript
- * code the console uses for the texts, and each picture it links is fetched
- * (`GET /messages/imessage/file/<folder>/<id>`) and written beside it. A
- * picture the bucket does not hold (never copied, or taken back by an
- * unsend) is named rather than linked, so no link in the folder is broken.
+ * (`GET /messages/imessage/log`), and each file a live message holds is
+ * fetched (`GET /messages/imessage/file/<folder>/<id>`). A file the bucket
+ * does not hold (never copied, or taken back by an unsend) is counted, not
+ * written.
  *
  * Every read and write is injected; the main process supplies the folder
  * and the gateway (`main/messagesDownload.ts`). The rules of `upload.ts`
@@ -19,9 +19,8 @@
  * codes reported, and nothing of a text in an error.
  */
 
-import { LIMITS, MESSAGES_BACKUP_FILE_ROUTE, normalizeBackupRecord } from "@context/communications/backup";
-import { MESSAGES_BACKUP_LOG_ROUTE } from "@context/communications/backupLog";
-import { foldRecords, transcriptFiles } from "@context/communications/backupTranscript";
+import { FILE_ID, LIMITS, MESSAGES_BACKUP_FILE_ROUTE, normalizeBackupRecord } from "@context/communications/backup";
+import { MESSAGES_BACKUP_LOG_ROUTE, copyPathOf, foldRecords } from "@context/communications/backupLog";
 import { digestId } from "./files.ts";
 import { classifyStatus, type BackupUploadConfig } from "./upload.ts";
 
@@ -96,6 +95,7 @@ export type MessagesDownloadResult =
 /** Read the whole backup and write it out. Nothing is written until the log has been read to its end. */
 export async function runMessagesDownload(deps: MessagesDownloadDeps): Promise<MessagesDownloadResult> {
   const wanted = () => deps.stillWanted?.() !== false;
+  const objects: { path: string; text: string }[] = [];
   const records: unknown[] = [];
   let after: string | undefined;
   for (let page = 0; ; page += 1) {
@@ -103,13 +103,17 @@ export async function runMessagesDownload(deps: MessagesDownloadDeps): Promise<M
     const read = await deps.readLogPage(after);
     if (!read.ok) return { ok: false, code: read.code };
     for (const object of read.objects) {
+      const path = copyPathOf(object.key);
+      // A key that is not a log object's is not copied, wherever it says it goes.
+      if (path === null) continue;
+      objects.push({ path, text: object.text });
       for (const line of object.text.split("\n")) {
         if (line.trim() === "") continue;
         try {
           const record = normalizeBackupRecord(JSON.parse(line));
           if (record !== null) records.push(record);
         } catch {
-          // A line that is not a record is not a text.
+          // A line that is not a record is copied as it is, and counts for nothing.
         }
       }
     }
@@ -120,37 +124,32 @@ export async function runMessagesDownload(deps: MessagesDownloadDeps): Promise<M
   }
 
   const fold = foldRecords(records);
-  // Every picture the transcripts would link, fetched before a word is written, so a missing one is named, not linked.
-  const wantedFiles = new Map<string, { messageId: string; id: string; path: string }>();
-  for (const transcript of transcriptFiles(fold)) {
-    const folder = transcript.path.slice(0, transcript.path.indexOf("/"));
-    for (const file of transcript.files) wantedFiles.set(`${folder}/${file.path}`, { messageId: file.messageId, id: file.id, path: `${folder}/${file.path}` });
+  // Every file a live message holds, at its own path under the backup: `files/<folder>/<id>`.
+  const wantedFiles = new Map<string, { folder: string; id: string }>();
+  for (const message of fold.messages) {
+    if (!Array.isArray(message.files)) continue;
+    const folder = digestId(message.id);
+    for (const file of message.files as { id?: unknown }[]) {
+      if (typeof file.id === "string" && FILE_ID.test(file.id)) wantedFiles.set(`files/${folder}/${file.id}`, { folder, id: file.id });
+    }
   }
-  const missing = new Set<string>();
   let pictures = 0;
+  let notCopied = 0;
   let done = 0;
-  for (const file of wantedFiles.values()) {
+  for (const [path, file] of wantedFiles) {
     if (!wanted()) return { ok: false, code: "cancelled" };
-    const read = await deps.readFile(digestId(file.messageId), file.id);
+    const read = await deps.readFile(file.folder, file.id);
     done += 1;
-    if ("missing" in read) missing.add(`${file.messageId}\u0000${file.id}`);
+    if ("missing" in read) notCopied += 1;
     else if (!read.ok) return { ok: false, code: read.code };
     else {
-      await deps.write(file.path, read.bytes);
+      await deps.write(path, read.bytes);
       pictures += 1;
     }
     deps.progress?.({ pictures: done, of: wantedFiles.size });
   }
 
-  // The files the bucket does not hold lose their id, so the transcript names them instead of linking them.
-  for (const message of fold.messages) {
-    if (!Array.isArray(message.files)) continue;
-    message.files = message.files.map((file: { id?: string }) =>
-      typeof file.id === "string" && missing.has(`${message.id}\u0000${file.id}`) ? { ...file, id: undefined } : file,
-    );
-  }
-  const transcripts = transcriptFiles(fold);
-  for (const transcript of transcripts) await deps.write(transcript.path, transcript.text);
-  const conversations = new Set(transcripts.map((transcript) => transcript.path.slice(0, transcript.path.indexOf("/")))).size;
-  return { ok: true, conversations, transcripts: transcripts.length, pictures, notCopied: missing.size };
+  for (const object of objects) await deps.write(object.path, object.text);
+  // `transcripts` is the bridge's name for the files of texts written: here, the log's objects.
+  return { ok: true, conversations: fold.chats.size, transcripts: objects.length, pictures, notCopied };
 }
