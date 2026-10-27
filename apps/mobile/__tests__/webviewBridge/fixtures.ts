@@ -110,9 +110,9 @@ export function marginBelow(view: EditorView): number {
 
 /**
  * A note with frontmatter, because that is the shape every note in a real
- * bucket has and the shape most likely to lose a byte: the closing `---`
- * parses as a setext underline, and the live-preview decorations treat the
- * whole block specially because of it.
+ * bucket has and the shape most likely to lose a byte: the grammar has no
+ * frontmatter node, and the live-preview decorations treat the whole block
+ * specially because of it.
  */
 export const NOTE = "---\nupdated: 2026-08-31\nstatus: active\n---\n\n# Title\n\nSome **bold** body.\n";
 

@@ -22,7 +22,9 @@ import { Decoration } from "@codemirror/view";
  *     status: active
  *     ---
  *
- * CommonMark reads the closing `---` as a **setext underline**, so the two YAML
+ * CommonMark reads the closing `---` as a **setext underline** (the editor's
+ * grammar has since dropped those — see `markdownLanguage` — and now draws the
+ * keys as a paragraph between two rules instead), so the two YAML
  * keys above it become a level-2 heading. Every note in a bucket written by
  * Obsidian opens with its metadata drawn two-thirds the size of its title, in
  * bold, above the actual first line. It is the first thing on the screen and it

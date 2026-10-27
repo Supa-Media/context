@@ -136,8 +136,6 @@ function isRevealContainer(name: string): boolean {
   return (
     REVEAL_CONTAINERS.has(name) ||
     name.startsWith("ATXHeading") ||
-    name === "SetextHeading1" ||
-    name === "SetextHeading2" ||
     name === "FencedCode"
   );
 }
@@ -218,9 +216,10 @@ export function hiddenMarkRanges(
   /*
     Nothing is hidden inside the frontmatter, and the asymmetry is why.
 
-    The opening `---` parses as a HorizontalRule and the closing one as a setext
-    HeaderMark — so mark-hiding took the closing fence away and left the opening
-    one, and the block read as an unterminated rule above two stray keys. Both
+    When the grammar still had setext headings, the opening `---` parsed as a
+    HorizontalRule and the closing one as a setext HeaderMark — so mark-hiding
+    took the closing fence away and left the opening one, and the block read as
+    an unterminated rule above two stray keys. Both
     are metadata a person may need to edit, and the block is already drawn small
     and dim, which is what stops them shouting.
 
@@ -331,9 +330,9 @@ export function hiddenMarkRanges(
  * a non-empty range that reaches them, or a caret strictly inside them. The
  * touch rule, argued at `caretInput` in `engagement.ts`.
  *
- * The span is the heading's *opening* marks and their space for an ATX
- * heading — so the closing `#`s of `# Title #` go with the opening ones rather
- * than revealing on their own — and the underline itself for a setext one.
+ * The span is the heading's *opening* marks and their space — so the closing
+ * `#`s of `# Title #` go with the opening ones rather than revealing on their
+ * own.
  */
 function headingMarksEngaged(
   mark: SyntaxNode,
@@ -341,11 +340,8 @@ function headingMarksEngaged(
   doc: { sliceString: (from: number, to: number) => string } | undefined,
 ): boolean {
   const heading = mark.parent;
-  const setext = heading !== null && heading.name.startsWith("SetextHeading");
-  const first = setext || heading === null ? mark : (heading.getChild("HeaderMark") ?? mark);
-  const span = setext
-    ? { from: mark.from, to: mark.to }
-    : { from: first.from, to: swallowTrailingSpace(doc, first.to) };
+  const first = heading === null ? mark : (heading.getChild("HeaderMark") ?? mark);
+  const span = { from: first.from, to: swallowTrailingSpace(doc, first.to) };
   // Strict at both ends, for a range as for a caret: a double-tapped first
   // word starts exactly where the marks end, and it does not include them.
   return selection.some((range) =>
@@ -475,10 +471,6 @@ export function styleClassFor(nodeName: string): string | null {
     return `cm-lp-h${nodeName.slice("ATXHeading".length)}`;
   }
   switch (nodeName) {
-    case "SetextHeading1":
-      return "cm-lp-h1";
-    case "SetextHeading2":
-      return "cm-lp-h2";
     case "StrongEmphasis":
       return "cm-lp-strong";
     case "Emphasis":
