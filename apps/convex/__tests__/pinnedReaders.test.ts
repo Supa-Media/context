@@ -180,7 +180,12 @@ describe("after the migration, a pin reader", () => {
     ).json()) as { served?: boolean; entries?: Array<{ path: string }> };
     expect(answer.served).toBe(true);
     const paths = (answer.entries ?? []).map((entry) => entry.path).sort();
-    expect(paths).toEqual([FORM, GUIDE].sort());
+    // The response file sits in `guides/` beside the form, and is an ordinary note with its own rule (forms.md, "The
+    // block declares the path, never the visibility"). It inherits `guides/`' All Context users grant, so `canSee`
+    // answers it open to the pin reader, as the read-path test above does (`OPEN_TO_ACCOUNTS`). The manifest used to
+    // leave it out at 15bbebb (the file was in the bucket then too; why the old listing skipped it is not established).
+    // The expectation follows the rules, not that listing.
+    expect(paths).toEqual(OPEN_TO_ACCOUNTS);
   });
 
   test("can still answer the bug-report form", async () => {

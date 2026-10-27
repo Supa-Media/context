@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("seven listed rows; five pages live behind a row on another page", () => {
+  test("nine listed rows; five pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -79,11 +79,14 @@ describe("the order and the grouping", () => {
       Vault is the eighth row, drawn in the sidebar on the board the owner
       approved as drawn (2026-10-16): the keys an AI may use are looked for
       by name, not behind another page. Plan is listed only where something
-      is sold (`pricedOnly`): Context is free (2026-10-20).
+      is sold (`pricedOnly`): Context is free (2026-10-20). Messages is the
+      ninth (2026-10-26): the texts a Mac backs up, on the boards as a row.
     */
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
       "profile",
+      "texApps",
+      "messages",
       "workspace",
       "sharing",
       "integrations",
@@ -101,7 +104,7 @@ describe("the order and the grouping", () => {
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(13);
+    ).toHaveLength(15);
   });
 
   test("every section sits under a heading somebody can answer", () => {

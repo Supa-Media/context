@@ -32,6 +32,8 @@ import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
+import { routineWhen } from "./routineWhen.js";
+import { NOTE_SOURCE_PREFIX } from "./sources.js";
 
 /**
  * Tools a text is never offered, with the reason. None: the owner decided on
@@ -50,16 +52,24 @@ export const WITHHELD_FIELDS = new Map();
 const ROUTINE_HELP =
   " Routines are notes the assistant runs on a schedule as this person, then texts them what it found. " +
   "Write a new routine or reminder at tex/routines/<how-often>/<name>.md, in Tex's own tex/ folder. " +
-  "The folder says how often: every-5-minutes, hourly, " +
+  "The folder says how often: hourly, " +
   "every-3-hours, daily, weekly, every-2-weeks, monthly, or once for a one-off reminder (tex/routines/once/). " +
+  // The owner, 2026-10-23: an every-5-minutes "retry Planning Center" check texted the same line over and over.
+  "Never make one that runs more often than hourly; to retry something, use hourly with until:. " +
   "Older routines at routines/<how-often>/<name>.md still run where they are: edit them in place, and move one only when asked. " +
   "A one-off needs its date and time: at: 2026-10-15 9:00 am; it texts once, then is marked done: and stays as a record. " +
   "Other optional lines at the top, between --- lines: " +
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
-  "until: <when to stop>, paused: yes. " +
-  // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it, and one in a shared workspace never runs.
-  "A routine texts only the person who wrote it, and runs only in their own personal workspace, never in a shared one. " +
-  "The body is plain instructions for the assistant, written as the person asked. " +
+  // A review, 2026-10-26: "through this week" read on the next Monday made a daily reminder say "This is the last one."
+  "until: <when to stop, as a date like until: 2026-11-01 end of day, or something that will happen; never this week, today or tomorrow, which mean another day by the time it runs>, paused: yes. " +
+  // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it. Since 2026-10-27 a shared workspace runs
+  // only a chat routine, set up from its group chat, which answers into that chat (`groupRoutines.js`).
+  "A routine texts only the person who wrote it, and runs in their own personal workspace; in a shared one only a routine set up from its group chat runs, and it answers in that chat. " +
+  "The body is plain instructions for the assistant, written as the person asked; " +
+  "a reminder's body is the reminder itself, with any link they gave (\"Call Apple about the app review: <link>\"). " +
+  // The owner, 2026-10-23: "stop the check please wth", after Tex sent a pause for approval.
+  "When they ask to stop, pause, cancel or delete a routine, archive it yourself at once; never send it for approval. " +
+  "One routine per thing: when they change a reminder (\"every 3 hours until I do it\"), edit or archive the old one, never add a second. " +
   // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
   "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +
   "and say where the note is or how to stop it only when they ask.";
@@ -146,6 +156,9 @@ function refusalFor(name, args) {
     if (inRoutines && path.endsWith(".md") && routineFromPath(path)?.kind !== "routine") {
       return `Only a routine file can be written under ${root}: ${root}<how-often>/<name>.md, with a folder like daily or weekly.`;
     }
+    if (inRoutines && name === "write_note" && args.expected_etag === undefined && routineFromPath(path)?.cadence?.unit === "minute") {
+      return "Routines can't run more often than hourly from a text: they would text over and over. Use hourly, with until: for when to stop.";
+    }
     // A routine runs as the person who wrote it, in their own context.
     if (inRoutines && name === "write_note" && args.context !== undefined) {
       return "Routines are written in their own workspace: leave out context.";
@@ -159,7 +172,7 @@ function refusalFor(name, args) {
  * fields their mirrored schemas name, on paths outside plumbing. Every other
  * tool passes through untouched.
  */
-export function textingAwareCallTool(callTool, writeTools) {
+export function textingAwareCallTool(callTool, writeTools, { timeZone = null, now = Date.now } = {}) {
   const accepted = new Map(writeTools.map((tool) => [tool.name, Object.keys(tool.inputSchema?.properties ?? {})]));
   return (name, args) => {
     const fields = accepted.get(name);
@@ -169,6 +182,65 @@ export function textingAwareCallTool(callTool, writeTools) {
     if (extra.length > 0) return toolError(`${extra.join(", ")} can't be passed from a text.`);
     const refusal = refusalFor(name, given);
     if (refusal) return toolError(refusal);
-    return callTool(name, given);
+    const done = name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)
+      ? Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result))
+      : Promise.resolve(callTool(name, given));
+    return done.then((result) => withRunTime(withWrittenNotes(result, given), given, timeZone, now()));
   };
+}
+
+/** A routine written: when it first texts them, or why it won't (`routineWhen.js`). */
+function withRunTime(result, args, timeZone, now) {
+  if (!result || typeof result !== "object" || result.isError === true || result.held === true) return result;
+  if (!isRoutineFilePath(args.path)) return result;
+  const when = routineWhen(args.path, args.content, timeZone, now);
+  if (when === null) return result;
+  return { ...result, content: [...(result.content ?? []), { type: "text", text: when.text }] };
+}
+
+/**
+ * A write that went through names the notes it touched, as `note:<path>`
+ * sources the conversation keeps (`sources.js`), so the next text knows what
+ * this one wrote rather than doubting it.
+ */
+function withWrittenNotes(result, args) {
+  if (!result || typeof result !== "object" || result.isError === true || result.held === true) return result;
+  const where = typeof args.context === "string" && args.context.startsWith("@") ? `${args.context}/` : "";
+  const notes = [...new Set(pathsIn(args))].map((path) => `${NOTE_SOURCE_PREFIX}${where}${path}`);
+  if (notes.length === 0) return result;
+  return { ...result, sources: [...(Array.isArray(result.sources) ? result.sources : []), ...notes] };
+}
+
+/** How many of their other routines a new one's result names. */
+const OTHER_ROUTINES_SHOWN = 20;
+
+/**
+ * A new routine's result names the others they have, so one that says the
+ * same thing is changed or archived rather than left beside it (the owner,
+ * 2026-10-23: "remind me tomorrow" then "every 3 hours until I do it" left a
+ * one-off and an every-3-hours routine that both texted at 9:00, because the
+ * second turn no longer knew the first one's path). Best effort: a listing
+ * that fails leaves the result as it was.
+ */
+async function withOtherRoutines(callTool, path, result) {
+  if (result?.isError === true) return result;
+  try {
+    const others = [];
+    for (const prefix of ["tex/routines/", "routines/"]) {
+      const listed = await callTool("list_notes", { prefix });
+      const text = listed?.isError === true ? "" : String(listed?.content?.[0]?.text ?? "");
+      for (const line of text.split("\n")) {
+        const key = line.replace(/\s+\(\d+ bytes\)$/, "").trim();
+        if (key !== path && isRoutineFilePath(key)) others.push(key);
+      }
+    }
+    if (others.length === 0) return result;
+    const shown = others.slice(0, OTHER_ROUTINES_SHOWN).join(", ");
+    const note =
+      `Their other routines: ${shown}. If one of these is about the same thing as the one you just wrote, ` +
+      "archive it now, or they will be texted twice.";
+    return { ...result, content: [...(result?.content ?? []), { type: "text", text: note }] };
+  } catch {
+    return result;
+  }
 }

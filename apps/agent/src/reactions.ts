@@ -67,16 +67,26 @@ export function readTapback(text: string): Reaction | null {
 
 /** A taken-back like or heart, and the words it was on; null for anything else. */
 export function readRemovedTapback(text: string): Reaction | null {
-  const match = /^Removed an? (like|heart) from [“"]([\s\S]*)[”"]$/u.exec(text.trim());
+  // Messages writes it in the relay's language: "Dejó de gustarle “…”" reached Tex as a text (2026-10-22).
+  const match = /^(?:Removed an? (like|heart) from|Dejó de (gustarle|encantarle)) [“"]([\s\S]*)[”"]$/u.exec(text.trim());
   if (match === null) return null;
-  const words = match[2].trim().slice(0, MAX_WORDS);
-  return words === "" ? null : { how: match[1] === "like" ? "Liked" : "Loved", words, removed: true };
+  const words = match[3].trim().slice(0, MAX_WORDS);
+  return words === "" ? null : { how: match[1] === "like" || match[2] === "gustarle" ? "Liked" : "Loved", words, removed: true };
 }
 
-/** Whether a tapback is answered: a question mark on anything, or a yes or no on a question. */
+/**
+ * A text of Tex's that asks for something: a question, or its yes in words
+ * ("Say yes and I'll try sending it again", "Say the word and I'll send it").
+ * A 👍 on one used to be noted and never answered when it did not end in a
+ * question mark (Dev2, 2026-10-22: "after thumbsing up, nothing ever happens").
+ */
+const ASKS =
+  /\?\s*…?$|\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know\b|\bgive (?:it|this|me) a\b|\u{1F44D}|\b(?:want me to|shall I|should I)\b/iu;
+
+/** Whether a tapback is answered: a question mark on anything, or a yes or no on a text that asks something. */
 export function answers({ how, words }: Reaction): boolean {
   if (how === "Questioned") return true;
-  return (how === "Liked" || how === "Loved" || how === "Emphasized" || how === "Disliked") && /\?\s*…?$/u.test(words);
+  return (how === "Liked" || how === "Loved" || how === "Emphasized" || how === "Disliked") && ASKS.test(words);
 }
 
 /** The text an answered tapback is queued as. */

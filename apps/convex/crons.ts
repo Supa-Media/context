@@ -132,6 +132,14 @@ crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyD
 crons.interval("tidy Archive's date folders", { hours: 1 }, internal.functions.archiveTidy.catchUp, {});
 
 /**
+ * Hide the copies of mail, calendar, chat, contacts and iMessage Context made
+ * before it stopped (`functions/oldCopies.ts`, owner 2026-10-21): each keyed
+ * personal workspace is looked through once, its copies moved to a hidden
+ * name and never erased by a timer. Once all are done, a read of one row each.
+ */
+crons.interval("hide old copies of mail and calendar", { minutes: 10 }, internal.functions.oldCopies.catchUp, {});
+
+/**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
  * so accounts made before it shipped do not wait for the next sign-up. Once
  * the hundred are granted it returns at its first read.
@@ -146,12 +154,13 @@ crons.interval(
 );
 
 /**
- * Keep every workspace's Convex copy of its file tree current
- * (`functions/nodesMigration.ts`): a copy that is due (never started, dirty,
- * interrupted, failed or an hour old) is swept again, so a workspace nobody
- * opens and a new one are covered too. Staff can pause it from admin. The
- * same pass imports each workspace's icons, emoji and forwarding files once,
- * and writes them from Convex where a write is owed (`lib/smallData/`).
+ * Keeps every workspace's Convex copy of its file tree current
+ * (`functions/nodesMigration.ts`): starts the facts fill of each copy that is
+ * due, so a workspace nobody opens is covered too. Staff can pause it from
+ * admin. The same pass imports each workspace's icons, emoji and forwarding
+ * files once, and writes them from Convex where a write is owed
+ * (`lib/smallData/`). Rows are written by the product's seam, never by
+ * listing the bucket.
  */
 crons.interval(
   "keep the Convex copy of each file tree current",
@@ -364,20 +373,43 @@ crons.interval(
 );
 
 /**
- * Storage falling behind the file tree: a folder move four hours old, whose
- * pace will miss five, or stuck, is marked once and mailed to the staff who
- * asked (`storageLag.ts`).
- */
-crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
-
-/**
  * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
- * again, so an edit is copied, and a pass whose chain stopped is resumed. A
+ * again, so an edit is copied, a pass whose chain stopped is resumed, and a
+ * workspace made after the switch gets its first pass and its flip. A
  * third bucket-reaching job, so it owes the two paragraphs: it holds no
  * decision, since every page re-reads its rows and re-checks each file's etag
  * before a copy is marked, and it only decides when to look. Staff pause it.
  */
 crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
+
+/**
+ * File each workspace's editing history by note id (`functions/collaborationFiling.ts`), so a move never
+ * carries a head again. Bucket-reaching, so its two paragraphs: it holds no decision, since every head is
+ * copied create-only and a filed one is fenced, so a page run twice files nothing twice; it only decides
+ * when to look, and a done workspace is never looked at again.
+ */
+crons.interval("file editing history by note id", { minutes: 30 }, internal.functions.collaborationFiling.fileDue, {});
+
+/**
+ * Check that every keyed workspace's rows say their paths through their parents (`functions/treeParents.ts`),
+ * setting a parent or a name right from the stored path. Rows only; a done workspace is not looked at again.
+ */
+crons.interval("check tree parents", { minutes: 30 }, internal.functions.treeParents.checkDue, {});
+
+/**
+ * Switch every keyed workspace to paths built from parents (`functions/treeFlips.ts`) once a walk finds every
+ * row where its parents put it and no row move is in flight. Rows only; a flipped workspace is not looked at again.
+ */
+crons.interval("build tree paths", { minutes: 30 }, internal.functions.treeFlips.flipDue, {});
+
+/**
+ * Rewrite the links to notes a move carried (`functions/linkRepairs.ts`) wherever entries wait with no pass
+ * running; a move starts its own pass, so this picks up one that stopped or failed. Bucket-reaching, so its two
+ * paragraphs: it holds no decision, since the move that queued the entry was already decided, and each pass
+ * re-asks at the moment it writes everything that could have changed: the rules are read again, a referrer is
+ * read again before it is written, and a link is never pointed at a name narrower than its own note.
+ */
+crons.interval("follow moved notes' links", { minutes: 30 }, internal.functions.linkRepairs.repairDue, {});
 
 /** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
 crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
@@ -468,12 +500,14 @@ crons.interval(
   {},
 );
 
-crons.interval(
-  "sync due Google accounts",
-  { minutes: 5 },
-  internal.functions.googleSync.sweepDueGoogleSyncs,
-  {},
-);
+/*
+ * No "sync due Google accounts" job: mail, calendar and chat are read from
+ * Google when asked and never copied into notes (owner, 2026-10-21;
+ * `docs/decisions/communications/live-not-copied.md`). The pass it started
+ * (`googleSync.sweepDueGoogleSyncs`) is kept, unscheduled, so a kind can be
+ * added back on purpose; `__tests__/copiesStopped.test.ts` fails if anything
+ * schedules it again.
+ */
 
 /**
  * Custom domains: restart a check run whose next check went missing, re-read
@@ -489,19 +523,6 @@ crons.interval(
 );
 
 /**
- * Queued folder moves whose chain of passes stopped (a deployment, a lost
- * schedule) are picked up again once their lease lapses
- * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
- * safety net, and it does nothing when no move is pending.
- */
-crons.interval(
-  "resume queued moves",
-  { minutes: 5 },
-  internal.functions.nodeMoves.resume,
-  {},
-);
-
-/**
  * Feedback receipts past their thirty days. They hold ids and times only, and
  * are kept that long so a late retry is still recognised as the same report.
  * Each run takes a batch and queues the next itself while more remain.
@@ -510,6 +531,19 @@ crons.interval(
   "purge expired feedback receipts",
   { hours: 1 },
   internal.functions.feedback.purgeExpiredFeedbackReceipts,
+  {},
+);
+
+/**
+ * Tex's triage desk, watched: a mail to the team inbox when reviews or texted
+ * bug reports have sat untouched for three hours, so a stopped triage pass is
+ * noticed (`functions/texTriageWatch.ts`). It counts rows and says so; it
+ * decides nothing and changes nothing.
+ */
+crons.interval(
+  "watch the Tex triage desk",
+  { hours: 1 },
+  internal.functions.texTriageWatch.check,
   {},
 );
 

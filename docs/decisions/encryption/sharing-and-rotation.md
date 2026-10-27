@@ -117,8 +117,10 @@ which is which is a decision.**
   in exchange for a bound this section used to say a cursor was the fix for.
 
   **A call resumes from the cursor instead of re-listing and re-reading
-  everything before it.** `listAllKeys` is still called every time — listing
-  is cheap, a handful of subrequests per thousand keys, not one per note — but
+  everything before it.** The tree's listing of the workspace's notes (never
+  the bucket's own listing, since 2026-10-22: every note lives at its id key
+  and a store with no tree is refused before a rotation starts) is still
+  walked every time — listing is cheap, a handful of subrequests per thousand keys, not one per note — but
   the *reads* (`store.get`, one per note actually examined) only touch the
   frontier past the cursor, plus a small correction described next. This is
   what bounds every call, **including the one that completes the rotation**,
@@ -126,7 +128,7 @@ which is which is a decision.**
   the bucket.
 
   **A note created or moved to a key behind the cursor is not skipped.**
-  `listAllKeys` already returns each object's `uploaded` timestamp — free,
+  The tree's listing already carries each note's `uploaded` timestamp — free,
   part of every backend's listing response — so a note whose key sorts at or
   before the cursor, but whose `uploaded` time is after `confirmedThrough`, is
   re-examined anyway: it arrived at that position after the cursor had already
@@ -214,7 +216,7 @@ which is which is a decision.**
 
   **The walk reports complete, and asks the control plane to retire the
   outgoing generation, only once a full pass finds the cursor at the end of
-  the bucket's listing, nothing left behind it, and `stuckKeys` empty** — never
+  the tree's listing, nothing left behind it, and `stuckKeys` empty** — never
   on a partial pass, and never while a single note it could not open still
   exists. `workspaceKeyRotations` stays exactly what it was: the one fact that
   has to be authoritative everywhere, the walk's own progress unaffected.

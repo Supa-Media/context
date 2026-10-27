@@ -23,6 +23,10 @@
  *     connection is not offered...` fails.
  *  7. The any-word retry dropped from `toolSearchEmail`. → `a long search
  *     Gmail found nothing for is asked again...` fails.
+ *  8. The any-word retry kept to searches that found nothing (2026-10-22). →
+ *     `a search that found only a few is asked again...` fails.
+ *  9. `sources` dropped from `toolReadEmail`'s result (2026-10-22). → `the
+ *     next text is told the id of the email...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
  */
@@ -88,6 +92,23 @@ export async function runEmailReadChecks(check) {
     check(
       "a search with Gmail operators, or of a word or two, is never loosened",
       controlPlane.mailReadCalls.slice(before).length === 1,
+    );
+    // A few every-word results are not the end of it (2026-10-22): "Google Voice
+    // receipt" found the colleague asking for the receipt, never Google's own.
+    const ASKED = { ...LIVE, id: "18c0aaaa", from: "Kansi <kansi@example.com>", subject: "Fwd: receipt for the Google Voice charge?", snippet: "Can you send me the receipt" };
+    const RECEIPT = { ...LIVE, id: "18c0bbbb", from: "Google Payments <payments-noreply@google.com>", subject: "Your Google Voice order", snippet: "Amount paid $25.26" };
+    controlPlane.flags.mailResults = (query) => (query.startsWith("{") ? [ASKED, RECEIPT] : [ASKED]);
+    before = controlPlane.mailReadCalls.length;
+    const few = textOf(await call(env, TOKEN_MCP, "search", { query: "Google Voice receipt", args: { email: true } }));
+    check(
+      "a search that found only a few is asked again for any of its words, and lists the new ones apart",
+      controlPlane.mailReadCalls.slice(before).length === 2 &&
+        few.includes("email:me@example.com/18c0aaaa") && few.includes("email:me@example.com/18c0bbbb") &&
+        few.indexOf("only some of those words") < few.indexOf("18c0bbbb") && few.split("18c0aaaa").length === 2,
+    );
+    check(
+      "...and says how else to search before calling an email missing, never to ask the person",
+      few.includes("from:") && few.includes("after:") && few.includes("Never ask the person to forward it"),
     );
     controlPlane.flags.mailResults = [LIVE];
 
@@ -159,6 +180,21 @@ export async function runEmailReadChecks(check) {
       "...typed by its bytes when Gmail's label is generic",
       converted.at(-1)?.[0]?.blob?.type === "application/pdf" && (await converted.at(-1)[0].blob.text()) === "%PDF-1.7 lease",
     );
+    // An emailed export read whole (2026-10-24: 8,530 rows, cut at the first 100,000 characters, rent counted twice).
+    const rows = ["Date,Name,Amount", ...Array.from({ length: 6000 }, (_, i) => `2026-08-${String((i % 28) + 1).padStart(2, "0")},Shop ${i},-10.00`), "2026-08-03,Rent,-3850.00", "2026-08-03,Rent,-3850.00"];
+    controlPlane.flags.mailAttachment = { filename: "transactions.csv", contentType: "text/csv", data: btoa(rows.join("\n")) };
+    const convertedBefore = converted.length;
+    const csv = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
+    const more = /more: read_email with id "email:me@example\.com\/18c0ffee", attachment: 1 and from: (\d+)/.exec(textOf(csv));
+    check(
+      "an emailed CSV is read as its rows, with its facts counted over the whole file and where its next part starts",
+      csv?.isError !== true && converted.length === convertedBefore && textOf(csv).includes("rows: 6002") &&
+        textOf(csv).includes("duplicate rows: 1 rows repeat an earlier row") && more !== null,
+    );
+    const rest = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, from: Number(more?.[1] ?? 0) } });
+    check("...its next part reaches its last rows", rest?.isError !== true && textOf(rest).includes("2026-08-03,Rent,-3850.00"));
+    const summed = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, summary: { where: [{ column: "Name", contains: "rent" }] } } });
+    check("...and its totals are counted by Context, repeats left out", textOf(summed).includes("1 rows, total -3,850.00; 1 repeated rows left out"));
     controlPlane.flags.mailAttachment = { filename: "song.mp3", contentType: "audio/mpeg", data: btoa("ID3") };
     const song = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
     check("...and a kind of file it cannot read says so", song?.isError === true && textOf(song).includes("not a kind of file"));
@@ -180,6 +216,15 @@ export async function runEmailReadChecks(check) {
     check(
       "Tex reads an email live in a texted turn",
       texted.status === 200 && controlPlane.mailReadCalls.some((entry) => entry.path === "/gateway/email/read"),
+    );
+    // The owner's receipt, 2026-10-22: found, offered, and gone a text later.
+    model.install([{ text: "Yes, I can forward it." }]);
+    const before2 = model.requests.length;
+    await ask(env, TOKEN_TEXTS, "can you forward that to my lawyer?");
+    const nextSystem = JSON.stringify(model.requests.slice(before2).map((body) => body.system ?? body.messages?.filter((m) => m.role === "system")));
+    check(
+      "the next text is told the id of the email an earlier answer read, and to forward it rather than ask for it",
+      nextSystem.includes("Emails you found: email:me@example.com/18c0ffee") && nextSystem.includes("pass it as forward"),
     );
   } finally {
     world.restore();

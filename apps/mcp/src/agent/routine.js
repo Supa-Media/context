@@ -24,15 +24,20 @@ import {
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { MAX_QUESTION_LENGTH } from "./turn.js";
 import { readMailHealth, routineMailSection } from "./mailHealth.js";
+import { QUIET_WORD, saysQuiet, spokenToThem } from "./checkInGuards.js";
+import { readConversation } from "./conversation.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
 
 /** What a run that has nothing to say answers, and nothing else. */
-export const SKIP_WORD = "SKIP";
+export const SKIP_WORD = QUIET_WORD;
 
 /** What a run whose `until:` has come true starts its answer with. */
 export const DONE_WORD = "DONE:";
+
+/** The one write a run is offered: a change to the person's own calendar (`calendarGate.js`). */
+export const ROUTINE_CALENDAR_TOOL = "calendar_event";
 
 export const MAX_RUNS_KEPT = 20;
 export const MAX_RUN_TEXT = 2000;
@@ -123,12 +128,52 @@ function clip(text, max) {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+/** How many of the last texts with them a run is shown, and how much of each. */
+const RECENT_TEXTS_SHOWN = 8;
+const RECENT_TEXT_CHARS = 300;
+const ROUTINE_LINE = /^\(Not a text from them\. Your routine (\S+) ran/;
+const CHECK_IN_LINE = /^\(Not a text from them\. This was your own check-in/;
+
+/** Who sent the assistant's text at `i`: a routine (this one or another), a check-in, or a reply. */
+function senderOf(turns, i, path) {
+  const before = turns[i - 1]?.role === "user" ? String(turns[i - 1].text ?? "") : "";
+  const from = ROUTINE_LINE.exec(before)?.[1];
+  if (from === path) return "You (this routine, an earlier run)";
+  if (from) return `You (your routine ${from})`;
+  return CHECK_IN_LINE.test(before) ? "You (a check-in)" : "You";
+}
+
+/**
+ * The last texts with them, for a run to read before it texts (the owner,
+ * 2026-10-23: a one-off reminder and an every-3-hours one about the same call
+ * both texted at 9:00). Tex's own texts say which routine or check-in sent
+ * them. A turn that read something from outside is left out, so a routine's
+ * question is never someone else's words.
+ */
+export function recentTextsSection(history, path) {
+  const turns = Array.isArray(history) ? history : [];
+  const lines = [];
+  for (let i = 0; i < turns.length; i += 1) {
+    const turn = turns[i];
+    if (typeof turn?.text !== "string" || turn.tainted === true) continue;
+    if (turn.role === "user" && (ROUTINE_LINE.test(turn.text) || CHECK_IN_LINE.test(turn.text))) continue;
+    const who = turn.role === "user" ? "Them" : senderOf(turns, i, path);
+    lines.push(`${who}: ${clip(turn.text.replace(/\s+/g, " ").trim(), RECENT_TEXT_CHARS)}`);
+  }
+  const shown = lines.slice(-RECENT_TEXTS_SHOWN);
+  if (shown.length === 0) return "";
+  return (
+    `Your last texts with them, oldest first:\n${shown.join("\n")}\n\n` +
+    `If another routine or a check-in above already told them what this run would, or they already said it is done, answer ${SKIP_WORD}.`
+  );
+}
+
 /**
  * The turn's question: what this is, when it is, what it said last time, and
  * the routine's own words. The routine's words go last and are clipped to fit,
  * so the framing above them is never the part that is cut.
  */
-export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) {
+export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", recent = "" }) {
   const lines = [
     "This is a scheduled routine, not a text from a person. Nobody is waiting on this turn.",
     `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localTime(now, timeZone)}.`,
@@ -136,8 +181,12 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) 
   if (lastRun && typeof lastRun.text === "string" && lastRun.text !== "") {
     lines.push(`Last time (${new Date(lastRun.at).toISOString()}) you answered:\n${clip(lastRun.text, MAX_LAST_RUN_IN_PROMPT)}`);
   }
+  if (recent) lines.push(recent);
   if (routine.cadence.unit === "once") {
-    lines.push("This is a one-off reminder the person set: it runs this once. Text them what it says, in their words, as a reminder.");
+    lines.push(
+      "This is a one-off reminder the person set: it runs this once. Text them the reminder itself, " +
+        "in a line or two with any link it has, the way a friend would.",
+    );
   }
   if (routine.settings.until) {
     lines.push(
@@ -145,9 +194,28 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) 
         `If it is true now, start your answer with ${DONE_WORD} and say what happened.`,
     );
   }
+  // The owner, 2026-10-23: an every-5-minutes check said "Planning Center's connected." while every read failed,
+  // then "I couldn't stop this check myself" and sent a pause for approval.
+  lines.push(
+    `To stop this routine (its job is done, it can't be done, or they asked to stop it), start your answer with ${DONE_WORD}: ` +
+      "it stops at once. Never send a change to it for approval. " +
+      "Say something worked only when a call in this run showed it working: an app listed as connected is not a read that worked.",
+  );
+  // A review, 2026-10-26: an hourly "retry adding Tabi's birthday" routine had no calendar and texted
+  // "I can't reach your calendar from this chat right now ... Text me again later", every hour.
+  lines.push(
+    "You can change their own calendar in this run (send action calendar): add, edit, move or cancel an event nobody else is on, at once. " +
+      "A change that would tell a guest can't be made while nobody is on the line: text them the change in one line, and their yes makes it. " +
+      "Never ask them to text you again, try later, or do it themselves: do it now, or say what stopped it and that this routine tries again next run.",
+    // The same review: a daily reminder texted "This is the last one." and went on.
+    `Say a reminder is the last one only when you start your answer with ${DONE_WORD}, which ends it; otherwise never say it is the last or that they end.`,
+  );
   if (mail) lines.push(mail);
   lines.push(
-    `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD}.`,
+    // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
+    "Your answer is texted to them exactly as you write it. Speak to them (you, your), never about them, " +
+      'and never read the routine\'s instructions back: a routine that says "Remind them to call the bank" texts "Reminder: call the bank".',
+    `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD} and nothing else: no reason, no other words.`,
     "Routine:",
   );
   const framing = `${lines.join("\n\n")}\n\n`;
@@ -156,8 +224,9 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) 
 
 /**
  * The question for a run now: in the routine's zone, with what it said last
- * time, and any of the person's mailboxes that stopped syncing
- * (`mailHealth.js`), which a routine is told and never texts for alone.
+ * time, the last texts with them, and any of the person's mailboxes that
+ * stopped syncing (`mailHealth.js`), which a routine is told and never texts
+ * for alone.
  */
 export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
   const mailboxes = await readMailHealth(store);
@@ -167,19 +236,63 @@ export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
     timeZone: routineTimeZone(routine.settings, givenTimeZone),
     lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     mail: routineMailSection(mailboxes, now),
+    recent: recentTextsSection(await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN * 2 }), routine.path),
   });
 }
 
-/** How a run ended, read off its answer. */
-export function runOutcome(answer) {
+/**
+ * How a run ended, read off its answer, and what it texts: a SKIP that closes
+ * an explanation is still quiet, and instructions read back are said to them
+ * (`checkInGuards.js`).
+ */
+export function runOutcome(answer, { routine = null, runs = [] } = {}) {
   const trimmed = typeof answer === "string" ? answer.trim() : "";
-  if (trimmed === "" || trimmed.replace(/[.!]$/, "").toUpperCase() === SKIP_WORD) {
-    return { outcome: "skipped", text: "" };
-  }
+  if (saysQuiet(trimmed)) return { outcome: "skipped", text: "" };
   if (trimmed.toUpperCase().startsWith(DONE_WORD)) {
-    return { outcome: "finished", text: trimmed.slice(DONE_WORD.length).trim() };
+    return { outcome: "finished", text: spokenToThem(trimmed.slice(DONE_WORD.length)) };
   }
-  return { outcome: "answered", text: trimmed };
+  const text = withoutLastClaim(spokenToThem(trimmed));
+  return repeatsItself(routine, runs, text) ? { outcome: "skipped", text: "" } : { outcome: "answered", text };
+}
+
+/** A sentence that says this run is the last, or that no more reminders come. */
+const LAST_CLAIM =
+  /\b(?:this|that|it)(?:\s+is|'s|\u2019s)\s+(?:the|my|your)\s+(?:last|final)(?:\s+(?:one|reminder|time|text)\b|\s*[.!?]*$)|\bno\s+more\s+reminders\b|\bfinal\s+reminder\b/i;
+
+/**
+ * A run that goes on saying it is the last (a review, 2026-10-26: a daily
+ * reminder texted "This is the last one." and the person had to ask for the
+ * rest of the week). Only a run that ends its routine (`DONE_WORD`) may; any
+ * other has that sentence taken off, and "Final reminder:" becomes "Reminder:".
+ */
+export function withoutLastClaim(text) {
+  const said = String(text ?? "").replace(/^(?:last|final)\s+reminder\b/i, "Reminder");
+  const sentences = said.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((sentence) => !LAST_CLAIM.test(sentence));
+  return kept.length === 0 || kept.length === sentences.length ? said : kept.join(" ");
+}
+
+/**
+ * The calendar tool a routine run is offered, when the grant offered it: their
+ * own events change at once, and nothing that tells a guest goes
+ * (`calendarGate.js`). No other write (`docs/decisions/routines.md`).
+ */
+export function routineCalendarTools(offered) {
+  return (Array.isArray(offered) ? offered : []).filter((tool) => tool?.name === ROUTINE_CALENDAR_TOOL);
+}
+
+const sameWords = (text) => String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Whether a routine that runs more than once an hour would text exactly what
+ * its last answer did (the owner, 2026-10-23: an every-5-minutes check texted
+ * "Planning Center's connected." again and again). A reminder every few hours
+ * is meant to repeat, so only minute cadences are held to this.
+ */
+export function repeatsItself(routine, runs, text) {
+  if (routine?.cadence?.unit !== "minute" || !Array.isArray(runs)) return false;
+  const last = runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished");
+  return last !== undefined && sameWords(last.text) === sameWords(text);
 }
 
 function isRun(value) {

@@ -338,7 +338,9 @@ describe("durable collaboration", () => {
     controller.stop();
     (release as ((value: CollaborationResponse) => void) | null)?.(response("doc-1", "late"));
     await starting;
-    expect(controller.state.text).toBe("");
+    // The late answer is not applied: the note is still the text it opened
+    // with (never "", which drew an opened note blank; see `shownText`).
+    expect(controller.state.text).toBe("legacy text");
   });
 
   test("definitive auth failure revokes the controller and blocks repair", async () => {

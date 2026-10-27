@@ -31,6 +31,7 @@ interface MemberSummary {
   role: string;
   email?: string;
   name?: string;
+  handle?: string;
   isMe: boolean;
   joinedAt: number;
 }
@@ -106,6 +107,7 @@ export function useMembers(options: {
       role: member.role,
       email: member.email,
       name: member.name,
+      ...(member.handle === undefined ? {} : { handle: member.handle }),
       joinedAt: member.joinedAt,
       // Decided by the control plane, which is the only party that knows who is
       // calling — see `listMembers`.

@@ -53,8 +53,8 @@ async function personalWorkspaceOf(f: RoutineFixture, userId: RoutineFixture["ow
  *     → "a routine's grant leaves the texting grant alone" fails
  *   recipients honouring `to:` whatever `writerSource` says
  *     → "a personal routine nobody was seen writing still texts its owner…" fails
- *   `runsRoutines` → true for every workspace
- *     → both "a shared workspace runs no routines" tests fail
+ *   `runsRoutine` → true for every routine
+ *     → both "a shared workspace runs no routine without a chat" tests fail
  *   `routineRecipients` reading `to:` again
  *     → "its writer and nobody else, whoever its `to:` names" fails
  *   `fallsBackToOwner` → true for every workspace
@@ -312,8 +312,8 @@ describe("who a run texts", () => {
   });
 });
 
-describe("a shared workspace runs no routines", () => {
-  // Decided by the owner, 2026-10-18: routines are personal. The notes stay; nothing runs them.
+describe("a shared workspace runs no routine without a chat", () => {
+  // Decided by the owner, 2026-10-18: routines are personal; since 2026-10-27 only a chat routine runs there (routinesChat.test.ts).
   test("a signal there makes no row, and a row left from before is dropped", async () => {
     const f = await routineFixture({ kind: "shared" });
     await linkPhone(f.t, f.editor, "+15555550103");

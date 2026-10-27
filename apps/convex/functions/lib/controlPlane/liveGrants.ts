@@ -18,6 +18,10 @@ import { pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 import { phoneSignInPaused } from "../emailProof";
+import { guestBinder, mayOpenToGuests } from "../textGroupGuests";
+import { invitationsStillCount } from "../textGroupInvited";
+import { chatNamesOf } from "../nodes/chatFolders";
+import { accessRowsOf } from "../nodes/accessRows";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -109,10 +113,19 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   const group = await ctx.db.get(texGroup.groupId);
   if (group === null || group.mutedAt !== undefined || group.workspaceId !== grant.workspaceId) return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
+  // A guest chat's grant (`lib/textGroupGuests.ts`) holds while the chat is still a guest chat of the same group and
+  // the person who opened it may still: an owner or editor, texting. An ordinary chat's grant never resolves in a
+  // guest chat, nor a guest chat's in an ordinary one, so neither reads at the other's reach.
+  if ((texGroup.guestGroupId ?? null) !== (group.guestGroupId ?? null)) return false;
+  if (texGroup.guestGroupId !== undefined) return (await guestBinder(ctx, group)) !== null;
   for (const userId of texGroup.coViewerIds) {
     if ((await getMembership(ctx, grant.workspaceId, userId)) === null) return false;
     if (await phoneSignInPaused(ctx, userId)) return false;
   }
+  // Invited family (`lib/textGroupInvited.ts`): every invitation counted still counts, and an invited person's tag
+  // stands on a binder who may still open the workspace to the chat.
+  if (texGroup.coInvitationIds !== undefined && !(await invitationsStillCount(ctx, grant.workspaceId, texGroup.coInvitationIds))) return false;
+  if (texGroup.invitedTaggerRole !== undefined && !(await mayOpenToGuests(ctx, grant.workspaceId, grant.userId))) return false;
   return true;
 }
 
@@ -181,6 +194,7 @@ export async function contextsForGrant(
     role: string;
     kind: "personal" | "shared";
     grantedNames?: string[];
+    setupOnly?: true;
   }>
 > {
   const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
@@ -200,8 +214,27 @@ export async function contextsForGrant(
     own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
   }
   // A group chat's grant reaches its one workspace and nothing else: not the
-  // tagger's other memberships, not their personal workspace, not the pin.
-  if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) return [own];
+  // tagger's other memberships, not their personal workspace. The pin comes
+  // back marked `setupOnly`: the gateway never lists or addresses it, and
+  // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
+  // already runs on (`apps/mcp/src/agent/production.js`).
+  if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
+    const setup = await groupSetupRow(ctx, live, own.workspaceId);
+    // A guest chat's reads only what is shared with its group, as a guest reads (`lib/nodes/chatFolders.ts`).
+    const chatGroupId = live.grant.texGroup?.guestGroupId;
+    if (chatGroupId !== undefined) {
+      const chatGroup = await ctx.db.get(chatGroupId);
+      if (chatGroup === null || chatGroup.workspaceId !== own.workspaceId) return [];
+      // Never more than an editor's hand there, whoever opened it: an owner's tools (visibility, links) stay theirs.
+      const role = own.role === "owner" ? "editor" : own.role;
+      const grantedNames = chatNamesOf(chatGroupId, chatGroup.name, await accessRowsOf(ctx, own.workspaceId));
+      return [{ ...own, role, grantedNames }, ...setup];
+    }
+    // An invited person's tag: the binder's grant, never past the invitation's role, and never an owner's tools.
+    const invitedRole = live.grant.texGroup?.invitedTaggerRole;
+    if (invitedRole !== undefined) return [{ ...own, role: own.role === "member" ? "member" : invitedRole }, ...setup];
+    return [own, ...setup];
+  }
 
   const memberships = await ctx.db
     .query("workspaceMembers")
@@ -257,4 +290,21 @@ export async function contextsForGrant(
   }
 
   return rows;
+}
+
+/**
+ * The pin for a group chat's grant, as a row the gateway may open only to read
+ * Tex's setup, or nothing: no pin on this deployment, or the chat's own
+ * workspace is the pin (then the setup is read there already).
+ */
+async function groupSetupRow(ctx: QueryCtx, live: LiveGrant, own: Id<"workspaces">) {
+  const pinned = await pinnedContextRow(ctx, new Set([own]));
+  if (pinned === null) return [];
+  const names = (await pinReaderNames(ctx, pinned.workspaceId, live.grant.userId)) ?? [];
+  return [{ ...pinned, ...(names.length === 0 ? {} : { grantedNames: names }), setupOnly: true as const }];
+}
+
+/** The rows a clearance may act on: never the setup-only pin of a group chat's grant. */
+export function addressable<T extends { setupOnly?: true }>(rows: T[]): T[] {
+  return rows.filter((row) => row.setupOnly !== true);
 }

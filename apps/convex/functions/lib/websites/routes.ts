@@ -23,6 +23,7 @@ import {
   type IndexedRoute,
 } from "./releases";
 import { ensureWebsiteStarter } from "./state";
+import { realSitePath } from "./siteRoot";
 import { assertScanSawMoves, pendingMovesNow, type ListedFolder } from "./movingScan";
 import {
   absentCopies,
@@ -65,21 +66,20 @@ export async function scanWebsiteRoutes(
   pages: Array<{ objectKey: string; markdown: string }>;
 }> {
   /*
-    Only `website/` is walked, and then only the folders its pages name.
-    This used to walk the whole bucket to find both, and on a large workspace
-    took longer than the gateway waits for an answer: a seven-page site's
-    check, status and publish over MCP all failed as "control plane
-    unavailable" (2026-10-09). The prefix walk asks the same barrier at the
-    same clearance, so a note `privacy.md` holds back is absent from it exactly
-    as it was from the whole-bucket walk.
+    Only `website/` is walked (wherever its folder is, `./siteLens.ts`), and then only the folders
+    its pages name. Walking the whole bucket took longer than the gateway waits: a seven-page
+    site's check, status and publish over MCP all failed as "control plane unavailable"
+    (2026-10-09). The prefix walk asks the same barrier at the same clearance.
   */
   // Always the tree (moves drawn), never the bucket: names and existence are rows,
   // bytes may sit at `notes/<id>.md`. A move starting mid-scan fails it (`./movingScan.ts`).
   const movesBefore = await pendingMovesNow(ctx, workspaceId);
+  // Moves are named where they happen (`./siteRoot.ts`).
+  const root = await ctx.runQuery(internal.functions.websites.siteRootNow, { workspaceId });
   const listedFolders: ListedFolder[] = [];
   const list = async (folder: string) => {
     const listed = await listMarkdownUnder(ctx, workspaceId, clearance, folder);
-    listedFolders.push({ folder, drawn: listed.drawn });
+    listedFolders.push({ folder: realSitePath(root, folder), drawn: listed.drawn });
     return listed.paths;
   };
   const paths = await list(DEFAULT_WEBSITE_ROOT);
@@ -117,7 +117,7 @@ export async function scanWebsiteRoutes(
  * barrier's prefix-limited manifest. A listing that cannot finish fails the
  * scan rather than reading as "nothing there": a partial manifest is never
  * evidence that an indexed route was deleted. Always the Convex tree, moves
- * drawn; a tree still loading fails the scan (`TREE_LOADING`). `drawn` says
+ * drawn; a tree that does not serve yet fails the scan (`NOT_SERVED`). `drawn` says
  * every page came from it.
  */
 async function listMarkdownUnder(

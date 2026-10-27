@@ -5,19 +5,14 @@
  * - **`NodeTable`** is the rows of one workspace. The rules for changing
  *   them (`observe.ts`) are written once against it and run two ways: inside
  *   a Convex mutation (`convexNodeTable`) and over a plain Map in tests
- *   (`__tests__/nodeTable.helpers.ts`), so a sweep or a re-check can be
- *   tested end to end without a deployment.
- * - **`NodeSink`** is what the bucket-side work (`sweep.ts`, `touch.ts`) asks
- *   of the tree: begin a sweep, record what a listing saw, finish. In
- *   production each call is one internal mutation (`functions/nodes.ts`);
- *   in tests it is the same functions over a `NodeTable` in memory.
- *
- * Phase 1 of the migration (`docs/decisions/app-and-console/convex-tree.md`)
- * is a shadow: these rows are filled and checked, and nothing answers a
- * person from them yet.
+ *   (`__tests__/nodeTable.helpers.ts`), so they can be tested without a deployment.
+ * Rows are written only by the product's own seam (writes, moves, trash and
+ * the keyed observations of `lib/noteIds/*`), never by listing the bucket:
+ * names and existence come from these rows (`notes-by-id`).
  */
 
 import { isIdKey } from "../../../../mcp/src/privacy/engine.js";
+import type { FileStore } from "../fileOps/store";
 
 /** A key the bucket holds, as a listing describes it. */
 export interface NodeRow {
@@ -84,37 +79,21 @@ export interface StoredNode {
 }
 
 /**
- * What one look at the bucket saw, at `at` (epoch ms, taken before the look).
+ * What the product's seam saw written, at `at` (epoch ms, taken before the write).
  *
- * - `rows`: keys it saw, with their versions.
- * - `gone`: exact keys it saw were not there.
- * - `vanishedUnder`: folder prefixes (each ending in `/`) it listed
- *   **completely**: any live file under one that is not in `rows` and was
- *   last observed before `at` is gone.
+ * - `rows`: the keyed rows it wrote, each carrying `keyed` (its note and key).
+ * - `gone`: exact keys it removed.
  */
 export interface Observation {
   at: number;
   rows: NodeRow[];
   gone: string[];
-  vanishedUnder: string[];
   /**
    * Who could see a key before the change that took it away, as its writer
    * judged it. A move clears the source's exception before the tree hears of
    * it, so a `gone` row narrows to this (`convexTable.ts`, `logChange`).
    */
   left?: LeftAudiences[];
-  /**
-   * Who wrote the observation. `bucket` (the default): a look at path objects
-   * (a listing, a re-check, a move). `seam`: the store reporting its own keyed
-   * writes, every row carrying `keyed`. The two obey different rules
-   * (`observe.ts`): only a seam observation writes a keyed row.
-   */
-  source?: "bucket" | "seam";
-  /**
-   * Set by the caller of a bucket observation when the workspace is keyed
-   * (`lib/noteIds/keyedState.ts`): a path with no row is then not adopted.
-   */
-  keyedWorkspace?: boolean;
 }
 
 /** A key a change took away and the audiences that could see it before. */
@@ -133,10 +112,6 @@ export interface NodeTable {
   insert(node: Omit<StoredNode, "id">): Promise<string>;
   patch(id: string, fields: Partial<Omit<StoredNode, "id" | "path" | "kind">>): Promise<void>;
   remove(id: string): Promise<void>;
-  /** Rows whose path starts with `prefix`, in the table's path order, from just after `after`. At most `limit`. */
-  underPrefix(prefix: string, options: { after?: string; limit: number }): Promise<StoredNode[]>;
-  /** Rows with `observedAt < before`, oldest first, never a keyed row (`storageKey`) nor one carrying `access`. At most `limit`. */
-  observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
   /** Whether a live row other than `exceptId` holds this note id. Optional: a table without it is treated as yes. */
@@ -149,18 +124,6 @@ export interface NodeTable {
    * with no log (a read-only view) need not pretend to have one.
    */
   logChange?(path: string, gone: boolean): Promise<void>;
-}
-
-/** The sweep's bookkeeping for one workspace (`nodeTrees`). */
-export interface NodeTreeState {
-  status: "empty" | "filling" | "ready" | "unsupported";
-  cursor?: string;
-  startedAt?: number;
-  leaseAt?: number;
-  sweptAt?: number;
-  dirty: boolean;
-  files: number;
-  error?: string;
 }
 
 /** Parsed `privacy.md` rules, as `nodePrivacy` keeps them. */
@@ -176,104 +139,11 @@ export interface PrivacyMirror {
   rows?: boolean;
 }
 
-/** What the bucket-side work asks of the tree. One call, one mutation, in production. */
-export interface NodeSink {
-  state(): Promise<NodeTreeState | null>;
-  /**
-   * Start (or join) a sweep at `at`. Takes the lease, clears `dirty`, and on
-   * a fresh start sets `cursor: ""` and `startedAt` (kept at the EARLIEST
-   * start two racing passes recorded). Returns where to list from and the
-   * start the finish will prune by.
-   */
-  begin(at: number): Promise<{ cursor: string; startedAt: number }>;
-  observe(observation: Observation): Promise<void>;
-  /** The sweep listed through `cursor`; renews the lease. */
-  progress(cursor: string, at: number): Promise<void>;
-  /**
-   * Remove what nobody observed since `startedAt`: live files and folders
-   * last observed before it, and tombstones that went before it. Bounded;
-   * `more` means call again.
-   */
-  prune(startedAt: number): Promise<{ more: boolean }>;
-  /** The sweep finished at `at`: ready, cursor and start cleared, error cleared, live files counted. */
-  finish(at: number): Promise<void>;
-  /** The store cannot be resumed in key order (one that ignores it): never served, never swept again. */
-  unsupported(): Promise<void>;
-  /** A change too big to re-check: the next due check starts a sweep. */
-  dirty(): Promise<void>;
-  /** A pass failed; `label` is fixed and path-free. */
-  fail(label: string): Promise<void>;
-  privacy(): Promise<PrivacyMirror | null>;
-  savePrivacy(mirror: PrivacyMirror, at: number): Promise<void>;
-}
-
-/** Rows one `observe` mutation takes; a bigger observation is split by the caller. */
+/** Rows one seam batch takes; a bigger write is split by the caller. */
 export const OBSERVE_BATCH = 250;
-/** Rows one `prune` mutation removes before answering `more`. */
-export const PRUNE_BATCH = 500;
-/** Rows one `vanishedUnder` prefix may scan in one mutation before the caller is told to come back. */
-export const VANISH_SCAN = 2_000;
-/** List pages (of 1,000 keys) one sweep pass walks. */
-export const NODE_SWEEP_PAGES = 10;
-/** Passes one sweep chain may schedule: a bound on a loop, not on a workspace. */
-export const NODE_SWEEP_CHAIN = 100;
-/** A pass that ran this recently holds the sweep; another one waits. */
-export const NODE_SWEEP_LEASE_MS = 5 * 60_000;
-/** A tree last swept longer ago than this is swept again when somebody walks it. */
-export const NODE_SWEEP_STALE_MS = 60 * 60_000;
-/** Paths one change may re-check individually; more marks the tree dirty. */
-export const NODE_TOUCH_PATHS = 50;
-/** List pages one folder's re-check may walk; more marks the tree dirty. */
-export const NODE_TOUCH_FOLDER_PAGES = 10;
-/** How long a save's re-check waits, so a burst of typing pauses is one re-check. */
-export const NODE_EDIT_SETTLE_MS = 3_000;
-/** A gathered flush due longer ago than this was lost; the next save schedules another. */
-export const NODE_EDIT_LOST_MS = 5 * 60_000;
-/**
- * A tree proved equal to its bucket longer ago than this is checked again when
- * its next sweep finishes. Parity is what lets the tree serve, so a proof that
- * is never renewed is a guess about today from the day it was made.
- */
-export const NODE_PARITY_STALE_MS = 24 * 60 * 60_000;
-/** A check that found differences is run once more after this, before it raises the staff alarm. */
-export const NODE_PARITY_CONFIRM_MS = 30_000;
-
-/**
- * Whether a sweep finishing at `at` should check the tree against its bucket:
- * never checked, last check differed, or the last proof is a day old.
- */
-export function nodeParityDue(
-  parity: { checkedAt: number; mismatches: number; privacyMatches: boolean } | undefined,
-  at: number,
-): boolean {
-  if (parity === undefined) return true;
-  if (parity.mismatches > 0 || !parity.privacyMatches) return true;
-  return at - parity.checkedAt >= NODE_PARITY_STALE_MS;
-}
 
 /** The bucket key of the privacy manifest. */
 export const NODE_PRIVACY_KEY = "privacy.md";
-
-/** How long a store found unlistable waits before a sweep tries it again. */
-export const NODE_UNSUPPORTED_RETRY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Whether a walk of the tree in this state should start (or continue) a sweep.
- * `keyed` says the workspace is keyed (`keyedWorkspace`): never due.
- */
-export function nodeSweepDue(state: NodeTreeState | null, now: number, keyed = false): boolean {
-  // A keyed workspace is never swept: its keyed rows are written by the store
-  // seam, and a listing of path objects would only ever disagree with them.
-  if (keyed) return false;
-  if (state === null) return true;
-  // Tried again a day after it was found unlistable; a tree marked so before
-  // the sweep could page by token (no `leaseAt`) is tried at once.
-  if (state.status === "unsupported") return state.leaseAt === undefined || now - state.leaseAt >= NODE_UNSUPPORTED_RETRY_MS;
-  if (state.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) return false;
-  if (state.cursor !== undefined) return true;
-  if (state.status !== "ready" || state.dirty) return true;
-  return state.sweptAt === undefined || now - state.sweptAt >= NODE_SWEEP_STALE_MS;
-}
 
 /**
  * A key as the tree keeps it, or `null` for one it never keeps: empty,
@@ -323,3 +193,21 @@ export function nameOf(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? path : path.slice(slash + 1);
 }
+
+/**
+ * Bytes-order comparison of two keys. S3 lists in UTF-8 byte order, which is
+ * not JavaScript's string order; the in-memory tree and the listing agree on it.
+ */
+const KEY_BYTES = new TextEncoder();
+export function compareKeys(a: string, b: string): number {
+  const x = KEY_BYTES.encode(a);
+  const y = KEY_BYTES.encode(b);
+  const shared = Math.min(x.length, y.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (x[index] !== y[index]) return x[index]! - y[index]!;
+  }
+  return x.length - y.length;
+}
+
+/** The store operations a listing reader uses (`listFolder`, the parity-free walks), and nothing else of the bucket. */
+export type NodeListingStore = Pick<FileStore, "list" | "get">;

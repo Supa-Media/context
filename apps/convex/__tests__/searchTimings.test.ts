@@ -4,7 +4,6 @@ import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { MAX_SEARCH_MS } from "../functions/lib/searchTiming";
 import { SEARCH_TIMING_RETENTION_MS } from "../functions/searchTimings";
 import { summarize } from "../functions/lib/adminFns/searchReport";
@@ -20,6 +19,7 @@ import {
   gatewayPost,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 /**
  * THE SEARCH TIMING LOG, AND THE SEARCH TAB THAT READS IT.

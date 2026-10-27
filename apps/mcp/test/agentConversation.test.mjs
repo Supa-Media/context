@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   appendConversation,
   conversationPath,
+  earlierTextsResult,
   MAX_HISTORY_CHARS,
   MAX_HISTORY_TURNS,
   readConversation,
@@ -10,6 +11,8 @@ import {
   usedTools,
 } from "../src/agent/conversation.js";
 import { systemPrompt } from "../src/agent/prompt.js";
+import { heartbeatCallTool } from "../src/agent/heartbeat.js";
+import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
 
 function memoryStore() {
   const objects = new Map();
@@ -307,4 +310,74 @@ test("only a text of theirs in the last ten minutes holds a check-in back; Tex's
   assert.equal(midConversation(await readConversation(store, "texts"), now), false);
   await appendConversation(store, "texts", [], "Friday then", "Done.", { at: now - 60_000, theirs: true });
   assert.equal(midConversation(await readConversation(store, "texts"), now), true);
+});
+
+/*
+  2026-10-22: asked "where are you reading from?" a text after reading
+  Deuteronomy 28 on a Bible site, Tex had only the tool's name and took back
+  that it had read anything. An answer keeps the addresses of the pages it
+  read (`sources.js`), never their text, and the next turn is told them.
+*/
+test("an answer keeps the addresses of the web pages it read, and the next turn and earlier_texts name them", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "Fill in the overview for Deut 28", "Done, from the LSB.", {
+    tools: ["open_page"],
+    sources: ["https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB#en", "https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB", "javascript:alert(1)", 7],
+  });
+  const turns = await readConversation(store, "texts");
+  const page = "https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB";
+  assert.deepEqual(turns[1].sources, [page]);
+  const used = usedTools(turns);
+  assert.deepEqual(used[0].sources, [page]);
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.ok(prompt.includes(`you used open_page. Web pages you read: ${page}`));
+  assert.match(prompt, /name the page's address/);
+  assert.match(earlierTextsResult(turns).content[0].text, /Web pages you read for this: https:\/\/www\.biblegateway\.com/);
+  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true, used: [{ question: "hi", tools: ["search_notes"] }] }), /name the page's address/);
+});
+
+test("a kept address drops a sign-in: no user, password, fragment or secret-looking query value", () => {
+  assert.equal(
+    sourceAddress("https://ada:hunter2@example.com/a?id=4&token=abc&api_key=k&sig=s&page=2#frag"),
+    "https://example.com/a?id=4&page=2",
+  );
+  assert.equal(sourceAddress("file:///etc/passwd"), null);
+  assert.equal(sourceAddress(`https://example.com/${"a".repeat(400)}`), null);
+  assert.equal(sourcesOf(Array.from({ length: 20 }, (_, i) => `https://example.com/${i}`)).length, MAX_SOURCES);
+});
+
+test("a written note is kept as its path, and a path that climbs or names nothing is not (2026-10-23)", () => {
+  assert.equal(sourceAddress("note:1-projects/image-reading.md"), "note:1-projects/image-reading.md");
+  assert.equal(sourceAddress("note:@supa/products/x.md"), "note:@supa/products/x.md");
+  for (const bad of ["note:", "note:../secret.md", "note:a/../../b.md", "note:/abs.md", "note:a//b.md", `note:${"a".repeat(300)}`, "note:a\nb"]) {
+    assert.equal(sourceAddress(bad), null, bad);
+  }
+});
+
+test("a note a check-in read is kept as its path, named as read, and the reply is told to open it rather than hunt (2026-10-25)", () => {
+  assert.equal(sourceAddress("read:tex/transcripts/2026-10-24.md"), "read:tex/transcripts/2026-10-24.md");
+  for (const bad of ["read:", "read:../secret.md", "read:/abs.md", "read:a\nb"]) assert.equal(sourceAddress(bad), null, bad);
+  const used = [{ question: "(Not a text from them…", tools: ["read_note"], sources: ["read:tex/transcripts/2026-10-24.md"] }];
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.ok(prompt.includes("you used read_note. Notes you read for it: tex/transcripts/2026-10-24.md."), prompt);
+  assert.match(prompt, /fetch that exact path/);
+  assert.doesNotMatch(prompt, /Web pages you read|name the page's address|Notes you wrote or changed/);
+  const turns = [{ role: "user", text: "(check-in)" }, { role: "assistant", text: "Your fitting moved.", sources: ["read:tex/transcripts/2026-10-24.md"] }];
+  const listed = earlierTextsResult(turns).content[0].text;
+  assert.match(listed, /Notes you read for this: tex\/transcripts\/2026-10-24\.md/);
+  assert.doesNotMatch(listed, /Web pages you read/);
+});
+
+test("a note a check-in read comes back named, and a refused or other read does not", async () => {
+  const callTool = heartbeatCallTool(async () => ({ content: [{ type: "text", text: "ok" }] }));
+  assert.deepEqual((await callTool("read_note", { path: "todo.md" })).sources, ["read:todo.md"]);
+  assert.equal((await callTool("search_notes", { query: "x" })).sources, undefined);
+  assert.equal((await callTool("read_note", { path: "x.md", context: "@other" })).sources, undefined);
+  const failed = heartbeatCallTool(async () => ({ isError: true, content: [{ type: "text", text: "not found" }] }));
+  assert.equal((await failed("read_note", { path: "gone.md" })).sources, undefined);
+});
+
+test("every turn is told never to guess pronouns (a group chat, 2026-10-25)", () => {
+  for (const texting of [true, false]) assert.match(systemPrompt(null, { texting }), /Never guess anyone's pronouns.*they\/them/);
+  assert.match(systemPrompt(null, { texting: true, notes: { prompt: "You are Tex." } }), /Never guess anyone's pronouns/);
 });

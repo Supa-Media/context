@@ -79,7 +79,7 @@ export function parseListBody(text) {
 
   if (!raw.has("from")) return { error: '"from" is required: the folder to list' };
   const from = normalizeFolder(raw.get("from"));
-  if (from === null) return { error: `"from" must be a folder in this workspace, like 1-projects or blog/posts` };
+  if (from === null) return { error: `"from" must be a folder in this workspace, like projects or blog/posts` };
 
   const sort = parseSort(raw.get("sort"));
   if (sort.error) return { error: sort.error };

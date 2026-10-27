@@ -96,6 +96,13 @@ test("chapters 01 to 10 are a run; a numbered list that reuses numbers is not", 
   assert.equal(countItems(notes(...tasks), []).items, 5);
 });
 
+test("a lettered second note of a day is still the run (log-2026-09-18b)", () => {
+  const month = Array.from({ length: 54 }, (_, i) => `security-review-log-coverage-2026-09-${String(10 + (i % 18)).padStart(2, "0")}${["", "b", "c"][i % 3]}.md`);
+  assert.equal(countItems(notes(...month), []).items, 2);
+  assert.equal(countItems(notes("draft-1a.md", "draft-2b.md", "draft-3.md"), []).items, 1);
+  assert.equal(countItems(notes("draft-1ab.md", "draft-2ab.md", "draft-3ab.md"), []).items, 3, "one letter, never a word");
+});
+
 test("two notes sharing a stem are not a run: a run needs three", () => {
   assert.equal(countItems(notes("draft-1.md", "draft-2.md"), []).items, 2);
   assert.equal(countItems(notes("draft-1.md", "draft-2.md", "draft-3.md"), []).items, 1);

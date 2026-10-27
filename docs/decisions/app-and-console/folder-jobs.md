@@ -47,7 +47,9 @@ identifying it as a special system thing, using the original names".
   keyed workspace the five main ones can be renamed, moved and nested like any
   folder; they can never be archived, trashed or deleted. Elsewhere the old
   lock stands, since writers there still name them by path. The Website folder
-  keeps its name and place, because pages are published from it by name.
+  moves on the same terms since 2026-10-21: its site keeps naming pages
+  `website/...` and reads them wherever the folder is
+  ([nested-folder](../websites/nested-folder.md)).
   Extras can be removed. A new root folder under a job's name, while another
   folder does that job, is refused as a twin naming that folder.
 - **Order is a row field** (`nodes.order`), set by Move up, Move down and
@@ -62,10 +64,10 @@ identifying it as a special system thing, using the original names".
   insertion line, and the middle into it, with the wash. Between siblings is
   a reorder of that level; between rows of another level is a move there,
   then the order with the folder where it was dropped, sent only once the
-  move has landed. Website reorders among its siblings (as Move up and Move
-  down do) but is never dropped into another level or nested. Notes and
+  move has landed. Website is dragged like the rest (2026-10-21). Notes and
   several rows at once only nest, since notes still list by name.
-- **Built-in folders draw a hand-drawn icon in Tex blue, and nobody can change
+- **Built-in folders draw a hand-drawn icon in Tex blue (in the text colour
+  when nested inside another folder, owner 2026-10-26), and nobody can change
   it** for now: the app draws the job's icon over any emoji a row holds and
   offers no way to set one on a built-in folder. The owner may later offer a
   set to pick from. The icon follows the job, so Projects always looks like
@@ -115,7 +117,8 @@ folders its own way, so a job can no longer come from a root name alone.
   job decides where everybody's mail and meetings land). The named folder's
   row takes the job, and the folder that did it keeps its notes but holds
   `role: "none"` (`NO_JOB`), so its name never claims the job back. Archive
-  stays at the top; Website keeps its name and place; a folder already doing
+  stays at the top; Website's job stays with its own folder, which can be
+  moved and renamed instead; a folder already doing
   another job is refused. `lib/nodes/folderJobSettings.ts` `decideJobChange`
   is the whole rule.
 - **Guesses after an import** (`guessFolderJobs`): a folder at most three
@@ -134,6 +137,10 @@ folders its own way, so a job can no longer come from a root name alone.
   (`assertNotProtectedFolder`, the gateway's `protectedFolderRefusal`); they
   can be trashed, and a person adds notes and folders beside them. Meetings
   keeps its row job internally and is said on the Inbox's line.
+- **Tex's own folders** (attention, dreams, heartbeat, housekeeping, routines,
+  skills, transcripts) are kept the same way inside Tex's folder, wherever it
+  is nested, and said on Tex's line (owner, 2026-10-21;
+  [custom-emoji](./custom-emoji.md#the-picker-opens-on-contexts-own-hundred-icons)).
 - **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
   row over `apply_layout`, through the same `giveJob` the app's Settings uses.
 
@@ -187,3 +194,51 @@ Archive archives everybody's mail. `apps/convex/__tests__/nodes/archiveMirror.te
 `apps/convex/__tests__/files/archiveTidy.test.ts`,
 `apps/mcp/test/archiveMirror.test.mjs` and
 `apps/mcp/test/archiveNoteMirror.test.mjs` fail if either goes.
+
+## Built-in folders have no number in front
+
+*Decided by the owner, 2026-10-21* ("need to get rid of the 1- 2- prefixes
+we've been putting on folders, need to run a migration and make sure it
+doesn't break anything and then also make sure that when we set up new
+workspaces we aren't adding that").
+
+**What it is.**
+
+- **New workspaces** are laid out as `inbox`, `projects`, `areas`,
+  `resources` and `archive` (plus `clients`, `teams` and `products` for the
+  kinds that add them): `DEFAULT_FOLDER` in
+  `packages/shared/src/folderRoles.cjs`, which the scaffold, the presets, the
+  onboarding layout, the default email-in, meetings and memory folders, and the
+  capture paths of email, iMessage, Google Chat, calendar and contacts all
+  read. The console already showed these folders without their numbers
+  (`withoutSortPrefix`), so nothing a person sees changes.
+- **Existing workspaces** are renamed once by `functions/folderNumbers:run`
+  from the `Folder names without numbers` workflow (`dry_run` first), as the
+  console's rename at the owner's clearance: rows, ids, rules and jobs are
+  kept, Archive twins and the settings naming the folder follow. A folder
+  whose plain name a sibling already has is left alone and counted, an
+  unkeyed workspace is left alone (its rename would be a byte move), and only
+  root folders and folders doing a job are renamed — a numbered folder deeper
+  down is somebody's own.
+- **Old spellings keep working.** A job's name still matches with any number
+  in front (`folderRole`), so a writer that names `0-inbox/...` — an older
+  desktop app, a saved prompt, a link — lands in the folder doing the Inbox
+  job (`canonicalJobPath`), and the readers that parse capture paths
+  (`asInboxKey`, `isMeetingNotePath`, contact lookups) accept both. The
+  unauthenticated preview's guessable paths list both spellings
+  (`PRODUCT_MANDATED_PATHS`).
+- **Unkeyed workspaces are carried too** (found by the staging dry run,
+  where every workspace was unkeyed): the credential barrier's job lens
+  (`lib/filesFns/jobLens.ts`) carries a read, write, listing or new folder
+  under a job's default name to the folder doing the job before anything
+  else reads the path, and the gateway's own Inbox writers (remember, the
+  capture route, the session fallback) ask the tree for the Inbox first
+  (`inboxPath`). Without it an unkeyed write to `inbox/...` beside `0-inbox`
+  was refused as a twin, and the memory or capture was lost.
+
+**What a "simplification" costs.** Dropping the old spellings from the
+readers breaks every workspace not yet renamed and every client still
+writing them; renaming without the twin check merges two folders. The tests
+that fail: `apps/convex/__tests__/nodes/folderNumbers.test.ts`,
+`packages/communications/test/paths.test.mjs` (legacy section) and
+`apps/mcp/test/folderRoles.test.mjs`.

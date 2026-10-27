@@ -33,9 +33,9 @@ export async function runGmailAdversarialFilenameChecks(check) {
       const segments = path.split("/");
       return (
         segments.length === 8 &&
-        segments[0] === "0-inbox" &&
+        segments[0] === "inbox" &&
         decodeURIComponent(segments[7]).includes("../../privacy.md") === true &&
-        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/")
+        path.startsWith("inbox/email/p-at-example-invalid/attachments/2026/09/07/")
       );
     })(),
   );

@@ -21,7 +21,7 @@ async function recoverDelete(store, operationId) {
   let head = await readHead(store, op.path);
   const stateRecord = await readState(store, { stateKey: op.stateKey, documentId: op.documentId, generation: op.generation });
   if (!stateRecord) throw fail("CORRUPT_STATE", "deleted document state is missing");
-  const state = validateState(stateRecord.value, { documentId: op.documentId, generation: op.generation }, op.path);
+  const state = validateState(stateRecord.value, { documentId: op.documentId, generation: op.generation, byNote: head?.byNote }, op.path);
   // A crash can occur after the state freeze but before the path head records
   // `deleting`. The journal is authoritative in that window; claim the head
   // before removing Markdown so recovery cannot strand an active missing path.
@@ -93,7 +93,7 @@ async function recoverRestore(store, operationId) {
   const head = await readHead(store, op.path);
   const stateRecord = await readState(store, { stateKey: op.stateKey, documentId: op.documentId, generation: op.generation });
   if (!stateRecord) throw fail("RESTORE_UNAVAILABLE", "deleted document history is no longer retained");
-  const state = validateState(stateRecord.value, { documentId: op.documentId, generation: op.generation }, op.path);
+  const state = validateState(stateRecord.value, { documentId: op.documentId, generation: op.generation, byNote: head?.byNote }, op.path);
   const revision = await readRevision(store, op.documentId, state.revision);
   let object = await readObject(store, op.path);
   if (object && object.text !== revision.value.text) {

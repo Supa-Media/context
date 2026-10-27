@@ -289,6 +289,26 @@ test("fluff.md is read as a fluff file and never served as a note", async () => 
   }
 });
 
+test("a folder with several kinds of filler reads each fluff-<kind>.md, and fluffy.md stays a note", async () => {
+  const dir = await benchTree({
+    "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
+    "workspaces/ws/logs/fluff-a.md": "---\ncount: 2\nseed: 1\nfrom: meetings\nname: a-{n}.md\n---\n",
+    "workspaces/ws/logs/fluff-b.md": "---\ncount: 3\nseed: 2\nfrom: meetings\nname: b-{n}.md\n---\n",
+    "workspaces/ws/logs/fluffy.md": "a note\n",
+    "workspaces/_bank/meetings/standup.md": TEMPLATE,
+  });
+  try {
+    const bench = await readBenchFolder(dir);
+    assert.deepEqual(Object.keys(bench.workspaces.ws.files), ["logs/fluffy.md"]);
+    assert.deepEqual(bench.workspaces.ws.fluff.map((f) => [f.dir, f.fluff.name]).sort(), [
+      ["logs", "a-{n}.md"],
+      ["logs", "b-{n}.md"],
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("_bank holds the templates and is not a workspace", async () => {
   const dir = await benchTree({
     "workspaces/people.md": PEOPLE_HEADER + WS_ROW,
@@ -530,4 +550,32 @@ test("runnableQuestions drops drafted cases, names each one it drops, and honour
   logged.length = 0;
   assert.deepEqual(runnableQuestions(questions, [1], write).map((q) => q.n), [1]);
   assert.deepEqual(logged, []);
+});
+
+// ---- calendar days ----
+
+test("a calendar day in the repo's bench is served as Google's answer, never placed as a note", async () => {
+  const bench = await readBenchFolder(new URL("../ai", import.meta.url).pathname);
+  const maya = bench.workspaces.maya;
+  assert.ok(!Object.keys(maya.files).some((path) => path.includes("calendar/")), "no calendar day is a note");
+  assert.ok(maya.calendar.some((day) => day.date === "2026-10-09" && day.address === "maya@example.invalid"));
+  assert.deepEqual(expandWorkspaces(bench).workspaces.maya.calendar, maya.calendar);
+  const { calendarAnswer } = await import("../world.mjs");
+  const answer = calendarAnswer(maya.calendar)({ date: "2026-10-09", days: 2 });
+  assert.equal(answer.ok, true);
+  assert.deepEqual([...new Set(answer.days.map((day) => day.date))].sort(), ["2026-10-09", "2026-10-10"]);
+  assert.equal(calendarAnswer([]), null, "a workspace with no calendar has none connected");
+});
+
+// ---- Gmail ----
+
+// Sabotage record: `expandWorkspaces` without `mail` (as it was until
+// 2026-10-26, when every run with fluff had an empty Gmail and hand-back case
+// 8 could never pass) → this test fails.
+test("an email in the repo's bench stays in her Gmail once fluff is written out, never placed as a note", async () => {
+  const bench = await readBenchFolder(new URL("../ai", import.meta.url).pathname);
+  const maya = bench.workspaces.maya;
+  assert.ok(maya.mail.some((email) => email.id === "19a3c0servingrq"), "the serving request is in her Gmail");
+  assert.ok(!Object.keys(maya.files).some((path) => path.includes("gmail/")), "no email is a note");
+  assert.deepEqual(expandWorkspaces(bench).workspaces.maya.mail, maya.mail);
 });

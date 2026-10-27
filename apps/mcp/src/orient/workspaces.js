@@ -56,7 +56,7 @@ export function openOnce(store) {
 /**
  * One workspace's survey, with its folder descriptions. `listing` answers the
  * tree's keys, `facts` its note facts; a survey the tree cannot answer comes
- * back `loading`, which the block says rather than drawing a map of nothing.
+ * back `unreadable`, which the block says rather than drawing a map of nothing.
  */
 export async function surveyOf(listing, facts, scope, rules, overrides) {
   const survey = await surveyContext(listing, scope, rules, overrides);
@@ -69,7 +69,7 @@ export async function surveyOf(listing, facts, scope, rules, overrides) {
 
 /** The survey of a workspace whose file list could not be read: no map, and why. */
 function unreadableSurvey() {
-  return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], loading: TREE_UNREACHABLE };
+  return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], unreadable: TREE_UNREACHABLE };
 }
 
 /** Whether a top-level folder is the Archive: the folder doing that job, else the one named for it. */
@@ -85,14 +85,14 @@ const noteCount = (count) => (count === 1 ? "1 note" : `${count} notes`);
  */
 function bodyOf({ page, survey, connected = false }) {
   const lines = [];
-  lines.push(survey.loading ? `Map not drawn: ${survey.loading}` : `${noteCount(survey.total)} visible to this connection.`);
+  lines.push(survey.unreadable ? `Map not drawn: ${survey.unreadable}` : `${noteCount(survey.total)} visible to this connection.`);
   lines.push(
     page
       ? `Front page: ${page}`
       : "No front page here yet." +
           (connected ? " `index.md` is where the person's own conventions go; offer to write one." : "")
   );
-  if (survey.loading) return lines.join("\n");
+  if (survey.unreadable) return lines.join("\n");
   lines.push("Folders:");
   const isArchive = archiveTest(survey);
   lines.push(renderStructure(survey, { exclude: isArchive }));

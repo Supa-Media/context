@@ -19,7 +19,7 @@
 import type { GatewayAttachment } from "./attachments";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
-import { readStartedJobs, type JobAsk, type RunningJob, type StartedJob } from "./jobs";
+import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
 
@@ -29,7 +29,7 @@ const AGENT_TIMEOUT_MS = 120_000;
 
 export class ServiceError extends Error {
   constructor(
-    readonly service: "linq" | "sendblue" | "control_plane" | "gateway",
+    readonly service: "linq" | "sendblue" | "whapi" | "control_plane" | "gateway",
     readonly status: number | null,
   ) {
     super(`${service} request failed${status === null ? "" : ` (${status})`}`);
@@ -220,15 +220,21 @@ export type AgentAnswer =
    * never reformatted (an email the person is asked to approve). Absent when none.
    */
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
-  /** `jobs`: background jobs the turn started (`jobs.ts`); `exhausted`: it ran out of steps. */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; exhausted?: true }
+  /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps; `unfinished`: a job's answer stopped short of the ask. */
+  /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
+  /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
+  /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
+  | { kind: "cancelled" }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
   | { kind: "not_started" }
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
-  | { kind: "unavailable" };
+  /** `timedOut`: a streamed turn that ran past its time, not one that failed. */
+  | { kind: "unavailable"; timedOut?: true };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -257,8 +263,6 @@ export async function askAgent(
    * could not be read, sent as `replied` so the turn still knows it was one.
    */
   quoted?: string,
-  /** The fixed texts sent since the last turn, by name, for its history (`told.ts`). */
-  told: readonly string[] = [],
   /** The words that started the thread an inline reply was typed in, apart like `quoted`. */
   threadStart?: string,
   /**
@@ -272,6 +276,11 @@ export async function askAgent(
     turn,
     running,
     job,
+    onStep,
+    event,
+    covers,
+    chat,
+    told = [],
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -280,6 +289,15 @@ export async function askAgent(
     running?: RunningJob[];
     /** The background job this turn runs. */
     job?: JobAsk;
+    /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
+    onStep?: (text: string) => Promise<void>;
+    /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
+    event?: "vault_saved";
+    /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
+    covers?: string[];
+    chat?: string;
+    /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
+    told?: readonly string[];
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -291,14 +309,16 @@ export async function askAgent(
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(quoted ? { quoted } : quoted === "" ? { replied: true } : {}),
     ...(quoted && threadStart ? { threadStart } : {}),
-    ...(told.length > 0 ? { told } : {}),
     ...(quoted && tapback ? { tapback } : {}),
     ...(reacted.length > 0 ? { reacted } : {}),
     ...(turn ? { turn } : {}),
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
+    ...(event ? { event } : {}),
+    ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
+    ...(told.length > 0 ? { told } : {}),
   };
-  if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
+  if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
   try {
     result = await post(
@@ -325,11 +345,16 @@ function readVerbatim(value: unknown, answer: string): string[] {
 
 export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
+  if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
+    const steers = readSteers(body.steers);
+    const askIds = Array.isArray(body.askIds)
+      ? body.askIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(id)).slice(0, 8)
+      : [];
     return {
       kind: "answer",
       text: body.answer.trim(),
@@ -337,7 +362,12 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
+      ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
+      ...(body.unfinished === true ? { unfinished: true as const } : {}),
+      ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
+      ...(askIds.length > 0 ? { askIds } : {}),
+      ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };
@@ -360,19 +390,26 @@ export const AGENT_STREAM_IDLE_MS = 60_000;
 /** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
 const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
-async function askAgentStreaming(
+/** `/agent` asked for as a stream: progress lines, a background job's `step` lines, then the answer. */
+export async function askAgentStream(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
-  ask: { question: string; conversation: string },
+  ask: { question: string } & Record<string, unknown>,
   onProgress: (text: string) => Promise<void>,
+  onStep?: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
-  const overall = setTimeout(() => abort.abort(), AGENT_STREAM_TIMEOUT_MS);
+  let timedOut = false;
+  const expire = () => {
+    timedOut = true;
+    abort.abort();
+  };
+  const overall = setTimeout(expire, AGENT_STREAM_TIMEOUT_MS);
   let idle: ReturnType<typeof setTimeout> | undefined;
   const touch = () => {
     clearTimeout(idle);
-    idle = setTimeout(() => abort.abort(), AGENT_STREAM_IDLE_MS);
+    idle = setTimeout(expire, AGENT_STREAM_IDLE_MS);
   };
   try {
     touch();
@@ -420,13 +457,18 @@ async function askAgentStreaming(
           touch();
           continue;
         }
+        if (typeof parsed.step === "string" && parsed.step.trim()) {
+          await onStep?.(parsed.step.trim().slice(0, 140));
+          touch();
+          continue;
+        }
         if (typeof parsed.status === "number") return agentAnswer(parsed.status, parsed.body);
       }
     }
     // The stream ended with no final line: the turn died on the way.
     return { kind: "unavailable" };
   } catch {
-    return { kind: "unavailable" };
+    return timedOut ? { kind: "unavailable", timedOut: true } : { kind: "unavailable" };
   } finally {
     clearTimeout(overall);
     clearTimeout(idle);
@@ -496,11 +538,16 @@ export type RoutineSend = "text" | "note" | "both";
 
 export type DueRoutine = {
   runId: string;
+  /** "" for a chat routine's run: the chat's own turn mints its grant (`groupRoutines.ts`). */
   accessToken: string;
   path: string;
   timeZone: string;
   send: RoutineSend;
   phones: string[];
+  /** A chat routine's chat, by its key: answered into that group, never a phone. */
+  chat?: string;
+  /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
+  since?: number;
 };
 
 /** Most runs one tick takes on; the rest are still due on the next. */
@@ -519,7 +566,8 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
   const due: DueRoutine[] = [];
   for (const value of runs.slice(0, MAX_DUE_RUNS)) {
     const run = record(value);
-    if (!nonEmpty(run.runId) || !nonEmpty(run.accessToken) || !nonEmpty(run.path) ||
+    const chat = typeof run.chat === "string" && /^[0-9a-f]{64}$/.test(run.chat) ? run.chat : undefined;
+    if (!nonEmpty(run.runId) || (chat === undefined && !nonEmpty(run.accessToken)) || !nonEmpty(run.path) ||
         typeof run.timeZone !== "string" || !isSend(run.send) || !Array.isArray(run.phones)) {
       continue;
     }
@@ -527,11 +575,13 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
     const phones = [...new Set(run.phones.filter((phone): phone is string => typeof phone === "string" && E164.test(phone)))];
     due.push({
       runId: run.runId,
-      accessToken: run.accessToken,
+      accessToken: chat === undefined ? (run.accessToken as string) : "",
       path: run.path,
       timeZone: run.timeZone,
       send: run.send,
       phones,
+      ...(chat === undefined ? {} : { chat }),
+      ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
     });
   }
   return due;
@@ -604,3 +654,6 @@ export async function runRoutine(
   if (result.status === 429) return { ...failed, outcome: "daily_limit" };
   return failed;
 }
+
+/** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */
+export const askLine = (answer: { text: string; verbatim?: string[] }): string => answer.verbatim?.join("\n") || answer.text;

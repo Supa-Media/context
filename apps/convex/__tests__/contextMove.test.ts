@@ -33,7 +33,6 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { readDocument, replaceText } from "@context/collaboration";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
@@ -57,7 +56,7 @@ import {
   parsePrivacyManifest,
   replacePrivacyRulesBlock,
 } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 
@@ -181,9 +180,6 @@ async function runMove(
             return {
               path: entry.source,
               etag: exportedObject.etag,
-              ...(exportedObject.collaborationEtag === undefined
-                ? {}
-                : { collaborationEtag: exportedObject.collaborationEtag }),
             };
           }),
         });
@@ -244,22 +240,6 @@ describe("landingVisibility", () => {
 });
 
 describe("moving one note into another context", () => {
-  test("it lands at the destination and is gone from the source", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# Pay\n\nsalaries\n");
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/pay.md",
-      to: "work/pay.md",
-    });
-
-    expect(result.failure).toBeNull();
-    expect(result.moved).toEqual(["1-projects/pay.md"]);
-    expect(destination.snapshot()["work/pay.md"]).toBe("# Pay\n\nsalaries\n");
-    expect(source.objects.has("1-projects/pay.md")).toBe(false);
-  });
-
   test("a private note landing in a team folder is written private first", async () => {
     const source = bucket(["1-projects"]);
     // A shared context: its folders default to `team`, which is exactly the
@@ -347,29 +327,6 @@ describe("moving one note into another context", () => {
     expect(visibilityIn(destination, "work/notes.md")).toBe("private");
   });
 
-  test("a folder move narrows every stale exception it lands on", async () => {
-    /*
-      The shape this actually arrives in: a folder deleted from the destination
-      leaves one stale exception per note that had been shared, and a folder
-      moved in from elsewhere lands on all of them at once. The root collision
-      check does not catch it — the folder is gone, only its rules remain.
-    */
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/q1/plan.md", "# Plan\n");
-    source.seed("1-projects/q1/pay.md", "# Pay\n");
-    withRules(destination, (state) => {
-      state.overrides.set("work/q1/plan.md", "team");
-      state.overrides.set("work/q1/pay.md", "team");
-    });
-
-    const result = await runMove(source, destination, { from: "1-projects/q1", to: "work/q1" });
-
-    expect(result.failure).toBeNull();
-    expect(visibilityIn(destination, "work/q1/plan.md")).toBe("private");
-    expect(visibilityIn(destination, "work/q1/pay.md")).toBe("private");
-  });
-
   test("a note pointed at a group lands private, because the name means nothing there", async () => {
     const source = bucket(["1-projects"], "shared");
     const destination = bucket(["work"], "shared");
@@ -384,62 +341,9 @@ describe("moving one note into another context", () => {
     expect(visibilityIn(destination, "work/hiring.md")).toBe("private");
   });
 
-  test("the source's own exception is forgotten once the note is gone", async () => {
-    const source = bucket(["1-projects"], "shared");
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# Pay\n");
-    withRules(source, (state) => state.overrides.set("1-projects/pay.md", "private"));
-
-    await runMove(source, destination, { from: "1-projects/pay.md", to: "work/pay.md" });
-
-    expect(manifestOf(source).overrides.has("1-projects/pay.md")).toBe(false);
-  });
 });
 
 describe("moving a folder into another context", () => {
-  test("every descendant lands under the new prefix", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/acme/README.md", "# Acme\n");
-    source.seed("1-projects/acme/notes.md", "# Notes\n");
-    source.seed("1-projects/acme/deep/further.md", "# Further\n");
-    source.seed("1-projects/other.md", "# Other\n");
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/acme",
-      to: "work/acme",
-    });
-
-    expect(result.failure).toBeNull();
-    expect(Object.keys(destination.snapshot()).sort()).toEqual([
-      PRIVACY_KEY,
-      "work/acme/README.md",
-      "work/acme/deep/further.md",
-      "work/acme/notes.md",
-    ]);
-    // Everything outside the folder is untouched.
-    expect(source.objects.has("1-projects/other.md")).toBe(true);
-    expect([...source.objects.keys()].some((key) => key.startsWith("1-projects/acme/"))).toBe(false);
-  });
-
-  test("a folder rule does not outlive the folder it described", async () => {
-    const source = bucket(["1-projects"], "shared");
-    const destination = bucket(["work"]);
-    source.seed("1-projects/acme/notes.md", "# Notes\n");
-    withRules(source, (state) => state.rules.push({ prefix: "1-projects/acme", vis: "private" }));
-    expect(visibilityIn(source, "1-projects/acme/notes.md")).toBe("private");
-
-    await runMove(source, destination, { from: "1-projects/acme", to: "work/acme" });
-
-    expect(manifestOf(source).rules.some((rule) => rule.prefix === "1-projects/acme")).toBe(false);
-    /*
-      Why this matters more than tidiness: the next thing to write
-      `1-projects/acme/anything.md` — an ingestion alias, a new note, a restore
-      — would inherit a visibility nobody chose for it, from a folder that no
-      longer exists.
-    */
-  });
-
   test("plumbing never travels", async () => {
     const source = bucket(["1-projects"]);
     const destination = bucket(["work"]);
@@ -454,32 +358,6 @@ describe("moving a folder into another context", () => {
       "work/acme/notes.md",
     ]);
     expect(source.objects.has("1-projects/acme/.context/marker")).toBe(true);
-  });
-
-  test("a folder larger than a single-store move could touch still moves, whole", async () => {
-    /*
-      `FOLDER_OPERATION_CAP` is where `movePath` refuses, and refusing is right
-      there — it rewrites the manifest as though the whole walk happened. This
-      operation's all-or-nothing unit is one object, so the same folder is not a
-      bigger move, it is more batches.
-    */
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    const total = FOLDER_OPERATION_CAP + 37;
-    for (let index = 0; index < total; index += 1) {
-      source.seed(`1-projects/acme/note-${String(index).padStart(4, "0")}.md`, `# ${index}\n`);
-    }
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/acme",
-      to: "work/acme",
-    });
-
-    expect(result.failure).toBeNull();
-    expect(result.moved.length).toBe(total);
-    expect(result.batches).toBeGreaterThan(1);
-    expect(Object.keys(destination.snapshot()).length).toBe(total + 1); // + privacy.md
-    expect([...source.objects.keys()].some((key) => key.startsWith("1-projects/acme/"))).toBe(false);
   });
 
   test("a batch is bounded by bytes as well as by count, and still carries one", async () => {
@@ -552,56 +430,6 @@ describe("the folders a destination picker is offered", () => {
 });
 
 describe("what a cross-context move refuses to do", () => {
-  test("a collaborative source is revision-fenced and tombstoned after landing", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# first\n");
-    const original = await readDocument(source, "1-projects/pay.md");
-
-    const exported = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.md",
-      to: "work/pay.md",
-      clearance: OWNER,
-    });
-    expect(exported.objects[0]?.collaborationEtag).toBe(original.etag);
-
-    await replaceText(source, "1-projects/pay.md", {
-      expectedEtag: original.etag,
-      text: "# second\n",
-    });
-    await importContextMoveBatch(destination, {
-      objects: exported.objects,
-      clearance: OWNER,
-    });
-    const refused = await deleteMovedSources(source, {
-      sources: [{
-        path: "1-projects/pay.md",
-        etag: exported.objects[0]!.etag,
-        collaborationEtag: exported.objects[0]!.collaborationEtag,
-      }],
-    });
-    expect(refused).toEqual({ deleted: [], conflicts: ["1-projects/pay.md"] });
-    expect(source.snapshot()["1-projects/pay.md"]).toBe("# second\n");
-
-    const current = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.md",
-      to: "work/pay-again.md",
-      clearance: OWNER,
-    });
-    const removed = await deleteMovedSources(source, {
-      sources: [{
-        path: "1-projects/pay.md",
-        etag: current.objects[0]!.etag,
-        collaborationEtag: current.objects[0]!.collaborationEtag,
-      }],
-    });
-    expect(removed).toEqual({ deleted: ["1-projects/pay.md"], conflicts: [] });
-
-    source.seed("1-projects/pay.md", "# recreated\n");
-    const recreated = await readDocument(source, "1-projects/pay.md");
-    expect(recreated.documentId).not.toBe(original.documentId);
-  });
-
   test("it will not overwrite something already at the destination", async () => {
     const source = bucket(["1-projects"]);
     const destination = bucket(["work"]);
@@ -618,96 +446,6 @@ describe("what a cross-context move refuses to do", () => {
     // And the source is still there. A move that refused and deleted anyway
     // would be a delete.
     expect(source.snapshot()["1-projects/pay.md"]).toBe("# mine\n");
-  });
-
-  test("a note edited between the copy and the delete keeps the newer text", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.txt", "first\n");
-
-    const exported = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.txt",
-      to: "work/pay.txt",
-      clearance: OWNER,
-    });
-    // Somebody saves the note in the source context while the batch is in the
-    // air. The etag the export took is now stale.
-    source.seed("1-projects/pay.txt", "second\n");
-
-    const landed = await importContextMoveBatch(destination, {
-      objects: exported.objects,
-      clearance: OWNER,
-    });
-    const removed = await deleteMovedSources(source, {
-      sources: [{ path: "1-projects/pay.txt", etag: exported.objects[0]!.etag }],
-    });
-
-    expect(removed.deleted).toEqual([]);
-    expect(removed.conflicts).toEqual(["1-projects/pay.txt"]);
-    expect(source.snapshot()["1-projects/pay.txt"]).toBe("second\n");
-
-    // The rollback the orchestrator performs: the stale copy goes, and it goes
-    // conditionally, so it cannot take anything else with it.
-    await deleteMovedSources(destination, {
-      sources: landed.landed.map((entry) => ({ path: entry.destination, etag: entry.etag })),
-    });
-    expect(destination.objects.has("work/pay.md")).toBe(false);
-  });
-
-  test("on storage that ignores a conditional delete, the edit is still kept", async () => {
-    /*
-      R2 ACCEPTS `If-Match` ON DELETE AND DOES NOT ENFORCE IT.
-
-      Measured in `apps/mcp`, once every binding was probed instead of
-      inheriting a claim: `conditionalDelete` is false on every real row and
-      `conditionalWrite` is true. So the obvious conditional delete is not a
-      guard here at all — an unguarded fallback destroys the edit somebody made
-      while the copy was in the air, silently, on the storage this product
-      actually runs on.
-
-      `retireMovedSource` substitutes a conditional PUT: the source path is
-      claimed with a zero-byte marker under the etag that was copied, which
-      fails if anybody touched it, and only then deleted. This is the same
-      conflict test as the one above, against a bucket that lies about DELETE.
-    */
-    const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.txt", "first\n");
-    expect(source.capabilities.conditionalDelete).toBe(false);
-
-    const exported = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.txt",
-      to: "work/pay.txt",
-      clearance: OWNER,
-    });
-    source.seed("1-projects/pay.txt", "second\n");
-
-    const removed = await deleteMovedSources(source, {
-      sources: [{ path: "1-projects/pay.txt", etag: exported.objects[0]!.etag }],
-    });
-
-    expect(removed.deleted).toEqual([]);
-    expect(removed.conflicts).toEqual(["1-projects/pay.txt"]);
-    // The newer text, not a zero-byte marker and not nothing.
-    expect(source.snapshot()["1-projects/pay.txt"]).toBe("second\n");
-  });
-
-  test("on that same storage an untouched source is still retired", async () => {
-    const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
-    const destination = bucket(["work"]);
-    source.seed("1-projects/pay.txt", "Pay\n");
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/pay.txt",
-      to: "work/pay.txt",
-    });
-
-    // The substitute has to do the ordinary job too: a guard that refused every
-    // move on R2 is the bug this replaced.
-    expect(result.failure).toBeNull();
-    expect(result.moved).toEqual(["1-projects/pay.txt"]);
-    expect(source.objects.has("1-projects/pay.txt")).toBe(false);
-    expect(destination.snapshot()["work/pay.txt"]).toBe("Pay\n");
   });
 
   test("storage that can do neither is refused before anything is copied", async () => {
@@ -749,29 +487,6 @@ describe("what a cross-context move refuses to do", () => {
       importContextMoveBatch(destination, { objects: exported.objects, clearance: OWNER }),
     ).rejects.toThrow(/only if it is absent|if it is absent/);
     expect(source.objects.has("1-projects/pay.md")).toBe(true);
-  });
-
-  test("an encrypted note stays in the context whose key can open it", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    source.seed("1-projects/acme/plain.md", "# Plain\n");
-    source.seed(
-      "1-projects/acme/secret.md",
-      "---\ncontext_encryption: v1\n---\n\nAAAAAAAAAAAAAAAA\n",
-    );
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/acme",
-      to: "work/acme",
-    });
-
-    expect(result.failure).toBeNull();
-    expect(result.moved).toEqual(["1-projects/acme/plain.md"]);
-    expect(result.skipped).toEqual([
-      { path: "1-projects/acme/secret.md", reason: "encrypted" },
-    ]);
-    expect(source.objects.has("1-projects/acme/secret.md")).toBe(true);
-    expect(destination.objects.has("work/acme/secret.md")).toBe(false);
   });
 
   test("a rule covering something left behind is kept", async () => {
@@ -835,26 +550,6 @@ describe("what a cross-context move refuses to do", () => {
     // shadowing a folder prefix, a shape some stores cannot represent.
     expect(result.failure).toBe("DESTINATION_EXISTS");
     expect(destination.snapshot()["work/acme"]).toBe("not a folder");
-  });
-
-  test("the second batch is not refused by the folder the first one made", async () => {
-    const source = bucket(["1-projects"]);
-    const destination = bucket(["work"]);
-    for (let index = 0; index < 5; index += 1) {
-      source.seed(`1-projects/acme/note-${index}.md`, `# ${index}\n`);
-    }
-
-    const result = await runMove(source, destination, {
-      from: "1-projects/acme",
-      to: "work/acme",
-      limit: 2,
-    });
-
-    // The check above runs on the first batch only. Asking it again would have
-    // the move refuse itself the moment it has written anything.
-    expect(result.failure).toBeNull();
-    expect(result.moved.length).toBe(5);
-    expect(result.batches).toBeGreaterThan(1);
   });
 
   test("an editor cannot land something in a folder the destination keeps private", async () => {

@@ -34,8 +34,8 @@ export interface FolderIconsValues {
    * server's error so the caller can say why.
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
-  /** The emoji the picker suggests for `path` from its name, or `null`. Never rejects. */
-  suggestIcon: (path: string) => Promise<string | null>;
+  /** The emoji (or with `"context"`, the Context icon) the picker suggests for `path` from its name, or `null`. Never rejects. */
+  suggestIcon: (path: string, set?: "context") => Promise<string | null>;
   /** A folder (or a note) moved from `from` to `to`: its icon goes with it. */
   moved: (from: string, to: string) => void;
   /** A folder is gone for good: its icon goes too. */
@@ -109,12 +109,12 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
   */
   const asked = useRef(new Map<string, Promise<string | null>>());
   const suggestIcon = useCallback(
-    (path: string): Promise<string | null> => {
+    (path: string, set?: "context"): Promise<string | null> => {
       if (workspaceId === null) return Promise.resolve(null);
-      const key = `${workspaceId}\n${path}`;
+      const key = `${workspaceId}\n${set ?? "emoji"}\n${path}`;
       const known = asked.current.get(key);
       if (known !== undefined) return known;
-      const answer = suggestAction({ workspaceId, path }).then(
+      const answer = suggestAction({ workspaceId, path, ...(set === undefined ? {} : { set }) }).then(
         (icon) => {
           if (icon === null) asked.current.delete(key);
           return icon;

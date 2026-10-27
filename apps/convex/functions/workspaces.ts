@@ -13,6 +13,7 @@
  * comments are the what and the why of each function's contract.
  */
 
+import { scheduleSignupAlert } from "./signupAlerts";
 import { v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import type { Id } from "../_generated/dataModel";
@@ -131,7 +132,13 @@ export const createWorkspace = mutation({
     workspaceId: v.id("workspaces"),
     slug: v.string(),
   }),
-  handler: async (ctx, args) => createWorkspaceHandler(ctx, (await requireAuthId(ctx)) as Id<"users">, args),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const created = await createWorkspaceHandler(ctx, userId, args);
+    // The handle step of onboarding: staff hear the handle at once.
+    if (args.kind === "personal") await scheduleSignupAlert(ctx, { kind: "handle", userId });
+    return created;
+  },
 });
 
 /* -------------------------------------------------------------------------- */
@@ -274,6 +281,8 @@ export const listMembers = query({
       role: v.string(),
       email: v.optional(v.string()),
       name: v.optional(v.string()),
+      /** Their own `@name` (their personal workspace), so the share field finds a member by it. */
+      handle: v.optional(v.string()),
       /**
        * Whether this row is the caller, so an interface can say "you" instead
        * of comparing ids it would otherwise have to be told. Same reason

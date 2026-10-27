@@ -307,7 +307,7 @@ describe("the sweep records where a connection is filing, for rows written befor
     expect((await sweep(t)).started).toBe(1);
 
     const row = await readConnection(t, connectionId);
-    expect(row.gmail?.destinationFolder).toBe("0-inbox/email/person-at-example-invalid");
+    expect(row.gmail?.destinationFolder).toBe("inbox/email/person-at-example-invalid");
   });
 
   test("...and never moves one that is already recorded", async () => {

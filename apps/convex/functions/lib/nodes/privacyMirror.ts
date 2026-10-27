@@ -2,12 +2,8 @@
  * The privacy mirror: `privacy.md`'s rules as the tree keeps them
  * (`nodePrivacy`, `table.ts`).
  *
- * Why the tree holds rules at all in phase 1: the tree must answer "who may
- * see this key" exactly as the bucket does. It does so by handing the
- * unchanged `syncManifest` a `privacy.md` rendered from these rules
- * (`parity.ts`), and the parity check compares what the mirror says with what
- * the file says. A rule the mirror lost, or dropped on a parse, is caught
- * there rather than as a leak later.
+ * The tree holds the rules the readers judge by. Nothing here reads the bucket:
+ * a mirror is written from the rows and the rules, never from a listing.
  *
  * Only the rules are kept. The prose around the managed block is the
  * customer's text, and CLAUDE.md keeps note content out of the control plane.
@@ -17,9 +13,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { PRE_PARSED_RULES } from "../../../../mcp/src/privacy/engine.js";
 import { renderPrivacyRulesBlock, type PrivacyRule, type Visibility } from "../privacy";
-import { loadPrivacyState } from "../fileOps/privacyState";
-import type { FileStore } from "../fileOps/store";
-import type { NodeSink, PrivacyMirror } from "./table";
+import type { PrivacyMirror } from "./table";
 
 /** The workspace's privacy mirror as a store renders it, or `null` when the tree holds none. */
 export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
@@ -37,47 +31,8 @@ export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces
 }
 
 
-/** What the mirror reads: only the bucket's `get`. */
-export type MirrorSource = Pick<FileStore, "get">;
-
-/**
- * A `privacy.md` that will not parse. Rendering an invalid mirror as this (no
- * managed block at all) makes the rendered file parse invalid too, so the
- * listing a mirror serves fails closed exactly as the bucket's file does.
- */
+/** A `privacy.md` that will not parse. Rendering an invalid mirror as this makes the rendered file parse invalid too. */
 const UNPARSEABLE = "privacy.md is not parseable\n";
-
-/**
- * The mirror of the bucket's `privacy.md` as it is now.
- *
- * `loadPrivacyState` is the one reader every privacy decision uses, so the
- * mirror inherits its fail-closed answers: a missing file is no rules (and no
- * etag), and an unparseable one is `invalid` with no rules.
- */
-export async function privacyMirrorOf(store: MirrorSource): Promise<PrivacyMirror> {
-  // `loadPrivacyState` reads nothing but `get`, so the narrower type is honest.
-  const state = await loadPrivacyState(store as FileStore);
-  return {
-    ...(state.etag === null ? {} : { etag: state.etag }),
-    invalid: state.invalid,
-    folders: state.rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
-    notes: [...state.overrides].map(([path, visibility]) => ({ path, visibility })),
-  };
-}
-
-/**
- * Re-read `privacy.md` and store what it says. The stamp is taken before the
- * read, so a read that races a newer observation of the file loses to it
- * (`privacyIsNewer`), never the other way round.
- */
-export async function refreshPrivacyMirror(
-  store: MirrorSource,
-  sink: Pick<NodeSink, "savePrivacy">,
-  now: () => number,
-): Promise<void> {
-  const at = now();
-  await sink.savePrivacy(await privacyMirrorOf(store), at);
-}
 
 /**
  * A `privacy.md` whose managed block parses back to the mirror's rules and

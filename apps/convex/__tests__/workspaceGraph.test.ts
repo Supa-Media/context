@@ -21,16 +21,11 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  type FileStore,
-  maintainSearchIndex,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex } from "../functions/lib/fileOps";
 import { shareOfNotes, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { shardKey } from "../../mcp/src/search/shards.js";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 
@@ -110,43 +105,6 @@ describe("workspaceGraph", () => {
     const keys = graph.edges.map(([a, b]) => `${a},${b}`);
     expect(new Set(keys).size).toBe(keys.length);
     expect(graph.edges.every(([a, b]) => a !== b)).toBe(true);
-  });
-
-  test("an active folder move redraws indexed source notes at their logical destinations", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await indexed(store);
-    store.seed(".context/moves/move-map-example.json", JSON.stringify({
-      version: 1,
-      id: "move-map-example",
-      source: "1-projects",
-      destination: "4-archive/1-projects",
-      status: "copying",
-      objects: [
-        { source: "1-projects/plan.md", destination: "4-archive/1-projects/plan.md" },
-        { source: "1-projects/pay.md", destination: "4-archive/1-projects/pay.md" },
-      ],
-    }));
-    await setFolderVisibility(store, {
-      path: "4-archive/1-projects",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-
-    const owner = await workspaceGraph(store, clearanceOf("private"));
-    expect(owner.nodes.map((node) => node.path)).toContain("4-archive/1-projects/plan.md");
-    expect(owner.nodes.map((node) => node.path)).not.toContain("1-projects/plan.md");
-    expect(edgePaths(owner)).toContain("1-projects/notes.md -> 4-archive/1-projects/plan.md");
-
-    const team = await workspaceGraph(store, clearanceOf("team"));
-    expect(team.nodes.map((node) => node.path)).toContain("4-archive/1-projects/plan.md");
-    expect(JSON.stringify(team)).not.toContain("pay");
-    // The destination can be physically copied before index refresh, but
-    // cannot become a second map node while its source is still indexed.
-    store.seed("4-archive/1-projects/plan.md", "# Plan\n");
-    await indexed(store);
-    const copied = await workspaceGraph(store, clearanceOf("private"));
-    expect(copied.nodes.filter((node) => node.path === "4-archive/1-projects/plan.md")).toHaveLength(1);
   });
 
   test("a team caller sees neither the private note nor any edge into or out of it", async () => {

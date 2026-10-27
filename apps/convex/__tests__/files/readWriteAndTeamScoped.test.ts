@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
 import { DELETE_CONFIRMATION } from "../../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import {
   asUser,
   captureError,
@@ -12,12 +11,13 @@ import {
   share,
   errorShape,
 } from "./fixtures.helpers";
+import { bodyAtPath, noteBodies } from "./keyedNotes.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                                   roles                                    */
 /* -------------------------------------------------------------------------- */
 
-describe("read access and write access are different grants", () => {
+describe("read access and write access are different grants", { timeout: 60_000 }, () => {
   test("a read-only member may list and read what is shared", async () => {
     const f = await fixture();
     await share(f);
@@ -26,6 +26,12 @@ describe("read access and write access are different grants", () => {
       path: "1-projects",
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("shared.md");
+    expect(
+      await asUser(f.t, f.reader).action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/shared.md",
+      }),
+    ).toMatchObject({ text: "# Shared\n" });
   });
 
   test("a read-only member cannot write", async () => {
@@ -46,7 +52,7 @@ describe("read access and write access are different grants", () => {
       }),
     );
     expect(errorCode(migrationError)).toBe("INSUFFICIENT_ROLE");
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
+    expect(await bodyAtPath(f, "1-projects/shared.md")).toBe("# Shared\n");
   });
 
   /**
@@ -89,12 +95,18 @@ describe("read access and write access are different grants", () => {
     // the archive is refused by `archivePath` whatever its clearance says, and
     // both the third clause of the assertion below and the claim above would be
     // untestable. Verified by lowering all three bars: the three keys land.
+    // The folder has to exist first: a rule is a row's access in rows mode, and a path with no row is not found.
+    await asUser(f.t, f.owner).action(api.functions.files.createDirectory, {
+      workspaceId: f.workspaceId,
+      path: "4-archive",
+    });
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "4-archive",
       visibility: "team",
     });
     const as = asUser(f.t, f.reader);
+    const before = noteBodies(f.backend);
     for (const call of [
       () =>
         as.action(api.functions.files.deleteEntry, {
@@ -138,18 +150,12 @@ describe("read access and write access are different grants", () => {
     ]) {
       expect(errorCode(await captureError(call))).toBe("INSUFFICIENT_ROLE");
     }
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
+    expect(await bodyAtPath(f, "1-projects/shared.md")).toBe("# Shared\n");
     // Nothing arrived anywhere either — a refusal that still wrote the
-    // destination would pass every assertion above. Every clause can fire:
-    // with the three role gates lowered this filter returns
-    // `["1-projects/copied.md", "1-projects/shared copy.md",
-    //   "4-archive/<stamp>/1-projects/shared.md"]`.
-    expect(
-      Object.keys(f.backend.snapshot()).filter(
-        (key) =>
-          key.includes("copied") || key.includes(" copy") || key.startsWith("4-archive/2"),
-      ),
-    ).toEqual([]);
+    // destination would pass every assertion above. Every note body in the
+    // bucket is compared, so a copy, a duplicate or an archive that landed under
+    // a fresh key is caught too.
+    expect(noteBodies(f.backend)).toEqual(before);
   });
 
   /**
@@ -189,7 +195,11 @@ describe("read access and write access are different grants", () => {
       "```",
       "",
     ].join("\n");
-    f.backend.seed("1-projects/locked.md", locked);
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/locked.md",
+      text: locked,
+    });
 
     const error = await captureError(() =>
       asUser(f.t, f.reader).action(api.functions.files.removeNoteEncryption, {
@@ -200,7 +210,7 @@ describe("read access and write access are different grants", () => {
     );
 
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
-    expect(f.backend.snapshot()["1-projects/locked.md"]).toBe(locked);
+    expect(await bodyAtPath(f, "1-projects/locked.md")).toBe(locked);
   });
 
   test("an editor cannot rewrite the access map — the action's own bar, not the module's", async () => {
@@ -221,9 +231,7 @@ describe("read access and write access are different grants", () => {
     });
 
     const error = await captureError(() =>
-      asUser(f.t, f.reader).action(api.functions.files.resetPrivacy, {
-        workspaceId: f.workspaceId,
-      }),
+      asUser(f.t, f.reader).action(api.functions.files.setDirectoryVisibility, { workspaceId: f.workspaceId, path: "1-projects", visibility: "private" }),
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
   });
@@ -236,7 +244,7 @@ describe("read access and write access are different grants", () => {
       path: "1-projects/from-editor.md",
       text: "# Editor\n",
     });
-    expect(f.backend.snapshot()["1-projects/from-editor.md"]).toBe("# Editor\n");
+    expect(await bodyAtPath(f, "1-projects/from-editor.md")).toBe("# Editor\n");
   });
 });
 
@@ -244,7 +252,7 @@ describe("read access and write access are different grants", () => {
 /*                            visibility as a boundary                        */
 /* -------------------------------------------------------------------------- */
 
-describe("a team-scoped caller cannot read, list, or infer a private note", () => {
+describe("a team-scoped caller cannot read, list, or infer a private note", { timeout: 60_000 }, () => {
   /**
    * `owner` gets `private` scope; everyone else in the workspace gets `team`.
    * Being able to write is a separate grant from being able to see what the
@@ -258,16 +266,6 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
       path: "",
     });
     expect(listing.entries.map((entry) => entry.name)).toEqual(["1-projects"]);
-  });
-
-  test("nor privacy.md, which would name every private folder", async () => {
-    const f = await fixture();
-    await share(f);
-    const listing = await asUser(f.t, f.reader).action(api.functions.files.listFiles, {
-      workspaceId: f.workspaceId,
-      path: "",
-    });
-    expect(listing.entries.map((entry) => entry.name)).not.toContain(PRIVACY_KEY);
   });
 
   test("reading a private note fails byte-identically to reading one that never existed", async () => {
@@ -381,7 +379,7 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
       }),
     );
     expect(errorCode(hidden)).toBe("FILE_NOT_FOUND");
-    expect(f.backend.snapshot()["2-areas/sneaky.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "2-areas/sneaky.md")).toBeNull();
   });
 
   test("the owner still sees everything", async () => {

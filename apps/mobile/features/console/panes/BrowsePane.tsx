@@ -273,7 +273,6 @@ export function BrowsePane({
 
   const {
     noBucket,
-    manifestBroken,
     setup,
     layingOut,
     storageMigration,
@@ -311,7 +310,6 @@ export function BrowsePane({
       intro={intro}
       introAnswer={introAnswer}
       noBucket={noBucket}
-      manifestBroken={manifestBroken}
       moveNotices={moveNotices}
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}

@@ -14,8 +14,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, copyTree } from "./fixtures.helpers";
-import { fixture, publish, type Fixture } from "./website.helpers";
+import { asUser, readIntoTree } from "./fixtures.helpers";
+import { fixture, publish, trashNote, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -29,11 +32,10 @@ const resolve = (f: Fixture, routePath: string) =>
 
 /**
  * The scan every save queues: it applies restrictions and publishes nothing.
- * Notes the test seeded into the bucket reach the tree first, as the sweep
- * (or a product write's touch) would have them there before a scan lists them.
+ * The tree is read first, as the sweep and a product write's touch leave it.
  */
 async function rebuild(f: Fixture): Promise<void> {
-  await copyTree(f.t, f.workspaceId);
+  await readIntoTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
   });
@@ -41,7 +43,7 @@ async function rebuild(f: Fixture): Promise<void> {
 
 /** Someone pressing Publish again. */
 async function publishAgain(f: Fixture): Promise<void> {
-  await copyTree(f.t, f.workspaceId);
+  await readIntoTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
     publish: true,
@@ -71,8 +73,8 @@ describe("a restriction lands even while another page is broken", () => {
     await publishAgain(f);
     expect(releaseBytes(f)).toContain(SECRET);
 
-    f.backend.seed("website/draft.md", BROKEN);
-    f.backend.seed("website/journal.md", ENCRYPTED);
+    await writeNote(f, "website/draft.md", BROKEN);
+    await writeNote(f, "website/journal.md", ENCRYPTED);
     await rebuild(f);
 
     expect(releaseBytes(f)).not.toContain(SECRET);
@@ -86,7 +88,7 @@ describe("a restriction lands even while another page is broken", () => {
     await publish(f);
     await publishAgain(f);
 
-    f.backend.seed("website/journal.md", ENCRYPTED);
+    await writeNote(f, "website/journal.md", ENCRYPTED);
     await rebuild(f);
 
     // The rebuild succeeds — ciphertext is simply not a page — and the release
@@ -103,8 +105,8 @@ describe("a restriction lands even while another page is broken", () => {
     expect(await menu(f)).toEqual(["/", "/about"]);
 
     // What the gateway reports: something changed, with no way to say what.
-    f.backend.seed("website/draft.md", BROKEN);
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\naudience: members\n---\n\nAbout\n");
+    await writeNote(f, "website/draft.md", BROKEN);
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\naudience: members\n---\n\nAbout\n");
     await f.t.mutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: f.workspaceId,
     });
@@ -123,22 +125,22 @@ describe("a restriction lands even while another page is broken", () => {
     await publish(f);
     await publishAgain(f);
 
-    f.backend.seed("website/draft.md", BROKEN);
-    f.backend.objects.delete("website/old.md");
+    await writeNote(f, "website/draft.md", BROKEN);
+    await trashNote(f, "website/old.md");
     await rebuild(f);
 
     expect(releaseBytes(f)).toContain(SECRET);
     await expect(resolve(f, "/old")).resolves.toMatchObject({ kind: "unavailable" });
   });
 
-  test("a page privacy.md takes private leaves the menu and the releases", async () => {
+  test("a page made private leaves the menu and the releases", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/about.md", `---\ntitle: About\nnav: 2\n---\n\n${SECRET}\n`);
     await publish(f);
     await publishAgain(f);
 
-    f.backend.seed("website/draft.md", BROKEN);
+    await writeNote(f, "website/draft.md", BROKEN);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "website/about.md",
@@ -157,12 +159,12 @@ describe("widening waits for a Publish", () => {
     f.backend.seed("website/index.md", HOME);
     await publish(f);
 
-    f.backend.seed("website/draft.md", BROKEN);
-    f.backend.seed("website/new.md", "---\ntitle: New\nnav: 2\n---\n\nNew\n");
+    await writeNote(f, "website/draft.md", BROKEN);
+    await writeNote(f, "website/new.md", "---\ntitle: New\nnav: 2\n---\n\nNew\n");
     await rebuild(f);
     expect(await menu(f)).toEqual(["/"]);
 
-    f.backend.objects.delete("website/draft.md");
+    await trashNote(f, "website/draft.md");
     await rebuild(f);
     expect(await menu(f)).toEqual(["/"]);
     await publishAgain(f);
@@ -175,7 +177,7 @@ describe("widening waits for a Publish", () => {
     f.backend.seed("website/journal.md", ENCRYPTED);
     await publish(f);
 
-    f.backend.seed("website/new.md", "---\ntitle: New\nnav: 2\n---\n\nNew\n");
+    await writeNote(f, "website/new.md", "---\ntitle: New\nnav: 2\n---\n\nNew\n");
     await publishAgain(f);
     expect(await menu(f)).toEqual(["/", "/new"]);
   });
@@ -193,7 +195,7 @@ describe("widening waits for a Publish", () => {
     );
     expect(before?.previousReleaseId).toBeDefined();
 
-    f.backend.seed("website/draft.md", BROKEN);
+    await writeNote(f, "website/draft.md", BROKEN);
     await rebuild(f);
     const after = await f.t.run((ctx) =>
       ctx.db
@@ -210,7 +212,7 @@ describe("widening waits for a Publish", () => {
     f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nAbout us\n");
     await publish(f);
 
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n\nAbout us, now longer\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n\nAbout us, now longer\n");
     await rebuild(f);
 
     expect(await menu(f)).toEqual(["/", "/about"]);

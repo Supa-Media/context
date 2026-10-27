@@ -30,8 +30,9 @@ describe("a custom layout is written in the owner's own words", () => {
     });
 
     expect(result.written.sort()).toEqual(
-      ["clients/about.md", "reading/about.md", INDEX_KEY, PRIVACY_KEY].sort(),
+      ["clients/about.md", "reading/about.md", INDEX_KEY].sort(),
     );
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
     expect(store.objects.get("clients/about.md")!.body).toContain(
       "One folder per client.",
     );
@@ -62,27 +63,20 @@ describe("a custom layout is written in the owner's own words", () => {
    * without anyone having decided that. A default that only becomes
    * consequential later, silently, is the wrong default.
    */
-  test("every folder they named starts private, read back through the gateway", async () => {
+  test("nothing the scaffold writes opens a folder: no access file, and the default is private", async () => {
     const store = memoryStore();
     await scaffoldContext(store, {
       structureTemplate: "custom",
       customFolders: FOLDERS,
     });
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      store.objects.get(PRIVACY_KEY)!.body,
-    );
-
-    expect(rules.map((rule) => rule.prefix).sort()).toEqual([
-      "clients",
-      "reading",
-    ]);
-    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    // Access is on the rows, which start private for a personal workspace and are judged
+    // over the rows in onboarding.test.ts ("every folder starts private"). Here the bucket
+    // itself must not carry a rule that widens anything.
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
+    const { canSee } = gatewayInternals();
     for (const key of ["clients/acme.md", "reading/a-book.md", INDEX_KEY]) {
-      expect(canSee(key, "team", rules, overrides), `${key} is team-visible`).toBe(
-        false,
-      );
+      expect(canSee(key, "team", [], new Map()), `${key} is team-visible`).toBe(false);
     }
   });
 
@@ -354,7 +348,7 @@ describe("an existing context is never overwritten", () => {
    */
   test("a stray file at a scaffold key survives even when detection says fresh", async () => {
     const store = memoryStore();
-    store.seed("1-projects/about.md", "do not touch me\n");
+    store.seed("projects/about.md", "do not touch me\n");
 
     // A blind listing: `hasExistingContext` sees an empty bucket and clears
     // the scaffold to run. Only the per-key `get` stands between us and
@@ -371,8 +365,8 @@ describe("an existing context is never overwritten", () => {
     expect(await hasExistingContext(blind)).toBe(false);
     const result = await scaffoldContext(blind, { structureTemplate: "para" });
 
-    expect(result.skipped).toEqual(["1-projects/about.md"]);
-    expect(store.objects.get("1-projects/about.md")!.body).toBe(
+    expect(result.skipped).toEqual(["projects/about.md"]);
+    expect(store.objects.get("projects/about.md")!.body).toBe(
       "do not touch me\n",
     );
     expect(result.written).toContain(INDEX_KEY);

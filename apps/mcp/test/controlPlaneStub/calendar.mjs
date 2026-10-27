@@ -3,8 +3,17 @@
  * (`apps/convex/functions/lib/gatewayRoutes/calendarWrite.ts`) holds the
  * limits and changes the person's Google Calendar; this records what arrived
  * and answers as the stub's flags say: `calendarAddress` is the calendar that
- * may be changed (null for none), and `calendarRefusal` answers every change
- * and check with that word instead.
+ * may be changed (null for none), `calendarRefusal` answers every change
+ * and check with that word instead, and `calendarGuests` are the guests on
+ * the event a move or a cancel names: named back on a check, and a change
+ * without `notify_guests` refused, as the real route does. A create's own
+ * `guests` are its invitees, refused without `notify_guests` and named back
+ * on a check; a create with `meet` answers a Meet link.
+ *
+ * `/gateway/calendar/days` (`gatewayRoutes/personCalendar.ts`) is answered by
+ * `calendarDays`, a function of the request body returning the route's
+ * answer; without one there is no calendar connected. The real clearance is
+ * proved in Convex.
  */
 
 export function createCalendarRoute(clearedEditor, flags) {
@@ -15,16 +24,32 @@ export function createCalendarRoute(clearedEditor, flags) {
     const cleared = await clearedEditor(body);
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
-    else if (flags.calendarRefusal) answer = { ok: false, refused: flags.calendarRefusal };
+    else if (flags.calendarRefusal) answer = { ok: false, refused: flags.calendarRefusal, ...(flags.calendarRefusal === "calendar_read_only" ? { accounts: ["sayo@example.invalid"] } : {}) };
     else if (!flags.calendarAddress) answer = { ok: false, refused: "no_calendar" };
-    else answer = { ok: true, calendar: flags.calendarAddress };
+    else if (body.change?.action === "create") {
+      const guests = body.change.guests ?? [];
+      if (guests.length > 0 !== (body.change.notify_guests === true)) answer = { ok: false, refused: "invalid" };
+      else if (body.check === true) answer = { ok: true, calendar: flags.calendarAddress, ...(guests.length > 0 ? { guests } : {}) };
+      else answer = { ok: true, calendar: flags.calendarAddress, ...(body.change.meet === true ? { meet: "https://meet.google.com/abc-defg-hij" } : {}) };
+    } else {
+      const guests = flags.calendarGuests ?? [];
+      if (guests.length > 0 && body.check !== true && body.change?.notify_guests !== true) answer = { ok: false, refused: "has_guests" };
+      else answer = { ok: true, calendar: flags.calendarAddress, ...(body.check === true ? { guests } : {}) };
+    }
     calls.push({ accessToken: body.accessToken, change: body.change, check: body.check === true, answer });
     return answer;
   }
 
+  async function days(body) {
+    if (!(await clearedEditor(body))) return { ok: false, refused: "not_allowed" };
+    return typeof flags.calendarDays === "function" ? flags.calendarDays(body) : { ok: false, refused: "no_calendar" };
+  }
+
   /** The route's answer, or undefined for a path that is not this one. */
   async function handle(path, body) {
-    return path === "/gateway/calendar/event" ? await change(body) : undefined;
+    if (path === "/gateway/calendar/event") return await change(body);
+    if (path === "/gateway/calendar/days") return await days(body);
+    return undefined;
   }
 
   return { calls, handle };

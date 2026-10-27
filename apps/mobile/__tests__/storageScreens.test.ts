@@ -239,7 +239,6 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     shares: { shares: [], loading: false, failure: null },
     groups: { groups: [], loading: false },
     advanced: {
-      moves: { jobs: [], loading: false, failure: null },
       audit: { events: [], loading: false, failure: null },
     },
     fastSearch: { status: { state: "off", canChange: false }, loading: false },

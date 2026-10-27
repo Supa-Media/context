@@ -9,7 +9,9 @@
  *    `read_image` reads it;
  *  - an email's attachment, by the email's `email:` id and its number;
  *  - an email itself, printed to a PDF (`textPdf.js`), for a confirmation
- *    that came as an email with nothing attached.
+ *    that came as an email with nothing attached;
+ *  - a file Tex's browser downloaded, by its `download:` id (`downloads.js`),
+ *    kept in their own bucket.
  *
  * Every one is read through the session's own dispatcher first, so the
  * privacy engine and the mail grant decide exactly as they do for a read:
@@ -22,6 +24,7 @@ import { normalizePath } from "../notes/paths.js";
 import { parseEmailId, REFUSED } from "../tools/emailRead.js";
 import { readableFileType, typeOfFile, MAX_FILE_BYTES } from "../tools/readFile.js";
 import { textPdf } from "./textPdf.js";
+import { readDownload } from "./downloads.js";
 
 const GENERIC_TYPE = "application/octet-stream";
 /** `read_file`'s refusals that come only after the privacy engine let the file be seen (`readFile.js`). */
@@ -142,6 +145,10 @@ export async function resolveUpload(step, { dispatch, store }) {
   }
   try {
     if (source.startsWith("email:")) return await fromEmail(source, attachment, store);
+    if (source.startsWith("download:")) {
+      const kept = await readDownload(store, source);
+      return kept.file ? { file: { name: kept.file.name, type: kept.file.type, data: kept.file.data } } : { error: kept.error };
+    }
     if (typeof step.note === "string" && step.note.trim()) return await fromPicture(step.note.trim(), source, dispatch);
     return await fromNotes(source, dispatch, store);
   } catch {

@@ -90,6 +90,7 @@
  *    the mark is held from both sides, and by more than one file.
  */
 
+import { withServedTree } from "./servedTree.mjs";
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
@@ -260,7 +261,7 @@ export async function runSearchV2IntegrationChecks(check) {
     wide.resetCounts();
     const wideFirst = await searchText(env, WIDE_TOKEN, { query: "widget" });
     const wideFirstOps = wide.ops;
-    const wideStore = new R2Store(wide);
+    const wideStore = withServedTree(new R2Store(wide));
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const pass = await syncShardedIndex(wideStore, { budget: createSearchBudget(300) });
       if (pass.pending === 0) break;

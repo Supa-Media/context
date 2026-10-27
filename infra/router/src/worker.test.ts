@@ -315,3 +315,48 @@ describe("the edge only promises an open link when upstream says so", () => {
     expect(html).not.toMatch(OPEN);
   });
 });
+
+describe("the note link Tex texts unfurls as a note", () => {
+  // What iMessage's fetcher sends, from a Mac or a phone.
+  const IMESSAGE_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) " +
+    "Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0";
+
+  it("asks the control plane exactly what the console link asks, and shows its title", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: "Launch plan" }));
+    const response = await get("/note/@seyi/1-projects/launch%20plan.md", IMESSAGE_UA);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('<meta property="og:title" content="Launch plan — Context">');
+    expect(html).toContain('<meta property="og:image" content="https://context.lc/og/card.png">');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://example-deployment.convex.site/share/note");
+    expect(JSON.parse(String(init.body))).toEqual({ slug: "seyi", path: "1-projects/launch plan.md" });
+  });
+
+  it("says only that it is a note when there is no title to show, the same for every note", async () => {
+    fetchSpy.mockImplementation(async () => new Response("not found", { status: 404 }));
+    const missing = await (await get("/note/@seyi/1-projects/secret.md", IMESSAGE_UA)).text();
+    const other = await (await get("/note/@someone-else/2-areas/x.md", IMESSAGE_UA)).text();
+    expect(missing).toBe(other);
+    expect(missing).toContain('<meta property="og:title" content="A note in Context">');
+    expect(missing).toContain('<meta property="og:image" content="https://context.lc/og/card.png">');
+    expect(missing).not.toContain("secret");
+    expect(missing).not.toContain("seyi");
+  });
+
+  it("answers a path the console link refuses with the same card, without asking anyone", async () => {
+    for (const path of ["/note/@seyi/privacy.md", "/note/@seyi/..%2F..%2Fx.md", "/note/@seyi/.history/a.md", "/note/@BAD!/a.md"]) {
+      const html = await (await get(path, IMESSAGE_UA)).text();
+      expect(html).toContain('<meta property="og:title" content="A note in Context">');
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("still hands a person the app", async () => {
+    fetchSpy.mockImplementation(async () => new Response("<html>app</html>", { status: 200 }));
+    const response = await get("/note/@seyi/1-projects/a.md", BROWSER_UA);
+    expect(await response.text()).toBe("<html>app</html>");
+  });
+});

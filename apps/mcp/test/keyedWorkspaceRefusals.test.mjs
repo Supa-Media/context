@@ -10,14 +10,12 @@
  *    (with one, it moves as rows: `keyedFolderMove.test.mjs`), and so does a
  *    move across workspaces from a store with no control plane to ask
  *    (`keyedMoveAcross.test.mjs`);
- *  - a queued materialize refuses when the control plane says the workspace is keyed.
  *
  * Sabotage, each run as a temporary local edit and reverted, and each failing here:
  *  - rotation lists the raw bucket: the note written behind the cursor is skipped,
  *    because the frozen copy at its path still carries the old timestamp;
  *  - drop the folder move's keyed refusal: the dry run and the real move both reach the bucket;
  *  - drop the across-contexts refusal: the keyed source is refused nowhere;
- *  - drop the queue's keyed refusal: the materialize runs on frozen paths;
  *  - make `isKeyedWorkspace` answer false on a failed lookup: the fail-closed cases go quiet.
  */
 import assert from "node:assert/strict";
@@ -26,7 +24,6 @@ import { withIdLayout, isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../src/store
 import { toolRotateEncryptionKeys } from "../src/tools/encryption/rotate.js";
 import { toolMoveFolder } from "../src/tools/moves/folder.js";
 import { toolMoveNoteAcrossContexts } from "../src/tools/moves/acrossContexts.js";
-import { handleGatewayJobMessage } from "../src/moves/queueConsumer.js";
 import { encryptNote, encryptedNoteKeyId } from "../src/encryption.js";
 import { ROTATION_PROGRESS_PATH, saveRotationProgress } from "../src/encryptionKeys/rotation.js";
 
@@ -209,19 +206,29 @@ test("rotation refuses a keyed workspace whose tree cannot be walked, rather tha
   assert.equal(raw.objects.has(ROTATION_PROGRESS_PATH), false);
 });
 
-test("an unkeyed workspace's rotation is unchanged: it still lists the bucket", async () => {
-  const { raw, store } = await keyedWorkspace({ keyed: false });
-  const rotating = Object.assign(store, {
-    encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } },
-    actor: { workspaceId: WORKSPACE },
-    rotateEncryptionKeys: async ({ complete }) =>
-      complete !== undefined
-        ? { rotation: null }
-        : { encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } }, rotation: { fromGeneration: "k1", toGeneration: "k2" } },
-  });
-  const text = (await toolRotateEncryptionKeys(rotating, "private")).content[0].text;
-  assert.match(text, /rotation complete/);
-  assert.ok(raw.log.some(([op, prefix]) => op === "list" && prefix === ""));
+test("rotation with no tree refuses and rewrites nothing, keyed or not, and starts no rotation", async () => {
+  // Rotation walks the tree's names and never the bucket's listing, so a store
+  // with no tree has nothing it may walk: the refusal is the keyed one, and it
+  // comes before a generation is minted, not after.
+  for (const keyed of [true, false]) {
+    const { raw, store } = await keyedWorkspace({ keyed });
+    let started = 0;
+    const rotating = Object.assign(store, {
+      encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } },
+      actor: { workspaceId: WORKSPACE },
+      rotateEncryptionKeys: async () => {
+        started += 1;
+        return { encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } }, rotation: { fromGeneration: "k1", toGeneration: "k2" } };
+      },
+    });
+    const text = (await toolRotateEncryptionKeys(rotating, "private")).content[0].text;
+    assert.equal(text, KEYED_PATH_REFUSAL);
+    assert.equal(started, 0);
+    assert.deepEqual(writes(raw), []);
+    assert.ok(!raw.log.some(([op]) => op === "list"));
+    assert.equal(encryptedNoteKeyId(raw.objects.get(KEY).body), "k1");
+    assert.equal(raw.objects.has(ROTATION_PROGRESS_PATH), false);
+  }
 });
 
 /* --------------------------- folder move and across contexts --------------------------- */
@@ -237,48 +244,15 @@ test("a folder move with no control plane refuses a keyed workspace before listi
   }
 });
 
-test("a move across workspaces refuses when either side is keyed, before reading the source", async () => {
+test("a move across workspaces with no control plane refuses before reading the source", async () => {
   const source = await keyedWorkspace();
   const destination = await keyedWorkspace({ keyed: false });
   const session = { scope: "private", workspaceId: WORKSPACE };
-  const result = await toolMoveNoteAcrossContexts(source.store, session, destination.store, session, PATH, "0-inbox/a.md", undefined, true);
+  const result = await toolMoveNoteAcrossContexts(source.store, session, session, PATH, "0-inbox/a.md", undefined);
   assert.equal(result.content[0].text, KEYED_PATH_REFUSAL);
   assert.deepEqual(writes(source.raw), []);
   assert.deepEqual(writes(destination.raw), []);
   assert.ok(!source.raw.log.some(([op, key]) => op === "get" && key === PATH));
-});
-
-/* ----------------------------- the queued materialize ----------------------------- */
-
-test("a queued materialize is refused, and reported failed, when its workspace is keyed", async () => {
-  const reports = [];
-  let materialized = false;
-  const oldFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    const body = JSON.parse(init?.body ?? "{}");
-    if (String(url).endsWith("/gateway/jobs/open")) {
-      return new Response(JSON.stringify({
-        job: {
-          job: { workspaceId: WORKSPACE, actorUserId: "user_1", actorClientId: "client_1", grantId: "grant_1", kind: "materialize_move", moveId: "m1" },
-          keyed: true,
-          binding: { workspaceId: WORKSPACE, provider: "r2-binding" },
-        },
-      }), { headers: { "content-type": "application/json" } });
-    }
-    if (String(url).endsWith("/gateway/jobs/report")) reports.push(body.result);
-    return new Response(JSON.stringify({}), { headers: { "content-type": "application/json" } });
-  };
-  try {
-    await handleGatewayJobMessage(
-      { body: { ticket: "opaque-ticket" }, retry: () => assert.fail("a refused job is not retried") },
-      { CONTROL_PLANE_URL: "https://control-plane.test", GATEWAY_SECRET: "test-secret" },
-      { materialize: async () => { materialized = true; return { content: [{ type: "text", text: "" }] }; } },
-    );
-  } finally {
-    globalThis.fetch = oldFetch;
-  }
-  assert.equal(materialized, false);
-  assert.deepEqual(reports, [{ status: "failed", error: KEYED_PATH_REFUSAL }]);
 });
 
 /* ------------------------------- the question itself ------------------------------- */

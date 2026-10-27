@@ -6,21 +6,20 @@
  * workspace's names have no reason to stay with us (the owner's decision of
  * 2026-10-12 put them here on that condition), and rows from the bucket a
  * workspace left describe somewhere its notes no longer are. Either way the
- * rows go, and a tree still in use is rebuilt by the next sweep.
+ * rows go. The seam writes the rows of a workspace still in use again as its
+ * notes are written.
  *
  * A large tree is more rows than one mutation may delete, so the first batch
  * goes with the caller's transaction and the rest are deleted by a chain of
- * scheduled batches. A sweep of the old bucket still in flight cannot keep
- * them: its next step finds no bookkeeping row and stops, and the next sweep
- * of the new bucket removes every row it did not see.
+ * scheduled batches.
  */
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
-import { isAuthority, privacyAuthorityOn, scheduleExport } from "./lib/nodes/privacyAuthority";
 import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
+import { scheduleDiagnosis } from "./lib/noteIds/state";
 
 /** Rows one batch deletes. */
 const PURGE_BATCH = 1_000;
@@ -59,11 +58,9 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
  * Forget the workspace's tree: its bookkeeping, parsed rules and queued moves
  * at once, its rows a batch now and the rest in the background.
  *
- * A storage move (`storageMoved: true`) keeps rules that are the authority:
- * they are the workspace's decisions, not a description of the old bucket,
- * and the bucket's `privacy.md` may be an export behind them (one owed and
- * not yet written). Forgotten, the copy of that older file in the new bucket
- * would decide who sees what. They are written to the new bucket instead.
+ * A storage move (`storageMoved: true`) keeps the access rows: they are the
+ * workspace's decisions and live in the tree, not in the old bucket. Only the
+ * bucket's small data is reset for the new storage.
  */
 export async function forgetWorkspaceTree(
   ctx: MutationCtx,
@@ -81,27 +78,13 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of edits) await ctx.db.delete(row._id);
+  // The privacy mirror is the bucket's copy of `privacy.md`, which is gone with the bucket: nothing to keep.
   const privacy = await ctx.db
     .query("nodePrivacy")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  const on = options.storageMoved === true && (await privacyAuthorityOn(ctx.db));
-  for (const row of privacy) {
-    if (on && isAuthority(row, true)) {
-      // Nothing was written to the new bucket from them yet.
-      await ctx.db.patch(row._id, { exportOwed: true, exportedEtag: undefined });
-      await scheduleExport(ctx, workspaceId, 0);
-    } else {
-      await ctx.db.delete(row._id);
-    }
-  }
-  // Queued moves describe objects in the bucket the workspace left, or in none.
-  const moves = await ctx.db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const row of moves) await ctx.db.delete(row._id);
-  // So do keyed moves in pages: the rows they would carry are going too.
+  for (const row of privacy) await ctx.db.delete(row._id);
+  // Keyed moves in pages: the rows they would carry are going too.
   const rowMoves = await ctx.db
     .query("rowMoves")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -127,6 +110,23 @@ export async function forgetWorkspaceTree(
   if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
   else await purgeSmallDataBatch(ctx, workspaceId);
   await purgeBatch(ctx, workspaceId);
+}
+
+/**
+ * A keyed workspace's storage moved: its tree stays. Its rows are the only
+ * record of every note's name, folder and access, and they name keys
+ * (`notes/<noteId>.md`), which a storage move copies as they are, so they
+ * describe the new bucket as well as they did the old one. Forgotten, nothing
+ * could rebuild them: the new bucket names no path.
+ *
+ * What does describe the old bucket goes: the icons, emoji and ledger sync
+ * state (written to the new bucket again). A move may reseal or unseal the
+ * keys on the way, so every key is checked against its row
+ * (`scheduleDiagnosis`), and rows take the new bucket's versions.
+ */
+export async function keepKeyedTreeForStorage(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await resetSmallDataForStorage(ctx, workspaceId);
+  await scheduleDiagnosis(ctx, workspaceId);
 }
 
 /** The next batch of a purge `forgetWorkspaceTree` started. */

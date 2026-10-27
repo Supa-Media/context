@@ -7,9 +7,9 @@ import {
   DurableCollaborationController,
   type DurableCollaboration,
   type DurableStatus,
-  type CollaborationResponse,
   type LiveUpdate,
 } from "./durable";
+import { collaborationTransport } from "./transport";
 
 export interface UseCollaborationOptions {
   workspaceId: string | null;
@@ -17,6 +17,8 @@ export interface UseCollaborationOptions {
   path: string | null;
   scope: CacheScope;
   initialText: () => string;
+  /** The version `initialText` is; see `initialEtag` in `durable.ts`. */
+  initialEtag?: () => string | null;
   legacyDraft?: () => { baseline: string; desired: string; baseEtag?: string | null } | undefined;
   editable: boolean;
   enabled?: boolean;
@@ -31,9 +33,6 @@ export interface UseCollaborationOptions {
   rename?: { id: number; from: string; to: string } | null;
 }
 
-/** Long enough for a large note on a slow link; short enough to not strand the queue. */
-const COLLABORATION_REQUEST_TIMEOUT_MS = 30_000;
-
 const emptyState: DurableCollaboration = {
   mode: "durable",
   ready: false,
@@ -43,6 +42,7 @@ const emptyState: DurableCollaboration = {
   documentId: null,
   text: "",
   revision: "",
+  drafting: false,
   onChange: () => {},
   onVersionedChange: () => {},
   onUpdate: () => false,
@@ -112,6 +112,18 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     options.path !== null &&
     options.path.endsWith(".md") &&
     !options.path.endsWith(".excalidraw.md");
+  /*
+    The note on screen, before it was shared. The read after a rename, or
+    after a new note's first save, is the first to come back with a `c2.`
+    version, and the controller then starts under somebody mid-sentence: it
+    takes their typing as a draft at once (`draftWaitMs: 0`) rather than
+    holding the note read-only for its first read. Followed across this
+    console's rename, since the read that shares it can land in the same
+    render as the new name.
+  */
+  const unshared = useRef<string | null>(null);
+  if (!active) unshared.current = options.path;
+  else if (options.rename?.to === options.path && unshared.current === options.rename.from) unshared.current = options.path;
 
   useEffect(() => {
     const path = identity.current.path;
@@ -128,66 +140,20 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     const origin = gatewayOriginFrom(endpoint);
     if (origin === null) return;
     let stopped = false;
-    const transport = {
-      mint: async (rejected?: string) => {
-        const grant = await mint({ workspaceId: workspaceId as never }, rejected === undefined ? false : { rejected });
-        return grant.accessToken;
-      },
-      request: async (token: string, body: { path: string; documentId?: string; update?: string; replacement?: { expectedEtag: string; text: string } }): Promise<CollaborationResponse> => {
-        // A request with no deadline holds the controller's single flush slot
-        // for as long as the connection hangs, and every later edit queues
-        // behind it with "Syncing" on screen. A timeout is a network failure:
-        // the queue is kept and retried.
-        const abort = typeof AbortController === "function" ? new AbortController() : null;
-        const deadline = setTimeout(() => abort?.abort(), COLLABORATION_REQUEST_TIMEOUT_MS);
-        let response: Response;
-        let value: unknown;
-        try {
-          response = await fetch(new URL("/collaboration", origin).toString(), {
-            method: "POST",
-            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-            body: JSON.stringify(body),
-            ...(abort === null ? {} : { signal: abort.signal }),
-          });
-          value = await response.json().catch(() => null);
-          if (abort?.signal.aborted) throw new TypeError("Collaboration request timed out");
-        } catch (error) {
-          if (abort?.signal.aborted) throw new TypeError("Collaboration request timed out");
-          throw error;
-        } finally {
-          clearTimeout(deadline);
-        }
-        // The status, never the body's `error` code: the controller decides
-        // revoked (401/403), unavailable (404) and retryable (5xx) from it, and
-        // the gateway's bodies say `invalid_token`, `not_found` and
-        // `collaboration_unavailable` — which matched none of those, so a real
-        // refusal or outage landed on a generic error that never retried.
-        if (!response.ok) throw new Error(String(response.status));
-        if (!value || typeof value !== "object") throw new Error("Malformed collaboration response");
-        const row = value as Record<string, unknown>;
-        if (
-          typeof row.documentId !== "string" ||
-          typeof row.update !== "string" ||
-          typeof row.text !== "string" ||
-          typeof row.etag !== "string"
-        ) throw new Error("Malformed collaboration response");
-        return {
-          documentId: row.documentId,
-          update: row.update,
-          text: row.text,
-          etag: row.etag,
-          ...(typeof row.applied === "boolean" ? { applied: row.applied } : {}),
-          ...(typeof row.pendingDependencies === "boolean" ? { pendingDependencies: row.pendingDependencies } : {}),
-        };
-      },
-    };
+    const transport = collaborationTransport(origin, async (rejected) => {
+      const grant = await mint({ workspaceId: workspaceId as never }, rejected === undefined ? false : { rejected });
+      return grant.accessToken;
+    });
     let next: DurableCollaborationController;
     next = new DurableCollaborationController({
       workspaceId,
       path,
       scope: options.scope,
       initialText: options.initialText(),
+      // Read when typing starts: see `base` in `durable.ts`.
+      base: () => ({ text: callbacks.current.initialText(), etag: callbacks.current.initialEtag?.() ?? null }),
       legacyDraft: options.legacyDraft?.(),
+      ...(unshared.current === path ? { draftWaitMs: 0 } : {}),
       transport,
       online: () => typeof navigator === "undefined" || navigator.onLine !== false,
       canWrite: () => callbacks.current.editable,
@@ -206,6 +172,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
         setState({
           mode: "durable",
           ready: nextState.ready,
+          drafting: nextState.drafting,
           status: nextState.status,
           pending: nextState.pending,
           etag: nextState.etag,
@@ -234,6 +201,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       },
     });
     controller.current = next;
+    unshared.current = null;
     options.onOwned?.(path, true);
     void next.start();
     // Online again, and also focus: a rollout can briefly return 404 while
@@ -277,12 +245,18 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
   const current = controller.current;
   const subscribeLiveUpdates = useCallback((listener: (frame: LiveUpdate) => void) =>
     current?.subscribeLiveUpdates(listener) ?? (() => {}), [current]);
-  const message = state.recovery === undefined ? statusMessage(state.status) : "An older offline draft needs review before it can sync.";
+  // An offline draft typed here is not one to review: it says where it is, like any edit.
+  const message = state.recovery === undefined || (state.recovery.offline === true && state.status !== "error")
+    ? statusMessage(state.status)
+    : "An older offline draft needs review before it can sync.";
   return useMemo(
     () => {
       if (!active || current === null) return undefined;
       return {
         ...state,
+        // Read live: a controller takes typing from the moment it exists, before it first reports.
+        ready: current.state.ready,
+        drafting: current.state.drafting,
         text: current.state.text,
         revision: current.state.revision,
         shared: current.state.shared,

@@ -6,7 +6,6 @@ import {
   getDesktopBridge,
   type ConnectionView,
   type DesktopBridge,
-  type ImessageStatus,
   type PendingMachineApproval,
 } from "@context/desktop-bridge";
 import { Button } from "../../design/components/Button";
@@ -69,19 +68,17 @@ import {
  * Which half of this Mac a settings panel is asking about.
  *
  * The card is one machine and two unrelated jobs — recording meetings, and
- * importing Messages — and settings now asks about them under two different
- * headings, because a person looking for their texts does not think
- * "meetings". `undefined` is both, which is the un-sectioned settings pane and
- * every existing caller.
+ * backing up Messages — and settings asks about them on two different pages,
+ * because a person looking for their texts does not think "meetings".
+ * `undefined` is the meetings card, which every older caller meant.
  *
  * The two are not symmetrical, and that is why this is a prop rather than two
- * components. Both need the same machine grant: `apps/desktop`'s iMessage
- * import writes through `write_note` with *this machine's* token, exactly as
- * the meetings routes do. So "Chats" cannot simply drop the connection state —
- * an unconnected machine is precisely why somebody's messages are not
- * arriving, and that sentence has to be reachable from the panel they opened.
- * What it drops is the machine's meetings *copy* and its Disconnect button,
- * both of which belong under Meetings and would be a second copy here.
+ * components. Both need the same machine grant: the Messages backup sends its
+ * batches with *this machine's* token, exactly as the meetings routes do. So
+ * Settings › Messages draws this card while the Mac is not connected, because
+ * that is precisely why nothing is being copied. What it drops is the
+ * machine's meetings *copy* and its Disconnect button, both of which belong
+ * under Meetings and would be a second copy there.
  */
 export type MachineFocus = "meetings" | "chats";
 
@@ -113,7 +110,6 @@ function useDesktopBridge(): DesktopBridge | null {
 function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: MachineFocus }) {
   const styles = useThemedStyles(makeStyles);
   const [connection, setConnection] = useState<ConnectionView | null>(null);
-  const imessage = useImessageStatus(bridge);
   const approval = useMachineApproval(bridge, connection);
 
   /*
@@ -148,10 +144,10 @@ function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: Machine
   const title = machineTitle(bridge.shell);
 
   /*
-    A shell with no iMessage support has nothing for a Chats panel to say, and
-    a card headed with this Mac's name over one blank line is a worse answer
-    than no card — the same rule the settings sections follow. Meetings still
-    draws, because the machine's own connection is the subject there.
+    A shell with no Messages support has nothing for the Messages page to say,
+    and a card headed with this Mac's name over one blank line is a worse
+    answer than no card. Meetings still draws, because the machine's own
+    connection is the subject there.
   */
   if (focus === "chats" && bridge.imessage === undefined) return null;
 
@@ -218,49 +214,6 @@ function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: Machine
           />
         </View>
       )}
-
-      {focus === "meetings" || imessage === null ? null : (
-        <View style={styles.imessage} testID="this-machine-imessage">
-          <View style={styles.imessageText}>
-            <Text variant="rowTitle">iMessage</Text>
-            <Text variant="rowSub" style={styles.sub}>
-              {imessageLine(imessage.status)}
-            </Text>
-            {imessage.status.permission === "denied" ? (
-              <Text variant="rowSub" style={styles.notice} testID="this-machine-imessage-permission-guide">
-                In System Settings, open Privacy &amp; Security → Full Disk Access, add Context or turn it on,
-                then quit and reopen the app.
-              </Text>
-            ) : null}
-            {imessage.status.lastError ? (
-              <Text variant="rowSub" style={styles.notice}>
-                {imessage.status.lastError}
-              </Text>
-            ) : null}
-          </View>
-          {imessage.status.permission === "denied" ? (
-            <Button
-              label="Open Full Disk Access"
-              disabled={imessage.changing}
-              onPress={() => void bridge.imessage?.requestFullDiskAccess()}
-              testID="this-machine-imessage-open-settings"
-            />
-          ) : (
-            <Button
-              label={
-                imessage.changing
-                  ? "Saving..."
-                  : imessage.status.enabled
-                    ? "Pause iMessage"
-                    : "Start iMessage"
-              }
-              disabled={imessage.changing}
-              onPress={() => imessage.setEnabled(!imessage.status.enabled)}
-              testID="this-machine-imessage-toggle"
-            />
-          )}
-        </View>
-      )}
     </Card>
   );
 }
@@ -269,91 +222,17 @@ function MachineCard({ bridge, focus }: { bridge: DesktopBridge; focus?: Machine
  * The machine, said in the words of the panel that is asking.
  *
  * `describeMachine` writes about meetings, because that is what the machine's
- * grant was built for and what every other caller of it is about. Under a
- * Chats heading those sentences are answers to a question nobody asked — and
- * the fact that matters there is a different one: Messages import spends the
- * *same* grant (`apps/desktop/src/core/imessage/gatewayNotes.ts`), so an
- * unconnected machine is exactly why somebody's texts are not arriving.
+ * grant was built for and what every other caller of it is about. On the
+ * Messages page those sentences answer a question nobody asked — and the fact
+ * that matters there is a different one: the backup spends the *same* grant
+ * (`apps/desktop/src/main/messagesBackup.ts`), so an unconnected machine is
+ * exactly why nothing is being copied.
  */
 function imessageMachineSentence(view: { action: MachineAction }): string {
   if (view.action === "connect") {
-    return "Messages are read on this Mac and sent with this machine's own grant, so nothing arrives until it is connected.";
+    return "Texts are copied from this Mac with this machine's own grant, so nothing is copied until it is connected.";
   }
-  return "Messages are read on this Mac and sent with this machine's own grant — never through a browser, and never copied from another device.";
-}
-
-function useImessageStatus(
-  bridge: DesktopBridge,
-): {
-  status: ImessageStatus;
-  changing: boolean;
-  setEnabled: (enabled: boolean) => void;
-} | null {
-  const [status, setStatus] = useState<ImessageStatus | null>(null);
-  const [changing, setChanging] = useState(false);
-  const permission = useRef<ImessageStatus["permission"] | null>(null);
-
-  useEffect(() => {
-    if (bridge.imessage === undefined) return;
-    let live = true;
-    void bridge.imessage.status().then(
-      (value) => {
-        if (live) {
-          permission.current = value.permission;
-          setStatus(value);
-        }
-      },
-      () => {},
-    );
-    const off = bridge.imessage.onChange((value) => {
-      if (!live) return;
-      const newlyDenied =
-        value.enabled && value.permission === "denied" && permission.current !== "denied";
-      permission.current = value.permission;
-      setStatus(value);
-      if (newlyDenied) void bridge.imessage?.requestFullDiskAccess();
-    });
-    return () => {
-      live = false;
-      off();
-    };
-  }, [bridge]);
-
-  if (bridge.imessage === undefined || status === null) return null;
-  return {
-    status,
-    changing,
-    setEnabled: (enabled: boolean) => {
-      setChanging(true);
-      void bridge.imessage
-        ?.setEnabled(enabled)
-        .then(() => bridge.imessage?.status())
-        .then((next) => {
-          if (next) setStatus(next);
-        })
-        .finally(() => setChanging(false));
-    },
-  };
-}
-
-function imessageLine(status: ImessageStatus): string {
-  if (status.permission === "denied") {
-    return "Full Disk Access is needed before this Mac can import Messages.";
-  }
-  const lastSynced = status.lastSyncedAt
-    ? new Intl.DateTimeFormat(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(new Date(status.lastSyncedAt))
-    : null;
-  if (status.enabled) {
-    return lastSynced === null
-      ? "Import is on; waiting for the first completed sync."
-      : `Import is on; last synced ${lastSynced}.`;
-  }
-  return "Import is off on this Mac.";
+  return "Texts are copied from this Mac with this machine's own grant, never through a browser.";
 }
 
 /**
@@ -511,15 +390,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sub: { marginTop: 4 },
   notice: { marginTop: 8, color: colors.crit },
   actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 12 },
-  imessage: {
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    flexWrap: "wrap",
-  },
-  imessageText: { flexGrow: 1, flexShrink: 1, flexBasis: 260 },
 });

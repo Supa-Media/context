@@ -20,7 +20,6 @@
  */
 
 import { LONG_NOTE_LINES, isArchived, scoreFolder, treeShape } from "./rubric.js";
-import { logicalPath, pendingMovesOf } from "../moves/queued.js";
 
 /**
  * Every folder's numbers for both audiences, from the keys.
@@ -29,22 +28,6 @@ import { logicalPath, pendingMovesOf } from "../moves/queued.js";
  * @param {Map<string, { lines: number | null, exempt: boolean, review: boolean }>} extras
  * @param {(path: string) => boolean} visibleToTeam
  */
-/**
- * Long notes and contact reviews keyed where the tree draws them: the facts
- * and the table name notes by bucket key, and the keys they are scored
- * against are drawn through pending folder moves. Without this a moving
- * folder's long notes drop out of the score until the copy lands, and orient
- * disagrees with the app's chip (which folds the same way, `chaosOps.ts`).
- *
- * @param {Map<string, object>} extras
- * @param {unknown} moves a store's `pendingMoves`
- */
-export function extrasAtTreeNames(extras, moves) {
-  const pending = pendingMovesOf(moves);
-  if (pending.length === 0) return extras;
-  return new Map([...extras].map(([path, extra]) => [logicalPath(path, pending), extra]));
-}
-
 export function scoreKeys(keys, extras, visibleToTeam) {
   const rows = keys.map((path) => ({ path, ...(extras.get(path) ?? {}) }));
   const all = treeShape(rows);

@@ -38,16 +38,26 @@ export function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 /**
  * The listing a walk of the tree's names reads: the Convex tree's rows, which
  * the credential barrier attaches to every operation's store
- * (`lib/nodes/treeNames.ts`), and which answer `TREE_LOADING` rather than
- * list the bucket while the first copy runs. `keysUnder`, `isFolder`,
+ * (`lib/nodes/treeNames.ts`), and which answer `NOT_SERVED` until the tree is
+ * ready, never by listing the bucket. `keysUnder`, `isFolder`,
  * `namesExtending`, the link rewrite's note inventory and the name checks
  * (`treeChecks.ts`) ask it; every read and write still goes to the store
  * itself. A store with nothing attached is the unit tests' in-memory one,
  * which is its own tree.
  */
 export function namesListing(store: FileStore): Pick<FileStore, "list"> {
-  const tree = (store as { treeListing?: Pick<FileStore, "list"> }).treeListing;
-  return tree ?? store;
+  return attachedTree<Pick<FileStore, "list">>(store);
+}
+
+/**
+ * The Convex tree the barrier attached to `store` (`treeNames.ts`). No fallback:
+ * a store without one is a wiring bug, and answering from its own listing would
+ * hide it. Unit tests attach a served tree (`copyTree`, `seedTreeRows`).
+ */
+export function attachedTree<T extends object>(store: FileStore): T {
+  const tree = (store as { treeListing?: T }).treeListing;
+  if (tree === undefined) throw new Error("no Convex tree is attached to this store (lib/nodes/treeNames.ts)");
+  return tree;
 }
 
 /**

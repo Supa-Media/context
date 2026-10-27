@@ -24,7 +24,7 @@ import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
-import { effectiveVisibility, parsePrivacyManifest } from "../src/privacy/engine.js";import { fullToolList } from "./fullToolList.mjs";
+import { effectiveVisibility } from "../src/privacy/engine.js";import { rowsFor } from "./accessRows.mjs";import { fullToolList } from "./fullToolList.mjs";
 
 
 const OWNER_TOKEN = `cat_links_owner_${"0".repeat(16)}`;
@@ -142,7 +142,7 @@ export async function runLinkToolChecks(check) {
       const held = (workspaceId === "ws_links" ? bucket : otherBucket).objects;
       const manifest = held.get("privacy.md")?.body;
       if (!manifest || !held.has(path)) return NOT_TEAM_VISIBLE;
-      const { rules, overrides } = parsePrivacyManifest(manifest);
+      const { rules, overrides } = rowsFor(controlPlane, workspaceId, manifest);
       return effectiveVisibility(path, rules, overrides) === "team" ? null : NOT_TEAM_VISIBLE;
     },
   });
@@ -514,7 +514,7 @@ export async function runLinkToolChecks(check) {
       /visibility: team \(published to this workspace so the link can open it/.test(intake.text),
     );
     {
-      const { rules, overrides } = parsePrivacyManifest(bucket.objects.get("privacy.md").body);
+      const { rules, overrides } = rowsFor(controlPlane, "ws_links", bucket.objects.get("privacy.md").body);
       check(
         "...and the form note really is team-visible now",
         effectiveVisibility("2-areas/clients/new-client.md", rules, overrides) === "team",
@@ -554,7 +554,7 @@ export async function runLinkToolChecks(check) {
     });
     check("an encrypted note asked for an open link is refused", sealedShare.isError);
     {
-      const { rules, overrides } = parsePrivacyManifest(bucket.objects.get("privacy.md").body);
+      const { rules, overrides } = rowsFor(controlPlane, "ws_links", bucket.objects.get("privacy.md").body);
       check(
         "...and is neither published to the workspace nor rewritten on the way",
         effectiveVisibility("2-areas/sealed.md", rules, overrides) === "private" &&

@@ -10,7 +10,6 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../functions/lib/d1";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import {
   FAKE_D1,
   FAKE_STORAGE,
@@ -23,6 +22,7 @@ import {
 } from "./fixtures.helpers";
 import { d1AndBucketFetch, stubD1, type StubD1 } from "./searchBackfill.helpers";
 import { memoryS3 } from "./storeStub.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 /**
  * Every deployment `opted` stood up, so each test file's `afterEach` can put its

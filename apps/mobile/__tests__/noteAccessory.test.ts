@@ -672,10 +672,10 @@ function rowTitles(): string[] {
 describe("a new note's title", () => {
   /** Board 3: "Your agent will file it" under a note in the Inbox, and nothing elsewhere. */
   test("a note in the Inbox asks for the line under its title, and one elsewhere does not", () => {
-    mountEditor(390, { state: stateFor({ path: "0-inbox/untitled-2026-10-17.md" }) });
+    mountEditor(390, { state: stateFor({ path: "inbox/untitled-2026-10-17.md" }) });
     expect(mockHints.at(-1)).toBe("Your agent will file it");
 
-    mountEditor(390, { state: stateFor({ path: "1-projects/untitled-2026-10-17.md" }) });
+    mountEditor(390, { state: stateFor({ path: "projects/untitled-2026-10-17.md" }) });
     expect(mockHints.at(-1)).toBeNull();
   });
 });

@@ -31,6 +31,11 @@ import { pinnedContextWorkspace } from "../pinnedContext";
 import { scanAccessRows } from "./accessRows";
 import { livePending, PENDING_MAX } from "./pendingAccess";
 import { renderAccess } from "./rowAccess";
+import { recordRouteChangeAtHandler } from "../websites/routeChangeAt";
+import { treeAudiences } from "../treeAudiences";
+import { stampTreeAudiences } from "../../treeSignals";
+import { rulesForReaders } from "./readerRules";
+import { nodeAt } from "./paths";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
@@ -97,7 +102,7 @@ export interface SetAccessArgs {
   actor: Actor;
 }
 
-export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "PENDING_FULL" | "INVALID";
+export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "PENDING_FULL" | "INVALID";
 export type SetAccessAnswer = { ok: true; version: number } | { ok: false; code: SetAccessCode };
 
 /** A grant's identity for comparing two lists: who, and at what role. */
@@ -200,10 +205,7 @@ async function setPendingAccess(
  */
 export async function pendPrivateArrivals(ctx: MutationCtx, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<boolean> {
   for (const path of paths) {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     if (row !== null) continue;
     const state = await ctx.db
       .query("nodeAccessState")
@@ -234,10 +236,7 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   const listed = args.grantees === undefined || args.grantees === "inherit" ? 0 : args.grantees.length;
   if (listed > MAX_GRANTEES) return { ok: false, code: "INVALID" };
 
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  const row = await nodeAt(ctx.db, workspaceId, path);
 
   const state = await ctx.db
     .query("nodeAccessState")
@@ -269,6 +268,8 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   if (state !== null && state.pending?.some((entry) => entry.path === path)) {
     await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
   }
+  // Who could see the path before, for the tree hint below: a narrowing is news to the readers who lose it.
+  const seenBefore = await rulesForReaders(ctx, workspaceId, "member");
   const nextBase = base === "inherit" ? undefined : base;
   if (row.access?.base !== nextBase) {
     await ctx.db.patch(row._id, { access: nextBase === undefined ? undefined : { base: nextBase } });
@@ -320,7 +321,18 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     });
   }
 
-  return { ok: true, version: await refreshSnapshot(ctx, workspaceId) };
+  // A narrowing the published site reaches withholds its menu until the index is rebuilt, as a `privacy.md`
+  // change did (`markWebsiteAfterOperation`); every access writer comes through here.
+  await recordRouteChangeAtHandler(ctx, { workspaceId, paths: [path], unsafe: true });
+  const version = await refreshSnapshot(ctx, workspaceId);
+  // The tree hint (`treeSignals.ts`) of everyone who could see the path before or can now, as a rules write told them
+  // (`audiencesForChange`): their open trees walk again, and a note narrowed away from them leaves it.
+  const seenAfter = await rulesForReaders(ctx, workspaceId, "member");
+  await stampTreeAudiences(ctx, workspaceId, [
+    ...treeAudiences([path], seenBefore.rules, seenBefore.overrides),
+    ...treeAudiences([path], seenAfter.rules, seenAfter.overrides),
+  ]);
+  return { ok: true, version };
 }
 
 /** The tier a member's answer is judged by: a list's token counts as private, the narrower answer. */
@@ -344,18 +356,32 @@ export async function narrowRowForMove(
   from: string,
   to: string,
 ): Promise<void> {
-  const rows = await scanAccessRows(ctx, workspaceId);
-  const { rules, overrides } = renderAccess(rows, "member");
-  const was = tierOf(effectiveVisibility(from, rules, overrides));
-  const there = tierOf(visibilityOf(to, rules));
-  // `narrowerVisibility` of two tiers is the narrower one; a move narrows only where it would widen.
-  const carry = tierOf(narrowerVisibility(was, there) ?? "private");
-  if (carry === there) return;
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", from))
-    .unique();
-  if (row === null || row.access?.base === carry) return;
-  await ctx.db.patch(row._id, { access: { base: carry } });
-  await refreshSnapshot(ctx, workspaceId);
+  await narrowRowsForMoves(ctx, workspaceId, [{ from, to }]);
+}
+
+/**
+ * `narrowRowForMove` for each move in turn, in one transaction. The rows are read once and read again only after a
+ * move narrowed one, so each move is judged by the rules the moves before it left, as one call a move judged them,
+ * without a scan of the workspace's rows per note (a batch of 20 read them 20 times, 2026-10-26).
+ */
+export async function narrowRowsForMoves(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  moves: readonly { from: string; to: string }[],
+): Promise<void> {
+  let judged: ReturnType<typeof renderAccess> | null = null;
+  for (const { from, to } of moves) {
+    judged ??= renderAccess(await scanAccessRows(ctx, workspaceId), "member");
+    const { rules, overrides } = judged;
+    const was = tierOf(effectiveVisibility(from, rules, overrides));
+    const there = tierOf(visibilityOf(to, rules));
+    // `narrowerVisibility` of two tiers is the narrower one; a move narrows only where it would widen.
+    const carry = tierOf(narrowerVisibility(was, there) ?? "private");
+    if (carry === there) continue;
+    const row = await nodeAt(ctx.db, workspaceId, from);
+    if (row === null || row.access?.base === carry) continue;
+    await ctx.db.patch(row._id, { access: { base: carry } });
+    await refreshSnapshot(ctx, workspaceId);
+    judged = null;
+  }
 }

@@ -7,7 +7,7 @@
  * the destination and everything under it is free, the rules are the ones the
  * caller judged, nothing overlapping is moving), then moves the root row, stands
  * the destination's folders and records the move. Each page after it
- * (`moveRowPage`) moves the next `ROW_MOVE_MAX` live rows under the old name,
+ * (`moveRowPage`) moves the next `ROW_MOVE_PAGE` live rows under the old name,
  * in path order, so a folder always moves before what is in it. Row ids are
  * kept, so a moved row's children still point at it.
  *
@@ -48,21 +48,21 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
-import { TRASH_ROOT } from "../fileOps/store";
+import { underHiddenRoot } from "../fileOps/store";
 import { canSee } from "../privacy";
 import { MAIN_ROLES, type MainRole } from "@context/shared/src/folderRoles.cjs";
 import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
 import { freshenMeaningAfterActivity } from "../meaningFns/rows";
-import { accessSourceOf, refreshAccess } from "./accessBackfill";
+import { refreshSnapshot } from "./accessBackfill";
 import { claimJobBeforeMove, jobOfRow } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { privacyEtagOf, readerMirror, rulesForReaders } from "./readerRules";
 import { type PrivacyMirror, nameOf } from "./table";
-import { type PendingMove, pendingMoves } from "./moveOverlay";
+import { mirrorRules } from "./log";
+import type { PendingMove } from "./moveOverlay";
 import type { AccessRow } from "./rowAccess";
 import {
-  ROW_MOVE_MAX,
   type RowMoveAnswer,
   chainAt,
   followMovedFiles,
@@ -73,8 +73,14 @@ import {
   standFolders,
 } from "./rowMove";
 
+/**
+ * Rows one page moves. Smaller than `ROW_MOVE_MAX`: each moved file also reads its destination, its grants, every
+ * link out of it and the change log, and a page of 500 linked notes went past the 4,096 reads one function may make,
+ * so a move of Dev2's Archive stopped at its second page (2026-10-22).
+ */
+export const ROW_MOVE_PAGE = 100;
 /** Rows of tombstones and left rows one page may read past before it stops: bounds a page's reads. */
-const PAGE_SCAN = ROW_MOVE_MAX * 4;
+const PAGE_SCAN = ROW_MOVE_PAGE * 4;
 /** How long a page's progress holds off the watchdog: the request is driving it. */
 export const ROW_MOVE_LEASE_MS = 30_000;
 /** How long a moved record waits for its request to settle the bucket's side before the watchdog lets it go. */
@@ -105,13 +111,11 @@ export async function movingRowMoves(db: DatabaseReader, workspaceId: Id<"worksp
 }
 
 /**
- * Every move the tree draws already, as a listing folds them (`moveOverlay.ts`): the queued byte moves, then
- * the keyed moves still moving. A keyed workspace never has the first and an unkeyed one never the second
- * (`rowMove.ts` refuses while a byte move is queued), so the order never composes two kinds.
+ * Every move the tree draws already, as a listing folds them (`moveOverlay.ts`): the keyed moves still moving,
+ * oldest first. Only a keyed workspace moves rows, so this is every move the tree has pending.
  */
 export async function drawnMoves(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<PendingMove[]> {
-  const keyed = (await movingRowMoves(db, workspaceId)).map((row) => ({ from: row.from, to: row.to }));
-  return [...(await pendingMoves(db, workspaceId)), ...keyed];
+  return (await movingRowMoves(db, workspaceId)).map((row) => ({ from: row.from, to: row.to }));
 }
 
 /** Whether a move of `from` to `to` touches a name a keyed move is still carrying: one move per subtree at a time. */
@@ -146,7 +150,7 @@ export async function throughRowMoves(
     if (oldName === null && newName === null) continue;
     if (await liveRowAt(db, workspaceId, path)) return path;
     if (oldName !== null) return (await liveRowAt(db, workspaceId, oldName)) ? oldName : path;
-    if (move.to.startsWith(`${TRASH_ROOT}/`)) return path;
+    if (underHiddenRoot(move.to)) return path;
     return newName as string;
   }
   return path;
@@ -214,8 +218,8 @@ export async function beginChunkedMove(
     state: "moving",
     scope: args.clearance.scope,
     grantedNames: args.clearance.grantedNames,
-    // A trash carries no rules, and in rows mode the rows are the rules: only a file-mode move waits on them.
-    privacyEtag: trash || (await accessSourceOf(ctx.db)) === "rows" ? null : args.privacyEtag,
+    // The rows are the rules, so a move waits on no file's version: there is no `privacyEtag` to carry.
+    privacyEtag: null,
     pass: 1,
     ...(root.parentId === undefined ? {} : { oldParentId: root.parentId }),
     moved: 1,
@@ -231,7 +235,7 @@ export async function beginChunkedMove(
   await markWebsiteMoved(ctx, ws, { from, to });
   if (!trash) await followFolderSettings(ctx, ws, from, to);
   await freshenMeaningAfterActivity(ctx, ws);
-  await refreshAccess(ctx, ws);
+  await refreshSnapshot(ctx, ws);
   await ctx.scheduler.runAfter(ROW_MOVE_LEASE_MS, internal.functions.nodeRowMoves.continueRowMove, { id });
   return { ok: true, kind: "folder", rows: 1, files: [], chunked: id };
 }
@@ -269,16 +273,14 @@ async function carriesAccess(ctx: MutationCtx, row: Doc<"nodes">): Promise<boole
  * there now. In rows mode a folder stood here is private: the rules it stood under went with the folder that
  * moved, and a left row must never come out wider than it was.
  */
-async function folderForLeft(ctx: MutationCtx, ws: Id<"workspaces">, path: string, now: number, rowsMode: boolean): Promise<Id<"nodes"> | undefined> {
+async function folderForLeft(ctx: MutationCtx, ws: Id<"workspaces">, path: string, now: number): Promise<Id<"nodes"> | undefined> {
   const chain = [...(await chainAt(ctx.db, ws, path)), { path, row: await rowAt(ctx.db, ws, path) }];
   if (chain.some((entry) => entry.row !== null && entry.row.goneAt === undefined && entry.row.kind === "file")) return undefined;
   const fresh = chain.filter((entry) => entry.row === null || entry.row.goneAt !== undefined).map((entry) => entry.path);
   const id = await standFolders(ctx, ws, chain, now);
-  if (rowsMode) {
-    for (const folder of fresh) {
-      const row = await rowAt(ctx.db, ws, folder);
-      if (row !== null && row.access === undefined) await ctx.db.patch(row._id, { access: { base: "private" } });
-    }
+  for (const folder of fresh) {
+    const row = await rowAt(ctx.db, ws, folder);
+    if (row !== null && row.access === undefined) await ctx.db.patch(row._id, { access: { base: "private" } });
   }
   return id;
 }
@@ -303,13 +305,14 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
       await ctx.db.patch(id, { privacyEtag: etag });
     }
   }
-  const rowsMode = (await accessSourceOf(ctx.db)) === "rows";
   // A restore comes out of the trash, which nobody sees; the caller judged it as a whole (`restoreTrashedPath`).
-  const judged = move.from.startsWith(`${TRASH_ROOT}/`) ? null : await rulesForReaders(ctx, ws);
+  const judged = underHiddenRoot(move.from) ? null : await rulesForReaders(ctx, ws);
   const clearance = clearanceOf(move.scope, move.grantedNames);
   const prefix = `${move.from}/`;
   const lower = move.cursor ?? prefix;
 
+  // Who could see each old path, judged before this page's rows move (`followMovedFiles`).
+  const before = await mirrorRules(await readerMirror(ctx, ws));
   const page: Doc<"nodes">[] = [];
   let scanned = 0;
   let ended = true;
@@ -319,7 +322,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).gt("path", lower));
   for await (const row of rows) {
     if (!row.path.startsWith(prefix)) break;
-    if (page.length >= ROW_MOVE_MAX || scanned >= PAGE_SCAN) {
+    if (page.length >= ROW_MOVE_PAGE || scanned >= PAGE_SCAN) {
       ended = false;
       break;
     }
@@ -351,7 +354,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
       left += 1;
       // Its folder moved without it: it stays at the old name, in a folder of that name.
       if (parentMoved) {
-        const folder = await folderForLeft(ctx, ws, row.path.slice(0, row.path.lastIndexOf("/")), move.now, rowsMode);
+        const folder = await folderForLeft(ctx, ws, row.path.slice(0, row.path.lastIndexOf("/")), move.now);
         if (folder !== undefined) await ctx.db.patch(row._id, { parentId: folder });
       }
       continue;
@@ -364,7 +367,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     moved += 1;
     if (row.kind === "file") files.push({ from: row.path, to: destination });
   }
-  await followMovedFiles(ctx, ws, files, move.trash);
+  await followMovedFiles(ctx, ws, files, move.trash, before);
 
   const patch: Partial<Doc<"rowMoves">> = { moved: move.moved + moved, left, updatedAt: Date.now() };
   if (!ended) {
@@ -380,11 +383,11 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     await retireEmptied(ctx, ws, move.oldParentId, move.now);
     await markWebsiteMoved(ctx, ws, { from: move.from, to: move.to });
     await freshenMeaningAfterActivity(ctx, ws);
-    await refreshAccess(ctx, ws);
+    await refreshSnapshot(ctx, ws);
     return { state: "done", files, left };
   }
   await ctx.db.patch(id, patch);
-  if (access) await refreshAccess(ctx, ws);
+  if (access) await refreshSnapshot(ctx, ws);
   return { state: "moving", files, left: patch.left ?? left };
 }
 

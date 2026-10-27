@@ -14,8 +14,7 @@
  * write is refused as a create that lost a race, exactly as when two writers
  * create one name at once, and the caller re-reads and writes again with the
  * etag it read. A store with no control
- * plane (the single-tenant deployment, a self-hosted gateway) has no tree and
- * opens the note by name (`takenInTree`).
+ * plane has no tree to ask, so `takenInTree` refuses the write.
  */
 
 import { getWithLegacyFallback } from "../../storageLayout.js";
@@ -37,7 +36,7 @@ import { TreeUnavailable } from "../../tree/served.js";
  * @param {{ editing: boolean }} how `editing` when the caller is known to be editing
  */
 export async function noteBeingWritten(store, path, { editing }) {
-  if (editing || typeof store?.treeFacts !== "function") {
+  if (editing) {
     const object = await getWithLegacyFallback(store, path);
     return { exists: object !== null && object !== undefined, object: object ?? null };
   }

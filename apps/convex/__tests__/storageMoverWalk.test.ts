@@ -20,7 +20,7 @@ import { handleMoverPage } from "../../mcp/src/moves/mover.js";
 import { hashToken } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { WALK_MOVER_RETRY_MS } from "../functions/lib/managedEncryptionFns/walk";
-import { TEST_GATEWAY_SECRET, asUser, drainScheduled, gatewayPost, type TestConvex } from "./fixtures.helpers";
+import { TEST_GATEWAY_SECRET, asUser, copyTree, drainScheduled, gatewayPost, type TestConvex } from "./fixtures.helpers";
 import { fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
 
 const MOVER = "https://mover.example.invalid";
@@ -28,6 +28,34 @@ const MOVER = "https://mover.example.invalid";
 resetAfterEach();
 
 type Backend = Awaited<ReturnType<typeof fixture>>["backend"];
+
+/**
+ * The walk's own pages. A keyed workspace also checks its ids on the mover (`idCheck`),
+ * which these cases do not assert about. A HEAD is a metadata probe, not a write or a read of bytes.
+ */
+function walkPages(opened: unknown[]): unknown[] {
+  return opened.filter((page) => (page as { kind?: string }).kind === "walk");
+}
+
+/**
+ * A keyed workspace: the copy pass keys its notes before any walk, so each
+ * note's bytes sit at `notes/<noteId>.md` and its row names that key. The
+ * path objects the bucket still holds are frozen copies, which the walk seals too.
+ */
+async function keyedWorkspace(t: TestConvex, workspaceId: Id<"workspaces">, paths: string[]): Promise<string[]> {
+  // The copy is this deployment's own first copy, so it runs before the mover is named.
+  vi.stubEnv("STORAGE_MOVER_ORIGIN", "");
+  await copyTree(t, workspaceId);
+  vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
+  return await t.run(async (ctx) => {
+    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect();
+    return paths.map((path) => {
+      const row = rows.find((candidate) => candidate.path === path && candidate.goneAt === undefined);
+      if (row?.storageKey === undefined) throw new Error(`no keyed row at ${path}`);
+      return row.storageKey;
+    });
+  });
+}
 
 /**
  * Stand the gateway's mover up behind `fetch`. Requests to the bucket are
@@ -99,21 +127,25 @@ describe("the encryption walk on the mover", () => {
   test("seals the bucket through the mover, and this deployment never opens an object", async () => {
     vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
     const { t, staff, ours, backend } = await fixture();
+    const [index, plan] = await keyedWorkspace(t, ours, ["index.md", "1-projects/plan.md"]);
     const { outside, opened } = moverBehindFetch(t, backend);
 
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
 
-    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 3, filesTotal: 3 });
-    for (const key of [PRIVACY_KEY, "index.md", "1-projects/plan.md"]) {
+    // Two keyed notes and the two path copies the bucket still holds. The access map is no file any more: its
+    // path was translated into rows and removed, but its keyed copy (`notes/<id>.md`, no row) was sealed too.
+    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 5, filesTotal: 5 });
+    expect(backend.snapshot()[PRIVACY_KEY]).toBeUndefined();
+    for (const key of [index!, plan!, "index.md", "1-projects/plan.md", ...Object.keys(backend.snapshot())]) {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
     }
     // Every seal (a write) happened inside the mover; outside it this
     // deployment only listed (the census) and, once the walk ended, the tree's
     // sweep read versions as it always does.
-    expect(outside.filter((request) => !request.startsWith("GET "))).toEqual([]);
-    expect(opened.map((page) => (page as { phase: string }).phase)).toEqual(["seal", "check"]);
-    expect(opened[0]).toMatchObject({
+    expect(outside.filter((request) => !/^(GET|HEAD) /.test(request))).toEqual([]);
+    expect(walkPages(opened).map((page) => (page as { phase: string }).phase)).toEqual(["seal", "check"]);
+    expect(walkPages(opened)[0]).toMatchObject({
       kind: "walk",
       workspaceId: String(ours),
       limits: { lanes: 6 },
@@ -130,6 +162,7 @@ describe("the encryption walk on the mover", () => {
   test("the way back opens every object through the mover too", async () => {
     vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
     const { t, staff, ours, backend } = await fixture();
+    const [index, plan] = await keyedWorkspace(t, ours, ["index.md", "1-projects/plan.md"]);
     const { outside, opened } = moverBehindFetch(t, backend);
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
@@ -139,11 +172,11 @@ describe("the encryption walk on the mover", () => {
     await drainScheduled(t);
 
     expect(await row(t, ours)).toMatchObject({ state: "decrypted" });
-    for (const key of [PRIVACY_KEY, "index.md", "1-projects/plan.md"]) {
+    for (const key of [index!, plan!, "index.md", "1-projects/plan.md", ...Object.keys(backend.snapshot())]) {
       expect(isSealed(backend.bytesOf(key))).toBe(false);
     }
-    expect(opened.map((page) => (page as { phase: string }).phase)).toEqual(["seal", "check", "unseal", "confirm"]);
-    expect(outside.filter((request) => !request.startsWith("GET "))).toEqual([]);
+    expect(walkPages(opened).map((page) => (page as { phase: string }).phase)).toEqual(["seal", "check", "unseal", "confirm"]);
+    expect(outside.filter((request) => !/^(GET|HEAD) /.test(request))).toEqual([]);
   });
 
   test("a ticket opens once, and only for the run, phase and cursor it was minted for", async () => {

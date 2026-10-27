@@ -2,12 +2,8 @@
  * The operations a move from one context into another runs through the
  * credential barrier, one store at a time (`functions/contextMoves.ts`).
  *
- * Two shapes of batch. Without the gateway's mover, each batch is exported
- * from the source with its bytes, imported into the destination and deleted
- * from the source here. With it (`lib/contextMoveMover.ts`), this deployment
- * plans the batch by name, writes the destination's narrowing exceptions, and
- * afterwards records what arrived and what left; the files go bucket to bucket
- * in the mover and never through here.
+ * Each batch is exported from the source with its bytes, imported into the
+ * destination and its rows trashed in the source here (`lib/contextMoveBatches.ts`).
  */
 
 import type { Clearance } from "../clearance";
@@ -16,10 +12,7 @@ import {
   clearMovedSourceRules,
   deleteMovedSources,
   exportContextMoveBatch,
-  forgetMovedSources,
   importContextMoveBatch,
-  planContextMoveBatch,
-  prepareContextMoveLanding,
 } from "../fileOps";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
@@ -30,11 +23,7 @@ export type ContextMoveOperation = Extract<
       | "contextMoveExport"
       | "contextMoveImport"
       | "contextMoveDelete"
-      | "contextMoveFinish"
-      | "contextMovePlan"
-      | "contextMovePrepare"
-      | "contextMoveArrived"
-      | "contextMoveForget";
+      | "contextMoveFinish";
   }
 >;
 
@@ -43,10 +32,6 @@ const KINDS = new Set<string>([
   "contextMoveImport",
   "contextMoveDelete",
   "contextMoveFinish",
-  "contextMovePlan",
-  "contextMovePrepare",
-  "contextMoveArrived",
-  "contextMoveForget",
 ]);
 
 export function isContextMoveOperation(operation: FileOperation): operation is ContextMoveOperation {
@@ -88,30 +73,5 @@ export async function executeContextMoveOperation(
       });
       return { kind: "contextMoveFinished" };
     }
-    case "contextMovePlan": {
-      const planned = await planContextMoveBatch(store, {
-        from: operation.from,
-        to: operation.to,
-        clearance,
-        skip: operation.skip,
-        maxObjectBytes: operation.maxObjectBytes,
-      });
-      return { kind: "contextMovePlanned", ...planned };
-    }
-    case "contextMovePrepare": {
-      await prepareContextMoveLanding(store, {
-        objects: operation.objects,
-        clearance,
-        ...(operation.root === undefined ? {} : { root: operation.root }),
-      });
-      return { kind: "contextMoveSettled" };
-    }
-    case "contextMoveArrived":
-      // Nothing to do in the bucket: the mover already landed these. The
-      // barrier announces them to the tree (`treeChangeOf`).
-      return { kind: "contextMoveSettled" };
-    case "contextMoveForget":
-      await forgetMovedSources(store, { paths: operation.paths });
-      return { kind: "contextMoveSettled" };
   }
 }

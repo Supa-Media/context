@@ -14,7 +14,7 @@ import type { TaskHost } from "../../features/console/files/folderPage/tasks/tas
 import type { ListNote } from "../../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../../features/console/files/types";
 
-export const CAFE = "1-projects/cafe";
+export const CAFE = "projects/cafe";
 
 export const strip = (text: string | null | undefined): string => (text ?? "").replace(/[\u2066-\u2069]/g, "");
 

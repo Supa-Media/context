@@ -123,3 +123,197 @@ describe("conversations.list and the rest", () => {
     expect(sent[0].form.get("match")).toBe("kept");
   });
 });
+
+describe("a post addressed to a person", () => {
+  function stubPosting(sent: Sent[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        const method = String(input).split("/").pop() ?? "";
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        sent.push({ method, form });
+        if (method === "users.lookupByEmail") {
+          return form.get("email") === "olu@example.invalid" ? Response.json({ ok: true, user: { id: "U5" } }) : Response.json({ ok: false, error: "users_not_found" });
+        }
+        if (method === "conversations.open") return Response.json({ ok: true, channel: { id: `D-${form.get("users")}` } });
+        return Response.json({ ok: true, channel: form.get("channel"), ts: "1.2" });
+      }),
+    );
+  }
+
+  test("by the email they use in Slack, goes to the DM with them", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    const { body } = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "olu@example.invalid", text: "hi" });
+    expect(sent.map((s) => s.method)).toEqual(["users.lookupByEmail", "conversations.open", "chat.postMessage"]);
+    expect(sent[2].form.get("channel")).toBe("D-U5");
+    expect(sent[2].form.get("text")).toBe("hi");
+    expect(body).toMatchObject({ ok: true, channel: "D-U5" });
+  });
+
+  test("by user id, opens the DM; an email nobody there uses posts nothing", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "U05ABC", text: "hi" });
+    expect(sent.map((s) => [s.method, s.form.get("channel") ?? s.form.get("users")])).toEqual([
+      ["conversations.open", "U05ABC"],
+      ["chat.postMessage", "D-U05ABC"],
+    ]);
+    sent.length = 0;
+    const { body } = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "nobody@example.invalid", text: "hi" });
+    expect(body).toEqual({ ok: false, error: "users_not_found" });
+    expect(sent.map((s) => s.method)).toEqual(["users.lookupByEmail"]);
+  });
+
+  test("a channel id is posted to as given", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "C1", text: "hi" });
+    expect(sent.map((s) => [s.method, s.form.get("channel")])).toEqual([["chat.postMessage", "C1"]]);
+  });
+});
+
+describe("reading a channel, a thread and a search", () => {
+  function stubMessages(sent: Sent[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        const method = String(input).split("/").pop() ?? "";
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        sent.push({ method, form });
+        if (method === "conversations.list") {
+          return Response.json({ ok: true, channels: [{ id: "C9", name: "General" }], response_metadata: { next_cursor: "" } });
+        }
+        if (method === "users.info") {
+          const names: Record<string, string> = { U05ABC: "Segun", U06DEF: "Amy" };
+          const id = form.get("user") ?? "";
+          return names[id] ? Response.json({ ok: true, user: { id, profile: { display_name: names[id] } } }) : Response.json({ ok: false, error: "user_not_found" });
+        }
+        if (method === "conversations.history" || method === "conversations.replies") {
+          return Response.json({
+            ok: true,
+            has_more: true,
+            response_metadata: { next_cursor: "older" },
+            messages: [
+              {
+                ts: "2.0",
+                user: "U05ABC",
+                text: "Hey <@U06DEF>, see this",
+                thread_ts: "2.0",
+                reply_count: 3,
+                reactions: [{ name: "eyes", count: 2 }],
+                blocks: [{ type: "rich_text", elements: ["x".repeat(500)] }],
+                user_profile: { image_72: "https://example.invalid/a.png" },
+              },
+              { ts: "2.5", user: "U06DEF", text: "Done", thread_ts: "2.0", files: [{ name: "plan.pdf" }] },
+            ],
+          });
+        }
+        if (method === "search.messages") {
+          return Response.json({
+            ok: true,
+            messages: { total: 1, matches: [{ channel: { id: "C9", name: "general" }, username: "segun", user: "U05ABC", ts: "2.0", text: "ship it <@U06DEF>", permalink: "https://example.invalid/p", blocks: [] }] },
+          });
+        }
+        return Response.json({ ok: true, channel: form.get("channel"), ts: "3.0" });
+      }),
+    );
+  }
+
+  test("a channel named as #name is found by name, and its messages come back short and named", async () => {
+    const sent: Sent[] = [];
+    stubMessages(sent);
+    const { body } = await slackCallShaped("xoxp-fake", "conversations.history", { channel: "#general" });
+    expect(sent.find((s) => s.method === "conversations.history")?.form.get("channel")).toBe("C9");
+    expect(sent.find((s) => s.method === "conversations.history")?.form.get("limit")).toBe("50");
+    expect(body).toMatchObject({ ok: true, count: 2, order: "newest first", more: "pass cursor older for older messages" });
+    const [first, second] = (body as { messages: Array<Record<string, unknown>> }).messages;
+    expect(first).toEqual({ ts: "2.0", from: "Segun", user: "U05ABC", text: "Hey @Amy, see this", reply_count: 3, reactions: "eyes×2" });
+    expect(second).toEqual({ ts: "2.5", from: "Amy", user: "U06DEF", text: "Done", thread_ts: "2.0", files: ["plan.pdf"] });
+    expect(JSON.stringify(body)).not.toContain("rich_text");
+  });
+
+  test("a thread reads oldest first; a channel no one has is refused before Slack is asked for messages", async () => {
+    const sent: Sent[] = [];
+    stubMessages(sent);
+    expect((await slackCallShaped("xoxp-fake", "conversations.replies", { channel: "C9", ts: "2.0" })).body).toMatchObject({ order: "oldest first" });
+    sent.length = 0;
+    const missing = await slackCallShaped("xoxp-fake", "conversations.history", { channel: "#nowhere" });
+    expect(missing.body).toMatchObject({ ok: false, error: "channel_not_found" });
+    expect(sent.map((s) => s.method)).toEqual(["conversations.list"]);
+  });
+
+  test("a reply in a thread posts to the channel by name, with its thread", async () => {
+    const sent: Sent[] = [];
+    stubMessages(sent);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "#general", thread_ts: "2.0", text: "On it" });
+    const post = sent.find((s) => s.method === "chat.postMessage");
+    expect([post?.form.get("channel"), post?.form.get("thread_ts"), post?.form.get("text")]).toEqual(["C9", "2.0", "On it"]);
+  });
+
+  test("a search hit says its channel, author, words and link", async () => {
+    stubMessages([]);
+    const { body } = await slackCallShaped("xoxp-fake", "search.messages", { query: "ship" });
+    expect(body).toEqual({
+      ok: true,
+      total: 1,
+      matches: [{ channel: "#general", channel_id: "C9", from: "segun", user: "U05ABC", ts: "2.0", text: "ship it @Amy", permalink: "https://example.invalid/p" }],
+    });
+  });
+});
+
+/**
+ * `#name` names one channel, and a destination is resolved exactly.
+ *
+ * `fold` is a *search* helper — "Ségun is found by segun" — and resolving a
+ * `#name` with it made two different channels the same word. Slack channel
+ * names may hold any script, so anyone in that Slack can make a channel whose
+ * folded name equals another's, and `find` took whichever Slack listed first:
+ * a post the person said yes to for `#general` could be delivered somewhere
+ * else, and a read of `#general` could come back with that channel instead.
+ */
+describe("a channel named as #name resolves to exactly one channel", () => {
+  function stubChannels(sent: Sent[], channels: Array<{ id: string; name: string }>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        const method = String(input).split("/").pop() ?? "";
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        sent.push({ method, form });
+        if (method === "conversations.list") return Response.json({ ok: true, channels, response_metadata: { next_cursor: "" } });
+        return Response.json({ ok: true, channel: form.get("channel"), ts: "3.0" });
+      }),
+    );
+  }
+
+  test("a lookalike listed first never takes the name of the channel that holds it exactly", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "générâl" },
+      { id: "C9", name: "general" },
+    ]);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "#general", text: "the quarter's numbers" });
+    expect(sent.find((s) => s.method === "chat.postMessage")?.form.get("channel")).toBe("C9");
+  });
+
+  test("two channels that fold alike are refused rather than guessed between", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "générâl" },
+      { id: "C8", name: "generâl" },
+    ]);
+    const answer = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "#general", text: "the quarter's numbers" });
+    expect(answer.body).toMatchObject({ ok: false, error: "channel_ambiguous" });
+    expect(sent.some((s) => s.method === "chat.postMessage")).toBe(false);
+  });
+
+  test("a read of #name is resolved the same way, so it never returns another channel's messages", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "ｇｅｎｅｒａｌ" },
+      { id: "C9", name: "general" },
+    ]);
+    await slackCallShaped("xoxp-fake", "conversations.history", { channel: "#general" });
+    expect(sent.find((s) => s.method === "conversations.history")?.form.get("channel")).toBe("C9");
+  });
+});

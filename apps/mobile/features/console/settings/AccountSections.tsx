@@ -24,6 +24,7 @@ import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
 import { YourPicture } from "./panels/YourPicture";
+import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
 /**
@@ -71,6 +72,27 @@ export function AccountSection({
   const owned = personal !== undefined;
 
   if (section === "feedback") return <FeedbackSettings />;
+  if (section === "messages") return <MessagesPanel owned={owned} workspaceId={personal?.id ?? null} />;
+
+  if (section === "texApps") {
+    return (
+      <View>
+        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
+          {settingsSectionLabel("texApps")}
+        </Text>
+        <Text variant="paneSub" style={styles.sub}>
+          Tex reads and acts in these as you. Anything it posts or changes waits for your yes.
+        </Text>
+        {personal === undefined ? (
+          <Text variant="paneSub" style={styles.sub}>
+            Apps connect from a workspace of your own, which this account does not have.
+          </Text>
+        ) : (
+          <ProviderConnectionsCard workspaceId={personal.id} bare />
+        )}
+      </View>
+    );
+  }
 
   if (section === "invitations") {
     const invitations = data.invitations ?? [];
@@ -215,12 +237,6 @@ export function AccountSection({
       <View style={styles.spaced}>
         <MachinesCard />
       </View>
-      {/* The apps Tex uses as this person, with Disconnect. Drawn only when there is one. */}
-      {personal === undefined ? null : (
-        <View style={styles.spaced}>
-          <ProviderConnectionsCard workspaceId={personal.id} />
-        </View>
-      )}
       {/* Who this person blocked, with Unblock. Drawn only when there is somebody. */}
       <View style={styles.spaced}>
         <BlockedPeopleCard />

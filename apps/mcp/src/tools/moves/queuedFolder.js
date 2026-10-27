@@ -18,68 +18,35 @@
 
 import { withActivityHint } from "../../live/activityHint.js";
 import { recordChange } from "../../activity/record.js";
-import { canSee, hasOverride, visibilityOf } from "../../privacy/engine.js";
+import { canSee, effectiveVisibility, hasOverride, narrowerVisibility, visibilityOf } from "../../privacy/engine.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
-import { renameCollaboration } from "../../moves/keyedCollaboration.js";
+import { announceMoves } from "../../moves/keyedCollaboration.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
-import { loadPrivacyState } from "../../privacy/state.js";
-import { referencesLine } from "../../moves/objects.js";
-import { rewriteReferencesAfterMove } from "./references.js";
 
 /**
- * A keyed row move's collaboration half: each note the row move renamed carries
- * its history to the new name (`keyedCollaboration.js`). The answer names those
- * files; an answer without them (an older control plane) carries only the root.
+ * A keyed row move's open editors: each moved note's room is told where it went (`keyedCollaboration.js`).
+ * The history is filed by note id, so nothing is carried. An answer that names no files (an older control
+ * plane) tells only the root's room.
  */
-async function carryRowedCollaboration(store, answer, source, destination, privacy) {
+async function announceRowedMoves(store, answer, source, destination, privacy) {
   if (answer.rowed !== true) return;
   const moved = Array.isArray(answer.moved) ? answer.moved : [{ from: source, to: destination }];
-  await renameCollaboration(store, moved, privacy);
+  await announceMoves(store, moved, privacy);
 }
 
 /**
- * A keyed row move's links: every link to a moved note, and every relative
- * link inside one, pointed at where it is now (`references.js`), as a move
- * the old way does. Run after the collaboration half, so a rewrite lands on
- * each note's history at its new name. The rules are read again, since the
- * row move carried them; where they cannot be, the caller's are used. A
- * rewrite that cannot run is reported as not done, never as a failed move:
- * the rows have moved, and the forwarding record still sends old links on.
- *
- * `pairs` are the notes and files that moved, each `{from, to}`; `null` (an
- * older control plane, which named only a folder's root) is not rewritten.
+ * A keyed row move's links: the control plane queues them when the rows move
+ * (`apps/convex/functions/linkRepairs.ts`) and rewrites every link to a moved
+ * note, and every relative link inside one, behind the move, as the owner. The
+ * move does no per-note link work, and the forwarding record sends an old link
+ * on until the rewrite lands.
  */
-async function rewriteRowedLinks(store, scope, privacy, pairs) {
-  if (!Array.isArray(pairs)) return { notes: 0, links: 0, capped: false };
-  let { rules, overrides } = privacy ?? {};
-  try {
-    const fresh = await loadPrivacyState(store);
-    if (fresh.error === undefined) ({ rules, overrides } = fresh);
-  } catch {
-    // The caller's rules, read before the move, are what this request was judged by.
-  }
-  try {
-    return await rewriteReferencesAfterMove(store, scope, rules ?? [], overrides ?? new Map(), new Map(pairs.map((pair) => [pair.from, pair.to])));
-  } catch {
-    return { notes: 0, links: 0, capped: true };
-  }
-}
+const FOLLOWING_LINE = "\nreferences: updated in the background (old links forward to the new path meanwhile)";
 
 /** Whether a folder named `a` and one named `b` are the same or one holds the other. */
 function nested(a, b) {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-}
-
-/** Whether a pending move's old or new name overlaps the move being asked for. */
-function crossesPendingMove(moves, source, destination) {
-  if (!Array.isArray(moves)) return false;
-  return moves.some(
-    (move) =>
-      typeof move?.from === "string" &&
-      typeof move?.to === "string" &&
-      [source, destination].some((path) => nested(path, move.from) || nested(path, move.to)),
-  );
 }
 
 /** The etag `read_note` answers for a note with editing history: its collaboration revision, not a storage version. */
@@ -131,10 +98,9 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
     const message = typeof answer.message === "string" ? answer.message : "the move was refused";
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
-  await carryRowedCollaboration(store, answer, source, destination, privacy);
-  const references = await rewriteRowedLinks(store, scope, privacy, [{ from: source, to: destination }]);
+  await announceRowedMoves(store, answer, source, destination, privacy);
   await recordChange(store, "move_note", scope, [source, destination], { rowed: true });
-  return withActivityHint(toolText(`moved note: ${source} → ${destination}` + referencesLine(references)), {
+  return withActivityHint(toolText(`moved note: ${source} → ${destination}` + FOLLOWING_LINE), {
     moves: [{ from: source, to: destination }],
   });
 }
@@ -146,24 +112,75 @@ export async function startKeyedNoteMove(store, scope, source, destination, expe
  * see is "not found" whatever it aimed at. A refusal names nothing the caller
  * cannot see, and the control plane writes every row or none.
  */
-export async function startKeyedBatchMove(store, scope, rules, overrides, moves) {
-  if (typeof store.startMoveBatch !== "function") {
-    return toolError("moving several notes in one call is not available in this workspace yet; move them one at a time");
+/**
+ * Each move's lookups run this many at a time. A hundred one after another
+ * (a tree lookup and a storage probe each) took most of a minute, and a
+ * housekeeping run's batch of 100 was cut off at its limit (2026-10-26).
+ */
+const CHECK_LANES = 10;
+
+/** `work` over every item, `CHECK_LANES` at a time, answers in the items' order. */
+async function inLanes(items, work) {
+  const answers = [];
+  for (let start = 0; start < items.length; start += CHECK_LANES) {
+    answers.push(...(await Promise.all(items.slice(start, start + CHECK_LANES).map(work))));
   }
-  for (const move of moves) {
-    const seen = canSee(move.source, scope, rules, overrides);
-    const present = await probeWithLegacyFallback(store, move.source);
-    if (!seen || !present) return toolError(`not found: ${move.source}`);
+  return answers;
+}
+
+/**
+ * The checks `toolMoveNote` makes for one note, made for each move of a keyed
+ * batch: a source the caller may not see is "not found" whatever it aimed at.
+ * The first refusal in the batch's order, or null.
+ */
+async function keyedBatchRefusal(store, scope, rules, overrides, moves) {
+  const present = await inLanes(moves, (move) => probeWithLegacyFallback(store, move.source));
+  for (const [index, move] of moves.entries()) {
+    if (!canSee(move.source, scope, rules, overrides) || !present[index]) return toolError(`not found: ${move.source}`);
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
     if (scope === "team" && hasOverride(overrides, move.destination)) return writePermissionError("move destination");
   }
+  return null;
+}
+
+/**
+ * A keyed batch's dry run: the same checks, each source's stored version (what
+ * the control plane compares the move against) and a destination already
+ * taken, in the old preflight's words. Nothing here reads a note's body or its
+ * editing history, so a dry run of 100 costs what the move itself does, where
+ * the old preflight read every body and timed out (2026-10-26).
+ */
+export async function planKeyedBatchMove(store, scope, rules, overrides, moves) {
+  const refusal = await keyedBatchRefusal(store, scope, rules, overrides, moves);
+  if (refusal) return refusal;
+  const looked = await inLanes(moves, async (move) => ({
+    head: await store.head(move.source),
+    taken: await probeWithLegacyFallback(store, move.destination),
+  }));
+  const lines = [];
+  for (const [index, move] of moves.entries()) {
+    const { head, taken } = looked[index];
+    if (typeof head?.etag !== "string" || head.etag === "") return toolError(`not found: ${move.source}`);
+    if (taken) return toolError(`conflict: destination already exists: ${move.destination}`);
+    const visibility = narrowerVisibility(effectiveVisibility(move.source, rules, overrides), visibilityOf(move.destination, rules));
+    lines.push(`- ${move.source} (etag ${head.etag}) → ${move.destination} [${visibility}]`);
+  }
+  return toolText(`preflight ok: ${moves.length} moves\n${lines.join("\n")}`);
+}
+
+export async function startKeyedBatchMove(store, scope, rules, overrides, moves) {
+  if (typeof store.startMoveBatch !== "function") {
+    return toolError("moving several notes in one call is not available in this workspace yet; move them one at a time");
+  }
+  const refusal = await keyedBatchRefusal(store, scope, rules, overrides, moves);
+  if (refusal) return refusal;
   const versions = [];
-  for (const move of moves) {
-    const version = await rowVersionOf(store, move.source, move.expectedSourceEtag || undefined);
-    if (version.conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
-    versions.push(version.etag);
+  const checked = await inLanes(moves, (move) => rowVersionOf(store, move.source, move.expectedSourceEtag || undefined));
+  for (const [index, move] of moves.entries()) {
+    if (checked[index].conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
+    versions.push(checked[index].etag);
   }
   let answer;
   try {
@@ -174,7 +191,11 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
         ...(versions[index] ? { expectedEtag: versions[index] } : {}),
       })),
     );
-  } catch {
+  } catch (error) {
+    // A batch the gateway gave up waiting on may still land: the caller re-reads before sending it again.
+    if (error?.reason === "timed out") {
+      return toolError("the moves are taking longer than expected and may still finish; list the folder before sending any of them again");
+    }
     return toolError("could not start the moves right now; try again in a moment");
   }
   if (!answer || answer.ok !== true) {
@@ -184,12 +205,11 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
   const pairs = moves.map((move) => ({ from: move.source, to: move.destination }));
-  // Each moved note's collaboration history follows it (`keyedCollaboration.js`).
-  await renameCollaboration(store, Array.isArray(answer.moves) ? answer.moves : pairs, { rules, overrides });
-  const references = await rewriteRowedLinks(store, scope, { rules, overrides }, pairs);
+  // Each moved note's open editor is told where it went (`keyedCollaboration.js`).
+  await announceMoves(store, Array.isArray(answer.moves) ? answer.moves : pairs, { rules, overrides });
   await recordChange(store, "move_notes", scope, pairs.flatMap((pair) => [pair.from, pair.to]), { count: pairs.length, rowed: true });
   return withActivityHint(
-    toolText(`moved notes: ${pairs.length}\n` + pairs.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + referencesLine(references)),
+    toolText(`moved notes: ${pairs.length}\n` + pairs.map((pair) => `- ${pair.from} → ${pair.to}`).join("\n") + FOLLOWING_LINE),
     { moves: pairs },
   );
 }
@@ -200,35 +220,21 @@ export async function startQueuedFolderMove(store, scope, source, destination, p
   try {
     answer = await store.startQueuedMove(source, destination);
   } catch {
-    // With a move already running, the old way could act on names that are still
-    // moving. Without one, the old way is exactly what this did before.
-    if (Array.isArray(store.pendingMoves) && store.pendingMoves.length > 0) {
-      return toolError("could not start the move right now; try again in a moment");
-    }
+    // The control plane is out of reach: the caller decides what the old way does.
     return null;
   }
   if (!answer || answer.queued !== true) {
-    if (typeof answer?.error !== "string") {
-      // The old way lists the bucket, which still holds a moving folder at its
-      // old name: moving the copied half now and letting the worker bring the
-      // rest to the old destination would split the folder.
-      if (crossesPendingMove(store.pendingMoves, source, destination)) {
-        return toolError("could not move that folder while part of it is still moving; try again once that move finishes");
-      }
-      return null;
-    }
+    if (typeof answer?.error !== "string") return null;
     if (answer.error === "FILE_NOT_FOUND") return toolError("not found");
     const message = typeof answer.message === "string" ? answer.message : "the move was refused";
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);
   }
   const count = Number.isInteger(answer.count) ? answer.count : 0;
-  await carryRowedCollaboration(store, answer, source, destination, privacy);
-  // A keyed row move names the notes and files it moved; their links follow here. A queued copy rewrites its own when done.
-  const references = answer.rowed === true ? await rewriteRowedLinks(store, scope, privacy, Array.isArray(answer.moved) ? answer.moved : null) : null;
+  await announceRowedMoves(store, answer, source, destination, privacy);
   await recordChange(store, "move_folder", scope, [source, destination], { count, queued: true });
   // A keyed row move copies nothing, so there is no storage catching up to say.
   const note = answer.rowed === true
-    ? "Every app shows it at the new name now." + referencesLine(references)
+    ? "Every app shows it at the new name now." + FOLLOWING_LINE
     : "Every app shows it at the new name now; storage finishes copying in the background, and links to it are rewritten when that is done.";
   return withActivityHint(
     toolText(`moved folder: ${source}/ → ${destination}/ (${count} objects)\n` + note),

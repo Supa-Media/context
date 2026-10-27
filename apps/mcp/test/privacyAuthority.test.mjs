@@ -1,13 +1,12 @@
 /**
- * `privacy.md` as the export of the control plane's rules (phase 3 of
- * `docs/decisions/app-and-console/convex-tree.md`): the store seam in
- * `src/store/privacyAuthority.js`, driven through the same privacy code every
- * tool uses, against a fake authority that keeps the control plane's
- * compare-and-swap.
+ * The access rules as the store serves them (`src/store/privacyAuthority.js`): the control plane's rows, rendered
+ * for the reader, with `privacy.md` never read from or written to the bucket. A write of the file is refused, and a
+ * row's tier goes through the control plane's `setAccess` from the version held. Driven through the same privacy code
+ * every tool uses, against a fake authority that keeps the control plane's compare-and-swap.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { withPrivacyAuthority, rulesOfText, renderWithRules } from "../src/store/privacyAuthority.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { loadPrivacyState, persistExactVisibility } from "../src/privacy/state.js";
 import { PRIVACY_KEY, canSee, effectiveVisibility } from "../src/privacy/engine.js";
 
@@ -53,44 +52,36 @@ class MemoryStore {
   }
 }
 
-const manifest = (folders, notes, prose = "# Privacy\n\nWho sees what.\n\n") =>
-  `${prose}<!-- BEGIN BRAIN PRIVACY RULES -->\n\n\`\`\`yaml\ndefault_visibility: private\n\nfolder_defaults:\n${
+const manifest = (folders, notes) =>
+  `# Privacy\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n\`\`\`yaml\ndefault_visibility: private\n\nfolder_defaults:\n${
     folders.map(([prefix, vis]) => `  ${prefix}: ${vis}`).join("\n") || "  # none"
   }\n\nnote_overrides:\n${
     notes.map(([path, vis]) => `  ${path}: ${vis}`).join("\n") || "  # none"
   }\n\`\`\`\n\n<!-- END BRAIN PRIVACY RULES -->\n`;
 
-/** The control plane's side, as `functions/nodesPrivacy.ts` keeps it. */
+/** The control plane's side as the store sees it: the rules it renders, and one row change answered at the next version. */
 function fakeAuthority(rules) {
   const calls = [];
-  let version = 0;
-  const state = { rules };
+  let version = rules.accessVersion;
   return {
     calls,
-    state,
-    get rules() {
-      return state.rules;
+    rules,
+    async setAccess(change) {
+      calls.push(["setAccess", change]);
+      version += 1;
+      return { ok: true, version };
     },
-    async write(change) {
-      calls.push(["write", change]);
-      if (change.expected !== null && change.expected !== state.rules.etag) return { current: state.rules };
-      state.rules = { etag: `ctx-${++version}`, folders: change.folders, notes: change.notes };
-      return { etag: state.rules.etag };
-    },
-    async written(change) {
-      calls.push(["written", change]);
-    },
-    async exported(done) {
-      calls.push(["exported", done]);
-    },
-    async owed() {
-      calls.push(["owed"]);
+    async addGrantees(change) {
+      calls.push(["addGrantees", change]);
+      version += 1;
+      return { ok: true, version };
     },
   };
 }
 
-const held = (folders, notes, etag = "ctx-0") => ({
+const held = (folders, notes, etag = "ctx-0", accessVersion = 7) => ({
   etag,
+  accessVersion,
   folders: folders.map(([prefix, visibility]) => ({ prefix, visibility })),
   notes: notes.map(([path, visibility]) => ({ path, visibility })),
 });
@@ -101,40 +92,33 @@ test("no authority leaves the store exactly as it was", () => {
   assert.equal(withPrivacyAuthority(store, undefined), store);
 });
 
-test("while the file is the authority, a write of it is reported from the version it replaced", async () => {
+test("privacy.md is never written, deleted or copied over: each is refused, and nothing reaches the authority", async () => {
   const bucket = new MemoryStore();
   bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
-  const authority = fakeAuthority(null);
+  bucket.seed("other.md", manifest([["2-areas", "team"]], []));
+  const authority = fakeAuthority(held([["1-projects", "team"]], []));
   const store = withPrivacyAuthority(bucket, authority);
 
-  await persistExactVisibility(store, "1-projects/plan.md", "private", []);
-  const written = authority.calls.filter(([name]) => name === "written");
-  assert.equal(written.length, 1);
-  assert.equal(written[0][1].previous, "e1");
-  assert.equal(written[0][1].etag, "e2");
-  assert.deepEqual(written[0][1].notes, [{ path: "1-projects/plan.md", visibility: "private" }]);
-  // The file is the bucket's own, untouched by the wrapper.
-  assert.equal((await store.get(PRIVACY_KEY)).etag, "e2");
-});
-
-test("a file that does not parse is never reported as rules", async () => {
-  const bucket = new MemoryStore();
-  const authority = fakeAuthority(null);
-  const store = withPrivacyAuthority(bucket, authority);
-  await store.put(PRIVACY_KEY, "# no block here\n");
+  await assert.rejects(store.put(PRIVACY_KEY, manifest([], []), { onlyIf: { etagMatches: "ctx-0" } }), {
+    code: "PRIVACY_MANIFEST_READ_ONLY",
+  });
+  await assert.rejects(store.delete(PRIVACY_KEY), { code: "PRIVACY_MANIFEST_READ_ONLY" });
+  await assert.rejects(store.copy("other.md", PRIVACY_KEY), { code: "PRIVACY_MANIFEST_READ_ONLY" });
   assert.deepEqual(authority.calls, []);
+  assert.equal(bucket.objects.get(PRIVACY_KEY).text, manifest([["1-projects", "team"]], []));
+  // The rules are still the held ones: a delete removed no rule.
+  assert.deepEqual((await loadPrivacyState(store)).rules, [{ prefix: "1-projects", vis: "team" }]);
 });
 
 test("reading privacy.md answers the held rules, not a rule edited into the file past them", async () => {
   const bucket = new MemoryStore();
   // Someone made a private folder team in the file by hand.
-  bucket.seed(PRIVACY_KEY, manifest([["2-areas/finance", "team"]], [], "# Our privacy\n\nKept by hand.\n\n"));
+  bucket.seed(PRIVACY_KEY, manifest([["2-areas/finance", "team"]], []));
   const store = withPrivacyAuthority(bucket, fakeAuthority(held([["1-projects", "team"]], [["1-projects/secret.md", "private"]])));
 
   const object = await store.get(PRIVACY_KEY);
   assert.equal(object.etag, "ctx-0");
-  const text = await object.text();
-  assert.match(text, /^# Our privacy\n\nKept by hand\./);
+  assert.match(await object.text(), /BEGIN BRAIN PRIVACY RULES/);
   const state = await loadPrivacyState(store);
   assert.equal(state.error, undefined);
   assert.equal(effectiveVisibility("2-areas/finance/q3.md", state.rules, state.overrides), "private");
@@ -155,118 +139,65 @@ test("a missing or broken file still reads as the held rules", async () => {
   bucket.seed(PRIVACY_KEY, "# Mine\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\nnot yaml at all\n<!-- END BRAIN PRIVACY RULES -->\n");
   const broken = await loadPrivacyState(withPrivacyAuthority(bucket, fakeAuthority(rules)));
   assert.equal(broken.error, undefined);
-  assert.match(broken.text, /^# Mine/);
   assert.deepEqual(broken.rules, [{ prefix: "1-projects", vis: "team" }]);
 });
 
-test("a change is a compare-and-swap on the held version, then the file is exported", async () => {
+test("a row change is one setAccess from the held version, and the next one is checked against the new version", async () => {
   const bucket = new MemoryStore();
   bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
   const authority = fakeAuthority(held([["1-projects", "team"]], []));
   const store = withPrivacyAuthority(bucket, authority);
 
-  await persistExactVisibility(store, "1-projects/plan.md", "private", []);
-  const [write] = authority.calls.filter(([name]) => name === "write");
-  assert.equal(write[1].expected, "ctx-0");
-  assert.deepEqual(write[1].notes, [{ path: "1-projects/plan.md", visibility: "private" }]);
-  assert.deepEqual(authority.calls.find(([name]) => name === "exported")[1], { rendered: "ctx-1", etag: "e2" });
-  // The bucket holds the export, and a read answers the new version.
-  assert.deepEqual(rulesOfText(bucket.objects.get(PRIVACY_KEY).text).notes, [
-    { path: "1-projects/plan.md", visibility: "private" },
+  await persistExactVisibility(store, "1-projects/plan.md", "private");
+  await persistExactVisibility(store, "1-projects/other.md", "private");
+  assert.deepEqual(authority.calls, [
+    ["setAccess", { path: "1-projects/plan.md", base: "private", expectedVersion: 7 }],
+    ["setAccess", { path: "1-projects/other.md", base: "private", expectedVersion: 8 }],
   ]);
-  assert.equal((await store.get(PRIVACY_KEY)).etag, "ctx-1");
-});
-
-test("a write from a stale version loses, as it would against the bucket", async () => {
-  const bucket = new MemoryStore();
-  bucket.seed(PRIVACY_KEY, manifest([], []));
-  const authority = fakeAuthority(held([], []));
-  const store = withPrivacyAuthority(bucket, authority);
-  const result = await store.put(PRIVACY_KEY, manifest([["1-projects", "team"]], []), { onlyIf: { etagMatches: "ctx-old" } });
-  assert.equal(result, null);
-  // Nor does the bucket's own etag pass for the held version.
-  assert.equal(await store.put(PRIVACY_KEY, manifest([], []), { onlyIf: { etagMatches: "e1" } }), null);
-  assert.equal(await store.put(PRIVACY_KEY, manifest([], []), { onlyIf: { absent: true } }), null);
-  assert.equal(authority.state.rules.etag, "ctx-0");
-  assert.equal(bucket.objects.get(PRIVACY_KEY).etag, "e1");
-});
-
-test("a change made elsewhere first is read and built on, not lost", async () => {
-  const bucket = new MemoryStore();
-  bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
-  const authority = fakeAuthority(held([["1-projects", "team"]], []));
-  const store = withPrivacyAuthority(bucket, authority);
-  // Another request makes 2-areas team after this store read the rules.
-  authority.state.rules = held([["1-projects", "team"], ["2-areas", "team"]], [], "ctx-9");
-  await persistExactVisibility(store, "1-projects/plan.md", "private", []);
+  // The row is held for the rest of the request, and the bucket's file is untouched.
   const state = await loadPrivacyState(store);
-  assert.deepEqual(state.rules.map((rule) => rule.prefix).sort(), ["1-projects", "2-areas"]);
   assert.equal(state.overrides.get("1-projects/plan.md"), "private");
+  assert.equal(bucket.objects.get(PRIVACY_KEY).text, manifest([["1-projects", "team"]], []));
 });
 
-test("rules handed back to the file mid-request are no longer rendered, so the retry writes the file", async () => {
-  // Staff turned the authority off, or the owner's file moved past a copy,
-  // after this request's store was built: the control plane answers null.
+test("a row change the control plane refuses as a conflict is the file's conflict text, and changes nothing held", async () => {
   const bucket = new MemoryStore();
   bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
-  // Held rules under which the write is a change: one that changes nothing asks nobody.
   const authority = fakeAuthority(held([["1-projects", "team"]], []));
-  authority.write = async (change) => {
-    authority.calls.push(["write", change]);
-    return null;
+  authority.setAccess = async (change) => {
+    authority.calls.push(["setAccess", change]);
+    return { ok: false, code: "CONFLICT" };
   };
   const store = withPrivacyAuthority(bucket, authority);
-  await persistExactVisibility(store, "1-projects/plan.md", "private", []);
-  // The write landed in the bucket's own file, built on what it says.
-  const state = await loadPrivacyState(bucket);
-  assert.deepEqual(state.rules.map((rule) => rule.prefix), ["1-projects"]);
-  assert.equal(state.overrides.get("1-projects/plan.md"), "private");
-  assert.equal(authority.calls.filter(([op]) => op === "write").length, 1);
+  await assert.rejects(persistExactVisibility(store, "1-projects/plan.md", "private"), (error) =>
+    error.message.includes("privacy manifest changed concurrently"),
+  );
+  assert.equal((await loadPrivacyState(store)).overrides.get("1-projects/plan.md"), undefined);
+  // The one retry without the version is also refused, so nothing else is tried.
+  assert.equal(authority.calls.length, 2);
 });
 
-test("a text without readable rules is refused, and changes nothing", async () => {
-  const bucket = new MemoryStore();
-  const authority = fakeAuthority(held([["1-projects", "team"]], []));
-  const store = withPrivacyAuthority(bucket, authority);
-  await assert.rejects(store.put(PRIVACY_KEY, "# Privacy\n\nall gone\n"), /managed rules block/);
-  assert.deepEqual(authority.calls, []);
-  assert.equal(bucket.objects.size, 0);
-});
-
-test("an export the bucket refuses is owed, and the change still stands", async () => {
-  const bucket = new MemoryStore();
-  bucket.seed(PRIVACY_KEY, manifest([], []));
-  const authority = fakeAuthority(held([], []));
-  const store = withPrivacyAuthority(bucket, authority);
-  bucket.failPuts = true;
-  const result = await store.put(PRIVACY_KEY, manifest([["1-projects", "team"]], []), { onlyIf: { etagMatches: "ctx-0" } });
-  assert.deepEqual(result, { etag: "ctx-1" });
-  assert.ok(authority.calls.some(([name]) => name === "owed"));
-  assert.ok(!authority.calls.some(([name]) => name === "exported"));
-  bucket.failPuts = false;
-  // The retry writes the file from the rules.
-  assert.deepEqual(await store.exportPrivacy(), { rendered: "ctx-1", etag: "e2" });
-  assert.deepEqual(rulesOfText(bucket.objects.get(PRIVACY_KEY).text).folders, [{ prefix: "1-projects", visibility: "team" }]);
-});
-
-test("the prose of the text written is what is exported", async () => {
-  const bucket = new MemoryStore();
-  bucket.seed(PRIVACY_KEY, manifest([], [], "# Old words\n\n"));
-  const store = withPrivacyAuthority(bucket, fakeAuthority(held([], [])));
-  await store.put(PRIVACY_KEY, manifest([], [], "# New words\n\n"), { onlyIf: { etagMatches: "ctx-0" } });
-  assert.match(bucket.objects.get(PRIVACY_KEY).text, /^# New words/);
-});
-
-test("deleting privacy.md removes no rule, and copying over it is refused", async () => {
+test("another row's change since the request began is one retry without the version, and the held etag moves", async () => {
   const bucket = new MemoryStore();
   bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
-  bucket.seed("other.md", manifest([["2-areas", "team"]], []));
-  const authority = fakeAuthority(held([["1-projects", "team"]], []));
+  const authority = fakeAuthority(held([["1-projects", "team"]], [], "mirror-1.7"));
+  const answer = authority.setAccess;
+  authority.setAccess = async (change) => {
+    if (change.expectedVersion === undefined) return await answer({ ...change });
+    authority.calls.push(["setAccess", change]);
+    return { ok: false, code: "CONFLICT" };
+  };
   const store = withPrivacyAuthority(bucket, authority);
-  await store.delete(PRIVACY_KEY);
-  assert.ok(authority.calls.some(([name]) => name === "owed"));
-  assert.deepEqual((await loadPrivacyState(store)).rules, [{ prefix: "1-projects", vis: "team" }]);
-  await assert.rejects(store.copy("other.md", PRIVACY_KEY), /not copied over/);
+  assert.equal((await loadPrivacyState(store)).etag, "mirror-1.7");
+  await persistExactVisibility(store, "1-projects/plan.md", "private");
+  assert.deepEqual(authority.calls, [
+    ["setAccess", { path: "1-projects/plan.md", base: "private", expectedVersion: 7 }],
+    ["setAccess", { path: "1-projects/plan.md", base: "private" }],
+  ]);
+  const state = await loadPrivacyState(store);
+  assert.equal(state.overrides.get("1-projects/plan.md"), "private");
+  // The control plane's etag is `<mirror>.<version>`: a preflight taken now matches the next request's.
+  assert.equal(state.etag, "mirror-1.8");
 });
 
 test("every other key, and every listing, is the bucket's own", async () => {
@@ -284,32 +215,22 @@ test("every other key, and every listing, is the bucket's own", async () => {
   assert.deepEqual(authority.calls, []);
 });
 
-test("renderWithRules keeps the prose and replaces only the block", () => {
-  const text = renderWithRules(manifest([["x", "team"]], [], "# Kept\n\n"), held([["y", "team"]], []));
-  assert.match(text, /^# Kept/);
-  assert.deepEqual(rulesOfText(text).folders, [{ prefix: "y", visibility: "team" }]);
-  assert.deepEqual(rulesOfText(renderWithRules(null, held([], []))), { folders: [], notes: [] });
-});
-
-test("recording what the rules already say asks nothing of the authority or the bucket", async () => {
-  // save_context and write_note record `team` after every team write. In a
-  // team folder with no rule for the note that changes nothing, and asking the
-  // control plane for it anyway is what failed every save in a workspace whose
-  // rule set had outgrown the route (2026-10-14).
-  for (const rules of [null, held([["0-inbox", "team"]], [["0-inbox/held.md", "private"]])]) {
+test("recording what the rows already say sends the row's inherit, and a real change that fails still fails", async () => {
+  // save_context and write_note record `team` after every team write. In a team folder that changes nothing: the
+  // row goes back to inherit, and nothing is copied into a second row beside the folder.
+  for (const rules of [held([["0-inbox", "team"]], []), held([["0-inbox", "team"]], [["0-inbox/held.md", "private"]])]) {
     const bucket = new MemoryStore();
-    bucket.seed(PRIVACY_KEY, manifest([["0-inbox", "team"]], [["0-inbox/held.md", "private"]]));
+    bucket.seed(PRIVACY_KEY, manifest([["0-inbox", "team"]], []));
     const authority = fakeAuthority(rules);
-    authority.write = async () => {
-      throw new Error("control plane unavailable: status 400");
-    };
     const store = withPrivacyAuthority(bucket, authority);
-    bucket.failPuts = true;
-    const folder = [{ prefix: "0-inbox", vis: "team" }];
-    await persistExactVisibility(store, "0-inbox/sessions/claude/new.md", "team", folder);
-    await persistExactVisibility(store, "0-inbox/held.md", "private", folder);
-    // A real change still asks, and still fails loudly when it cannot be made.
-    await assert.rejects(persistExactVisibility(store, "0-inbox/held.md", "team", folder));
+    await persistExactVisibility(store, "0-inbox/sessions/claude/new.md", "team");
+    assert.deepEqual(authority.calls.at(-1), [
+      "setAccess",
+      { path: "0-inbox/sessions/claude/new.md", base: "inherit", expectedVersion: 7 },
+    ]);
+    // A real change still asks, and still fails loudly when the control plane refuses it.
+    authority.setAccess = async () => ({ ok: false, code: "FORBIDDEN" });
+    await assert.rejects(persistExactVisibility(store, "0-inbox/held.md", "team"), (error) => error.code === "FORBIDDEN");
   }
 });
 

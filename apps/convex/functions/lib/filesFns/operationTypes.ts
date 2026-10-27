@@ -9,13 +9,12 @@
 import type { FolderNotesResult } from "./folderNotes";
 import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
+import type { MessagesErasedPage, MessagesLogPage, MessagesReadsPage } from "../messagesBackup/exportLog";
 import type {
   ContextMoveExport,
   ContextMoveImport,
   ContextMoveObject,
-  ContextMoveSkip,
   FileContents,
-  PlannedContextMoveObject,
   ProjectionPass,
   SearchResults,
   ManifestEntry,
@@ -28,6 +27,8 @@ import type { StorageLayoutState } from "../storageLayout";
 import type { WorkspaceGraphResult } from "../fileOps/graph";
 import type { Visibility } from "../privacy";
 import type { WorkspaceRole } from "../workspaceAuth";
+import type { HidePass, OldCopyText } from "../oldCopies/hiding";
+import type { LinkRepairResult } from "../nodes/linkRepair";
 import type { ContextPluginRow, ManagedInstalls, PluginInventory } from "./pluginValidators";
 
 /**
@@ -121,25 +122,13 @@ export type FileOperation =
   | { kind: "pruneIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
-  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
-  | { kind: "nodesSweep"; passes?: number }
+  /** The Convex tree's facts fill (`lib/nodes/run.ts`): scheduled only, never sent by a client. */
   | { kind: "nodesFactFill"; passes?: number }
-  | {
-      kind: "nodesTouch";
-      paths: string[];
-      files: string[];
-      moves?: { from: string; to: string }[];
-      /** Who could see each key the change took away, before it (`lib/nodes/convexTable.ts`). */
-      left?: { path: string; audiences: string[] }[];
-    }
-  | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
   | { kind: "nodesMoveStart"; from: string; to: string; expectedEtag?: string }
   /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
   | { kind: "nodesMoveBatch"; moves: { from: string; to: string; expectedEtag?: string }[] }
-  | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
-  | { kind: "nodesPrivacyExport" }
   /** Import the icons, emoji and forwarding files once, then write them from Convex (`lib/smallData/sync.ts`). */
   | { kind: "nodesSmallData" }
   /** A folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
@@ -152,7 +141,6 @@ export type FileOperation =
       files: Array<{ path: string; bytes: ArrayBuffer; contentType: string }>;
     }
   | { kind: "clearVault"; countOnly: boolean }
-  | { kind: "ensurePrivacy" }
   /**
    * Replace an encrypted note's content with plaintext. A separate operation
    * from `write` rather than one more of its shapes — `writeFile` never
@@ -168,21 +156,8 @@ export type FileOperation =
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
   | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
-  | {
-      kind: "contextMoveDelete";
-      sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
-    }
+  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
-  /** A batch for the gateway's mover, by name only (`lib/contextMoveMover.ts`). */
-  | { kind: "contextMovePlan"; from: string; to: string; skip: string[]; maxObjectBytes: number }
-  | {
-      kind: "contextMovePrepare";
-      objects: Array<{ destination: string; sourceVisibility: "private" | "team" }>;
-      root?: string;
-    }
-  /** What the mover landed here, for the tree; nothing in the bucket. */
-  | { kind: "contextMoveArrived"; paths: string[]; root?: string }
-  | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
   /** The one-time tidy of Archive's date folders into its matching places (`fileOps/archiving.ts`); owner only. */
@@ -191,10 +166,19 @@ export type FileOperation =
   | { kind: "restoreTrash"; from: string; to: string }
   /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */
   | { kind: "readTrashed"; path: string; trash: string }
+  /** One pass hiding the copies Context made of mail and the rest (`lib/oldCopies/hiding.ts`); run by the barrier. */
+  | { kind: "hideOldCopies"; cursor?: string }
+  /** Hidden old copies' text for the owner's Download as folders (`lib/oldCopies/hiding.ts`); run by the barrier. */
+  | { kind: "readOldCopies"; paths: string[] }
+  /** A page of the Messages backup's log for the owner's Download as folders (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
+  | { kind: "readMessagesLog"; after?: string }
+  /** A page of the Messages backup deleted, when its owner deletes it (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
+  | { kind: "eraseMessagesBackup"; after?: string }
+  /** Who read the Messages backup, for Settings › Messages (`lib/messagesBackup/exportLog.ts`); run by the barrier. */
+  | { kind: "readMessagesReads" }
+  /** A queued move's links followed (`lib/nodes/linkRepair.ts`); run by the barrier. */
+  | { kind: "repairLinks"; pairs: { from: string; to: string }[] }
   | { kind: "delete"; path: string; confirmation: string }
-  | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
-  | { kind: "setNoteGroup"; path: string; group: string }
-  | { kind: "setFolderGroup"; path: string; group: string }
   /**
    * Rows mode: the activity line a tier change records on the file path, for a change written to the rows
    * (`visibility.ts`). Not a privacy write: it touches `activity.md` only.
@@ -205,13 +189,6 @@ export type FileOperation =
       path: string;
       to: string;
       teamVisible: boolean;
-    }
-  | {
-      kind: "setFolderVisibility";
-      path: string;
-      visibility: "private" | "team";
-      /** Leave a rule the manifest already has for this folder untouched. */
-      onlyIfUnset?: boolean;
     }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
@@ -263,7 +240,6 @@ export type FileOperation =
       responseId: string;
       to: string;
     }
-  | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
   | { kind: "readStorageLayout" };
 
@@ -410,7 +386,7 @@ export type OperationResult =
     }
   | ({
       kind: "manifest";
-      source?: "tree" | "bucket" | "nodes";
+      source?: "tree" | "nodes";
       /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
       since?: number;
       /** The `privacy.md` version the walk was judged by, read before it started. */
@@ -421,11 +397,16 @@ export type OperationResult =
   | { kind: "indexPruned"; deleted: number; checked: boolean }
   /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
   | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
+  | HidePass
+  | LinkRepairResult
+  | { kind: "oldCopyTexts"; results: OldCopyText[] }
+  | MessagesLogPage
+  | MessagesErasedPage
+  | MessagesReadsPage
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
-  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
+  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */
   | { kind: "moveBatch"; ok: boolean; moves?: { from: string; to: string }[]; error?: string; message?: string }
-  | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult
   | ChaosScoreResult
@@ -461,13 +442,6 @@ export type OperationResult =
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
   | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
   | { kind: "contextMoveFinished" }
-  | {
-      kind: "contextMovePlanned";
-      objects: PlannedContextMoveObject[];
-      skipped: ContextMoveSkip[];
-      remaining: boolean;
-    }
-  | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
   | { kind: "activityRecorded" }
   | {
@@ -478,13 +452,6 @@ export type OperationResult =
       exception: boolean;
     }
   | { kind: "folderCreated"; path: string; readme: string }
-  | {
-      kind: "privacyReset";
-      path: string;
-      folders: string[];
-      backedUpTo: string | null;
-      partial: boolean;
-    }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }

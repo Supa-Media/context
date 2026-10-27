@@ -158,7 +158,7 @@ export async function findShareFor(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   entryPath: string,
-  recipient: Invitee,
+  recipient: Invitee & { kind: "name" | "email" },
 ): Promise<Doc<"noteShares"> | null> {
   return await ctx.db
     .query("noteShares")

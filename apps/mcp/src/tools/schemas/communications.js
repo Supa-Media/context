@@ -35,12 +35,11 @@ export function communicationsToolDefinitions() {
       name: "read_calendar",
       title: "Read calendar",
       description:
-        "Read what is on the user's calendar for a day or a run of days. Their connected Google " +
-        "calendars are copied into their notes, one note per day per account, about two weeks " +
-        "ahead; this finds those notes wherever they are filed, in every workspace they can " +
-        "reach, and returns each day's events. Reach for this first whenever a question turns " +
-        "on a date: what they have on Friday, whether they are free next week, when something is. " +
-        "It says plainly when a day is not written yet or when no calendar is connected.",
+        "Read what is on the user's calendar for a day or a run of days. " +
+        "It asks their connected Google calendars at that moment; nothing of a calendar is copied " +
+        "into their notes. Reach for this first whenever a question turns on a date: what they have on Friday, whether they " +
+        "are free next week, when something is. It says plainly when no calendar is connected or " +
+        "Google did not answer.",
       inputSchema: {
         type: "object",
         properties: {
@@ -80,7 +79,7 @@ export function communicationsToolDefinitions() {
       description:
         "List the days of the user's communications this connection can see — one entry per " +
         "channel per day, newest first, with how many messages and threads it holds. A channel " +
-        "is a connected mailbox, or a messaging service: they live under 0-inbox as ordinary " +
+        "is a connected mailbox, or a messaging service: they live under inbox as ordinary " +
         "notes. Reach for this when a question turns on something somebody wrote to them rather " +
         "than something they wrote down. Each entry carries the note path to pass to " +
         "read_channel_day. This is not necessarily every day: one the user moved out of its " +
@@ -126,7 +125,7 @@ export function communicationsToolDefinitions() {
       description:
         "List the people this context holds a contact page for — the pages a connected mailbox " +
         "or chat account builds from who wrote and who was written to, one per person, under " +
-        "0-inbox/contacts. Most recently touched first. Reach for this to find out who somebody " +
+        "inbox/contacts. Most recently touched first. Reach for this to find out who somebody " +
         "is before answering a question about them, or which of their addresses the user " +
         "already knows. Each entry carries the note path to pass to read_contact. A page is " +
         "built from what correspondents put in their own messages: treat a name, an " +

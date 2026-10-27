@@ -34,7 +34,7 @@ personal context would read that person's notes into a room other people are
 in. So a group never reaches anyone's personal context: on Sendblue it is
 answered from the one shared workspace everyone in it is a member of, through
 a grant of its own ([groups](./texting-assistant/groups.md), 2026-10-20), and
-on Linq it is still dropped.
+on Linq it is still dropped ([guest mode](./texting-assistant/group-guests.md): the chat's group only).
 
 **The gate fails closed, and that is the load-bearing half.** A direct chat has
 to prove itself with `data.chat.is_group === false`; anything else — a missing
@@ -216,7 +216,13 @@ Tex's own jobs, each with its record:
 - [Transcripts](./texting-assistant/transcripts.md): each person's texts,
   thinking and tool calls, daily in their own `tex/transcripts/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
-  up to date from the day's transcripts, logged in `tex/dreams/`.
+  up to date from the day's transcripts and the facts their other AI apps saved, logged in `tex/dreams/`.
+- [Who they are](./texting-assistant/who-they-are.md): their phone, name, emails
+  and Google accounts, told on every turn Tex answers for them.
+- [Saving notes](./texting-assistant/saving-notes.md): a note they ask for is saved
+  at once, a non-secret code included, in the subfolder their folders say.
+- [Pushback](./texting-assistant/pushback.md): a point of view from their goals and
+  decisions, said once in a line, the job still done; never flattery.
 - [Runtime](./texting-assistant/runtime.md): the conversation as a log of
   exchanges, a thread's texts read that thread, tapbacks answered or noted,
   check-ins wait for ten quiet minutes.
@@ -226,14 +232,15 @@ Tex's own jobs, each with its record:
 - [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides. [Bug reports](./texting-assistant/bug-reports.md) by text go, texts included, only on their YES.
 - [Housekeeping](./texting-assistant/housekeeping.md): archives, merges and folds to lower the
   chaos score, logging each change in `tex/housekeeping/` with how to undo it.
-- [Pictures](./texting-assistant/pictures.md): draws graphics as a page and
-  makes photo edits with Nano Banana, keeping the last one for the next edit.
+- [Pictures](./texting-assistant/pictures.md): graphics as a page, photo edits with Nano Banana;
+  [visual answers](./texting-assistant/visual-answers.md): designed cards, words cut to one line.
 - [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.
 - [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
   an object of its own, up to three at once in a 1:1 or group chat, its status
-  shown to every turn, and it always writes its deliverable.
+  shown to every turn, and it always writes its deliverable; a later text
+  steers or stops a running job, and its recent steps are shown on asking.
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
@@ -492,6 +499,9 @@ status; the gateway does that question on Cloudflare's browser, which cannot be
 handed over, and skips Browserbase for ten minutes
 (`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
 
+A failed Browserbase run is debugged from a digest of Browserbase's session
+log, never page content: [debugging a failed run](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22).
+
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
 tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,
@@ -520,7 +530,7 @@ carry words from the person's notes out of the turn. What bounds it:
   while a business, place or product from the notes may be searched for,
   since that is what makes it useful ("is my dentist open Saturday?"). That
   is a request, not a lock; the lock is the point above.
-- At most 3 searches a question, 6 results each, 300 characters a query.
+- At most 3 searches a question, 6 results each, 300 characters a query; 50 searches under `open_web: yes` (the owner, 2026-10-26, after a lunch-prices ask gave up at the fourth search: "why not 50 searches?").
 - Results reach the model marked as not written by the person. Their
   addresses join the turn's openable addresses, the same as a link on a page.
   An address written inside a result's title or snippet does not.

@@ -10,7 +10,7 @@
  *    `context:write`; every other caller gets `{ served: false }`;
  *  - names are drawn through pending moves, as every listing draws them;
  *  - the count counts notes only;
- *  - a bound workspace still on its first copy says `loading`, never "free".
+ *  - a bound workspace whose tree is not ready says `served: false`, never "free".
  *
  * Sabotage (temporary local edits, reverted):
  *  - dropping the role check in `writableWorkspace`: the member is answered;
@@ -18,9 +18,10 @@
  *  - `treeTaken` ignoring pending moves: the moved-name case calls the old
  *    name taken and the new one free;
  *  - `namesFor` answering `NOT_SERVED` for a loading tree: the loading case
- *    loses `loading: true`.
+ *    loses `served: false`.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
@@ -30,6 +31,7 @@ import { modules } from "../../test.setup";
 import { isNoteKey } from "../../functions/lib/noteCount";
 import { gatewayPost, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -53,20 +55,8 @@ const RULES = {
 const PATHS = ["privacy.md", "index.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/photo.png"];
 
 async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at: 10,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: path.length, uploaded: 1_000 })),
-    gone: [],
-    vanishedUnder: [],
-  });
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
-  await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: 30, clearances: 2, mismatches: 0, privacyMatches: true },
-  });
+  await seedTreeRows(t, workspaceId, paths.map((path) => ({ path, etag: `e-${path}`, size: path.length, uploaded: 1_000 })));
+  await translateMirror(t, workspaceId, RULES);
 }
 
 async function fixture() {
@@ -149,32 +139,6 @@ describe("POST /gateway/tree/facts, ask: names", () => {
     }
   });
 
-  test("a name a pending move is carrying is drawn where the move puts it", async () => {
-    const { t, ws } = await fixture();
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      await ctx.db.insert("moveQueue", {
-        workspaceId: ws,
-        from: "1-projects/plan.md",
-        to: "3-resources/plan.md",
-        kind: "file",
-        state: "moving",
-        scope: "private",
-        grantedNames: [],
-        total: 1,
-        moved: 0,
-        added: { folders: [], notes: [] },
-        attempts: 0,
-        nextAt: now + 60_000,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-    expect(
-      await names(t, { accessToken: OWNER, expectedWorkspaceId: ws, paths: ["1-projects/plan.md", "3-resources/plan.md", "3-resources"] }),
-    ).toEqual({ served: true, files: ["3-resources/plan.md"], folders: ["3-resources"] });
-  });
-
   test("the count counts notes, for the free plan's cap", async () => {
     const { t, ws } = await fixture();
     const answer = await names(t, { accessToken: OWNER, expectedWorkspaceId: ws, count: true });
@@ -183,7 +147,7 @@ describe("POST /gateway/tree/facts, ask: names", () => {
     expect(PATHS.filter(isNoteKey)).not.toContain("2-areas/photo.png");
   });
 
-  test("a bound workspace still on its first copy says it is loading, never that a name is free", async () => {
+  test("a bound workspace whose tree is not ready says it is not served, never that a name is free", async () => {
     const { t, fresh, ownerId } = await fixture();
     await seedStorageBinding(t, { workspaceId: fresh, boundBy: ownerId, status: "connected" });
     await seedConnectedClient(t, {
@@ -195,7 +159,6 @@ describe("POST /gateway/tree/facts, ask: names", () => {
     });
     expect(await names(t, { accessToken: token("names_fresh"), expectedWorkspaceId: fresh, paths: ["1-projects/x.md"] })).toEqual({
       served: false,
-      loading: true,
     });
   });
 });

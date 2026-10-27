@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-n
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { JobIcon } from "./jobIcons/JobIcon";
-import { jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
+import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
+import { contextIconOf, contextPartOf } from "@context/shared/src/contextIcons.cjs";
 import { pointerType, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -55,7 +56,7 @@ export function TreeFolderGlyph({
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
   const job = jobOfIcon(icon);
-  if (job !== null) return <JobIcon job={job} size={16} testID="tree-folder-job" />;
+  if (job !== null) return <JobIcon job={job} size={16} nested={isNestedJobIcon(icon)} testID="tree-folder-job" />;
   // Archive's copy of a built-in folder: drawn, like the folder it mirrors, so no picker either.
   const twin = twinJobOfIcon(icon);
   if (twin !== null) return <JobIcon job={twin} size={16} archived testID="tree-folder-twin" />;
@@ -66,7 +67,8 @@ export function TreeFolderGlyph({
     ) : (
       <EmojiGlyph
         emoji={icon}
-        size={14}
+        // A drawn icon fills its box as the job icons do; an emoji's glyph sits inside its line height.
+        size={contextIconOf(icon) !== null || contextPartOf(icon) !== null ? 16 : 14}
         textStyle={styles.emoji}
         fallback={plain}
         testID="tree-folder-emoji"

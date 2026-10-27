@@ -69,7 +69,6 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-import { connectScopes } from "./lib/googleWriteTesters";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,
@@ -77,6 +76,7 @@ import {
   takenAccountSlugs,
 } from "./googleConnect";
 import {
+  scopesForConnect,
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
@@ -352,7 +352,7 @@ export const startChatConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: await connectScopes(ctx, userId, products),
+        scopes: scopesForConnect(products),
       }),
     };
   },

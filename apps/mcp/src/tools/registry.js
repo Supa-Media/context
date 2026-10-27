@@ -28,9 +28,13 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   // and the control plane refuses anybody but the personal workspace's owner.
   "search_email",
   "read_email",
+  // Their texts, from the backup their Mac keeps (`tools/texts.js`): the
+  // route attaches them for the personal workspace's owner and nobody else.
+  "search_texts",
+  "list_texts",
+  "read_texts",
   "list_plugins",
   "rotate_encryption_keys",
-  "materialize_move",
   "migrate_storage_layout",
   /*
     The three link tools, because minting and revoking a share is the owner's.
@@ -81,7 +85,6 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
  */
 export const EXISTENCE_MASKED_TOOLS = new Set([
   "rotate_encryption_keys",
-  "materialize_move",
   "migrate_storage_layout",
 ]);
 

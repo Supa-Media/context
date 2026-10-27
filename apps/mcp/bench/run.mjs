@@ -296,6 +296,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
         // and each query is paid for once a run.
         ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
+        // Production reads answers for work handed back (wrangler.toml HANDBACK_JUDGE), so a real run does too.
+        handbackJudge: true,
       };
   if (scripted) {
     models.sites = bench.sites;
@@ -349,6 +351,10 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           changes: world.changes(),
           // What the scripted browser did, for the checks (`checks.mjs`).
           browser: world.browser(),
+          // Each Gmail search and read, so a result shows a search that missed.
+          mail: world.mail(),
+          // The emails it saved or sent, for the forward check (`checks.mjs`).
+          emails: world.emails(),
           // Wall time for the whole conversation, worlds and the played person
           // included, so a run can say where its hours went.
           wallMs: realNow() - wallStarted,

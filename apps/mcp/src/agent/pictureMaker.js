@@ -51,6 +51,10 @@
 import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
 import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
+import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
+import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
+import { downloadPhotos, fillPictures, pictureAddresses } from "./visuals/photos.js";
+import { fillDistances, geocode } from "./visuals/distance.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -68,6 +72,8 @@ export const MAX_SOURCES = 4;
 const MAX_KEPT_SOURCES = 2;
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_HTML_CHARS = 200_000;
+/** A designed card with its photos in it as data: under the screenshot Worker's 15 MB. */
+const MAX_CARD_CHARS = 14_000_000;
 /** Base64 one image request carries: under the model API's 20 MB inline ceiling. */
 const MAX_SOURCE_CHARS = 18_000_000;
 const MAX_KEPT_CHARS = 16_000_000;
@@ -78,7 +84,11 @@ const ASPECTS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"
 const REF = /^(?:(attachment|picture|earlier-photo):(\d{1,2})|(last-picture))$/;
 /** A reference where a page loads a picture: in quotes or a CSS `url()`. */
 const INLINE_REF = /(["'(])\s*(attachment:\d{1,2}|picture:\d{1,2}|earlier-photo:\d{1,2}|last-picture)\s*(["')])/g;
+/** Where a card names a photo the gateway downloaded (`./visuals/photos.js`), as built by `kit.js` `photoUrl`. */
+const CARD_PHOTO = /card-photo:(\d{1,2})(?=')/g;
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/g;
+/** Google Fonts, which the screenshot Worker always loads: never counted as an address that did not. */
+const FONT_ADDRESS = /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//;
 
 const DRAW_DEFINITION = {
   name: DRAW_TOOL,
@@ -185,14 +195,14 @@ export async function keepPhotos(store, attachments) {
  * this turn may write the kept picture (a texted turn that keeps its
  * conversation); `meter` reports the image model's tokens.
  */
-export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch } = {}) {
+export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null } = {}) {
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
   let kept; // undefined until read
   let earlier; // likewise
 
-  const tools = [...(shots ? [DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
+  const tools = [...(shots ? [VISUAL_DEFINITION, DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
   if (tools.length === 0) return null;
 
   async function lastPicture() {
@@ -223,10 +233,10 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     return picture ? { pictures: [picture], theirs: false } : null;
   }
 
-  async function draw(args) {
+  async function draw(args, { card = false } = {}) {
     const html = typeof args?.html === "string" ? args.html : "";
     if (html.trim().length === 0) return say("Write the page as html.", true);
-    if (html.length > MAX_HTML_CHARS) return say(`A page is at most ${MAX_HTML_CHARS} characters; put pictures in by reference, not as data.`, true);
+    if (html.length > (card ? MAX_CARD_CHARS : MAX_HTML_CHARS)) return say(`A page is at most ${MAX_HTML_CHARS} characters; put pictures in by reference, not as data.`, true);
     const missing = new Set();
     const inlined = new Map();
     for (const [, , ref] of html.matchAll(INLINE_REF)) {
@@ -236,7 +246,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       else inlined.set(ref, `data:${found.pictures[0].mediaType};base64,${found.pictures[0].data}`);
     }
     const page = html.replace(INLINE_REF, (whole, open, ref, close) => (inlined.has(ref) ? `${open}${inlined.get(ref)}${close}` : whole));
-    const addresses = [...new Set(html.match(ADDRESS) ?? [])];
+    const addresses = [...new Set(html.match(ADDRESS) ?? [])].filter((address) => !FONT_ADDRESS.test(address));
     const allow = addresses.filter((address) => outgoing?.vouches(address) === true).slice(0, MAX_ALLOWED);
     const response = await shots.fetch("https://site-shots/render", {
       method: "POST",
@@ -251,6 +261,32 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const blocked = addresses.length - allow.length + (Array.isArray(body.blocked) ? body.blocked.length : 0);
     if (blocked > 0) notes.push(`${blocked} address(es) did not load: only images whose address you read this turn do.`);
     return { content: [{ type: "image", data: body.png, mimeType: "image/png" }, { type: "text", text: notes.join(" ") }] };
+  }
+
+  /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
+  async function visual(args) {
+    // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
+    const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
+    const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl);
+    const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
+    const photos = [...(await downloadPhotos(read, fetchImpl))];
+    const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
+    // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
+    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: mapGeocode ?? ((address) => geocode(address, fetchImpl)), locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
+    photos.push(...(drawnMap.pictures ?? []));
+    const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
+    if (built.error) return say(built.error, true);
+    const html = built.html.replace(CARD_PHOTO, (whole, n) => photos[Number(n) - 1]?.[1] ?? whole);
+    const drawn = await draw({ ...built, html }, { card: true });
+    if (drawn.isError) return drawn;
+    const notes = [];
+    if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
+    if (measured) notes.push(measured);
+    if (drawnMap.reason) notes.push(drawnMap.reason);
+    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo) and draw again.`);
+    if (notes.length === 0) return drawn;
+    return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
 
   async function make(args) {
@@ -300,8 +336,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
 
   return {
     tools,
-    has: (name) => (name === DRAW_TOOL && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: (name, args) => (name === DRAW_TOOL ? draw(args) : make(args)),
+    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
+    call: (name, args) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args) : make(args)),
   };
 }
 
@@ -327,6 +363,34 @@ export async function turnPictures(env, { texted, question, attachments, store, 
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.
   if (maker !== null && keep) await keepPhotos(store, attachments);
   return { outgoing, maker };
+}
+
+const DRAWN_REF = /^picture:(\d{1,2})$/;
+
+/**
+ * write_note `images[].data: "picture:N"` becomes the bytes of picture N, when
+ * this turn drew or made it (`outgoing.made`), so the card Tex texted is the
+ * card in the note it writes, without the model repeating a picture's bytes.
+ * Any other picture is refused by name: one read out of a note stays there.
+ */
+export function withDrawnImages(outgoing, callTool) {
+  if (typeof outgoing?.made !== "function") return callTool;
+  return (name, args) => {
+    if (name !== "write_note" || !Array.isArray(args?.images)) return callTool(name, args);
+    const refused = [];
+    const images = args.images.map((image) => {
+      const ref = typeof image?.data === "string" ? DRAWN_REF.exec(image.data.trim()) : null;
+      if (!ref) return image;
+      const picture = outgoing.made(Number(ref[1]));
+      if (picture === null) {
+        refused.push(image.data.trim());
+        return image;
+      }
+      return { ...image, data: `data:${picture.mediaType};base64,${picture.data}` };
+    });
+    if (refused.length > 0) return say(`${refused.join(", ")}: only a picture you drew or made this turn can be kept by its number. Nothing was saved.`, true);
+    return callTool(name, { ...args, images });
+  };
 }
 
 export function withPictureMaker(maker, callTool) {

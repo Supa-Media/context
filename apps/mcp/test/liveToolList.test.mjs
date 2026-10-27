@@ -93,7 +93,15 @@ test("the full list stays compact", () => {
   // first connector: the list stood at 13,922 with 62 tools.
   // Raised to 14,700 the same day for `app_read` and `app_change`, every app
   // connected through its own MCP server: the list stood at 14,265 with 64.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 14_700);
+  // Raised to 15,000 on 2026-10-22 for send_email's and save_email_draft's
+  // `attach`, a file Tex downloaded: the list stood at 14,707.
+  // Raised to 15,500 on 2026-10-23 for calendar_event's edit and rsvp
+  // (new_title, add_guests, remove_guests, reminders, recurrence, all_events,
+  // response): the list stood at 15,011 with 70 tools.
+  // Raised to 16,300 on 2026-10-26 for search_texts, list_texts and
+  // read_texts, which are unlisted (reached through search and fetch) but
+  // still defined: the list stood at 15,821 with 74.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 16_300);
 });
 
 /* -------------------------------------------------------------------------- */

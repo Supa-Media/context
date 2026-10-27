@@ -90,6 +90,8 @@ export interface FolderListing {
   truncated: boolean;
   /** False when `privacy.md` is missing or unparseable — nothing can be shared. */
   manifestUsable: boolean;
+  /** The folder's own built-in job, so a nested Website knows it before its parent lists (`folderJobs.ts`). */
+  role?: string;
 }
 
 export interface OpenNote {

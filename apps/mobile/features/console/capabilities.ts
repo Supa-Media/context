@@ -23,7 +23,7 @@
  * CLAUDE.md is explicit that read access and write access are different grants
  * and that write is never implied — and the server agrees twice over, with
  * `minimum: "editor"` on the note operations and `minimum: "owner"` on
- * `setNoteVisibility`, `setDirectoryVisibility` and `resetPrivacy`. Collapsing
+ * `setNoteVisibility` and `setDirectoryVisibility`. Collapsing
  * these into one boolean would offer an editor the access map, which is the
  * control PR #93/#95 removed from three surfaces after an editor used it.
  *
@@ -65,26 +65,6 @@ export function capabilitiesForRole(role: string | undefined): ConsoleCapabiliti
  */
 export function canSetVisibility(caps: ConsoleCapabilities): boolean {
   return caps.canEdit && caps.isOwner;
-}
-
-/**
- * Whether to offer the repair for a `privacy.md` that will not parse.
- *
- * Three things, and the third is the one that is easy to drop: the console has
- * to be able to act, the caller has to be the owner — rewriting the access map
- * is not an editor's to do — **and the manifest has to actually be broken**,
- * because `resetPrivacyManifest` refuses one that parses (`PRIVACY_MANIFEST_USABLE`).
- * Offering it otherwise is a button whose only outcome is a refusal.
- *
- * `manifestUsable` is `undefined` while the root listing is still loading, and
- * that must read as "do not offer" rather than "broken" — a repair button that
- * flashes during load is the console's version of a floor printed as a total.
- */
-export function canResetPrivacy(
-  caps: ConsoleCapabilities,
-  manifestUsable: boolean | undefined,
-): boolean {
-  return caps.canEdit && caps.isOwner && manifestUsable === false;
 }
 
 /**

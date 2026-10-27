@@ -37,9 +37,8 @@ across three shards) and the Convex deploy typecheck used to watch all of
 `apps/mcp/**`, so every Tex fix under `apps/mcp/src/agent/` paid for both,
 although nothing in `apps/convex` imports it. They now watch the gateway files
 `scripts/convex-gateway-reads.mjs` derives: every `apps/mcp` file reached by
-imports out of any file in `apps/convex`, every one a Convex file names by a
-relative or straight-quoted path, and every one a `docs/deferred/` patch
-touches. `check-ci-path-gates.mjs` fails when either list stops covering that
+imports out of any file in `apps/convex`, and every one a Convex file names by a
+relative or straight-quoted path. `check-ci-path-gates.mjs` fails when either list stops covering that
 set, so a new Convex import of a gateway file is a red guard, not a silent
 skip. The Convex tests that read the gateway whole (a glob or directory read:
 the privacy engine is declared once, privacy state is read only through its

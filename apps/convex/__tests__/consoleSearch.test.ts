@@ -27,18 +27,11 @@ import { describe, expect, test } from "vitest";
 import { type Clearance, clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { stubD1, type StubD1 } from "./searchBackfill.helpers";
-import {
-  type FileStore,
-  maintainSearchIndex,
-  projectSearchIndex,
-  searchNotes,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex, projectSearchIndex, searchNotes } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { createSearchBudget } from "../../mcp/src/search/maintain.js";
 import { MANIFEST_KEY, loadIndexManifest, serializeManifest } from "../../mcp/src/search/shards.js";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 /**
  * A bucket whose private half is the only place a distinctive word appears.

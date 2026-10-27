@@ -76,3 +76,50 @@ change the person never saw exactly. Dropping the offer check brings back the
 double yes. Tests: `apps/mcp/test/calendarGate.test.mjs` (the owner's chat end
 to end), `agentClaimCheck.test.mjs`, `agentHeldEcho.test.mjs`,
 `calendarWords.test.mjs`.
+
+## Four more things an answer is checked for (owner's review, 2026-10-24)
+
+In one afternoon's chat Tex sent nothing at all four times (the Worker sends no
+text for an empty answer), texted "The bulk of that is医保 and necessities",
+said "your notes have been down all afternoon" when no note call had failed,
+and answered "is Kansi on the email thread?" by pointing back at the forward
+waiting for a 👍. It also promised a breakdown "within the next 10–15 minutes"
+with nothing started.
+
+`apps/mcp/src/agent/replyChecks.js` catches each, once a turn, before
+`claimCheck.js`'s other checks: an empty answer, a word in a script the
+person's text doesn't use, an answer blaming their notes when no note read or
+write failed in the turn, and, while an ask waits, an answer that only points
+at it. Each sends one more round with a notice. An answer still empty after
+it is texted as a fixed line saying the answer got lost, never as nothing.
+`otherRoutes.js` counts "I'll … within N minutes" as a promise to keep, like
+"I'll text you". A background job's follow-ups that say stop are a rule for
+the rest of the job, retries included. Tests: `agentReplyChecks.test.mjs`.
+
+### A correction never leaves the ask it corrects waiting for a yes (2026-10-26)
+
+> **Superseded in part (Dev2, 2026-10-26):** the decide step now judges whether a message makes a waiting ask stale; the rule below stays as a code rail that can only end an ask sooner. See [Tex reads one event log and decides when to answer](./event-log.md).
+
+Agreed with Dev2. An ask stays armed through the person's side texts ("one
+sec", 2026-10-22), and the model is told to draft again only if their text
+changes it. When their text was a correction ("actually send it to Bo
+instead") and the model answered as if it had changed without drafting
+again, the old ask still stood, and their next yes or 👍 sent the email they
+had just corrected.
+
+`claimCheck.js` rule 6 is judged on the person's own words, never the
+model's (`correctsTheAsk`): "actually", "instead", "send it to", "make it",
+"cc", "wrong", or an address the waiting draft does not have. A side text
+("one sec", "add milk to my list", "not now") carries none, so whatever the
+model answers it never touches the ask. A correction with nothing held gets
+one more round telling Tex to make the call with the change; a turn that
+still holds nothing drops exactly the asks that text corrected, never another
+of theirs and never another person's in a group, and the gateway says so in
+its own words in place of the model's line ("I haven't sent the earlier
+one…"). When an ask cannot be withdrawn the text says so and asks for a "no",
+rather than claiming it is gone. An earlier version read the model's answer
+for "changed" or "I'll send"; review found it dropped asks over unrelated
+words ("Updated your list") and missed "Sure, Bo it is".
+Reverse it and "a correction the model does not
+act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
+fails.

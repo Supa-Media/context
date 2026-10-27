@@ -13,8 +13,10 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { pinnedContextWorkspace } from "../pinnedContext";
 import { withPendingPrivate } from "./pendingAccess";
+import { withChatFolders } from "./chatFolders";
 import type { AccessRow, Grantee } from "./rowAccess";
 import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
+import { located, nodePaths } from "./paths";
 
 function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
   if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
@@ -37,10 +39,17 @@ function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
  * truth the snapshot is rebuilt from, and the fallback while there is none.
  */
 export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[]> {
-  const rows = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
+  // Only the rows with a setting of their own, and the rows a grant names: a big workspace's whole tree is more
+  // than one function may read (a chunked Archive rename stopped for good on "Too many bytes read", 2026-10-22).
+  const rows = new Map<string, Doc<"nodes">>();
+  for (const base of ["private", "team"] as const) {
+    const set = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_access", (q) => q.eq("workspaceId", workspaceId).eq("access.base", base))
+      .collect();
+    for (const row of set) rows.set(row._id, row);
+  }
+  const paths = await nodePaths(ctx.db, workspaceId);
   const grants = await ctx.db
     .query("nodeAccess")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -52,9 +61,23 @@ export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces"
     const list = granteesByNode.get(grant.nodeId) ?? [];
     list.push(grantee);
     granteesByNode.set(grant.nodeId, list);
+    if (!rows.has(grant.nodeId)) {
+      const row = await ctx.db.get(grant.nodeId);
+      if (row !== null && row.workspaceId === workspaceId) rows.set(row._id, row);
+    }
   }
+  // Each at the path it is at now; a row its parents spell no path for is reached by no reader, and judges nothing.
+  const placed: Doc<"nodes">[] = [];
+  for (const row of rows.values()) {
+    const at = await located(ctx.db, row, paths);
+    if (at !== null) placed.push(at);
+  }
+  // In path order, as the tree's index gave them before.
+  const ordered = placed.sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
   const out: AccessRow[] = [];
-  for (const row of rows) {
+  for (const row of ordered) {
     const grantees = granteesByNode.get(row._id) ?? [];
     if (row.access === undefined && grantees.length === 0) continue;
     out.push({
@@ -99,7 +122,9 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
   // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
   const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
   // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
-  return await withAccountsHonoured(ctx, workspaceId, withPendingPrivate(moving, state?.pending, Date.now()));
+  const pending = withPendingPrivate(moving, state?.pending, Date.now());
+  // A Tex guest chat's folder is shared with the chat's group before it has a row (`chatFolders.ts`).
+  return await withAccountsHonoured(ctx, workspaceId, await withChatFolders(ctx, workspaceId, pending));
 }
 
 /**

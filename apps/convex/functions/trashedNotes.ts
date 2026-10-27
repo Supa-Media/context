@@ -26,7 +26,6 @@ import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { normalizePath } from "./lib/fileOps/paths";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { trashEntryOf } from "./lib/nodes/trashTrail";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { canSee } from "./lib/privacy";
 import { eraseAtOf, rulesAsTrashed, stampFolderOf, stampTimeOf } from "./lib/trash/bin";
 
@@ -70,7 +69,7 @@ async function answerFor(ctx: QueryCtx, actorUserId: Id<"users">, workspaceId: I
     at: entry.at,
     byYou: by === actorUserId,
     byName: by === undefined ? null : await personalNameFor(ctx, by),
-    eraseAt: stamp !== null && (await keyedWorkspace(ctx.db, workspaceId)) ? eraseAtOf(stamp) : null,
+    eraseAt: stamp !== null ? eraseAtOf(stamp) : null,
   };
 }
 

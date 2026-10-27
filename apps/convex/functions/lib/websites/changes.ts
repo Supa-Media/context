@@ -8,11 +8,14 @@ import type {
   OperationResult,
 } from "../filesFns/operationTypes";
 
-function isWebsitePath(path: string): boolean {
+/**
+ * Under the website's folder: `root` is where it is now (`./siteRoot.ts`), and
+ * its default name counts too, as a write by that name lands in the folder.
+ */
+function isUnder(path: string, root: string): boolean {
   const normalized = path.replace(/^\/+|\/+$/g, "");
-  return (
-    normalized === DEFAULT_WEBSITE_ROOT ||
-    normalized.startsWith(`${DEFAULT_WEBSITE_ROOT}/`)
+  return [DEFAULT_WEBSITE_ROOT, root].some(
+    (folder) => normalized === folder || normalized.startsWith(`${folder}/`),
   );
 }
 
@@ -23,6 +26,24 @@ function isWebsitePath(path: string): boolean {
 export function operationTouchesWebsite(
   operation: FileOperation,
   result: OperationResult,
+  root: string = DEFAULT_WEBSITE_ROOT,
+): boolean {
+  return touches(operation, result, (path) => isUnder(path, root));
+}
+
+/**
+ * Whether a successful operation changed anything at all that a website
+ * folder could hold: `operationTouchesWebsite` with every path counted. A
+ * read, and everything else that changes no note, is false.
+ */
+export function operationNamesPaths(operation: FileOperation, result: OperationResult): boolean {
+  return touches(operation, result, () => true);
+}
+
+function touches(
+  operation: FileOperation,
+  result: OperationResult,
+  isWebsitePath: (path: string) => boolean,
 ): boolean {
   if (result.kind === "moved") {
     return isWebsitePath(result.from) || isWebsitePath(result.to);
@@ -35,14 +56,6 @@ export function operationTouchesWebsite(
         isWebsitePath(operation.path) ||
         foldPath(operation.path.replace(/^\/+/, "")) === PRIVACY_KEY
       );
-    case "setVisibility":
-    case "setNoteGroup":
-    case "setFolderVisibility":
-    case "setFolderGroup":
-      return isWebsitePath(operation.path);
-    case "resetPrivacy":
-    case "ensurePrivacy":
-      return true;
     case "removeEncryption":
     case "delete":
     case "pluginDelete":
@@ -91,14 +104,11 @@ export function operationTouchesWebsite(
 export function websiteNarrowingPaths(
   operation: FileOperation,
   result: OperationResult,
+  root: string = DEFAULT_WEBSITE_ROOT,
 ): string[] {
-  if (operationTouchesWebsite(operation, result)) return [];
+  if (operationTouchesWebsite(operation, result, root)) return [];
   if (result.kind === "moved") return [result.from, result.to];
   switch (operation.kind) {
-    case "setVisibility":
-    case "setNoteGroup":
-    case "setFolderVisibility":
-    case "setFolderGroup":
     case "delete":
     case "pluginDelete":
     case "archive":
@@ -123,19 +133,21 @@ export function websiteNarrowingPaths(
  */
 export { websiteTextRestricts };
 
-function textExplicitlyRestricts(path: string, text: string): boolean {
-  return isWebsitePath(path) && websiteTextRestricts(text);
+function textExplicitlyRestricts(path: string, text: string, root: string): boolean {
+  return isUnder(path, root) && websiteTextRestricts(text);
 }
 
 /** Whether a successful operation may have explicitly narrowed a live route. */
 export function operationMayRestrictWebsite(
   operation: FileOperation,
   result: OperationResult,
+  root: string = DEFAULT_WEBSITE_ROOT,
 ): boolean {
-  if (!operationTouchesWebsite(operation, result)) return false;
+  if (!operationTouchesWebsite(operation, result, root)) return false;
+  const isWebsitePath = (path: string) => isUnder(path, root);
   if (operation.kind === "write" || operation.kind === "removeEncryption") {
     if (!isWebsitePath(operation.path)) return true; // `privacy.md` itself
-    return textExplicitlyRestricts(operation.path, operation.text);
+    return textExplicitlyRestricts(operation.path, operation.text, root);
   }
   if (operation.kind === "importVault") {
     return operation.files.some(
@@ -144,6 +156,7 @@ export function operationMayRestrictWebsite(
         textExplicitlyRestricts(
           file.path,
           new TextDecoder().decode(new Uint8Array(file.bytes)),
+          root,
         ),
     );
   }

@@ -18,6 +18,7 @@
 
 import { normalizeRoot } from "../paths.js";
 import { CALENDAR_DATE_PATTERN, CALENDAR_FOLDER } from "./protocol.js";
+import { asInboxKey } from "../protocol.js";
 
 export { normalizeRoot };
 
@@ -93,8 +94,9 @@ export function parseCalendarDayPath(path, options = {}) {
   if (typeof path !== "string") return null;
   const root = normalizeRoot(options.root);
   if (root && !path.startsWith(root)) return null;
-  const key = path.slice(root.length);
-  const folder = calendarDestinationFolder(options.folder);
+  // The Inbox under either of its names, `inbox` or `0-inbox` (`asInboxKey`), on both sides.
+  const key = asInboxKey(path.slice(root.length), options.inbox);
+  const folder = asInboxKey(calendarDestinationFolder(options.folder));
   if (!key.startsWith(`${folder}/`)) return null;
   const rest = key.slice(folder.length + 1);
   const segments = rest.split("/");

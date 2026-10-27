@@ -51,7 +51,6 @@
 export { MAX_NOTE_BYTES, FOLDER_OPERATION_CAP } from "./fileOps/store";
 export type { FileStore } from "./fileOps/store";
 export {
-  VAULT_CLEAR_BATCH_OBJECTS,
   clearVaultBatch,
   MAX_VAULT_IMPORT_FILE_BYTES,
   importVaultFiles,
@@ -83,18 +82,15 @@ export {
   FOLDER_PATH_CAP,
   listFolderPaths,
   exportContextMoveBatch,
-  planContextMoveBatch,
 } from "./fileOps/contextMoveExport";
 export type {
   ContextMoveObject,
-  PlannedContextMoveObject,
   ContextMoveSkip,
   ContextMoveExport,
 } from "./fileOps/contextMoveExport";
 export {
   importContextMoveBatch,
   deleteMovedSources,
-  forgetMovedSources,
   prepareContextMoveLanding,
   clearMovedSourceRules,
 } from "./fileOps/contextMoveImport";
@@ -110,10 +106,6 @@ export {
   trashKeyedRows,
 } from "./fileOps/deleting";
 export type { DeleteResult } from "./fileOps/deleting";
-export { resetPrivacyManifest } from "./fileOps/privacyReset";
-export type { PrivacyResetResult } from "./fileOps/privacyReset";
-export { setExactVisibility, setVisibility, setFolderVisibility } from "./fileOps/visibility";
-export type { VisibilityResult } from "./fileOps/visibility";
 export {
   MAX_STORED_IMAGE_BYTES,
   IMAGE_PREFIX,

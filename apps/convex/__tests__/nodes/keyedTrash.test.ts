@@ -6,10 +6,10 @@
  * trashed note keeps its rules at its own name, as a trash made in one go does.
  *
  * Runs the real functions through `convex-test`, through `executeOperation`
- * with the move barrier's seams attached, as `queuedTrash.test.ts` does.
+ * with the move barrier's seams attached.
  *
  * Each case fails if its guard is removed:
- *  - the keyed branch in `startQueuedTrash` (the trash refused or queued as bytes);
+ *  - the keyed branch in `startRowTrash` (the trash refused or queued as bytes);
  *  - the restore branch in `restoreQueuedTrash` (Restore "not found");
  *  - the name-collision loop (a second trash in the same millisecond is refused);
  *  - a folder over the row cap trashed and restored whole, in pages (`rowMoveChunks.ts`);
@@ -21,22 +21,49 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
+import type { FileStore } from "../../functions/lib/fileOps";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
-import { startQueuedTrash } from "../../functions/lib/nodes/trashStart";
+import { mirrorFile } from "../../functions/lib/nodes/privacyMirror";
+import { readerMirror } from "../../functions/lib/nodes/readerRules";
+import { startRowTrash } from "../../functions/lib/nodes/rowTrash";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, listed, start, type Fixture } from "./moveFixture.helpers";
 import { bigFolder, bytesOf, keyedFixture, liveAt, logOf, rowOf, treeOf } from "./keyedFixture.helpers";
+import { storedPathsOnly } from "./treeRows.helpers";
 
-type Moved = { kind: "moved"; from: string; to: string; paths: string[]; queued?: number };
+type Moved = {
+  kind: "moved";
+  from: string;
+  to: string;
+  paths: string[];
+  queued?: number;
+};
 
-function operate(
+/**
+ * The store a keyed workspace's operations read in rows mode: `privacy.md` answers with the rows' rules, as the
+ * served tree hands it out (`manifestStore.ts`, `mirrorFile`), not with the file the bucket holds, which the
+ * rows no longer write. A rule a move wrote on a row (a note's own private access) is then seen by the trash.
+ */
+async function rowsStore(f: Fixture): Promise<FileStore> {
+  const served = mirrorFile(await f.t.run(async (ctx) => await readerMirror(ctx as never, f.ws)));
+  return new Proxy(f.store, {
+    get(target, key) {
+      if (key === "get") return async (path: string) => (path === PRIVACY_KEY ? served : await target.get(path));
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as FileStore;
+}
+
+async function operate(
   f: Fixture,
   operation: { kind: "trash"; path: string } | { kind: "restoreTrash"; from: string; to: string },
   clearance = OWNER,
 ) {
+  const store = await rowsStore(f);
   const args = { workspaceId: f.ws, scope: clearance.scope, operation: { kind: operation.kind } };
-  attachQueueMove(f.ctx, args, f.store, f.store);
-  return executeOperation(f.store, clearance, operation, Date.now()) as Promise<Moved>;
+  attachQueueMove(f.ctx, args, store, store);
+  return (await executeOperation(store, clearance, operation, Date.now())) as Moved;
 }
 
 describe("trashing a note or folder in a keyed workspace moves its rows", () => {
@@ -57,7 +84,7 @@ describe("trashing a note or folder in a keyed workspace moves its rows", () => 
     });
     expect(await liveAt(f, "1-projects/keep.md")).toBe(false);
     expect(bytesOf(f)).toEqual(bytesBefore);
-    expect(await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws })).toEqual([]);
+    expect(await f.t.query(internal.functions.nodeRowMoves.drawn, { workspaceId: f.ws })).toEqual([]);
     expect(await listed(f.owner, f.ws, "1-projects")).not.toContain("1-projects/keep.md");
   });
 
@@ -123,43 +150,16 @@ describe("trashing a note or folder in a keyed workspace moves its rows", () => 
 
     expect(await treeOf(f)).toEqual(before);
   });
-
-  test("a note with a queued byte move still pending waits: the trash is refused, and nothing moves", async () => {
-    const f = await keyedFixture();
-    await f.t.run(async (ctx) => {
-      await ctx.db.insert("moveQueue", {
-        workspaceId: f.ws,
-        from: "1-projects/old",
-        to: "3-resources/old",
-        kind: "folder",
-        state: "moving",
-        scope: "private",
-        grantedNames: [],
-        total: 1,
-        moved: 0,
-        added: { folders: [], notes: [] },
-        attempts: 0,
-        nextAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-    const before = await treeOf(f);
-
-    await expect(operate(f, { kind: "trash", path: "1-projects/keep.md" })).rejects.toMatchObject({ data: { code: "CONFLICT" } });
-
-    expect(await treeOf(f)).toEqual(before);
-  });
 });
 
 describe("the trash destination", () => {
   test("a second note trashed under the same name in the same millisecond takes the next free name", async () => {
     const f = await keyedFixture();
     const now = Date.now();
-    const first = await startQueuedTrash(f.ctx, { workspaceId: f.ws, store: f.store, path: "1-projects/keep.md", clearance: OWNER, now });
+    const first = await startRowTrash(f.ctx, { workspaceId: f.ws, store: f.store, path: "1-projects/keep.md", clearance: OWNER, now });
     // Another note takes the name the first left, and is trashed in the same millisecond.
     await start(f, "3-resources/r.md", "1-projects/keep.md");
-    const second = await startQueuedTrash(f.ctx, { workspaceId: f.ws, store: f.store, path: "1-projects/keep.md", clearance: OWNER, now });
+    const second = await startRowTrash(f.ctx, { workspaceId: f.ws, store: f.store, path: "1-projects/keep.md", clearance: OWNER, now });
 
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
@@ -185,28 +185,8 @@ describe("the trash destination", () => {
 });
 
 describe("the row cap on a trash", { timeout: 60_000 }, () => {
-  test("a folder of more rows than the cap goes to the trash in pages, whole, and comes back whole", async () => {
-    const f = await keyedFixture();
-    await bigFolder(f, "2-areas/big", 1_200);
-    const ids = new Map((await treeOf(f)).filter((row) => row.path.startsWith("2-areas/big/")).map((row) => [row.noteId, row.path]));
-
-    const trashed = await operate(f, { kind: "trash", path: "2-areas/big" });
-
-    expect(trashed).toMatchObject({ kind: "moved", queued: 1_200 });
-    const after = await treeOf(f);
-    expect(after.some((row) => row.live && row.path.startsWith("2-areas/big"))).toBe(false);
-    const inTrash = after.filter((row) => row.live && row.path.startsWith(`${trashed.to}/`));
-    expect(inTrash).toHaveLength(1_200);
-    for (const row of inTrash) expect(`2-areas/big${row.path.slice(trashed.to.length)}`).toBe(ids.get(row.noteId));
-    expect(await f.t.run(async (ctx) => await ctx.db.query("rowMoves").collect())).toEqual([]);
-
-    await operate(f, { kind: "restoreTrash", from: trashed.to, to: "2-areas/big" });
-
-    const back = (await treeOf(f)).filter((row) => row.live && row.path.startsWith("2-areas/big/"));
-    expect(back).toHaveLength(1_200);
-    for (const row of back) expect(row.path).toBe(ids.get(row.noteId));
-  });
-
+  // A cap exists only on stored paths: a built-path move of any size is one row change.
+  storedPathsOnly();
   test("a folder of exactly the cap in rows, the folder included, is trashed whole", async () => {
     const f = await keyedFixture();
     await bigFolder(f, "2-areas/big", 499);

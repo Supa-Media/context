@@ -6,6 +6,7 @@
  * sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   DEEP_TOKEN,
   NOTE_INDEX_CHAR_CAP,
@@ -34,7 +35,7 @@ export async function runSearchIntegrationPerNoteCapChecks(check, harness) {
         "1-projects/log.md",
         `# Log\n\nThe AXOLOTL is in the head.\n${"filler words here ".repeat(600)}\nThe CAPYBARA hides in the tail.\n`
       );
-      const cappedSync = await syncIndex(new R2Store(capped), { budget: createSearchBudget(50) });
+      const cappedSync = await syncIndex(withServedTree(new R2Store(capped)), { budget: createSearchBudget(50) });
       check(
         "a giant note is searchable by its head and its tail is deliberately not indexed",
         searchIndex(cappedSync.index, "axolotl").length === 1 &&
@@ -70,7 +71,7 @@ export async function runSearchIntegrationPerNoteCapChecks(check, harness) {
       const edge = createBucket();
       edge.seed("privacy.md", PRIVACY_MANIFEST);
       edge.seed("1-projects/edge.md", "abc ".repeat(4000));
-      const edgeSync = await syncIndex(new R2Store(edge), { budget: createSearchBudget(50) });
+      const edgeSync = await syncIndex(withServedTree(new R2Store(edge)), { budget: createSearchBudget(50) });
       const doc = edgeSync.index.docs.get("1-projects/edge.md");
       check(
         "the per-note cap is 2,048 characters, pinned by the token count it produces",
@@ -101,7 +102,7 @@ export async function runSearchIntegrationPerNoteCapChecks(check, harness) {
       // whole notes — so it *finds* a term the index cannot, which is the right
       // behaviour and the wrong fixture for a check about the index's own
       // recall limit.
-      await convergeV2(new R2Store(deep));
+      await convergeV2(withServedTree(new R2Store(deep)));
       const missed = await searchText(env, DEEP_TOKEN, { query: "platypus" });
       check(
         "a term past the per-note cap misses, and the advice says a long note is indexed by its head",

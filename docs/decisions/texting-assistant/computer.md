@@ -93,6 +93,25 @@ and its links through `pdfLinks`, which become links the turn may follow
 (`pdfPage`, `browserProviders.js`). The bytes never reach the model. Tests:
 `fetchText.test.ts` ("a PDF at the address"), `test/pdfPage.test.mjs`.
 
+## A page a site refuses us is asked for through Browserbase (2026-10-22)
+
+Many sites answer a request from a Cloudflare address with 403, 429, 503 or
+a challenge, and Cloudflare's browser comes from the same addresses, so such a
+page cost a browser start and still failed. When the plain request is turned
+away (`fetchRead` says `refused`), `/read` asks once more through Browserbase's
+Fetch API (`browserbaseFetch.ts`): one proxied request from Browserbase's
+network, no browser, a second or two. It is shaped as a `fetch`, so the same
+code reads its answer: Browserbase is told never to follow a redirect
+(`allowRedirects: false`), and each hop is followed by hand under the same
+public-https lock. Only HTML and Markdown come through, because a PDF arrives
+as text and would be mangled. Only the address is sent, as with every page
+Browserbase opens for us. A page that answers but draws itself with
+JavaScript is not refused, and goes straight to the browser as before.
+Browserbase browsers also start with `blockAds: true`, its own ad and tracker
+blocker, so a cluttered page loads faster and reads in fewer steps; no
+extension is uploaded. Tests: `browserbaseFetch.test.ts`, `fetchText.test.ts`
+("says when the site turned the request away…").
+
 An action called on the wrong one of the six (`write { action: "progress" }`,
 seen twice) runs under the family that has it, with that family's grants,
 instead of failing (`sixTools.js`; "an action called on the wrong one of the
@@ -140,3 +159,105 @@ This is done in the page rather than with Browserbase's uploads API and CDP
 same code runs on both providers. Tests: `browse.test.ts` ("presses a button
 that makes its file box only when pressed…", sabotaged by skipping the press),
 plus an app-style button, a label and a plain button checked in real Chromium.
+
+## Tex downloads a file and emails it (2026-10-22)
+
+Tex found a Google Voice invoice on the Admin console's billing page and texted
+the owner "I can't put a file from the admin console into an email myself. Tap
+the download arrow next to September, attach it to the draft". The owner: "it
+should be able to download a pdf and email it, if not we are severely lacking
+in capability". Browserbase had kept every download all along; nothing asked
+for them.
+
+- **The step.** A browse step `download` presses the element that saves a file
+  (by number or by its words), or with neither takes the file the page itself
+  is (`infra/site-shots/src/download.ts`). On Browserbase the browser is told
+  to allow downloads into `downloads`, the only folder its storage syncs
+  (`Browser.setDownloadBehavior`), and the file is taken from its Downloads
+  API by session (`GET /v1/downloads?sessionId=`, then the file), then
+  deleted there, so nothing of the person's stays with the vendor. When no
+  file arrives in 8 seconds, and on Cloudflare's browser, the link's address
+  is fetched in the page with its cookies: https, `blob:` or `data:` only, and
+  never a web page passed off as a file. 10 MB at most, as a file is read at.
+- **Where it is kept.** In the person's own bucket, `.context/agent/downloads/<id>.json`,
+  under a random `download:` id that carries when it was kept (`agent/downloads.js`).
+  The owner, the same day: "store it in a hidden folder in the bucket just so
+  that it persists across Tex sessions". Up to 5 MB it stays 30 days; up to
+  10 MB, 24 hours, enough for an email waiting on a yes. Expired files are
+  refused by id and swept on the next download. Not a note: it is a working
+  file, and the bucket is the tenancy boundary, so an id names nothing in
+  another person's.
+- **Into an email.** `send_email` and `save_email_draft` take `attach`, a list
+  of up to five `download:` ids (`tools/emailAttach.js`); the person's copy
+  names each file before their yes (`emailGate.js`), and the bytes go to the
+  control plane once, to be sent, beside or after a forward's own files
+  (`gatewayRoutes/personEmail.ts`). An email that says "attached" with a file
+  attached is no longer refused as receipt-less. An upload step takes a
+  `download:` id too, so a file can go from one site to another.
+- **Tex sees the words, not the bytes.** A downloaded PDF's words come back
+  with the id, marked as the site's, so Tex can check it took the right
+  invoice before emailing it.
+- **Handing it back is caught.** "I can't put a file … into an email" and
+  "tap the download arrow … attach it to the draft" are hand-backs
+  (`claimCheck.js` `FILE_HANDBACK`), even with a "tap" in them.
+- **Frames, and a click's file (the same evening).** The September invoice's
+  download menu was in a payments.google.com frame inside the admin page:
+  Tex saw it in a look and could press none of it, and the click at its point
+  started a download nothing collected. A reading now includes each embedded
+  frame (Browserbase only, over CDP: `infra/site-shots/src/cdpFrames.ts`),
+  under its site's name and numbered from 1001, 2001…, and a step on a frame's
+  element runs in that frame. Every site check (a fill's origin, a type's or
+  an upload's named sites) is of the frame the element is in, never the top
+  page's, so a login never lands in another site's frame. A look blanks card
+  boxes in frames too. A scroll turns the wheel at a point, so a frame's list
+  scrolls. And a click or key that makes the browser begin a download
+  (`Browser.downloadWillBegin`) hands the file back like a download step.
+
+Tests: `download.test.ts` (the step, the vendor's API, the https-only fetch,
+sabotaged by letting any address through), `agentDownloads.test.mjs` (kept,
+expired, attached, named at the gate; sabotage record in the file),
+`personEmail.test.ts` (files as real attachments, in a reply's thread, after a
+forward's), `agentHandback.test.mjs`, and golden task 14 on a scripted billing
+page (`must download:`, `must attach:`).
+
+### A failed browser run is debugged from Browserbase's session log (2026-10-22)
+
+A Browserbase run that fails is debugged from Browserbase's own session log,
+not from a recording. After the answer has gone, the screenshot
+Worker reads that session's log once and logs `site_shots_browse_failed` with
+the session id and a digest of fixed shapes: CDP method counts, failed
+responses as host and status, `net::ERR_*` codes, console-error and exception
+counts, and the hosts the tabs visited. Never a path or query, a console
+message, or anything typed, because those carry what the person searched,
+read or wrote, notes included (`infra/site-shots/src/sessionLogs.ts`). The
+session id lets whoever is debugging open that run in Browserbase's dashboard,
+behind Browserbase's sign-in, which is the read-only live view while the
+browser is still up and the full log after. The debugger link is still never
+asked for: Browserbase's "read-only" embed only turns off pointer events in an
+iframe, and whoever holds the link still drives the browser. That log line is
+the one place a session id is written down, and only for a run that failed.
+**What a simplification would cost:** logging the raw log, or a URL with its
+path, puts the person's searches and notes in our logs. The test that fails is
+`infra/site-shots/src/sessionLogs.test.ts` ("keeps hosts, statuses, error codes
+and counts, and never a path, query, console text or typed word").
+
+### A new Browserbase browser asks for every extra the plan has (2026-10-22)
+
+The owner, on the Browserbase audit: "let's use all these features we are
+paying for". A new browser is asked for with residential proxies
+(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`) and a
+region (`BROWSERBASE_REGION`, `us-east-1` in `wrangler.jsonc`, since the people
+texting Tex are in the US), on top of `blockAds` and captcha solving. Google's
+admin pages, banks, airlines and shops refuse or captcha a data centre's
+address far more than a home's. Proxies are billed by the gigabyte;
+`BROWSERBASE_PROXIES=off` or `BROWSERBASE_STEALTH=off` turns one off without a
+code change. A plan without an extra refuses the whole request with 400, 403
+or 422, so `createSession` asks again with the next plainer request, ending at
+the plain browser that always worked, and remembers for the isolate's life how
+far down it had to go. It never steps down on 402, 429 or 5xx, which a plainer
+browser would get too. Every request stays unrecorded and without a Context.
+**What a simplification would cost:** sending only the full request fails
+every browser on a plan without stealth; stepping down on any error hides a
+billing or capacity problem behind a weaker browser. Tests:
+`browserbase.test.ts` ("what a new browser is asked for"; sabotaged by
+dropping the refusal check and the remembered tier).

@@ -12,6 +12,11 @@ import { GMAIL_ATTACHMENT_MAX_BYTES, attachmentPath, manifestPath, readManifest,
 import { assertSafeKey } from "../../src/store/index.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 export async function runGmailAttachmentChecks(check) {
   // -- filename sanitization: a hostile name must not escape the folder --------
 
@@ -22,7 +27,7 @@ export async function runGmailAttachmentChecks(check) {
       date: "2026-09-07",
       contentHash: "abc123",
       filename: "../../../etc/passwd",
-    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
+    }).startsWith("inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
   );
   check(
     "...and the sanitized name itself carries no '..' segment",
@@ -94,7 +99,7 @@ export async function runGmailAttachmentChecks(check) {
     messages: attachmentMessages,
     attachmentContents: { "att1/ATT-1": "pdf-bytes!!" },
   });
-  const attachmentStore = createMemoryStore();
+  const attachmentStore = servedMemoryStore();
   const fetchDayOptions = {
     store: attachmentStore,
     fetchImpl: attachmentGmail.fetchImpl,
@@ -122,7 +127,7 @@ export async function runGmailAttachmentChecks(check) {
   check("the attachment's bytes actually landed at the content-hashed path", storedAttachment !== null);
   check("...with the exact bytes Gmail served", storedAttachment !== null && (await storedAttachment.text()) === "pdf-bytes!!");
 
-  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
+  const dayNoteAfterFetch = await attachmentStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteText = dayNoteAfterFetch ? await dayNoteAfterFetch.text() : "";
   check(
     "the channel-day note LINKS to the fetched attachment",
@@ -133,7 +138,7 @@ export async function runGmailAttachmentChecks(check) {
     messages: attachmentMessages,
     attachmentContents: { "att1/ATT-1": "pdf-bytes!!" },
   });
-  const customFolderStore = createMemoryStore();
+  const customFolderStore = servedMemoryStore();
   await syncDayFromGmail({
     ...fetchDayOptions,
     store: customFolderStore,
@@ -187,7 +192,7 @@ export async function runGmailAttachmentChecks(check) {
     "A RE-SYNC AFTER EXPIRY DOES NOT RE-FETCH — the manifest remembers this attachment is gone",
     attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
   );
-  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
+  const noteAfterExpiry = await attachmentStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const noteTextAfterExpiry = noteAfterExpiry ? await noteAfterExpiry.text() : "";
   check(
     "the note's link is rewritten to name and size only once expired",
@@ -216,7 +221,7 @@ export async function runGmailAttachmentChecks(check) {
     }),
   ];
   const foreverGmail = createFixtureGmail({ messages: foreverMessages, attachmentContents: { "forever1/ATT-2": "abcde" } });
-  const foreverStore = createMemoryStore();
+  const foreverStore = servedMemoryStore();
   await syncDayFromGmail({
     store: foreverStore,
     fetchImpl: foreverGmail.fetchImpl,
@@ -254,7 +259,7 @@ export async function runGmailAttachmentChecks(check) {
     }),
   ];
   const oversizedGmail = createFixtureGmail({ messages: oversizedMessages, attachmentContents: {} });
-  const oversizedStore = createMemoryStore();
+  const oversizedStore = servedMemoryStore();
   await syncDayFromGmail({
     store: oversizedStore,
     fetchImpl: oversizedGmail.fetchImpl,
@@ -286,7 +291,7 @@ export async function runGmailAttachmentChecks(check) {
     }),
   ];
   const quotaGmail = createFixtureGmail({ messages: quotaBoundMessages, attachmentContents: { "q1/ATT-Q": "y".repeat(100) } });
-  const quotaBoundStore = createMemoryStore();
+  const quotaBoundStore = servedMemoryStore();
   const quotaBoundResult = await syncDayFromGmail({
     store: quotaBoundStore,
     fetchImpl: quotaGmail.fetchImpl,
@@ -309,7 +314,7 @@ export async function runGmailAttachmentChecks(check) {
   // -- metadata-only mode never fetches ------------------------------------------
 
   const metadataOnlyGmail = createFixtureGmail({ messages: attachmentMessages, attachmentContents: { "att1/ATT-1": "pdf-bytes!!" } });
-  const metadataOnlyStore = createMemoryStore();
+  const metadataOnlyStore = servedMemoryStore();
   await syncDayFromGmail({
     store: metadataOnlyStore,
     fetchImpl: metadataOnlyGmail.fetchImpl,
@@ -355,7 +360,7 @@ export async function runGmailAttachmentChecks(check) {
     messages: dedupMessages,
     attachmentContents: { "dup1/ATT-A": "identical", "dup2/ATT-B": "identical" },
   });
-  const dedupStore = createMemoryStore();
+  const dedupStore = servedMemoryStore();
   await syncDayFromGmail({
     store: dedupStore,
     fetchImpl: dedupGmail.fetchImpl,

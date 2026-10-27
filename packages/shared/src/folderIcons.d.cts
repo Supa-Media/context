@@ -27,6 +27,8 @@ export declare const DEFAULT_INBOX_FOLDER_ICONS: Readonly<Record<string, string>
 /** The default icon of `tex/`: drawn as Tex, calm, never as text. */
 export declare const TEX_FIGURE_ICON: "context:tex";
 export declare function defaultFolderIcon(path: string): string | null;
+/** The drawn icon of a path inside Tex's folder (`about-me.md`, `routines/every-day`), or `null`. */
+export declare function texPartIcon(inside: string): string | null;
 export declare function parseFolderIcons(text: string | null | undefined): FolderIcons;
 export declare function serializeFolderIcons(icons: FolderIcons): string;
 export declare function iconsAfterMove(icons: FolderIcons, from: string, to: string): FolderIcons | null;

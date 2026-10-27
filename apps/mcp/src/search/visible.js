@@ -48,7 +48,6 @@
  */
 
 import { isEncryptedNote } from "../encryption.js";
-import { readAtTreeName } from "../moves/queued.js";
 import { messageSegmentFor } from "./commsIndex.js";
 import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
@@ -364,11 +363,11 @@ async function answerFromIndex(store, options) {
     readSnippets = true,
   } = options;
 
-  // One op, and the only thing between a caller and an answer. `null` is every way
-  // the manifest can fail to arrive; both surfaces say something other than "no matches".
-  const manifest = await loadIndexManifest(store, budget, limit).catch(() => null);
-  const indexHasDocs = Boolean(manifest && manifest.stats.some((entry) => entry.docCount > 0));
-  if (!indexHasDocs) return { indexed: false };
+  // One op, and the only thing between a caller and an answer. `null` is every way the manifest can fail to
+  // arrive; a refused read is also `unreachable`, so a per-source caller says "failed", not "indexing".
+  const manifest = await loadIndexManifest(store, budget, limit).catch(() => "unreachable");
+  const indexHasDocs = Boolean(manifest && manifest !== "unreachable" && manifest.stats.some((entry) => entry.docCount > 0));
+  if (!indexHasDocs) return manifest === "unreachable" ? { indexed: false, unreachable: true } : { indexed: false };
 
   // The caller's own share of `shedNotePathsOf(manifest)` — raw and
   // unfiltered until this line, exactly like `manifest.filters`. Computed
@@ -570,8 +569,8 @@ async function answerFromIndex(store, options) {
         // The body read is inside the `try` as well as the fetch. A backend can
         // hand back an object whose stream then fails, and a rejection there is
         // the same kind of failure as a refused GET: one hit's snippet, never
-        // the whole answer. Read at the tree's name while a folder move copies.
-        const object = await readAtTreeName(store, readPath, isVisible);
+        // the whole answer.
+        const object = await store.get(readPath);
         if (!object) return null;
         const text = await object.text();
         // A hit that turns out to be an encrypted note is dropped, exactly as a

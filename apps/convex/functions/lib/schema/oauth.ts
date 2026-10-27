@@ -191,6 +191,20 @@ export const oauthTables = {
         groupId: v.id("textGroups"),
         coViewerIds: v.array(v.id("users")),
         meterWorkspaceId: v.id("workspaces"),
+        /**
+         * Guest mode (`lib/textGroupGuests.ts`): the chat's own group, whose rows are all the grant reads, and
+         * whether the person who tagged Tex is a guest (not a member of `workspaceId`), so the grant is the
+         * binder's and acts for nobody's own account.
+         */
+        guestGroupId: v.optional(v.id("workspaceGroups")),
+        guestTagger: v.optional(v.boolean()),
+        /**
+         * Invited family (`lib/textGroupInvited.ts`): the phone invitations the chat counted as members, each of
+         * which must still count for the grant to resolve, and the invitation's role when an invited person tagged
+         * Tex, so the grant is the binder's, clamped to that role, and acts for nobody's own account.
+         */
+        coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
+        invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
       }),
     ),
     workspaceId: v.id("workspaces"),

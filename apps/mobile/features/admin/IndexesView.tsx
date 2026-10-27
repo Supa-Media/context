@@ -10,8 +10,7 @@
  *
  * Three cards since every reader moved to the Convex tree (the owner approved
  * the board, 2026-10-13): the file tree card is the migration's Convex copy,
- * its facts shown in each row's detail, and folder moves still copying show
- * on their workspace's row instead of a panel. The D1 tree's details and
+ * its facts shown in each row's detail. The D1 tree's details and
  * their Fill left in phase 7 of the migration. The card carries the switch
  * that pauses copying (`nodesMigration.setPaused`); since 2026-10-13 it no
  * longer sends anyone to the bucket, because no reader has a bucket path left
@@ -20,7 +19,7 @@
  * `nodesMigration.keepCurrent` copies every due workspace, and fills its
  * facts, every 15 minutes, and a row's Repair does the rest.
  *
- * Search by meaning, the copy, its facts and the moves are all live queries.
+ * Search by meaning, the copy and its facts are all live queries.
  */
 
 import { useMemo, useState } from "react";
@@ -35,7 +34,6 @@ import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
 import { fastRestartedLine, restartedLine, stuckMeaningCount } from "./meaningIndexes";
-import { StorageLag } from "./StorageLag";
 import {
   INDEXES,
   countParts,
@@ -54,15 +52,12 @@ type Said = { text: string; tone: "ok" | "crit" } | null;
 export function useIndexesAttention(): number | null {
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
   const migration = useQuery(api.functions.nodesMigration.report, {});
-  const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   return useMemo(
     () =>
       report === undefined
         ? null
-        : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []).filter(
-            needsAttention,
-          ).length,
-    [report, migration, moves],
+        : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false).filter(needsAttention).length,
+    [report, migration],
   );
 }
 
@@ -82,10 +77,6 @@ export function IndexesView() {
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
   const startMigration = useMutation(api.functions.nodesMigration.start);
   const checkMigration = useMutation(api.functions.nodesMigration.checkParity);
-  const setPrivacyAuthority = useMutation(api.functions.nodesMigration.setPrivacyAuthority);
-  const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
-  const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
-  const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
   const reseal = useMutation(api.functions.managedEncryption.resealWorkspace);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
@@ -94,10 +85,8 @@ export function IndexesView() {
 
   const rows = useMemo(
     () =>
-      report === undefined
-        ? null
-        : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []),
-    [report, migration, moves],
+      report === undefined ? null : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false),
+    [report, migration],
   );
   const paused = migration?.paused ?? false;
 
@@ -134,16 +123,6 @@ export function IndexesView() {
     });
   };
 
-  const togglePrivacy = () => {
-    const next = !(migration?.privacyAuthority ?? false);
-    return act("convex:privacy", async () => {
-      await setPrivacyAuthority({ on: next });
-      return next
-        ? "Privacy rules now come from Convex. Each privacy.md is written from them."
-        : "Privacy rules come from each privacy.md again.";
-    });
-  };
-
   const checkAll = () =>
     act("convex:check:all", async () => checkingLine((await checkMigration({})).started));
 
@@ -162,16 +141,6 @@ export function IndexesView() {
     migrationPaused: paused,
     repair,
     check: checkOne,
-    retryMove: (id) =>
-      void act(`retry:${id}`, async () => {
-        await retryMove({ id: id as Id<"moveQueue"> });
-        return "The move will try again now.";
-      }),
-    undoMove: (id) =>
-      void act(`undo:${id}`, async () => {
-        await undoMove({ id: id as Id<"moveQueue"> });
-        return "The folder is going back to where it was.";
-      }),
     reseal: (workspaceId) =>
       void act(`reseal:${workspaceId}`, async () => {
         await reseal({ workspaceId: workspaceId as Id<"workspaces"> });
@@ -187,7 +156,6 @@ export function IndexesView() {
 
   return (
     <View style={styles.view} testID="admin-indexes">
-      {moves ? <StorageLag lag={moves.lag} /> : null}
       <View style={styles.cards}>
         {INDEXES.map((index) => (
           <SummaryCard
@@ -207,8 +175,6 @@ export function IndexesView() {
                           ? "Copying paused · served live to everyone"
                           : `Copying paused since ${whenLabel(migration.changedAt, Date.now())} · served live to everyone`
                         : "Served live to everyone"}
-                      {migration.privacyAuthority ? " · rules from Convex" : " · rules from privacy.md"}
-                      {migration.owedExports > 0 ? ` (${migration.owedExports} files being written)` : ""}
                     </Text>
                     <Button
                       label={busy === "convex:pause" ? "Saving…" : paused ? "Resume copying" : "Pause copying"}
@@ -221,18 +187,6 @@ export function IndexesView() {
                       disabled={busy !== null || migration.rows.length === 0}
                       onPress={() => void checkAll()}
                       testID="admin-files-check-all"
-                    />
-                    <Button
-                      label={
-                        busy === "convex:privacy"
-                          ? "Saving…"
-                          : migration.privacyAuthority
-                            ? "Rules back to privacy.md"
-                            : "Rules from Convex"
-                      }
-                      disabled={busy !== null}
-                      onPress={() => void togglePrivacy()}
-                      testID="admin-convex-privacy"
                     />
                   </>
                 )

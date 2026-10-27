@@ -216,6 +216,7 @@ describe("the whole call, where a browser can ask for it", () => {
   test.each([
     ["the picker was cancelled", "cancelled" as PickerAnswer],
     ["the source shared carries no audio", "silent" as PickerAnswer],
+    ["the share's audio track is dead on arrival (macOS never allowed the browser)", "dead" as PickerAnswer],
   ])("%s: a microphone recording, and a sentence saying so", async (_name, answer) => {
     installSharing(answer);
     const { recorder, errors } = harness({ systemAudio: true });
@@ -238,13 +239,17 @@ describe("the whole call, where a browser can ask for it", () => {
    * recording it contributes nothing to — the worst of both: somebody watching
    * a "sharing" indicator while their call is not in the transcript.
    */
-  test("a source with no audio is let go rather than held", async () => {
-    installSharing("silent");
-    const { recorder } = harness({ systemAudio: true });
-    await recorder.start();
-    expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
-    await recorder.stop();
-  });
+  test.each([["silent" as PickerAnswer], ["dead" as PickerAnswer]])(
+    "a source with no live audio (%s) is let go rather than held, and is not mixed in",
+    async (answer) => {
+      installSharing(answer);
+      const { recorder } = harness({ systemAudio: true });
+      await recorder.start();
+      expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
+      expect(recordedStream()).toBe("microphone");
+      await recorder.stop();
+    },
+  );
 
   test("a browser that cannot mix records the microphone and says so", async () => {
     /*

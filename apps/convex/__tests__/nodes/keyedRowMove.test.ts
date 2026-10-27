@@ -1,9 +1,20 @@
 import { describe, expect, test } from "vitest";
+import { onStoredPaths } from "./treeRows.helpers";
 import { internal } from "../../_generated/api";
-import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
+import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, fixture, listed, start } from "./moveFixture.helpers";
-import { NOTE_ID, bytesOf, keyedFixture, liveAt, logOf, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
+import {
+  NOTE_ID,
+  bytesOf,
+  keyedFixture,
+  liveAt,
+  logOf,
+  privacyEtag,
+  rowOf,
+  treeOf,
+} from "./keyedFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 describe("a keyed workspace moves rows, not bytes", () => {
   test("renaming a file changes its row's path and leaves its id, key, etag and bytes where they were", async () => {
@@ -21,7 +32,7 @@ describe("a keyed workspace moves rows, not bytes", () => {
     expect(await liveAt(f, "1-projects/keep.md")).toBe(false);
     // Nothing was copied, deleted or queued: every object the bucket held is still exactly there.
     expect(bytesOf(f)).toEqual(bytesBefore);
-    expect(await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws })).toEqual([]);
+    expect(await f.t.query(internal.functions.nodeRowMoves.drawn, { workspaceId: f.ws })).toEqual([]);
     expect(await listed(f.owner, f.ws, "1-projects")).toContain("1-projects/kept.md");
     expect(await listed(f.owner, f.ws, "1-projects")).not.toContain("1-projects/keep.md");
   });
@@ -126,22 +137,25 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("a live row beneath the destination refuses the move, though nothing sits at the destination itself", async () => {
-    const f = await keyedFixture();
-    await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodes", {
-        workspaceId: f.ws,
-        noteId: NOTE_ID(254),
-        path: "3-resources/launch/orphan.md",
-        name: "orphan.md",
-        kind: "file",
-        storageKey: `notes/${NOTE_ID(254)}.md`,
-        observedAt: 1,
+  test("a live row beneath the destination refuses the move, though nothing sits at the destination itself", () =>
+    onStoredPaths(async () => {
+      const f = await keyedFixture();
+      await f.t.run(async (ctx) => {
+        await ctx.db.insert("nodes", {
+          workspaceId: f.ws,
+          noteId: NOTE_ID(254),
+          path: "3-resources/launch/orphan.md",
+          name: "orphan.md",
+          kind: "file",
+          storageKey: `notes/${NOTE_ID(254)}.md`,
+          observedAt: 1,
+        });
       });
-    });
 
-    await expect(start(f, "1-projects/launch", "3-resources/launch")).rejects.toMatchObject({ code: "DESTINATION_EXISTS" });
-  });
+      await expect(
+        start(f, "1-projects/launch", "3-resources/launch"),
+      ).rejects.toMatchObject({ code: "DESTINATION_EXISTS" });
+    }));
 
   test("a note with no key yet in the subtree is refused, and nothing moves", async () => {
     const f = await keyedFixture();
@@ -156,36 +170,11 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("a queued byte move still pending in the workspace makes the keyed move wait", async () => {
-    const f = await keyedFixture();
-    await f.t.run(async (ctx) => {
-      await ctx.db.insert("moveQueue", {
-        workspaceId: f.ws,
-        from: "1-projects/old",
-        to: "3-resources/old",
-        kind: "folder",
-        state: "moving",
-        scope: "private",
-        grantedNames: [],
-        total: 1,
-        moved: 0,
-        added: { folders: [], notes: [] },
-        attempts: 0,
-        nextAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-
-    await expect(start(f, "1-projects/keep.md", "1-projects/kept.md")).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await liveAt(f, "1-projects/keep.md")).toBe(true);
-  });
-
   test("a file asked against an out-of-date version is refused, and the current version moves", async () => {
     const f = await keyedFixture();
     const row = await rowOf(f, "1-projects/keep.md");
     const run = (expectedEtag: string) =>
-      startQueuedMove(f.ctx, {
+      startRowMove(f.ctx, {
         workspaceId: f.ws,
         store: f.store,
         from: "1-projects/keep.md",
@@ -208,53 +197,81 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     const treeBefore = await treeOf(f);
 
     await expect(
-      startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from: "1-projects", to: "3-resources/projects", clearance: TEAM, now: Date.now() }),
+      startRowMove(f.ctx, { workspaceId: f.ws, store: f.store, from: "1-projects", to: "3-resources/projects", clearance: TEAM, now: Date.now() }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("a folder of one row more than the cap moves whole, in pages, at the real limit (`keyedChunkedMove.test.ts`)", async () => {
+  test("plumbing hides nothing from one caller more than another, so a folder holding it still moves", async () => {
     const f = await keyedFixture();
+    const launch = await rowOf(f, "1-projects/launch");
     await f.t.run(async (ctx) => {
-      const folder = await ctx.db.insert("nodes", {
+      await ctx.db.insert("nodes", {
         workspaceId: f.ws,
-        noteId: NOTE_ID(253),
-        path: "2-areas/big",
-        name: "big",
-        kind: "folder",
+        noteId: NOTE_ID(254),
+        path: "1-projects/launch/.manifest.json",
+        parentId: launch._id,
+        name: ".manifest.json",
+        kind: "file",
         observedAt: 1,
-      });
-      for (let index = 0; index < 501; index += 1) {
-        await ctx.db.insert("nodes", {
-          workspaceId: f.ws,
-          noteId: NOTE_ID(1000 + index),
-          path: `2-areas/big/n${index}.md`,
-          parentId: folder,
-          name: `n${index}.md`,
-          kind: "file",
-          etag: "e",
-          observedAt: 1,
-          storageKey: `notes/${NOTE_ID(1000 + index)}.md`,
-        });
-      }
+        storageKey: "1-projects/launch/.manifest.json",
+      } as never);
     });
 
-    const moved = await start(f, "2-areas/big", "3-resources/big");
+    const moved = await startRowMove(f.ctx, {
+      workspaceId: f.ws,
+      store: f.store,
+      from: "1-projects/launch",
+      to: "3-resources/launch",
+      clearance: TEAM,
+      now: Date.now(),
+    });
 
-    expect(moved).toMatchObject({ rowed: true, queued: 501 });
-    expect(await liveAt(f, "2-areas/big/n0.md")).toBe(false);
-    expect(await liveAt(f, "3-resources/big/n500.md")).toBe(true);
+    expect(moved).toMatchObject({ rowed: true });
+    expect(await liveAt(f, "3-resources/launch/.manifest.json")).toBe(true);
+    // A note the team cannot see still refuses its folder (the test above), plumbing beside it or not.
   });
+
+  test("a folder of one row more than the cap moves whole, in pages, at the real limit (`keyedChunkedMove.test.ts`)", () =>
+    onStoredPaths(async () => {
+      const f = await keyedFixture();
+      await f.t.run(async (ctx) => {
+        const folder = await ctx.db.insert("nodes", {
+          workspaceId: f.ws,
+          noteId: NOTE_ID(253),
+          path: "2-areas/big",
+          name: "big",
+          kind: "folder",
+          observedAt: 1,
+        });
+        for (let index = 0; index < 501; index += 1) {
+          await ctx.db.insert("nodes", {
+            workspaceId: f.ws,
+            noteId: NOTE_ID(1000 + index),
+            path: `2-areas/big/n${index}.md`,
+            parentId: folder,
+            name: `n${index}.md`,
+            kind: "file",
+            etag: "e",
+            observedAt: 1,
+            storageKey: `notes/${NOTE_ID(1000 + index)}.md`,
+          });
+        }
+      });
+
+      const moved = await start(f, "2-areas/big", "3-resources/big");
+
+      expect(moved).toMatchObject({ rowed: true, queued: 501 });
+      expect(await liveAt(f, "2-areas/big/n0.md")).toBe(false);
+      expect(await liveAt(f, "3-resources/big/n500.md")).toBe(true);
+    }));
 
   test("a note that arrived under the folder after the caller judged it is refused as changed, and nothing moves", async () => {
     const f = await keyedFixture();
     const judged = await f.t.query(internal.functions.nodeRowMoves.plan, { workspaceId: f.ws, from: "1-projects/launch" });
     await f.t.run(async (ctx) => {
-      const launch = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects/launch"))
-        .unique();
+      const launch = await treeNodeAt(ctx.db, f.ws, "1-projects/launch");
       await ctx.db.insert("nodes", {
         workspaceId: f.ws,
         noteId: NOTE_ID(900),
@@ -301,44 +318,38 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("the mutation counts the cap itself, the name included: one row too many is too_large, the exact cap moves", async () => {
-    const f = await keyedFixture();
-    // `1-projects/launch` holds six live rows: the folder itself, its sub folder and four files.
-    const privacy = await privacyEtag(f);
-    const tooSmall = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
-      workspaceId: f.ws,
-      from: "1-projects/launch",
-      to: "3-resources/launch",
-      privacyEtag: privacy,
-      now: Date.now(),
-      maxRows: 5,
-    });
-    expect(tooSmall).toEqual({ ok: false, reason: "too_large" });
-    expect(await liveAt(f, "1-projects/launch")).toBe(true);
+  test("the mutation counts the cap itself, the name included: one row too many is too_large, the exact cap moves", () =>
+    onStoredPaths(async () => {
+      const f = await keyedFixture();
+      // `1-projects/launch` holds six live rows: the folder itself, its sub folder and four files.
+      const privacy = await privacyEtag(f);
+      const tooSmall = await f.t.mutation(
+        internal.functions.nodeRowMoves.rowMove,
+        {
+          workspaceId: f.ws,
+          from: "1-projects/launch",
+          to: "3-resources/launch",
+          privacyEtag: privacy,
+          now: Date.now(),
+          maxRows: 5,
+        },
+      );
+      expect(tooSmall).toEqual({ ok: false, reason: "too_large" });
+      expect(await liveAt(f, "1-projects/launch")).toBe(true);
 
-    const exact = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
-      workspaceId: f.ws,
-      from: "1-projects/launch",
-      to: "3-resources/launch",
-      privacyEtag: privacy,
-      now: Date.now(),
-      maxRows: 6,
-    });
-    expect(exact).toMatchObject({ ok: true, kind: "folder", rows: 6 });
-  });
-
-  test("a row move of a non-keyed workspace is refused as not keyed, and changes nothing", async () => {
-    const f = await fixture();
-    const answer = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
-      workspaceId: f.ws,
-      from: "1-projects/keep.md",
-      to: "1-projects/kept.md",
-      privacyEtag: null,
-      now: Date.now(),
-    });
-    expect(answer).toEqual({ ok: false, reason: "not_keyed" });
-    expect(await liveAt(f, "1-projects/keep.md")).toBe(true);
-  });
+      const exact = await f.t.mutation(
+        internal.functions.nodeRowMoves.rowMove,
+        {
+          workspaceId: f.ws,
+          from: "1-projects/launch",
+          to: "3-resources/launch",
+          privacyEtag: privacy,
+          now: Date.now(),
+          maxRows: 6,
+        },
+      );
+      expect(exact).toMatchObject({ ok: true, kind: "folder", rows: 6 });
+    }));
 });
 
 describe("what a keyed move carries with it", () => {
@@ -409,27 +420,5 @@ describe("what a keyed move carries with it", () => {
     await expect(start(f, "1-projects/secret/codes.md", "3-resources/r.md")).rejects.toMatchObject({ code: "DESTINATION_EXISTS" });
 
     expect(f.store.snapshot()[PRIVACY_KEY]).toBe(rulesBefore);
-  });
-});
-
-describe("a workspace that is not keyed still moves the old way", () => {
-  test("a folder moves as a queued byte move, with no row change", async () => {
-    const f = await fixture();
-    const moved = await start(f, "1-projects/launch", "3-resources/launch");
-    expect(moved).toMatchObject({ from: "1-projects/launch", to: "3-resources/launch", queued: 4 });
-    expect(moved).not.toHaveProperty("rowed");
-  });
-
-  test("a single note moves the old way: the keyed branch does not answer", async () => {
-    const f = await fixture();
-    const answer = await startQueuedMove(f.ctx, {
-      workspaceId: f.ws,
-      store: f.store,
-      from: "1-projects/keep.md",
-      to: "1-projects/kept.md",
-      clearance: OWNER,
-      now: Date.now(),
-    });
-    expect(answer).toBeNull();
   });
 });

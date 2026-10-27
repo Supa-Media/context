@@ -7,6 +7,11 @@
 import { GmailHistoryExpiredError, getMessage, getProfileHistoryId, listAllHistory, listAllMessageIds, runIncrementalSync, writeDayPart } from "../../src/communications/gmailSync.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 export async function runGmailRestCallsChecks(check) {
   // -- Gmail REST calls, against the fixture server ------------------------------
 
@@ -78,9 +83,9 @@ export async function runGmailRestCallsChecks(check) {
     runs every few minutes against one of those is where rewriting an unchanged
     day forever actually costs somebody money.
   */
-  const plainStore = createMemoryStore({ conditionalWrite: false });
+  const plainStore = servedMemoryStore({ conditionalWrite: false });
   const plainPart = {
-    path: "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
+    path: "inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
     text: "# a day\n",
   };
   const firstPlainWrite = await writeDayPart(plainStore, plainPart);
@@ -139,7 +144,7 @@ export async function runGmailRestCallsChecks(check) {
     },
   });
   const truncatedSync = await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: truncatedSyncGmail.fetchImpl,
     accessToken: "tok",
     mailboxSlug: "person-at-example-invalid",

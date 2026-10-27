@@ -29,6 +29,34 @@ export const agentTurnTables = {
     rounds: v.number(),
     inputTokens: v.number(),
     outputTokens: v.number(),
+    /**
+     * Where the turn came from (`TURN_KINDS`, `functions/agentTurns.ts`): a
+     * person's own texts, a group chat, a background job, a routine, or the
+     * app. Missing on turns from before 2026-10-24.
+     */
+    kind: v.optional(v.union(v.literal("one"), v.literal("group"), v.literal("job"), v.literal("routine"), v.literal("app"))),
+    /** Prompt tokens read from and written to the provider's cache, beside `inputTokens`. */
+    cacheReadTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    /**
+     * What the turn cost at list price, in millionths of a US dollar, priced
+     * per model from `MODEL_USD_PER_MTOK` (`lib/jev/meter.ts`) when the
+     * gateway sent each model's own counts.
+     */
+    costMicroUsd: v.optional(v.number()),
+    /** Each model the turn ran on and what it spent there: a planned turn runs on two. */
+    models: v.optional(
+      v.array(
+        v.object({
+          model: v.string(),
+          inputTokens: v.number(),
+          outputTokens: v.number(),
+          cacheReadTokens: v.number(),
+          cacheWriteTokens: v.number(),
+          costMicroUsd: v.number(),
+        }),
+      ),
+    ),
     /** In order: each model round, and each tool call between them. */
     trace: v.array(
       v.object({
@@ -55,5 +83,7 @@ export const agentTurnTables = {
     ),
   })
     .index("by_at", ["at"])
-    .index("by_workspace_at", ["workspaceId", "at"]),
+    .index("by_workspace_at", ["workspaceId", "at"])
+    // A finished conversation's turns, for its review's cost (`texReviews.recordScores`).
+    .index("by_grant_at", ["grantId", "at"]),
 };

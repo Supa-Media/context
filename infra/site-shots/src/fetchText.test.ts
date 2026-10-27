@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fromMarkdown, htmlToText } from "./fetchText";
-import { MAX_LINKS, MAX_TEXT_CHARS } from "./read";
+import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fetchRead, fromMarkdown, htmlToText } from "./fetchText";
+import { MAX_IMAGES, MAX_LINKS, MAX_TEXT_CHARS, keepImages } from "./read";
 
 type Reply = { status?: number; type?: string; body?: string; location?: string; throws?: boolean };
 
@@ -35,6 +35,7 @@ describe("fetchPage", () => {
       text: "# Pricing\n\nPro is $12. See [Teams](/teams) and ![logo](/logo.png).",
       truncated: false,
       links: [{ text: "Teams", href: "https://example.com/teams" }],
+      images: [], // the logo is the site's furniture, not its subject
       via: "markdown",
     });
   });
@@ -48,6 +49,28 @@ describe("fetchPage", () => {
     expect(await fetchPage("https://example.com/html", impl)).toBeNull();
     expect(await fetchPage("https://example.com/gone", impl)).toBeNull();
     expect(await fetchPage("https://example.com/down", impl)).toBeNull();
+  });
+
+  it("says when the site turned the request away, so Browserbase's Fetch API is worth a try", async () => {
+    const challenged = new Headers({ "content-type": "text/html", "cf-mitigated": "challenge" });
+    const { impl } = fakeFetch({
+      "https://shop.example/403": { status: 403, type: "text/html", body: "Access denied" },
+      "https://shop.example/429": { status: 429 },
+      "https://shop.example/down": { throws: true },
+      "https://shop.example/404": { status: 404, type: "text/html", body: "Not found" },
+      "https://shop.example/js": { type: "text/html", body: "<div id=root></div>" },
+    });
+    for (const path of ["403", "429", "down"]) {
+      expect(await fetchRead(`https://shop.example/${path}`, impl)).toEqual({ page: null, refused: true });
+    }
+    // Not refusals: a page that is not there, and one only a browser can draw.
+    for (const path of ["404", "js"]) {
+      expect(await fetchRead(`https://shop.example/${path}`, impl)).toEqual({ page: null, refused: false });
+    }
+    for (const status of [200, 403]) {
+      const challenge = async () => new Response("Just a moment", { status, headers: challenged });
+      expect(await fetchRead("https://shop.example/", challenge)).toEqual({ page: null, refused: true });
+    }
   });
 
   it("follows a redirect to another public page, and reports where it ended", async () => {
@@ -139,6 +162,56 @@ describe("ordinary HTML, without a browser", () => {
     } finally {
       globalThis.fetch = real;
     }
+  });
+});
+
+describe("a page's pictures, for visual answers", () => {
+  it("keeps the share picture first, then the page's own photos, public https only, without logos, icons or SVG", async () => {
+    const shop = `<!doctype html><html><head><title>Wrap midi | Shop</title>
+      <meta property="og:image" content="https://cdn.shop.example/wrap-midi-front.jpg"></head><body>
+      <img src="/assets/logo.png" alt="Shop"><img src="https://cdn.shop.example/icons/cart.svg" alt="">
+      <main><article><h1>Wrap midi dress</h1>
+      <img src="/media/wrap-midi-back.jpg" alt="Back view">
+      <img data-src="https://cdn.shop.example/wrap-midi-side.jpg" alt="Side view">
+      <img src="http://insecure.example/x.jpg" alt="Insecure"><img src="https://10.0.0.1/x.jpg" alt="Private">
+      <img src="data:image/gif;base64,R0lGOD" alt="Pixel">
+      ${"<p>A wrap dress in black crepe, cut to the midi length, with a tie at the waist and a lined skirt.</p>".repeat(4)}
+      </article></main></body></html>`;
+    const { impl } = fakeFetch({ "https://shop.example/wrap-midi": { type: "text/html", body: shop } });
+    const page = await fetchPage("https://shop.example/wrap-midi", impl);
+    expect(page?.images).toEqual([
+      { alt: "", src: "https://cdn.shop.example/wrap-midi-front.jpg" },
+      { alt: "Back view", src: "https://shop.example/media/wrap-midi-back.jpg" },
+      { alt: "Side view", src: "https://cdn.shop.example/wrap-midi-side.jpg" },
+    ]);
+  });
+
+  // Dev2, 2026-10-26: a card of restaurants "didn't even fill in the dishes, or logos".
+  it("names the site's logo from its home-screen icon, kept apart from the photos", async () => {
+    const place = `<!doctype html><html><head><title>Hav &amp; Mar</title>
+      <link rel="icon" href="/favicon.ico"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"></head><body><main>
+      ${"<p>Marcus Samuelsson's Chelsea restaurant, Ethiopian and Nordic cooking, open daily from five.</p>".repeat(4)}
+      </main></body></html>`;
+    const { impl } = fakeFetch({ "https://havandmar.example/": { type: "text/html", body: place } });
+    const page = await fetchPage("https://havandmar.example/", impl);
+    expect(page?.logo).toBe("https://havandmar.example/apple-touch-icon.png");
+    expect(page?.images).toEqual([]);
+  });
+
+  it("takes a Markdown page's pictures, resolved against the page, at most MAX_IMAGES", () => {
+    const many = Array.from({ length: 20 }, (_, i) => `![Dish ${i}](/menu/dish-${i}.jpg)`).join("\n");
+    const page = fromMarkdown("https://food.example/menu", `# Menu\n\n${many}`);
+    expect(page.images?.length).toBe(MAX_IMAGES);
+    expect(page.images?.[0]).toEqual({ alt: "Dish 0", src: "https://food.example/menu/dish-0.jpg" });
+  });
+
+  it("keepImages leaves out anything not a public https picture", () => {
+    expect(
+      keepImages(
+        [{ src: "javascript:alert(1)" }, { src: "https://localhost/a.jpg" }, { src: "https://a.example/favicon.ico" }, { src: 42 }, { src: "https://a.example/p.jpg", alt: "  A  photo " }, { src: "https://a.example/p.jpg" }],
+        "https://a.example/",
+      ),
+    ).toEqual([{ alt: "A photo", src: "https://a.example/p.jpg" }]);
   });
 });
 

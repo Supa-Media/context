@@ -49,7 +49,7 @@ import {
  */
 
 const base: IngestionDraft = {
-  targetFolder: "0-inbox/",
+  targetFolder: "inbox/",
   allowedSenders: ["seyi@publicworship.life"],
   allowedDomains: [],
   allowAnySender: false,
@@ -59,13 +59,13 @@ const base: IngestionDraft = {
 
 describe("the target folder", () => {
   test("the default is the PARA inbox", () => {
-    expect(DEFAULT_TARGET_FOLDER).toBe("0-inbox/");
-    expect(emptyDraft().targetFolder).toBe("0-inbox/");
+    expect(DEFAULT_TARGET_FOLDER).toBe("inbox/");
+    expect(emptyDraft().targetFolder).toBe("inbox/");
   });
 
   test("every spelling somebody might type normalises to one key prefix", () => {
-    expect(normaliseFolder("0-inbox")).toBe("0-inbox/");
-    expect(normaliseFolder("/0-inbox/")).toBe("0-inbox/");
+    expect(normaliseFolder("inbox")).toBe("inbox/");
+    expect(normaliseFolder("/inbox/")).toBe("inbox/");
     expect(normaliseFolder("  2-areas/receipts  ")).toBe("2-areas/receipts/");
     expect(normaliseFolder("2-areas//receipts")).toBe("2-areas/receipts/");
   });
@@ -78,15 +78,15 @@ describe("the target folder", () => {
 
   test("the dot folders are the bucket's, not yours", () => {
     expect(describeFolderProblem(".history")).toMatch(/reserved/);
-    expect(describeFolderProblem("1-projects/.audit")).toMatch(/reserved/);
+    expect(describeFolderProblem("projects/.audit")).toMatch(/reserved/);
   });
 
   test("a path that is not a path is refused", () => {
-    expect(describeFolderProblem("1-projects/../../etc")).toMatch(/not a folder path/);
+    expect(describeFolderProblem("projects/../../etc")).toMatch(/not a folder path/);
   });
 
   test("a real folder is accepted, nested or not", () => {
-    expect(describeFolderProblem("0-inbox/")).toBeNull();
+    expect(describeFolderProblem("inbox/")).toBeNull();
     expect(describeFolderProblem("2-areas/receipts")).toBeNull();
   });
 
@@ -306,7 +306,7 @@ describe("saving only what changed", () => {
   });
 
   test("re-typing the same folder in another spelling is not a change", () => {
-    expect(isDirty({ ...base, targetFolder: "0-inbox" }, base)).toBe(false);
+    expect(isDirty({ ...base, targetFolder: "inbox" }, base)).toBe(false);
   });
 
   test("reordering a list is not a change", () => {
@@ -331,7 +331,7 @@ describe("saving only what changed", () => {
   test("draftOf drops the address, which is issued rather than chosen", () => {
     const draft = draftOf({
       address: "seyi@context.lc",
-      targetFolder: "0-inbox/",
+      targetFolder: "inbox/",
       allowedSenders: [],
       allowedDomains: [],
       allowAnySender: false,
@@ -342,7 +342,7 @@ describe("saving only what changed", () => {
   test("draftOf copies the lists rather than aliasing them", () => {
     const settings = {
       address: "seyi@context.lc",
-      targetFolder: "0-inbox/",
+      targetFolder: "inbox/",
       allowedSenders: ["a@b.com"],
       allowedDomains: [],
       allowAnySender: false,
@@ -611,7 +611,7 @@ function settings() {
   return {
     address: "seyi@context.lc",
     receiving: true,
-    targetFolder: "0-inbox/",
+    targetFolder: "inbox/",
     allowedSenders: ["seyi@publicworship.life"],
     allowedDomains: [],
     allowAnySender: false,

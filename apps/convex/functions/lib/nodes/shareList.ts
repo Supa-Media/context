@@ -17,10 +17,11 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { resolveGroupMembers } from "../../groups";
 import { groupLabelOf } from "../names";
+import { personalWorkspaceOf } from "../faces/people";
 import { getMembership } from "../workspaceAuth";
-import { accessSourceOf } from "./accessBackfill";
 import { accessVersionOf } from "./accessRows";
 import { MAX_DOMAINS_PER_WORKSPACE } from "../../workspaceDomains";
+import { nodeAt } from "./paths";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 
@@ -74,11 +75,12 @@ export const shareListValidator = v.union(
 export type ShareEntry = Infer<typeof shareEntryValidator>;
 export type ShareList = Infer<typeof shareListValidator>;
 
-async function rowAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+async function rowAt(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(ctx.db, workspaceId, path);
 }
 
 async function listOf(ctx: QueryCtx, row: Doc<"nodes">): Promise<Doc<"nodeAccess">[]> {
@@ -119,7 +121,10 @@ async function entriesOf(
       const member = (await getMembership(ctx, workspace._id, grant.granteeUserId)) !== null;
       // An address is shown for a member only: the owner sees members' addresses on the members list already.
       const email = member ? (user.email ?? undefined) : undefined;
-      const label = user.name ?? email ?? "Someone outside this workspace";
+      // Someone outside is shown by their @handle where they hold one: the owner may have typed only that, and
+      // their name is not the owner's to learn from it. Without a handle, the name as before.
+      const handle = member ? undefined : (await personalWorkspaceOf(ctx, grant.granteeUserId))?.slug;
+      const label = handle !== undefined ? `@${handle}` : (user.name ?? email ?? "Someone outside this workspace");
       out.push({
         kind: "user",
         userId: grant.granteeUserId,
@@ -159,7 +164,6 @@ export async function shareListHandler(
   if (userId === null) return null;
   const membership = await getMembership(ctx, args.workspaceId, userId);
   if (membership === null || membership.role !== "owner") return null;
-  if ((await accessSourceOf(ctx.db)) !== "rows") return null;
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return null;
   const row = await rowAt(ctx, args.workspaceId, args.path);

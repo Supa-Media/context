@@ -94,6 +94,8 @@ before(async () => {
   restore.push(s3.install());
   const controlPlane = createControlPlaneStub();
   restore.push(controlPlane.install());
+  // The rules a binding carries are rendered from the tree this bucket serves.
+  controlPlane.serveTreesFrom(null, { s3 });
 
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -220,6 +222,38 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 6,500 when they were told to send the link a note read carries (noteLinks.js),
   // and from 7,000 when every turn was told when to offer a shared workspace (workspaces.js; 7,664 then),
   // and from 8,000 when texted turns were told where their calendar and email sync to (prompt.js; 8,150 then),
-  // and from 8,500 when they were told to answer a call from the meetings list (prompt.js, MEETINGS_LINE; 8,7xx then).
-  assert.ok(system.length < 9_000, `system was ${system.length} characters`);
+  // and from 8,500 when they were told to answer a call from the meetings list (prompt.js, MEETINGS_LINE; 8,7xx then),
+  // and from 9,000 when they were told never to hand back work they can do (prompt.js, DO_IT_YOURSELF_LINE, 2026-10-22),
+  // and from 9,600 when that line became the adopted hand-back rule: what they may be asked for, captchas only after every try (9,884 then).
+  // and from 10,000 when they were told what they can do outside the notes and to keep a fact the moment it's given (ACTIONS_LINE, REMEMBER_LINE, 2026-10-23; 11,035 then).
+  // and from 11,500 when a texter with no Gmail connected, or one that can only be read, is offered it once (googleOffer.js, 2026-10-23).
+  // and from 12,000 when a note they ask for is saved, and filed in the subfolder that fits (prompt.js, SAVING_LINE, 2026-10-24; 12,244 then).
+  // and from 12,500 when they were told a reorganize they ask for is theirs to do at once (prompt.js, REORGANIZE_LINE, 2026-10-25).
+  // and from 13,000 when they were told to push back once on a request against their goals, and never flatter (pushback.js, OPINION_LINE, 2026-10-25; 13,647 then).
+  // and from 14,000 when they were told to ask the one brief-changing question and price the whole figure (prompt.js, RESEARCH_LINE, 2026-10-26; 14,278 then).
+  // and from 14,500 when they were told when to answer with a designed card and keep the words to one line (visuals/index.js, VISUALS_LINE, 2026-10-26; 15,189 then).
+  // and from 15,500 when asked-for options carry the fact that decides each, and a card that won't draw leaves the words (RESEARCH_LINE, VISUALS_LINE, 2026-10-26; 15,576 then).
+  // and from 16,000 when they were told one name can be two people and where a lesson for Tex goes (SAME_NAME_LINE, LESSONS_LINE, 2026-10-26; 16,120 then).
+  assert.ok(system.length < 16_500, `system was ${system.length} characters`);
+});
+
+test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /do it yourself in this turn: a move keeps who can see each note/);
+  assert.match(system, /Several notes go in one move_notes/);
+});
+
+test("a texted turn by somebody with no Gmail connected is asked to offer it once (owner, 2026-10-23)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /they have no Gmail connected yet/);
+  assert.match(system, /manage connect_google \(kind gmail\)/);
+});
+
+test("a texted turn saves a note it's asked for, and files it in the subfolder that fits (self-review, 2026-10-24)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /Never refuse twice/);
+  assert.match(system, /put it in the one that fits/);
 });

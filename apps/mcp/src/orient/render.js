@@ -6,6 +6,7 @@
  * beside it.
  */
 
+import { CHANNEL_FOLDERS, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { classifyCaptureKind } from "../communications/paths.js";
 import { createSearchBudget } from "../search/maintain.js";
 import { INSTRUCTIONS_NAME_CHAR_CAP } from "../mcp/instructions.js";
@@ -98,11 +99,11 @@ function capturedKindLabel(kind, notes) {
   if (kind === "meeting") return `${count} meeting${plural}`;
   if (kind === "session") return `${count} saved session${plural}`;
   if (kind === "calendar-day") return `${count} calendar day${plural}`;
-  const allEmail = notes.every((note) => note.key.startsWith("0-inbox/email/"));
+  // Under the Inbox by either of its names, `inbox` or the numbered `0-inbox` (`asInboxKey`).
+  const under = (note, folder) => asInboxKey(note.key).startsWith(`${CHANNEL_FOLDERS[folder]}/`);
+  const allEmail = notes.every((note) => under(note, "email"));
   if (allEmail) return `${count} mail day${plural}`;
-  const allChat = notes.every(
-    (note) => note.key.startsWith("0-inbox/google-chat/") || note.key.startsWith("0-inbox/imessage/")
-  );
+  const allChat = notes.every((note) => under(note, "google-chat") || under(note, "imessage"));
   if (allChat) return `${count} chat day${plural}`;
   return `${count} channel-day note${plural}`;
 }

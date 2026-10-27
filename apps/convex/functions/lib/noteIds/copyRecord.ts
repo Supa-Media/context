@@ -11,10 +11,8 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
-import { applyObservation } from "../nodes/observe";
-import { convexNodeTable } from "../nodes/convexTable";
 import { COPY_FAILED_LABEL, COPY_HEAL_MAX, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
-import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
+import { copyRowOf, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
 
 export type CopyResult = {
   path: string;
@@ -30,14 +28,13 @@ export type CopyResult = {
 };
 export type CopyRefusal = { noteId: string; reason: string };
 
-/** A lease for this run's next page, or `null` when the run is not current, paused, or already leased. */
+/** A lease for this run's next page, or `null` when the run is not current or already leased. */
 export async function claimCopyRun(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces">; runId: number; now: number },
 ): Promise<{ cursor?: string } | null> {
   const row = await copyRowOf(ctx.db, args.workspaceId);
   if (row === null || row.runId !== args.runId || row.status !== "copying") return null;
-  if (await idCopyPaused(ctx.db)) return null;
   if (leaseHeld(row, args.now)) return null;
   await ctx.db.patch(row._id, { leaseAt: args.now });
   return row.cursor === undefined ? {} : { cursor: row.cursor };
@@ -76,18 +73,14 @@ export async function failCopyRun(
  */
 async function refreshRow(
   ctx: MutationCtx,
-  workspaceId: Id<"workspaces">,
   node: NodeDoc,
   current: { etag: string; size?: number },
   at: number,
 ): Promise<void> {
-  await applyObservation(convexNodeTable(ctx, workspaceId), {
-    at,
-    rows: [{ path: node.path, etag: current.etag, size: current.size ?? node.size, uploaded: node.uploaded }],
-    gone: [],
-    vanishedUnder: [],
-    source: "bucket",
-  });
+  // The row is still at its path (not keyed yet), so it takes the object's version directly: the seam's observe
+  // only ever changes keyed rows, and nothing lists the bucket to bring this one up to date.
+  // A size the copy did not report is cleared rather than kept: the old one belongs to the old bytes.
+  await ctx.db.patch(node._id, { etag: current.etag, size: current.size, observedAt: at });
 }
 
 /** What one page's scan and copies add to the pass, and what the next step is. */
@@ -106,7 +99,7 @@ export interface CopyPageRecord {
   results: CopyResult[];
 }
 
-export type CopyNext = "more" | "restart" | "paused" | "done" | "stale";
+export type CopyNext = "more" | "restart" | "done" | "stale";
 
 /**
  * Apply one page: mark the copies that are still true, count the failures, and
@@ -149,7 +142,7 @@ export async function recordCopyPage(
         // The bucket holds a version the row does not: a writer changed the object without the tree hearing of it,
         // so the row is what is stale. Refresh it to the bucket's version (as a sweep would) and copy again next pass.
         // A note that keeps changing is healed a few passes in a row, then reported as changed.
-        await refreshRow(ctx, args.workspaceId, node, { etag: result.currentEtag, size: result.currentSize }, now);
+        await refreshRow(ctx, node, { etag: result.currentEtag, size: result.currentSize }, now);
         const heals = node.idHeals ?? 0;
         if (heals < COPY_HEAL_MAX) {
           await ctx.db.patch(node._id, { idHeals: heals + 1 });
@@ -182,15 +175,14 @@ export async function recordCopyPage(
   }
 
   const found = args.found || copiedAny || editedAny;
-  const paused = await idCopyPaused(ctx.db);
   const fields = { files, copied, failed, failures, leaseAt: undefined, updatedAt: now };
   if (!args.done) {
     await ctx.db.patch(row._id, { ...fields, cursor: args.next });
-    return { next: paused ? "paused" : "more", found };
+    return { next: "more", found };
   }
   if (found) {
     await ctx.db.patch(row._id, { ...fields, cursor: undefined });
-    return { next: paused ? "paused" : "restart", found };
+    return { next: "restart", found };
   }
   await ctx.db.patch(row._id, { ...fields, cursor: undefined, status: "done", error: undefined });
   return { next: "done", found: false };

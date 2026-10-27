@@ -31,9 +31,9 @@ export function useFileActions(deps: FileActionsDeps) {
   /*
     One folder's listing, from the Convex tree (`nodesListing.listFolder`).
     The bucket is never listed for it (decided by the owner, 2026-10-13). The
-    query answers `null` while the workspace's first copy has not finished;
-    then the `listFiles` action answers instead, from the same rows, and its
-    `TREE_LOADING` (which also starts the copy) or refusal is the answer.
+    query answers `null` where the tree does not serve the workspace; then the
+    `listFiles` action answers instead, from the same rows, and its refusal is
+    the answer.
   */
   // Read through a ref: `listFiles` keeps one identity for the context's whole
   // life, because the root load re-runs (and resets the tree) whenever it changes.
@@ -59,6 +59,9 @@ export function useFileActions(deps: FileActionsDeps) {
   const reportSearchScreen = useMutation(api.functions.searchTimings.reportScreen);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const exportAccessAction = useAction(api.functions.exportAccess.exportAccess);
+  const listOldCopiesAction = useAction(api.functions.oldCopies.listForExport);
+  const readOldCopiesAction = useAction(api.functions.oldCopies.readForExport);
+  const readMessagesLogAction = useAction(api.functions.messagesExport.readLogForExport);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
@@ -132,16 +135,16 @@ export function useFileActions(deps: FileActionsDeps) {
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setFolderGroupAction = useAction(api.functions.files.setFolderGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
-  const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
     workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache, exportAccessAction,
+    listOldCopiesAction, readOldCopiesAction, readMessagesLogAction,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,
-    setNoteGroupAction, setFolderGroupAction, setDirectoryVisibility, resetPrivacyAction,
+    setNoteGroupAction, setFolderGroupAction, setDirectoryVisibility,
     updateStorageLayoutAction,
   };
 }

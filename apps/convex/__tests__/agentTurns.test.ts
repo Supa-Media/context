@@ -87,6 +87,44 @@ describe("the turn log", () => {
     });
   });
 
+  test("a turn keeps where it came from and what each model spent, priced at its own list price", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    const usage = [
+      { model: "anthropic/claude-opus-5-5", input: 1_000, output: 200, cacheRead: 10_000, cacheWrite: 1_000 },
+      { model: "anthropic/claude-haiku-5-5", input: 2_000, output: 100, cacheRead: 20_000, cacheWrite: 0 },
+    ];
+    expect((await report(t, accessToken, { kind: "group", usage })).recorded).toBe(true);
+    const [row] = await turns(t, workspaceId);
+    // Opus: 1,000 x $4 + 200 x $20 + 10,000 x $0.20 + 1,000 x $5 per million = 15,000 micro-dollars.
+    // Haiku: 2,000 x $0.10 + 100 x $0.50 + 20,000 x $0.01 = 450.
+    expect(row.models).toEqual([
+      { model: "anthropic/claude-opus-5-5", inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 10_000, cacheWriteTokens: 1_000, costMicroUsd: 15_000 },
+      { model: "anthropic/claude-haiku-5-5", inputTokens: 2_000, outputTokens: 100, cacheReadTokens: 20_000, cacheWriteTokens: 0, costMicroUsd: 450 },
+    ]);
+    expect(row).toMatchObject({ kind: "group", cacheReadTokens: 30_000, cacheWriteTokens: 1_000, costMicroUsd: 15_450 });
+  });
+
+  test("a turn without each model's counts is priced from its own counts, and an unknown kind is not kept", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    expect((await report(t, accessToken, { kind: "everything" })).recorded).toBe(true);
+    const [row] = await turns(t, workspaceId);
+    expect(row.kind).toBeUndefined();
+    // GLM: 5,200 x $0.06 + 180 x $0.40 per million = 384.
+    expect(row.costMicroUsd).toBe(384);
+    expect(row.models).toBeUndefined();
+  });
+
+  test("a sentence where a model name goes in the usage list is refused, and so is a list longer than a turn can run", async () => {
+    const t = setupTest();
+    const { accessToken } = await texter(t);
+    const part = { model: "anthropic/claude-haiku-5-5", input: 1, output: 1, cacheRead: 0, cacheWrite: 0 };
+    expect((await report(t, accessToken, { usage: [{ ...part, model: "a model\nwith a sentence" }] })).recorded).toBe(false);
+    expect((await report(t, accessToken, { usage: [part, part, part, part, part] })).recorded).toBe(false);
+    expect(await turns(t)).toHaveLength(0);
+  });
+
   test("the row has nowhere to put text: no question, answer or tool argument is stored", async () => {
     const t = setupTest();
     const { accessToken } = await texter(t);

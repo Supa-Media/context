@@ -61,8 +61,8 @@ export async function runEmailDraftChecks(check) {
     controlPlane.flags.emailDrafter = null;
     const none = await call(env, TOKEN_MCP, "save_email_draft", EMAIL);
     check(
-      "with no Gmail that may keep drafts, it says so and to give them the draft instead",
-      none.isError === true && /Give them the draft to copy instead/.test(textOf(none)),
+      "with no Gmail that may keep drafts, it sends the one-reconnect link and never hands the draft back",
+      none.isError === true && /one reconnect lets you save it/.test(textOf(none)) && !/to copy instead/.test(textOf(none)),
     );
   } finally {
     world.restore();

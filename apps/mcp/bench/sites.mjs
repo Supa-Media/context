@@ -27,6 +27,7 @@
  *   text (connected context): Context: connected.
  *   - button: Add -> https://chatgpt.com/plugins/new
  *   - button: Create -> https://mcp.context.lc/authorize [needs Name, MCP server URL = https://mcp.context.lc/mcp] [sets connected context]
+ *   - download: Download September invoice [file Invoice-2026-09.pdf]
  *
  * - `signed in only`: a browser that is signed out lands on `sign_in`
  *   instead, and goes on to the page it wanted once the person signs in.
@@ -38,8 +39,27 @@
  * - `[needs Label, Label = value]`: the button goes nowhere until those boxes
  *   are filled (or hold that value, or that option is chosen, or that box is
  *   ticked), and the page then says what is missing.
+ * - `popup (flag): words`: while the flag is set, the page is covered by a
+ *   popup that says those words (a seat map, 2026-10-26). The reading says
+ *   so (`popup: true`, as `infra/site-shots/src/popups.ts` does), a click or
+ *   typing on the page under it does nothing, Escape doesn't close it, and a
+ *   `close_popup` step does, unsetting the flag.
+ * - `- filler: 90`: that many links in a row ("Timetable 1" ...), each back
+ *   to the page, to push what follows past a reading's first elements.
+ * - `[sets flag]` sets it on any button that goes through, with or without
+ *   `->`.
+ * - `- download:` is a button that saves a file, `[file name]`: a browse
+ *   `download` step naming it gets a small PDF of that name back.
  * - `search:` words: a `search_web` query with one of them lists the site's
  *   pages, so finding a site is part of the task.
+ * - `captcha: 2` (or `captcha: always`): the page shows a "verify you are
+ *   human" wall, and nothing else, on its first two loads in the
+ *   conversation, and the run answers `captcha: "unsolved"` as the screenshot
+ *   Worker does once Browserbase's solver gave up (`infra/site-shots/src/captcha.ts`).
+ *   The gateway's reload is the second load and its fresh browser
+ *   (`fresh: true`) the third (`apps/mcp/src/agent/captchaLadder.js`), so
+ *   `captcha: 1` clears on the reload, `2` on the fresh browser, and
+ *   `always` only when the person solves it through a handoff.
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
@@ -56,7 +76,7 @@ import { normalize, parseFront } from "./frontMatter.mjs";
 
 export const LIVE_VIEW_ORIGIN = "https://live.bench.invalid";
 
-const ELEMENT = /^- (link|button|textbox|select|checkbox|password)(?:\s+\(([^)]+)\))?:\s*(.*)$/;
+const ELEMENT = /^- (link|button|textbox|select|checkbox|password|download)(?:\s+\(([^)]+)\))?:\s*(.*)$/;
 
 /** An address without its scheme or trailing slash: how a check names a page. */
 export const placeOf = (url) => {
@@ -88,10 +108,12 @@ function readElement(kind, when, rest, where) {
   let text = rest.trim();
   const needs = [];
   const sets = [];
+  let file = null;
   for (;;) {
-    const tail = text.match(/\s*\[(needs|sets)\s+([^\]]+)\]\s*$/);
+    const tail = text.match(/\s*\[(needs|sets|file)\s+([^\]]+)\]\s*$/);
     if (!tail) break;
-    if (tail[1] === "sets") sets.unshift(tail[2].trim());
+    if (tail[1] === "file") file = tail[2].trim();
+    else if (tail[1] === "sets") sets.unshift(tail[2].trim());
     else {
       for (const part of tail[2].split(",")) {
         const [label, value] = part.split("=").map((s) => s.trim());
@@ -116,7 +138,8 @@ function readElement(kind, when, rest, where) {
     options = listed[2].split(",").map((s) => s.trim()).filter(Boolean);
   }
   if (!text) throw new Error(`${where}: an element needs a label`);
-  return { kind, when, label: text, href, needs, sets, options };
+  if (kind === "download" && !file) throw new Error(`${where}: a download names its file, as "Label [file name.pdf]"`);
+  return { kind, when, label: text, href, needs, sets, options, file };
 }
 
 /** One site file, parsed. Throws with the line that is wrong. */
@@ -139,7 +162,7 @@ export function parseSite(raw, label = "site") {
     const t = line.trim();
     const heading = line.match(/^## (https:\/\/\S+)\s*$/);
     if (heading) {
-      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [] };
+      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null };
       site.pages.set(placeOf(heading[1]), page);
       return;
     }
@@ -147,7 +170,12 @@ export function parseSite(raw, label = "site") {
     let m;
     if ((m = t.match(/^title:\s*(.*)$/))) page.title = m[1];
     else if (t === "signed in only") page.signedInOnly = true;
+    else if ((m = t.match(/^captcha:\s*(\d+|always)$/))) page.captcha = m[1] === "always" ? Infinity : Number(m[1]);
     else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
+    else if ((m = t.match(/^popup\s+\(([^)]+)\):\s*(.*)$/))) page.popup = { when: readFlags(m[1], where), line: m[2] };
+    else if ((m = t.match(/^- filler:\s*(\d{1,3})$/))) {
+      for (let n = 1; n <= Number(m[1]); n++) page.elements.push({ kind: "link", when: null, label: `Timetable ${n}`, href: page.url, needs: [], sets: [], options: null, file: null });
+    }
     else if ((m = t.match(ELEMENT))) page.elements.push(readElement(m[1], readFlags(m[2], where), m[3], where));
     else throw new Error(`${where}: cannot read "${t}"`);
   });
@@ -169,6 +197,9 @@ export function createWeb(sites) {
   const chosen = new Map();
   const events = [];
   const browsers = new Map();
+  // A captcha page's loads this conversation, and the ones the person solved.
+  const loads = new Map();
+  const solved = new Set();
   let handedOff = null;
   let sessions = 0;
 
@@ -201,6 +232,16 @@ export function createWeb(sites) {
     browser.values = new Map();
     browser.history.push(browser.url);
     events.push(`open ${placeOf(browser.url)}`);
+    const place = placeOf(browser.url);
+    loads.set(place, (loads.get(place) ?? 0) + 1);
+  }
+
+  /** Whether the page the browser is on still stands behind its captcha. */
+  function walled(browser) {
+    const page = browser.url === null ? null : pageFor(browser.url);
+    if (!page || page.captcha === 0) return false;
+    const place = placeOf(browser.url);
+    return !solved.has(place) && (loads.get(place) ?? 0) <= page.captcha;
   }
 
   /** The page's elements whose flags hold (or that have none), with their place in the file. */
@@ -215,18 +256,24 @@ export function createWeb(sites) {
   function reading(browser, note = "") {
     const page = pageFor(browser.url);
     if (!page) return { url: browser.url, title: "Page not found", text: "This page doesn't exist.", truncated: false, elements: [] };
+    if (walled(browser)) return { url: browser.url, title: "Just a moment...", text: "Verify you are human by completing the action below.", truncated: false, elements: [] };
     const text = page.text.filter((t) => shows(t.when, flags)).map((t) => t.line);
+    const covered = popupShows(page);
+    if (covered) text.unshift(page.popup.line);
     if (note) text.unshift(note);
     const elements = visible(page).map(({ el, i }, shown) => {
       const value = valueOf(browser, page, i);
-      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value})` : el.label };
+      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind === "download" ? "button" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value})` : el.label };
       if (el.href) item.href = el.href;
       if (el.kind === "checkbox") item.checked = value === true;
       else if ((el.kind === "textbox" || el.kind === "password") && value) item.filled = true;
       return item;
     });
-    return { url: browser.url, title: page.title, text: text.join("\n"), truncated: false, elements };
+    return { url: browser.url, title: page.title, text: text.join("\n"), truncated: false, elements, ...(covered ? { popup: true } : {}) };
   }
+
+  /** Whether the page's popup covers it now. */
+  const popupShows = (page) => page?.popup != null && shows(page.popup.when, flags);
 
   /** The [needs] a button's page does not meet, as words for the page. */
   function missing(browser, page, element) {
@@ -247,7 +294,8 @@ export function createWeb(sites) {
   }
 
   function step(browser, s) {
-    const page = pageFor(browser.url);
+    // Behind a captcha wall, nothing on the page can be pressed.
+    const page = walled(browser) ? null : pageFor(browser.url);
     // A ref numbers the elements the last reading showed; values are kept by place in the file.
     const picked = page && Number.isInteger(s.ref) ? visible(page)[s.ref - 1] ?? null : null;
     const el = picked?.el ?? null;
@@ -260,6 +308,12 @@ export function createWeb(sites) {
       case "scroll":
       case "press":
         return { ok: true };
+      case "close_popup": {
+        if (!popupShows(page)) return { ok: false, reason: "nothing on the page looks like a popup; look to see what is in the way" };
+        for (const { name, not } of page.popup.when) if (!not) flags.delete(name);
+        events.push(`close popup ${placeOf(browser.url)}`);
+        return { ok: true, reason: "pressed its close button" };
+      }
       case "back":
         if (browser.history.length < 2) return { ok: false, reason: "nothing to go back to" };
         browser.history.pop();
@@ -268,27 +322,42 @@ export function createWeb(sites) {
         return { ok: true, moved: true };
       case "click": {
         if (!el) return { ok: false, reason: "no such element" };
+        // Under a popup the press lands on its cover: nothing happens, and nothing says so.
+        if (popupShows(page)) {
+          events.push(`blocked click ${placeOf(browser.url)} "${el.label}"`);
+          return { ok: true };
+        }
         events.push(`click ${placeOf(browser.url)} "${el.label}"`);
         if (el.kind === "checkbox") {
           browser.values.set(at, browser.values.get(at) !== true);
           return { ok: true };
         }
-        if (!el.href) return { ok: true };
         const short = missing(browser, page, el);
         if (short.length > 0) return { ok: true, note: `Fill in: ${short.join(", ")}.` };
         for (const flag of el.sets) {
           flags.add(flag);
           events.push(`set ${flag}`);
         }
+        if (!el.href) return { ok: true };
         land(browser, el.href);
         return { ok: true, moved: true };
       }
       case "type": {
         if (!el || (el.kind !== "textbox" && el.kind !== "password")) return { ok: false, reason: "that is not a box to type in" };
         if (Array.isArray(s.onlyOn) && !s.onlyOn.includes(hostOf(browser.url))) return { ok: false, reason: "not on a site the person named" };
+        // The popup keeps the focus, so the keys never reach the box.
+        if (popupShows(page)) return { ok: true };
         browser.values.set(at, String(s.text ?? ""));
         events.push(`type ${placeOf(browser.url)} "${String(s.text ?? "").slice(0, 120)}"`);
         return { ok: true };
+      }
+      case "download": {
+        // By number, or by the words on it, as the real browser takes it.
+        const named = el ?? (page && typeof s.text === "string" ? visible(page).find(({ el: e }) => e.label.toLowerCase() === s.text.trim().toLowerCase())?.el ?? null : null);
+        if (!named?.file) return { ok: false, reason: "no file came from that; look at the page to see what it did, or name the download button or link itself" };
+        events.push(`download ${placeOf(browser.url)} "${named.file}"`);
+        const data = Buffer.from(`%PDF-1.4 ${hostOf(browser.url)} ${named.label}`, "latin1").toString("base64");
+        return { ok: true, file: { name: named.file, type: "application/pdf", data } };
       }
       case "select": {
         if (!el || el.kind !== "select") return { ok: false, reason: "that is not a list" };
@@ -307,6 +376,11 @@ export function createWeb(sites) {
 
   function browse(body) {
     const owner = body.provider === "browserbase" ? body.owner : null;
+    // A fresh browser: the running one is let go, sign-ins come back from the jar (`signedIn` is the site's).
+    if (owner && body.fresh === true && browsers.has(owner)) {
+      browsers.delete(owner);
+      events.push("fresh browser");
+    }
     let browser = owner ? browsers.get(owner) : body.session ? [...browsers.values()].find((b) => b.session === body.session) : null;
     if (!browser) {
       sessions += 1;
@@ -315,6 +389,7 @@ export function createWeb(sites) {
     }
     const ran = [];
     let note = "";
+    let file = null;
     for (const [i, s] of (body.steps ?? []).entries()) {
       if (browser.url === null && s.do !== "goto") {
         ran.push({ do: s.do, ok: false, reason: "no page open" });
@@ -325,6 +400,11 @@ export function createWeb(sites) {
       // A refused step, with the element number it named: why a driver's form never filled.
       if (!result.ok) events.push(`refused ${s.do} ${placeOf(browser.url)}${Number.isInteger(s.ref) ? ` [${s.ref}]` : ""}: ${result.reason}`);
       if (result.note) note = result.note;
+      // One file a call, and the steps after a download are left for the next, as the real browser does.
+      if (s.do === "download") {
+        file = result.file ?? null;
+        break;
+      }
       // A click that changed the page leaves the steps after it for the next call.
       if (result.moved && s.do !== "goto" && i < body.steps.length - 1) {
         ran.push({ do: "read", ok: true, reason: "the page changed, so the steps after this one were not run" });
@@ -337,7 +417,17 @@ export function createWeb(sites) {
       handedOff = browser;
       events.push(`handoff ${hostOf(browser.url ?? "")}`);
     }
-    return { session: browser.session, ran, page: browser.url === null ? null : reading(browser, note), ...(liveUrl ? { liveUrl } : {}) };
+    // The screenshot Worker's answer once Browserbase's solver has had its wait; never on a handoff, which skips it.
+    const captcha = body.handoff !== true && walled(browser) ? "unsolved" : null;
+    if (captcha) events.push(`captcha ${placeOf(browser.url)}`);
+    return {
+      session: browser.session,
+      ran,
+      page: browser.url === null ? null : reading(browser, note),
+      ...(liveUrl ? { liveUrl } : {}),
+      ...(file ? { file } : {}),
+      ...(captcha ? { captcha } : {}),
+    };
   }
 
   function read(body) {
@@ -351,6 +441,7 @@ export function createWeb(sites) {
     return { status: 200, body: { page: { url: shown.url, title: shown.title, text: shown.text, links: shown.elements.filter((e) => e.href).map((e) => ({ text: e.label, href: e.href })) } } };
   }
 
+  const BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
   return {
@@ -364,6 +455,9 @@ export function createWeb(sites) {
         }
         if (path === "/browse") return json(200, browse(body));
         if (path === "/browse/close") return json(200, { ok: true });
+        // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
+        // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
+        if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
         return json(404, { error: "not found" });
       },
     },
@@ -390,6 +484,10 @@ export function createWeb(sites) {
       handedOff = null;
       const site = siteFor(browser.url ?? "");
       if (!site) return;
+      if (walled(browser)) {
+        solved.add(placeOf(browser.url));
+        events.push(`solved captcha ${placeOf(browser.url)}`);
+      }
       signedIn.add(site.host);
       events.push(`signed in ${site.host}`);
       if (site.signIn && placeOf(browser.url) === placeOf(site.signIn) && browser.returnTo) {

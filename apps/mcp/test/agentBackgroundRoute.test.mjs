@@ -14,6 +14,13 @@
  *     → "only a texted turn is offered background jobs" fails.
  *  2. `jobSavedLine` dropped from the saved line.
  *     → "the job's exchange is kept by name, not as their ask again" fails.
+ *  3. `startedJobs` leaving out `steers`.
+ *     → "a change to a running job names it for the Worker" fails.
+ *  4. The route passing `transcript.record` as `observe` without `withJobSteps`.
+ *     → "a job's turn streams each step as a short line" fails.
+ *  5. `unfinishedJob` always false (`stopsShort.js`, 2026-10-26).
+ *     → "...and one that still stops short is marked unfinished for the
+ *     Worker, and not kept as said" fails.
  */
 
 import worker from "../src/index.js";
@@ -147,6 +154,22 @@ export async function runAgentBackgroundRouteChecks(check) {
         started.body.jobs[0].tainted === undefined,
     );
 
+    /* ---------------- a later text changes a running job ---------------- */
+
+    model.install([
+      { toolCalls: [{ name: "send", args: { action: "steer_job", args: { title: "Trip plan" } } }] },
+      { text: "Got it, I've told the trip plan." },
+    ]);
+    const steered = await post(env, TOKEN_TEXTS, "/agent", { question: "never mind, make it Porto not Lisbon", conversation: "texts", running });
+    check("a running job can be steered, under send", /steer_job: Pass their text/.test(sendTool(model.requests.at(-2))?.description ?? ""));
+    check(
+      "a change to a running job names it for the Worker",
+      steered.status === 200 && JSON.stringify(steered.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1" }]) && steered.body?.jobs === undefined,
+    );
+    model.install([{ text: "Hi." }]);
+    await post(env, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts", running: [] });
+    check("nothing running, nothing to steer", !/steer_job:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
+
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts" });
     check("a Worker that sends no running list is offered no background jobs", !/background:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
@@ -157,10 +180,11 @@ export async function runAgentBackgroundRouteChecks(check) {
     /* ---------------- the job's own turn ---------------- */
 
     model.install([{ text: "Wrote 1-projects/tex/competitors.md: Notion, Mem, Reflect." }]);
-    const job = { id: "job-competitors-1", title: "Competitor research", brief: "Five competitors, into 1-projects/tex.", attempt: 2 };
+    const job = { id: "job-competitors-1", title: "Competitor research", brief: "Five competitors, into 1-projects/tex.", attempt: 2, followUps: ["add Reflect too"] };
     const ran = await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", job });
     const jobRequest = model.requests.at(-1);
     check("a job's own turn is told its plan and to deliver", /background job you started/.test(systemOf(jobRequest)) && /Five competitors, into 1-projects\/tex\./.test(systemOf(jobRequest)) && /carry on from where it stops/.test(systemOf(jobRequest)));
+    check("a job's own turn is shown their later texts", /newer than your plan[^]*- add Reflect too/.test(systemOf(jobRequest)));
     check("a job's own turn cannot start another job", !/background:/.test(sendTool(jobRequest)?.description ?? ""));
     const turns = conversationTurns(bucket);
     check(
@@ -168,6 +192,100 @@ export async function runAgentBackgroundRouteChecks(check) {
       ran.status === 200 && turns.at(-2)?.text === "(Background job finished: Competitor research)" && /Notion, Mem, Reflect/.test(turns.at(-1)?.text ?? ""),
     );
     check("a job's turn names no jobs of its own", ran.body?.jobs === undefined);
+
+    /* ---------------- a job's answer a later text replaces is not kept as said (2026-10-24) ---------------- */
+
+    // A text for the job lands during its turn and is never taken in: the Worker runs another part, so this answer is never texted.
+    const kept = conversationTurns(bucket).length;
+    await post(env, TOKEN_TEXTS, "/agent/steer", { turn: "turn-replaced-0001", id: "e9", text: "make it a visual note" });
+    model.install([{ text: "Base spend is $7.6k a month." }]);
+    const replaced = await post(env, TOKEN_TEXTS, "/agent", {
+      question: "research our competitors and write it up",
+      conversation: "texts",
+      turn: "turn-replaced-0001",
+      job: { ...job, attempt: 1, followUps: [] },
+    });
+    check("a job's answer a later text replaces is not kept in the conversation", replaced.status === 200 && conversationTurns(bucket).length === kept);
+    model.install([{ text: "Base spend is $7.6k a month; the note is visual now." }]);
+    await post(env, TOKEN_TEXTS, "/agent", {
+      question: "research our competitors and write it up",
+      conversation: "texts",
+      job: { ...job, attempt: 2, followUps: ["make it a visual note"], draft: "Base spend is $7.6k a month." },
+    });
+    check(
+      "...and the next part is shown it, to build on rather than start over",
+      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.requests.at(-1))) &&
+        conversationTurns(bucket).length === kept + 2,
+    );
+
+    /* ---------------- a job that stops short of the ask is not done (self-review, 2026-10-26) ---------------- */
+
+    // The dinner job: mains priced, "Next step is pricing the sides". It gets one more round, then the Worker another part.
+    const dinner = { ...job, id: "job-dinner-0001", title: "Dinner options", attempt: 1, followUps: [] };
+    const short = "I wrote up three options. The mains come to about $1 to $2 per person, but the sides and drinks are not priced yet. Next step is pricing the sides.";
+    const beforeShort = conversationTurns(bucket).length;
+    model.install([{ text: short }, { text: short }]);
+    const stopped = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: dinner });
+    check(
+      "a job's answer that stops short gets one more round, told to finish it",
+      /stops short of what they asked[^]*background job/.test(JSON.stringify(model.requests.at(-1)?.messages?.at(-1) ?? "")),
+    );
+    check(
+      "...and one that still stops short is marked unfinished for the Worker, and not kept as said",
+      stopped.status === 200 && stopped.body?.unfinished === true && stopped.body?.exhausted === undefined && conversationTurns(bucket).length === beforeShort,
+    );
+    model.install([{ text: "Three caterers come in at $8.50, $9.50 and $10 a person, sides and drinks included." }]);
+    const finished = await post(env, TOKEN_TEXTS, "/agent", {
+      question: "three dinner options, about $10 a head for 30 people",
+      conversation: "texts",
+      job: { ...dinner, attempt: 2, draft: short, unfinished: true },
+    });
+    check(
+      "the next part is shown the short answer as unfinished, to do the missing part",
+      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(systemOf(model.requests.at(-1))),
+    );
+    check(
+      "...and a full answer is done: not marked, and kept",
+      finished.body?.unfinished === undefined && conversationTurns(bucket).length === beforeShort + 2,
+    );
+    model.install([{ text: short }, { text: short }]);
+    const last = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: { ...dinner, attempt: 3 } });
+    check("a job's last part texts what it has, even short", last.status === 200 && last.body?.unfinished === undefined && /not priced yet/.test(last.body?.answer ?? ""));
+
+    /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
+
+    model.install([
+      { toolCalls: [{ name: "search", args: { query: "competitor pricing" } }] },
+      { text: "Wrote 1-projects/tex/competitors.md." },
+    ]);
+    const { ctx, settle } = createWorkerCtx();
+    const streamed = await worker.fetch(
+      new Request("https://mcp.context.test/agent", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
+        body: JSON.stringify({ question: "research our competitors and write it up", conversation: "texts", job: { ...job, attempt: 1 } }),
+      }),
+      env,
+      ctx,
+    );
+    const lines = (await streamed.text()).split("\n").filter(Boolean).map((part) => JSON.parse(part));
+    await settle();
+    check("a job's turn streams each step as a short line", lines.some((entry) => entry.step === "search_notes: competitor pricing"));
+    check("...and still ends with its answer", lines.at(-1)?.status === 200 && /competitors\.md/.test(lines.at(-1)?.body?.answer ?? ""));
+    model.install([{ toolCalls: [{ name: "search", args: { query: "anything" } }] }, { text: "Hi." }]);
+    const { ctx: ctx2, settle: settle2 } = createWorkerCtx();
+    const plain = await worker.fetch(
+      new Request("https://mcp.context.test/agent", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
+        body: JSON.stringify({ question: "find anything", conversation: "texts" }),
+      }),
+      env,
+      ctx2,
+    );
+    const plainLines = (await plain.text()).split("\n").filter(Boolean).map((part) => JSON.parse(part));
+    await settle2();
+    check("an ordinary texted turn streams no steps", plainLines.length > 0 && !plainLines.some((entry) => "step" in entry));
   } finally {
     restoreControlPlane();
     restoreS3();

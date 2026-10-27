@@ -45,6 +45,7 @@ import {
   CONTACTS_FOLDER,
   DATE_PATTERN,
   INBOX_FOLDER,
+  asInboxKey,
 } from "./protocol.js";
 
 export { normalizeRoot };
@@ -308,7 +309,8 @@ export function parseChannelDayPath(path, options = {}) {
   if (typeof path !== "string") return null;
   const root = normalizeRoot(options.root);
   if (root && !path.startsWith(root)) return null;
-  const key = path.slice(root.length);
+  // Whatever the Inbox is called in this workspace (`asInboxKey`).
+  const key = asInboxKey(path.slice(root.length), options.inbox);
   if (!key.startsWith(`${INBOX_FOLDER}/`)) return null;
 
   const segments = key.split("/");
@@ -436,7 +438,7 @@ export function isContactNotePath(path, options = {}) {
   if (typeof path !== "string") return false;
   const root = normalizeRoot(options.root);
   if (root && !path.startsWith(root)) return false;
-  const key = path.slice(root.length);
+  const key = asInboxKey(path.slice(root.length), options.inbox);
   if (!key.startsWith(`${CONTACTS_FOLDER}/`)) return false;
   const rest = key.slice(CONTACTS_FOLDER.length + 1);
   if (!rest.endsWith(".md")) return false;
@@ -446,10 +448,15 @@ export function isContactNotePath(path, options = {}) {
 
 /**
  * Where a dormant contact page waits: the live path, mirrored under the
- * archive (`4-archive/0-inbox/contacts/<letter>/<page>.md`), the shape the
- * owner's archive already gives the rest of the inbox.
+ * archive (`archive/inbox/contacts/<letter>/<page>.md`), the shape the
+ * owner's archive already gives the rest of the inbox. Written under the
+ * Archive's plain name (owner, 2026-10-21), which reaches the folder doing
+ * the Archive's job; pages archived before were written under `4-archive`.
  */
-export const CONTACT_ARCHIVE_FOLDER = "4-archive";
+export const CONTACT_ARCHIVE_FOLDER = "archive";
+
+/** The Archive's names a dormant page may sit under: its word, with a sort number in front or not. */
+const ARCHIVE_NAME = /^(?:\d+-)?archive$/i;
 
 /**
  * The live path an archived contact page comes back to, or `null` when this
@@ -459,9 +466,11 @@ export const CONTACT_ARCHIVE_FOLDER = "4-archive";
 export function liveContactPathForArchived(path, options = {}) {
   if (typeof path !== "string") return null;
   const root = normalizeRoot(options.root);
-  const archive = `${root}${CONTACT_ARCHIVE_FOLDER}/`;
-  if (!path.startsWith(archive)) return null;
-  const live = `${root}${path.slice(archive.length)}`;
+  if (root && !path.startsWith(root)) return null;
+  const key = path.slice(root.length);
+  const slash = key.indexOf("/");
+  if (slash < 0 || !ARCHIVE_NAME.test(key.slice(0, slash))) return null;
+  const live = `${root}${key.slice(slash + 1)}`;
   return isContactNotePath(live, { root }) ? live : null;
 }
 

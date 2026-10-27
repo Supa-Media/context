@@ -292,10 +292,13 @@ export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink)
       doc = text;
       revision = nextRevision;
       // A legacy document message explicitly switches the guest out of the
-      // durable binding. The next snapshot, if any, re-enters it.
+      // durable binding. The next snapshot, if any, re-enters it. So leaving
+      // that binding is never an echo: the guest has to be told, or it stays
+      // read-only over the same words (an offline draft, `offlineDraft.ts`).
+      const leaving = crdtMode || crdtSnapshot !== null;
       crdtSnapshot = null;
       crdtMode = false;
-      if (echoes(text, known)) return;
+      if (!leaving && echoes(text, known)) return;
       known = text;
       post({ v: PROTOCOL_VERSION, type: "doc", text, ...(revision === "" ? {} : { revision }) });
     },

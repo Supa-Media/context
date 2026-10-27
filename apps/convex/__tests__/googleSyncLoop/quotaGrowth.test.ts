@@ -4,6 +4,7 @@ import {
   endToEnd,
   googleAndBucket,
   patchConnection,
+  noteBody,
   readConnection,
   runPass,
 } from "./fixtures.helpers";
@@ -22,7 +23,7 @@ import {
 beforeEach(() => enableMailSync());
 
 describe("the write quota counts what the bucket grew by", () => {
-  const day = "0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
+  const day = "inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
   const messages = [
     { id: "msg-1", date: "2026-09-08T09:14:00.000Z", subject: "Quarterly numbers", text: "The numbers are attached." },
     { id: "msg-2", date: "2026-09-08T11:02:00.000Z", subject: "Follow-up", text: "One more thing." },
@@ -41,7 +42,7 @@ describe("the write quota counts what the bucket grew by", () => {
     );
     await runPass(t, workspaceId, connectionId);
     const first = (await readConnection(t, connectionId)).syncBytesWritten ?? 0;
-    const firstDay = new TextEncoder().encode(backend.snapshot()[day]!).byteLength;
+    const firstDay = new TextEncoder().encode((await noteBody(t, workspaceId, backend, day))!).byteLength;
 
     await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
     vi.stubGlobal(
@@ -50,9 +51,9 @@ describe("the write quota counts what the bucket grew by", () => {
     );
     await runPass(t, workspaceId, connectionId);
     const second = (await readConnection(t, connectionId)).syncBytesWritten ?? 0;
-    const secondDay = new TextEncoder().encode(backend.snapshot()[day]!).byteLength;
+    const secondDay = new TextEncoder().encode((await noteBody(t, workspaceId, backend, day))!).byteLength;
 
-    expect(backend.snapshot()[day]).toContain("Follow-up");
+    expect(await noteBody(t, workspaceId, backend, day)).toContain("Follow-up");
     expect(second - first).toBe(secondDay - firstDay);
   });
 

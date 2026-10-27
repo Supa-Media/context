@@ -6,7 +6,7 @@
  */
 
 import { isEncryptedNote } from "../noteEncryption";
-import { canSee, isPlumbing } from "../privacy";
+import { canSee, effectiveVisibility, isPlumbing, narrowerVisibility } from "../privacy";
 import { type Clearance } from "../clearance";
 import { indexByName, rewriteLinks } from "@context/shared/src/links";
 import {
@@ -18,7 +18,7 @@ import {
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import type { PrivacyState } from "./privacyState";
 import type { TreeNames } from "./treeChecks";
-import { namesListing } from "./walk";
+import { attachedTree, namesListing } from "./walk";
 import { bareNameOf } from "../../../../mcp/src/tree/links.js";
 
 /**
@@ -110,21 +110,23 @@ export async function rewriteReferences(
   // reads were one round trip each, in a row, and on a few hundred notes that
   // was most of a rename's time. Writes stay one at a time, in order.
   const texts = readAhead(store, keys, REFERENCE_READ_AHEAD);
+  const reachable = reachableRenames(options.renames, options.state);
   for (const key of keys) {
     const ahead = await texts.next(key);
     if (ahead === null) continue;
+    const renames = reachable(key);
     const linksOf = (text: string) =>
-      rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames: options.renames, byName });
+      rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames, byName });
     if (linksOf(ahead) === null) continue;
     // A note read ahead may have been edited since. Read it again before
     // writing, so a repair is never built on a version older than it was.
     const object = await store.get(key);
     if (object === null) continue;
     const text = await object.text();
-    const rewritten = linksOf(text);
+    // The links of an encrypted note are inside its ciphertext: never run the rewrite over it (the gateway's rule).
+    if (isEncryptedNote(text)) continue;
+    let rewritten = linksOf(text);
     if (rewritten === null) continue;
-    notes += 1;
-    links += rewritten.changed;
     /*
       A migrated note's Markdown is a materialization of its collaboration
       head. Route that rewrite through the same retained-base operation so a
@@ -135,6 +137,10 @@ export async function rewriteReferences(
     if (collaborationSupported(store) && collaborationEligible(key, text) && !isEncryptedNote(text)) {
       try {
         const current = await readCollaborationDocument(store, key);
+        // Built on the document's own text: an edit it accepted may not have reached the Markdown yet, and a
+        // rewrite of the Markdown would put the older text back over it.
+        rewritten = linksOf(current.text);
+        if (rewritten === null) continue;
         const replaced = await replaceCollaborationText(store, key, {
           documentId: current.documentId,
           expectedEtag: current.etag,
@@ -148,12 +154,38 @@ export async function rewriteReferences(
         continue;
       }
     } else {
-      const put = await store.put(key, rewritten.text);
-      etag = put?.etag;
+      // Against the version just read where the bucket can check it: an edit landing in between is kept, and
+      // this note's links are left to forwarding rather than written over it.
+      const conditional = store.capabilities?.conditionalWrite === true && typeof object.etag === "string" && object.etag !== "";
+      try {
+        const put = conditional ? await store.put(key, rewritten.text, { onlyIf: { etagMatches: object.etag } }) : await store.put(key, rewritten.text);
+        etag = put?.etag;
+      } catch {
+        continue;
+      }
     }
+    notes += 1;
+    links += rewritten.changed;
     if (etag) options.onRewritten?.(key, etag);
   }
   return { notes, links, capped: false };
+}
+
+/**
+ * The renames one referrer's links may follow: never to a name its own readers could not open. The gateway's
+ * rule (`apps/mcp/src/tools/moves/references.js`, "A link may not be pointed somewhere its own note's readers
+ * cannot go"): a link in a `team` note to a note moved into a private folder keeps its old name, which forwarding
+ * still sends on for whoever may follow it, rather than spelling out where the private note went. A destination
+ * as wide as the referrer, or wider, is followed.
+ */
+function reachableRenames(renames: ReadonlyMap<string, string>, state: PrivacyState): (key: string) => ReadonlyMap<string, string> {
+  const destinations = [...renames].map(([from, to]) => ({ from, to, reach: effectiveVisibility(to, state.rules, state.overrides) }));
+  return (key) => {
+    const referrer = effectiveVisibility(key, state.rules, state.overrides);
+    const followed = new Map<string, string>();
+    for (const { from, to, reach } of destinations) if (narrowerVisibility(referrer, reach) === referrer) followed.set(from, to);
+    return followed;
+  };
 }
 
 /** Notes read ahead of the one being rewritten. */
@@ -167,11 +199,11 @@ const CANDIDATE_BATCH = 1_000;
  * (`nodeLinks`), as the gateway narrows its own (`apps/mcp/src/tree/facts.js`): every note pointing at a
  * renamed path by path or at its bare name, every note changed since its links were read, and every renamed
  * note that holds links of its own (its relative links move with it). `null` where the facts cannot answer
- * (no tree attached, or not whole yet), and every visible note is read as before.
+ * (not whole yet), and every visible note is read as before.
  */
 async function linkCandidates(store: FileStore, renames: ReadonlyMap<string, string>): Promise<Set<string> | null> {
-  const tree = (store as { treeListing?: TreeNames }).treeListing;
-  if (typeof tree?.links !== "function" || typeof tree.linking !== "function") return null;
+  const tree = attachedTree<TreeNames>(store);
+  if (typeof tree.links !== "function" || typeof tree.linking !== "function") return null;
   const sources = [...renames.keys()];
   const names = [...new Set(sources.map((path) => bareNameOf(path) as string))];
   const found = new Set<string>();

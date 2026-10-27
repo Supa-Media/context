@@ -7,6 +7,7 @@
  * sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   BIG_TOKEN,
   PRIVACY_MANIFEST,
@@ -79,7 +80,7 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
 
     // The module directly, where `pending` is visible as a number rather than
     // as a sentence.
-    const bigStore = new R2Store(big);
+    const bigStore = withServedTree(new R2Store(big));
     // From no index at all, which is what a first search on a context this size
     // actually faces — the two searches above have already backfilled part of it.
     big.remove(SEARCH_INDEX_KEY);
@@ -161,7 +162,7 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
           inFlight -= 1;
         }
       };
-      const waved = await syncIndex(new R2Store(slow), { budget: createSearchBudget(200) });
+      const waved = await syncIndex(withServedTree(new R2Store(slow)), { budget: createSearchBudget(200) });
       check(
         "stale notes are fetched concurrently, so a large budget converges in seconds not minutes",
         waved.pending === 0 && waved.index.docs.size === 30 && maxInFlight > 1
@@ -198,7 +199,7 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
           terms: [],
         })
       );
-      const rebuilt = await syncIndex(new R2Store(bloated), { budget: createSearchBudget(200) });
+      const rebuilt = await syncIndex(withServedTree(new R2Store(bloated)), { budget: createSearchBudget(200) });
       const slim = bloated.objects.get(SEARCH_INDEX_KEY);
       check(
         "a valid but oversized index is refused unparsed and rebuilt slim from the notes",
@@ -234,7 +235,7 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
           );
         }
       };
-      const growStore = new R2Store(grow);
+      const growStore = withServedTree(new R2Store(grow));
 
       seedNotes(0, 4);
       await syncIndex(growStore, { budget: createSearchBudget(300) });
@@ -373,14 +374,14 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
             wide.seed(`f${folder}/n${n}.md`, `# F${folder}N${n}\n\nword${folder}${n}\n`);
           }
         }
-        const wideStore = new R2Store(wide);
+        const wideStore = withServedTree(new R2Store(wide));
         const cut = await syncIndex(wideStore, { budget: createSearchBudget(6), byteCap: 50 });
         // The control: the same pass with the ordinary cap writes, so the
         // refusal below is the cap's doing and not the budget's.
         const loose = createBucket();
         loose.seed("privacy.md", PRIVACY_MANIFEST);
         for (const [key, object] of wide.objects) if (key !== "privacy.md") loose.seed(key, object.body);
-        const wrote = await syncIndex(new R2Store(loose), { budget: createSearchBudget(6) });
+        const wrote = await syncIndex(withServedTree(new R2Store(loose)), { budget: createSearchBudget(6) });
         check(
           "a refused pass charges no subrequest for the write it did not make",
           cut.spent === wide.ops
@@ -410,7 +411,7 @@ export async function runSearchIntegrationBigBucketChecks(check, harness) {
       for (let n = 0; n < 8; n += 1) {
         wide.seed(`1-projects/wide/note-${n}.md`, `# ${"見出しの日本語".repeat(120)}${n}\n\nwide body ${n}\n`);
       }
-      const wideStore = new R2Store(wide);
+      const wideStore = withServedTree(new R2Store(wide));
       await syncIndex(wideStore, { budget: createSearchBudget(300) });
       const wideBody = wide.objects.get(SEARCH_INDEX_KEY).body;
       const wideChars = wideBody.length;

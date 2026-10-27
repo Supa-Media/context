@@ -21,6 +21,7 @@ import {
 } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { PENDING_PREFIX, DONE_PREFIX } from "../src/tools/approvals.js";
+import { teamNow } from "./accessRows.mjs";
 
 export const S3_ENDPOINT = "https://s3.example-egress.test";
 export const TOKEN_MCP = `cat_egress_mcp_${"0".repeat(24)}`;
@@ -48,8 +49,10 @@ export function fakeModel() {
     },
     async handle(url, init) {
       requests.push(JSON.parse(init.body));
-      const next = script.shift();
-      if (!next) throw new Error("fake model: the script ran out");
+      const step = script.shift();
+      if (!step) throw new Error("fake model: the script ran out");
+      // A step may be a function of the request it answers, to reply with what an earlier tool returned.
+      const next = typeof step === "function" ? step(requests.at(-1)) : step;
       if (next.status) return new Response("{}", { status: next.status });
       const content = next.text ? [{ type: "text", text: next.text }] : [];
       for (const [i, call] of (next.toolCalls ?? []).entries()) {
@@ -245,7 +248,8 @@ export async function createEgressWorld() {
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
 
     const privacyText = () => bucket.get("privacy.md")?.body ?? "";
-    const teamVisible = (path) => new RegExp(`^\\s*${path.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}:\\s*team`, "m").test(privacyText());
+    // Access is the control plane's rows: the seeded rules with every row change the gateway sent applied.
+    const teamVisible = (path) => teamNow(controlPlane, "ws_egress", privacyText(), path);
     // The store deletes by tombstone (`store/logicalDelete.js`), so a key in
     // the raw bucket is live only while its body is not a marker.
     const objectsUnder = (prefix) =>

@@ -35,7 +35,7 @@ export function v2ToolDefinitions() {
         type: "object",
         properties: {
           action: { type: "string", description: "Omit to save a note. Otherwise one of the actions orient lists." },
-          path: { type: "string", description: "The note, e.g. '1-projects/togather/status.md'." },
+          path: { type: "string", description: "The note, e.g. 'projects/togather/status.md'." },
           content: { type: "string", description: "The whole note as Markdown, when saving." },
           expected_etag: { type: "string", description: "The etag you read, so a concurrent edit is caught." },
           args: ARGS,

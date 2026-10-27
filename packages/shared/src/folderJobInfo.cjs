@@ -14,8 +14,8 @@
  *  - **needed**: Inbox, Projects, Areas, Resources, Archive. Every workspace
  *    has one of each. Each can be given to another folder, never taken away.
  *  - **made**: Tex and Website, made by Context the first time the feature is
- *    used. Website keeps its name and place, since the site is published from
- *    it by name.
+ *    used. Both can be renamed and nested anywhere (Website since 2026-10-21);
+ *    Website's job stays with its own folder, which its site is published from.
  *  - **optional**: Clients, Teams, Products, added when useful and removable.
  *
  * Meetings is a job on rows (its folder follows the meetings setting) but is
@@ -90,7 +90,7 @@ const INBOX_PART_LABEL = Object.freeze({
   sessions: "Sessions",
 });
 
-/** A job a person or an agent may give to a folder they name. Website keeps its name and place. */
+/** A job a person or an agent may give to a folder they name. Website's stays with the folder its site is published from. */
 function canGiveJob(job) {
   return SHOWN_JOBS.includes(job) && job !== "website";
 }
@@ -115,6 +115,27 @@ function isInboxPart(path, inboxPath) {
   if (!clean.startsWith(`${inboxPath}/`)) return false;
   const rest = clean.slice(inboxPath.length + 1);
   return !rest.includes("/") && INBOX_PARTS.includes(rest);
+}
+
+/**
+ * Tex's own folders, by their exact names one level inside Tex's folder
+ * (owner, 2026-10-21, "Context icon set" board 4): Tex files into each by
+ * name, so like the Inbox's own they stay where they are, are drawn with
+ * Context's icons (`folderIcons.cjs`), and a person adds notes and folders of
+ * their own beside them.
+ */
+const TEX_PARTS = Object.freeze(["attention", "chats", "dreams", "groups", "handbacks", "heartbeat", "housekeeping", "routines", "skills", "transcripts"]);
+
+/**
+ * Whether `path` is one of Tex's own folders, given the path of the folder
+ * doing Tex's job now (null: no Tex folder, nothing is).
+ */
+function isTexPart(path, texPath) {
+  if (typeof path !== "string" || typeof texPath !== "string" || texPath === "") return false;
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!clean.startsWith(`${texPath}/`)) return false;
+  const rest = clean.slice(texPath.length + 1);
+  return !rest.includes("/") && TEX_PARTS.includes(rest);
 }
 
 /**
@@ -224,6 +245,8 @@ module.exports = {
   canRemoveJob,
   topOnly,
   isInboxPart,
+  TEX_PARTS,
+  isTexPart,
   nameWords,
   nameSays,
   guessFolderJobs,

@@ -69,6 +69,16 @@ person's YES to the words, as an invitation is. Reads, `reactions.add` and
 `conversations.open` run at once. (Pending the owner's pick on the decision
 card of 2026-10-21; asking per message is the default until then.)
 
+The ask names where the post goes as Slack names it, never by an id
+(2026-10-22: Dev2 was asked to OK "post in Slack in U0FAKE0001"). Before the
+hold, `slackPlace` (`apps/mcp/src/tools/connectors.js`) asks Slack
+(`users.info`, `conversations.info`) for the person's name or the channel's
+`#name` and the Slack's own name: "send a Slack message to Jo Park
+(Acme): …". The name comes from Slack, never from the model's
+arguments, so a model can't put a friendlier name on somebody else's channel;
+when Slack can't say, the id stays. Test: "a held Slack post names the person
+or channel as Slack has it, never an id" in `apps/mcp/test/connectors.test.mjs`.
+
 ### The Slack app
 
 One app, "Tex by Context", serves dev, staging and production, with token
@@ -77,6 +87,22 @@ kept with the owner's project files; its client id and secret are
 `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` in Convex, from 1Password. With
 either unset the connector is off: the link page says so and the gateway
 answers that it is not set up.
+
+The app's user token scopes must equal `SLACK_USER_SCOPES` in
+`functions/lib/providers/slack.ts`: add a scope in the Slack app first, then
+in code, or connecting fails with `invalid_scope`. A connection granted fewer
+scopes than the code now asks for shows Reconnect in Settings, and the
+gateway answers Slack's `missing_scope` with "ask them to reconnect", never
+"it can't be done". `im:write` and `mpim:write` (2026-10-21) are what open a
+DM before posting to it.
+
+Tex reads Slack as a person would: a channel may be named `#name`;
+`users.list` and `conversations.list` come back whole and short;
+`conversations.history`, `conversations.replies` and `search.messages` come
+back trimmed with every author named (`slackLists.ts`, `slackMessages.ts`). A
+texted turn sees an action only as its summary and argument names
+(`agent/sixTools.js`), so the recipes (find, DM, post, reply in a thread)
+live in `ACTIONS.send.slack.summary`.
 
 **What a simplification would cost:** one table per provider repeats the
 cascade, the attempt sweep and the structure pins every time; letting the

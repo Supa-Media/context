@@ -41,6 +41,7 @@ import { StorageUnavailable } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
 import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
+import { READS_AS_CHAT } from "./privacy/engine.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -59,9 +60,11 @@ export { storeForOpenedBinding, storeForSession } from "./sessionStore.js";
 
 /** Read every visible note. */
 export const SCOPE_READ = "context:read";
+/** The group chat's client (`agent/groupTurn.js`); the one a setup-only pin is honoured for. */
+const TEXTS_GROUP_CLIENT = "context_texts_group";
 /** Create, update, move, and archive notes. Implies capture. */
 export const SCOPE_WRITE = "context:write";
-/** Drop a raw capture into 0-inbox and nothing else. */
+/** Drop a raw capture into inbox and nothing else. */
 export const SCOPE_CAPTURE = "context:capture";
 /**
  * Reach notes marked private.
@@ -212,7 +215,7 @@ export async function resolveSession(token, slug, controlPlane) {
   // removed — two answers to one question, which is the shape of every
   // privilege bug in this neighbourhood.
   const scopes = effectiveScopes(session.scopes, workspace.role);
-  const grantedGroups = new Set(workspace.grantedNames.map((name) => `@${name}`));
+  const grantedGroups = grantedGroupsOf(workspace.grantedNames);
   const resolvedSession = {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
@@ -246,6 +249,8 @@ export async function resolveSession(token, slug, controlPlane) {
      */
     grantScopes: session.scopes,
     workspaces: session.workspaces,
+    // Where Tex's setup is read on a group chat's turn, and nothing else (`sessionForSetup`).
+    setupReach: session.setupReach,
     expiresAt: session.expiresAt,
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.
@@ -317,13 +322,41 @@ export function sessionForContext(session, name) {
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
-    grantedGroups: new Set((covered.grantedNames || []).map((name) => `@${name}`)),
+    grantedGroups: grantedGroupsOf(covered.grantedNames),
   };
   Object.defineProperty(sibling, "accessToken", {
     value: session.accessToken,
     enumerable: false,
     writable: false,
   });
+  return sibling;
+}
+
+/**
+ * A group chat's session, addressed at the pin only to read Tex's setup
+ * (`agent/production.js`), or `null` when the grant carries none.
+ *
+ * Read-only whatever the grant holds, at the pin's own role and names, and
+ * never reached through `sessionForContext`: the pin is not in `workspaces`,
+ * so no tool argument and no URL can name it.
+ */
+export function sessionForSetup(session) {
+  const setup = session?.setupReach;
+  if (!setup || typeof setup.workspaceId !== "string") return null;
+  const scopes = effectiveScopes(session.grantScopes, setup.role).filter((scope) => scope === SCOPE_READ);
+  if (scopes.length === 0) return null;
+  const sibling = {
+    ...session,
+    workspaceId: setup.workspaceId,
+    workspaceSlug: setup.slug,
+    workspaceKind: setup.kind,
+    role: setup.role,
+    scope: visibilityTierForGrant(scopes, setup.role),
+    scopes,
+    grantedGroups: grantedGroupsOf(setup.grantedNames),
+    setupReach: null,
+  };
+  Object.defineProperty(sibling, "accessToken", { value: session.accessToken, enumerable: false, writable: false });
   return sibling;
 }
 
@@ -383,15 +416,22 @@ function normalizeSession(raw) {
       if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName) && !ROW_NAME_PATTERN.test(normalizedName)) throw fail();
       return normalizedName;
     });
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames };
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
+  // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):
+  // kept apart from the set a tool or a URL may address, and honoured for no
+  // other client. Only `sessionForSetup` opens it.
+  const reach = normalized.filter((entry) => !entry.setupOnly).map(({ setupOnly, ...entry }) => entry);
+  const setup = clientId === TEXTS_GROUP_CLIENT ? normalized.find((entry) => entry.setupOnly) : undefined;
+  if (reach.length === 0) throw fail();
   return {
     grantId,
     clientId,
     actorUserId,
     scopes,
-    workspaces: normalized,
+    workspaces: reach,
+    setupReach: setup === undefined ? null : (({ setupOnly, ...entry }) => entry)(setup),
     defaultWorkspaceId,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
     // Optional for the reason `clientName` is: it decides nothing, it only
@@ -417,6 +457,21 @@ function normalizeSession(raw) {
  * becomes an existence oracle for every name in a global namespace: type slugs
  * until one answers differently and you have enumerated the customer list.
  */
+/**
+ * The names a grant reads one context with, each as `@name`.
+ *
+ * A Tex guest chat's (`READS_AS_CHAT`) rules arrive already read for it: a row its group holds is `team`, every other
+ * row `private` (`apps/convex/functions/lib/nodes/chatFolders.ts`). So the guest marker, which would shut those `team`
+ * rows, and the row tokens the reading already used are dropped; the chat marker and its group's name are kept. Only
+ * a session's own rules are read this way: `accessForLiveGrant` judges a grant by somebody else's rules and keeps
+ * every name, so there the guest marker still shuts `team`.
+ */
+export function grantedGroupsOf(names) {
+  const all = (names || []).map((name) => `@${name}`);
+  if (!all.includes(READS_AS_CHAT)) return new Set(all);
+  return new Set(all.filter((name) => name === READS_AS_CHAT || !name.startsWith("@#")));
+}
+
 function selectWorkspace(session, slug) {
   if (!slug) {
     const fallback = session.workspaces.find((w) => w.workspaceId === session.defaultWorkspaceId);

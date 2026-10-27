@@ -17,7 +17,7 @@
 
 import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
-import { MAX_LINKS, MAX_TEXT_CHARS, type PageRead } from "./read";
+import { LOGO_SELECTORS, MAX_LINKS, MAX_TEXT_CHARS, keepImages, pickLogo, type PageRead } from "./read";
 import { publicHttpsUrl } from "./shoot";
 
 /** How long the site may take to answer before the browser is tried instead. */
@@ -38,7 +38,7 @@ export const MIN_HTML_TEXT_CHARS = 200;
  */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
-type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 // Wrapped, not passed bare: the Workers runtime refuses a detached `fetch`
 // ("Illegal invocation").
@@ -46,6 +46,26 @@ const workerFetch: FetchLike = (url, init) => fetch(url, init);
 
 /** The page's text without a browser, or null when only a browser can read it. Never throws. */
 export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch): Promise<PageRead | null> {
+  return (await fetchRead(url, fetchImpl)).page;
+}
+
+/**
+ * Statuses a site answers a request it takes for a bot with. From here that
+ * is a Cloudflare address; through Browserbase's Fetch API
+ * (`./browserbaseFetch.ts`) it is a residential one, which often gets the page.
+ */
+const REFUSED = new Set([403, 429, 503, 999]);
+
+/**
+ * `fetchPage`, saying also whether the site turned the request away (a
+ * refusing status, a challenge, or no answer at all) rather than sending a
+ * page only a browser can read. Never throws.
+ */
+export async function fetchRead(
+  url: string,
+  fetchImpl: FetchLike = workerFetch,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<{ page: PageRead | null; refused: boolean }> {
   let current = publicHttpsUrl(url);
   for (let hop = 0; current !== null && hop <= MAX_REDIRECTS; hop += 1) {
     let response: Response;
@@ -53,10 +73,10 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
       response = await fetchImpl(current, {
         headers: { accept: "text/markdown, text/html;q=0.9" },
         redirect: "manual",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
-      return null;
+      return { page: null, refused: true };
     }
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel().catch(() => undefined);
@@ -64,21 +84,26 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
       current = location === null ? null : publicHttpsUrl(safeResolve(location, current));
       continue;
     }
+    // Cloudflare's bot check, whatever status came with it.
+    if (response.headers.get("cf-mitigated") === "challenge") {
+      await response.body?.cancel().catch(() => undefined);
+      return { page: null, refused: true };
+    }
     const type = response.headers.get("content-type") ?? "";
-    if (response.ok && /^application\/pdf\b/i.test(type)) return await pdfPage(current, response);
+    if (response.ok && /^application\/pdf\b/i.test(type)) return { page: await pdfPage(current, response), refused: false };
     const markdown = /^text\/markdown\b/i.test(type);
     if (!response.ok || !(markdown || /^text\/html\b/i.test(type))) {
       await response.body?.cancel().catch(() => undefined);
-      return null;
+      return { page: null, refused: REFUSED.has(response.status) };
     }
     try {
       const body = await readCapped(response, MAX_FETCH_BYTES);
-      return markdown ? fromMarkdown(current, body) : await fromHtml(current, body);
+      return { page: markdown ? fromMarkdown(current, body) : await fromHtml(current, body), refused: false };
     } catch {
-      return null;
+      return { page: null, refused: false };
     }
   }
-  return null;
+  return { page: null, refused: false };
 }
 
 /** A PDF, handed on whole for the gateway to read; null when it is too big or not a PDF after all. */
@@ -146,8 +171,12 @@ export function fromMarkdown(url: string, markdown: string): PageRead {
   const heading = /^#\s+(.+)$/m.exec(text);
   const seen = new Set<string>();
   const links: PageRead["links"] = [];
+  const pictures: Array<{ alt: string; src: string }> = [];
   for (const match of text.matchAll(LINK)) {
-    if (match[1] === "!") continue;
+    if (match[1] === "!") {
+      pictures.push({ alt: match[2], src: match[3] });
+      continue;
+    }
     const href = publicHttpsUrl(safeResolve(match[3], url));
     if (href === null || seen.has(href)) continue;
     seen.add(href);
@@ -160,6 +189,7 @@ export function fromMarkdown(url: string, markdown: string): PageRead {
     text: text.slice(0, MAX_TEXT_CHARS),
     truncated: text.length > MAX_TEXT_CHARS,
     links,
+    images: keepImages(pictures, url),
     via: "markdown",
   };
 }
@@ -187,6 +217,23 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     links.push({ text: (anchor.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 120), href });
     if (links.length >= MAX_LINKS) break;
   }
+  // The pictures, read before extraction too: it is told to remove them.
+  const pictures: Array<{ alt: string; src: string }> = [];
+  for (const name of ["og:image", "og:image:secure_url", "twitter:image"]) {
+    const meta = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
+    const content = meta?.getAttribute("content");
+    if (content) pictures.push({ alt: "", src: content });
+  }
+  for (const img of document.querySelectorAll("img")) {
+    const src = img.getAttribute("src") || img.getAttribute("data-src") || (img.getAttribute("srcset") ?? "").trim().split(/\s+/)[0];
+    if (src) pictures.push({ alt: img.getAttribute("alt") ?? "", src });
+    if (pictures.length >= 60) break;
+  }
+  const logos = LOGO_SELECTORS.map((selector) => {
+    const found = document.querySelector(selector);
+    return found?.getAttribute("href") || found?.getAttribute("content") || "";
+  });
+  const logo = pickLogo(logos, url);
   // Not `markdown: true`: its converter (turndown) needs a DOM parser the
   // Workers runtime does not have, and fails there while passing in Node.
   const result = await Defuddle(document as unknown as Parameters<typeof Defuddle>[0], url, {
@@ -202,6 +249,8 @@ export async function fromHtml(url: string, html: string): Promise<PageRead | nu
     text: text.slice(0, MAX_TEXT_CHARS),
     truncated: text.length > MAX_TEXT_CHARS,
     links,
+    images: keepImages(pictures, url),
+    ...(logo ? { logo } : {}),
     via: "html",
   };
 }

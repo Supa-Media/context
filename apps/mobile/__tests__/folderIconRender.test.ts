@@ -55,6 +55,11 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
 });
 
+/** The picker opens on Context icons; the emoji are a tab away. */
+function openEmojiTab(): void {
+  act(() => document.body.querySelector<HTMLElement>("[data-testid='folder-icon-tab-emoji']")!.click());
+}
+
 const ICON = "🍳";
 
 function folder(path: string, depth = 0): TreeRow {
@@ -204,8 +209,11 @@ describe("Home's folder line", () => {
 
 describe("the icon picker", () => {
   const PICK = WORKSPACE_ICON_EMOJI[0]!;
+  // It opens on Context's own icons (`contextIconPicker.test.ts`); these are the Emoji tab's.
   function picker(current: string | null, onSet: (icon: string | null) => Promise<void>, onClose = () => {}) {
-    return mount(createElement(FolderIconDialog, { path: "2-areas/cooking", current, onSet, onClose }));
+    const container = mount(createElement(FolderIconDialog, { path: "2-areas/cooking", current, onSet, onClose }));
+    openEmojiTab();
+    return container;
   }
   const cell = (container: HTMLElement, emoji: string) =>
     container.ownerDocument.querySelector<HTMLElement>(`[data-testid='folder-icon-emoji-${emoji}']`);
@@ -282,6 +290,7 @@ describe("any emoji, and the workspace's own", () => {
   }
   async function picker(onSet: (icon: string | null) => Promise<void> = async () => {}) {
     mount(withHost(createElement(FolderIconDialog, { path: "2-areas/cooking", current: null, onSet, onClose: () => {} })));
+    openEmojiTab();
     // The workspace emoji's picture arrives a tick later.
     await act(async () => {});
   }

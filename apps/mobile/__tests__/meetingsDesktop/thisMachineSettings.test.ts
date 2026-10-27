@@ -169,126 +169,16 @@ describe("this machine, in settings", () => {
     expect(shell.listenerCount()).toBe(0);
   });
 
-  test("the desktop integration card exposes iMessage import from the bridge", async () => {
-    const shell = fakeDesktopBridge({
-      imessage: {
-        enabled: false,
-        permission: "granted",
-        lastSyncedAt: null,
-        lastError: null,
-      },
-    });
-    installShell(shell);
-
-    const mounted = mount(createElement(ThisMachineCard));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
-    expect(mounted.container.textContent).toContain("iMessage");
-    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
-
-    const button = mounted.container.querySelector(
-      '[data-testid="this-machine-imessage-toggle"]',
-    );
-    await act(async () => {
-      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(shell.imessageSetEnabledCalls).toEqual([true]);
-
-    mounted.unmount();
-    expect(shell.listenerCount()).toBe(0);
-  });
-
-  test("a denied iMessage grant explains the exact recovery and opens Full Disk Access", async () => {
-    const shell = fakeDesktopBridge({
-      imessage: {
-        enabled: true,
-        permission: "denied",
-        lastSyncedAt: null,
-        lastError: null,
-      },
-    });
-    installShell(shell);
-
-    const mounted = mount(createElement(ThisMachineCard));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(has(mounted.container, "this-machine-imessage-permission-guide")).toBe(true);
-    expect(mounted.container.textContent).toContain("Privacy & Security → Full Disk Access");
-    expect(mounted.container.textContent).toContain("quit and reopen");
-    expect(has(mounted.container, "this-machine-imessage-toggle")).toBe(false);
-
-    const open = mounted.container.querySelector('[data-testid="this-machine-imessage-open-settings"]');
-    await act(async () => {
-      open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(shell.imessageFullDiskAccessRequests).toBe(1);
-
-    mounted.unmount();
-  });
-
-  test("the first permission refusal raises the guide without waiting for another click", async () => {
-    const shell = fakeDesktopBridge({
-      imessage: {
-        enabled: true,
-        permission: "unknown",
-        lastSyncedAt: null,
-        lastError: null,
-      },
-    });
-    installShell(shell);
-    const mounted = mount(createElement(ThisMachineCard));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      shell.emitImessage({
-        enabled: true,
-        permission: "denied",
-        lastSyncedAt: null,
-        lastError: null,
-      });
-      await Promise.resolve();
-    });
-    expect(shell.imessageFullDiskAccessRequests).toBe(1);
-
-    // A later status heartbeat in the same denied state must not stack sheets.
-    await act(async () => {
-      shell.emitImessage({
-        enabled: true,
-        permission: "denied",
-        lastSyncedAt: null,
-        lastError: null,
-      });
-      await Promise.resolve();
-    });
-    expect(shell.imessageFullDiskAccessRequests).toBe(1);
-    mounted.unmount();
-  });
-
   /*
-    One machine, two settings panels.
+    One machine, two settings pages.
 
-    Settings asks about recording under **Meetings** and about Messages under
-    **Chats**, because a person looking for their texts does not think
-    "meetings". This card is the one place both live, so it takes a `focus`
-    rather than being split — and what makes that safe is that the two halves
-    are not symmetrical. Both spend the *same* machine grant (`apps/desktop`'s
-    iMessage import writes through `write_note` with this machine's token), so
-    Chats cannot simply drop the connection state: an unconnected machine is
-    precisely why somebody's messages are not arriving.
+    Settings asks about recording under **Meetings** and about this Mac's
+    Messages backup under **Messages**, because a person looking for their
+    texts does not think "meetings". Both spend the *same* machine grant (the
+    backup sends its batches with this machine's token), so the Messages page
+    draws this card while the Mac is not connected: that is precisely why
+    nothing is being copied. The backup's own switch and progress live on that
+    page (`messagesBackupSettings.test.ts`), not on this card.
   */
   const IMESSAGE_SHELL = {
     enabled: false,
@@ -307,20 +197,20 @@ describe("this machine, in settings", () => {
     return mounted;
   }
 
-  test("Meetings is the machine without the Messages half", async () => {
+  test("Meetings is the machine, and nothing about texts", async () => {
     const mounted = await machine(
       "meetings",
       fakeDesktopBridge({ imessage: { ...IMESSAGE_SHELL, enabled: true } }),
     );
 
     expect(has(mounted.container, "this-machine-title")).toBe(true);
-    expect(has(mounted.container, "this-machine-imessage")).toBe(false);
     expect(mounted.container.textContent).not.toContain("iMessage");
+    expect(mounted.container.textContent).not.toContain("Texts");
 
     mounted.unmount();
   });
 
-  test("Chats keeps Messages and drops the meetings sentence", async () => {
+  test("Chats is the connection in the words of texts, without the meetings sentence", async () => {
     const mounted = await machine(
       "chats",
       fakeDesktopBridge({
@@ -335,12 +225,11 @@ describe("this machine, in settings", () => {
       }),
     );
 
-    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
-    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
+    expect(mounted.container.textContent).toContain("Texts are copied from this Mac");
     // The machine's own copy is about meetings, because that is what the grant
-    // was built for. Under a Chats heading it answers a question nobody asked.
+    // was built for. On the Messages page it answers a question nobody asked.
     expect(mounted.container.textContent).not.toContain("Meetings recorded here go to");
-    // And Disconnect stops meetings too, so it lives on the panel that says so.
+    // And Disconnect stops meetings too, so it lives on the page that says so.
     expect(has(mounted.container, "this-machine-disconnect")).toBe(false);
 
     mounted.unmount();
@@ -349,8 +238,8 @@ describe("this machine, in settings", () => {
   test("...and says an unconnected machine is why nothing is arriving, with the way out", async () => {
     const mounted = await machine("chats", fakeDesktopBridge({ imessage: IMESSAGE_SHELL }));
 
-    expect(mounted.container.textContent).toContain("nothing arrives until it is connected");
-    // The one control that unblocks Messages is here, unlike Disconnect.
+    expect(mounted.container.textContent).toContain("nothing is copied until it is connected");
+    // The one control that unblocks the backup is here, unlike Disconnect.
     expect(has(mounted.container, "this-machine-connect")).toBe(true);
 
     mounted.unmount();

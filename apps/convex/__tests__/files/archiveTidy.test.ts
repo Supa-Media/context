@@ -14,10 +14,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { memoryS3 } from "../storeStub.helpers";
 import { FAKE_STORAGE, asUser, copyTree, createUser, createWorkspace, setupTest } from "../fixtures.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
 const DAY_ONE = "2026-10-15T22-16-49-545Z";
 const DAY_TWO = "2026-10-16T09-02-11-120Z";

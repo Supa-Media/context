@@ -6,8 +6,6 @@
  * rows themselves, which keep their ids), and nothing is copied or queued.
  *
  * Refused, with nothing written, when:
- *  - the workspace is not keyed (`keyedWorkspace`): the old way moves it;
- *  - a queued byte move is still pending here (its names are not settled);
  *  - the destination, or any path a moved row would take, is held by a live row;
  *  - any file under the name has no key (its flip is not finished);
  *  - another keyed move still moving overlaps either name (`busy`, `rowMoveChunks.ts`);
@@ -19,34 +17,37 @@
  * A move within the cap is one mutation, so a refusal leaves nothing behind and
  * a success is all of it. Privacy rules are not written here: they live in
  * `privacy.md`, which the caller carries before and releases after
- * (`rowMoveStart.ts`, as `moveStart.ts` does for a queued move).
+ * (`rowMoveStart.ts`).
  *
  * A move into or out of the trash (`trash: true`, `rowTrash.ts`) writes no
  * rules and so checks none: the trashed note keeps its rules at its own name
  * for Restore, and its links and pins stay where they are, as a trash made in
  * one go leaves them. The flag is refused unless one end of the move is under
- * `.context/trash`.
+ * `.context/trash`, or under `.context/old-copies`, where copies Context made
+ * of mail and the rest are hidden the same way (`oldCopies.ts`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
-import { keyedWorkspace } from "../noteIds/keyedState";
 import { convexNodeTable } from "./convexTable";
 import { treeServesNow } from "./listing";
-import { privacyEtagOf, readerMirror } from "./readerRules";
+import { privacyEtagFrom, readerMirror } from "./readerRules";
 import { newNoteId } from "./noteIds";
 import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
 import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 import { folderChain, nameOf } from "./table";
-import { TRASH_ROOT } from "../fileOps/store";
+import { type Rules, audiencesNow, mirrorRules } from "./log";
+import { underHiddenRoot } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
-import { refreshAccess } from "./accessBackfill";
+import { refreshSnapshot } from "./accessBackfill";
 import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folderRoles.cjs";
 import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
 import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
+import { nodeAt, nodePaths, pathsBuilt } from "./paths";
+import { applyBuiltMove } from "./builtMove";
 
 /**
  * Live rows one row move renames in one transaction, the name itself included.
@@ -56,7 +57,6 @@ import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
 export const ROW_MOVE_MAX = 500;
 
 export type RowMoveRefusal =
-  | "not_keyed"
   | "not_served"
   | "busy"
   | "not_found"
@@ -81,7 +81,12 @@ export type RowMoveAnswer =
       /** Set when only the root moved here and the rows beneath follow in pages (`rowMoveChunks.ts`). */
       chunked?: Id<"rowMoves">;
     }
-  | { ok: false; reason: RowMoveRefusal };
+  | {
+      ok: false;
+      reason: RowMoveRefusal;
+      /** For `changed`: the row's Markdown etag now, which the caller's conflict reports. */
+      currentEtag?: string;
+    };
 
 /** The root and the live rows under `from`, read from `path` order, stopping past `max`. */
 export interface Subtree {
@@ -90,12 +95,13 @@ export interface Subtree {
   over: boolean;
 }
 
-/** The row at exactly `path`, live or not. Paths are unique within a workspace. */
-export async function rowAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+/** The row at exactly `path`, live where one is, else a gone one (`paths.ts`), asked afresh. */
+export async function rowAt(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(db, workspaceId, path);
 }
 
 /**
@@ -109,27 +115,26 @@ export async function subtreeOf(
   from: string,
   max: number,
 ): Promise<Subtree> {
-  const exact = await rowAt(db, workspaceId, from);
-  const root = exact !== null && exact.goneAt === undefined ? exact : null;
-  const prefix = `${from}/`;
+  const paths = await nodePaths(db, workspaceId);
+  const root = await paths.liveAt(from);
   const below: Doc<"nodes">[] = [];
-  for await (const doc of db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
-    if (!doc.path.startsWith(prefix)) break;
-    if (doc.goneAt !== undefined) continue;
+  const whole = await paths.below(from, (doc) => {
+    if (doc.goneAt !== undefined) return;
     below.push(doc);
-    if (below.length > max) return { root, below, over: true };
-  }
-  return { root, below, over: false };
+    return below.length <= max;
+  });
+  return { root, below, over: !whole };
 }
 
 /** Whether any live row sits beneath `path`: a destination that is not free even though nothing sits at it. */
-export async function liveUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<boolean> {
-  const prefix = `${path}/`;
-  for await (const doc of db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
-    if (!doc.path.startsWith(prefix)) return false;
-    if (doc.goneAt === undefined) return true;
-  }
-  return false;
+export async function liveUnder(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<boolean> {
+  return !(await (
+    await nodePaths(db, workspaceId)
+  ).below(path, (doc) => doc.goneAt !== undefined));
 }
 
 /** Whether a row's etag is `expected`, or its pre-flip path etag while it still holds that key's version (`keyedFrom`). */
@@ -158,6 +163,11 @@ export async function applyRowMove(
     /** The etag of `privacy.md` the caller just wrote; the tree's copy of the rules must be it. */
     privacyEtag: string | null;
     /**
+     * An earlier move of this same transaction already held the rules to the caller's version
+     * (`nodeRowMoves.rowMoveBatch`): what changed them since is the batch's own moves, so they are not checked again.
+     */
+    privacyChecked?: boolean;
+    /**
      * The live files under `from` the caller read and judged (`plan`). A file
      * that arrived since is not in the judgement, so the move is refused
      * `changed` rather than moving a note nobody checked.
@@ -179,17 +189,19 @@ export async function applyRowMove(
   const refuse = (reason: RowMoveRefusal): RowMoveAnswer => ({ ok: false, reason });
   const trash = args.trash === true;
 
-  if (!(await keyedWorkspace(ctx.db, ws))) return refuse("not_keyed");
   if (!(await treeServesNow(ctx.db, ws))) return refuse("not_served");
-  // A byte move still queued from before the flip names paths the rows no longer hold the notes at.
-  const queued = await ctx.db.query("moveQueue").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).first();
-  if (queued !== null) return refuse("busy");
   // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
-  if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
   const mirror = await readerMirror(ctx, ws);
+  if (!trash && args.privacyChecked !== true && (await privacyEtagFrom(ctx, ws, mirror)) !== args.privacyEtag) return refuse("rules_changed");
+  // Who could see each old path, judged before any row moves (`followMovedFiles`).
+  const before = await mirrorRules(mirror);
   if (invalidMove(from, to)) return refuse("invalid");
-  if (trash && !from.startsWith(`${TRASH_ROOT}/`) && !to.startsWith(`${TRASH_ROOT}/`)) return refuse("invalid");
+  if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
 
+  // Built paths (`paths.ts`): the moved row alone changes, and what is beneath follows it, however much there is.
+  if (await pathsBuilt(ctx.db, ws)) {
+    return await applyBuiltMove(ctx, { workspaceId: ws, from, to, now, trash, before, mirror, expectedEtag: args.expectedEtag, plannedFiles: args.plannedFiles });
+  }
   const max = args.maxRows ?? ROW_MOVE_MAX;
   // `subtreeOf` counts the rows beneath; the name is one of the `max`, so `max - 1` of them may sit beneath it.
   const subtree = await subtreeOf(ctx.db, ws, from, max - 1);
@@ -208,7 +220,9 @@ export async function applyRowMove(
   }
   if (args.expectedEtag !== undefined) {
     if (root.kind !== "file") return refuse("invalid");
-    if (!etagIs(root, args.expectedEtag)) return refuse("changed");
+    if (!etagIs(root, args.expectedEtag)) {
+      return root.etag === undefined ? refuse("changed") : { ok: false, reason: "changed", currentEtag: root.etag };
+    }
   }
   const rows = [root, ...subtree.below];
   if (args.plannedFiles !== undefined) {
@@ -244,10 +258,9 @@ export async function applyRowMove(
   const oldParent = root.parentId;
 
   await ctx.db.patch(root._id, { path: to, observedAt: now, parentId, name: nameOf(to) });
-  const below = pairs.filter((pair) => pair.row._id !== root._id);
-  for (const pair of below) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
+  for (const pair of pairs) if (pair.row._id !== root._id) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
   const files = pairs.filter((pair) => pair.row.kind === "file");
-  await followMovedFiles(ctx, ws, files, trash);
+  await followMovedFiles(ctx, ws, files, trash, before);
 
   await retireEmptied(ctx, ws, oldParent, now);
 
@@ -259,7 +272,7 @@ export async function applyRowMove(
   await freshenMeaningAfterActivity(ctx, ws);
   // The rows moved and the rules moved with them, so the access rows follow. A tombstone a rule named at the
   // destination (`nodes.access`) was replaced above; the row now holding its name takes the rule's access here.
-  await refreshAccess(ctx, ws);
+  await refreshSnapshot(ctx, ws);
 
   return {
     ok: true,
@@ -317,6 +330,7 @@ export async function followMovedFiles(
   ws: Id<"workspaces">,
   files: readonly { from: string; to: string }[],
   trash: boolean,
+  before: Rules,
 ): Promise<void> {
   if (!trash) {
     for (const pair of files) {
@@ -327,7 +341,12 @@ export async function followMovedFiles(
       for (const link of links) await ctx.db.patch(link._id, { source: pair.to });
     }
   }
-  const table = convexNodeTable(ctx, ws);
+  // The rows have moved, so the rules read now may have lost an exception the old path had: a gone entry
+  // names the audiences judged before the move, never the ones its old folder grants afterwards.
+  const left = files
+    .filter((pair) => !isPlumbing(pair.from))
+    .map((pair) => ({ path: pair.from, audiences: audiencesNow(pair.from, before) }));
+  const table = convexNodeTable(ctx, ws, left);
   for (const pair of files) {
     if (!isPlumbing(pair.from)) await table.logChange?.(pair.from, true);
     if (!isPlumbing(pair.to)) await table.logChange?.(pair.to, false);
@@ -336,7 +355,7 @@ export async function followMovedFiles(
 
 /**
  * Remove a row a move replaces, with the grants on it: they name a row that is gone. A tombstone a rule
- * named is re-derived onto the row now holding its name (`refreshAccess`, at the end of the move).
+ * named is re-derived onto the row now holding its name (`refreshSnapshot`, at the end of the move).
  */
 export async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   const grants = await ctx.db

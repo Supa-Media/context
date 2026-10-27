@@ -60,8 +60,7 @@ describe("round trip", () => {
 
 describe("case counts", () => {
   test("core has 20 cases", () => {
-    // #1795 retired texting-assistant.md and moved four of its questions into core;
-    // #2048 added question 20, reading a day of the calendar.
+    // #1795 retired texting-assistant.md and moved four of its questions into core; #2048 added the Friday calendar case.
     expect(parseTestList(CORE).cases).toHaveLength(20);
   });
 

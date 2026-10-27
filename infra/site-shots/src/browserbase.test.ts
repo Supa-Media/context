@@ -1,14 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { SESSION_LIFETIME_S } from "./browserbase";
+import { beforeEach, describe, expect, it } from "vitest";
+import { SESSION_LIFETIME_S, createSession, forgetRefusedTiers, sessionRequests } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
-import { STORAGE_WORLD } from "./jar";
+import { READ_WORLD, STORAGE_WORLD } from "./jar";
+
+const ISOLATED = 7;
+const SHOP_DB = { name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "firebaseLocalStorage", keyPath: "fbase_key", autoIncrement: false, indexes: [], records: [{ value: { fbase_key: "k", value: { uid: "u1" } } }] }] };
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
 const OTHER = "b".repeat(64);
 
 /** A CDP socket that answers just enough for one reading of one page. */
-const socketOptions = { failSetCookies: false };
+const socketOptions = { failSetCookies: false, uploadedSize: 9 };
 
 function fakeSocket(log: string[]) {
   const listeners: Record<string, Array<(e: { data: string }) => void>> = {};
@@ -19,7 +22,12 @@ function fakeSocket(log: string[]) {
     },
     send(raw: string) {
       const { id, method, params } = JSON.parse(raw);
-      log.push(method === "Input.insertText" ? `${method} ${params.text}` : /^(Storage\.setCookies|Page\.addScriptToEvaluateOnNewDocument)$/.test(method) ? `${method} ${JSON.stringify(params)}` : method);
+      log.push(
+        method === "Input.insertText" ? `${method} ${params.text}`
+        : /^(Storage\.setCookies|Page\.addScriptToEvaluateOnNewDocument|DOM\.setFileInputFiles)$/.test(method) ? `${method} ${JSON.stringify(params)}`
+        : method === "Runtime.evaluate" && String(params.expression).includes("new DataTransfer()") ? "page DataTransfer"
+        : method,
+      );
       let result: unknown = {};
       let error: unknown = undefined;
       if (method === "Storage.setCookies" && socketOptions.failSetCookies) error = { message: "nope" };
@@ -31,14 +39,21 @@ function fakeSocket(log: string[]) {
       }
       if (method === "Target.getTargets") result = { targetInfos: [{ targetId: "t1", type: "page" }] };
       if (method === "Target.attachToTarget") result = { sessionId: "s1" };
+      if (method === "Page.getFrameTree") result = { frameTree: { frame: { id: "f1" } } };
+      if (method === "Page.createIsolatedWorld") result = { executionContextId: params.frameId === "f1" && params.worldName === READ_WORLD ? ISOLATED : 0 };
       if (method === "Runtime.evaluate") {
         const expr: string = params.expression;
-        if (expr.includes("localStorage.key(i)")) result = { result: { value: { origin: "https://shop.example.com", items: { token: "jwt-abc" } } } };
+        // The page's own world answers a jar read with another site's data, as a page that replaced Promise could.
+        const apart = params.contextId === ISOLATED;
+        if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
+        else if (expr.includes("indexedDB.databases")) result = { result: { value: apart ? { origin: "https://shop.example.com", dbs: [SHOP_DB] } : { origin: "https://bank.example", dbs: [] } } };
         else if (expr.includes("location.hostname")) result = { result: { value: { href: "https://shop.example.com/", host: "shop.example.com", origin: "https://shop.example.com" } } };
         else if (expr.includes("data-tex-ref") && expr.includes("elements")) {
           result = { result: { value: { url: "https://shop.example.com/", title: "Shop", text: "Hi", elements: [{ ref: 1, kind: "input text", label: "Search", filled: true }] } } };
         } else if (expr.startsWith("!!document")) result = { result: { value: true } };
         else if (expr === "document.readyState") result = { result: { value: "complete" } };
+        else if (expr.startsWith("document.querySelector(")) result = { result: { type: "object", subtype: "node", objectId: "box-1" } };
+        else if (expr.includes("box.files.length === 1")) result = { result: { value: socketOptions.uploadedSize } };
         else result = { result: { value: true } };
       }
       queueMicrotask(() => listeners.message?.forEach((fn) => fn({ data: JSON.stringify(error ? { id, error } : { id, result }) })));
@@ -57,7 +72,7 @@ function fakeApi({ running = [] as Array<Record<string, unknown>> } = {}) {
       cdp.push(`connect ${url}`);
       return Object.assign(new Response(null), { webSocket: fakeSocket(cdp) });
     }
-    calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null, key: headers.get("X-BB-API-Key") });
+    calls.push({ method: init?.method ?? "GET", url, body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body ?? null, key: headers.get("X-BB-API-Key") });
     if (url.endsWith("/sessions?status=RUNNING")) return Response.json(running);
     if (url.endsWith("/sessions") && init?.method === "POST") return Response.json({ id: "new-1", connectUrl: "wss://connect.example/new-1" });
     if (url.endsWith("/debug")) return Response.json({ debuggerFullscreenUrl: "https://live.example/new-1" });
@@ -70,6 +85,8 @@ async function call(env: Record<string, string>, body: unknown, api = fakeApi(),
   const response = await browseOnBrowserbase(env, path, body, api.fetcher);
   return { status: response.status, body: (await response.json()) as Record<string, unknown>, api };
 }
+
+beforeEach(() => forgetRefusedTiers());
 
 describe("browseOnBrowserbase", () => {
   it("answers 501 with no key, so the gateway keeps Cloudflare's browser", async () => {
@@ -88,7 +105,8 @@ describe("browseOnBrowserbase", () => {
       keepAlive: true,
       timeout: SESSION_LIFETIME_S,
       userMetadata: { owner: OWNER },
-      browserSettings: { recordSession: false, viewport: { width: 1280, height: 860 } },
+      proxies: true,
+      browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 }, advancedStealth: true },
     });
     expect(JSON.stringify(created?.body)).not.toContain("context");
     expect(result.body.page).toMatchObject({ url: "https://shop.example.com/" });
@@ -106,6 +124,20 @@ describe("browseOnBrowserbase", () => {
     expect(result.body.session).toBe("mine");
     expect(api.cdp[0]).toBe("connect https://connect.example/mine");
     expect(api.calls.some((c) => c.method === "POST" && c.url.endsWith("/sessions"))).toBe(false);
+  });
+
+  it("drops the owner's running browser and starts a new one when a fresh browser is asked for", async () => {
+    const api = fakeApi({ running: [{ id: "mine", connectUrl: "wss://connect.example/mine", userMetadata: { owner: OWNER } }] });
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], fresh: true }, api);
+    expect(result.body.session).toBe("new-1");
+    const released = api.calls.find((c) => c.url.endsWith("/sessions/mine"));
+    expect(released?.body).toMatchObject({ status: "REQUEST_RELEASE" });
+    expect(api.cdp[0]).toBe("connect https://connect.example/new-1");
+  });
+
+  it("names no captcha when the page shows none", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
+    expect(result.body.captcha).toBeUndefined();
   });
 
   it("never asks Browserbase for its live-view link, even when a handoff is asked for", async () => {
@@ -148,6 +180,31 @@ describe("browseOnBrowserbase", () => {
   });
 });
 
+describe("uploads on Browserbase", () => {
+  const file = { name: "receipt.pdf", type: "application/pdf", data: "JVBERi0xLjQK" };
+
+  it("sends the file to the session's uploads and has the browser set it, with no file written into the page", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "upload", file }] });
+    expect(result.body.ran).toEqual([{ do: "upload", ok: true }]);
+    const upload = result.api.calls.find((c) => c.url.endsWith("/uploads"));
+    expect(upload).toMatchObject({ method: "POST", url: "https://api.browserbase.com/v1/sessions/new-1/uploads", key: "bb_test_key" });
+    expect(((upload!.body as FormData).get("file") as File).name).toBe("receipt.pdf");
+    expect(result.api.cdp).toContain(`DOM.setFileInputFiles ${JSON.stringify({ files: ["/tmp/.uploads/receipt.pdf"], objectId: "box-1" })}`);
+    expect(result.api.cdp).not.toContain("page DataTransfer");
+  });
+
+  it("falls back to putting the file in from the page when the browser's copy did not arrive", async () => {
+    socketOptions.uploadedSize = 0;
+    try {
+      const result = await call(ENV, { owner: OWNER, steps: [{ do: "upload", file }] });
+      expect(result.body.ran).toEqual([{ do: "upload", ok: true }]);
+      expect(result.api.cdp).toContain("page DataTransfer");
+    } finally {
+      socketOptions.uploadedSize = 9;
+    }
+  });
+});
+
 describe("sign-ins kept between browsers", () => {
   const jar = {
     cookies: [{ name: "sid", value: "old", domain: ".shop.example.com", path: "/", secure: true, httpOnly: true, sameSite: "Lax", expires: 1900000000 }],
@@ -166,6 +223,8 @@ describe("sign-ins kept between browsers", () => {
       // A partitioned cookie stays with its browser.
       cookies: [{ name: "sid", value: "s3cret", domain: ".shop.example.com", path: "/", secure: true, httpOnly: true, sameSite: "Lax", expires: 1900000000 }],
       storage: { "https://shop.example.com": { token: "jwt-abc" } },
+      // Read in an isolated world, so the page's own scripts could not answer for another site.
+      idb: { "https://shop.example.com": [SHOP_DB] },
     });
   });
 
@@ -190,5 +249,75 @@ describe("sign-ins kept between browsers", () => {
     } finally {
       socketOptions.failSetCookies = false;
     }
+  });
+});
+
+describe("what a new browser is asked for", () => {
+  const plain = {
+    projectId: "proj-test",
+    keepAlive: true,
+    timeout: SESSION_LIFETIME_S,
+    userMetadata: { owner: OWNER },
+    browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
+  };
+
+  it("asks for proxies, stealth and the region first, and ends with the plain browser", () => {
+    const tiers = sessionRequests({ ...ENV, BROWSERBASE_REGION: "us-east-1" }, OWNER);
+    expect(tiers[0]).toMatchObject({ proxies: true, region: "us-east-1", browserSettings: { advancedStealth: true, recordSession: false } });
+    expect(tiers[1]).toMatchObject({ proxies: true, region: "us-east-1" });
+    expect((tiers[1]!.browserSettings as Record<string, unknown>).advancedStealth).toBeUndefined();
+    expect(tiers.at(-1)).toEqual(plain);
+    // Every tier stays unrecorded and stateless.
+    for (const tier of tiers) {
+      expect((tier.browserSettings as Record<string, unknown>).recordSession).toBe(false);
+      expect(JSON.stringify(tier)).not.toContain("context");
+    }
+  });
+
+  it("leaves out what is turned off, and a region it does not know", () => {
+    expect(sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off", BROWSERBASE_STEALTH: "off", BROWSERBASE_REGION: "mars-1" }, OWNER)).toEqual([plain]);
+    const noProxies = sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off" }, OWNER);
+    expect(noProxies.some((tier) => "proxies" in tier)).toBe(false);
+    expect(noProxies[0]).toMatchObject({ browserSettings: { advancedStealth: true } });
+  });
+
+  function vendor(statuses: number[]) {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetcher = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      const status = statuses.shift() ?? 200;
+      return status === 200 ? Response.json({ id: "s-1", connectUrl: "wss://connect.example/s-1" }) : new Response("{}", { status });
+    }) as unknown as typeof fetch;
+    return { bodies, fetcher };
+  }
+
+  it("steps down to a plainer browser when the plan refuses an extra", async () => {
+    const { bodies, fetcher } = vendor([400, 403]);
+    expect(await createSession(ENV, OWNER, fetcher)).toEqual({ id: "s-1", connectUrl: "wss://connect.example/s-1" });
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0]).toMatchObject({ proxies: true, browserSettings: { advancedStealth: true } });
+    expect(bodies[1]).toMatchObject({ proxies: true });
+    expect(bodies[2]).toEqual(plain);
+  });
+
+  it("starts the next browser at the extras the plan took, without asking again for the ones it refused", async () => {
+    await createSession(ENV, OWNER, vendor([400, 403]).fetcher);
+    const next = vendor([]);
+    await createSession(ENV, OWNER, next.fetcher);
+    expect(next.bodies).toEqual([plain]);
+  });
+
+  it("never steps down for billing, too many browsers or an outage", async () => {
+    for (const status of [402, 429, 500]) {
+      const { bodies, fetcher } = vendor([status]);
+      await expect(createSession(ENV, OWNER, fetcher)).rejects.toThrow(`browserbase ${status}`);
+      expect(bodies).toHaveLength(1);
+    }
+  });
+
+  it("gives up when even the plain browser is refused", async () => {
+    const { bodies, fetcher } = vendor([400, 400, 400]);
+    await expect(createSession(ENV, OWNER, fetcher)).rejects.toThrow("browserbase 400");
+    expect(bodies).toHaveLength(3);
   });
 });

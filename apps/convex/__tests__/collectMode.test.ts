@@ -29,7 +29,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { MANAGED_BUCKET_PREFIX } from "../functions/lib/managedStorage";
 import { TURNSTILE_SECRET_ENV_VAR } from "../functions/lib/turnstile";
@@ -39,6 +38,7 @@ import { collectCapFrom } from "../functions/lib/collectLimits";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { FAKE_STORAGE, asUser, captureError, copyTree, createUser, createWorkspace } from "./fixtures.helpers";
 import { errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -201,6 +201,9 @@ async function fixture(options: { managed?: boolean } = {}): Promise<Fixture> {
     }),
   );
 
+  process.env[TURNSTILE_SECRET_ENV_VAR] = "test-secret-not-a-real-key";
+  // Key the seeded notes first: every write below then goes through the keyed app, as in production.
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
@@ -217,9 +220,6 @@ async function fixture(options: { managed?: boolean } = {}): Promise<Fixture> {
     path: SECTIONS_NOTE,
     text: SECTIONS_BODY,
   });
-
-  process.env[TURNSTILE_SECRET_ENV_VAR] = "test-secret-not-a-real-key";
-  await copyTree(t, workspaceId);
   return { t, owner, member, workspaceId, backend, challenge };
 }
 

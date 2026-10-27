@@ -557,6 +557,56 @@ export async function runIpcCensusChecks(check) {
       nothing else: it opens no input, files no meeting, reaches no credential,
       and `main/capture.ts` clamps both numbers into 0-1 before they travel.
     */
+  // -- the Messages backup's "What's copied" switches ------------------------
+  {
+    const { ipc, calls } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.imessageSetFiles)(sender(), { pictures: false, videos: "true", path: "/Users/x" });
+    check(
+      "a change to what is copied reaches the shell as the two switches only, each a boolean",
+      calls.includes(`setImessageFiles:${JSON.stringify({ pictures: false })}`) && !calls.some((call) => call.includes("/Users/x")),
+    );
+    let refused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.imessageSetFiles)(sender({ id: 99 }), { videos: true });
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot change what is copied", refused && !calls.some((call) => call.includes("videos")));
+  }
+  // -- Download messages ------------------------------------------------------
+  {
+    const { ipc, calls } = mainBridge({ download: { ok: true, conversations: 1, transcripts: 2, pictures: 3, notCopied: 0, folder: "/Users/x/Downloads/Messages backup" } });
+    const answer = await ipc.handlers.get(BRIDGE_CHANNELS.imessageDownload)(sender());
+    check(
+      "a download answers the console counts only, never where it wrote",
+      calls.includes("downloadImessage") && !JSON.stringify(answer).includes("/Users/x") && JSON.stringify(answer).includes('"pictures":3'),
+    );
+    const failed = await mainBridge({ download: { ok: false, problem: "Bearer cat_secret at /Users/x" } }).ipc.handlers.get(BRIDGE_CHANNELS.imessageDownload)(sender());
+    check("a failed download crosses as a closed code, never the shell's words", JSON.stringify(failed).includes('"problem":"unavailable"') && !JSON.stringify(failed).includes("cat_secret"));
+    let refused = false;
+    const { ipc: other, calls: otherCalls } = mainBridge();
+    try {
+      await other.handlers.get(BRIDGE_CHANNELS.imessageDownload)(sender({ id: 99 }));
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot start a download", refused && !otherCalls.includes("downloadImessage"));
+  }
+  // -- forgetting the backup after it was deleted -----------------------------
+  {
+    const { ipc, calls } = mainBridge();
+    await ipc.handlers.get(BRIDGE_CHANNELS.imessageForget)(sender());
+    check("the console can turn the backup off and start it over after deleting it", calls.includes("forgetImessage"));
+    let refused = false;
+    const { ipc: other, calls: otherCalls } = mainBridge();
+    try {
+      await other.handlers.get(BRIDGE_CHANNELS.imessageForget)(sender({ id: 99 }));
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot", refused && !otherCalls.includes("forgetImessage"));
+  }
+
   // -- the local agent, version 7 --------------------------------------------
   {
     const { ipc, asked } = mainBridge({ localAgent: { available: true, name: "Claude Code" } });
@@ -624,9 +674,25 @@ export async function runIpcCensusChecks(check) {
       already has through the connection, so the ceiling here is the sender
       check above rather than anything new.
     */
+    /*
+      36 → 37: the Messages backup's "What's copied" switches, gated. It
+      carries two booleans, rebuilt in the handler (`filesChoiceFrom`), and
+      changes which of the person's own files their own Mac copies to their
+      own storage; it reads nothing back.
+    */
+    /*
+      37 → 38: Download messages, gated. It takes nothing, and answers counts
+      and a closed code rebuilt in the handler (`downloadFrom`): the folder it
+      writes, and every word in it, stay on this Mac.
+    */
+    /*
+      38 → 39: forgetting the backup after the owner deleted it, gated. It
+      takes nothing and answers nothing; it turns this Mac's backup off and
+      starts its cursor over, which only stops copying.
+    */
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 36,
+      registrations + gatedAsync + gatedSync === 39,
     );
   }
 }

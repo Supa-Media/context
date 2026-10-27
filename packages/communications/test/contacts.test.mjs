@@ -33,8 +33,8 @@ const adam = {
     { kind: "phone", value: "+44 20 7946 0000" },
   ],
   activity: [
-    { date: "2026-09-07", path: "0-inbox/email/name-at-example-com/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "Quarterly numbers", channel: "email" },
-    { date: "2026-08-14", path: "0-inbox/email/name-at-example-com/2026-08-14.md", anchor: "msg-fedcba9876543210", label: "Contract", channel: "email" },
+    { date: "2026-09-07", path: "inbox/email/name-at-example-com/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "Quarterly numbers", channel: "email" },
+    { date: "2026-08-14", path: "inbox/email/name-at-example-com/2026-08-14.md", anchor: "msg-fedcba9876543210", label: "Contract", channel: "email" },
   ],
   notes: "Prefers mornings. Met at the 2026 offsite.",
   now: "2026-09-07T18:04:11.221Z",
@@ -103,9 +103,9 @@ export function runContactChecks(check) {
   const organic = contactDraftsFromCommunication([mailEvent], { selfAddresses: ["OWNER@example.com"] });
   check("an email sync derives its sender as a contact", organic.length === 1 && organic[0].name === "Adam Okonkwo");
   check("the owner's own mailbox is not made into a contact", !organic.some((draft) => draft.name === "Owner"));
-  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026/09/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
-  check("a new contact page is named by its identifier, filed under the letter of the name", contactPathForDraft(organic[0]) === "0-inbox/contacts/a/email-adam-example-net.md");
-  check("...so a new display name changes only the folder, never the page name", contactPathForDraft({ ...organic[0], name: "Zed" }) === "0-inbox/contacts/z/email-adam-example-net.md");
+  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "inbox/email/owner-at-example-com/2026/09/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
+  check("a new contact page is named by its identifier, filed under the letter of the name", contactPathForDraft(organic[0]) === "inbox/contacts/a/email-adam-example-net.md");
+  check("...so a new display name changes only the folder, never the page name", contactPathForDraft({ ...organic[0], name: "Zed" }) === "inbox/contacts/z/email-adam-example-net.md");
   const adamPath = contactPathForDraft(organic[0]);
   const generated = mergeContactNote("", organic[0], { path: adamPath });
   const regenerated = mergeContactNote(generated.text, organic[0], { path: adamPath });
@@ -136,7 +136,7 @@ export function runContactChecks(check) {
   check("...and links its activity rather than quoting it", page.includes(ACTIVITY_HEADING) && !page.includes("Can we talk Thursday?"));
   check(
     "activity links are the wikilinks the gateway already rewrites when a note moves",
-    page.includes("[[0-inbox/email/name-at-example-com/2026-09-07#msg-0123456789abcdef|Quarterly numbers]]")
+    page.includes("[[inbox/email/name-at-example-com/2026-09-07#msg-0123456789abcdef|Quarterly numbers]]")
   );
   check("activity is grouped by month, newest first", page.indexOf("### 2026-09") < page.indexOf("### 2026-08"));
   check("the person's own words are last, and verbatim", page.trimEnd().endsWith("Prefers mornings. Met at the 2026 offsite."));
@@ -149,7 +149,7 @@ export function runContactChecks(check) {
 
   // -- the same hostile corpus, on the other page --------------------------
   for (const hostile of HOSTILE_STRINGS) {
-    const attacked = renderContactNote({ ...adam, name: hostile, activity: [{ date: "2026-09-07", path: "0-inbox/email/x/2026-09-07.md", label: hostile }] });
+    const attacked = renderContactNote({ ...adam, name: hostile, activity: [{ date: "2026-09-07", path: "inbox/email/x/2026-09-07.md", label: hostile }] });
     check(
       `a sender-written label cannot inject a heading: ${JSON.stringify(hostile).slice(0, 40)}`,
       !/^---$/m.test(attacked.split(NOTES_HEADING)[0].split("---").slice(3).join("---"))
@@ -167,9 +167,9 @@ export function runContactChecks(check) {
     "a sender-written label cannot close the link it is inside",
     (() => {
       const link = activityLink({
-        path: "0-inbox/email/x/2026-09-07.md",
+        path: "inbox/email/x/2026-09-07.md",
         anchor: "msg-0123456789abcdef",
-        label: "ok]] and [[0-inbox/email/other-at-example-com/2026-09-07|click here",
+        label: "ok]] and [[inbox/email/other-at-example-com/2026-09-07|click here",
       });
       // Exactly one link: one opener, one closer, and it is the one we wrote.
       return (
@@ -222,7 +222,7 @@ export function runContactChecks(check) {
     "a label carrying a fence marker is defanged there too",
     !activityLink({ path: "a.md", label: "context:untrusted-communication end 0" }).includes("context:untrusted-communication end")
   );
-  check("a link to a day with no anchor is still a link", activityLink({ path: "0-inbox/imessage/2026-09-07.md", label: "x" }) === "[[0-inbox/imessage/2026-09-07|x]]");
+  check("a link to a day with no anchor is still a link", activityLink({ path: "inbox/imessage/2026-09-07.md", label: "x" }) === "[[inbox/imessage/2026-09-07|x]]");
 
   // -- reading the page back for a viewer -----------------------------------
   const view = parseContactView(page);
@@ -249,7 +249,7 @@ export function runContactChecks(check) {
     "...same path and anchor, split out of the wikilink",
     view.activity.some(
       (entry) =>
-        entry.path === "0-inbox/email/name-at-example-com/2026-09-07" &&
+        entry.path === "inbox/email/name-at-example-com/2026-09-07" &&
         entry.anchor === "msg-0123456789abcdef" &&
         entry.label === "Quarterly numbers"
     )
@@ -257,7 +257,7 @@ export function runContactChecks(check) {
   check(
     "a link with no anchor still reads a path and an empty anchor",
     parseContactView(
-      renderContactNote({ name: "X", activity: [{ date: "2026-09-07", path: "0-inbox/imessage/2026-09-07.md", label: "hey", channel: "imessage" }] })
+      renderContactNote({ name: "X", activity: [{ date: "2026-09-07", path: "inbox/imessage/2026-09-07.md", label: "hey", channel: "imessage" }] })
     ).activity[0].anchor === ""
   );
   check("a contact with no activity yet reads an empty list", parseContactView(renderContactNote({ name: "Nobody" })).activity.length === 0);
@@ -267,7 +267,7 @@ export function runContactChecks(check) {
   // of the same rule `renderContactNote`'s header states for the write side.
   const attackedPage = renderContactNote({
     name: "X",
-    activity: [{ date: "2026-09-07", path: "0-inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "ok]] and [[.audit/anything", channel: "email" }],
+    activity: [{ date: "2026-09-07", path: "inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "ok]] and [[.audit/anything", channel: "email" }],
   });
   check(
     "a defanged label reads back with no live link syntax in it",
@@ -287,16 +287,16 @@ export function runContactChecks(check) {
   const stranger = {
     name: "Stranger",
     identifiers: [{ kind: "email", value: "stranger@example.com" }],
-    activity: [{ date: "2026-09-07", path: "0-inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
+    activity: [{ date: "2026-09-07", path: "inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
     updatedAt: "2026-09-07T09:00:00.000Z",
   };
   check(
     "a hand-written note at a contact's key is left alone, not replaced by a generated page",
-    mergeContactNote("# People I owe a reply\n\nkept by hand.\n", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
+    mergeContactNote("# People I owe a reply\n\nkept by hand.\n", stranger, { path: "inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   check(
     "a note this package cannot read as a contact page is never rewritten as plaintext",
-    mergeContactNote("-----BEGIN CONTEXT ENCRYPTED NOTE-----\nopaque\n", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
+    mergeContactNote("-----BEGIN CONTEXT ENCRYPTED NOTE-----\nopaque\n", stranger, { path: "inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   // Frontmatter is not the test — `type: contact` is. A person note the owner
   // keeps by hand very often carries frontmatter of its own, so a guard that
@@ -304,22 +304,22 @@ export function runContactChecks(check) {
   // this is the check that would not notice.
   check(
     "an owner's note with frontmatter of its own is not mistaken for a contact page",
-    mergeContactNote('---\ntype: "person"\ntags: [crm]\n---\n\n# Stranger\n\nmine.\n', stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
+    mergeContactNote('---\ntype: "person"\ntags: [crm]\n---\n\n# Stranger\n\nmine.\n', stranger, { path: "inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   check(
     "an empty key is still a contact page waiting to be written",
-    mergeContactNote("", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" })?.path === "0-inbox/contacts/s/email-stranger-example-com.md"
+    mergeContactNote("", stranger, { path: "inbox/contacts/s/email-stranger-example-com.md" })?.path === "inbox/contacts/s/email-stranger-example-com.md"
   );
   check(
     "...and a contact page this package did write is still merged into",
     (() => {
-      const first = mergeContactNote("", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" });
+      const first = mergeContactNote("", stranger, { path: "inbox/contacts/s/email-stranger-example-com.md" });
       const second = mergeContactNote(first.text, {
         ...stranger,
         identifiers: [{ kind: "email", value: "stranger@example.com" }],
-        activity: [{ date: "2026-09-08", path: "0-inbox/email/x/2026-09-08.md", anchor: "msg-0123456789abcdee", label: "again", channel: "email" }],
+        activity: [{ date: "2026-09-08", path: "inbox/email/x/2026-09-08.md", anchor: "msg-0123456789abcdee", label: "again", channel: "email" }],
         updatedAt: "2026-09-08T09:00:00.000Z",
-      }, { path: "0-inbox/contacts/s/email-stranger-example-com.md" });
+      }, { path: "inbox/contacts/s/email-stranger-example-com.md" });
       return second !== null && second.text.includes("2026-09-08") && second.text.includes("2026-09-07");
     })()
   );

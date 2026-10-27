@@ -128,7 +128,14 @@ export const ACTIONS = {
     },
     slack: {
       tool: "slack_api",
-      summary: "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words.",
+      summary:
+        "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words. " +
+        "Find someone: users.list {match: their name or email}, which reads every active person at once. " +
+        "DM someone: chat.postMessage {channel: their user id or the email they use in that Slack, text}. " +
+        "Post in a channel: chat.postMessage {channel: \"#name\", text}; reply in a thread: add thread_ts (the message's ts). " +
+        "Read a channel: conversations.history {channel: \"#name\"}, newest first, with names; a thread: conversations.replies {channel, ts}. " +
+        "Find channels: conversations.list {match}; search: search.messages {query}; react: reactions.add {channel, timestamp, name}. " +
+        "Mention someone in text as <@their user id>. If Slack says a permission is missing, ask them to reconnect Slack in Settings.",
       take: plain,
     },
     app: {
@@ -136,9 +143,21 @@ export const ACTIONS = {
       summary: "Make one change through an app the person connected (app, tool, arguments), once they say yes to it.",
       take: plain,
     },
+    google_chat: {
+      tool: "google_chat",
+      summary:
+        "Send one Google Chat message as the person: to (a person's work email) for a direct message, or space (its name in Chat) " +
+        "for a space, with text. They are asked for a 👍 to the exact message, so just call it. action spaces lists their spaces. " +
+        "Use this, never the browser, for Google Chat; if it says to reconnect, give them the link from manage connect_google (kind gmail).",
+      take: plain,
+    },
     calendar: {
       tool: "calendar_event",
-      summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",
+      summary:
+        "Add, edit, move, cancel or RSVP to one event on the person's Google Calendar. Their own events change at once; one with guests " +
+        "(or an RSVP) is shown to them for one 👍, so just call it. edit finds the event by its exact title and start (fetch calendar: shows both) " +
+        "and changes any of new_title, new_start + new_end, location, notes, add_guests, remove_guests, meet, reminders, recurrence; " +
+        "all_events: true for every time a repeating one happens. Never tell them to change an event themselves.",
       take: plain,
     },
     forward_rule: {

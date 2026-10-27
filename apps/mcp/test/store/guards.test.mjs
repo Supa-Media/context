@@ -11,17 +11,18 @@
  */
 
 import { worker, R2Store } from "./fixtures.mjs";
+import { TREE_UNREACHABLE } from "../../src/tree/served.js";
 
 export async function runStoreGuardChecks(check, gateway) {
   /* --------------------------- pagination guard ---------------------------- */
 
-  // The listing loops in src/index.js are driven by a customer-configured
-  // endpoint. A backend that always answers "truncated" — or replays one
+  // The listing loops (`src/tree/served.js`) are driven by the control plane's
+  // manifest pages. A plane that always answers "more" — or replays one
   // continuation token — used to spin until the Workers subrequest limit killed
-  // the request with an opaque error. Both shapes must stop and say why.
-  // The hostile bucket is reached the only way any bucket is reached: through a
-  // live grant on the harness's control plane. It is bound natively so the
-  // pagination guard is tested without a second S3 backend in the way.
+  // the request with an opaque error. Each shape must stop and say why.
+  // The hostile plane is reached the only way any plane is reached: through a
+  // live grant on the harness's control plane. The bucket is bound natively so
+  // the walk is tested without a second S3 backend in the way.
   const hostileEnv = (list) => ({
     ...gateway.env,
     CONTEXT_BUCKET: {
@@ -35,7 +36,7 @@ export async function runStoreGuardChecks(check, gateway) {
       list,
     },
   });
-  const hostileCall = async (list, args, tool = "search_notes") => {
+  const hostileRpc = async (list, method, params) => {
     const response = await worker.fetch(
       new Request("https://x/mcp", {
         method: "POST",
@@ -43,12 +44,7 @@ export async function runStoreGuardChecks(check, gateway) {
           Authorization: `Bearer ${gateway.ownerToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: tool, arguments: args },
-        }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       }),
       hostileEnv(list),
       { waitUntil() {} }
@@ -57,59 +53,83 @@ export async function runStoreGuardChecks(check, gateway) {
     if (process.env.DEBUG_STORE) console.error("HOSTILE", response.status, JSON.stringify(parsed));
     return parsed;
   };
+  const hostileCall = (list, args, tool = "search_notes") =>
+    hostileRpc(list, "tools/call", { name: tool, arguments: args });
 
-  const repeatedCursor = await hostileCall(
-    async () => ({ objects: [], truncated: true, cursor: "same-token" }),
-    { query: "anything", prefix: "1-projects" }
-  );
+  // Every name a listing gives comes from the control plane's tree (`tree/served.js`), read a page
+  // at a time through `/gateway/tree/manifest`, so that manifest is the walk these guards cover.
+  // The control plane here is hostile: `pageOf(n)` answers manifest page n, and `pages` counts the
+  // manifest requests the gateway made. `list_notes` reads the tree once per call, so the count is
+  // that one walk's. A refusal is the tree's answer to any of them.
+  const refusedAs = (answer) =>
+    answer?.result?.isError === true && answer.result.content?.[0]?.text === TREE_UNREACHABLE;
+  const listNotes = () => hostileCall(async () => ({ objects: [], truncated: false }), {}, "list_notes");
+  const hostileManifest = async (pageOf, run = listNotes) => {
+    const previous = globalThis.fetch;
+    let pages = 0;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (!url.endsWith("/gateway/tree/manifest")) return previous(input, init);
+      pages += 1;
+      return new Response(JSON.stringify(pageOf(pages)), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    try {
+      const answer = await run();
+      return { answer, pages };
+    } finally {
+      globalThis.fetch = previous;
+    }
+  };
+
+  const repeatedCursor = await hostileManifest(() => ({ served: true, entries: [], cursor: "same-token" }));
   check(
-    "a backend replaying one continuation token stops the listing instead of looping",
-    /repeated a pagination cursor/.test(repeatedCursor.error?.message || "")
+    "a control plane replaying one continuation token stops the listing instead of looping",
+    refusedAs(repeatedCursor.answer) && repeatedCursor.pages === 2
   );
 
-  // A third shape, and the one the two above do not cover: the backend says
-  // there IS another page and then hands over no continuation token. `truncated`
-  // and `cursor` are read from independent tags in `store/s3.js` — `IsTruncated`
-  // from one element, `NextContinuationToken` from another, with nothing
-  // checking they agree — so this pair is what a slightly-wrong endpoint
-  // actually produces. `nextListCursor` folded it in with a finished listing,
-  // so `listAllKeys` returned a SHORT key set that read exactly like a complete
-  // one, and its own doc comment ("throws rather than truncate, which is right
-  // for a search or a move — a partial answer there is a wrong answer") was
-  // false on precisely this store. `move_folder` and `set_folder_visibility`
-  // build their key sets from it.
-  const noContinuation = await hostileCall(
-    async () => ({ objects: [], truncated: true }),
-    { query: "anything", prefix: "1-projects" }
-  );
+  // A third shape, and the one the two above do not cover: a page that carries
+  // entries and no continuation at all, neither the finished `null` nor a
+  // cursor. Read as finished, it would hand over a SHORT key set that looks
+  // complete, and a partial answer is a wrong answer for a search or a move.
+  // `control-plane/tree.js` refuses it as a malformed manifest.
+  const noContinuation = await hostileManifest(() => ({
+    served: true,
+    entries: [{ path: "scratch/a.md" }],
+  }));
   check(
-    "a backend that reports another page but offers no cursor stops the listing",
-    /did not finish|incomplete listing/i.test(noContinuation.error?.message || "")
+    "a manifest page that names no continuation stops the listing instead of reading as complete",
+    refusedAs(noContinuation.answer) && noContinuation.pages === 1
   );
 
-  let advancing = 0;
-  const runawayPages = await hostileCall(
-    async () => ({ objects: [], truncated: true, cursor: `page-${++advancing}` }),
-    { query: "anything", prefix: "1-projects" }
-  );
+  const runawayPages = await hostileManifest((page) => ({ served: true, entries: [], cursor: `page-${page}` }));
   check(
     "an endlessly truncated listing is capped rather than exhausting subrequests",
-    /exceeded \d+ pages/.test(runawayPages.error?.message || "") && advancing <= 200
+    refusedAs(runawayPages.answer) && runawayPages.pages === 50
   );
 
-  let delimitedPages = 0;
-  const runawayLayout = await hostileCall(
-    async () => ({
-      objects: [],
-      delimitedPrefixes: [],
-      truncated: true,
-      cursor: `layout-${++delimitedPages}`,
-    }),
-    { query: "anything" }
+  // The connect handshake reads the root's layout from the tree (`mcp/sessionInstructions.js`) and falls back to
+  // the static instructions when that fails, so the cap shows as a walk that stops, and a handshake that still
+  // completes. Its error is caught there, so the check reads the walk's own count. The bucket is never listed
+  // for the layout: its root holds note ids, not names.
+  let layoutListed = 0;
+  const runawayLayout = await hostileManifest(
+    (page) => ({ served: true, entries: [], cursor: `layout-${page}` }),
+    () =>
+      hostileRpc(
+        async (options = {}) => {
+          if (!(options.prefix ?? "").startsWith(".")) layoutListed += 1;
+          return { objects: [], truncated: false };
+        },
+        "initialize",
+        { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } }
+      )
   );
   check(
-    "the delimited layout walk is capped too, not just the flat key walk",
-    /exceeded \d+ pages/.test(runawayLayout.error?.message || "") && delimitedPages <= 200
+    "the layout walk at connect is capped too, not just the flat key walk",
+    Boolean(runawayLayout.answer.result) && runawayLayout.pages >= 1 && runawayLayout.pages <= 50 && layoutListed === 0
   );
 
   const dotSegmentRead = await hostileCall(async () => ({ objects: [], truncated: false }), {

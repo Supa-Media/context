@@ -7,14 +7,16 @@ import { expandFluff, parseFluff, resolveRel } from "./fluff.mjs";
 import { normalize, parseFront, unquote } from "./frontMatter.mjs";
 import { readCheck } from "./checks.mjs";
 import { parseSite } from "./sites.mjs";
+import { isEmail, parseEmail } from "./mailbox.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
 const PRIVACY_FILES = new Set(["privacy.md", "privacy-rules.md"]);
 // Template folders live here. It is not a workspace.
 const BANK = "_bank";
-// A folder's fluff file says how many filler notes to write there.
-const FLUFF_FILE = "fluff.md";
+// A folder's fluff file says how many filler notes to write there; a folder with
+// several kinds of filler has one fluff-<kind>.md for each.
+const FLUFF_FILE = /^fluff(-[a-z0-9-]+)?\.md$/;
 
 // Read the people table: "| Maya | maya (personal) | owner |" rows.
 export function parsePeople(raw) {
@@ -222,6 +224,22 @@ async function readBank(wsRoot) {
   return bank;
 }
 
+const CALENDAR_DAY_TYPE = /^type:\s*"?calendar-day"?\s*$/m;
+
+/** Whether a fixture file is a rendered calendar day (`renderCalendarDay`), by its front matter. */
+function isCalendarDay(text) {
+  const end = text.startsWith("---\n") ? text.indexOf("\n---", 3) : -1;
+  return end > 0 && CALENDAR_DAY_TYPE.test(text.slice(0, end));
+}
+
+/** One calendar day: its date and account from the front matter, and the rendered text. */
+function calendarDay(text, rel) {
+  const date = /^date:\s*"?(\d{4}-\d{2}-\d{2})"?\s*$/m.exec(text)?.[1];
+  if (!date) throw new Error(`${rel}: a calendar day needs date: in its front matter`);
+  const address = /^accounts:\s*\["?([^",\]]+)"?/m.exec(text)?.[1] ?? "calendar@example.invalid";
+  return { date, address, text };
+}
+
 // Read the whole benchmark folder into one object.
 export async function readBenchFolder(dir) {
   const readme = await readFile(join(dir, "README.md"), "utf8");
@@ -237,9 +255,11 @@ export async function readBenchFolder(dir) {
     const files = {};
     const held = [];
     const fluff = [];
+    const calendar = [];
+    const mail = [];
     for (const rel of await listMarkdown(base)) {
       const text = await readFile(join(base, rel), "utf8");
-      if (rel === FLUFF_FILE || rel.endsWith(`/${FLUFF_FILE}`)) {
+      if (FLUFF_FILE.test(rel.slice(rel.lastIndexOf("/") + 1))) {
         // A fluff file describes notes; it is never one.
         const label = `workspaces/${entry.name}/${rel}`;
         const parsed = parseFluff(text, label);
@@ -247,6 +267,14 @@ export async function readBenchFolder(dir) {
           throw new Error(`${label}: from names template folder "${parsed.from}", but workspaces/${BANK}/${parsed.from}/ does not exist`);
         }
         fluff.push({ dir: folderOf(rel), fluff: parsed });
+      } else if (isEmail(text)) {
+        // An email is in their Gmail, read live, never a note (`mailbox.mjs`).
+        mail.push(parseEmail(text, `workspaces/${entry.name}/${rel}`));
+      } else if (isCalendarDay(text)) {
+        // A calendar day is what Google answers when it is asked, never a note
+        // (nothing of a calendar is copied into notes since 2026-10-21), so the
+        // world serves it from the control plane's live calendar route.
+        calendar.push(calendarDay(text, rel));
       } else if (PRIVACY_FILES.has(rel)) {
         // Only a root-level privacy file is a rule file; others are ordinary notes.
         held.push(...heldBack(text));
@@ -254,7 +282,7 @@ export async function readBenchFolder(dir) {
         files[rel] = text;
       }
     }
-    workspaces[entry.name] = { files, heldBack: held, fluff };
+    workspaces[entry.name] = { files, heldBack: held, fluff, calendar, mail };
   }
 
   for (const p of people) {
@@ -311,7 +339,10 @@ export function expandWorkspaces(bench) {
         if (ws.heldBack.includes(resolveRel(dir, d.from))) held.push(resolveRel(dir, d.as));
       }
     }
-    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated };
+    // Calendar days and Gmail are not notes and gain no fluff, but must survive
+    // the copy: dropping `mail` here left every fluffed run with an empty
+    // Gmail, so hand-back case 8 could never find its email (2026-10-26).
+    workspaces[name] = { files, heldBack: held, fluff: ws.fluff, generated, calendar: ws.calendar ?? [], mail: ws.mail ?? [] };
   }
   return { ...bench, workspaces };
 }

@@ -3,8 +3,6 @@ import { fullToolList } from "./fullToolList.mjs";
 
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
-import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
-import { seedLegacyFolderMove, seedLegacyReferenceJob } from "./legacyMoveJob.mjs";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -172,7 +170,7 @@ export async function runMovesAndBatchChecks() {
   /*
     Past the one-go threshold a folder moves through the Convex move queue
     (`queuedFolder.js`); this harness's control plane has no queue, which is
-    what a workspace still loading looks like. The move is refused and nothing
+    what a workspace whose queue is not taking moves looks like. The move is refused and nothing
     changes: no `.context/moves/` job is written any more (2026-10-13), because
     nothing on the way to a note reads one. These checks replace "owner
     move_folder creates a logical move for a too-large tree" and the overlay
@@ -194,265 +192,6 @@ export async function runMovesAndBatchChecks() {
       !objects.has("1-projects/big-moved/note-000.md") &&
       [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length === jobsBefore
   );
-  // A job an older gateway left behind still finishes (below); until the
-  // drain copies a note, the note is where the bucket holds it.
-  const bigMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-move", "1-projects/big-moved");
-  check(
-    "a legacy move job is not read on the way to a note: its destination is absent until copied",
-    (await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" })).isError &&
-      succeeded(await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" }))
-  );
-  check(
-    "a draining legacy move still refuses writes under its source prefix",
-    (await call("priv-token", "write_note", {
-      path: "1-projects/big-move/new-private.md",
-      content: "post-cutover write",
-      visibility: "private",
-    })).isError &&
-      !objects.has("1-projects/big-move/new-private.md")
-  );
-  const bigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-move" })).content[0].text;
-  check(
-    "a listing draws the tree, not the job",
-    bigList.includes("1-projects/big-move/note-000.md") && !bigList.includes("1-projects/big-moved/")
-  );
-  const markerBeforeInspection = storedText(`.context/moves/${bigMoveId}.json`);
-  const inspection = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 0 });
-  check("zero batch inspects without moving", !inspection.isError && inspection.content[0].text.includes("references_scanned: 0/0") && inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection && !objects.has("1-projects/big-moved/note-000.md"));
-  const legacyInspection = await call("priv-token", "materialize_move", { id: `${bigMoveId}:inspect`, batch_size: 1 });
-  check("cached connector inspection does not move", legacyInspection.content[0].text === inspection.content[0].text && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection);
-  await contextStore.put("1-projects/big-moved/note-000.md", "user edit during pending move");
-  let materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
-  check(
-    "materialize_move pauses rather than clobbering a destination edit",
-    materialized.isError &&
-      storedText("1-projects/big-moved/note-000.md") === "user edit during pending move" &&
-      objects.has(`.context/moves/${bigMoveId}.json`)
-  );
-  await contextStore.delete("1-projects/big-moved/note-000.md");
-  materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
-  check(
-    "materialize_move copies a bounded batch without deleting sources early",
-    !materialized.isError &&
-      materialized.content[0].text.includes("copying") &&
-      objects.has("1-projects/big-moved/note-000.md") &&
-      objects.has("1-projects/big-move/note-000.md")
-  );
-  await contextStore.put("1-projects/big-move/note-000.md", "post cutover source edit");
-  for (let i = 0; i < 20 && objects.has(`.context/moves/${bigMoveId}.json`); i += 1) {
-    materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
-  }
-  check(
-    "materialize_move preserves post-cutover source edits instead of deleting them",
-    materialized.isError &&
-      objects.has(`.context/moves/${bigMoveId}.json`) &&
-      objects.has("1-projects/big-moved/note-501.md") &&
-      storedText("1-projects/big-move/note-000.md") === "post cutover source edit"
-  );
-  const teamMaterializeTools = (await fullToolList(env, accessTokenFor("pub-token"), contextStore)).map((tool) => tool.name);
-  check(
-    "materialize_move is not advertised outside owner scope",
-    !teamMaterializeTools.includes("materialize_move")
-  );
-  check(
-    "materialize_move direct calls are masked outside owner scope",
-    (await call("pub-token", "materialize_move", { id: bigMoveId, batch_size: 0 })).isError
-  );
-  await contextStore.delete(`.context/moves/${bigMoveId}.json`);
-  await call("priv-token", "materialize_move", { id: bigMoveId });
-  for (let i = 0; i < 501; i += 1) {
-    const suffix = String(i).padStart(3, "0");
-    await contextStore.put(`1-projects/big-missing/note-${suffix}.md`, `missing ${suffix}`);
-  }
-  const missingMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-missing", "1-projects/big-missing-moved");
-  await contextStore.delete("1-projects/big-missing/note-000.md");
-  const missingMaterialize = await call("priv-token", "materialize_move", {
-    id: missingMoveId,
-    batch_size: 100,
-  });
-  check(
-    "materialize_move pauses honestly when a captured source disappears before copy",
-      missingMaterialize.isError &&
-      objects.has(`.context/moves/${missingMoveId}.json`) &&
-      !objects.has("1-projects/big-missing-moved/note-000.md")
-  );
-  await contextStore.delete(`.context/moves/${missingMoveId}.json`);
-  for (let i = 0; i < 101; i += 1) {
-    await contextStore.put(`1-projects/retargeted/note-${i}.md`,
-      i === 0 ? "Contact [site](https://old.example)" : `record ${i}`);
-  }
-  const retargetedId = await seedLegacyFolderMove(contextStore, "1-projects/retargeted", "4-archive/1-projects/retargeted");
-  await contextStore.put("4-archive/1-projects/retargeted/note-0.md",
-    "Contact [site](https://new.example)");
-  let retargetedResult = await call("priv-token", "materialize_move", {
-    id: retargetedId, batch_size: 1,
-  });
-  await contextStore.delete("4-archive/1-projects/retargeted/note-1.md");
-  for (let i = 0; i < 10 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${retargetedId}.json`)); i += 1) {
-    retargetedResult = await call("priv-token", "materialize_move", {
-      id: retargetedId, batch_size: 100,
-    });
-    if (retargetedResult.isError) break;
-  }
-  check("materialization preserves a destination whose link targets alone changed",
-    !retargetedResult?.isError &&
-      storedText("4-archive/1-projects/retargeted/note-0.md") ===
-        "Contact [site](https://new.example)" &&
-      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")) &&
-      storedText("4-archive/1-projects/retargeted/note-1.md") === "record 1" &&
-      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-1.md")));
-  await contextStore.delete(`.context/moves/${retargetedId}.json`);
-  for (let i = 0; i < 101; i += 1) {
-    await contextStore.put(`2-areas/communications/generated-conflict/note-${i}.md`,
-      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
-  }
-  const conflictId = await seedLegacyFolderMove(contextStore, "2-areas/communications/generated-conflict", "4-archive/2-areas/communications/generated-conflict");
-  await contextStore.put("4-archive/2-areas/communications/generated-conflict/note-0.md",
-    "---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nUpdated message 0");
-  let conflictResult;
-  for (let i = 0; i < 10 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${conflictId}.json`)); i += 1) {
-    conflictResult = await call("priv-token", "materialize_move", {
-      id: conflictId, batch_size: 100,
-    });
-    if (conflictResult.isError) break;
-  }
-  const conflictBackup =
-    `4-archive/2-areas/communications/generated-conflict/note-0.move-conflict-${conflictId}.md`;
-  check("generated communication conflicts preserve both versions",
-    !conflictResult?.isError &&
-      storedText(conflictBackup)?.includes("Original message 0") &&
-      storedText("4-archive/2-areas/communications/generated-conflict/note-0.md")?.includes("Updated message 0") &&
-      isLogicalDeleteMarker(storedText("2-areas/communications/generated-conflict/note-0.md")));
-  await contextStore.delete(`.context/moves/${conflictId}.json`);
-  for (let i = 0; i < 101; i += 1) {
-    await contextStore.put(`2-areas/communications/headed-conflict/note-${i}.md`,
-      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
-  }
-  await call("priv-token", "read_note", {
-    path: "2-areas/communications/headed-conflict/note-0.md",
-  });
-  const headedConflictId = await seedLegacyFolderMove(contextStore, "2-areas/communications/headed-conflict", "4-archive/2-areas/communications/headed-conflict");
-  await call("priv-token", "materialize_move", { id: headedConflictId, batch_size: 1 });
-  await readCollaborationDocument(contextStore,
-    "4-archive/2-areas/communications/headed-conflict/note-0.md");
-  let headedConflictResult;
-  for (let i = 0; i < 10 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${headedConflictId}.json`)); i += 1) {
-    headedConflictResult = await call("priv-token", "materialize_move", {
-      id: headedConflictId, batch_size: 100,
-    });
-    if (headedConflictResult.isError) break;
-  }
-  const headedBackup =
-    `4-archive/2-areas/communications/headed-conflict/note-0.move-collaboration-conflict-${headedConflictId}.md`;
-  check("a generated note with distinct collaboration identities keeps both histories",
-    !headedConflictResult?.isError &&
-      storedText(headedBackup)?.includes("Original message 0") &&
-      storedText("4-archive/2-areas/communications/headed-conflict/note-0.md")?.includes("Original message 0") &&
-      isLogicalDeleteMarker(storedText("2-areas/communications/headed-conflict/note-0.md")));
-  await contextStore.delete(`.context/moves/${headedConflictId}.json`);
-  for (let i = 0; i < 501; i += 1) {
-    const suffix = String(i).padStart(3, "0");
-    await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
-  }
-  await contextStore.put("1-projects/big-complete-link.md", "[[1-projects/big-complete/note-000]]");
-  await contextStore.put("1-projects/big-complete/note-001.md", "[[../big-complete-link]]");
-  const completeMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-complete", "2-areas/deep/big-complete-moved");
-  const completeMaterialize = await finishMoveWithBoundedCleanup(completeMoveId, null);
-  check(
-    "materialize_move completes a logical move and removes the source objects",
-    !completeMaterialize.isError &&
-      completeMaterialize.content[0].text.includes("complete") &&
-      isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)) &&
-      isLogicalDeleteMarker(storedText("1-projects/big-complete/note-000.md")) &&
-      objects.has("2-areas/deep/big-complete-moved/note-000.md")
-  );
-  check(
-    "logical folder move rewrites references when the move is activated",
-    storedText("1-projects/big-complete-link.md") === "[[2-areas/deep/big-complete-moved/note-000]]" &&
-      storedText("2-areas/deep/big-complete-moved/note-001.md") ===
-        "[[../../../1-projects/big-complete-link]]"
-  );
-  await checkSettledConcurrentFailure();
-  const queuedGatewayMessages = [];
-  env.GATEWAY_JOBS = {
-    async send(message) {
-      queuedGatewayMessages.push(message);
-    },
-  };
-  for (let i = 0; i < 501; i += 1) {
-    const suffix = String(i).padStart(3, "0");
-    await contextStore.put(`1-projects/queued-move/note-${suffix}.md`, `queued ${suffix}`);
-  }
-  const queuedMoveId = await seedLegacyFolderMove(contextStore, "1-projects/queued-move", "1-projects/queued-moved");
-  // A legacy job is handed to the durable queue by the owner's resume (an
-  // older gateway enqueued it at cutover); the resume itself copies one.
-  await call("priv-token", "materialize_move", { id: queuedMoveId, batch_size: 1, resume_background: true });
-  check(
-    "a resumed legacy move enqueues a durable gateway job without credentials",
-    queuedGatewayMessages.length === 1 &&
-      queuedGatewayMessages[0]?.ticket === "job-ticket-1" &&
-      queuedGatewayMessages[0]?.kind === "materialize_move" &&
-      queuedGatewayMessages[0]?.moveId === queuedMoveId &&
-      !JSON.stringify(queuedGatewayMessages[0]).includes("cat_test_owner")
-  );
-  const firstQueuedMessage = queuedGatewayMessages.shift();
-  await worker.queue({ messages: [{ body: firstQueuedMessage }] }, env);
-  const firstProgressReport = [...controlPlane.calls]
-    .reverse()
-    .find((entry) => entry.path === "/gateway/jobs/report");
-  check(
-    "queue consumer reports bounded move progress without note paths",
-    firstProgressReport?.body?.result?.status === "queued" &&
-      firstProgressReport?.body?.result?.progress?.phase === "copying" &&
-      Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
-      firstProgressReport.body.result.progress.completed === 21 &&
-      firstProgressReport?.body?.result?.progress?.total === 501 &&
-      !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
-  );
-  let observedReferenceBatch = false;
-  for (let i = 0; i < 1200 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
-    const message = queuedGatewayMessages.shift();
-    if (!message) break;
-    const beforeText = storedText(`.context/moves/${queuedMoveId}.json`);
-    await worker.queue({ messages: [{ body: message }] }, env);
-    const afterText = storedText(`.context/moves/${queuedMoveId}.json`);
-    if (!isLogicalDeleteMarker(beforeText) && !isLogicalDeleteMarker(afterText)) {
-      const before = JSON.parse(beforeText);
-      const after = JSON.parse(afterText);
-      if (before.status === "rewriting" && after.reference_scanned > (before.reference_scanned || 0)) {
-        observedReferenceBatch = after.reference_scanned - (before.reference_scanned || 0) <= 5;
-      }
-    }
-  }
-  check("queue link sweeps use a smaller bounded batch while copies still use twenty",
-    observedReferenceBatch);
-  check(
-    "queue consumer materializes a large logical move across bounded passes",
-    isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&
-      isLogicalDeleteMarker(storedText("1-projects/queued-move/note-000.md")) &&
-      objects.has("1-projects/queued-moved/note-000.md")
-  );
-  delete env.GATEWAY_JOBS;
-  for (let i = 0; i < 502; i += 1) {
-    const suffix = String(i).padStart(3, "0");
-    await contextStore.delete(`1-projects/big-move/note-${suffix}.md`);
-    await contextStore.delete(`1-projects/big-moved/note-${suffix}.md`);
-  }
-  for (let i = 0; i < 501; i += 1) {
-    const suffix = String(i).padStart(3, "0");
-    await contextStore.delete(`1-projects/big-missing/note-${suffix}.md`);
-    await contextStore.delete(`1-projects/big-missing-moved/note-${suffix}.md`);
-    await contextStore.delete(`1-projects/big-complete/note-${suffix}.md`);
-    await contextStore.delete(`2-areas/deep/big-complete-moved/note-${suffix}.md`);
-    await contextStore.delete(`1-projects/queued-move/note-${suffix}.md`);
-    await contextStore.delete(`1-projects/queued-moved/note-${suffix}.md`);
-  }
-  await contextStore.delete("1-projects/big-complete-link.md");
-
   // Archive-to-archive relocations already retain a recoverable destination, so
   // they avoid creating a redundant history copy when visibility is unchanged.
   await contextStore.put("4-archive/old-layout/a.md", "archived a");
@@ -544,8 +283,6 @@ export async function runMovesAndBatchChecks() {
       destination: "1-projects/other-moved/note.md",
     }],
   }));
-  const referenceMessages = [];
-  env.GATEWAY_JOBS = { async send(message) { referenceMessages.push(message); } };
   const jobFilesBefore = [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length;
   const queuedLinks = await call("priv-token", "move_folder", {
     source: "1-projects/portable-link-target",
@@ -562,84 +299,8 @@ export async function runMovesAndBatchChecks() {
   check("a move beyond the scan cap leaves its links to forwarding and queues nothing",
     !queuedLinks.isError &&
       queuedLinks.content[0].text.includes("links to the old path forward to the new one") &&
-      referenceMessages.length === 0 &&
       [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length === jobFilesBefore);
-  const linkJobId = await seedLegacyReferenceJob(contextStore, [
-    ["1-projects/portable-link-target/note.md", "1-projects/deep/portable-link-moved/note.md"],
-  ]);
-  const profileMarker = storedText(`.context/moves/${linkJobId}.json`);
-  const profile = await call("priv-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 });
-  check("owner can profile without changing the marker; other scopes are masked",
-    !profile.isError && profile.content[0].text.includes("note inventory:") &&
-    profile.content[0].text.includes("active move markers:") &&
-    storedText(`.context/moves/${linkJobId}.json`) === profileMarker &&
-    (await call("pub-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 })).isError);
-  const restarted = await call("priv-token", "materialize_move", {
-    id: linkJobId,
-    batch_size: 1,
-    resume_background: true,
-  });
-  check("an owner can restart a stalled reference worker",
-    !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
-      referenceMessages.length === 1);
-  const inventoryAfterFirstPass = JSON.parse(storedText(`.context/moves/${linkJobId}.json`));
-  /*
-    Asked from the owner's connection, the pass takes the whole reference
-    inventory from the Convex tree in one step (`references.js`) rather than
-    a bucket page per pass; the background worker, which has no grant to ask
-    the tree with, still pages the bucket (the queued move above). This
-    replaces "reference inventory saves its first storage page" and
-    "...resumes from the saved cursor", which held the request's bucket pages.
-  */
-  check("an owner's pass takes the reference inventory from the tree in one step",
-    inventoryAfterFirstPass.reference_inventory_complete === true &&
-      inventoryAfterFirstPass.reference_inventory_pages === undefined &&
-      inventoryAfterFirstPass.reference_inventory_keys.includes("1-projects/deep/portable-link-moved/note.md"));
-  const queuedBeforeFreshPass = referenceMessages.length;
-  const freshPass = await call("priv-token", "materialize_move", {
-    id: linkJobId, batch_size: 1,
-  });
-  check("a fresh move pass does not queue a duplicate worker",
-    !freshPass.isError && referenceMessages.length === queuedBeforeFreshPass);
-  const staleKey = `.context/moves/${linkJobId}.json`;
-  const staleJob = JSON.parse(storedText(staleKey));
-  staleJob.updated_at = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  await contextStore.put(staleKey, JSON.stringify(staleJob));
-  const stalePass = await call("priv-token", "materialize_move", {
-    id: linkJobId, batch_size: 1,
-  });
-  check("an ordinary materialize call revives a stalled background worker",
-    !stalePass.isError && stalePass.content[0].text.includes("background worker queued") &&
-      referenceMessages.length === queuedBeforeFreshPass + 1);
-  delete env.GATEWAY_JOBS;
-  let profiledCheckpoint = false;
-  for (let i = 0; i < 100 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
-    const progress = await call("priv-token", "materialize_move", { id: linkJobId, batch_size: 100 });
-    if (progress?.isError) break;
-    const markerText = storedText(`.context/moves/${linkJobId}.json`);
-    if (!profiledCheckpoint && !isLogicalDeleteMarker(markerText) &&
-        JSON.parse(markerText).reference_inventory_complete === true) {
-      const checkpointProfile = await call("priv-token", "materialize_move", {
-        id: `${linkJobId}:profile`, batch_size: 1,
-      });
-      profiledCheckpoint = !checkpointProfile.isError &&
-        checkpointProfile.content[0].text.includes("checkpointed inventory:") &&
-        !checkpointProfile.content[0].text.includes("note inventory:");
-    }
-  }
-  check("owner profiles the checkpointed reference inventory without a fresh bucket walk",
-    profiledCheckpoint);
-  check("queued reference repair updates inbound and moved-note relative links",
-    isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)) &&
-      storedText("1-projects/portable-link-ref.md") === "[[1-projects/deep/portable-link-moved/note]]" &&
-      storedText("1-projects/deep/portable-link-moved/note.md") === "[outside](../../portable-link-ref.md)");
-  check("owner reference repair also updates private notes",
-    storedText("1-projects/secret-thing/private-link.md") === "[[1-projects/deep/portable-link-moved/note]]");
-  check("reference repair follows an earlier move in the forwarding ledger",
-    storedText("1-projects/earlier-ref.md") === "[[4-archive/1-projects/earlier-thread]]");
-  check("reference repair leaves another active move's source untouched",
-    storedText("1-projects/other-active/note.md") === "[[1-projects/portable-link-target/note]]");
+  // Fixtures of the scan-cap case, so later checks in this run see the bucket they expect.
   for (const key of [...objects.keys()]) {
     if (key.startsWith("3-resources/link-fixture/") ||
         key.startsWith("1-projects/portable-link-") ||
@@ -649,8 +310,5 @@ export async function runMovesAndBatchChecks() {
         key === "4-archive/1-projects/earlier-thread.md" ||
         key === "1-projects/secret-thing/private-link.md") objects.delete(key);
   }
-  objects.delete(`.context/moves/${linkJobId}.json`);
   objects.delete(`.context/moves/${otherMoveId}.json`);
-
-
 }

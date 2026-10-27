@@ -21,10 +21,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { toolListMeetings } from "../src/tools/meetings.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
+
+/**
+ * Another workspace's access rows, as `openContext` serves them: 2-areas is team, everything else private. A
+ * store `openContext` builds has rules like this, or it is left out as one whose privacy cannot be read.
+ */
+const rowsOf = (store) => withPrivacyAuthority(store, { rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "2-areas", visibility: "team" }], notes: [] } });
 
 function fakeStore(notes, extra = {}) {
   const files = new Map(Object.entries(notes));
-  return {
+  const store = {
     async list({ prefix } = {}) {
       const objects = [...files.keys()]
         .filter((key) => !prefix || key.startsWith(prefix))
@@ -42,6 +50,8 @@ function fakeStore(notes, extra = {}) {
     },
     ...extra,
   };
+  // A workspace serves its tree unless the test sets its own answer.
+  return "treeManifest" in extra ? store : withServedTree(store);
 }
 
 const meeting = (started, title, attendees = "[]") =>
@@ -98,7 +108,7 @@ test("a meeting in another workspace is listed with its @name, in date order wit
       contexts: [{ name: "@maya", current: true }, { name: "@band" }],
       async openContext(name) {
         assert.equal(name, "@band");
-        return { session: { scope: "private" }, store: band };
+        return { session: { scope: "private" }, store: rowsOf(band) };
       },
     },
   );
@@ -140,7 +150,7 @@ test("another workspace's meetings come from its tree, and a tree that cannot an
     {
       contexts: [{ name: "@maya", current: true }, { name: "@band" }, { name: "@still-loading" }],
       async openContext(name) {
-        return { session: { scope: "private" }, store: name === "@band" ? band : loading };
+        return { session: { scope: "private" }, store: rowsOf(name === "@band" ? band : loading) };
       },
     },
   );

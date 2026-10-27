@@ -22,7 +22,7 @@ export type Media = { attachment_id: string } | { url: string };
 /** What the inbox sends after the words: a text, or a media part ready for the line. */
 export type SendPart = string | { media: Media };
 
-export const MAX_OUTGOING_PICTURES = 4;
+export const MAX_OUTGOING_PICTURES = 8;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 

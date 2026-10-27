@@ -9,6 +9,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolArchiveNote } from "../src/tools/moves/archive.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function bucket(files) {
   const objects = new Map(Object.entries(files).map(([key, body]) => [key, { body, etag: `v-${key}` }]));
@@ -48,13 +50,34 @@ function bucket(files) {
       return { objects: direct.map((key) => ({ key, etag: objects.get(key).etag, size: 1 })), delimitedPrefixes: folders, truncated: false };
     },
   };
-  return { store, objects };
+  return { store: withServedTree(store), objects };
 }
 
 const RULES = [{ prefix: "4-archive", vis: "private" }];
 
+/**
+ * The bucket behind the control plane's access rows: the rules the gateway judges by come from `setAccess`
+ * (`/gateway/privacy`), so a test with a raw store wraps it the way the real session does. `setAccess` keeps a
+ * note's row here.
+ */
+function withRows(store) {
+  const notes = [];
+  let version = 1;
+  const authority = {
+    rules: { etag: "rows-1", folders: RULES.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })), notes, accessVersion: version },
+    async setAccess(change) {
+      version += 1;
+      const others = notes.filter((note) => note.path !== change.path);
+      notes.splice(0, notes.length, ...others, ...(change.base === "inherit" ? [] : [{ path: change.path, visibility: change.base }]));
+      return { ok: true, version };
+    },
+  };
+  return withPrivacyAuthority(store, authority);
+}
+
 test("a note lands at its own path inside Archive, with no date folder", async () => {
-  const { store, objects } = bucket({ "1-projects/launch/plan.md": "# Plan\n" });
+  const { store: raw, objects } = bucket({ "1-projects/launch/plan.md": "# Plan\n" });
+  const store = withRows(raw);
   const answer = await toolArchiveNote(store, "private", RULES, new Map(), "1-projects/launch/plan.md");
   assert.equal(answer.isError, undefined, answer.content[0].text);
   assert.match(answer.content[0].text, /^archived: 1-projects\/launch\/plan\.md → 4-archive\/1-projects\/launch\/plan\.md/);
@@ -63,10 +86,11 @@ test("a note lands at its own path inside Archive, with no date folder", async (
 });
 
 test("a second note of the same name from the same folder arrives numbered, and the first is untouched", async () => {
-  const { store, objects } = bucket({
+  const { store: raw, objects } = bucket({
     "1-projects/launch/plan.md": "# Newer plan\n",
     "4-archive/1-projects/launch/plan.md": "# Older plan\n",
   });
+  const store = withRows(raw);
   const answer = await toolArchiveNote(store, "private", RULES, new Map(), "1-projects/launch/plan.md");
   assert.match(answer.content[0].text, /→ 4-archive\/1-projects\/launch\/plan \(2\)\.md/);
   assert.equal(objects.get("4-archive/1-projects/launch/plan.md")?.body, "# Older plan\n");

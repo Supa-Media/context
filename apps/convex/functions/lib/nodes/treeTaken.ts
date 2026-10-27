@@ -20,9 +20,10 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
-import { logicalPath, physicalCandidates } from "../../../../mcp/src/moves/queued.js";
+import { logicalPath, physicalCandidates } from "./movePaths";
 import type { PendingMove } from "./moveOverlay";
 import { drawnMoves } from "./rowMoveChunks";
+import { nodeAt, nodePaths } from "./paths";
 
 /** Names one ask may carry. */
 export const TAKEN_PATHS = 100;
@@ -37,16 +38,8 @@ export interface TakenAnswer {
   folders: string[];
 }
 
-/** One past every key under `prefix/` in key order: `/` is 0x2F, `0` is 0x30. */
-function pastFolder(prefix: string): string {
-  return `${prefix}0`;
-}
-
 async function liveFileAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<boolean> {
-  const row = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .first();
+  const row = await nodeAt(db, workspaceId, path);
   return row !== null && row.kind === "file" && row.goneAt === undefined;
 }
 
@@ -63,20 +56,22 @@ async function liveUnder(
   logical: string,
   moves: readonly PendingMove[],
 ): Promise<boolean> {
-  const rows = db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) =>
-      q.eq("workspaceId", workspaceId).gte("path", `${source}/`).lt("path", pastFolder(source)),
-    );
   let scanned = 0;
-  for await (const row of rows) {
+  let taken = false;
+  await (
+    await nodePaths(db, workspaceId)
+  ).below(source, (row) => {
     scanned += 1;
     if (row.kind === "file" && row.goneAt === undefined && (logicalPath(row.path, moves) as string).startsWith(`${logical}/`)) {
-      return true;
+      taken = true;
+      return false;
     }
-    if (scanned >= FOLDER_SCAN) return true;
-  }
-  return false;
+    if (scanned >= FOLDER_SCAN) {
+      taken = true;
+      return false;
+    }
+  });
+  return taken;
 }
 
 /** Whether something live is drawn at or under `logical`, through `moves`. */
@@ -106,8 +101,7 @@ async function takenAt(
     const move = moves[index]!;
     if (!(logicalPath(move.to, moves.slice(index + 1)) as string).startsWith(`${logical}/`)) continue;
     for (const source of physicalCandidates(move.from, moves.slice(0, index)) as string[]) {
-      const fileThere =
-        (logicalPath(source, moves) as string).startsWith(`${logical}/`) && (await liveFileAt(db, workspaceId, source));
+      const fileThere = (logicalPath(source, moves) as string).startsWith(`${logical}/`) && (await liveFileAt(db, workspaceId, source));
       if (fileThere || (await liveUnder(db, workspaceId, source, logical, moves))) {
         folder = true;
         break;
@@ -118,11 +112,7 @@ async function takenAt(
 }
 
 /** Which of `paths` the tree draws a file at, and which it draws a folder at. Reads only rows. */
-export async function treeTaken(
-  db: DatabaseReader,
-  workspaceId: Id<"workspaces">,
-  paths: readonly string[],
-): Promise<TakenAnswer> {
+export async function treeTaken(db: DatabaseReader, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<TakenAnswer> {
   const moves = await drawnMoves(db, workspaceId);
   const answer: TakenAnswer = { files: [], folders: [] };
   for (const path of new Set(paths.slice(0, TAKEN_PATHS))) {

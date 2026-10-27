@@ -27,8 +27,9 @@ import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { asUser, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import { pair as pairOf, type Pair } from "./contextMove.helpers";
-import { keyWorkspace } from "./contextMoveKeyed.helpers";
 import type { MemoryS3 } from "./storeStub.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { rowsAsRead } from "./nodes/treeRows.helpers";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -36,10 +37,7 @@ const NOTE = "1-projects/acme/note-001.md";
 
 async function liveRow(t: TestConvex, workspaceId: Id<"workspaces">, path: string) {
   return await t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspaceId, path);
     return row !== null && row.goneAt === undefined ? row : null;
   });
 }
@@ -47,8 +45,11 @@ async function liveRow(t: TestConvex, workspaceId: Id<"workspaces">, path: strin
 /** Copies the destination took back: each one is an edit the move met and carried again. */
 async function takenBack(p: Pair) {
   return await p.t.run(async (ctx) =>
-    (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", p.to)).collect()).filter(
-      (row) => row.kind === "file" && row.goneAt === undefined && row.path.startsWith(".context/trash/"),
+    (await rowsAsRead(ctx, p.to)).filter(
+      (row) =>
+        row.kind === "file" &&
+        row.goneAt === undefined &&
+        row.path.startsWith(".context/trash/"),
     ),
   );
 }
@@ -64,11 +65,9 @@ async function move(p: Pair, from: string, to: string) {
   return await p.t.run((ctx) => ctx.db.get(moveId));
 }
 
+/** Both workspaces are keyed by the copy every workspace gets; the notes are the product's own writes from here. */
 async function keyedPair(mover: boolean): Promise<Pair> {
-  const p = await pairOf({ notes: 3, into: "own", mover });
-  await keyWorkspace(p.t, p.from, p.source);
-  await keyWorkspace(p.t, p.to, p.destination);
-  return p;
+  return await pairOf({ notes: 3, into: "own", mover });
 }
 
 /**

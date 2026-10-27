@@ -36,6 +36,7 @@ import {
   world,
   type World,
 } from "./outsider.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -113,8 +114,16 @@ describe("an outsider with edit saves the note", () => {
   test("an editor reads the comments, and a reader does not", async () => {
     const w = await world();
     const withThread = "# Plan\n\nWords <!--c:k7f2-->here<!--/c:k7f2-->.\n\n```comments\n- k7f2 @owner: zzq-thread-marker-7c02\n```\n";
-    w.backend.seed(PLAN, withThread);
-    w.backend.seed(HELD, withThread);
+    // Written by the owner through the product: the workspace is keyed, so a path seeded into the bucket is never read.
+    for (const path of [PLAN, HELD]) {
+      const current = await asUser(w.t, w.owner).action(api.functions.files.readNote, { workspaceId: w.ws, path });
+      await asUser(w.t, w.owner).action(api.functions.files.writeNote, {
+        workspaceId: w.ws,
+        path,
+        text: withThread,
+        expectedEtag: current.etag,
+      });
+    }
     await setListFor(w, PLAN, edit(w.kola));
     await setListFor(w, HELD, view(w.kola));
 
@@ -134,10 +143,7 @@ describe("what edit never reaches", () => {
     expect(note.text).toContain(PLAN_MARKER);
     // Even with a version in hand, read some other way, the write is refused.
     const etag = await w.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN))
-        .unique();
+      const row = await treeNodeAt(ctx.db, w.ws, PLAN);
       return row?.etag as string;
     });
     await expectCode(save(w, w.kola, { path: PLAN }, "# Plan\n\nnope\n", etag), "SHARE_UNAVAILABLE");

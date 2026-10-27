@@ -25,11 +25,12 @@ import { applyObservation } from "./lib/nodes/observe";
 import { idKeyFor, isNoteId } from "./lib/nodes/noteIds";
 import type { Observation } from "./lib/nodes/table";
 import { clampAt, entryOf, noteEntryValidator, type NoteEntry } from "./lib/noteIds/keyed";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { nodeAt } from "./lib/noteIds/state";
 import { canonicalJobPath } from "./lib/nodes/folderJobs";
 import { movingRowMoves, throughRowMoves } from "./lib/nodes/rowMoveChunks";
+import { markNestedSiteWrite } from "./lib/websites/routeChangeAt";
 import type { DatabaseReader } from "../_generated/server";
+import { located } from "./lib/nodes/paths";
 
 /**
  * The row a keyed path is looked up at: a built-in folder's default name reaches the folder doing that job
@@ -52,24 +53,24 @@ const adoptResultValidator = v.union(
 
 /**
  * What the tree says about each of `paths` (one entry per path with a row,
- * in the order given): `keyed` is whether the workspace is keyed. INTERNAL.
+ * in the order given). `keyed` is always true: every workspace is keyed
+ * (2026-10-22), and the gateway refuses an answer without it. INTERNAL.
  */
 export const notesFor = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
   returns: v.object({ keyed: v.boolean(), notes: v.array(noteEntryValidator) }),
   handler: async (ctx, { workspaceId, paths }) => {
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     const notes: NoteEntry[] = [];
-    const moving = keyed ? await movingRowMoves(ctx.db, workspaceId) : [];
+    const moving = await movingRowMoves(ctx.db, workspaceId);
     for (const path of [...new Set(paths)]) {
       // A built-in folder's default name reaches the folder doing that job now (`folderJobs.ts`),
       // answered under the path asked, which is the one the caller looks it up by.
-      const row = await nodeAt(ctx.db, workspaceId, keyed ? await keyedPathOf(ctx.db, workspaceId, path, moving) : path);
+      const row = await nodeAt(ctx.db, workspaceId, await keyedPathOf(ctx.db, workspaceId, path, moving));
       if (row === null) continue;
       const entry = entryOf(row);
       if (entry !== null) notes.push({ ...entry, path });
     }
-    return { keyed, notes };
+    return { keyed: true, notes };
   },
 });
 
@@ -79,7 +80,9 @@ async function noteIdHeldElsewhere(ctx: MutationCtx, workspaceId: Id<"workspaces
     .query("nodes")
     .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
     .take(2);
-  return holders.some((row) => row.path !== path);
+  for (const row of holders)
+    if ((await located(ctx.db, row))?.path !== path) return true;
+  return false;
 }
 
 /** A seam observation of one keyed row, at `at`. */
@@ -95,8 +98,6 @@ function seamWrite(path: string, at: number, row: { etag: string; size?: number;
       },
     ],
     gone: [],
-    vanishedUnder: [],
-    source: "seam",
   };
 }
 
@@ -120,22 +121,36 @@ export const adoptKeyed = internalMutation({
     at: v.number(),
   },
   returns: adoptResultValidator,
-  handler: async (ctx, { workspaceId, path: asked, noteId, key, etag, size, at }) => {
-    const refused = { adopted: false as const, taken: null };
-    const path = await keyedPathOf(ctx.db, workspaceId, asked);
-    if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return refused;
-    if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
-
-    await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));
-    const row = await nodeAt(ctx.db, workspaceId, path);
-    if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
-      return { adopted: true as const };
-    }
-    const taken = row === null ? null : entryOf(row);
-    return { adopted: false as const, taken: taken === null ? null : { ...taken, path: asked } };
-  },
+  handler: async (ctx, args) => await adoptKeyedRow(ctx, args),
 });
+
+/** `adoptKeyed`'s rule, for a mutation that gives a note its row as one step of its own (`moveCatchUpRows.ts`). */
+export async function adoptKeyedRow(
+  ctx: MutationCtx,
+  { workspaceId, path: asked, noteId, key, etag, size, at }: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    noteId: string;
+    key: string;
+    etag: string;
+    size?: number;
+    at: number;
+  },
+): Promise<{ adopted: true } | { adopted: false; taken: NoteEntry | null }> {
+  const refused = { adopted: false as const, taken: null };
+  const path = await keyedPathOf(ctx.db, workspaceId, asked);
+  if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
+  if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
+
+  await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));
+  const row = await nodeAt(ctx.db, workspaceId, path);
+  if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
+    await markNestedSiteWrite(ctx, workspaceId, path);
+    return { adopted: true as const };
+  }
+  const taken = row === null ? null : entryOf(row);
+  return { adopted: false as const, taken: taken === null ? null : { ...taken, path: asked } };
+}
 
 /**
  * Records the key's new version of a keyed note: `etag` and `size` of the key,
@@ -158,6 +173,7 @@ export const recordKeyed = internalMutation({
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.goneAt !== undefined || row.storageKey !== key || row.noteId === undefined) return false;
     await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId: row.noteId, storageKey: key }));
+    await markNestedSiteWrite(ctx, workspaceId, path);
     return (await nodeAt(ctx.db, workspaceId, path))?.etag === etag;
   },
 });
@@ -177,8 +193,6 @@ export const removeKeyed = internalMutation({
       at: clampAt(at),
       rows: [],
       gone: [path],
-      vanishedUnder: [],
-      source: "seam",
     });
     return (await nodeAt(ctx.db, workspaceId, path))?.goneAt !== undefined;
   },

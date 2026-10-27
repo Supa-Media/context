@@ -45,22 +45,26 @@
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { webPrompt } from "./computer.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
+import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
+import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
 import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt } from "./aboutMe.js";
+import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { pushbackNudge } from "./pushback.js";
 import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+import { RECHECK_REPLACES } from "./recheck.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -143,22 +147,6 @@ const OUT_OF_TIME =
   "Out of time: no more tool calls this turn. Answer now with what you already have, " +
   "and say plainly what you could not check.";
 
-/** Settle `work` within `ms`, or throw `ToolTimeout`. */
-async function withinTime(work, ms) {
-  let timer;
-  try {
-    return await Promise.race([
-      work,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new ToolTimeout()), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-class ToolTimeout extends Error {}
 
 export class AgentRefusal extends Error {
   constructor(code, message) {
@@ -312,7 +300,7 @@ export async function runTurn(options) {
     toolTimeouts = {},
     grants = null,
     local = [],
-    aboutMe = null,
+    aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
@@ -358,9 +346,11 @@ export async function runTurn(options) {
     is translated back into the granted tool before the allowlist below.
   */
   const six = sixToolsOver(tools, grants);
-  // A tool that is slow by nature (a browser step) may name its own limit.
+  // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
+  // A move's own is in `slowMoves.js`, under whatever the caller set.
+  const limits = { ...MOVE_TIMEOUTS, ...toolTimeouts };
   const timeoutFor = (name) =>
-    Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
+    Math.max(1, Math.min(Number.isInteger(limits[name]) && limits[name] > 0 ? limits[name] : toolTimeoutMs, toolBudgetMs + 30_000 - (clock() - began)));
 
   const provider = BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
@@ -386,10 +376,11 @@ export async function runTurn(options) {
     and a person watching the turn log sees which tier a slow or wrong answer
     came from.
   */
+  const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   if (router !== null) {
     const asked = clock();
-    // A background job always plans on `think` and drives on `main` (`background.js`): no router call.
-    const routed = options.planned ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
+    // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
+    const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     plan = thinkRoundsFor(router, routed.tier, mainModel);
@@ -406,6 +397,7 @@ export async function runTurn(options) {
       pictures,
       notes,
       model: answering,
+      models: router !== null ? { main: mainModel, think: router.think } : null,
       edits: tools.some((tool) => tool.name === "write_note"),
       continued: history.length > 0,
       used: usedTools(history),
@@ -413,14 +405,15 @@ export async function runTurn(options) {
     threadNote +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
     (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
     (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
     (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT); // `modelPlan.js`
+    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
+    nudge; // said last, beside the question
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -512,16 +505,18 @@ export async function runTurn(options) {
         told the model that answered, and a benchmark counts how often it
         happened, because this is what production does too.
       */
-      if (error instanceof ProviderError && fallback !== null && model !== fallback && !fellBack) {
+      // A turn carrying a picture names its fallback by the model that failed (`pictureFallback`, `attachments.js`).
+      const next = typeof fallback === "function" ? fallback(model) : fallback;
+      if (error instanceof ProviderError && next !== null && model !== next && !fellBack) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
-        tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, ms });
+        tell({ kind: "model", model: next, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
         // Another model reads none of this one's thinking, and the prompt changed with it.
-        switchTo(fallback);
+        switchTo(next);
         round -= 1;
         continue;
       }
@@ -569,9 +564,9 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      const recheck = round < rounds - 1 ? answerCheck?.(answer.text) ?? null : null;
+      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
-      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
+      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck + RECHECK_REPLACES });
       continue;
     }
 
@@ -630,16 +625,20 @@ export async function runTurn(options) {
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
       try {
-        result = await withinTime(
-          progress && call.name === PROGRESS_TOOL
-            ? progress.call(call.args)
-            : localCalls.has(call.name)
-            ? localCalls.get(call.name)(call.args)
-            : webNames.has(call.name)
-              ? web.call(call.name, call.args)
-              : callTool(call.name, call.args),
-          timeoutFor(call.name),
-        );
+        const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
+        result = viaMcp && isPlainNoteWrite(call.name, call.args)
+          // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
+          ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
+          : await withinTime(
+              progress && call.name === PROGRESS_TOOL
+                ? progress.call(call.args)
+                : localCalls.has(call.name)
+                ? localCalls.get(call.name)(call.args)
+                : webNames.has(call.name)
+                  ? web.call(call.name, call.args)
+                  : callTool(call.name, call.args),
+              timeoutFor(call.name),
+            );
       } catch (error) {
         /*
           A tool that threw is the model's problem to work around, not the
@@ -651,7 +650,7 @@ export async function runTurn(options) {
         */
         if (error instanceof ProviderError) throw error;
         const text =
-          error instanceof ToolTimeout ? TOOL_TIMED_OUT : "That call failed. Don't guess what it would have said.";
+          error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : isMove(call.name) ? MOVE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).
@@ -662,7 +661,7 @@ export async function runTurn(options) {
       // runs when they give it (`route.js`), and a log that called it failed
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
-      steps.push({ tool: call.name, ok: result?.isError !== true });
+      steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
       tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
@@ -678,6 +677,7 @@ export async function runTurn(options) {
         isError: failedCall(result),
       });
     }
+    if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
     const steered = steer === null ? null : await steer.next();
     if (steered !== null) {
       messages.push({ role: "user", text: steered });

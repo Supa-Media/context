@@ -77,7 +77,7 @@ describe("the row shape: products and the nested gmail object", () => {
       gmail: {
         backfillDays: 90,
         folders: ["inbox", "sent"],
-        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+        destinationPath: "inbox/email/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
         historyCursorReady: false,
       },
     });
@@ -186,7 +186,7 @@ describe("the row shape: products and the nested gmail object", () => {
     // here — "still the default" is the assertion, not "absent", because a
     // connection is never without one.
     const seeded = await folderNow();
-    expect(seeded).toBe("0-inbox/email/person-at-example-invalid");
+    expect(seeded).toBe("inbox/email/person-at-example-invalid");
 
     const refuse = async (destinationPath: string) =>
       errorCode(
@@ -203,7 +203,7 @@ describe("the row shape: products and the nested gmail object", () => {
     // Plumbing: a day note filed under a dot-folder is invisible to the person
     // whose mail it is, and still on their storage bill.
     expect(await refuse(".audit/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
-    expect(await refuse("0-inbox/.hidden/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
+    expect(await refuse("inbox/.hidden/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
     // Traversal, refused rather than resolved.
     expect(await refuse("2-areas/../../etc")).toBe("GOOGLE_DESTINATION_INVALID");
     expect(await refuse("2-areas\\mail")).toBe("GOOGLE_DESTINATION_INVALID");
@@ -317,7 +317,7 @@ describe("the row shape: products and the nested gmail object", () => {
         requestedBackfillDays: 90,
         totalUnits: 90,
         completedUnits: 0,
-        destinationFolder: "0-inbox/email/person-at-example-invalid",
+        destinationFolder: "inbox/email/person-at-example-invalid",
         createdAt: now,
         updatedAt: now,
       }),
@@ -356,7 +356,7 @@ describe("the row shape: products and the nested gmail object", () => {
         requestedBackfillDays: 90,
         totalUnits: 90,
         completedUnits: 0,
-        destinationFolder: "0-inbox/email/person-at-example-invalid",
+        destinationFolder: "inbox/email/person-at-example-invalid",
         createdAt: now,
         updatedAt: now,
       }),
@@ -710,13 +710,13 @@ describe("the default destination folder is the package's answer, not a second o
     expect(`${folder}/${DATED}/${DAY}.md`).toBe(
       channelDayNotePath({ channel: "email", account: "person-at-example-invalid", date: DAY }, {}),
     );
-    expect(folder).toBe("0-inbox/email/person-at-example-invalid");
+    expect(folder).toBe("inbox/email/person-at-example-invalid");
   });
 
   test("a connection with no slug yet still lands under the mail folder", () => {
     // `SLUG_FALLBACK`. Not a real mailbox, but it is inside `0-inbox/email/`,
     // which is the property that matters: unnamed mail is still mail.
-    expect(defaultGoogleDestinationFolder("gmail", undefined)).toBe("0-inbox/email/mailbox");
+    expect(defaultGoogleDestinationFolder("gmail", undefined)).toBe("inbox/email/mailbox");
   });
 
   /*
@@ -731,13 +731,13 @@ describe("the default destination folder is the package's answer, not a second o
     expect(`${folder}/${DATED}/${DAY}.md`).toBe(
       calendarDayNotePath({ date: DAY }, { folder }),
     );
-    expect(folder).toBe("0-inbox/calendar/person-at-example-invalid");
+    expect(folder).toBe("inbox/calendar/person-at-example-invalid");
   });
 
   test("...and a connection with no recorded slug keeps the folder it has always written to", () => {
     const folder = defaultGoogleDestinationFolder("calendar", undefined);
     expect(`${folder}/${DATED}/${DAY}.md`).toBe(calendarDayNotePath({ date: DAY }, {}));
-    expect(folder).toBe("0-inbox/calendar");
+    expect(folder).toBe("inbox/calendar");
   });
 
   test("chat defaults to this account's own folder under the Chat folder", () => {
@@ -748,7 +748,7 @@ describe("the default destination folder is the package's answer, not a second o
         {},
       ),
     );
-    expect(folder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(folder).toBe("inbox/google-chat/person-at-example-invalid");
   });
 
   test("...and Chat too keeps the flat folder when no slug was ever recorded", () => {
@@ -756,7 +756,7 @@ describe("the default destination folder is the package's answer, not a second o
     expect(`${folder}/${DATED}/${DAY}.md`).toBe(
       channelDayNotePath({ channel: "google-chat", date: DAY }, {}),
     );
-    expect(folder).toBe("0-inbox/google-chat");
+    expect(folder).toBe("inbox/google-chat");
   });
 
   test("every default is inside the one inbox root", () => {
@@ -768,7 +768,7 @@ describe("the default destination folder is the package's answer, not a second o
       defaultGoogleDestinationFolder("calendar", undefined),
       defaultGoogleDestinationFolder("chat", undefined),
     ]) {
-      expect(folder.startsWith("0-inbox/")).toBe(true);
+      expect(folder.startsWith("inbox/")).toBe(true);
     }
   });
 });

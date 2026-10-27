@@ -230,7 +230,7 @@
  * and no sender.
  *
  * ----------------------------------------------------------------------------
- * 4. POST /gateway/ingest/note-ids/{lookup,wrote,adopt}   (keyed workspaces only)
+ * 4. POST /gateway/ingest/note-ids/{lookup,wrote,adopt}   (every workspace is keyed)
  * ----------------------------------------------------------------------------
  * The id layer for a capture in a keyed workspace (`apps/mcp/src/store/idLayout.js`,
  * mode "keys"), each call under the ticket `resolve` minted and `binding` spent.
@@ -261,7 +261,6 @@ export type NoteIdEntry = { state: string; key?: string; etag?: string | null; [
 
 /** The id layer's lookup answer for a capture: the gateway's `{copies, keyed, notes}` shape. */
 export interface IngestNoteIdLookup {
-  copies: Record<string, { key: string; etag: string | null; keyEtag: string | null; fresh: boolean }>;
   keyed: boolean;
   notes: Record<string, NoteIdEntry>;
 }
@@ -550,7 +549,6 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
       noteCount: number | null;
       managedEncryption: unknown;
       encryptionKey: unknown;
-      keyed: boolean;
     } | null> {
       const parsed = await post("/gateway/ingest/binding", { ticket });
       const value = required(parsed, "binding");
@@ -569,8 +567,6 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
         // the binding. Narrowed by the gateway's own reader in `storeFor`.
         managedEncryption: parsed.managedEncryption ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
-        // Absent unless the workspace is keyed (`lib/noteIds/keyedState.ts`).
-        keyed: parsed.keyed === true,
       };
     },
 
@@ -581,25 +577,10 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
 
     /**
      * The id layer's lookup for a keyed workspace (`/gateway/ingest/note-ids/lookup`),
-     * answering the gateway's `{copies, keyed, notes}` shape, under this capture's ticket.
+     * answering the gateway's `{keyed, notes}` shape, under this capture's ticket.
      */
     async noteIdLookup(ticket: string, paths: string[]): Promise<IngestNoteIdLookup> {
       const parsed = await post("/gateway/ingest/note-ids/lookup", { ticket, paths });
-      const copies = required(parsed, "copies");
-      if (!copies || typeof copies !== "object" || Array.isArray(copies)) {
-        throw new ControlPlaneError("malformed note id copies");
-      }
-      const narrowed: IngestNoteIdLookup["copies"] = {};
-      for (const path of Object.keys(copies)) {
-        const copy = (copies as Record<string, Record<string, unknown>>)[path];
-        if (!copy || typeof copy !== "object" || typeof copy.key !== "string" || copy.key === "") continue;
-        narrowed[path] = {
-          key: copy.key,
-          etag: typeof copy.etag === "string" && copy.etag !== "" ? copy.etag : null,
-          keyEtag: typeof copy.keyEtag === "string" && copy.keyEtag !== "" ? copy.keyEtag : null,
-          fresh: copy.fresh === true,
-        };
-      }
       if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
         throw new ControlPlaneError("malformed note id entries");
       }
@@ -608,7 +589,7 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
         const entry = narrowNote((parsed.notes as Record<string, unknown>)[path]);
         if (entry !== null) notes[path] = entry as NoteIdEntry;
       }
-      return { copies: narrowed, keyed: parsed.keyed === true, notes };
+      return { keyed: parsed.keyed === true, notes };
     },
 
     /**

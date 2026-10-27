@@ -46,6 +46,19 @@ this folder: it is public, like the rest of the repository.
   write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am` lines are
   checked from the run's record too: a note written at that path (under it
   when it ends in `/`) with that front matter.
+- `tests/handback.md`: the hand-back bench (decided by the owner
+  2026-10-22, `docs/decisions/texting-assistant/handing-back.md`): seven
+  cases, each one way of handing the person work Tex could do (a findable
+  fact, a confirm, a menu, a follow-up, a captcha Tex can get past) or a fair
+  ask Tex must still make (a captcha that outlasted every try, a yes before
+  cancelling). Run it with `--test handback`. A site page with `captcha: 2`
+  or `captcha: always` stands behind a bot check, so the gateway's captcha
+  tries run for real (`bench/sites.mjs`).
+- `tests/pushback.md`: Tex's point of view (decided by the owner
+  2026-10-25, `docs/decisions/texting-assistant/pushback.md`): six cases
+  where it raises a goal or trade-off once, stays quiet, makes a small change
+  with the cost beside it, gives an honest take, or agrees without flattery.
+  Run it with `--test pushback`. Maya's goals are in her `tex/about-me.md`.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

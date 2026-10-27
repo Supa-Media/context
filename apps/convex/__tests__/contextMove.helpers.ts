@@ -1,20 +1,23 @@
 /**
  * Two contexts with a bucket each, for the cross-context move suites
- * (`contextMoveEndToEnd.test.ts`, `contextMoveMover.test.ts`).
+ * (`contextMoveEndToEnd.test.ts`, `contextMoveKeyed.test.ts`,
+ * `contextMoveKeyedRace.test.ts`, `contextMoveGatewayRoute.test.ts`).
  *
- * With `mover: true` the deployment's `STORAGE_MOVER_ORIGIN` is set and the
- * gateway's real mover (`apps/mcp/src/moves/mover.js`) answers behind the
- * same `fetch`, spending its ticket at this deployment's real
- * `/gateway/mover/open`. Every bucket request made outside the mover is
- * recorded in `outside`, so a suite can show which bytes never came here.
+ * Both workspaces are keyed by the real copy pass, as every workspace is, so a
+ * move carries notes by id. With `mover: true` the deployment's
+ * `STORAGE_MOVER_ORIGIN` is set; a keyed move does not use the gateway's mover,
+ * and `opened` records any page it did open, so a suite can show that.
+ * Every bucket request made outside the mover is recorded in `outside`.
  */
 
 import { afterEach, vi } from "vitest";
-import type { Id } from "../_generated/dataModel";
+import { api } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   FAKE_STORAGE,
   TEST_GATEWAY_SECRET,
   addMember,
+  asUser,
   copyTree,
   drainDueScheduled,
   createUser,
@@ -24,11 +27,12 @@ import {
   type TestConvex,
 } from "./fixtures.helpers";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
-import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { handleMoverPage } from "../../mcp/src/moves/mover.js";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+import { rowsAsRead } from "./nodes/treeRows.helpers";
 
 export const MOVER = "https://mover.example.invalid";
 
@@ -129,7 +133,7 @@ export interface Pair {
  * than one batch carries, so the chain has to run more than once.
  */
 export async function pair(
-  options: { notes?: number; into?: "shared" | "own"; mover?: boolean; answer?: () => Response } = {},
+  options: { notes?: number; into?: "shared" | "own"; mover?: boolean } = {},
 ): Promise<Pair> {
   const t = setupTest();
   const mover = await createUser(t, "mover@example.invalid");
@@ -175,7 +179,6 @@ export async function pair(
       }
       return response;
     }
-    if (options.answer) return options.answer();
     inMover += 1;
     try {
       return await handleMoverPage(
@@ -200,8 +203,8 @@ export async function pair(
   if (options.mover === true) vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
   await bindBucket(t, from, mover, SOURCE_BUCKET);
   await bindBucket(t, to, into === "own" ? mover : other, DESTINATION_BUCKET);
-  // Both trees copied, as a bound workspace's are: a write's name checks ask
-  // the tree, never the bucket.
+  // Both workspaces copied and keyed, as every workspace is: a note's bytes live
+  // at `notes/<noteId>.md`, and the tree names them.
   await copyTree(t, from);
   await copyTree(t, to);
   // The copies' own follow-ups (front matter read, parity) run now, so what
@@ -209,6 +212,7 @@ export async function pair(
   await drainDueScheduled(t);
   outside.length = 0;
   outsideReads.length = 0;
+  opened.length = 0;
 
   return { t, mover, from, to, source, destination, outside, outsideReads, opened };
 }
@@ -218,37 +222,52 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-export async function keysUnder(bucket: MemoryS3, prefix: string): Promise<string[]> {
-  const store = storeForBinding({
-    ...FAKE_STORAGE,
-    bucket: bucket.objects.has("1-projects/README.md") ? SOURCE_BUCKET : DESTINATION_BUCKET,
-    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
-  }, undefined, { fetchImpl: bucket.fetchImpl });
-  const keys: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await store.list({ prefix, cursor, limit: 1000 });
-    keys.push(...page.objects.map((object: { key: string }) => object.key));
-    if (!page.truncated) break;
-    cursor = page.cursor;
-  } while (cursor);
-  return keys.sort();
+/** The live file rows under `prefix`, as the tree names them. Trashed rows and folders are left out. */
+export async function liveFilesUnder(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  prefix: string,
+): Promise<Doc<"nodes">[]> {
+  return await t.run(async (ctx) =>
+    (await rowsAsRead(ctx, workspaceId)).filter(
+      (row) =>
+        row.kind === "file" &&
+        row.goneAt === undefined &&
+        row.path.startsWith(prefix),
+    ),
+  );
 }
 
-
-/** A tree copied afresh, after a test staged its bucket by hand. */
-export async function recopyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
-  await t.run(async (ctx) => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
-      .collect();
-    for (const row of rows) await ctx.db.delete(row._id);
-    const tree = await ctx.db
-      .query("nodeTrees")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique();
-    if (tree) await ctx.db.delete(tree._id);
+/** The live file row at `path`, or `null`. */
+export async function liveFileAt(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await t.run(async (ctx) => {
+    const row = await treeNodeAt(ctx.db, workspaceId, path);
+    return row !== null && row.kind === "file" && row.goneAt === undefined
+      ? row
+      : null;
   });
-  await copyTree(t, workspaceId);
+}
+
+/** The body a row's note holds, read at the note's own key. */
+export function bodyOfRow(bucket: MemoryS3, row: Doc<"nodes"> | null): string | undefined {
+  if (row === null || row.storageKey === undefined) return undefined;
+  return bucket.objects.get(row.storageKey)?.body;
+}
+
+/**
+ * Write a note through the product, as `userId`. The only way a test changes
+ * a note once its workspace is keyed.
+ */
+export async function writeAs(
+  p: Pair,
+  userId: Id<"users">,
+  workspaceId: Id<"workspaces">,
+  path: string,
+  text: string,
+): Promise<void> {
+  await asUser(p.t, userId).action(api.functions.files.writeNote, { workspaceId, path, text });
 }

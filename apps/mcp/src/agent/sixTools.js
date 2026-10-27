@@ -42,13 +42,16 @@ const own = (call) => (call.args && typeof call.args === "object" && !Array.isAr
 export const ASSISTANT_SEND_ACTIONS = {
   search_web: { tool: "search_web", summary: "Search the web.", take: own },
   open_page: { tool: "open_page", summary: "Read web pages by their address.", take: own },
+  travel_time: { tool: "travel_time", summary: "How long a trip takes, from Google Maps directions; never estimate one.", take: own },
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
   fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: own },
   fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
+  steer_job: { tool: "steer_background_job", summary: "Pass their text to a background job that is still running, or stop it.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },
+  draw_visual: { tool: "draw_visual", summary: "Turn your answer into one of your designed picture cards (options, photos, a trip, a day, a plan, a board, a chart), to text them.", take: own },
   draw_picture: { tool: "draw_picture", summary: "Make a graphic from an HTML page you write, to text them. Make it first; guess what they left out.", take: own },
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
 };
@@ -159,6 +162,13 @@ export function sixToolsOver(granted, grants = null) {
     if (!SIX.has(name)) return { name, args };
     const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (name === "orient") return { name, args: call };
+    // A file kept from a text reads as itself, whatever else the call carries (`keptFiles.js`): `fetch { id: "download:…",
+    // args: { mail: false } }` was refused as a mail read, and Tex told the person their PDF "won't load" (2026-10-26).
+    if (name === "fetch" && typeof call.id === "string" && call.id.trim().startsWith("download:")) {
+      const extra = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
+      const part = { ...(Number.isInteger(extra.from) ? { from: extra.from } : {}), ...(extra.summary && typeof extra.summary === "object" ? { summary: extra.summary } : {}) };
+      return { name: held.has("read_file") ? "read_file" : "read_note", args: { path: call.id.trim(), ...part } };
+    }
     if (name === "fetch" && typeof call.id === "string") {
       const id = ASSISTANT_FETCH_IDS.find((entry) => call.id.startsWith(entry.prefix));
       if (id) return { name: id.tool, args: id.args(call.id.slice(id.prefix.length)) };

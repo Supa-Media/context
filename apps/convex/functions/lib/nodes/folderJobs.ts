@@ -35,6 +35,8 @@ import {
   jobPath,
 } from "@context/shared/src/folderRoles.cjs";
 import { MEETINGS_FOLDER } from "../../../../../packages/meetings/src/paths.js";
+import { TRASH_ROOT } from "../fileOps/store";
+import { located, nodeAt, nodePaths } from "./paths";
 
 function lastSegment(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -44,25 +46,59 @@ function lastSegment(path: string): string {
 /** Root rows read to decide a name's job: far past any real root, a bound on a loop. */
 const ROOT_ROWS = 2_000;
 
+/**
+ * A row under the trash is no longer doing its job: a trashed Tex folder is
+ * nobody's Tex folder, so its routines stop (`routinesTexRoot.test.ts`). The
+ * role stays on the row, so a Restore brings the job back with the folder.
+ */
+function inTrash(row: Doc<"nodes">): boolean {
+  return row.path === TRASH_ROOT || row.path.startsWith(`${TRASH_ROOT}/`);
+}
+
 /** The live rows at the workspace root. */
 async function liveRootFolders(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"nodes">[]> {
   const rows = await db
     .query("nodes")
     .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", undefined))
     .take(ROOT_ROWS);
-  return rows.filter((row) => row.kind === "folder" && row.goneAt === undefined);
+  // A top-level row's path is its name.
+  return rows
+    .map((row) => ({ ...row, path: row.name }))
+    .filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row));
+}
+
+/** Rows read past for one job's live folders: gone and trashed ones, before a bound on the loop ends it. */
+const JOB_ROWS_SCANNED = 200;
+
+/**
+ * Up to `limit` live folders outside the trash that carry `role`. A row keeps
+ * its job when it is tombstoned or trashed, and the index lists the oldest
+ * first, so taking a few and then filtering would miss the live folder of a
+ * job whose earlier rows went (a folder moved the old way, or trashed and
+ * made again) and the website would read as nowhere.
+ */
+export async function liveRowsDoing(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  role: RowRole,
+  limit: number,
+): Promise<Doc<"nodes">[]> {
+  const rows: Doc<"nodes">[] = [];
+  let scanned = 0;
+  const paths = await nodePaths(db, workspaceId);
+  for await (const held of db.query("nodes").withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))) {
+    const row = held.kind === "folder" && held.goneAt === undefined ? await located(db, held, paths) : null;
+    if (row !== null && !inTrash(row)) rows.push(row);
+    scanned += 1;
+    if (rows.length >= limit || scanned >= JOB_ROWS_SCANNED) break;
+  }
+  return rows;
 }
 
 /** The live rows that carry a job, wherever they are. */
 async function liveJobRows(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"nodes">[]> {
   const rows: Doc<"nodes">[] = [];
-  for (const role of ROW_ROLES) {
-    const held = await db
-      .query("nodes")
-      .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))
-      .take(4);
-    rows.push(...held.filter((row) => row.kind === "folder" && row.goneAt === undefined));
-  }
+  for (const role of ROW_ROLES) rows.push(...(await liveRowsDoing(db, workspaceId, role, 4)));
   return rows;
 }
 
@@ -108,10 +144,7 @@ export async function canonicalJobPath(db: DatabaseReader, workspaceId: Id<"work
   const slash = path.indexOf("/");
   const first = slash < 0 ? path : path.slice(0, slash);
   if (first === "" || jobOfName(first) === null) return path;
-  const there = await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", first))
-    .unique();
+  const there = await nodeAt(db, workspaceId, first);
   if (there !== null && there.goneAt === undefined && there.kind === "folder" && there.parentId === undefined) return path;
   return jobPath(await folderJobsOf(db, workspaceId), path);
 }
@@ -139,7 +172,8 @@ export async function roleForNewFolder(
   if (!top) {
     // A sweep makes folders by the thousand: only one named as the meetings setting's last segment reads on.
     const workspace = await db.get(workspaceId as Id<"workspaces">);
-    const setting = typeof workspace?.meetingsFolder === "string" && workspace.meetingsFolder !== "" ? workspace.meetingsFolder : MEETINGS_FOLDER;
+    const setting =
+      typeof workspace?.meetingsFolder === "string" && workspace.meetingsFolder !== "" ? workspace.meetingsFolder : MEETINGS_FOLDER;
     if (lastSegment(node.path) !== lastSegment(setting.replace(/\/+$/, ""))) return undefined;
     // One indexed read more: a meetings folder that exists ends it.
     const meetings = await db

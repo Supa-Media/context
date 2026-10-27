@@ -15,10 +15,23 @@ import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 import type { DrawnJob } from "./geometry";
 
 const PREFIX = "context:job:";
+const NESTED_PREFIX = "context:job-nested:";
 
-/** The marker `iconOf` answers for a folder doing `job`. Tex's folder draws Tex, wherever it is nested. */
-export function jobIconMarker(job: RowRole): string {
-  return job === "tex" ? TEX_FIGURE_ICON : `${PREFIX}${job}`;
+/**
+ * The marker `iconOf` answers for a folder doing `job`. Tex's folder draws
+ * Tex, wherever it is nested. One `nested` inside another folder draws in the
+ * text colour: only a folder at the top of the workspace is drawn in Tex blue
+ * (owner, 2026-10-26: "aren't all the non root folders supposed to be colored
+ * black").
+ */
+export function jobIconMarker(job: RowRole, nested = false): string {
+  if (job === "tex") return TEX_FIGURE_ICON;
+  return `${nested ? NESTED_PREFIX : PREFIX}${job}`;
+}
+
+/** Whether a job's marker is for a folder nested inside another, drawn in the text colour. */
+export function isNestedJobIcon(icon: string | null | undefined): boolean {
+  return typeof icon === "string" && icon.startsWith(NESTED_PREFIX) && jobOfIcon(icon) !== null;
 }
 
 const TWIN_PREFIX = "context:archive-of:";
@@ -41,7 +54,9 @@ export function twinJobOfIcon(icon: string | null | undefined): DrawnJob | null 
 
 /** The drawn job a marker names, or `null` for an emoji (or anything else). */
 export function jobOfIcon(icon: string | null | undefined): DrawnJob | null {
-  if (typeof icon !== "string" || !icon.startsWith(PREFIX)) return null;
-  const job = icon.slice(PREFIX.length);
+  if (typeof icon !== "string") return null;
+  const prefix = icon.startsWith(PREFIX) ? PREFIX : icon.startsWith(NESTED_PREFIX) ? NESTED_PREFIX : null;
+  if (prefix === null) return null;
+  const job = icon.slice(prefix.length);
   return isRowRole(job) && job !== "tex" ? job : null;
 }

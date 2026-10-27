@@ -9,9 +9,9 @@
  *
  * Sent through the person's own connected Gmail, and only one whose consent
  * granted `gmail.send` (decided by the owner, 2026-10-17: "Wait for Gmail",
- * rather than sending from their Context address). Until Google has reviewed
- * that scope, Context asks for it only of testers (`TESTER_WRITE_SCOPES` in
- * `googleOAuth.ts`), so only their connections send. Nothing of an email is kept here:
+ * rather than sending from their Context address). Every Gmail connect asks
+ * for it (`WRITE_SCOPES` in `googleOAuth.ts`); one connected before that
+ * reconnects once. Nothing of an email is kept here:
  * the limits count hashes of recipient addresses, never the addresses, the
  * subject or the body (non-negotiable #1, metadata only).
  */
@@ -20,17 +20,17 @@
 export { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE } from "./googleOAuth";
 
 /** Most emails one person's AIs may send in a day, and in an hour. */
-export const PERSON_EMAIL_DAILY_LIMIT = 20;
-export const PERSON_EMAIL_HOURLY_LIMIT = 5;
+export const PERSON_EMAIL_DAILY_LIMIT = 100;
+export const PERSON_EMAIL_HOURLY_LIMIT = 20;
 /** Most emails to one address in a day, so an AI cannot pester somebody. */
-export const PERSON_EMAIL_RECIPIENT_DAILY_LIMIT = 3;
+export const PERSON_EMAIL_RECIPIENT_DAILY_LIMIT = 10;
 /**
  * Most drafts one person's AIs may save in an hour, and in a day. A draft
  * reaches nobody, so it spends none of the sending limits and has no
  * per-recipient one; these only stop a loop filling the Drafts folder.
  */
-export const PERSON_EMAIL_DRAFT_HOURLY_LIMIT = 10;
-export const PERSON_EMAIL_DRAFT_DAILY_LIMIT = 50;
+export const PERSON_EMAIL_DRAFT_HOURLY_LIMIT = 30;
+export const PERSON_EMAIL_DRAFT_DAILY_LIMIT = 200;
 /** Most addresses on one email, To and Cc together. */
 export const PERSON_EMAIL_MAX_RECIPIENTS = 10;
 export const PERSON_EMAIL_MAX_SUBJECT = 200;
@@ -56,6 +56,44 @@ export interface PersonEmail {
   replyTo: string | null;
   /** The Gmail id of a message in the sending mailbox this forwards, attachments and all (`personEmailForward.ts`). */
   forward: string | null;
+  /**
+   * Files the email carries besides a forward's: ones the person's AI
+   * downloaded and keeps in their own bucket (`apps/mcp/src/tools/emailAttach.js`),
+   * sent once and never kept here.
+   */
+  files: Array<{ filename: string; contentType: string; bytes: Uint8Array }>;
+}
+
+/** Kept equal to `apps/mcp/src/tools/emailAttach.js`. */
+export const PERSON_EMAIL_MAX_FILES = 5;
+export const PERSON_EMAIL_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const FILE_TYPE = /^[A-Za-z0-9!#$&^_.+-]{1,64}\/[A-Za-z0-9!#$&^_.+-]{1,64}$/;
+
+/** The files an email carries, decoded and checked, or null for anything malformed. */
+function filesOf(value: unknown): PersonEmail["files"] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > PERSON_EMAIL_MAX_FILES) return null;
+  const files: PersonEmail["files"] = [];
+  let total = 0;
+  for (const item of value) {
+    const raw = item as { filename?: unknown; contentType?: unknown; data?: unknown } | null;
+    if (!raw || typeof raw.filename !== "string" || typeof raw.data !== "string" || typeof raw.contentType !== "string") return null;
+    const filename = raw.filename.trim();
+    if (filename === "" || filename.length > 200 || /[\u0000-\u001f\u007f/\\]/.test(filename)) return null;
+    if (!FILE_TYPE.test(raw.contentType) || !/^[A-Za-z0-9+/]+=*$/.test(raw.data)) return null;
+    let bytes: Uint8Array;
+    try {
+      const binary = atob(raw.data);
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    } catch {
+      return null;
+    }
+    total += bytes.length;
+    if (bytes.length === 0 || total > PERSON_EMAIL_MAX_FILE_BYTES) return null;
+    files.push({ filename, contentType: raw.contentType.toLowerCase(), bytes });
+  }
+  return files;
 }
 
 /** The headers that put a reply inside its thread (`replyHeadersOf`). */
@@ -125,7 +163,9 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   if (forward !== null && (typeof forward !== "string" || !MESSAGE_ID.test(forward))) return null;
   // A forward goes from the mailbox that holds it too, and is never also a reply.
   if (forward !== null && (from.length === 0 || replyTo !== null)) return null;
-  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward };
+  const files = filesOf(raw.files);
+  if (files === null) return null;
+  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward, files };
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;

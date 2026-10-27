@@ -6,6 +6,7 @@ import type { Fetch } from "./clients";
 import type { InboundAttachment } from "./inbound";
 import type { Message } from "./reply";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { coverAll } from "./decideStub.testing";
 
 // A 1x1 PNG, and a few bytes that start like an iPhone's HEIC photo.
 const PNG = Uint8Array.from(
@@ -254,6 +255,8 @@ describe("a photo and its words, texted separately", () => {
       if (url.startsWith("https://cdn.linqapp.com/")) return new Response(PNG);
       const path = new URL(url).pathname;
       if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
+      // Decide joins a photo and its words into one turn (`inboxTurn.ts`).
+      if (path === "/agent-texts/decide") return coverAll(init);
       if (path === "/agent") {
         const body = JSON.parse(String(init?.body));
         asked.push({ question: body.question, attachments: body.attachments });
@@ -312,16 +315,13 @@ describe("a photo and its words, texted separately", () => {
     expect(await storage.list({ prefix: "pending:" })).toEqual(new Map());
   });
 
-  it("a photo after words that already have files of their own is answered on its own", async () => {
+  it("a photo after words that already have files of their own joins them when decide covers both", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("e1", "compare these", photo), 1_000);
     await accept(storage, message("e2", "", photo), 1_500);
     const asked: Array<{ question: string; attachments?: unknown[] }> = [];
     await drain(storage, deps(asked));
-    expect(asked.map((ask) => [ask.question, ask.attachments?.length])).toEqual([
-      ["compare these", 1],
-      ["", 1],
-    ]);
+    expect(asked.map((ask) => [ask.question, ask.attachments?.length])).toEqual([["compare these", 2]]);
   });
 
   it("a photo sent while another text waits does not hold that text up", async () => {

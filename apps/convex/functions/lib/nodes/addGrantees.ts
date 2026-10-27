@@ -17,9 +17,9 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Grant } from "./accessBackfill";
-import { accessSourceOf } from "./accessBackfill";
 import { granteeInputOf, MAX_GRANTEES, setAccessRow, type GranteeInput } from "./setAccess";
 import { resolveEntry, type GranteeRequest, type SetGranteesAnswer } from "./setGrantees";
+import { nodeAt } from "./paths";
 
 /** Who a grantee is, whatever role they hold: two entries for one person are one entry. */
 function whoOf(grantee: GranteeInput): string {
@@ -40,17 +40,13 @@ export async function addGranteesHandler(
   },
 ): Promise<SetGranteesAnswer> {
   if (args.actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
-  if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false, code: "NOT_ROWS_MODE" };
   if (args.entries.length === 0 || args.entries.length > MAX_GRANTEES) return { ok: false, code: "INVALID" };
   for (const entry of args.entries) {
     const named = [entry.handle, entry.groupId, entry.email].filter((field) => field !== undefined).length;
     if (named !== 1) return { ok: false, code: "INVALID" };
   }
 
-  const row = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-    .unique();
+  const row = await nodeAt(ctx.db, args.workspaceId, args.path);
   if (row === null || row.goneAt !== undefined) return { ok: false, code: "NOT_FOUND" };
 
   const cache = new Map<string, Grant | null>();

@@ -16,6 +16,7 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { surveyOtherContexts, toolOrient } from "../src/orient/tool.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createBucket } from "./orientation/fixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -363,6 +364,20 @@ test("the default answer for four workspaces stays under 12,000 characters", asy
 /* Other workspaces, below the worker.                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A workspace's access rows as `openContext` serves them for a store it builds: the rows
+ * `PARTNERS_MANIFEST` describes (index.md and 1-projects are team, the rest private).
+ */
+const PARTNERS_ROWS = {
+  etag: "rows-partners-v1",
+  accessVersion: 1,
+  folders: [
+    { prefix: "index.md", visibility: "team" },
+    { prefix: "1-projects", visibility: "team" },
+  ],
+  notes: [],
+};
+
 /** A store for one workspace, with its tree answering through `treeManifest`. */
 function memoryWorkspace(files) {
   const keys = Object.keys(files).sort();
@@ -389,7 +404,7 @@ test("every other workspace is rendered or named, the one that will not open wit
   });
   const sibling = (workspaceId, files) => ({
     session: { scope: "team", workspaceId },
-    store: memoryWorkspace({ "privacy.md": PARTNERS_MANIFEST, ...files }),
+    store: withPrivacyAuthority(memoryWorkspace(files), { rules: PARTNERS_ROWS }),
   });
   const store = {
     ...here,
@@ -403,7 +418,7 @@ test("every other workspace is rendered or named, the one that will not open wit
     openContext: async (name) => {
       if (name === "@one") return sibling("ws_one", { "index.md": "# One\n\nA paragraph of One.\n" });
       if (name === "@two") return sibling("ws_two", { "1-projects/two.md": "# two\n" });
-      if (name === "@empty") return { session: { scope: "team", workspaceId: "ws_empty" }, store: memoryWorkspace({ "privacy.md": PARTNERS_MANIFEST }) };
+      if (name === "@empty") return { session: { scope: "team", workspaceId: "ws_empty" }, store: withPrivacyAuthority(memoryWorkspace({}), { rules: PARTNERS_ROWS }) };
       throw new Error("storage disconnected");
     },
   };
@@ -426,7 +441,7 @@ test("surveyOtherContexts renders what opens and names what does not", async () 
   };
   const openContext = async (name) => {
     if (name === "@one") {
-      return { session: { scope: "team", workspaceId: "ws_one" }, store: memoryWorkspace({ "privacy.md": PARTNERS_MANIFEST, "index.md": "# One\n" }) };
+      return { session: { scope: "team", workspaceId: "ws_one" }, store: withPrivacyAuthority(memoryWorkspace({ "index.md": "# One\n" }), { rules: PARTNERS_ROWS }) };
     }
     throw new Error("storage disconnected");
   };

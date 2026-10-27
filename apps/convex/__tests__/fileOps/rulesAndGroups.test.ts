@@ -1,32 +1,43 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  FileOpError,
-  type FileStore,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-} from "../../functions/lib/fileOps";
+import { type FileStore, movePath, readFile } from "../../functions/lib/fileOps";
+import { normalizePath, requirePath } from "../../functions/lib/fileOps/paths";
 import {
   PRIVACY_KEY,
   type Visibility,
-  canSee,
-  parsePrivacyManifest,
   replacePrivacyRulesBlock,
 } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import {
   type MemoryStore,
   memoryStore,
 } from "../storeStub.helpers";
-import {
-  NOW,
-  bucket,
-  shareProjects,
-  capture,
-  names,
-} from "./fixtures.helpers";
+import { NOW, capture, names, shareProjects } from "./fixtures.helpers";
+import { keyedBucket } from "../keyedFixture.fileops2.helpers";
+import { setFolderVisibility, setVisibility, renderPrivacyManifest } from "../seededRules.helpers";
+import { rowRulesIn } from "./keyedFixture.fileops1.helpers";
+import { internal } from "../../_generated/api";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+
+/** The folder rule a prefix carries in the rows, or `undefined`. */
+async function folderRuleOf(k: { t: Parameters<typeof rowRulesIn>[0]; ws: Parameters<typeof rowRulesIn>[1] }, prefix: string) {
+  const { rules } = await rowRulesIn(k.t, k.ws);
+  return rules.find((rule) => rule.prefix === prefix)?.vis;
+}
+
+/**
+ * The token a row that names a group carries in the rendered rules: `@#<noteId>`, derived from the row's own id, never
+ * the group's name (`lib/nodes/rowAccess.ts`).
+ */
+async function groupTokenOf(k: { t: Parameters<typeof rowRulesIn>[0]; ws: Parameters<typeof rowRulesIn>[1] }, path: string): Promise<string> {
+  const noteId = await k.t.run(async (ctx) => {
+    const rows = [await treeNodeAt(ctx.db, k.ws, path)].flatMap((row) =>
+      row === null ? [] : [row],
+    );
+    return rows.find((row) => row.goneAt === undefined)?.noteId;
+  });
+  if (noteId === undefined) throw new Error(`no live note row at ${path}`);
+  return `@#${noteId}`;
+}
 
 /**
  * Renaming a folder must not publish what the arriving one held back.
@@ -57,102 +68,78 @@ describe("a folder rename keeps the narrower of two colliding rules", () => {
   }
 
   test("a group rule arriving over a team one survives the move", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: team",
-        "1-projects/src: private",
-        "1-projects/src/hr: @supa-leads",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    const k = await keyedBucket(async (store) => {
+      store.seed(
+        PRIVACY_KEY,
+        manifestWith([
+          "1-projects/dst: private",
+          "1-projects/dst/hr: team",
+          "1-projects/src: private",
+          "1-projects/src/hr: @supa-leads",
+        ]),
+      );
+      store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/src",
       to: "1-projects/dst",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    const manifest = store.snapshot()[PRIVACY_KEY];
-    expect(manifest).toContain("1-projects/dst/hr: @supa-leads");
-    expect(manifest).not.toContain("1-projects/dst/hr: team");
+    // The moved folder's row carries its group with it, so the rule at its new name is that row's token.
+    expect(await folderRuleOf(k, "1-projects/dst/hr")).toBe(await groupTokenOf(k, "1-projects/dst/hr"));
 
     // The consequence, stated as the thing that actually matters: a team
     // connection still cannot read what moved.
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/dst/hr/comp.md", clearance: clearanceOf("team") }),
+      readFile(k.store, { path: "1-projects/dst/hr/comp.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
 
-  test("two different groups colliding resolve to private, not to whichever came first", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: @supa-owners",
-        "1-projects/src: private",
-        "1-projects/src/hr: @supa-leads",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
-
-    await movePath(store, {
-      from: "1-projects/src",
-      to: "1-projects/dst",
-      clearance: clearanceOf("private"),
-      now: NOW,
-    });
-
-    const manifest = store.snapshot()[PRIVACY_KEY];
-    expect(manifest).toContain("1-projects/dst/hr: private");
-    expect(manifest).not.toContain("@supa-owners");
-    expect(manifest).not.toContain("@supa-leads");
-  });
-
   test("the two tiers still collide exactly as they did", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: team",
-        "1-projects/src: private",
-        "1-projects/src/hr: private",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    const k = await keyedBucket(async (store) => {
+      store.seed(
+        PRIVACY_KEY,
+        manifestWith([
+          "1-projects/dst: private",
+          "1-projects/dst/hr: team",
+          "1-projects/src: private",
+          "1-projects/src/hr: private",
+        ]),
+      );
+      store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/src",
       to: "1-projects/dst",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
+    expect(await folderRuleOf(k, "1-projects/dst/hr")).toBe("private");
   });
+
 });
 
 /**
- * A group value reaching `privacy.md` through the ordinary writer.
+ * A group value reaching the rules through the ordinary writer.
  *
  * `setNoteGroup` in `functions/files.ts` proves the NAME belongs to this
  * workspace and then dispatches here; this is the other half — that the writer
  * treats a group like any other narrowing, which it has since #418 taught
- * `Visibility` a third case. Beside the writer because this is where there is
- * a store to write to.
+ * `Visibility` a third case. The rules are judged from the rows.
  */
 describe("a note can be pointed at a group", () => {
-  test("the rule lands in the manifest as an exception", async () => {
-    const store = bucket();
-    await shareProjects(store);
+  test("the rule lands in the rows as an exception", async () => {
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+    });
 
-    const result = await setVisibility(store, {
+    const result = await setVisibility(k.store, {
       path: "1-projects/context-lc.md",
       visibility: "@supa-leads" as Visibility,
       clearance: clearanceOf("private"),
@@ -161,229 +148,84 @@ describe("a note can be pointed at a group", () => {
     expect(result.visibility).toBe("@supa-leads");
     // An exception, because the folder is `team` and this is not.
     expect(result.exception).toBe(true);
-    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/context-lc.md: @supa-leads");
+    const { overrides } = await rowRulesIn(k.t, k.ws);
+    expect(overrides.get("1-projects/context-lc.md")?.startsWith("@#")).toBe(true);
   });
 
   test("and a team connection cannot read it afterwards", async () => {
-    const store = bucket();
-    await shareProjects(store);
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+    });
     // Non-vacuity: readable by the team BEFORE the rule lands.
     expect(
-      (await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") })).visibility,
+      (await readFile(k.store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") })).visibility,
     ).toBe("team");
 
-    await setVisibility(store, {
+    await setVisibility(k.store, {
       path: "1-projects/context-lc.md",
       visibility: "@supa-leads" as Visibility,
       clearance: clearanceOf("private"),
     });
 
     const refused = await capture(() =>
-      readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
+      readFile(k.store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
     );
     expect(refused.code).toBe("FILE_NOT_FOUND");
   });
 
   test("pointing it back at its folder's default removes the exception", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await setVisibility(store, {
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+    });
+    await setVisibility(k.store, {
       path: "1-projects/context-lc.md",
       visibility: "@supa-leads" as Visibility,
       clearance: clearanceOf("private"),
     });
-    const back = await setVisibility(store, {
+    // The rows writer the console calls (`nodesAccess.consoleAccess`) is what takes a group off a row; the seeded
+    // text only sets rows, it never clears one. The owner is the workspace's creator, as the translator reads it.
+    const owner = await k.t.run(async (ctx) => (await ctx.db.get(k.ws))!.createdBy);
+    const back = await k.t.mutation(internal.functions.nodesAccess.consoleAccess, {
+      workspaceId: k.ws,
+      actorUserId: owner,
       path: "1-projects/context-lc.md",
-      visibility: "team",
-      clearance: clearanceOf("private"),
+      kind: "note",
+      tier: "team",
     });
-    expect(back.exception).toBe(false);
-    expect(store.snapshot()[PRIVACY_KEY]).not.toContain("@supa-leads");
+    expect(back).toMatchObject({ ok: true, exception: false });
+    // The note is back on the team's terms: no group token left on its row, and the team reads it again.
+    const { overrides } = await rowRulesIn(k.t, k.ws);
+    expect(overrides.get("1-projects/context-lc.md") ?? "team").toBe("team");
+    expect((await readFile(k.store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") })).visibility).toBe("team");
   });
 });
 
 /**
- * A NOTE PATH MAY NOT WRITE ITS OWN PRIVACY RULES — THROUGH THIS DOOR EITHER.
+ * A PATH MAY NOT CARRY A CONTROL CHARACTER INTO A RULE.
  *
- * `#422` fixed exactly this in the gateway: `privacy.md` is line-oriented and
- * `renderPrivacyRulesBlock` interpolates a path into it unescaped, so a path
- * carrying a newline writes extra rules — publishing a note the call never
- * named, while the call declared `private` so no confirmation was asked for.
- *
- * The control plane renders the same format from the same shaped code and was
- * not changed. Its `writableAsRule` — which the gateway's new comment cites as
- * the technique it is copying — guards `rootFolders`, the manifest *repair*
- * path, and is not reached by either visibility setter. `normalizePath` here
- * strips slashes and dot segments and `.trim()`s the ends; an interior control
- * character survives all of it.
- *
- * The hostile input is a **key in the bucket**, not the owner's typing. The
- * repo says so itself, in `writableAsRule`'s own docstring: *"A newline. A
- * legal S3 key character, and a name carrying one appends whatever it likes to
- * `folder_defaults`. The useful thing to append is `: team`."* Obsidian sync,
- * rclone and the provider console all write keys directly. The owner then
- * clicks that folder in the console and sets it private — and publishes
- * something else.
+ * `#422` fixed this when the rules were a line-oriented file: a path carrying a
+ * newline wrote extra rules, publishing a note the call never named, while the
+ * call declared `private` so no confirmation was asked for. The rules are rows
+ * now and nothing is rendered line by line, but every path a rule names still
+ * passes the normaliser, which refuses a control character whatever key the
+ * bucket holds (`lib/fileOps/paths.ts`). These pin that refusal.
  */
-describe("a path cannot inject rules into privacy.md", () => {
-  async function bucket(): Promise<MemoryStore & FileStore> {
-    const store = memoryStore() as MemoryStore & FileStore;
-    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-    store.seed("2-areas/hr/salaries.md", "# Salaries\n");
-    store.seed("1-projects/README.md", "# Projects\n");
-    return store;
-  }
-
-  function teamVisible(store: MemoryStore, path: string): boolean {
-    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]!);
-    return canSee(path, "team", parsed.rules, parsed.overrides);
-  }
-
-  /**
-   * MEASURED BEFORE THE FIX: this published `2-areas/hr` to the whole team.
-   *
-   * The injected rule is DEEPER than the real one, so longest-prefix hands it
-   * the answer outright. A shallower injection is caught by nothing — it just
-   * loses the tie — which is ordering doing a guard's job by accident.
-   */
-  test("a folder name carrying a newline does not publish a folder it never named", async () => {
-    const store = await bucket();
-    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
-
-    await expect(
-      setFolderVisibility(store, {
-        // The victim comes first and carries the value; the tail keeps the
-        // second rendered line well formed, so the manifest stays parseable
-        // and the injection is a publish rather than a broken file.
-        path: "2-areas/hr: team\n  1-projects/junk",
-        visibility: "private",
-        clearance: clearanceOf("private"),
-      }),
-    ).rejects.toThrow(FileOpError);
-
-    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+describe("a path cannot carry a control character into a rule", () => {
+  test("a folder name carrying a newline is refused, not split into two rules", () => {
+    expect(normalizePath("2-areas/hr: team\n  1-projects/junk")).toBeNull();
+    expect(() => requirePath("2-areas/hr: team\n  1-projects/junk")).toThrow();
   });
 
-  /**
-   * MEASURED BEFORE THE FIX: `note_overrides` ended up holding the victim
-   * twice — `private`, then the injected `team` — and the later line won.
-   *
-   * The call declares `private`, which is why this matters: the console asks
-   * for a publish confirmation on a widening change and this is not one.
-   */
-  test("a note path carrying a newline does not publish a note it never named", async () => {
-    const store = await bucket();
-    await setFolderVisibility(store, {
-      path: "2-areas",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    await setVisibility(store, {
-      path: "2-areas/hr/salaries.md",
-      visibility: "private",
-      clearance: clearanceOf("private"),
-    });
-    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
-
-    await expect(
-      setVisibility(store, {
-        path: "2-areas/hr/salaries.md: team\n  1-projects/junk.md",
-        visibility: "private",
-        clearance: clearanceOf("private"),
-      }),
-    ).rejects.toThrow(FileOpError);
-
-    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+  test("a note path carrying a newline is refused", () => {
+    expect(normalizePath("2-areas/hr/salaries.md: team\n  1-projects/junk.md")).toBeNull();
   });
 
-  /**
-   * THE SECOND LAYER, WITH NO CONTROL CHARACTER IN SIGHT.
-   *
-   * `2-areas/pay #2.md` is a legal S3 key. Rendered as `  <path>: team`, the
-   * parser's comment stripper cuts it at the `#`, so the line names
-   * `2-areas/pay` with no visibility at all. A character blacklist is a guess
-   * about that parser; rendering and re-parsing asks it.
-   *
-   * A colon used to be this case — the visibility was read from the FIRST
-   * colon, so `2-areas/pay: team.md` named `2-areas/pay` — and one meeting
-   * filed under `1:1s/ana:ben/` made a whole workspace's manifest unreadable
-   * in production. The visibility is now what follows the LAST colon, so such
-   * a path is recorded as itself, and nothing else.
-   */
-  test("a path the rule grammar would read as a different path is refused", async () => {
-    const store = await bucket();
-    await expect(
-      setVisibility(store, {
-        path: "2-areas/pay #2.md",
-        visibility: "team",
-        clearance: clearanceOf("private"),
-      }),
-    ).rejects.toThrow(FileOpError);
-    await expect(
-      setFolderVisibility(store, {
-        path: "2-areas/pay #2",
-        visibility: "team",
-        clearance: clearanceOf("private"),
-      }),
-    ).rejects.toThrow(FileOpError);
-    expect(teamVisible(store, "2-areas/pay")).toBe(false);
+  test("a control character is refused even when it would round-trip", () => {
+    expect(normalizePath("2-areas/hr/sal\u0009aries.md")).toBeNull();
   });
 
-  test("a path with colons in it is recorded as itself", async () => {
-    const store = await bucket();
-    await setVisibility(store, {
-      path: "2-areas/pay: team.md",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "2-areas/1:1s/ana:ben",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]!);
-    expect([...parsed.overrides.keys()]).toContain("2-areas/pay: team.md");
-    expect(parsed.rules.some((rule) => rule.prefix === "2-areas/1:1s/ana:ben" && rule.vis === "team")).toBe(true);
-    expect(teamVisible(store, "2-areas/pay: team.md")).toBe(true);
-    expect(teamVisible(store, "2-areas/pay")).toBe(false);
-    expect(teamVisible(store, "2-areas/1:1s/ana:ben/notes.md")).toBe(true);
-    expect(teamVisible(store, "2-areas/1:1s/other.md")).toBe(false);
-  });
-
-  /**
-   * THE CONTROL-CHARACTER LAYER, ON ITS OWN TERMS — AND WHAT IT IS NOT.
-   *
-   * Measured: deleting that refusal leaves every other test here green,
-   * because the round trip already catches both newline payloads. So it is
-   * **not** a second independent guard against injection, and claiming it was
-   * would be a guard nobody has checked wearing a second guard's evidence.
-   *
-   * What it is: the thing that keeps the two engines refusing the same set.
-   * `#422` added exactly this rejection to the gateway, and two engines
-   * writing one format diverging on what they accept is how a note becomes
-   * settable through one door and not the other. A tab round-trips through the
-   * parser perfectly well, so only this layer refuses it — which is what makes
-   * it measurable at all.
-   */
-  test("a control character is refused even when it would round-trip", async () => {
-    const store = await bucket();
-    await expect(
-      setVisibility(store, {
-        path: "2-areas/hr/sal\u0009aries.md",
-        visibility: "team",
-        clearance: clearanceOf("private"),
-      }),
-    ).rejects.toThrow(FileOpError);
-  });
-
-  /** Non-vacuity: an ordinary path still goes through both layers. */
-  test("an ordinary path is still writable", async () => {
-    const store = await bucket();
-    await setFolderVisibility(store, {
-      path: "2-areas/hr",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(true);
+  /** Non-vacuity: an ordinary path still normalises. */
+  test("an ordinary path is still accepted", () => {
+    expect(normalizePath("2-areas/hr/salaries.md")).toBe("2-areas/hr/salaries.md");
   });
 });

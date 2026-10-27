@@ -62,6 +62,20 @@ async function saveCard(w: World, card: Record<string, string> = CARD, extra: Re
   return asUser(w.t, w.seyi).action(api.functions.vault.saveVaultLogin, { token, type: "card", name: "Work Visa", site: "", card, ...extra } as never);
 }
 
+/**
+ * Whether `text` holds `plain` as a value of its own. Ciphertext and ids are
+ * long runs of hex, base64 or base64url characters, and those hold a short
+ * digit string like "737" or "4242" by chance; a stored or shown card field
+ * stands apart from them, behind a quote, a space, a colon or an `=`.
+ */
+function holdsValue(text: string, plain: string): boolean {
+  const literal = plain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9+/_-])${literal}(?![A-Za-z0-9+/=_-])`).test(text);
+}
+
+/** Every form a card's details could take in plain text. */
+const PLAIN = [NUMBER, CARD.number, CARD.number.replaceAll(" ", "-"), CARD.cvc, CARD.name, CARD.postalCode, "4242"];
+
 const vaultKeys = (w: World) => [...w.backend.objects.keys()].filter((key) => key.startsWith(".context/vault/"));
 const entryIdOf = (w: World) => /(v[0-9a-f]{24})\.json$/.exec(vaultKeys(w)[0])![1];
 
@@ -69,14 +83,26 @@ describe("a card", () => {
   test("is saved sealed as its fixed fields, and listed by brand, last four and expiry only", async () => {
     const w = await world();
     expect(await saveCard(w)).toEqual({ name: "Work Visa", site: "" });
+    expect(vaultKeys(w)).toHaveLength(1);
     const raw = JSON.stringify(w.backend.snapshot());
-    for (const plain of [NUMBER, "737", "Ada Lovelace", "94110", "4242"]) expect(raw.includes(plain)).toBe(false);
+    for (const plain of PLAIN) expect(holdsValue(raw, plain), plain).toBe(false);
 
     const listed = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ type: "card", name: "Work Visa", sites: [], card: { brand: "visa", last4: "4242", expMonth: "08", expYear: "2099" } });
-    expect(JSON.stringify(listed).includes(NUMBER)).toBe(false);
-    expect(JSON.stringify(listed).includes("737")).toBe(false);
+    const shown = JSON.stringify(listed);
+    for (const plain of [NUMBER, CARD.number, CARD.cvc, CARD.name, CARD.postalCode]) expect(holdsValue(shown, plain), plain).toBe(false);
+  });
+
+  test("the plain-text check finds a card field however it is written, and never inside an id or ciphertext", () => {
+    const stored = JSON.stringify({ cvc: CARD.cvc, number: CARD.number, name: CARD.name, postalCode: CARD.postalCode });
+    for (const text of [stored, JSON.stringify({ body: stored }), `cvc=${CARD.cvc}&zip=${CARD.postalCode}`, `last four ${"4242"}`]) {
+      expect(PLAIN.some((plain) => holdsValue(text, plain)), text).toBe(true);
+    }
+    expect(PLAIN.some((plain) => holdsValue(JSON.stringify({ number: CARD.number.replaceAll(" ", "-") }), plain))).toBe(true);
+    for (const text of ["v0a7374242c9e1f00b2d3a4b5", "nP737q4242+x/94110Z==", "k-737_4242", "AdaLovelace737"]) {
+      expect(PLAIN.some((plain) => holdsValue(text, plain)), text).toBe(false);
+    }
   });
 
   test("shows its details only on its own view page", async () => {

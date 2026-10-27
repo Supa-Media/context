@@ -29,10 +29,12 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+// Each test builds a workspace with a bucket and a copied tree, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
@@ -46,6 +48,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -136,6 +139,7 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
   );
 
   // `1-projects` is what a share can reach; `2-areas` stays private.
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
@@ -143,7 +147,6 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
   });
 
   // The tree copied, as a bound workspace's is: writes ask it which names are taken.
-  await copyTree(t, workspaceId);
   return { t, owner, lk, stranger, workspaceId, backend };
 }
 
@@ -153,6 +156,22 @@ async function shareEntry(f: Fixture, path: string = ENTRY): Promise<string> {
     { workspaceId: f.workspaceId, path, recipient: "@lk" },
   );
   return token;
+}
+
+/**
+ * A note written through the product, as the owner: once a workspace is keyed,
+ * the bucket's path objects are frozen copies nothing reads again.
+ */
+async function writeNote(f: Fixture, path: string, text: string): Promise<void> {
+  const current = await asUser(f.t, f.owner)
+    .action(api.functions.files.readNote, { workspaceId: f.workspaceId, path })
+    .catch(() => null);
+  await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+    workspaceId: f.workspaceId,
+    path,
+    text,
+    ...(current === null ? {} : { expectedEtag: current.etag }),
+  });
 }
 
 function read(f: Fixture, who: Id<"users">, token: string, path?: string) {
@@ -237,7 +256,7 @@ describe("comments stay with the note's own readers", () => {
   */
   test("the recipient gets the note without its comments or their links", async () => {
     const f = await fixture();
-    f.backend.seed(
+    await writeNote(f,
       ENTRY,
       [
         "# Chapter <!--c:k7f2-->transition<!--/c:k7f2-->",
@@ -310,7 +329,7 @@ describe("a note shared with a named person opens wherever it lives", () => {
   test("the private notes a shared private note links to stay private", async () => {
     const f = await fixture();
     const PLAN = "2-areas/plan.md";
-    f.backend.seed(PLAN, "# Plan\n\nThe numbers are in [salaries](salaries.md).\n");
+    await writeNote(f, PLAN, "# Plan\n\nThe numbers are in [salaries](salaries.md).\n");
     const token = await shareEntry(f, PLAN);
 
     expect((await read(f, f.lk, token)).links).toContain(PRIVATE_NOTE);
@@ -474,10 +493,9 @@ describe("a deleted note, and a broken bucket, are different answers", () => {
     const f = await fixture();
     const token = await shareEntry(f);
 
-    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+    await asUser(f.t, f.owner).action(api.functions.files.trashEntry, {
       workspaceId: f.workspaceId,
       path: ENTRY,
-      confirmation: "permanently delete",
     });
 
     const error = await captureError(() => read(f, f.lk, token));

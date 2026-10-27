@@ -7,14 +7,15 @@
 import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
+import { GOOGLE_CHAT_TOOL } from "../tools/googleChat.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
+import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
-import { scrubbed } from "./quoted.js";
 import { VAULT_PAY } from "../vault/pay.js";
-import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { armForText, disarmRecords, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -41,7 +42,7 @@ function afterYes(tool) {
 export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
-const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
+const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|k|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y|sounds good|looks good|perfect|lgtm|\u{1F44C})\s*[.!]*\s*$/iu;
 const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
 
 /*
@@ -62,9 +63,47 @@ const RELEASED_YES = new RegExp(
   "i",
 );
 
+/*
+  A yes said in a sentence (Dev2, 2026-10-22: "yes please send it already sent
+  👍" got nothing, after a 👍 that got nothing). A text whose every word is
+  one of these, with at least one that says yes or says to send it, is a yes.
+  Any other word, "but", "to", a name, "not", sends it to the model, so "yes
+  but send it to Sam" and "did you send it" are still not a yes.
+*/
+const SAYS_YES = new Set(["yes", "yess", "yesss", "yep", "yeah", "yea", "ya", "yup", "y", "\u{1F44D}", "\u2705", "\u2714"]);
+const SAYS_SEND = new Set(["send", "file", "confirm", "confirmed", "approve", "approved"]);
+const ALSO_SAID = new Set([
+  ...SAYS_YES, ...SAYS_SEND,
+  "ok", "okay", "k", "sure", "please", "pls", "plz", "it", "them", "that", "this", "now", "already", "just", "go", "ahead", "do",
+  "for", "right", "away", "asap", "the", "message", "email", "dm", "text", "again", "thanks", "thank", "you", "ty", "sent", "so",
+  "and", "then", "absolutely", "definitely", "of", "course", "lol", "haha", "\u{1F64F}", "\u{1F525}", "\u2764", "\u{1F44C}",
+]);
+
+/** The words of a short text, emoji as words of their own, punctuation dropped. */
+function wordsOf(text) {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "")
+    .replace(/(\p{Extended_Pictographic}|\u2705|\u2714)/gu, " $1 ")
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}\u2705\u2714]+/gu, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+/** Whether a text is a yes said in a sentence. */
+function sentenceYes(text) {
+  const words = wordsOf(text);
+  if (words.length === 0 || words.length > 12 || !words.every((word) => ALSO_SAID.has(word))) return false;
+  if (words.some((word) => SAYS_YES.has(word) || SAYS_SEND.has(word))) return true;
+  // "go ahead", "do it": a release in two words.
+  return words.includes("ahead") || (words.includes("do") && words.includes("it"));
+}
+
 export function approvalVerdict(text) {
   if (typeof text !== "string") return null;
-  if (YES.test(text) || RELEASED_YES.test(text)) return "approve";
+  if (YES.test(text) || RELEASED_YES.test(text) || sentenceYes(text)) return "approve";
   if (NO.test(text)) return "deny";
   return null;
 }
@@ -75,32 +114,37 @@ export function approvalVerdict(text) {
  * send” seems very robotic"), and ending the way Dev2 asked on 2026-10-21:
  * "Give it a 👍 and I'll send it." A typed yes still works.
  */
-export function askLine(asked) {
+export function askLine(asked, { who = null } = {}) {
+  // In a group chat the ask names its tagger, whose account it goes from and whose yes alone makes it (`tools/offerFor.js`).
+  const yes = who ? `@${who}, give it a 👍` : SAY_YES;
+  const only = who ? ` Only @${who} can OK it; anyone can ask me for changes first.` : "";
+  const theirs = (thing) => (who ? `${thing} from @${who}'s email` : thing);
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll make the change.`;
+    return `Here's the change I'd make${who ? ` on @${who}'s calendar` : ""}:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll make the change.${only}`;
+  }
+  if (asked.length === 1 && asked[0].tool === GOOGLE_CHAT_TOOL && typeof asked[0].detail === "string") {
+    return `Here's the Google Chat message I'd send:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll send it.${only}`;
   }
   if (asked.length === 1 && asked[0].tool === FORWARD_RULE_TOOL && typeof asked[0].detail === "string") {
-    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll start.`;
+    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${yes} and I'll start.${only}`;
   }
   // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
   if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
-    return `Before I pay, I need your OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${SAY_YES} and I'll fill it in.`;
+    return `Before I pay, I need ${who ? `@${who}'s` : "your"} OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${yes} and I'll fill it in.${only}`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\n${SAY_YES} and I'll send ${emails.length === 1 ? "it" : "them"}.`;
+    return `${theirs(emails.length === 1 ? "Here's the email I'd send" : "Here are the emails I'd send")}:\n\n${copies}\n\n${yes} and I'll send ${emails.length === 1 ? "it" : "them"}.${only}`;
   }
   const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. ${SAY_YES} and I'll go ahead.`;
+  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need ${who ? `@${who}'s` : "your"} OK: ${what}. ${yes} and I'll go ahead.${only}`;
 }
 
-/** Words as the gateway reads a quote (`quoted.js`), a trailing ellipsis off: the ask is compared the same way. */
-const folded = (text) => scrubbed(String(text ?? "").replace(/\s*…\s*$/u, ""));
 /** Fewer words than this quoted cannot tell one ask from another. */
 const MIN_QUOTED = 24;
 
@@ -109,17 +153,18 @@ const MIN_QUOTED = 24;
  * it was on are the ask the person was shown for exactly what is armed now
  * (Dev2, 2026-10-21). A like on an older ask, or on any other text, is not.
  */
-export async function thumbsUpIsYes(store, session, quoted) {
+export async function thumbsUpIsYes(store, session, quoted, { who = null } = {}) {
   if (quoted?.tapback !== "Liked" && quoted?.tapback !== "Loved") return false;
   const words = folded(quoted.words);
   if (words.length < MIN_QUOTED) return false;
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
-  if (armed.length === 0) return false;
-  for (const order of [armed, [...armed].reverse()]) {
-    const shown = scrubbed(askLine(order));
-    if (shown === words || shown.startsWith(words)) return true;
-  }
-  return false;
+  const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
+    const shown = folded(askLine(order, { who }));
+    return shown === words || shown.startsWith(words);
+  });
+  // Without its words: enough to tell a 👍 on nothing armed from one on other words (2026-10-22).
+  console.log(JSON.stringify({ event: "thumbs_up", armed: armed.length, matched, length: words.length }));
+  return matched;
 }
 
 /** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
@@ -142,10 +187,16 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked) {
-  if (asked.length === 0) return { ask: null, verbatim: [] };
+export async function textedAsk(store, session, asked, told = "", { who = null, stale = null } = {}) {
+  if (asked.length === 0) {
+    // Asks their text corrected, with nothing new drawn, are dropped (`claimCheck.js` rule 6): `stale` names them.
+    if (Array.isArray(stale) && stale.length > 0) return { ask: await dropStale(store, session, stale), verbatim: [] };
+    // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
+    if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+    return { ask: null, verbatim: [] };
+  }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
-  const ask = askLine(asked);
+  const ask = askLine(asked, { who });
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask.length <= TEXTED_ASK_CAP) {
@@ -172,6 +223,23 @@ export async function textedAsk(store, session, asked) {
 }
 
 /**
+ * Drop the asks their text corrected (`ids`), when the turn drew nothing new:
+ * the next yes must never make the one they just corrected (Dev2,
+ * 2026-10-26). Only those: another ask still waiting is theirs to answer.
+ * Said in the gateway's words, and honestly when one could not be dropped.
+ */
+async function dropStale(store, session, ids) {
+  const wanted = new Set(ids);
+  const waiting = (await listPending(store, { userId: session.actorUserId, texting: true })).filter(({ record }) => wanted.has(record.id));
+  if (waiting.length === 0) return null;
+  const stuck = await disarmRecords(store, waiting);
+  console.log(JSON.stringify({ event: "ask_superseded", asks: waiting.length, stuck }));
+  const what = waiting.map(({ record }) => clean(String(record.summary ?? record.tool)).slice(0, 200)).join("; ");
+  if (stuck > 0) return `I couldn't withdraw the earlier one (${what}). Text "no" so it isn't sent, then tell me what to send instead.`;
+  return `I haven't sent the earlier one (${what}), so nothing goes out on a yes to it. Tell me what to send instead and I'll show it to you.`;
+}
+
+/**
  * The texted answer: the model's words, then the ask. An email the ask shows
  * whole is taken out of the model's words first (`heldEcho.js`), so the person
  * reads one copy, the one a YES sends, and so is any talk of the yes being
@@ -180,7 +248,44 @@ export async function textedAsk(store, session, asked) {
 export function answerWithAsk(told, ask, asked) {
   if (ask === null) return told;
   const said = withoutWaitTalk(withoutHeldEcho(told, asked));
-  return said === "" ? ask : `${said}\n\n${ask}`;
+  // The model's one line about what it held ("Adding it for Sunday, Nov 1") says what the ask
+  // says, as a second text (Dev2, 2026-10-22: "should be merged into 1"); more than that is kept.
+  return said === "" || saysOnlyWhatIsAsked(said) ? ask : `${said}\n\n${ask}`;
+}
+
+/*
+  The line the model is told to write about a held call ("Drafted it again,
+  the same joke note to Sayo", "Adding it for Sunday, Nov 1"): one short
+  paragraph, no question, saying what Tex drafted or is doing. Anything else
+  ("Her quotes were for 6:30, so she may send a new one for 7.") is news and
+  stays above the ask.
+*/
+const ASK_ECHO_MAX = 240;
+const ABOUT_THE_HELD =
+  /^(?:drafted|drafting|adding|added|sending|here(?:'|’)?s|ready|got it|ok(?:ay)?|sure|done)\b|\bI(?:'|’)?(?:ve|ll|d|m)?\s+(?:have\s+|will\s+|would\s+)?(?:drafted|draft|wrote|written|add|added|adding|send|sending|put|prepared|made|set up|lined up)\b/i;
+function saysOnlyWhatIsAsked(said) {
+  return said.length <= ASK_ECHO_MAX && !/\n\s*\n/.test(said) && !said.includes("?") && ABOUT_THE_HELD.test(said.trim());
+}
+
+/*
+  What a released call that failed tells the person. Slack's refusal for a
+  permission the connection was never given is written for the model ("Ask the
+  person to reconnect Slack …"), so it is said to them in their terms
+  (2026-10-22: the Slack app had been asked for im:write and mpim:write).
+*/
+const SLACK_SCOPE = /^Slack hasn't given this connection permission for \S+ yet(?: \(it needs ([^)]{1,80})\))?/;
+
+/** "Not sent: …" for a released call that failed, in words the person can act on. */
+export function notDone(summary, said) {
+  const scope = SLACK_SCOPE.exec(said);
+  if (scope !== null) {
+    const needs = scope[1] ? ` (it needs ${scope[1]})` : "";
+    return (
+      `Not sent: Slack hasn't given me permission for that yet${needs}. ` +
+      "Reconnect Slack in Context's Settings, under Apps Tex uses, then ask me again and I'll send it."
+    );
+  }
+  return `I tried to ${summary}, but: ${said}`;
 }
 
 /** Control characters and bidi overrides out of words the model wrote, before a person reads them. */
@@ -188,21 +293,20 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
-/**
- * An email, a calendar change or a bug report goes only on the word it asked
- * for, or a yes that says to send it: "yes", "yes please", "yes, file it",
- * "ok send it". A bare "ok" or "sure" is not a yes.
- */
-const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
-const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text);
-const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL, FORWARD_RULE_TOOL]);
+/*
+  Any yes releases what the ask showed, an email included: "yes", "ok",
+  "sure", "go ahead", "sounds good" (Dev2, 2026-10-22, asked: a bare "ok" to
+  "Give it a 👍 and I'll send it" used to be set aside, the email dropped and
+  asked about again). What is not a yes still goes to the model: "ok
+  thanks", "yes but to Sam".
+*/
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.
  * Returns the reply, or null when nothing was waiting — in which case the text
  * is an ordinary one and the model answers it.
  */
-export async function settleByText(store, session, verdict, texted = "") {
+export async function settleByText(store, session, verdict) {
   // Only what this thread asked about, lately, and not since moved on from: a
   // yes here never releases a call some other client raised that the person was
   // not told of. Every record left armed was asked in the thread's latest ask,
@@ -210,15 +314,10 @@ export async function settleByText(store, session, verdict, texted = "") {
   const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
   if (waiting.length === 0) return null;
   const replies = [];
-  const notYes = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
     // A card's yes lets the model go on to fill it, so it is settled before this (`textedPay.js`).
     if (record.kind === VAULT_PAY) continue;
-    if (verdict === "approve" && YES_ONLY.has(record.tool) && !strictYes(texted)) {
-      notYes.push(entry);
-      continue;
-    }
     const settled = await settlePending(store, record.id, {
       userId: session.actorUserId,
       action: verdict,
@@ -241,13 +340,8 @@ export async function settleByText(store, session, verdict, texted = "") {
     // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
     // voice line the judge has), in the past tense (`doneLine.js`). What went
     // wrong still says what the tool said.
-    if (settled.result?.isError === true) replies.push(`I tried to ${record.summary}, but: ${said}`);
+    if (settled.result?.isError === true) replies.push(notDone(record.summary, said));
     else replies.push(doneLine(record.summary), ...afterYes(record.tool));
-  }
-  // An email or calendar change the text did not say YES to is disarmed now: when the text settled
-  // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
-  if ((await disarmRecords(store, notYes)) > 0) {
-    replies.push("I couldn't set aside what I showed you, so it is still waiting: reply NO to drop it.");
   }
   return replies.length === 0 ? null : replies.join("\n");
 }

@@ -18,7 +18,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 // Each test builds a whole workspace with a bucket and a copied tree, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
 import { api } from "../../_generated/api";
-import { asUser, captureError, errorCode, type TestConvex } from "../fixtures.helpers";
+import { asUser, captureError, errorCode, readIntoTree, type TestConvex } from "../fixtures.helpers";
 import {
   attachEmail,
   grantEmail,
@@ -56,6 +56,8 @@ function grantsOf(rows: InboxRow[]): InboxRow[] {
 describe("an outsider's Shared with me lists the grant she holds", () => {
   test("a granted note is listed as a grant item, with its workspace and its note id", async () => {
     const w = await world();
+    // The note's heading is a fact the tree reads from its body, which a fresh copy has not yet done.
+    await readIntoTree(w.t, w.ws);
     await grantUser(w, PLAN, w.kola);
 
     const rows = await inboxOf(w.t, w.kola);

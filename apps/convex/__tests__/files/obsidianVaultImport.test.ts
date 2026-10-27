@@ -1,15 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { isLogicalDeleteMarker } from "../../../mcp/src/store/logicalDelete.js";
 import { api } from "../../_generated/api";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import {
   asUser,
   captureError,
   errorCode,
 } from "../fixtures.helpers";
 import { fixture } from "./fixtures.helpers";
+import { bodyAtPath, bytesAtPath, noteBodies } from "./keyedNotes.helpers";
 
-describe("Obsidian vault import", () => {
+describe("Obsidian vault import", { timeout: 60_000 }, () => {
   test("requires the destructive acknowledgement before a replacement job exists", async () => {
     const f = await fixture();
     const owner = asUser(f.t, f.owner);
@@ -49,7 +48,14 @@ describe("Obsidian vault import", () => {
     }
   });
 
-  test("clears every bucket object in a resumable owner-only phase before replacement uploads", async () => {
+  /*
+    A replacement clears the bucket by path, and a keyed workspace keeps its
+    notes under their ids, so the clearing is refused before anything is listed
+    or deleted (`KEYED_WORKSPACE`). The page-by-page clearing this test used to
+    walk is path behaviour with no keyed form yet; the refusal is what a keyed
+    workspace can promise, and it is what this test now holds.
+  */
+  test("a replacement's bucket clearing is refused in a keyed workspace, and deletes nothing", async () => {
     const f = await fixture();
     f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
     f.backend.seed(".context/audit/events.jsonl", "audit");
@@ -58,6 +64,7 @@ describe("Obsidian vault import", () => {
     for (let index = 0; index < 205; index += 1) {
       f.backend.seed(`archive/note-${String(index).padStart(3, "0")}.md`, `${index}`);
     }
+    const everything = { ...f.backend.snapshot() };
     const owner = asUser(f.t, f.owner);
     const job = await owner.mutation(api.functions.files.startVaultImport, {
       workspaceId: f.workspaceId,
@@ -80,65 +87,14 @@ describe("Obsidian vault import", () => {
       { workspaceId: f.workspaceId, jobId: job.jobId, sourceFingerprint: "vault-replace-resumable" },
     ));
     expect(errorCode(unauthorized)).toBe("WORKSPACE_NOT_FOUND");
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
 
-    const counted = await owner.action(api.functions.files.clearVaultImportBatch, {
+    const refused = await captureError(() => owner.action(api.functions.files.clearVaultImportBatch, {
       workspaceId: f.workspaceId,
       jobId: job.jobId,
       sourceFingerprint: "vault-replace-resumable",
-    });
-    expect(counted.replacement).toEqual({
-      phase: "deleting",
-      totalObjects: 215,
-      deletedObjects: 0,
-    });
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
-
-    const firstPage = await owner.action(api.functions.files.clearVaultImportBatch, {
-      workspaceId: f.workspaceId,
-      jobId: job.jobId,
-      sourceFingerprint: "vault-replace-resumable",
-    });
-    expect(firstPage.replacement).toEqual({
-      phase: "deleting",
-      totalObjects: 215,
-      deletedObjects: 100,
-    });
-    expect(Object.values(f.backend.snapshot()).filter((body) => !isLogicalDeleteMarker(body))).toHaveLength(115);
-    expect(Object.values(f.backend.snapshot()).filter(isLogicalDeleteMarker)).toHaveLength(100);
-
-    await owner.action(api.functions.files.clearVaultImportBatch, {
-      workspaceId: f.workspaceId,
-      jobId: job.jobId,
-      sourceFingerprint: "vault-replace-resumable",
-    });
-    const cleared = await owner.action(api.functions.files.clearVaultImportBatch, {
-      workspaceId: f.workspaceId,
-      jobId: job.jobId,
-      sourceFingerprint: "vault-replace-resumable",
-    });
-    expect(cleared.replacement).toEqual({
-      phase: "uploading",
-      totalObjects: 215,
-      deletedObjects: 215,
-    });
-    expect(Object.values(f.backend.snapshot()).filter((body) => !isLogicalDeleteMarker(body))).toEqual([]);
-    expect(Object.values(f.backend.snapshot()).filter(isLogicalDeleteMarker)).toHaveLength(215);
-
-    const complete = await owner.action(api.functions.files.importVaultJobBatch, {
-      workspaceId: f.workspaceId,
-      jobId: job.jobId,
-      sourceFingerprint: "vault-replace-resumable",
-      batchIndex: 0,
-      files: [{
-        path: "new.md",
-        bytes: new TextEncoder().encode("new").buffer,
-        contentType: "text/markdown; charset=utf-8",
-      }],
-    });
-    expect(complete.status).toBe("complete");
-    expect(f.backend.snapshot()["new.md"]).toBe("new");
-    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("default_visibility: private");
+    }));
+    expect(errorCode(refused)).toBe("KEYED_WORKSPACE");
+    expect(f.backend.snapshot()).toEqual(everything);
   });
 
   test("refuses replacement file bytes until the bucket-clearing phase finishes", async () => {
@@ -163,8 +119,8 @@ describe("Obsidian vault import", () => {
     }));
 
     expect(errorCode(error)).toBe("IMPORT_REPLACE_NOT_READY");
-    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
-    expect(f.backend.snapshot()["new.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "index.md")).toBe("# Context\n");
+    expect(await bodyAtPath(f, "new.md")).toBeNull();
   });
 
   test("persists resumable progress and counts a retried batch only once", async () => {
@@ -202,7 +158,7 @@ describe("Obsidian vault import", () => {
       completedBatches: [0],
     });
     expect(retry).toEqual(first);
-    expect(f.backend.snapshot()["Imported/one.md"]).toBe("# One\n");
+    expect(await bodyAtPath(f, "Imported/one.md")).toBe("# One\n");
 
     const durable = await owner.query(api.functions.files.latestVaultImportJob, {
       workspaceId: f.workspaceId,
@@ -286,6 +242,7 @@ describe("Obsidian vault import", () => {
         workspaceId: f.workspaceId,
       }),
     );
+    const before = noteBodies(f.backend);
     const batchError = await captureError(() =>
       asUser(f.t, f.stranger).action(api.functions.files.importVaultJobBatch, {
         workspaceId: f.workspaceId,
@@ -301,7 +258,7 @@ describe("Obsidian vault import", () => {
     );
     expect(errorCode(queryError)).toBe("WORKSPACE_NOT_FOUND");
     expect(errorCode(batchError)).toBe("WORKSPACE_NOT_FOUND");
-    expect(f.backend.snapshot()["private.md"]).toBeUndefined();
+    expect(noteBodies(f.backend)).toEqual(before);
   });
 
   test("rejects a mismatched resume plan before any local bytes reach storage", async () => {
@@ -336,8 +293,8 @@ describe("Obsidian vault import", () => {
     }));
 
     expect(errorCode(error)).toBe("IMPORT_PLAN_INVALID");
-    expect(f.backend.snapshot()["one.md"]).toBeUndefined();
-    expect(f.backend.snapshot()["two.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "one.md")).toBeNull();
+    expect(await bodyAtPath(f, "two.md")).toBeNull();
   });
 
   test("preserves Markdown and attachment paths without retaining their bytes in Convex", async () => {
@@ -374,8 +331,8 @@ describe("Obsidian vault import", () => {
     });
 
     expect(result).toMatchObject({ status: "complete", createdFiles: 2, completedFiles: 2 });
-    expect(f.backend.snapshot()["Imported/Note.md"]).toContain("# Imported");
-    expect([...f.backend.bytesOf("Imported/diagram.png")!]).toEqual([...image]);
+    expect(await bodyAtPath(f, "Imported/Note.md")).toContain("# Imported");
+    expect([...(await bytesAtPath(f, "Imported/diagram.png"))!]).toEqual([...image]);
 
     const database = await f.t.run(async (ctx) => {
       const tables = ["auditEvents", "storageBindings", "vaultImportJobs", "workspaces", "users"] as const;
@@ -398,7 +355,7 @@ describe("Obsidian vault import", () => {
 
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual(["index.md"]);
-    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(await bodyAtPath(f, "index.md")).toBe("# Context\n");
   });
 
   // The create-only claim above is tested against a backend that honours the
@@ -423,7 +380,7 @@ describe("Obsidian vault import", () => {
 
     expect(result.created).toEqual([]);
     expect(result.skipped).toEqual(["index.md"]);
-    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(await bodyAtPath(f, "index.md")).toBe("# Context\n");
   });
 
   test("is owner-only and refuses Obsidian or Context hidden state", async () => {
@@ -448,7 +405,7 @@ describe("Obsidian vault import", () => {
       }),
     );
     expect(errorCode(hiddenError)).toBe("PATH_INVALID");
-    expect(f.backend.snapshot()[".obsidian/plugins.json"]).toBeUndefined();
+    expect(await bodyAtPath(f, ".obsidian/plugins.json")).toBeNull();
   });
 });
 

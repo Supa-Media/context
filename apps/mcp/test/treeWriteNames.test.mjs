@@ -17,7 +17,7 @@
  *    the same case is told the wrong thing;
  *  - `set_folder_visibility` listing the bucket: it counts one note, not three;
  *  - `destinationRefusal` treating a tree that cannot answer as "free": the
- *    loading case moves the note;
+ *    not-served case moves the note;
  *  - `write_note` opening the note to learn whether it exists: the "new name"
  *    case reads the bucket at that name;
  *  - `write_note`'s create without `onlyIf: { absent: true }`: the "written a
@@ -205,13 +205,13 @@ test("archive_note and move_folder ask the tree too", async () => {
   }
 });
 
-test("a workspace still loading is told so, and nothing is moved on a guess", async () => {
+test("a workspace the tree does not serve is told so, and nothing is moved on a guess", async () => {
   const s = await scenario();
   try {
     s.controlPlane.stopServing(WS);
     const moved = await s.call("move_note", { source: "1-projects/plan.md", destination: "1-projects/renamed.md" });
     assert.equal(moved.error, true);
-    assert.match(moved.text, /still loading/);
+    assert.match(moved.text, /could not be read just now/);
     assert.ok(s.bucket.objects.has("1-projects/plan.md"));
     assert.ok(!s.bucket.objects.has("1-projects/renamed.md"));
   } finally {

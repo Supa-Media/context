@@ -87,7 +87,7 @@
 export const INGESTION_DOMAIN = "context.lc";
 
 /** Where captures land unless the owner says otherwise. */
-export const DEFAULT_TARGET_FOLDER = "0-inbox/";
+export const DEFAULT_TARGET_FOLDER = "inbox/";
 
 /**
  * How many entries a policy may hold.
@@ -551,7 +551,7 @@ export function normalizeTargetFolder(raw: unknown): FolderValidation {
 export function describeFolderRejection(reason: FolderRejection): string {
   switch (reason) {
     case "empty":
-      return "Pick a folder for incoming mail, for example 0-inbox/.";
+      return "Pick a folder for incoming mail, for example inbox/.";
     case "too_long":
       return `A folder path must be at most ${MAX_FOLDER_LENGTH} characters.`;
     case "invalid_characters":

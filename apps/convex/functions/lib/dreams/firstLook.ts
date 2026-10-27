@@ -20,6 +20,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { personalWorkspaceOf } from "../../textLinks";
+import { nodeAt } from "../nodes/paths";
 
 /** Tex's note about the person (`apps/mcp/src/agent/aboutMe.js`). */
 export const ABOUT_ME_PATH = "tex/about-me.md";
@@ -33,10 +34,7 @@ export const FIRST_LOOK_AFTER_LINK_MS = 24 * 60 * 60 * 1000;
 
 /** Whether the workspace's tree has a live `tex/about-me.md`. */
 async function hasAboutMe(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  const node = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", ABOUT_ME_PATH))
-    .unique();
+  const node = await nodeAt(ctx.db, workspaceId, ABOUT_ME_PATH);
   return node !== null && node.goneAt === undefined;
 }
 

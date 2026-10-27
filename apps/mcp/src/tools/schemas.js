@@ -20,7 +20,9 @@ import { routingToolDefinitions } from "./schemas/routing.js";
 import { feedbackToolDefinitions } from "./schemas/feedback.js";
 import { vaultToolDefinitions } from "./schemas/vault.js";
 import { emailToolDefinitions } from "./schemas/email.js";
+import { textsToolDefinitions } from "./schemas/texts.js";
 import { calendarToolDefinitions } from "./schemas/calendarWrite.js";
+import { googleChatToolDefinitions } from "./schemas/googleChat.js";
 import { forwardRuleToolDefinitions } from "./schemas/forwardRule.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
 import { connectorToolDefinitions } from "./schemas/connectors.js";
@@ -42,7 +44,9 @@ export function baseToolDefinitions() {
     ...feedbackToolDefinitions(),
     ...vaultToolDefinitions(),
     ...emailToolDefinitions(),
+    ...textsToolDefinitions(),
     ...calendarToolDefinitions(),
+    ...googleChatToolDefinitions(),
     ...forwardRuleToolDefinitions(),
     ...workspaceToolDefinitions(),
     ...connectorToolDefinitions(),

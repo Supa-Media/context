@@ -13,7 +13,7 @@ import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { type FileStore, syncManifest } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 const OWNER = clearanceOf("private");
 const PLUMBING = 3_000;
@@ -85,7 +85,7 @@ describe("the manifest of one folder, for a List or Board read from the server",
     store.seed("1-projectsX/no.md", "# not under 1-projects\n");
     store.seed("2-areas/secret/c.md", "# C\n");
     store.seed("index.md", "# Context\n");
-    const { setFolderVisibility } = await import("../functions/lib/fileOps");
+    const { setFolderVisibility } = await import("./seededRules.helpers");
     await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: OWNER });
     return store;
   }

@@ -11,6 +11,7 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { COPY_LEASE_MS, COPY_SCAN, copyIsFresh, idKeyFor, newNoteId, tooLarge, type NoteIdItem } from "../nodes/noteIds";
+import { nodeAt as treeNodeAt, nodePaths } from "../nodes/paths";
 
 export type CopyRow = Doc<"noteIdCopies">;
 export type NodeDoc = Doc<"nodes">;
@@ -39,10 +40,17 @@ export async function ensureCopyRow(ctx: MutationCtx, workspaceId: Id<"workspace
   return (await ctx.db.get(id)) as CopyRow;
 }
 
-/** The switch: absent means running. */
-export async function idCopyPaused(db: DatabaseReader): Promise<boolean> {
-  const row = await db.query("noteIdLayout").first();
-  return row?.paused === true;
+/** Schedule the diagnosis for one workspace: every copy and key it holds is compared with its bucket. */
+export async function scheduleDiagnosis(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const row = await ensureCopyRow(ctx, workspaceId);
+  await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.runCheck, {
+    workspaceId,
+    runId: row.runId,
+    checkedAt: Date.now(),
+    checked: 0,
+    missing: 0,
+    differs: 0,
+  });
 }
 
 /** A page of a pass holds the row's lease, so no second page runs beside it. */
@@ -56,11 +64,7 @@ export function leaseHeld(row: CopyRow, now: number): boolean {
  * first page scheduled. A pass already holding its lease is left alone unless
  * `force` (a restart), since its page will finish and carry on from there.
  */
-export async function beginCopyPass(
-  ctx: MutationCtx,
-  workspaceId: Id<"workspaces">,
-  options: { force: boolean },
-): Promise<boolean> {
+export async function beginCopyPass(ctx: MutationCtx, workspaceId: Id<"workspaces">, options: { force: boolean }): Promise<boolean> {
   const now = Date.now();
   const row = await ensureCopyRow(ctx, workspaceId);
   if (!options.force && leaseHeld(row, now)) return false;
@@ -92,28 +96,8 @@ export async function logSeq(db: DatabaseReader, workspaceId: Id<"workspaces">):
   return last?.seq ?? 0;
 }
 
-/** How long a finished pass that failed some files waits before the cron tries them again. */
-export const FAILED_COPY_RETRY_MS = 60 * 60 * 1000;
-
-/**
- * Whether the cron should start a finished pass again. Each pass reads every
- * row of the tree, so it runs only when it could find something new: never
- * once every row is keyed (a keyed row owes no copy, and the flip that would
- * follow has finished), once the change log moved past the pass, or hourly
- * while files the last pass could not copy are waiting.
- */
-export async function copyPassOwed(db: DatabaseReader, row: CopyRow, now: number): Promise<boolean> {
-  if (row.keyedDoneAt !== undefined) return false;
-  if (row.passSeq === undefined) return true;
-  if ((await logSeq(db, row.workspaceId)) > row.passSeq) return true;
-  return row.failed > 0 && now - row.updatedAt >= FAILED_COPY_RETRY_MS;
-}
-
 export async function nodeAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<NodeDoc | null> {
-  return await db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  return await treeNodeAt(db, workspaceId, path);
 }
 
 /** The pages of live files one scan reads: its items, the rows it cannot copy, and where it stopped. */
@@ -142,10 +126,15 @@ export async function scanCopies(
   after: string | undefined,
   limit: number,
 ): Promise<CopyScan> {
-  const scan: CopyScan = { items: [], refused: [], files: 0, fresh: 0, unidentified: 0, done: true };
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
+  const scan: CopyScan = {
+    items: [],
+    refused: [],
+    files: 0,
+    fresh: 0,
+    unidentified: 0,
+    done: true,
+  };
+  const rows = (await nodePaths(db, workspaceId)).rows("", after);
   let read = 0;
   let last: string | undefined;
   for await (const row of rows) {
@@ -157,7 +146,13 @@ export async function scanCopies(
       else if (copyIsFresh(row)) scan.fresh += 1;
       else if (tooLarge(row.size)) scan.refused.push({ noteId: row.noteId, reason: "too_large" });
       else if (row.etag === undefined) scan.refused.push({ noteId: row.noteId, reason: "no_etag" });
-      else scan.items.push({ path: row.path, key: idKeyFor(row.noteId, row.path), etag: row.etag, ...(row.size === undefined ? {} : { size: row.size }) });
+      else
+        scan.items.push({
+          path: row.path,
+          key: idKeyFor(row.noteId, row.path),
+          etag: row.etag,
+          ...(row.size === undefined ? {} : { size: row.size }),
+        });
     }
     if (scan.items.length >= limit || read >= COPY_SCAN) {
       scan.done = false;
@@ -187,9 +182,7 @@ export async function scanCopiedFiles(
   limit: number,
 ): Promise<CheckScan> {
   const scan: CheckScan = { items: [], keyed: [], done: true };
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
-    after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-  );
+  const rows = (await nodePaths(db, workspaceId)).rows("", after);
   let read = 0;
   let last: string | undefined;
   for await (const row of rows) {

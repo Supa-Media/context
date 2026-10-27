@@ -1,5 +1,7 @@
 # The texting assistant — a conversation's history
 
+> **Superseded in part (Dev2, 2026-10-26):** the model now reads the chat's event log rendered with times, delivery results and unanswered messages; the history below keeps being written beside it. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 _Part of [the texting assistant](../texting-assistant.md)._
 
 ## Earlier turns are words only, and the model is told so (2026-10-09)
@@ -39,6 +41,27 @@ Tests
 (`agentConversation.test.mjs`, `agent.test.mjs`): "an answer keeps the names
 of the tools it used, and nothing else about them", "a texted answer keeps the
 names of the tools it used, never their arguments".
+
+**And the addresses of the web pages it read (2026-10-22).** Names were not
+enough either: Tex read Deuteronomy 28 on a Bible site, and two texts later,
+asked "where are u reading from?", had no address in front of it. The rule
+against stating a link it had not read then had it take back that it had read
+the text at all ("I also can't confirm it was the LSB"). So an answer also
+keeps the addresses `open_page` opened and the page `browse` read
+(`apps/mcp/src/agent/sources.js`), at most eight, never the page's text, and
+with no user name, password, fragment or secret-looking query value (a pasted
+sign-in link stays out). A web address is the public locator the turn chose
+to open, not a note's words, so the grant reason above does not reach it. The
+next turn is told them beside the tool names and to name the address when
+asked; `earlier_texts` shows them too. Undoing this brings the flip-flop back.
+The same day, an answer that says it couldn't open or read something, from a
+turn that had the web and tried nothing on it, gets one more round
+(`claimCheck.js` `TRY_NOTICE`): Tex had said "I couldn't open the LSB text"
+and then "I hadn't tried before I said it". Tests: "the next text is told the
+address of the page an earlier answer read…", "the history keeps the page's
+address and never its text" (`agentComputer.test.mjs`), "a kept address drops
+a sign-in…" (`agentConversation.test.mjs`), and golden task 11
+(`bench/ai/tests/tasks.md`).
 
 ## Every text Tex sends reaches the history, not only a model's answers (2026-10-19)
 
@@ -126,3 +149,24 @@ a long turn shows the typing bubble until it has something, and progress lines
 are for real milestones (a sign-in link, a step done) only. Tests: "a long turn
 sends no fixed 'on it' text while it works" (`sendblueThreads.test.ts`) and
 "Tex is never told to text that it is on it" (`agentProgress.test.mjs`).
+
+### A check-in keeps the notes it read
+
+2026-10-25: a check-in texted "the WhatsApp note says tomorrow at 1 pm" about a
+fitting and offered to move the calendar event. Asked "what whatsapp note", the
+reply turn searched for a note by that name, found none, took the check-in back
+and asked the person to paste the tailor's text. The check-in had read the day
+before's texts with Tex, where an early time had since been settled, and the
+history kept only its tools' names. Now every note a check-in reads is kept
+beside its text as `read:<path>` (`heartbeatCallTool`, `sources.js`), the reply
+is told to open that exact path and say what it says, and the check-in is told
+to state only what it read and can point to: a detail from their texts is what
+they told Tex, "tomorrow" there means that text's day, and a later text wins.
+A model can still misread a note; what this fixes is that the reply can check.
+Tests: "...with the notes it read kept beside it, by path"
+(`agentHeartbeat.test.mjs`) and "a note a check-in read is kept as its path"
+(`agentConversation.test.mjs`).
+
+Same day, a group chat: asked to roast Seyi, Tex called Seyi "her". Every turn
+now carries `PRONOUNS_LINE` (`prompt.js`): the name or they/them unless they or
+their notes say otherwise. Test: "every turn is told never to guess pronouns".

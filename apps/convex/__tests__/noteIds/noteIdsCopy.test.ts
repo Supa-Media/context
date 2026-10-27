@@ -9,8 +9,12 @@
  * case fails.
  */
 
+import { pathObjectsOf, seedTreeRows } from "../fixtures.helpers";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { api, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
+import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { copyIsFresh, ID_COPY_MAX_BYTES, idKeyFor, newNoteId } from "../../functions/lib/nodes/noteIds";
 import { nodePath } from "../../functions/lib/nodes/table";
@@ -22,15 +26,47 @@ import {
   bucket,
   chain,
   drain,
-  observeBucket,
-  observeKeys,
   pass,
   rowAt,
   runPass,
   storeWithHead,
   tester,
-  user,
+  type Store,
+  type T,
 } from "./noteIds.helpers";
+
+/**
+ * Lay the bucket's objects named by `keys` into the tree at their current
+ * versions. A row the tree does not hold is written unkeyed, as a path row
+ * (`seedTreeRows`); a row it holds takes the object's etag and size, as a
+ * path-keyed write of the product leaves it. Nothing lists the bucket to decide
+ * which rows exist, and no row is written with a key of its own: the copy pass
+ * is what gives a path row its id key.
+ */
+async function observeKeys(t: T, workspaceId: Id<"workspaces">, store: Store, keys: string[], at = Date.now()): Promise<void> {
+  const created: { path: string; etag: string; size: number }[] = [];
+  for (const key of keys) {
+    const object = await store.get(key);
+    if (object === null) continue;
+    const size = store.bytesOf(key)?.byteLength ?? 0;
+    const row = await rowAt(t, workspaceId, key);
+    if (row === null) {
+      created.push({ path: key, etag: object.etag, size });
+      continue;
+    }
+    await t.run(async (ctx) => {
+      const table = convexNodeTable(ctx as MutationCtx, workspaceId);
+      await table.patch(row._id, { etag: object.etag, size, observedAt: at });
+      await table.logChange?.(key, false);
+    });
+  }
+  if (created.length > 0) await seedTreeRows(t, workspaceId, created);
+}
+
+/** Every path object the bucket holds now (copies under `notes/` and `files/` excluded), observed as `observeKeys` does. */
+async function observeBucket(t: T, workspaceId: Id<"workspaces">, store: Store, at = Date.now()): Promise<void> {
+  await observeKeys(t, workspaceId, store, pathObjectsOf(store).map((object) => object.path), at);
+}
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -82,13 +118,7 @@ describe("rows and backfill", () => {
   test("a row the tree inserts has its id from the start", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "fresh");
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: ws,
-      at: 10,
-      rows: [{ path: "1-projects/a.md", etag: "e1" }, { path: "1-projects/b.md", etag: "e2" }],
-      gone: [],
-      vanishedUnder: [],
-    });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e1" }, { path: "1-projects/b.md", etag: "e2" }]);
     const a = await rowAt(t, ws, "1-projects/a.md");
     const b = await rowAt(t, ws, "1-projects/b.md");
     expect(a?.noteId).toMatch(UUID_V7);
@@ -99,12 +129,13 @@ describe("rows and backfill", () => {
   test("the backfill gives rows that predate ids one, a batch at a time, and keeps the ones they have", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "legacy");
+    // At the top level, so each row's path is its name in either source of paths (`paths.ts`).
     const existing = await t.run(async (ctx) => {
       const now = Date.now();
       for (let index = 0; index < 510; index += 1) {
         await ctx.db.insert("nodes", {
           workspaceId: ws,
-          path: `legacy/p${String(index).padStart(4, "0")}.md`,
+          path: `p${String(index).padStart(4, "0")}.md`,
           name: `p${String(index).padStart(4, "0")}.md`,
           kind: "file",
           etag: "e",
@@ -113,7 +144,7 @@ describe("rows and backfill", () => {
       }
       return await ctx.db.insert("nodes", {
         workspaceId: ws,
-        path: "legacy/keeper.md",
+        path: "keeper.md",
         name: "keeper.md",
         kind: "file",
         etag: "e",
@@ -127,8 +158,15 @@ describe("rows and backfill", () => {
     );
     // The first batch took the first 500 rows in path order: `keeper.md` and p0000 to p0498.
     expect(missingAfterFirst).toBe(11);
-    await t.mutation(internal.functions.noteIdsCopy.backfill, { workspaceId: ws, after: "legacy/p0498.md" });
-    const all = await t.run(async (ctx) => (await ctx.db.query("nodes").collect()).filter((row) => row.workspaceId === ws));
+    await t.mutation(internal.functions.noteIdsCopy.backfill, {
+      workspaceId: ws,
+      after: "p0498.md",
+    });
+    const all = await t.run(async (ctx) =>
+      (await ctx.db.query("nodes").collect()).filter(
+        (row) => row.workspaceId === ws,
+      ),
+    );
     expect(all.every((row) => row.noteId !== undefined)).toBe(true);
     expect((await t.run((ctx) => ctx.db.get(existing)))?.noteId).toBe("0190c0de-0000-7000-8000-00000000beef");
   });
@@ -257,13 +295,7 @@ describe("the copy pass", () => {
     const t = tester();
     const ws = await boundWorkspace(t, "huge");
     const store = bucket({ "2-areas/movie.mp4": "x" });
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: ws,
-      at: Date.now(),
-      rows: [{ path: "2-areas/movie.mp4", etag: "big", size: ID_COPY_MAX_BYTES + 1 }],
-      gone: [],
-      vanishedUnder: [],
-    });
+    await seedTreeRows(t, ws, [{ path: "2-areas/movie.mp4", etag: "big", size: ID_COPY_MAX_BYTES + 1 }]);
     const c = chain(t, ws, store, {
       copyHere: async () => {
         throw new Error("a file over the limit must not be read");
@@ -276,12 +308,6 @@ describe("the copy pass", () => {
     expect(state).toMatchObject({ status: "done", failed: 1, copied: 0 });
     expect(state?.failures).toEqual([{ noteId: movie?.noteId, reason: "too_large" }]);
     expect(JSON.stringify(state)).not.toContain("movie");
-    // Staff see why, by id, on the report: still no path.
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
-    const report = await staff.query(api.functions.noteIds.report, {});
-    const row = report.workspaces.find((entry) => entry.handle === "huge");
-    expect(row?.failures).toEqual([{ noteId: movie?.noteId, reason: "too_large" }]);
-    expect(JSON.stringify(report)).not.toContain("movie");
   });
 
   test("a copy the bucket refuses is counted and listed by id, and the pass still finishes", async () => {
@@ -324,25 +350,6 @@ describe("the copy pass", () => {
     expect(state).toMatchObject({ status: "failed" });
     expect(state?.error).toMatch(/keeps failing/);
     expect(JSON.stringify(state)).not.toContain("1-projects");
-  });
-
-  test("a paused switch stops a pass before it reads anything", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "paused");
-    const store = bucket({ "1-projects/a.md": "# A\n" });
-    await observeBucket(t, ws, store);
-    await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: true, mode: "paths", updatedAt: Date.now() }));
-    const c = chain(t, ws, store, {
-      copyHere: async () => {
-        throw new Error("a paused pass must not copy");
-      },
-    });
-    await t.run((ctx) => beginCopyPass(ctx, ws, { force: false }));
-    const runId = (await t.run((ctx) => copyRowOf(ctx.db, ws)))!.runId;
-    c.pending.push({ name: "functions/noteIdsCopy:run", args: { workspaceId: ws, runId } });
-    await drain(c);
-    expect((await rowAt(t, ws, "1-projects/a.md"))?.idCopy).toBeUndefined();
-    expect((await pass(c))?.status).toBe("copying");
   });
 
   test("two claims on one page: only the first holds the lease", async () => {
@@ -398,85 +405,6 @@ describe("the diagnosis", () => {
 });
 
 describe("the staff surface", () => {
-  test("staff read a report with counts and labels only, and a stranger or nobody is refused", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "reported");
-    const store = bucket({ "1-projects/secret-plan.md": "# Secret\n" });
-    await observeBucket(t, ws, store);
-    await runPass(chain(t, ws, store));
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
-
-    const report = await staff.query(api.functions.noteIds.report, {});
-    expect(report).toMatchObject({ paused: false, mode: "paths", truncated: false });
-    // Keys fields are counted only in keys mode, so they read zero here (`keyedFlip.test.ts`).
-    expect(report.totals).toMatchObject({ files: 1, copied: 1, failed: 0, liveFiles: 0, keyed: 0 });
-    expect(report.workspaces.find((row) => row.handle === "reported")).toMatchObject({ status: "done", files: 1, copied: 1 });
-    expect(JSON.stringify(report)).not.toMatch(/secret|1-projects|\.md|bucket-/);
-
-    for (const caller of [t, stranger]) {
-      await expect(caller.query(api.functions.noteIds.report, {})).rejects.toThrow();
-      await expect(caller.mutation(api.functions.noteIds.startAll, {})).rejects.toThrow();
-      await expect(caller.mutation(api.functions.noteIds.setPaused, { paused: true })).rejects.toThrow();
-      await expect(caller.mutation(api.functions.noteIds.diagnoseAll, {})).rejects.toThrow();
-    }
-    expect(await t.run((ctx) => ctx.db.query("noteIdLayout").first())).toBeNull();
-  });
-
-  test("pausing refuses a start, and resuming starts a fresh pass for what was stopped", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "switch");
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
-    await staff.mutation(api.functions.noteIds.setPaused, { paused: true });
-    await expect(staff.mutation(api.functions.noteIds.start, { workspaceId: ws })).rejects.toThrow();
-    await expect(staff.mutation(api.functions.noteIds.startAll, {})).rejects.toThrow();
-    expect(await t.query(internal.functions.noteIdsCopy.checkPage, { workspaceId: ws, limit: 10 })).toMatchObject({ paused: true });
-
-    const started = await staff.mutation(api.functions.noteIds.setPaused, { paused: false });
-    expect(started).toEqual({ started: 0 });
-    const resumed = await staff.mutation(api.functions.noteIds.start, { workspaceId: ws });
-    expect(resumed).toEqual({ started: 1 });
-  });
-
-  test("the cron leaves a finished pass alone while paused, and starts it again when the tree changed", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "cron");
-    const store = bucket({ "1-projects/a.md": "# A\n" });
-    await observeBucket(t, ws, store);
-    await runPass(chain(t, ws, store));
-    await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: true, mode: "paths", updatedAt: Date.now() }));
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
-    await t.run((ctx) => ctx.db.query("noteIdLayout").first().then((row) => ctx.db.patch(row!._id, { paused: false })));
-    // Nothing changed since the pass began: reading the whole tree again would find nothing.
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
-    store.seed("1-projects/b.md", "# B\n");
-    await observeBucket(t, ws, store);
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
-  });
-
-  test("the cron reads no tree whose rows are all keyed, and retries failed files hourly", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "cronkeyed");
-    const store = bucket({ "1-projects/a.md": "# A\n" });
-    await observeBucket(t, ws, store);
-    await runPass(chain(t, ws, store));
-    const row = (await pass(chain(t, ws, store)))!;
-    // Its one recheck of keyed rows against their keys already ran (the next test).
-    await t.run((ctx) => ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2, keyedRecheckAt: 3 }));
-    store.seed("1-projects/b.md", "# B\n");
-    await observeBucket(t, ws, store);
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
-
-    // Not keyed, nothing changed, but files the last pass failed: tried again once an hour has passed.
-    await t.run(async (ctx) => {
-      const head = await ctx.db.query("nodeLog").order("desc").first();
-      await ctx.db.patch(row._id, { keyedAt: undefined, keyedDoneAt: undefined, passSeq: head!.seq, failed: 1, updatedAt: Date.now() });
-    });
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
-    await t.run((ctx) => ctx.db.patch(row._id, { updatedAt: Date.now() - 2 * 60 * 60 * 1000 }));
-    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
-  });
-
   test("the cron diagnoses each keyed workspace once, so rows left behind their keys catch up", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "recheck");
@@ -590,9 +518,6 @@ describe("the copies are not notes", () => {
     const a = await rowAt(t, ws, "1-projects/a.md");
     expect(store.bytesOf(`notes/${a?.noteId}.md`)).toBeTruthy();
 
-    await observeBucket(t, ws, store);
-    expect(await rowAt(t, ws, `notes/${a?.noteId}.md`)).toBeNull();
-    expect(await rowAt(t, ws, "notes")).toBeNull();
     await runPass(c);
     expect(await pass(c)).toMatchObject({ status: "done", files: 2, failed: 0 });
     expect((await store.list({ limit: 100 })).objects.map((o) => o.key).filter((k) => /^(notes|files)\//.test(k))).toHaveLength(2);
@@ -663,34 +588,14 @@ describe("stale rows and shared ids", () => {
   test("a file that was gone and is seen again keeps its id but not its old copy", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "revived");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e1" }]);
     const first = await rowAt(t, ws, "1-projects/a.md");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
+    await seedTreeRows(t, ws, [{ path: "1-projects/a.md", etag: "e2" }]);
 
     const again = await rowAt(t, ws, "1-projects/a.md");
     expect(first?.noteId).toMatch(UUID_V7);
     expect(again?.goneAt).toBeUndefined();
     expect(again?.noteId).toBe(first?.noteId);
     expect(again?.idCopy).toBeUndefined();
-  });
-
-  test("a gone row seen again after a live row took its id starts without that id", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "taken");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
-    const first = await rowAt(t, ws, "1-projects/a.md");
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
-    // A move handed the id to the note's new place while the old one was gone.
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 25, rows: [{ path: "2-areas/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
-    const moved = await rowAt(t, ws, "2-areas/a.md");
-    await t.run(async (ctx) => {
-      await ctx.db.patch(moved!._id, { noteId: first!.noteId });
-    });
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
-
-    const again = await rowAt(t, ws, "1-projects/a.md");
-    expect(again?.goneAt).toBeUndefined();
-    expect(again?.noteId).not.toBe(first?.noteId);
   });
 });

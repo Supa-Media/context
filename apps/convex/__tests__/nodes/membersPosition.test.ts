@@ -8,7 +8,7 @@
  *  - `setGrantees` takes it (`{ members: true }`) and keeps it when the dialog sends a list back.
  *  - `consoleAccess` sets it with `members: true` (base `private`, the rest of the list kept) and clears it on any
  *    other tier, so Restricted and All Context users never leave a hidden members grant behind.
- *  - `setNoteVisibility` carries `members` through to the rows, and refuses it where the rows are not the truth.
+ *  - `setNoteVisibility` carries `members` through to the rows.
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - drop the `members` branch in `entriesOf` (`shareList.ts`): "reports a members grant" fails;
@@ -17,7 +17,6 @@
  *  - keep the members grant on a tier write in `consoleAccess` (`listForTier`): "Restricted clears it" and
  *    "All Context users clears it" fail;
  *  - drop the people already listed in `listForTier`: "keeps everybody else on the list" fails;
- *  - let `members` through in file mode in `setNoteVisibilityHandler`: "refused outside rows mode" fails;
  *  - mark only the pin's row `offersAllContextUsers` in `lib/workspaces/list.ts`, not a real member's:
  *    "everybody's row offers All Context users" fails.
  */
@@ -31,6 +30,8 @@ import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
 import { asUser, addMember, captureError, createUser, createWorkspace, errorCode, setupTest } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -60,6 +61,7 @@ async function world() {
         observedAt: 1,
       });
     }
+    await parentRows(ctx, ws);
   });
   return { t, ws, owner, member, kola };
 }
@@ -90,7 +92,7 @@ function tier(w: World, to: "private" | "team", members?: boolean) {
 
 async function accessOn(w: World) {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN)).unique();
+    const row = await treeNodeAt(ctx.db, w.ws, PLAN);
     return row?.access;
   });
 }
@@ -169,22 +171,6 @@ describe("the console's note verb", () => {
     const answer = await owner.query(api.functions.nodesAccess.shareList, { workspaceId: f.workspaceId, path: "1-projects/shared.md" });
     expect(answer).toMatchObject({ base: "private" });
     expect(answer?.grantees.map((entry) => entry.kind)).toEqual(["members"]);
-  });
-
-  test("refused outside rows mode, and nothing is written", async () => {
-    const f = await filesFixture();
-    const owner = asUser(f.t, f.owner);
-    const before = f.backend.snapshot();
-    const error = await captureError(() =>
-      owner.action(api.functions.files.setNoteVisibility, {
-        workspaceId: f.workspaceId,
-        path: "1-projects/shared.md",
-        visibility: "private",
-        members: true,
-      }),
-    );
-    expect(errorCode(error)).toBe("NOT_ROWS_MODE");
-    expect(f.backend.snapshot()).toEqual(before);
   });
 
   test("members with team is a request error", async () => {

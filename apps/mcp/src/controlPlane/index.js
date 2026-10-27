@@ -14,10 +14,12 @@ import { createPrivacyMethods } from "./privacy.js";
 import { createMailMethods } from "./mail.js";
 import { createEmailMethods } from "./email.js";
 import { createCalendarMethods } from "./calendar.js";
+import { createGoogleChatMethods } from "./googleChat.js";
 import { createWorkspaceMethods } from "./workspaces.js";
 import { createDreamMethods } from "./dreams.js";
 import { createAttentionMethods } from "./attention.js";
 import { createMailHealthMethods } from "./mailHealth.js";
+import { createIdentityMethods } from "./identity.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -48,9 +50,11 @@ export function createControlPlane(env, options = {}) {
     ...createMailMethods({ post }),
     ...createEmailMethods({ post }),
     ...createCalendarMethods({ post }),
+    ...createGoogleChatMethods({ post }),
     ...createWorkspaceMethods({ post, required }),
     ...createDreamMethods({ post }),
     ...createAttentionMethods({ post }),
     ...createMailHealthMethods({ post }),
+    ...createIdentityMethods({ post }),
   };
 }

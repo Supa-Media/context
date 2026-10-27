@@ -19,6 +19,8 @@ export const READ_TIMEOUT_MS = 20_000;
 export const MAX_TEXT_CHARS = 20_000;
 /** The most links handed back. */
 export const MAX_LINKS = 50;
+/** The most pictures handed back: enough for a product page's gallery, not a whole catalogue. */
+export const MAX_IMAGES = 12;
 
 export interface PageRead {
   /** Where the browser ended up, after any redirect. */
@@ -27,6 +29,19 @@ export interface PageRead {
   text: string;
   truncated: boolean;
   links: Array<{ text: string; href: string }>;
+  /**
+   * The page's own pictures, its share picture (`og:image`) first, so Tex can
+   * show a product, a dish or a listing in a visual answer (owner,
+   * 2026-10-26: "if I asked for clothing options … I want to see example
+   * clothing"). Public https addresses only; logos and icons left out.
+   */
+  images?: Array<{ alt: string; src: string }>;
+  /**
+   * The site's own mark (its home-screen icon, or an `og:logo`), so a card of
+   * places can show each one's logo (owner, 2026-10-26: "didn't even fill in
+   * the dishes, or logos"). Kept apart from `images`, which leave icons out.
+   */
+  logo?: string;
   /** How it was read: the site's Markdown or HTML (`./fetchText.ts`), a file, or a browser. */
   via: "markdown" | "html" | "file" | "browser";
   /**
@@ -35,6 +50,68 @@ export interface PageRead {
    */
   file?: { type: "application/pdf"; data: string };
 }
+
+/** Names that are a site's furniture, not its subject. */
+const FURNITURE = /(?:^|[\/_.-])(?:logo|icon|sprite|favicon|pixel|spacer|tracking|badge|avatar|placeholder|blank|loader|spinner)(?:[\/_.-]|$)/i;
+
+/**
+ * The pictures worth keeping from a page's candidates, in order: public https
+ * addresses, resolved against the page, no SVG (often an icon, and never
+ * stored), no furniture, each once, at most `MAX_IMAGES`.
+ */
+export function keepImages(candidates: Array<{ alt?: unknown; src?: unknown }>, base: string): NonNullable<PageRead["images"]> {
+  const seen = new Set<string>();
+  const kept: NonNullable<PageRead["images"]> = [];
+  for (const candidate of candidates) {
+    if (typeof candidate?.src !== "string" || candidate.src.startsWith("data:")) continue;
+    let resolved: string;
+    try {
+      resolved = new URL(candidate.src.trim(), base).href;
+    } catch {
+      continue;
+    }
+    const src = publicHttpsUrl(resolved);
+    if (src === null || seen.has(src)) continue;
+    const path = new URL(src).pathname;
+    if (/\.svg$/i.test(path) || FURNITURE.test(path)) continue;
+    seen.add(src);
+    kept.push({ alt: typeof candidate.alt === "string" ? candidate.alt.trim().replace(/\s+/g, " ").slice(0, 120) : "", src });
+    if (kept.length >= MAX_IMAGES) break;
+  }
+  return kept;
+}
+
+/**
+ * The page's logo: the first candidate that is a public https address,
+ * resolved against the page. Candidates come best first (`LOGO_SOURCE`).
+ */
+export function pickLogo(candidates: unknown, base: string): string | undefined {
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (typeof candidate !== "string" || candidate.trim() === "" || candidate.startsWith("data:")) continue;
+    try {
+      const src = publicHttpsUrl(new URL(candidate.trim(), base).href);
+      if (src !== null) return src;
+    } catch {
+      // Not an address; the next one may be.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The places a page names its logo, best first, as a selector list both
+ * readers share: the home-screen icon is square and large, `og:logo` is rare
+ * but meant, and a sized icon beats a 16px favicon.
+ */
+export const LOGO_SELECTORS = [
+  'link[rel~="apple-touch-icon"]',
+  'link[rel="apple-touch-icon-precomposed"]',
+  'meta[property="og:logo"]',
+  'link[rel~="icon"][sizes="192x192"]',
+  'link[rel~="icon"][sizes="180x180"]',
+  'link[rel~="icon"][sizes="128x128"]',
+  'link[rel~="icon"][sizes="96x96"]',
+];
 
 export function parseReadRequest(body: unknown): { url: string } | null {
   if (!body || typeof body !== "object") return null;
@@ -55,7 +132,23 @@ export const READ_SOURCE = `(() => {
     links.push({ text: label, href: a.href });
     if (links.length >= 400) break;
   }
-  return { title: document.title || "", text, links };
+  const images = [];
+  for (const name of ["og:image", "og:image:secure_url", "twitter:image"]) {
+    const meta = document.querySelector('meta[property="' + name + '"], meta[name="' + name + '"]');
+    if (meta && meta.content) images.push({ alt: document.title || "", src: meta.content });
+  }
+  for (const img of root ? root.querySelectorAll("img") : []) {
+    if (img.naturalWidth && (img.naturalWidth < 200 || img.naturalHeight < 150)) continue;
+    images.push({ alt: img.alt || "", src: img.currentSrc || img.src });
+    if (images.length >= 60) break;
+  }
+  const logos = [];
+  for (const selector of ${JSON.stringify(LOGO_SELECTORS)}) {
+    const found = document.querySelector(selector);
+    const value = found && (found.getAttribute("href") || found.getAttribute("content"));
+    if (value) logos.push(value);
+  }
+  return { title: document.title || "", text, links, images, logos };
 })()`;
 
 /**
@@ -69,7 +162,7 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
     const page = await browser.newPage();
     try {
       await page.goto(url, { waitUntil: "networkidle2", timeout: READ_TIMEOUT_MS });
-      const raw = await page.evaluate<{ title?: unknown; text?: unknown; links?: unknown }>(READ_SOURCE);
+      const raw = await page.evaluate<{ title?: unknown; text?: unknown; links?: unknown; images?: unknown; logos?: unknown }>(READ_SOURCE);
       const finalUrl = publicHttpsUrl(await page.evaluate<string>("location.href")) ?? url;
       const text = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
       const seen = new Set<string>();
@@ -88,6 +181,8 @@ export async function read(browser: BrowserLike, url: string): Promise<PageRead>
         text: text.slice(0, MAX_TEXT_CHARS),
         truncated: text.length > MAX_TEXT_CHARS,
         links,
+        images: keepImages(Array.isArray(raw?.images) ? raw.images : [], finalUrl),
+        ...(pickLogo(raw?.logos, finalUrl) ? { logo: pickLogo(raw?.logos, finalUrl) } : {}),
         via: "browser",
       };
     } finally {

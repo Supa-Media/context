@@ -16,15 +16,15 @@
 
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
-import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
+import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, drawnMoves, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
+import { liveNodeAt, nodeAt, nodePaths, pathsBuilt } from "./lib/nodes/paths";
+import { HIDDEN_ASKED } from "./lib/nodes/builtJudge";
 
 const refusalValidator = v.union(
-  v.literal("not_keyed"),
   v.literal("not_served"),
   v.literal("busy"),
   v.literal("not_found"),
@@ -38,11 +38,13 @@ const refusalValidator = v.union(
   v.literal("built_in_archived"),
 );
 
-/** Whether the workspace is keyed. Read by the trash, which has no row form yet. */
-export const keyedNow = internalQuery({
+const moveValidator = v.object({ from: v.string(), to: v.string() });
+
+/** The keyed moves the tree draws already, oldest first: what a request's store folds through, and what a prune waits for. */
+export const drawn = internalQuery({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.boolean(),
-  handler: async (ctx, { workspaceId }) => await keyedWorkspace(ctx.db, workspaceId),
+  returns: v.array(moveValidator),
+  handler: async (ctx, { workspaceId }) => await drawnMoves(ctx.db, workspaceId),
 });
 
 /**
@@ -53,30 +55,47 @@ export const keyedNow = internalQuery({
 export const plan = internalQuery({
   args: { workspaceId: v.id("workspaces"), from: v.string() },
   returns: v.object({
-    keyed: v.boolean(),
     kind: v.union(v.null(), v.literal("file"), v.literal("folder")),
     files: v.array(v.string()),
     /** Live rows the move renames, the name included: what the batch cap adds up. */
     rows: v.number(),
     unkeyed: v.boolean(),
     tooLarge: v.boolean(),
+    /** The workspace builds its paths (`lib/nodes/paths.ts`): a move of any size is one row change. */
+    built: v.boolean(),
+    /**
+     * `files` names every live file beneath. On built paths a folder of more than `ROW_MOVE_MAX` rows is not
+     * listed: the caller judges what is beneath it from the rules (`builtJudge.ts`).
+     */
+    listed: v.boolean(),
   }),
   handler: async (ctx, { workspaceId, from }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) {
-      return { keyed: false, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: false };
-    }
+    const built = await pathsBuilt(ctx.db, workspaceId);
     const subtree = await subtreeOf(ctx.db, workspaceId, from, ROW_MOVE_MAX - 1);
-    if (subtree.root === null) return { keyed: true, kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over };
+    if (subtree.root === null) return { kind: null, files: [], rows: 0, unkeyed: false, tooLarge: subtree.over && !built, built, listed: !subtree.over };
+    // On built paths a folder too big to list moves as one row all the same; its files are not named.
+    if (built && subtree.over) return { kind: subtree.root.kind, files: [], rows: 1, unkeyed: false, tooLarge: false, built, listed: false };
     const rows = [subtree.root, ...subtree.below];
     const files = rows.filter((row) => row.kind === "file");
     return {
-      keyed: true,
       kind: subtree.root.kind,
       files: files.map((row) => row.path),
       rows: rows.length,
       unkeyed: files.some((row) => row.storageKey === undefined),
       tooLarge: subtree.over,
+      built,
+      listed: true,
     };
+  },
+});
+
+/** Whether a live row stands at any of `paths` (`builtJudge.ts`): a setting there still hides something. */
+export const liveAmong = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, paths }) => {
+    for (const path of paths.slice(0, HIDDEN_ASKED)) if ((await liveNodeAt(ctx.db, workspaceId, path)) !== null) return true;
+    return paths.length > HIDDEN_ASKED;
   },
 });
 
@@ -101,10 +120,7 @@ export const kindAt = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(v.literal("file"), v.literal("folder"), v.null()),
   handler: async (ctx, { workspaceId, path }) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     return row === null || row.goneAt !== undefined ? null : row.kind;
   },
 });
@@ -114,16 +130,16 @@ export const childNames = internalQuery({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.array(v.string()),
   handler: async (ctx, { workspaceId, path }) => {
-    const folder = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const folder = await nodeAt(ctx.db, workspaceId, path);
     if (folder === null || folder.goneAt !== undefined || folder.kind !== "folder") return [];
     const rows = await ctx.db
       .query("nodes")
       .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", folder._id))
       .take(ROW_MOVE_MAX);
-    return rows.filter((row) => row.goneAt === undefined).map((row) => row.name).sort();
+    return rows
+      .filter((row) => row.goneAt === undefined)
+      .map((row) => row.name)
+      .sort();
   },
 });
 
@@ -163,15 +179,19 @@ export const rowMoveBatch = internalMutation({
       etag: v.optional(v.string()),
     }),
   ),
-  handler: async (ctx, { workspaceId, moves, privacyEtag, now }) => {
+  handler: async (ctx, { workspaceId, moves, privacyEtag: handed, now }) => {
     const moved = [];
     let total = 0;
+    // The first move is held to the version the caller was handed. What changes the rules after it is this batch's
+    // own moves, not someone else's, so the rest are not held again: rendering the rules twice a move was what
+    // stopped a batch of 20 on a big workspace (2026-10-26).
     for (const [index, move] of moves.entries()) {
       const answer = await applyRowMove(ctx, {
         workspaceId,
         from: move.from,
         to: move.to,
-        privacyEtag,
+        privacyEtag: handed,
+        privacyChecked: index > 0,
         ...(move.expectedEtag === undefined ? {} : { expectedEtag: move.expectedEtag }),
         ...(move.plannedFiles === undefined ? {} : { plannedFiles: move.plannedFiles }),
         now,
@@ -208,7 +228,7 @@ export const rowMove = internalMutation({
       etag: v.optional(v.string()),
       chunked: v.optional(v.id("rowMoves")),
     }),
-    v.object({ ok: v.literal(false), reason: refusalValidator }),
+    v.object({ ok: v.literal(false), reason: refusalValidator, currentEtag: v.optional(v.string()) }),
   ),
   handler: async (ctx, args) => await applyRowMove(ctx, args),
 });
@@ -322,21 +342,20 @@ export const planPage = internalQuery({
   args: { workspaceId: v.id("workspaces"), from: v.string(), after: v.optional(v.string()) },
   returns: v.object({ files: v.array(v.string()), unkeyed: v.boolean(), next: v.union(v.string(), v.null()) }),
   handler: async (ctx, { workspaceId, from, after }) => {
-    const prefix = `${from}/`;
-    const lower = after !== undefined && after.startsWith(prefix) ? after : prefix;
     const files: string[] = [];
     let unkeyed = false;
     let last: string | null = null;
     let scanned = 0;
-    for await (const row of ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", lower))) {
-      if (!row.path.startsWith(prefix)) return { files, unkeyed, next: null };
-      if (scanned >= PLAN_PAGE) return { files, unkeyed, next: last };
+    const whole = await (
+      await nodePaths(ctx.db, workspaceId)
+    ).walk(from, after, (row) => {
+      if (scanned >= PLAN_PAGE) return false;
       scanned += 1;
       last = row.path;
-      if (row.goneAt !== undefined || row.kind !== "file") continue;
+      if (row.goneAt !== undefined || row.kind !== "file") return;
       files.push(row.path);
       if (row.storageKey === undefined) unkeyed = true;
-    }
-    return { files, unkeyed, next: null };
+    });
+    return { files, unkeyed, next: whole ? null : last };
   },
 });

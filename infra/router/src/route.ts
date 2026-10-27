@@ -55,7 +55,10 @@ import {
   isCrawler,
   OG_CARD_PATH,
   CONNECT_SLACK_CARD_PATH,
+  GOOGLE_CONNECT_GUIDE_PATH,
   consoleNoteFrom,
+  noteLinkFrom,
+  NOTE_LINK_PREVIEW,
   previewFor,
   shareCardTokenFrom,
   shortLinkCardFrom,
@@ -97,7 +100,9 @@ export type RouteDecision =
   // A crawler asking for a readable team link. Shape-checked before it gets
   // here, so `slug` and `path` are well-formed and nothing an attacker types
   // reaches an upstream unchecked.
-  | { kind: "note-preview"; slug: string; path: string }
+  // `link` marks the `/note/@slug/<path>` address, whose untitled card is
+  // NOTE_LINK_PREVIEW rather than the product card.
+  | { kind: "note-preview"; slug: string; path: string; link?: true }
   // A crawler asking for an address a website may own: the page's own tags
   // when it is a live public page, else the legacy short link at the same
   // address when there is one, else the product card. See `preview/sites.ts`.
@@ -126,6 +131,7 @@ export type RouteDecision =
   // Tex's card, likewise from the bundle. See `texHost.ts`.
   | { kind: "tex-card" }
   | { kind: "connect-slack-card" }
+  | { kind: "google-connect-guide" }
   // The site's favicons, served from the bundle. See `icons.ts`.
   | { kind: "icon"; name: IconName }
   // The apex's robots.txt, plain text from the Worker. See `icons.ts`.
@@ -244,6 +250,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   if (pathname === CONNECT_SLACK_CARD_PATH) {
     return { kind: "connect-slack-card" };
   }
+  // The picture Tex texts with a Google connect link (`apps/mcp/src/tools/workspaces.js`).
+  if (pathname === GOOGLE_CONNECT_GUIDE_PATH) {
+    return { kind: "google-connect-guide" };
+  }
 
   // The favicons, for the same reason: Google's favicon fetcher is a crawler,
   // and a crawler asking for an icon wants the icon, not an HTML card.
@@ -307,6 +317,14 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     const note = consoleNoteFrom(url);
     if (note !== null) {
       return { kind: "note-preview", slug: note.slug, path: note.path };
+    }
+    // The note link Tex texts. The same answer as the console link, and the
+    // same constant card for every address it refuses.
+    const noteLink = noteLinkFrom(url);
+    if (noteLink !== null) {
+      return noteLink.note === null
+        ? { kind: "preview", meta: NOTE_LINK_PREVIEW }
+        : { kind: "note-preview", slug: noteLink.note.slug, path: noteLink.note.path, link: true };
     }
 
     // A website address, `/@seyi/writing`. It unfurls as the page

@@ -103,12 +103,11 @@ describe("the PKCE verifier never leaves this server, and the request asks for n
   });
 
   /**
-   * Chat's two scopes and the identity pair, and nothing else — in particular
-   * nothing that can WRITE. `chat.messages.readonly` is restricted (the same
-   * class as `gmail.readonly`), so a broader scope creeping into this request
-   * is a change to what the CASA assessment has to cover.
+   * Chat's two read scopes, the identity pair and Chat's send scopes, asked of
+   * everyone since the owner's "Yes, everyone" (2026-10-23, `WRITE_SCOPES`),
+   * and nothing else: no Gmail and nothing that deletes or modifies.
    */
-  test("a chat-only connect requests exactly the two read-only chat scopes plus identity", async () => {
+  test("a chat-only connect requests the chat read and send scopes plus identity, and nothing else", async () => {
     enableMailConnect();
     vi.stubEnv("APP_ORIGIN", APP);
     const { t, owner, workspaceId } = await personalScenario();
@@ -118,9 +117,16 @@ describe("the PKCE verifier never leaves this server, and the request asks for n
     });
     const scopes = (new URL(authorizeUrl).searchParams.get("scope") ?? "").split(" ").filter(Boolean);
     expect(scopes.sort()).toEqual(
-      ["openid", "https://www.googleapis.com/auth/userinfo.email", CHAT_MESSAGES_SCOPE, CHAT_SPACES_SCOPE].sort(),
+      [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        CHAT_MESSAGES_SCOPE,
+        CHAT_SPACES_SCOPE,
+        "https://www.googleapis.com/auth/chat.messages.create",
+        "https://www.googleapis.com/auth/chat.spaces.create",
+      ].sort(),
     );
-    for (const scope of scopes) expect(scope).not.toMatch(/\.(send|write|create|delete|modify)$/);
+    for (const scope of scopes) expect(scope).not.toMatch(/\.(send|write|delete|modify)$/);
   });
 });
 
@@ -362,7 +368,7 @@ describe("a connection records the folder it files into, rather than re-deriving
     // exactly what happened on 2026-09-18, when Chat gained an account level.
     // A connection bound before that keeps what its row says; one bound after
     // it gets this account's own folder.
-    expect(row?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(row?.chat?.destinationFolder).toBe("inbox/google-chat/person-at-example-invalid");
   });
 
   test("a reconnect keeps the folder the connection already had", async () => {

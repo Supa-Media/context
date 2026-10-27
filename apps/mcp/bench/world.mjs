@@ -19,6 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import worker from "../src/index.js";
@@ -189,6 +190,16 @@ export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null
   return ids;
 }
 
+/** The live calendar route's answer, from the calendar days a workspace's fixture holds. */
+export function calendarAnswer(days) {
+  if (days.length === 0) return null;
+  return ({ date, days: count = 1 }) => {
+    const start = Date.parse(`${date}T00:00:00Z`);
+    const wanted = Array.from({ length: count }, (_, i) => new Date(start + i * 86_400_000).toISOString().slice(0, 10));
+    return { ok: true, days: days.filter((day) => wanted.includes(day.date)).map(({ date: on, address, text }) => ({ address, date: on, text })) };
+  };
+}
+
 /**
  * Build the world for one person.
  *
@@ -218,6 +229,23 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The person's calendar, as Google would answer for it: their personal
+  // workspace's calendar days, read live by `calendar:` (`load.mjs`).
+  controlPlane.flags.calendarDays = calendarAnswer(bench.workspaces[own.workspace]?.calendar ?? []);
+  // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
+  // read live, and a mailbox that may keep drafts. Sending stays off, as it is
+  // until Google's review adds the send scope (tests/tasks.md, task 9). Each
+  // search and read is kept for the result's `Mail:` line.
+  const mail = bench.workspaces[own.workspace]?.mail ?? [];
+  const mailEvents = [];
+  if (mail.length > 0) {
+    const address = mail[0].address;
+    controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
+    const logged = (event, value) => (mailEvents.push(event(value)), value);
+    controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(mail, query));
+    controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(mail, body.address, body.id));
+    controlPlane.flags.emailDrafter = address;
+  }
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
   controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
@@ -332,6 +360,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
+    ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
     ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
@@ -532,10 +562,18 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return out;
     },
 
+    /** The emails the conversation saved as drafts or sent, never a check (`checks.mjs` `forward`). */
+    emails() {
+      return controlPlane.emailCalls.filter((entry) => !entry.check && entry.answer?.ok === true).map((entry) => ({ ...entry.email, draft: entry.draft === true }));
+    },
+
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
       return [...(web ? web.events() : []), ...site.events()];
     },
+
+    /** Each Gmail search and read this conversation made, in order (`mailbox.mjs`). */
+    mail: () => [...mailEvents],
 
     /** What the conversation changed in the invented workspaces, as a list. */
     changes() {

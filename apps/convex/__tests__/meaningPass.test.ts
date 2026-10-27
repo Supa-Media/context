@@ -25,7 +25,6 @@ import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../functions/lib/d1";
 import { projectMeaningIndex } from "../functions/lib/fileOps/meaningProjection";
 import { effectiveVisibility, PRIVACY_KEY } from "../functions/lib/privacy";
 import { loadPrivacyState } from "../functions/lib/fileOps/privacyState";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import type { FileStore } from "../functions/lib/fileOps";
 import { meaningTierFor } from "../../mcp/src/search/meaning/project.js";
 import { MEANING_STATE_KEY } from "../../mcp/src/search/meaning/catchup.js";
@@ -41,6 +40,7 @@ import {
   type TestConvex,
 } from "./fixtures.helpers";
 import { memoryS3, memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 const DIMENSIONS = 1024;
 const deployments: TestConvex[] = [];
@@ -331,8 +331,12 @@ describe("through the barrier", () => {
     expect(after?.notesIndexed).toBe(5);
     expect(after?.notesPending).toBe(0);
     expect(JSON.parse(bucket.snapshot()[MEANING_STATE_KEY]).generation).toBe("1700000000000");
-    // A finished pass schedules no next link.
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    // A finished pass schedules no next link. Only the pass's own links count: the copy queues its parity re-checks
+    // (`nodesParity`) as `runFileOperation` too.
+    const links = (await queued(t, "runFileOperation")).filter(
+      (job) => (job.args[0] as { operation?: { kind?: string } }).operation?.kind === "projectMeaning",
+    );
+    expect(links).toHaveLength(0);
   }, 30_000); // the tree's first copy runs before the pass, which takes longer than the default five seconds
 
   test("a row turned off is handed nothing, and no bucket is opened", async () => {
@@ -361,7 +365,11 @@ describe("through the barrier", () => {
     blip.cf.fail = 503;
     await pass(blip.t, blip.workspaceId, 5);
     expect((await row(blip.t, blip.workspaceId))?.status).toBe("backfilling");
-    expect(await queued(blip.t, "runFileOperation")).toHaveLength(1);
+    // Only the pass's own retry: keying the fixture leaves later jobs of its own.
+    const retries = (await queued(blip.t, "runFileOperation")).filter(
+      (job) => (job.args[0] as { operation?: { kind?: string } }).operation?.kind === "projectMeaning",
+    );
+    expect(retries).toHaveLength(1);
 
     const refused = await workspace();
     await copyTree(refused.t, refused.workspaceId);

@@ -2,6 +2,10 @@
 
 ### The sync keeps the notes; Gmail answers searches
 
+**Reversed by the owner on 2026-10-21:** nothing is copied any more; see
+[read live, never copied](./live-not-copied.md). What follows is the record of
+the earlier rule.
+
 Decided by the owner on 2026-10-18: "for each connected mailbox we should be
 1. using a webhook to update our own notes on the users mail starting from
 when they connect and 2. using the connection to read emails if 1 fails or we

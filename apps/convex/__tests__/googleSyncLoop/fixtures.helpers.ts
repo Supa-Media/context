@@ -29,6 +29,7 @@ import { afterEach, vi } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import {
+  copyTree,
   createUser,
   createWorkspace,
   seedGoogleConnection,
@@ -39,7 +40,12 @@ import {
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { S3Store } from "../../../mcp/src/store/s3.js";
+import { withIdLayout } from "../../../mcp/src/store/idLayout.js";
+import { withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { gmailRetry } from "../../../mcp/src/communications/gmail/api.js";
+import { consoleIdLayoutHooks } from "../../functions/lib/noteIds/consoleLayer";
+import { bridge } from "../nodes/moveFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 // Gmail's rate-limit retries wait seconds in production; a test waits none.
 gmailRetry.sleep = async () => {};
@@ -312,6 +318,8 @@ export async function endToEnd(options: {
   historyId?: string;
   quotaBytes?: number;
   storage?: "connected" | "missing";
+  /** Notes in the bucket before the workspace is keyed: path to Markdown. */
+  seeds?: Record<string, string>;
   /** What the binding says the bucket can do; a move needs conditional create. */
   capabilities?: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
 } = {}) {
@@ -320,6 +328,7 @@ export async function endToEnd(options: {
   const workspaceId = await createWorkspace(t, owner, "atlas");
   const connectionId = await seedGoogleConnection(t, { workspaceId, boundBy: owner });
   const keyset = requireKeyset();
+  const backend = memoryS3(FAKE_STORAGE.bucket);
 
   await t.run(async (ctx) => {
     const row = (await ctx.db.get(connectionId))!;
@@ -358,8 +367,60 @@ export async function endToEnd(options: {
     }
   });
 
-  const backend = memoryS3(FAKE_STORAGE.bucket);
+  // Every workspace is keyed (notes live at notes/<id>.md, reached only through
+  // their rows), and a row-less binding is not. Seeded notes go in before the
+  // copy, as a real workspace's notes were there before its first walk, and the
+  // copy pass keys them the way production does. Only a bound bucket can be keyed.
+  if (options.storage !== "missing") {
+    for (const [path, body] of Object.entries(options.seeds ?? {})) backend.seed(path, body);
+    vi.stubGlobal("fetch", backend.fetchImpl);
+    try {
+      await copyTree(t, workspaceId);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // Keying is the fixture's doing, not the pass under test's: forget its requests.
+    backend.requests.splice(0);
+  }
   return { t, owner, workspaceId, connectionId, backend };
+}
+
+/**
+ * The bucket as the product reads it: every path goes through its row (the id
+ * layer, `withIdLayout`), so a test names a note by path and the bytes come
+ * from `notes/<id>.md`. Used where a collaboration reader takes a store.
+ */
+export function keyedStoreOver(t: TestConvex, workspaceId: Id<"workspaces">, backend: MemoryS3) {
+  const raw = new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl });
+  return withIdLayout(withLogicalDelete(raw), consoleIdLayoutHooks(bridge(t), workspaceId) as unknown as Parameters<typeof withIdLayout>[1]) as unknown as S3Store;
+}
+
+/** Live note paths under `prefix`, read from the workspace's rows. */
+export async function notePathsUnder(t: TestConvex, workspaceId: Id<"workspaces">, prefix: string): Promise<string[]> {
+  return await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    return rows
+      .filter((row) => row.kind === "file" && row.goneAt === undefined && row.path.startsWith(prefix))
+      .map((row) => row.path)
+      .sort();
+  });
+}
+
+/** The live note at `path`, read through its row's key; `null` when no live row names it. */
+export async function noteBody(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  backend: MemoryS3,
+  path: string,
+): Promise<string | null> {
+  const row = await t.run(
+    async (ctx) => await treeNodeAt(ctx.db, workspaceId, path),
+  );
+  if (row === null || row.goneAt !== undefined) return null;
+  return backend.snapshot()[row.storageKey ?? path] ?? null;
 }
 
 export async function runPass(t: TestConvex, workspaceId: Id<"workspaces">, connectionId: Id<"googleConnections">) {

@@ -69,6 +69,7 @@ import { createSearchBudget } from "../src/search/maintain.js";
 import { MANIFEST_KEY, parseManifest, serializeManifest, syncShardedIndex } from "../src/search/shards.js";
 import { termsOf } from "../src/search/text.js";
 import { searchIndexedNotes } from "../src/search/visible.js";
+import { withServedTree } from "./servedTree.mjs";
 
 const encoder = new TextEncoder();
 
@@ -84,8 +85,12 @@ const encoder = new TextEncoder();
  */
 const SEEDED_AT = new Date("2026-06-01T00:00:00.000Z");
 
-/** The same in-memory bucket shape the other search fixtures use. */
+/** The same in-memory bucket shape the other search fixtures use, its control-plane tree served as production serves it. */
 function createBucket() {
+  return withServedTree(rawBucket());
+}
+
+function rawBucket() {
   const objects = new Map();
   let etags = 0;
   const counts = { gets: [], puts: [] };

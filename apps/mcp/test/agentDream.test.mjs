@@ -24,6 +24,8 @@
  *     → "with no about-me a dream is a first look…" fails.
  *  7. `roundCap` dropped from the dream's `runTurn`.
  *     → "a first look gets more than the turn's default eight rounds" fails.
+ *  8. `findMemories` answering [] (2026-10-23).
+ *     → "facts their other AI apps saved are read by the dream…" fails.
  */
 
 import worker from "../src/index.js";
@@ -347,6 +349,26 @@ export async function runAgentDreamChecks(check) {
       quiet.status === 200 && quiet.body?.outcome === "nothing_new" && model.requests.length === before,
     );
 
+    /* ---------------- what their other AI apps saved ---------------- */
+
+    // A fact saved through Claude with `remember` lands in its own inbox note
+    // (`tools/notes/remember.js`); before 2026-10-23 no dream read it, so Tex
+    // never learned what they told their other apps.
+    const memory = `inbox/memories/${transcriptPath(Date.now(), "UTC").slice("tex/transcripts/".length, "tex/transcripts/".length + 10)}-plays-jazz-piano.md`;
+    const transcript = bucket.get(today);
+    bucket.delete(today);
+    bucket.set(memory, { body: "- Plays jazz piano on Sundays\n", etag: "m1" });
+    model.install([{ text: "Nothing new worth keeping." }]);
+    const remembered = await ask(env, TOKEN_DREAMS, dream());
+    const memoryPrompt = JSON.stringify(model.requests.at(-1) ?? {});
+    check(
+      "facts their other AI apps saved are read by the dream, even on a night with no texts",
+      remembered.status === 200 && remembered.body?.outcome !== "nothing_new" &&
+        memoryPrompt.includes(memory) && memoryPrompt.includes("other AI apps") && log().includes(memory),
+    );
+    bucket.delete(memory);
+    bucket.set(today, transcript);
+
     /* ---------------- a first look ---------------- */
 
     // No note yet, no transcripts since the last dream, and an earlier dream
@@ -399,6 +421,10 @@ export async function runAgentDreamChecks(check) {
       "a first dream is told never to leave the note unwritten",
       dreamQuestion({ transcripts: [], first: true, since: null, timeZone: "UTC" }).includes(FIRST_LOOK) &&
         !dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).includes(FIRST_LOOK),
+    );
+    check(
+      "a first dream never points at copied mail: mail is read from Gmail, and never written into the person's memory",
+      !FIRST_LOOK.includes("0-inbox/email") && FIRST_LOOK.includes("a stranger's words never go in this note"),
     );
   } finally {
     restoreControlPlane();

@@ -16,7 +16,8 @@ import type { QueryCtx } from "../../_generated/server";
  * customer's sign-in down with it.
  *
  * The account holds no privileges: `isProductionTestAccount` names only the
- * CUJ address.
+ * CUJ address. The App Store review phone may keep its separately submitted
+ * code in `APP_REVIEW_SIGNIN_CODE` without changing this email provider.
  */
 
 export const REVIEWER_EMAIL = "connector-review@supa.media";
@@ -39,8 +40,28 @@ export function reviewerTestEmail(
 /** Reserved fictional NANP number. This alias never proves ownership of a phone. */
 export const APP_REVIEW_PHONE = "+12025550123";
 
+function appReviewPhoneCode(env: Environment): string | undefined {
+  const reviewer = reviewerTestEmail(env)[0];
+  if (reviewer === undefined) return undefined;
+  const code = env.APP_REVIEW_SIGNIN_CODE?.trim() ?? "";
+  if (code === "") return reviewer.code;
+  return /^\d{6}$/.test(code) ? code : undefined;
+}
+
 export function appReviewPhoneEnabled(): boolean {
-  return reviewerTestEmail().length === 1;
+  return appReviewPhoneCode(process.env) !== undefined;
+}
+
+/**
+ * Does `code` open the App Store review phone? Only the deployment's own
+ * `APP_REVIEW_SIGNIN_CODE`, or the directory code when no separate code is
+ * configured. The submitted App Store code stays stable without changing
+ * directory or CUJ credentials (owner, 2026-10-25). Both values come from
+ * secrets; there is no code embedded here. A malformed override disables the
+ * phone alias instead of silently accepting the directory code.
+ */
+export function appReviewPhoneCodeMatches(code: string, env: Environment = process.env): boolean {
+  return code === appReviewPhoneCode(env);
 }
 
 /** Resolve only the existing, verified primary reviewer identity. Never provision. */

@@ -28,6 +28,7 @@
 
 import {
   askAgent,
+  askLine,
   linkPhone,
   openSession,
   requestLinkInvite,
@@ -38,9 +39,10 @@ import {
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
+import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
 import type { OutgoingPicture } from "./outgoing";
-import type { RunningJob, StartedJob } from "./jobs";
+import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /**
@@ -66,12 +68,17 @@ export type ReplyDeps = {
   onSetUp?: () => Promise<void>;
   /**
    * The fixed texts sent outside a turn that the next turn's history is owed
-   * (`told.ts`): named to the gateway with the next text, and `onToldDelivered`
-   * once a turn answered with them. `onTold` notes a setup that finished.
+   * (`told.ts`): named to the gateway with the next text, beside the events
+   * that carry them, and `onToldDelivered` once a turn answered with them.
+   * `onTold` notes a fixed text that went (a setup that finished).
    */
   told?: Told[];
-  onTold?: (told: Told) => Promise<void>;
   onToldDelivered?: () => Promise<void>;
+  onTold?: (told: Told) => Promise<void>;
+  /** Told when the reply is the model's answer, not one of the Worker's own fixed texts. */
+  onAnswered?: () => void;
+  /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
+  onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[]) => void;
   /**
@@ -86,13 +93,19 @@ export type ReplyDeps = {
    * `onSession` is handed the session the turn runs as, and `onSteered` the
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
-  steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
+  steer?: Steer;
+  /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
+  covers?: string[];
+  /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
+  onAsks?: (askIds: string[], askText: string) => void;
   /**
    * The chat's background jobs, shown to the turn, and handed the ones it
    * started (`jobs.ts`). Absent, the turn is offered none.
    */
   running?: RunningJob[];
   onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Handed the running jobs this text was passed to (`jobs.ts`). */
+  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -181,6 +194,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     ).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
+    // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
+    if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
       // Nothing but one word of the text goes, and no model runs before a link.
       const setup = await textSetup(
@@ -209,7 +224,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     const attachments = message.attachments?.length
       ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
       : [];
-    deps.steer?.onSession(session.accessToken);
+    // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
+    await deps.steer?.onSession(session.accessToken);
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -220,13 +236,18 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       attachments,
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
-      deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told },
     );
+    // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
+    if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
+      deps.onAnswered?.();
       await deps.onToldDelivered?.();
+      if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
+      if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
+      if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
@@ -235,13 +256,15 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // what they read (`apps/mcp/src/tools/emailGate.js`).
       return textsWithExact(answer.text, answer.verbatim);
     }
+    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
+    if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
     if (answer.kind === "no_storage") return COPY.noStorage;
-    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     return COPY.unavailable;
   } catch (error) {
-    if (error instanceof ServiceError) return COPY.unavailable;
+    if (error instanceof ServiceError) return message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }
 }

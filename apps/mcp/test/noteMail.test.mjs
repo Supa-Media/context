@@ -132,6 +132,8 @@ before(async () => {
   restoreControlPlane = controlPlane.install();
   controlPlane.addWorkspace("ws_mail", "launchteam", binding("note-mail", "MA"), { kind: "shared" });
   controlPlane.addWorkspace("ws_else", "elsewhere", binding("note-else", "MB"));
+  // Each workspace's tree is copied from its bucket, so the notes and the privacy.md seeded below are what it serves.
+  controlPlane.serveTreesFrom(null, { s3 });
   bucket = s3.bucketFor("note-mail");
   bucket.set("privacy.md", { body: manifest(), etag: "p0" });
   bucket.set(PLAN, { body: "# Launch plan\n\nShip on Tuesday.\n", etag: "n0" });

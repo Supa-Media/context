@@ -46,7 +46,7 @@
  *   the preload passing the main process's object through unnormalised        2
  *   `installDesktopBridge` exposing regardless of `shouldExposeBridge`        4
  *   the exposed object not frozen                                             3
- *   `systemAudioCapability` ignoring the probe's `false`                      1
+ *   `systemAudioCapability` letting a refused probe stick                    1
  *   ...ignoring `packaged`, so a dev build claims a loopback tap              1
  *   ...ignoring `signed`, so an unsigned packaged build claims one            1
  *   the guard reading Electron's live getters unprotected again               1
@@ -58,6 +58,8 @@
  *   the summary normaliser dropping `frames`                                  1
  *   ...accepting a `kind` outside the protocol's four routes                  1
  *   the preload defaulting an unknown `kind` to `session`                     2
+ *   the preload passing the Messages backup's view through unnormalised       2
+ *   the preload passing a "What's copied" change through unnormalised         1
  *   an empty `context` read as this machine's own, in the main process        1
  *   ...and in the preload                                                     1
  *   the bridge capturing the pin once instead of reading it per call         3
@@ -488,5 +490,51 @@ export async function runPreloadContractChecks(check) {
     shell.emit(BRIDGE_CHANNELS.trayCommand, "record");
     shell.emit(BRIDGE_CHANNELS.trayCommand, "launch-a-shell");
     check("a tray command outside the contract's list is dropped", trays.length === 1 && trays[0] === "record");
+
+    const backups = [];
+    shell.bridge.imessage.onChange((status) => backups.push(status));
+    shell.emit(BRIDGE_CHANNELS.imessageChange, {
+      enabled: true,
+      permission: "granted",
+      lastSyncedAt: 5,
+      lastError: null,
+      backup: {
+        phase: "copying",
+        copiedRows: 10,
+        totalRows: 40,
+        reachedBack: 3,
+        problem: null,
+        account: "+1 ••• 4410",
+        machine: "Sams MacBook Pro",
+        text: "a text that must never reach the page",
+      },
+    });
+    shell.emit(BRIDGE_CHANNELS.imessageChange, { enabled: true, permission: "granted", lastSyncedAt: null, lastError: null, backup: { phase: "exfiltrating", account: "x".repeat(500) } });
+    shell.emit(BRIDGE_CHANNELS.imessageChange, { enabled: false, permission: "unknown", lastSyncedAt: null, lastError: null });
+    check(
+      "the backup's progress arrives, and a field it does not declare does not",
+      backups[0]?.backup?.copiedRows === 10 && backups[0].backup.machine === "Sams MacBook Pro" && !("text" in backups[0].backup),
+    );
+    check("an unknown backup phase reads as off, and an overlong label is dropped", backups[1]?.backup?.phase === "off" && backups[1].backup.account === null);
+    check("a shell that sends no backup view is told apart from one that is off", backups[2] !== undefined && !("backup" in backups[2]));
+    check("a backup view from before files has no files, rather than both switches off", !("files" in (backups[0]?.backup ?? {})));
+
+    shell.emit(BRIDGE_CHANNELS.imessageChange, {
+      enabled: true,
+      permission: "granted",
+      lastSyncedAt: null,
+      lastError: null,
+      backup: { phase: "copying", files: { pictures: true, videos: "yes", bytes: 1500, names: ["IMG_1.HEIC"] } },
+    });
+    const files = backups[3]?.backup?.files;
+    check(
+      "the switches and the bytes copied arrive, a switch that is not a boolean reads as off, and nothing else does",
+      files?.pictures === true && files.videos === false && files.bytes === 1500 && Object.keys(files).sort().join() === "bytes,pictures,videos",
+    );
+
+    // Nobody answers in this fake; only what was sent matters here.
+    await shell.bridge.imessage.setFiles({ videos: true, pictures: "no", path: "/Users/x" }).catch(() => {});
+    const setFiles = shell.invoked.find((call) => call.channel === BRIDGE_CHANNELS.imessageSetFiles);
+    check("a change to what is copied crosses as the two switches only, each a boolean", JSON.stringify(setFiles?.args[0]) === JSON.stringify({ videos: true }));
   }
 }

@@ -14,6 +14,7 @@ import { readerMirror } from "./lib/nodes/readerRules";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { PUBLICATION_SCOPE } from "./lib/websites/publication";
+import { namesWebsite, realSitePath, siteRoot } from "./lib/websites/siteRoot";
 import {
   FACT_FILL_NOTES,
   FACT_LEASE_MS,
@@ -38,6 +39,8 @@ import {
   propsPredate,
   writeFacts,
 } from "./lib/nodes/facts";
+import { rowsAfter } from "./lib/nodes/paths";
+import { bareNameOf } from "./lib/nodes/neighbors";
 
 /** Rows of the tree one walk step looks through. */
 const WALK_ROWS = 2_000;
@@ -140,12 +143,7 @@ export const due = internalQuery({
     };
 
     if (!state.ready) {
-      const rows = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) =>
-          state.after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", state.after),
-        )
-        .take(WALK_ROWS);
+      const rows = await rowsAfter(ctx.db, workspaceId, "", state.after, WALK_ROWS);
       let last: string | undefined;
       for (const row of rows) {
         last = row.path;
@@ -155,7 +153,12 @@ export const due = internalQuery({
       const finished = rows.length < WALK_ROWS && last === rows[rows.length - 1]?.path;
       const next: FactState = finished
         ? { ready: true, seq: state.startSeq ?? state.seq }
-        : { ready: false, seq: state.seq, ...(last === undefined ? {} : { after: last }), ...(state.startSeq === undefined ? {} : { startSeq: state.startSeq }) };
+        : {
+            ready: false,
+            seq: state.seq,
+            ...(last === undefined ? {} : { after: last }),
+            ...(state.startSeq === undefined ? {} : { startSeq: state.startSeq }),
+          };
       // A finished walk goes on to the log it noted the head of.
       return { notes, next, more: true };
     }
@@ -188,12 +191,7 @@ export const due = internalQuery({
     let upgrading = false;
     if (state.upgrade !== undefined && !stopped) {
       const from = state.upgrade;
-      const page = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) =>
-          from === "" ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", from),
-        )
-        .take(WALK_ROWS);
+      const page = await rowsAfter(ctx.db, workspaceId, "", from === "" ? undefined : from, WALK_ROWS);
       let last: string | undefined;
       for (const row of page) {
         if (notes.length >= FACT_FILL_NOTES) break;
@@ -365,6 +363,57 @@ export const candidates = internalQuery({
   },
 });
 
+const linkValidator = v.object({ kind: v.union(v.literal("path"), v.literal("name")), target: v.string() });
+
+/**
+ * One note's link rows, for `related_notes` (`lib/nodes/neighbors.ts` resolves
+ * them): what it links to, and the notes linking to its path or its bare name.
+ * Unfiltered, like `candidates`; the caller judges every path. Each side
+ * reads at most `NEIGHBOR_READ_ROWS`, and a side past it answers like any
+ * other: a cap the answer reported, or a read that failed at a query limit,
+ * would tell a reader how many notes they may not see link here. `null` until
+ * the facts have read every note once.
+ */
+// lean: a hub past this many links on one side loses the rest silently; paging in the action, filtered as it goes, is the upgrade.
+export const NEIGHBOR_READ_ROWS = 4_000;
+
+export const neighbors = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      present: v.boolean(),
+      current: v.boolean(),
+      links: v.array(linkValidator),
+      byPath: v.array(v.string()),
+      byName: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, { workspaceId, path }) => {
+    const state = await factStateRow(ctx.db, workspaceId);
+    if (state === null || !state.ready) return null;
+    const outgoing = await ctx.db
+      .query("nodeLinks")
+      .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId).eq("source", path))
+      .take(NEIGHBOR_READ_ROWS);
+    const pointing = (target: string, kind: "path" | "name") =>
+      ctx.db
+        .query("nodeLinks")
+        .withIndex("by_workspace_target", (q) => q.eq("workspaceId", workspaceId).eq("target", target).eq("kind", kind))
+        .take(NEIGHBOR_READ_ROWS);
+    const byPath = await pointing(path, "path");
+    const byName = await pointing(bareNameOf(path), "name");
+    const row = await liveNode(ctx.db, workspaceId, path);
+    return {
+      present: row !== null,
+      current: row !== null && factsCurrent(row),
+      links: outgoing.map(({ kind, target }) => ({ kind, target })),
+      byPath: byPath.map((link) => link.source),
+      byName: byName.map((link) => link.source),
+    };
+  },
+});
+
 /** Whether the facts are behind the tree: a walk unfinished, or log rows past `seq`. */
 export const behind = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -415,9 +464,7 @@ export const propsAt = internalQuery({
  */
 export const propsNow = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
-  returns: v.array(
-    v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) }),
-  ),
+  returns: v.array(v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) })),
   handler: async (ctx, { workspaceId, paths }) => {
     if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
     const found = [];
@@ -436,6 +483,17 @@ export const ready = internalQuery({
   returns: v.boolean(),
   handler: async (ctx, { workspaceId }) => (await factStateRow(ctx.db, workspaceId))?.ready === true,
 });
+
+/**
+ * The site names its pages under `website/` wherever the folder is nested: each
+ * such path is judged and found where the folder is now (`lib/websites/siteRoot.ts`),
+ * and answered under the name asked. One tree read, only when a path names it.
+ */
+async function sitePaths(db: DatabaseReader, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<(path: string) => string> {
+  if (!paths.some(namesWebsite)) return (path) => path;
+  const root = await siteRoot(db, workspaceId);
+  return (path) => realSitePath(root, path);
+}
 
 /**
  * What a public website list shows of these notes, from the tree alone (Dev2,
@@ -469,10 +527,11 @@ export const publishedRows = internalQuery({
     // Rules that cannot be read publish nothing.
     if (mirror?.invalid === true) return [];
     const { rules, overrides } = await mirrorRules(mirror);
+    const real = await sitePaths(ctx.db, workspaceId, paths);
     const found = [];
     for (const path of new Set(paths)) {
-      if (!canSee(path, PUBLICATION_SCOPE, rules, overrides)) continue;
-      const row = await liveNode(ctx.db, workspaceId, path);
+      if (!canSee(real(path), PUBLICATION_SCOPE, rules, overrides)) continue;
+      const row = await liveNode(ctx.db, workspaceId, real(path));
       if (row === null) continue;
       found.push({
         path,
@@ -508,10 +567,11 @@ export const visibleNotes = internalQuery({
     if (mirror?.invalid === true) return null;
     const { rules, overrides } = await mirrorRules(mirror);
     const granted = new Set(names);
+    const real = await sitePaths(ctx.db, workspaceId, paths);
     const found = [];
     for (const path of new Set(paths)) {
-      if (!canSee(path, scope, rules, overrides, granted)) continue;
-      if ((await liveNode(ctx.db, workspaceId, path)) !== null) found.push(path);
+      if (!canSee(real(path), scope, rules, overrides, granted)) continue;
+      if ((await liveNode(ctx.db, workspaceId, real(path))) !== null) found.push(path);
     }
     return found;
   },

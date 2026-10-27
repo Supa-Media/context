@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  dompurify@<3.4.17: ^3.4.17
+  lodash-es@<4.18.0: ^4.18.1
+
 patchedDependencies:
   '@convex-dev/auth':
     hash: ak7apkbrmhapkt36pcmmqydrda
@@ -43,6 +47,9 @@ importers:
 
   apps/convex:
     dependencies:
+      '@auth/core':
+        specifier: ^0.41.3
+        version: 0.41.3
       '@context/collaboration':
         specifier: workspace:*
         version: link:../../packages/collaboration
@@ -53,14 +60,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@convex-dev/auth':
-        specifier: ^0.0.90
-        version: 0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        specifier: ^0.0.96
+        version: 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@resvg/resvg-wasm':
         specifier: ^2.6.2
         version: 2.6.2
       '@supa-media/convex':
         specifier: ^1.11.0
-        version: 1.11.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        version: 1.11.0(@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -139,6 +146,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@auth/core':
+        specifier: ^0.41.3
+        version: 0.41.3
       '@codemirror/autocomplete':
         specifier: ^6
         version: 6.20.3
@@ -191,8 +201,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@convex-dev/auth':
-        specifier: ^0.0.90
-        version: 0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        specifier: ^0.0.96
+        version: 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@excalidraw/excalidraw':
         specifier: 0.18.1
         version: 0.18.1(@types/react-dom@19.1.11(@types/react@19.1.17))(@types/react@19.1.17)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -219,7 +229,7 @@ importers:
         version: 8.26.0(@expo/env@2.0.12)(dotenv@17.4.2)(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(rollup@4.63.0)
       '@supa-media/core':
         specifier: ^1.1.0
-        version: 1.1.0(5ws63ovql2iyyjt245j2asf62i)
+        version: 1.1.0(5ntlwzlozgig2e2vgjyoeldqhy)
       context-activity-kit:
         specifier: file:./modules/context-activity-kit
         version: file:apps/mobile/modules/context-activity-kit
@@ -513,6 +523,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20260719.1
         version: 5.20260826.1
+      fake-indexeddb:
+        specifier: 6.0.1
+        version: 6.0.1
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -606,12 +619,12 @@ packages:
   '@asamuzakjp/css-color@3.2.0':
     resolution: {integrity: sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw==}
 
-  '@auth/core@0.37.4':
-    resolution: {integrity: sha512-HOXJwXWXQRhbBDHlMU0K/6FT1v+wjtzdKhsNg0ZN7/gne6XPsIrjZ4daMcFnbq0Z/vsAbYBinQhhua0d77v7qw==}
+  '@auth/core@0.41.3':
+    resolution: {integrity: sha512-sJ3JMHHkXMD3aOjopv7mOBTO1Ocw4b0fAEXJBz6k7YHLpYQI6C40jCUPc5fNvUKxXRXNE1/sRISA15UrwWJBTw==}
     peerDependencies:
       '@simplewebauthn/browser': ^9.0.1
       '@simplewebauthn/server': ^9.0.2
-      nodemailer: ^6.8.0
+      nodemailer: ^7.0.7 || ^8.0.5
     peerDependenciesMeta:
       '@simplewebauthn/browser':
         optional: true
@@ -1247,11 +1260,11 @@ packages:
   '@codemirror/view@6.43.9':
     resolution: {integrity: sha512-sTuUzTpPMFebRhg6dawChoKKgndIwfjmJgKVxBefPElcU2NwQ6AFroupk0SFqEerQyZOGRfDNnSN8Dw/lMAsXw==}
 
-  '@convex-dev/auth@0.0.90':
-    resolution: {integrity: sha512-aqw88EB042HvnaF4wcf/f/wTocmT2Bus2VDQRuV79cM0+8kORM0ICK/ByZ6XsHgQ9qr6TmidNbXm6QAgndrdpQ==}
+  '@convex-dev/auth@0.0.96':
+    resolution: {integrity: sha512-4vcoQmmlbInLpR6BK43iIH21JwVPG5U7kRIjLaUWkeEr+hVaS/DuYsQRrDsDLu9rbHpq9PT2ZkUrtPDLkxYx0A==}
     hasBin: true
     peerDependencies:
-      '@auth/core': ^0.37.0
+      '@auth/core': ^0.41.1
       convex: ^1.17.0
       react: ^18.2.0 || ^19.0.0-0
     peerDependenciesMeta:
@@ -5020,8 +5033,8 @@ packages:
     resolution: {integrity: sha512-gYzvtM72ZtxQO0T048kd6HWSbbGCNOUwcnfQ01cqIJ4X2IYKFFHZ5mKvrQETcFXxsRObZulDaKmy//R7TPtsBg==}
     engines: {node: '>=20.19.0'}
 
-  dompurify@3.4.15:
-    resolution: {integrity: sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
@@ -5620,6 +5633,10 @@ packages:
     resolution: {integrity: sha512-GDhU9ntwuKyGXdZBUgTIe+vXnWj0fppUEtMDL0+idd5Sta8TGpHssn/eusA9mrPr9qNDym6SxAYZjNvCn/9RBg==}
     engines: {node: '>= 10.17.0'}
     hasBin: true
+
+  fake-indexeddb@6.0.1:
+    resolution: {integrity: sha512-He2AjQGHe46svIFq5+L2Nx/eHDTI1oKgoevBP+TthnjymXiKkeJQ3+ITeWey99Y5+2OaPFbI1qEsx/5RsGtWnQ==}
+    engines: {node: '>=18'}
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
@@ -6348,6 +6365,9 @@ packages:
   jose@5.10.0:
     resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
+  jose@6.2.13:
+    resolution: {integrity: sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ==}
+
   jotai-scope@0.7.2:
     resolution: {integrity: sha512-Gwed97f3dDObrO43++2lRcgOqw4O2sdr4JCjP/7eHK1oPACDJ7xKHGScpJX9XaflU+KBHXF+VhwECnzcaQiShg==}
     peerDependencies:
@@ -6585,9 +6605,6 @@ packages:
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
     engines: {node: '>=10'}
-
-  lodash-es@4.17.21:
-    resolution: {integrity: sha512-mKnC+QJ9pWVzv+C4/U3rRsHapFfHvQFoFB92e52xeyGMcX6/OlIl78je1u8vePzYZSkkogMPJ2yjxxsb89cxyw==}
 
   lodash-es@4.18.1:
     resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
@@ -7072,9 +7089,6 @@ packages:
 
   nwsapi@2.2.27:
     resolution: {integrity: sha512-gQPNF78qebCQ6tvVFBYrvJdBNOrYZm90ZlXgpIFm06p6qHDHq/XC4TnJftN6OMbxVE0UTBAoRgcsDeJBBooITw==}
-
-  oauth4webapi@3.8.7:
-    resolution: {integrity: sha512-4RxcKxXjuItDFZ20RRPf4YTw3kpeXJyCgJFxVzJ068A7PNJ18st2Dg90tlC1LkSDS0GecroagCLHYEIVUhCAkw==}
 
   oauth4webapi@3.8.8:
     resolution: {integrity: sha512-8N28E+a/oxfXWBgOMt+ZP/JUf/XR+IFbvkAEPP3gznXOMv9BpAAwiIj0TFNz3tGTPc0ZQ8zmWBNgN1nAys0gng==}
@@ -8866,10 +8880,10 @@ snapshots:
       lru-cache: 10.4.3
     optional: true
 
-  '@auth/core@0.37.4':
+  '@auth/core@0.41.3':
     dependencies:
       '@panva/hkdf': 1.2.1
-      jose: 5.10.0
+      jose: 6.2.13
       oauth4webapi: 3.8.8
       preact: 10.24.3
       preact-render-to-string: 6.5.11(preact@10.24.3)
@@ -9494,12 +9508,12 @@ snapshots:
     dependencies:
       '@chevrotain/gast': 11.0.3
       '@chevrotain/types': 11.0.3
-      lodash-es: 4.17.21
+      lodash-es: 4.18.1
 
   '@chevrotain/gast@11.0.3':
     dependencies:
       '@chevrotain/types': 11.0.3
-      lodash-es: 4.17.21
+      lodash-es: 4.18.1
 
   '@chevrotain/regexp-to-ast@11.0.3': {}
 
@@ -9657,9 +9671,9 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
+  '@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
     dependencies:
-      '@auth/core': 0.37.4
+      '@auth/core': 0.41.3
       '@oslojs/crypto': 1.0.1
       '@oslojs/encoding': 1.1.0
       convex: 1.45.0(react@19.1.0)
@@ -9668,7 +9682,7 @@ snapshots:
       jose: 5.10.0
       jwt-decode: 4.0.0
       lucia: 3.2.2
-      oauth4webapi: 3.8.7
+      oauth4webapi: 3.8.8
       path-to-regexp: 6.3.0
       server-only: 0.0.1
     optionalDependencies:
@@ -12072,14 +12086,14 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@supa-media/convex@1.11.0(@convex-dev/auth@0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.11.0(@convex-dev/auth@0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
-      '@convex-dev/auth': 0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
 
-  '@supa-media/core@1.1.0(5ws63ovql2iyyjt245j2asf62i)':
+  '@supa-media/core@1.1.0(5ntlwzlozgig2e2vgjyoeldqhy)':
     dependencies:
-      '@convex-dev/auth': 0.0.90(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.96(patch_hash=ak7apkbrmhapkt36pcmmqydrda)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
       expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native-webview@13.15.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
       react: 19.1.0
@@ -13071,7 +13085,7 @@ snapshots:
       '@chevrotain/regexp-to-ast': 11.0.3
       '@chevrotain/types': 11.0.3
       '@chevrotain/utils': 11.0.3
-      lodash-es: 4.17.21
+      lodash-es: 4.18.1
 
   chokidar@3.6.0:
     dependencies:
@@ -13696,7 +13710,7 @@ snapshots:
     dependencies:
       domelementtype: 3.0.0
 
-  dompurify@3.4.15:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -14500,6 +14514,8 @@ snapshots:
       '@types/yauzl': 2.10.3
     transitivePeerDependencies:
       - supports-color
+
+  fake-indexeddb@6.0.1: {}
 
   fast-deep-equal@3.1.3: {}
 
@@ -15434,6 +15450,8 @@ snapshots:
 
   jose@5.10.0: {}
 
+  jose@6.2.13: {}
+
   jotai-scope@0.7.2(jotai@2.11.0(@types/react@19.1.17)(react@19.1.0))(react@19.1.0):
     dependencies:
       jotai: 2.11.0(@types/react@19.1.17)(react@19.1.0)
@@ -15673,8 +15691,6 @@ snapshots:
     dependencies:
       p-locate: 5.0.0
 
-  lodash-es@4.17.21: {}
-
   lodash-es@4.18.1: {}
 
   lodash.debounce@4.0.8: {}
@@ -15773,7 +15789,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.23
-      dompurify: 3.4.15
+      dompurify: 3.4.17
       es-toolkit: 1.52.0
       fastdom: 1.0.12
       katex: 0.16.47
@@ -16490,8 +16506,6 @@ snapshots:
   nwsapi@2.2.27:
     optional: true
 
-  oauth4webapi@3.8.7: {}
-
   oauth4webapi@3.8.8: {}
 
   ob1@0.83.3:
@@ -16764,7 +16778,7 @@ snapshots:
       '@posthog/core': 1.53.1
       '@posthog/types': 1.411.0
       core-js: 3.50.0
-      dompurify: 3.4.15
+      dompurify: 3.4.17
       fflate: 0.4.9
       preact: 10.29.8(preact-render-to-string@6.5.11)
       query-selector-shadow-dom: 1.0.1

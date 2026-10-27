@@ -15,6 +15,7 @@
  * is a test failure rather than a coincidence.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { vi } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -32,6 +33,7 @@ import {
   setupTest,
   type TestConvex,
 } from "../fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 export const PLAN = "1-projects/plan.md";
 export const SECRET = "1-projects/private/secret.md";
@@ -141,24 +143,13 @@ export async function world(): Promise<World> {
 
 /** Rows for a workspace with no bucket: what `observe`, `begin` and `finish` leave behind. */
 async function observeRows(t: TestConvex, workspace: Id<"workspaces">, paths: string[]): Promise<void> {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId: workspace,
-    at: 10,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-    gone: [],
-    vanishedUnder: [],
-  });
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: workspace, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: workspace, at: 20, files: paths.length });
+  await seedTreeRows(t, workspace, paths);
 }
 
 /** The node row at a path, from the tree. */
 export async function nodeOf(w: World, path: string, workspace = w.ws): Promise<Doc<"nodes">> {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspace).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspace, path);
     if (row === null) throw new Error(`no row at ${path}`);
     return row;
   });

@@ -1,7 +1,6 @@
 /**
- * The privacy authority, from the gateway's side (phase 3 of
- * `docs/decisions/app-and-console/convex-tree.md`): what the store that
- * writes `privacy.md` (`store/privacyAuthority.js`) asks of the control plane.
+ * The access rules, from the gateway's side: what the store that serves them
+ * (`store/privacyAuthority.js`) asks of the control plane.
  *
  * Every call spends the person's token, as `/gateway/binding` does (or, for a
  * queued move, its job ticket), and names the workspace only for the control
@@ -10,50 +9,26 @@
 
 import { ControlPlaneError } from "./client.js";
 
-const rulesOf = (change) => ({
-  folders: change.folders.map((rule) => ({ prefix: rule.prefix, visibility: rule.visibility })),
-  notes: change.notes.map((rule) => ({ path: rule.path, visibility: rule.visibility })),
-});
-
 export function createPrivacyMethods({ post }) {
   return {
     /**
-     * The authority one request's store writes through, given the rules the
-     * binding carried (`null` while `privacy.md` is the authority).
+     * The access rules one request's store serves, and the calls it makes to change a row.
      *
      * @param {{accessToken: string}|{ticket: string}} proof exactly one of the two
      * @param {string} expectedWorkspaceId
+     * @param {object} rules the rules the binding carried, as the control plane renders them for this reader
      * @returns {import("../store/privacyAuthority.js").PrivacyAuthority}
      */
     privacyAuthority(proof, expectedWorkspaceId, rules) {
       const credential =
         typeof proof?.accessToken === "string" ? { accessToken: proof.accessToken } : { ticket: proof?.ticket };
-      const send = async (op, body) => {
-        const answer = await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op, ...body });
-        if (answer?.ok !== true) throw new ControlPlaneError("privacy refused");
-        return answer;
-      };
       return {
-        rules: rules ?? null,
-        async write(change) {
-          const answer = await send("write", { expected: change.expected, ...rulesOf(change) });
-          return answer.swapped ?? null;
-        },
-        async written(change) {
-          await send("written", { previous: change.previous, etag: change.etag, ...rulesOf(change) });
-        },
-        async exported(done) {
-          await send("exported", { rendered: done.rendered, etag: done.etag });
-        },
-        async owed() {
-          await send("owed", {});
-        },
+        rules,
         /**
-         * Rows mode: one row's base, from the version the gateway holds. Answers the
-         * control plane's own answer (`{ok, version}` or `{ok: false, code}`) rather
-         * than throwing, so the caller can map CONFLICT and FORBIDDEN to its own errors.
-         * A tier names no `grantees`, so the owner's list is kept: a list is sent only when the caller gives one
-         * (`[]` clears it). Sending `[]` for a tier would wipe the people the owner named.
+         * One row's base, from the version the gateway holds. Answers the control plane's own answer
+         * (`{ok, version}` or `{ok: false, code}`) rather than throwing, so the caller can map CONFLICT and FORBIDDEN
+         * to its own errors. A tier names no `grantees`, so the owner's list is kept: a list is sent only when the caller
+         * gives one (`[]` clears it). Sending `[]` for a tier would wipe the people the owner named.
          */
         async setAccess(change) {
           const body = { path: change.path, base: change.base };
@@ -64,7 +39,7 @@ export function createPrivacyMethods({ post }) {
           return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "setAccess", ...body });
         },
         /**
-         * Rows mode: people added to one row's list (`set_visibility`'s `people`), each `{handle|email, role}`.
+         * People added to one row's list (`set_visibility`'s `people`), each `{handle|email, role}`.
          * Adds, never replaces; owner only. Answers the control plane's own answer, as `setAccess` does.
          */
         async addGrantees(change) {

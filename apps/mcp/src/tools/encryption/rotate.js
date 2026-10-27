@@ -14,7 +14,7 @@ import {
 import { deleteWithLegacyFallback } from "../../storageLayout.js";
 import { isPlumbing } from "../../privacy/engine.js";
 import { listAllKeys } from "../../notes/storage.js";
-import { isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
+import { KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { recordChange } from "../../activity/record.js";
 import { toolError, toolText } from "../results.js";
@@ -109,6 +109,10 @@ export async function toolRotateEncryptionKeys(store, scope) {
   if (typeof workspaceId !== "string" || !workspaceId) {
     return toolError("this connection has no workspace to rotate a key for");
   }
+  // The walk names the tree's notes and nothing else. Checked before a rotation
+  // is started, so a store with no tree changes nothing, not even the
+  // generation the start would mint.
+  if (typeof store.treeManifest !== "function") return toolError(KEYED_PATH_REFUSAL);
 
   // Idempotently starts a rotation, or reports the one already in progress —
   // either way, this is the one call that guarantees `keys` includes the
@@ -154,27 +158,17 @@ export async function toolRotateEncryptionKeys(store, scope) {
   /*
     WHICH KEYS THE WALK NAMES.
 
-    A whole-bucket rotation has to reach every note's bytes. In an unkeyed
-    workspace those are the raw listing's keys, and that stays as it was. In a
-    KEYED workspace the object at a note's path is a frozen copy nothing reads
-    again, and the note's bytes are at its id key, which the raw walk never
-    names (it is plumbing to the layer). So the walk takes the tree's names
-    and routes each one through the id layer, which reads and writes the live
-    bytes and reports each rewrap to the tree. The raw listing would still
-    reach the live bytes through the frozen path, but it takes each note's
-    "uploaded" time from that frozen copy, which a write to the live bytes
-    never moves: a note written behind the cursor would be skipped and the
-    generation retired over it. A keyed workspace whose tree cannot be walked
-    is refused, not listed.
+    The walk takes the tree's names and routes each one through the id layer,
+    which reads and writes the note's live bytes at its id key and reports each
+    rewrap to the tree. The bucket's own listing is never used: its object at a
+    note's path is a frozen copy nothing reads again, and its "uploaded" time
+    never moves when the live bytes are written, so a note written behind the
+    cursor would be skipped and the generation retired over it. A store with no
+    tree was refused above, before the rotation started.
   */
-  let listing = store;
-  if (await isKeyedWorkspace(store)) {
-    if (typeof store.treeManifest !== "function") return toolError(KEYED_PATH_REFUSAL);
-    listing = servedListingStore(store);
-  }
   let allKeys;
   try {
-    allKeys = await listAllKeys(listing, "");
+    allKeys = await listAllKeys(servedListingStore(store), "");
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
     throw error;

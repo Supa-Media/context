@@ -67,8 +67,6 @@ export function useListings(deps: ListingsDeps) {
   const liveConfirmations = useRef(new Map<string, {
     epoch: number; page: FolderListing | null; refused: boolean;
   }>());
-  // The "still loading" line the root load showed, until the live root listing answers it.
-  const loadingNotice = useRef<string | null>(null);
   const epoch = workspaceGenerationRef.current.epoch;
   const isCurrent = useCallback(() => workspaceGenerationRef.current.epoch === epoch, [epoch]);
   useEffect(() => {
@@ -422,12 +420,7 @@ export function useListings(deps: ListingsDeps) {
           takeRootListing(cached.value, started);
           return;
         }
-        const failure = toFileError(error);
-        // `TREE_LOADING`: the first copy into the Convex tree is running, and
-        // the bucket is never listed instead (decided by the owner,
-        // 2026-10-13). The live root listing clears this line when it lands.
-        if (failure.code === "TREE_LOADING") loadingNotice.current = failure.message;
-        setNotice(failure.message);
+        setNotice(toFileError(error).message);
       } finally {
         if (!cancelled && isCurrent()) setLoading(false);
       }
@@ -468,14 +461,8 @@ export function useListings(deps: ListingsDeps) {
       if (workspaceId === null || !isCurrent()) return;
       if (page !== null) offlineRef.current.rememberListing(page);
       landPage(folder, page, nextListingStamp(), true, refused);
-      // The tree now serves: the root's "still loading" line has been answered.
-      if (folder === "" && page !== null && loadingNotice.current !== null) {
-        const answered = loadingNotice.current;
-        loadingNotice.current = null;
-        setNotice((shown) => (shown === answered ? null : shown));
-      }
     },
-    [isCurrent, landPage, nextListingStamp, setNotice, workspaceId],
+    [isCurrent, landPage, nextListingStamp, workspaceId],
   );
   // Who wants to hear that a file left a live folder: the open note, to follow a move made elsewhere.
   const vanishListeners = useRef(new Set<(paths: string[]) => void>());

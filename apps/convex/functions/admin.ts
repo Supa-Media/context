@@ -57,6 +57,7 @@ import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
 import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
+import { texReportHandler, texReportValidator } from "./lib/adminFns/texReport";
 import { aiCostsAccountValidator, aiCostsCloudflareValidator, aiCostsReportValidator, type AiCostsCloudflare } from "./lib/adminFns/aiCostsShape";
 import { cloudflareCheck } from "./lib/adminFns/aiCostsCloudflare";
 import { clampAiCostsDays } from "./lib/adminFns/aiCostsRead";
@@ -180,6 +181,18 @@ export const agentReport = query({
       throw toConvexError(error);
     });
     return await agentReportHandler(ctx, args);
+  },
+});
+
+/** The Tex dashboard (tex.lc/admin): texts handled, spend, and every scored conversation to slice. See `lib/adminFns/texReport.ts`. */
+export const texReport = query({
+  args: { days: v.optional(v.number()) },
+  returns: texReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await texReportHandler(ctx, args);
   },
 });
 

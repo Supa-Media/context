@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { IconName } from "../../../design/components/icons/names";
 import type { AccessMember, AccessRow, RemovalRoute } from "../access";
 import type { RecipientGroup } from "../recipients";
@@ -7,6 +7,7 @@ import type { NoteScope } from "../scope";
 import type { AudienceContext } from "../../privacy/audience";
 import type { NoteShare } from "../shares";
 import type { ShareGrants } from "./useShareGrants";
+import type { HandleProbeProps } from "./HandleProbe";
 
 /** What `ShareDialog` is handed. See the component for how each is used. */
 export type ShareDialogProps = {
@@ -176,6 +177,11 @@ export type ShareDialogProps = {
    * owner where rows are the truth; absent, the dialog draws what it drew before lists existed.
    */
   grants?: ShareGrants;
+  /**
+   * Asks whether a typed `@name` belongs to a person (`HandleProbe`). Absent where there is no control plane to
+   * ask, and the field then offers no `@name` row at all rather than one for a name nobody may hold.
+   */
+  HandleProbe?: ComponentType<HandleProbeProps>;
 };
 
 /** An item a caller adds to the header's menu. */

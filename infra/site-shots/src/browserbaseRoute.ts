@@ -12,6 +12,22 @@
  * answer carries none when a jar sent in could not be put back, so a failed
  * restore never reads as a sign-out.
  *
+ * Downloads are allowed into Browserbase's storage on every call, and a
+ * `download` step takes its file from there (./download.ts). An `upload`
+ * step's file goes the other way, into the session's storage, and the browser
+ * sets it on the page's box itself (./upload.ts).
+ *
+ * A captcha left on the page after the steps is given time to clear on its
+ * own, Browserbase's solver being on in every browser; the answer's
+ * `captcha` says `solved` or `unsolved` (./captcha.ts). `fresh: true` drops
+ * the person's running browser and starts another, a new address and
+ * fingerprint, which is the gateway's last try before a captcha is handed
+ * over (apps/mcp/src/agent/captchaLadder.js).
+ *
+ * A run that fails is logged with a digest of the session's own Browserbase
+ * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
+ * codes and counts, never the page, an address's path or what was typed.
+ *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
  * the same browser. Browserbase's own live-view link is never asked for: it
@@ -27,16 +43,30 @@ import {
   createSession,
   findSession,
   releaseSession,
+  takeDownload,
   type BrowserbaseEnv,
 } from "./browserbase";
+import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
+import { browserbaseUploads } from "./upload";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
+import { reportFailedRun, type FailedRun } from "./sessionLogs";
+import { settleCaptcha } from "./captcha";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, body: unknown, fetcher: typeof fetch = fetch): Promise<Response> {
+/** Runs work after the answer has gone: the Worker's `ctx.waitUntil`. */
+export type Later = (work: Promise<unknown>) => void;
+
+export async function browseOnBrowserbase(
+  env: BrowserbaseEnv,
+  path: string,
+  body: unknown,
+  fetcher: typeof fetch = fetch,
+  later: Later = (work) => void work,
+): Promise<Response> {
   if (!browserbaseConfigured(env)) return json({ error: "browserbase is not configured" }, 501);
   const owner = (body as { owner?: unknown })?.owner;
   if (typeof owner !== "string" || !OWNER_TAG.test(owner)) return json({ error: "an owner is required" }, 400);
@@ -48,8 +78,13 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   const parsed = parseBrowseRequest({ steps: (body as { steps?: unknown })?.steps });
   if (parsed === null) return json({ error: "those steps could not be read" }, 400);
   const keep = (body as { keep?: unknown })?.keep === true;
+  const startOver = (body as { fresh?: unknown })?.fresh === true;
+  const handingOver = (body as { handoff?: unknown })?.handoff === true;
   const held: Jar | null = keep ? parseJar((body as { jar?: unknown })?.jar) : null;
   const started = Date.now();
+  const steps = parsed.steps.map((s) => s.do);
+  const failed = (session: string, stage: FailedRun["stage"], ran?: FailedRun["ran"]) =>
+    later(reportFailedRun(env, { session, stage, steps, ...(ran ? { ran } : {}), ms: Date.now() - started }, fetcher).catch(() => undefined));
   // In use: it lives five more minutes from now. Before the lookup, so a
   // release already under way finishes first and this finds no browser,
   // rather than one being released under it (./idle.ts).
@@ -58,6 +93,12 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   let fresh = false;
   try {
     session = await findSession(env, owner, fetcher);
+    // A fresh browser: the running one is let go first, so the new one is
+    // the only one this person has and the next question finds it.
+    if (session !== null && startOver) {
+      await releaseSession(env, session.id, fetcher).catch(() => undefined);
+      session = null;
+    }
     if (session === null) {
       session = await createSession(env, owner, fetcher);
       fresh = true;
@@ -75,6 +116,7 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   try {
     cdp = await connectCdp(session.connectUrl, fetcher);
   } catch {
+    failed(session.id, "connect");
     return json({ session: session.id, error: "that browser has closed" }, 410);
   }
   try {
@@ -90,13 +132,36 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
         restored = false;
       }
     }
+    // Every file the browser downloads goes to Browserbase's storage for this
+    // session, where a download step takes it (./download.ts). Only "downloads"
+    // syncs there, the vendor's own folder name.
+    let begun = 0;
+    cdp.on?.("Browser.downloadWillBegin", () => {
+      begun += 1;
+    });
+    await cdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: "downloads", eventsEnabled: true }).catch(() => undefined);
+    const downloads: Downloads = {
+      began: () => begun,
+      async take(since, waitMs) {
+        const got = await takeDownload(env, session.id, since, waitMs, MAX_DOWNLOAD_BYTES, fetcher);
+        return got === null || "refused" in got ? got : asFile(got);
+      },
+    };
     const page = await cdpPage(cdp, attached);
-    const result = await runSteps(page, parsed.steps);
+    // A file goes in as the browser's own, through Browserbase's uploads (./upload.ts).
+    const uploads = browserbaseUploads(env, session.id, fetcher);
+    let result = await runSteps(page, parsed.steps, { downloads, uploads });
+    // Not while the person is being handed the browser: it is theirs then.
+    const captcha = handingOver ? null : await settleCaptcha(attached.evaluate);
+    if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
+    const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
-    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));
-    return json({ session: session.id, ...result, ...(jar !== null ? { jar } : {}) });
+    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
+    if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
+    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(jar !== null ? { jar } : {}) });
   } catch {
+    failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);
   } finally {
     cdp.close();

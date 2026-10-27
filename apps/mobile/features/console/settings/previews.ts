@@ -61,6 +61,14 @@ export function settingsPreview(
     case "profile":
       return data.viewer.name;
 
+    // The apps say their own state on the page; a count here would need the query this list does not run.
+    case "texApps":
+      return null;
+
+    // Whether this Mac is copying lives on the Mac, reached through the bridge on the page itself.
+    case "messages":
+      return null;
+
     case "invitations": {
       // `undefined` is not `[]`, and `[]` is the resting state of this row —
       // "None" on every load is a badge people learn to ignore.

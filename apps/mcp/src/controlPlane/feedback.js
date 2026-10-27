@@ -2,6 +2,9 @@
  * Problem reports an agent files with `report_problem`.
  */
 
+/** How long filing a review may take; it runs after the answer has gone, so nobody waits on it. */
+export const TEX_REVIEW_FILE_TIMEOUT_MS = 25_000;
+
 export function createFeedbackMethods({ post }) {
   return {
     /**
@@ -21,6 +24,26 @@ export function createFeedbackMethods({ post }) {
       if (parsed?.report && typeof parsed.report.eventId === "string") return { eventId: parsed.report.eventId };
       if (typeof parsed?.refused === "string") return { refused: parsed.refused };
       return null;
+    },
+
+    /**
+     * Tex's review of a finished conversation (`agent/selfReview.js`), as the
+     * texting grant this token belongs to. `{ mode: "tier" }` asks whether it
+     * may carry words: `"full"` or `"scores"`, null when the control plane
+     * answered anything else. Otherwise it files the scores, and the words when
+     * the control plane decides again that they may go: `"full"`, `"scores"`,
+     * or null when nothing was filed.
+     */
+    async texReviewTier(accessToken) {
+      const parsed = await post("/gateway/tex-review", { accessToken, mode: "tier" });
+      return parsed?.tier === "full" || parsed?.tier === "scores" ? parsed.tier : null;
+    },
+
+    async fileTexReview(accessToken, review) {
+      // Filing writes the day's scores note and the review note, each a note save: longer than a lookup.
+      const parsed = await post("/gateway/tex-review", { accessToken, ...review }, { timeoutMs: TEX_REVIEW_FILE_TIMEOUT_MS });
+      const filed = parsed?.review?.filed;
+      return filed === "full" || filed === "scores" ? filed : null;
     },
   };
 }

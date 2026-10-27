@@ -71,11 +71,12 @@ test("an address the turn never read is not fetched for it", async () => {
   assert.deepEqual(pictures, [{ url: "https://example.com/cat.jpg" }, { url: "https://images.example.org/dog.png" }]);
 });
 
-test("at most four pictures, each once, and a turn not from a phone is untouched", async () => {
+test("at most eight pictures (a set of option cards), each once, and a turn not from a phone is untouched", async () => {
   const outgoing = outgoingPictures({ enabled: true });
-  const call = outgoing.wrap(async () => ({ content: [image(), image(), image(), image(), image()] }));
+  const call = outgoing.wrap(async () => ({ content: Array.from({ length: 9 }, () => image()) }));
   await call("read_image", {});
-  const lines = ["[picture 1]", "[picture 1]", "[picture 2]", "[picture 3]", "[picture 4]", "[picture 5]"].join("\n");
+  const lines = ["[picture 1]", "[picture 1]", ...Array.from({ length: 8 }, (_, i) => `[picture ${i + 2}]`)].join("\n");
+  assert.equal(MAX_PICTURES, 8);
   assert.equal(outgoing.take(lines).pictures.length, MAX_PICTURES);
 
   const off = outgoingPictures({ enabled: false });
@@ -178,4 +179,31 @@ test("an address read before the model used it stays vouched when a tool repeats
   const page = outgoing.wrap(async (name, args) => ({ content: [{ type: "text", text: `${args.url} shows https://cdn.example.com/logo.png/large.webp` }] }));
   await page("browse", { url: "https://cdn.example.com/logo.png" });
   assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
+});
+
+// Tex Devs group, 2026-10-26: draw_visual worked, the answer said "Here's the one-pager" and named no
+// [picture N], so the card never went. A card the turn drew goes even when the answer forgot to name it.
+test("a drawn card the answer forgot to name still goes; a redrawn one replaces it; option cards go as a set", async () => {
+  const image = (data) => async () => ({ content: [{ type: "image", data, mimeType: "image/png" }] });
+  const one = outgoingPictures({ enabled: true });
+  await one.wrap(image("first"))("draw_visual", { template: "board", data: { title: "v1" } });
+  await one.wrap(image("second"))("draw_visual", { template: "board", data: { title: "v2" } });
+  const taken = one.take("Here's the one-pager. It's not started.");
+  assert.deepEqual(taken.pictures.map((p) => p.data), ["second"]);
+  assert.equal(taken.answer, "Here's the one-pager. It's not started.");
+
+  const set = outgoingPictures({ enabled: true });
+  for (const [i, name] of ["Lugo's", "Blend", "India Passage"].entries()) {
+    await set.wrap(image(`card${i}`))("draw_visual", { template: "option", data: { index: i + 1, of: 3, name } });
+  }
+  assert.deepEqual(set.take("Lugo's is my pick.").pictures.map((p) => p.data), ["card0", "card1", "card2"]);
+
+  // A picture only read, never drawn, still needs naming; a named one goes as named.
+  const read = outgoingPictures({ enabled: true });
+  await read.wrap(image("from-note"))("read_image", { path: "a.png" });
+  assert.deepEqual(read.take("That's the photo.").pictures, []);
+  const named = outgoingPictures({ enabled: true });
+  await named.wrap(image("a"))("draw_visual", { template: "board", data: {} });
+  await named.wrap(image("b"))("draw_visual", { template: "board", data: {} });
+  assert.deepEqual(named.take("Here.\n[picture 1]").pictures.map((p) => p.data), ["a"]);
 });

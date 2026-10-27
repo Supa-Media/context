@@ -35,6 +35,7 @@ import {
   row,
 } from "./managedEncryption.helpers";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
+import { keyOf, keyedFixture } from "./keyedFixture.encrypt.helpers";
 
 resetAfterEach();
 
@@ -51,16 +52,17 @@ function twoBuckets(managed: MemoryS3, customer: MemoryS3) {
 
 describe("catch-up after moving out", () => {
   test("copies a late file from the kept, encrypted bucket as plain text", async () => {
-    const { t, backend, catchUp } = await encryptedThenMovedOut();
+    const { t, ours, backend, catchUp } = await encryptedThenMovedOut(() => keyedFixture());
     expect(catchUp).not.toBeNull();
-    expect(isSealed(backend.bytesOf("1-projects/plan.md"))).toBe(true);
+    const planKey = await keyOf({ t, workspaceId: ours, backend }, "1-projects/plan.md");
+    expect(isSealed(backend.bytesOf(planKey))).toBe(true);
     const customer = memoryS3(CUSTOMER_BUCKET);
     twoBuckets(backend, customer);
 
     // Every file in the old bucket counts as late (the stub's listing is old).
     await t.action(internal.functions.moveCatchUp.runMoveCatchUp, { ...catchUp!, since: 0 });
 
-    const copied = customer.bytesOf("1-projects/plan.md");
+    const copied = customer.bytesOf(planKey);
     expect(copied).not.toBeNull();
     expect(isSealed(copied)).toBe(false);
     expect(new TextDecoder().decode(copied!)).toBe("# Plan\n\nThe words people typed.\n");
@@ -70,7 +72,13 @@ describe("catch-up after moving out", () => {
 
 describe("catch-up after switching back", () => {
   test("seals a late file on its way into a bucket that is encrypted again", async () => {
-    const { t, staff, ours, backend } = await encryptedThenMovedOut();
+    // The late note is named by a row before the move out, so its key is known;
+    // its object is then removed from the managed bucket, so the catch-up has to write it.
+    const { t, staff, ours, backend } = await encryptedThenMovedOut(() =>
+      keyedFixture({}, { "0-inbox/late.md": "# Placeholder before the move\n" }),
+    );
+    const lateKey = await keyOf({ t, workspaceId: ours, backend }, "0-inbox/late.md");
+    backend.objects.delete(lateKey);
     const customer = memoryS3(CUSTOMER_BUCKET);
     twoBuckets(backend, customer);
 
@@ -86,10 +94,10 @@ describe("catch-up after switching back", () => {
     expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
 
     // Saved into their own bucket after the move back's last check.
-    customer.seed("0-inbox/late.md", "# Arrived late\n");
+    customer.seed(lateKey, "# Arrived late\n");
     await t.action(internal.functions.moveCatchUp.runMoveCatchUp, { ...catchUp!, since: 0 });
 
-    expect(isSealed(backend.bytesOf("0-inbox/late.md"))).toBe(true);
+    expect(isSealed(backend.bytesOf(lateKey))).toBe(true);
     const note = await asUser(t, staff).action(api.functions.files.readNote, {
       workspaceId: ours,
       path: "0-inbox/late.md",

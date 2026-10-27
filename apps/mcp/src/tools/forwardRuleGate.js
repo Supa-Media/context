@@ -6,7 +6,7 @@
  * only narrows, so it goes straight through.
  */
 
-import { callKey, createPending, findPending, takeDone } from "./approvals.js";
+import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { FORWARD_RULE_TOOL, forwardRuleCopy, forwardRuleSummary, readForwardRule, readRules } from "./forwardRule.js";
 import { emailCaller } from "./emailGate.js";
@@ -40,6 +40,7 @@ export async function forwardRuleGate(supplied, { store, session, target }) {
     return toolError("Not changed: one standing forward at a time by text. Ask about this one after the person answers.");
   }
   const existing = await findPending(store, { name: FORWARD_RULE_TOOL, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

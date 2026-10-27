@@ -234,11 +234,11 @@ describe("no public function can reach a storage secret", () => {
         // mutations and from themselves; the pages record counts, times and fixed labels, never a key.
         "functions.noteIdsCleanupRun.runCount",
         "functions.noteIdsCleanupRun.runDelete",
-        // Emptying the trash's bucket half (`functions/trashEmptying.ts`, `lib/trash/erase.ts`). Scheduled
-        // only by `trash.emptyDue` (the daily cron) for a keyed workspace owed an erasure; it removes the
-        // id keys and history the control plane already erased in `trash.claimErasure`, and records
-        // fixed labels on failure, never a key or a byte.
+        // Two cron-scheduled bucket passes that return no credential and record ids, counts and fixed labels only:
+        // emptying the trash (`trashEmptying.ts`, from `trash.emptyDue`, for erasures `trash.claimErasure` made) and
+        // filing editing history by note id (`collaborationFiling.ts`, from `fileDue` and itself).
         "functions.trashEmptying.eraseWorkspace",
+        "functions.collaborationFiling.fileWorkspace",
         // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
         // file operation and hands it to lib/fileOps.ts, which never sees the
         // credential. internalAction, and the only member of
@@ -313,10 +313,19 @@ describe("no public function can reach a storage secret", () => {
         // THE PERSON'S OWN CALENDAR. `/gateway/calendar/event`, the same
         // shape as the Gmail route; see its CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayCalendarWrite",
+        // THE PERSON'S OWN GOOGLE CHAT. `/gateway/chat/send` and
+        // `/gateway/chat/spaces`; see their CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayChatSend",
+        "http.gatewayChatSpaces",
+        // `/gateway/chat/recent`, the same account read for check-ins.
+        "http.gatewayChatRecent",
         // THE PERSON'S OWN GMAIL, READ. `/gateway/email/search` and
         // `/gateway/email/read`; see their CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonMailSearch",
         "http.gatewayPersonMailRead",
+        // THE PERSON'S OWN CALENDAR, READ. `/gateway/calendar/days`; see its
+        // CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayPersonCalendarDays",
         // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
         //
         // Not a customer's anything — see the `functions/admin.ts` entry in
@@ -348,11 +357,11 @@ describe("no public function can reach a storage secret", () => {
         // invisible here and are not any more. See `unattributed` in `analyze`.
         "functions.fastSearchProvision.provisionIndex",
         "functions.fastSearchProvision.releaseIndex",
-        // The meaning index's two, on the same credential and the same shape:
-        // internalActions reached only by a schedule edge from
-        // `meaningSearch.enable` / `.disable` (and the workspace cascade).
+        // The meaning index's two, same credential and shape (schedule edges from `meaningSearch.enable` / `.disable`),
+        // and Delete the backup's eraser, which empties the texts rows through it, scheduled only by owner-only `deleteBackup`.
         "functions.meaningProvision.provisionMeaningIndex",
         "functions.meaningProvision.releaseMeaningIndex",
+        "functions.messagesExport.eraseBackupPage",
         // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
         //
         // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
@@ -429,13 +438,13 @@ describe("no public function can reach a storage secret", () => {
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",
-        // The same mint saying why there is no token, so a pass can tell
-        // Google not answering from Google refusing the grant; and the daily
-        // re-check that forces one refresh per revoked grant through it
-        // (`functions/googleReconnect.ts`). Neither returns a credential to
-        // anything outside the barrier but the sync pass's own action.
+        // The same mint saying why there is no token, so a pass can tell Google not answering from Google
+        // refusing the grant; the daily re-check that forces one refresh per revoked grant through it
+        // (`googleReconnect.ts`), and the calendar scope re-check (`googleScopeCheck.ts`, answers only
+        // booleans and addresses). None returns a credential outside the barrier but the sync pass's own action.
         "functions.googleConnect.mintGoogleAccessTokenOutcome",
         "functions.googleReconnect.recheckRevokedGrants",
+        "functions.googleScopeCheck.recheckCalendarWrite",
         "functions.googleConnect.revokeGoogleGrant",
         // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
         // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling

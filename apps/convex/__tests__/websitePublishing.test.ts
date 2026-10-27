@@ -1,15 +1,17 @@
 /**
- * Edits wait for Publish (decided by the owner, 2026-09-26). A file saved or
- * written straight to the bucket under `website/` changes the note and
- * nothing a visitor sees; pressing Publish makes it the site. Before a site's
- * first scan there is nothing published to keep, so its pages are judged from
- * their own bytes, as they always were.
+ * Edits wait for Publish (decided by the owner, 2026-09-26). A saved note under
+ * `website/` changes the note and nothing a visitor sees; pressing Publish
+ * makes it the site. Before a site's first scan there is nothing published to
+ * keep, so its pages are judged from their own bytes.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { asUser } from "./fixtures.helpers";
-import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
+import { fixture, pressPublish, publish, type Fixture, writeNote, trashNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,16 +35,16 @@ describe("pages wait for Publish", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nHome\n");
     await publish(f);
-    f.backend.seed("website/notes.md", "---\ntitle: Notes\nnav: 2\n---\n\nFresh from the bucket.\n");
+    await writeNote(f, "website/notes.md", "---\ntitle: Notes\nnav: 2\n---\n\nFresh from the editor.\n");
 
     const before = await resolve(f, "/notes");
     expect(before).toMatchObject({ kind: "unavailable" });
-    expect(JSON.stringify(before)).not.toContain("Fresh from the bucket.");
+    expect(JSON.stringify(before)).not.toContain("Fresh from the editor.");
 
     await expect(pressPublish(f)).resolves.toEqual({ published: true, problems: [] });
     const page = await resolve(f, "/notes");
     expect(page).toMatchObject({ kind: "page", routePath: "/notes", title: "Notes" });
-    expect(JSON.stringify(page)).toContain("Fresh from the bucket.");
+    expect(JSON.stringify(page)).toContain("Fresh from the editor.");
     expect((page as { navigation: unknown[] }).navigation).toHaveLength(2);
   });
 
@@ -50,7 +52,7 @@ describe("pages wait for Publish", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nPublished words\n");
     await publish(f);
-    f.backend.seed("website/index.md", "---\ntitle: Home again\n---\n\nHalf-typed words\n");
+    await writeNote(f, "website/index.md", "---\ntitle: Home again\n---\n\nHalf-typed words\n");
 
     const before = JSON.stringify(await resolve(f, "/"));
     expect(before).toContain("Published words");
@@ -79,11 +81,11 @@ describe("pages wait for Publish", () => {
   test("a nested page publishes from either file form, and both at once is a clash", async () => {
     const f = await fixture();
     await publish(f);
-    f.backend.seed("website/work/2026.md", "---\ntitle: This year\n---\n\nWork\n");
+    await writeNote(f, "website/work/2026.md", "---\ntitle: This year\n---\n\nWork\n");
     await pressPublish(f);
     await expect(resolve(f, "/work/2026")).resolves.toMatchObject({ kind: "page", title: "This year" });
 
-    f.backend.seed("website/work/2026/index.md", "---\ntitle: Also this year\n---\n\nWork\n");
+    await writeNote(f, "website/work/2026/index.md", "---\ntitle: Also this year\n---\n\nWork\n");
     const refused = await pressPublish(f);
     expect(refused.published).toBe(false);
     expect(refused.problems.map((problem) => problem.path).sort()).toEqual([
@@ -106,7 +108,7 @@ describe("pages wait for Publish", () => {
   test("a published members page still gates by membership", async () => {
     const f = await fixture();
     await publish(f);
-    f.backend.seed("website/team.md", "---\ntitle: Team\naudience: members\n---\n\nPrivate body\n");
+    await writeNote(f, "website/team.md", "---\ntitle: Team\naudience: members\n---\n\nPrivate body\n");
     await pressPublish(f);
 
     const anonymous = await resolve(f, "/team");
@@ -125,8 +127,8 @@ describe("pages wait for Publish", () => {
   test("a draft and a private note outside the folder are not served after Publish", async () => {
     const f = await fixture();
     await publish(f);
-    f.backend.seed("website/draft.md", "---\ntitle: Draft\ndraft: true\n---\n\nDraft\n");
-    f.backend.seed("2-areas/diary.md", "---\ntitle: Diary\n---\n\nSecret\n");
+    await writeNote(f, "website/draft.md", "---\ntitle: Draft\ndraft: true\n---\n\nDraft\n");
+    await writeNote(f, "2-areas/diary.md", "---\ntitle: Diary\n---\n\nSecret\n");
     await pressPublish(f);
 
     for (const routePath of ["/draft", "/2-areas/diary"]) {
@@ -137,8 +139,8 @@ describe("pages wait for Publish", () => {
   test("a broken page stops Publish and says which one", async () => {
     const f = await fixture();
     await publish(f);
-    f.backend.seed("website/broken.md", "---\ntitle: Broken\naudience: everyone\n---\n\nBroken\n");
-    f.backend.seed("website/untitled.md", "No title here\n");
+    await writeNote(f, "website/broken.md", "---\ntitle: Broken\naudience: everyone\n---\n\nBroken\n");
+    await writeNote(f, "website/untitled.md", "No title here\n");
 
     const result = await pressPublish(f);
     expect(result.published).toBe(false);
@@ -148,7 +150,7 @@ describe("pages wait for Publish", () => {
     }
 
     // A page with no title is not broken: it is titled by its file name.
-    f.backend.objects.delete("website/broken.md");
+    await trashNote(f, "website/broken.md");
     await expect(pressPublish(f)).resolves.toEqual({ published: true, problems: [] });
     await expect(resolve(f, "/untitled")).resolves.toMatchObject({ kind: "page", title: "untitled" });
   });
@@ -156,7 +158,7 @@ describe("pages wait for Publish", () => {
   test("a member cannot publish; an editor can", async () => {
     const f = await fixture();
     await publish(f);
-    f.backend.seed("website/notes.md", "---\ntitle: Notes\n---\n\nNotes\n");
+    await writeNote(f, "website/notes.md", "---\ntitle: Notes\n---\n\nNotes\n");
     await expect(pressPublish(f, f.member)).rejects.toThrow();
     await expect(pressPublish(f, f.stranger)).rejects.toThrow();
     await expect(resolve(f, "/notes")).resolves.toMatchObject({ kind: "unavailable" });

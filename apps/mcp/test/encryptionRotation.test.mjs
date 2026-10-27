@@ -189,6 +189,8 @@ export async function runEncryptionRotationChecks(check) {
       NATIVE_BINDINGS: "BUCKET_ROT",
       BUCKET_ROT: a.bucket,
     };
+    // The walk names the tree's notes, never the bucket's listing: serve the tree from it.
+    controlPlane.serveTreesFrom(env);
 
     let id = 0;
     async function call(name, args = {}) {
@@ -393,7 +395,9 @@ export async function runEncryptionRotationChecks(check) {
     // and swapping it out here would be tidying up somebody else's fixture.
     const getBeforeCounting = a.bucket.get;
     a.bucket.get = async (key) => {
-      readsDuringCompletingCall += 1;
+      // The access rules are the control plane's; this test's stub renders them from the seeded file in this same
+      // bucket, so those reads are the control plane's and not the gateway's walk.
+      if (key !== "privacy.md") readsDuringCompletingCall += 1;
       return getBeforeCounting.call(a.bucket, key);
     };
     const third = await call("rotate_encryption_keys", {});
@@ -405,10 +409,10 @@ export async function runEncryptionRotationChecks(check) {
     check(
       "the call that COMPLETES a rotation reads a small, roughly constant number of objects, " +
         "not one per note in the bucket — the ceiling the persisted cursor removes",
-      // Six is the fixed plumbing cost: privacy and progress reads, the one
-      // stuck note, progress cleanup's read plus marker-CAS read, and audit.
+      // Five is the fixed plumbing cost: progress reads, the one stuck note,
+      // progress cleanup's read plus marker-CAS read, and audit.
       // None scales with the 205-note bucket this call is proving complete.
-      readsDuringCompletingCall <= 6,
+      readsDuringCompletingCall <= 5,
     );
 
     const remainingOnK1 = [...a.objects.keys()].filter(

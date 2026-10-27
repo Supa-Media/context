@@ -46,7 +46,6 @@
 import { canSee, isPlumbing } from "../privacy";
 import type { Clearance } from "../clearance";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
-import { loadMoveJobs } from "../../../../mcp/src/moves/jobs.js";
 import {
   MAX_SHARD_COUNT,
   SHARD_READ_CONCURRENCY,
@@ -56,7 +55,7 @@ import {
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
-import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
+import { logicalPath as queuedLogicalPath } from "../nodes/movePaths";
 import { isServedStore, servedKeys, servedMoves } from "../nodes/manifestStore";
 import { linkTableOf, type LinkTable } from "../nodes/linkTable";
 import type { FileStore } from "./store";
@@ -191,14 +190,12 @@ export async function workspaceGraph(
   // Where the Convex tree serves (every map the app draws,
   // `lib/nodes/treeReads.ts`), it says which notes exist and where they are
   // drawn now, pending moves folded in, and the link table only says what
-  // links to what. Nothing is then read from the bucket: not the search
-  // index, not the legacy move jobs under `.context/moves/` (decided by the
-  // owner, 2026-10-13).
+  // links to what. Nothing is then read from the bucket, not even the
+  // search index (decided by the owner, 2026-10-13).
   const served = isServedStore(store);
-  const [state, tableRows, jobs, treePaths] = await Promise.all([
+  const [state, tableRows, treePaths] = await Promise.all([
     loadPrivacyState(store),
     table === null ? Promise.resolve(null) : readLinkTable(table),
-    served ? Promise.resolve([]) : loadMoveJobs(store),
     served
       ? servedKeys(store).then((keys) => keys.filter((key) => isIndexableNote(key)), () => null)
       : Promise.resolve(null),
@@ -215,27 +212,10 @@ export async function workspaceGraph(
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
-  // The index follows physical objects, while a folder move changes their
-  // public paths immediately. Draw the same logical paths as note listings
-  // while the background worker copies and retires the old objects.
-  const destinationOf = new Map<string, string>();
-  const sourceOf = new Map<string, string>();
-  for (const job of jobs) {
-    for (const item of job.objects) {
-      destinationOf.set(item.source, item.destination);
-      sourceOf.set(item.destination, item.source);
-    }
-  }
   // The links name bucket keys, and a queued move draws them elsewhere already (`moveOverlay.ts`).
   const queued = servedMoves(store);
-  const logicalPath = (path: string) => {
-    const moved = destinationOf.get(path) ?? path;
-    return queued.length === 0 ? moved : (queuedLogicalPath(moved, queued) as string);
-  };
-  const mayDraw = (path: string) => {
-    const logical = logicalPath(path);
-    return isVisible(logical) && isVisible(sourceOf.get(logical) ?? path);
-  };
+  const logicalPath = (path: string) => (queued.length === 0 ? path : queuedLogicalPath(path, queued));
+  const mayDraw = (path: string) => isVisible(logicalPath(path)) && isVisible(path);
 
   const visible = new Set<string>();
   const physicalPaths =

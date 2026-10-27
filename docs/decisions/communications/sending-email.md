@@ -20,11 +20,22 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    model (`apps/mcp/src/agent/mailChecker.js`, Haiku) shown exactly two
    things: the person's recent texts with what Tex texted back, and the draft.
    It never sees the email being answered, a note, a page or a tool result, so
-   nothing a stranger wrote reaches it. "No" (a recipient, words or timing the
-   person did not ask for) refuses before the person is bothered; "unsure",
-   or a checker that cannot run, still puts the email to the person, and the
+   nothing a stranger wrote reaches it. "No" (a recipient, words or timing
+   that goes against what the person said, or a "wait" or "just draft it")
+   refuses before the person is bothered; "unasked" (Tex proposing an email
+   nothing in the texts asks for, and nothing contradicts), "unsure", or a
+   checker that cannot run, still puts the email to the person, and the
    checker's reason is never texted (2026-10-19: beside the copy it read as
-   part of the email, and it was wrong).
+   part of the email, and it was wrong). "Unasked" exists because a proposal
+   refused as "no" was asked about in Tex's own words with nothing held, and
+   the owner gave three 👍s before one forward went (2026-10-23: "tex asked
+   for like 4 confirmations again"). A tapback reaches the checker with the
+   words it was on, since "👍" alone asks for nothing. After a "no", Tex asks
+   in one short text, and their yes or 👍 on it sends a forward that text
+   offered to every recipient once the checker, reading that 👍, says yes; any
+   other email still needs its whole text in the words they agreed to
+   (`apps/mcp/src/tools/likedPreview.js`). Reversing either fails
+   `apps/mcp/test/emailGate.test.mjs` ("the owner, 2026-10-23").
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
    drops links and lines) and in a text of its own, as every ask now is
@@ -58,10 +69,11 @@ switch order, the checker's "no", the caller check, the disarm or the set-aside 
 
 ### Rate limits live in the control plane, and are all-or-none
 
-Five emails an hour, twenty a day, three a day to any one recipient, at most
-ten recipients an email (`apps/convex/functions/lib/personEmail.ts`). The
-windows are fixed, not rolling, so up to ten can go either side of an hour's
-edge. A Gmail recipient counts as one mailbox however it is spelled (dots,
+Twenty emails an hour, a hundred a day, ten a day to any one recipient, at
+most ten recipients an email (`apps/convex/functions/lib/personEmail.ts`;
+five, twenty and three until the owner raised them on 2026-10-22, when they
+got in the way of ordinary use). The windows are fixed, not rolling, so up
+to forty can go either side of an hour's edge. A Gmail recipient counts as one mailbox however it is spelled (dots,
 `+tags`, googlemail.com). Only the person's own personal workspace may send:
 a grant on a shared workspace never reaches its holder's Gmail. The
 limits are authoritative in Convex (`claimPersonEmail`), keyed by the person
@@ -75,15 +87,13 @@ person.
 Decided by the owner on 2026-10-17 ("Wait for Gmail"): an email is sent from
 the person's own connected Gmail, never from a context.lc address, so replies
 land in their mailbox and their name is on it. Sending needs Gmail's
-`gmail.send` scope, which our production OAuth client asks for only of
-testers while the restricted-scope review is open (see
-[gmail-and-sync-loop](./gmail-and-sync-loop.md)). Decided by the owner on
-2026-10-17: "it should work for testing accounts before we need it
-approved". A tester is a verified staff address (`ADMIN_EMAILS`) or the
-production test account (`isGoogleWriteTester`); Google lets an unverified
-app's listed test users grant restricted scopes. A tester reconnects Google
-once to grant it. Everyone else's sends refuse with `no_sender` and Tex hands
-over the draft to copy. Nothing in the gate changes when the review clears:
+`gmail.send` scope, which every Gmail connect asks for (`WRITE_SCOPES`;
+decided by the owner on 2026-10-23, "Yes, everyone", reversing the
+testers-only rule of 2026-10-17 once a texter's connected Google refused Tex:
+see [calendar-writes](./calendar-writes.md)). A connection made before that
+reads only and reconnects once; a send refuses with `no_sender`, and Tex sends
+the reconnect link, never the email to send themselves, and never says Gmail
+isn't connected. Nothing in the gate changes when Google's review clears:
 a connection whose granted `scopes` include `gmail.send` becomes a sender,
 and the `from` an email names must be one of the person's own such
 connections.
@@ -122,8 +132,8 @@ draft, then "yes" to building it). `send` action `email_draft`
 (`save_email_draft`) saves one email in the person's own Gmail Drafts and
 sends nothing, so it runs at once: nothing reaches anyone until the person
 opens Gmail and sends it themselves, which is the yes. It needs Gmail's
-`gmail.compose` scope, asked of testers beside `gmail.send`
-(`TESTER_WRITE_SCOPES`); a tester reconnects Google once to grant it. Google
+`gmail.compose` scope, asked beside `gmail.send` (`WRITE_SCOPES`); a
+connection made before reconnects once to grant it. Google
 has no drafts-only scope and `gmail.compose` can also send, so the control
 plane sends only through a connection that granted `gmail.send`, and uses
 `gmail.compose` for drafts alone (`claimPersonEmail` with `draft: true`,
@@ -227,6 +237,28 @@ turns one 👍 into permission for whatever a later edit or a prompt injection
 writes there. Tests: `apps/mcp/test/forwardRule.test.mjs` (a texted rule is
 held, its 👍 keeps it, the routine then forwards without asking, never twice,
 never elsewhere, another routine never sends, stop needs no 👍).
+
+### An email is checked in time to be held (2026-10-22)
+
+One email to a colleague took four rounds: each time Tex called
+`send_email`, the gate asked the control plane about the limits and then the
+Mail checker read the texts, one after the other, and together they ran past
+the 20 seconds a texted turn gives a call. The call was stopped, nothing was
+held, and the person was told the send "timed out", then shown Tex's own
+preview, which no 👍 could release. Now the checker reads while the limits are
+asked (`emailGate.js`; not when the turn already asked about an email, which
+is refused unread), and a texted turn gives `send_email` and
+`save_email_draft` two minutes, a calendar change and a Slack call 40
+seconds (`route.js`), and the control plane waits 110 seconds on Gmail
+(`controlPlane/email.js`). Two minutes is the owner's floor ("at least 2
+minutes … it's a crucial thing"): a slow email is still held rather than
+dropped. A person's own texted turn streams and has nine minutes of tool time;
+a quick turn (a group chat, two minutes in all) cuts any call to end 30
+seconds past its tool budget (`turn.js`), so its answer still goes back. Cost
+of reverting: the person's first yes reaches a call that never got as far as
+asking them. Tests: `emailGateTiming.test.mjs`, `a texted turn gives a held
+send long enough` in `gatewaySourceGuards.test.mjs`, and `a tool's own limit
+is cut` in `agentProgress.test.mjs`.
 
 ### What is deliberately not built
 

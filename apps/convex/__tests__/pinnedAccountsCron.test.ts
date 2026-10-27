@@ -28,6 +28,7 @@ import { PINNED_ACCOUNTS_IN_FLIGHT_MS, startIfDue } from "../functions/pinnedAcc
 import { drainScheduled } from "./fixtures.helpers";
 import { PLAN, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import type { MutationCtx } from "../_generated/server";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -64,7 +65,7 @@ describe("the cron starts the move", () => {
     expect(row?.pinnedAccountsDoneAt).toBeTypeOf("number");
     // The second pass ran too: the Members note is base team now.
     const plan = await w.t.run(async (ctx) =>
-      ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.pinned).eq("path", PLAN)).unique(),
+      treeNodeAt(ctx.db, w.pinned, PLAN),
     );
     expect(plan?.access).toEqual({ base: "team" });
   });
@@ -90,17 +91,6 @@ describe("the cron starts the move", () => {
     expect(await tick(w)).toBe(false);
     expect(await pagesQueued(w)).toBe(0);
     expect(await migrationRow(w)).toEqual(before);
-  });
-
-  test("does nothing outside rows mode", async () => {
-    const w = await pinnedWorld();
-    await drainScheduled(w.t);
-    await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { accessSource: "file" });
-    });
-    expect(await tick(w)).toBe(false);
-    expect(await pagesQueued(w)).toBe(0);
   });
 
   test("a chain that stopped is started again once it has gone quiet, from the pass the switch says is next", async () => {

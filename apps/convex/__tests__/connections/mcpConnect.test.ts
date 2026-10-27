@@ -83,6 +83,21 @@ describe("connecting an app through its MCP server", () => {
     expect(seen.filter((s) => s.url === "https://mcp.linear.app/register")).toHaveLength(1);
   });
 
+  /** Sabotage: use the scopes saved at registration, and the second consent asks without write. */
+  test("every consent asks for the scopes the server offers now, not the ones it offered when we registered", async () => {
+    const t = setupTest();
+    let offered = ["read"];
+    stubLinear({ scopes: () => offered });
+    const w = await world(t);
+    const scopeOf = async () => {
+      const started = await asUser(t, w.seyi).action(api.functions.connections.startProviderConnect, { token: (await issue(t, w.personal, w.seyi)).token });
+      return new URL(started.authorizeUrl).searchParams.get("scope");
+    };
+    expect(await scopeOf()).toBe("read");
+    offered = ["read", "write"];
+    expect(await scopeOf()).toBe("read write");
+  });
+
   test("the public action only schedules the exchange, and the page sees it land", async () => {
     const t = setupTest();
     const seen = stubLinear();
@@ -129,6 +144,11 @@ describe("calling a connected app", () => {
     stubLinear();
     const w = await world(t);
     await connect(t, w);
+    // Sabotage: drop `convexSafe` from `capped`, and the listing fails on `$schema`.
+    expect(await call(t, w, "tools.list", {})).toMatchObject({
+      ok: true,
+      body: { tools: expect.arrayContaining([expect.objectContaining({ name: "list_issues", inputSchema: { type: "object", properties: { team: { type: "string" } } } })]) },
+    });
     expect(await call(t, w, "tools.call", { name: "list_issues", arguments: {} })).toMatchObject({ ok: true, body: { content: [{ text: "ran list_issues" }] } });
     expect(await call(t, w, "tools.call", { name: "create_issue", arguments: {} })).toEqual({ ok: false, refused: "needs_yes" });
     expect(await call(t, w, "tools.call", { name: "unmarked", arguments: {} })).toEqual({ ok: false, refused: "needs_yes" });

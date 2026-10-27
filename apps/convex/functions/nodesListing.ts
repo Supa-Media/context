@@ -6,12 +6,10 @@
  * colleague, an agent, a captured email) redraws each tab that shows the
  * folder as soon as the tree records it, with no walk of the bucket.
  *
- * `null` means "still loading": the workspace's first copy into the tree has
- * not finished (`treeReadiness`). The console then asks `files.listFiles`,
- * which starts the copy and answers `TREE_LOADING` (or the listing, if the
- * copy finished in between) without opening the bucket. Since 2026-10-13
- * nothing here falls back to the bucket: parity is a staff alarm, and Pause
- * stops copying work only (decided by the owner).
+ * `null` means "not served": the workspace's tree is not `ready` yet
+ * (`treeServesNow`), and the caller is refused `NOT_SERVED`. Nothing here
+ * falls back to the bucket, and Pause stops copying work only (decided by the
+ * owner).
  *
  * Who may read is decided first, by the same `resolveFileAccess` the bucket
  * listing uses, so a stranger is refused whether or not the tree serves; and
@@ -24,8 +22,9 @@ import { clearanceOf } from "./lib/clearance";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { listingValidator } from "./lib/filesFns/validators";
 import { listFolderFromNodes, treeServesNow } from "./lib/nodes/listing";
+import { nodeAt } from "./lib/nodes/paths";
 
-/** One folder's contents at the caller's clearance, or `null` while the first copy is still loading. */
+/** One folder's contents at the caller's clearance, or `null` while the tree does not serve. */
 export const listFolder = query({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(v.null(), listingValidator),
@@ -39,10 +38,10 @@ export const listFolder = query({
 });
 
 /**
- * The same listing for the file-operation barrier's `list` (the console's
- * fallback, shared folder links, share cards, routines and plugins), which
- * has already decided who is asking and at what clearance. `null` while the
- * first copy is still loading, and the barrier answers `TREE_LOADING`.
+ * The same listing for the file-operation barrier's `list` (shared folder
+ * links, share cards, routines and plugins), which has already decided who is
+ * asking and at what clearance. `null` while the tree does not serve, and the
+ * barrier answers `NOT_SERVED`.
  */
 export const listServed = internalQuery({
   args: {
@@ -76,10 +75,7 @@ export const editedAt = internalQuery({
   handler: async (ctx, { workspaceId, paths }) =>
     await Promise.all(
       paths.slice(0, EDITED_AT_CAP).map(async (path) => {
-        const row = await ctx.db
-          .query("nodes")
-          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-          .first();
+        const row = await nodeAt(ctx.db, workspaceId, path);
         return row === null || row.goneAt !== undefined || row.kind !== "file" ? null : (row.uploaded ?? null);
       }),
     ),

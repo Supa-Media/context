@@ -297,6 +297,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // What the egress gate is holding for a person, at `/approvals` on the
   // gateway. Reserved on the same terms as `presence`.
   "approvals",
+  // The Mac app's Messages backup posts to `/messages/imessage/batch` on the
+  // gateway. Reserved on the same terms as `presence`.
+  "messages",
   "oauth",
   "static",
   "status",

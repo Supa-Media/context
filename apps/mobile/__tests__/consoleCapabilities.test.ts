@@ -1,7 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   canEditActivity,
-  canResetPrivacy,
   canSetVisibility,
   capabilitiesForRole,
 } from "../features/console/capabilities";
@@ -47,23 +46,6 @@ describe("canSetVisibility", () => {
     // A console that cannot act offers nothing, whoever is looking. This is
     // the landing page, where `canEdit` is false by construction.
     expect(canSetVisibility({ canEdit: false, isOwner: true })).toBe(false);
-  });
-});
-
-describe("canResetPrivacy", () => {
-  test("owner, able to act, and only over a manifest that is actually broken", () => {
-    const owner = capabilitiesForRole("owner");
-    expect(canResetPrivacy(owner, false)).toBe(true);
-    // A manifest that parses: `resetPrivacyManifest` refuses it outright, so
-    // offering the button produces nothing but a refusal.
-    expect(canResetPrivacy(owner, true)).toBe(false);
-    // Still loading. Not "broken" — a repair button that flashes during load is
-    // the console's version of a floor printed as a total.
-    expect(canResetPrivacy(owner, undefined)).toBe(false);
-    // Rewriting the access map is not an editor's to do.
-    expect(canResetPrivacy(capabilitiesForRole("editor"), false)).toBe(false);
-    expect(canResetPrivacy(capabilitiesForRole("member"), false)).toBe(false);
-    expect(canResetPrivacy({ canEdit: false, isOwner: true }, false)).toBe(false);
   });
 });
 

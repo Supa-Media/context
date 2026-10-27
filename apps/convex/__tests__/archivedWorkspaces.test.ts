@@ -90,52 +90,6 @@ describe("which workspaces are archived", () => {
   });
 });
 
-describe("the tree round and its buttons", () => {
-  test("skip an archived workspace; its own Start still reaches it; the report says Archived", async () => {
-    const t = deployment();
-    const staff = t.withIdentity({ subject: await createUser(t, ADMIN) });
-    const live = await workspace(t, "tree-live");
-    const gone = await workspace(t, "tree-gone");
-    await archive(t, gone.owner);
-    // Stuck, as @testagent1 was: a failed pass long enough ago to be retried.
-    for (const { workspaceId } of [live, gone]) {
-      await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 1 });
-      await t.mutation(internal.functions.nodes.fail, { workspaceId, label: "Tree sweep failed; inspect service logs" });
-    }
-
-    expect((await t.mutation(internal.functions.nodesMigration.keepCurrent, {})).started).toBe(1);
-    expect(await scheduledFor(t, (_, kind) => kind === "nodesSweep")).toEqual([live.workspaceId]);
-
-    expect((await staff.mutation(api.functions.nodesMigration.start, {})).started).toBe(1);
-    expect(await scheduledFor(t, (_, kind) => kind === "nodesSweep")).not.toContain(gone.workspaceId);
-    expect((await staff.mutation(api.functions.nodesMigration.start, { workspaceId: gone.workspaceId })).started).toBe(1);
-
-    const report = await staff.query(api.functions.nodesMigration.report, {});
-    const bySlug = Object.fromEntries(report.rows.map((row) => [row.slug, row]));
-    expect(bySlug["tree-gone"]).toMatchObject({ archived: true, stage: "stuck" });
-    expect(bySlug["tree-live"]).toMatchObject({ archived: false });
-  });
-
-  test("Check all skips an archived copy", async () => {
-    const t = deployment();
-    const staff = t.withIdentity({ subject: await createUser(t, ADMIN) });
-    const live = await workspace(t, "check-live");
-    const gone = await workspace(t, "check-gone");
-    await archive(t, gone.owner);
-    for (const { workspaceId } of [live, gone]) {
-      await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 1 });
-      await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 2, files: 0 });
-    }
-    // A first finished sweep schedules its own check; count only what Check all adds.
-    const before = await scheduledFor(t, (_, kind) => kind === "nodesParity");
-    expect((await staff.mutation(api.functions.nodesMigration.checkParity, {})).started).toBe(1);
-    const after = await scheduledFor(t, (_, kind) => kind === "nodesParity");
-    const added = [...after];
-    for (const id of before) added.splice(added.indexOf(id), 1);
-    expect(added).toEqual([live.workspaceId]);
-  });
-});
-
 describe("search by meaning", () => {
   async function seedMeaning(t: TestConvex, workspaceId: Id<"workspaces">, status: "backfilling" | "failed") {
     await t.run(async (ctx) => {

@@ -12,15 +12,13 @@
  * <path>`), and the one caller (`trashedNotes.readTrashedNote`) sends the key
  * the audit trail named, never one a client chose.
  *
- * While the trash is still queued the bucket has not moved the note yet, so
- * the read folds through the pending moves (`physicalCandidates`): the object
- * is wherever the move has it now, and it is read without moving it.
+ * The trash's row is where the note is now (`rowTrash.ts`): the read follows
+ * its key, and nothing is moved.
  */
 
 import { isEncryptedNote } from "../noteEncryption";
 import { canSee } from "../privacy";
 import type { Clearance } from "../clearance";
-import { pendingMovesOf, physicalCandidates, readAtTreeName } from "../../../../mcp/src/moves/queued.js";
 import { notFound } from "./errors";
 import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
@@ -39,13 +37,8 @@ export async function readTrashedText(
   if (match === null || match[1] !== path) throw notFound();
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
-  const pending = pendingMovesOf((store as { pendingMoves?: unknown }).pendingMoves);
-  for (const key of physicalCandidates(options.trash, pending)) {
-    // Only an object that folds to this trash key: the note, wherever its move has it now.
-    const object = await readAtTreeName(store, key, (named: string) => named === options.trash);
-    if (object === null || object === undefined) continue;
-    const text = await object.text();
-    return { kind: "trashedText", path, text, encrypted: isEncryptedNote(text) };
-  }
-  throw notFound();
+  const object = await store.get(options.trash);
+  if (object === null) throw notFound();
+  const text = await object.text();
+  return { kind: "trashedText", path, text, encrypted: isEncryptedNote(text) };
 }

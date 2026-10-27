@@ -12,6 +12,7 @@ import { rememberText } from "./threads";
 import { groupJobUpdate, type GroupDeps } from "./groupInbox";
 import { JOB_PREFIX, noteJobSent, noteJobUpdate, type JobEntry, type JobUpdate } from "./jobs";
 import type { InboxStorage } from "./inbox";
+import { watchForSave } from "./vaultWatch";
 
 export type JobTextDeps = LineDeps & GroupDeps;
 
@@ -21,7 +22,9 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
   if (entry === undefined) return false;
   if (entry.groupId !== undefined) return groupJobUpdate(storage, deps, update);
   const noted = await noteJobUpdate(storage, update, deps.now());
-  if (noted === null || noted.chatId === undefined) return noted !== null;
+  // A link to save a login went from the job: watch for the save (`vaultWatch.ts`).
+  if (noted !== null && !noted.quiet && update.vaultWatch !== undefined) await watchForSave(storage, update.vaultWatch, deps.now());
+  if (noted === null || noted.quiet || noted.chatId === undefined) return noted !== null;
   const chatId = noted.chatId;
   for (const [i, text] of (update.texts ?? []).entries()) {
     const index = (update.first ?? 0) + i;

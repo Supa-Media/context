@@ -166,8 +166,6 @@ function consoleWith(files: Partial<FileBrowser>): ConsoleData {
       clipboard: null,
       toasts: [],
       dismissToast: () => {},
-      canResetPrivacy: false,
-      resetPrivacy: () => {},
       canSetVisibility: true,
       canShare: false,
       shares: [],

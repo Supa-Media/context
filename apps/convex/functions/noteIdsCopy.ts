@@ -22,7 +22,6 @@ import {
   carryIdentity,
   copyRowOf,
   ensureCopyRow,
-  idCopyPaused,
   nodeAt,
   scanCopiedFiles,
   scanCopies,
@@ -36,6 +35,7 @@ import {
   keyedCheckItemValidator,
   refusedValidator,
 } from "./lib/noteIds/validators";
+import { rowsAfter } from "./lib/nodes/paths";
 
 /** One page of the copy pass, then whatever comes next (`lib/noteIds/copyPass.ts`). */
 export const run = internalAction({
@@ -97,7 +97,7 @@ export const checkAfterRewrite = internalMutation({
   },
 });
 
-/** Take the page's lease: the run's cursor, or `null` when it is not current, paused, or already leased. */
+/** Take the page's lease: the run's cursor, or `null` when it is not current or already leased. */
 export const claimCopy = internalMutation({
   args: { workspaceId: v.id("workspaces"), runId: v.number(), now: v.number() },
   returns: v.union(v.null(), v.object({ cursor: v.optional(v.string()) })),
@@ -146,7 +146,7 @@ export const recordCopy = internalMutation({
     results: v.array(copyResultValidator),
   },
   returns: v.object({
-    next: v.union(v.literal("more"), v.literal("restart"), v.literal("paused"), v.literal("done"), v.literal("stale")),
+    next: v.union(v.literal("more"), v.literal("restart"), v.literal("done"), v.literal("stale")),
     found: v.boolean(),
   }),
   handler: async (ctx, args) => await recordCopyPage(ctx, args),
@@ -163,12 +163,13 @@ export const backfill = internalMutation({
   args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, { workspaceId, after }): Promise<null> => {
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
-      )
-      .take(BACKFILL_BATCH);
+    const rows = await rowsAfter(
+      ctx.db,
+      workspaceId,
+      "",
+      after,
+      BACKFILL_BATCH,
+    );
     for (const row of rows) {
       if (row.noteId === undefined) await ctx.db.patch(row._id, { noteId: newNoteId() });
     }
@@ -205,7 +206,7 @@ export const carryMoved = internalMutation({
  * Whether a page handed out by the mover is still the one to do: a copy page
  * needs its run current and every item still the same live file, at the same
  * etag, under the key this page would write. A check page needs every item's
- * copy to be the one it names. Nothing is paused in either case.
+ * copy to be the one it names.
  */
 export const pageIsCurrent = internalQuery({
   args: {
@@ -216,7 +217,6 @@ export const pageIsCurrent = internalQuery({
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
-    if (await idCopyPaused(ctx.db)) return false;
     if (args.items.length === 0 || args.items.length > ID_ITEMS_MAX) return false;
     if (args.phase === "id_copy") {
       const row = await copyRowOf(ctx.db, args.workspaceId);
@@ -244,7 +244,6 @@ export const checkPage = internalQuery({
   handler: async (ctx, args) => {
     const scan = await scanCopiedFiles(ctx.db, args.workspaceId, args.after, args.limit);
     return {
-      paused: await idCopyPaused(ctx.db),
       items: scan.items,
       keyed: scan.keyed,
       ...(scan.next === undefined ? {} : { next: scan.next }),

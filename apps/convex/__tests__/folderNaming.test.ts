@@ -51,7 +51,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -66,6 +67,8 @@ import {
   setupTest,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -114,7 +117,7 @@ async function fixture(): Promise<Fixture> {
   // A SHARED workspace scaffolds its folders `team`, so the folder starts
   // readable by everybody — which is what makes the narrowing below visible as
   // a narrowing rather than as a folder that was never shared.
-  backend.seed(PRIVACY_KEY, renderPrivacyManifest("para", [], "shared"));
+  backend.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS, "shared"));
   backend.seed("index.md", "# Atlas\n");
   backend.seed("2-areas/README.md", "# Areas\n");
   backend.seed("2-areas/hr.md", "# HR\n");
@@ -161,6 +164,22 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
+/**
+ * The access grants written on the tree row at `path`, as the rows hold them (`nodeAccess`). Access lives on the
+ * rows in this product, so a grant is read here rather than out of a manifest in the bucket.
+ */
+async function grantsAt(f: Fixture, path: string): Promise<{ groupId?: string; role: string }[]> {
+  return await f.t.run(async (ctx) => {
+    const row = await treeNodeAt(ctx.db, f.workspaceId, path);
+    if (row === null) return [];
+    const grants = await ctx.db
+      .query("nodeAccess")
+      .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+      .collect();
+    return grants.map((grant) => ({ groupId: grant.granteeGroupId, role: grant.role }));
+  });
+}
+
 async function listing(f: Fixture, who: Id<"users">, path: string): Promise<string[]> {
   const result = await asUser(f.t, who).action(api.functions.files.listFiles, {
     workspaceId: f.workspaceId,
@@ -182,7 +201,8 @@ describe("a folder can be pointed at a group", () => {
       group: f.groupName,
     });
     expect(result.visibility).toBe(`@${f.groupName}`);
-    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain(`2-areas: @${f.groupName}`);
+    // The rule is a grant on the folder's row, naming the group by id.
+    expect(await grantsAt(f, "2-areas")).toEqual([{ groupId: f.groupId, role: "view" }]);
   });
 
   test("a leading @ is tolerated, because it is what the console shows", async () => {
@@ -232,8 +252,9 @@ describe("a folder can be pointed at a group", () => {
       }),
     );
     expect(errorCode(refused)).toBe("GROUP_NOT_FOUND");
-    // And nothing was written on the way to refusing.
-    expect(f.backend.snapshot()[PRIVACY_KEY]).not.toContain("nobody-at-all");
+    // And nothing was written on the way to refusing: no grant, and the folder is still team for everybody.
+    expect(await grantsAt(f, "2-areas")).toEqual([]);
+    expect(await listing(f, f.outsider, "2-areas")).toContain("hr.md");
   });
 
   test("only an owner may point a folder at anybody", async () => {
@@ -246,7 +267,7 @@ describe("a folder can be pointed at a group", () => {
       }),
     );
     expect(refused).toBeDefined();
-    expect(f.backend.snapshot()[PRIVACY_KEY]).not.toContain(`2-areas: @${f.groupName}`);
+    expect(await grantsAt(f, "2-areas")).toEqual([]);
   });
 });
 

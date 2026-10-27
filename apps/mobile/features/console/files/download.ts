@@ -209,4 +209,30 @@ export function archiveEntries(notes: readonly ZipEntry[], access: string | null
   return [...notes, { path: ACCESS_FILE, bytes: new TextEncoder().encode(access) }];
 }
 
+/** The folder a whole-workspace archive keeps old copies in (`functions/oldCopies.ts`). */
+export const OLD_COPIES_FOLDER = "Old copies";
+
+/**
+ * The copies Context made of mail, calendar, chat and contacts before it
+ * stopped, for a whole-workspace download by its owner (owner, 2026-10-21):
+ * hidden from the notes, and still the person's, so Download as folders still
+ * carries them, under `Old copies/`. `list` answers `null` when it could not
+ * name them all, and every one is then counted missed rather than the archive
+ * being quietly short.
+ */
+export async function collectOldCopies(
+  list: () => Promise<readonly string[] | null>,
+  readBatch: (paths: string[]) => Promise<readonly ReadResult[]>,
+): Promise<CollectOutcome & { short: boolean }> {
+  const paths = await list();
+  if (paths === null) return { entries: [], missed: [], short: true };
+  if (paths.length === 0) return { entries: [], missed: [], short: false };
+  const { entries, missed } = await collectNotes(paths, readBatch);
+  return {
+    entries: entries.map((entry) => ({ ...entry, path: `${OLD_COPIES_FOLDER}/${entry.path}` })),
+    missed,
+    short: false,
+  };
+}
+
 export { buildZip };

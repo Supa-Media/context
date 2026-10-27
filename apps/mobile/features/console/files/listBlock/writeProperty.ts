@@ -60,8 +60,8 @@ export async function writeNoteProperties(
   changes: readonly (readonly [string, PropertyWriteValue])[],
   options: { create?: boolean } = {},
 ): Promise<string | null> {
-  const refused = changes.find(([key]) => !isWritableProperty(key, path));
-  if (refused !== undefined) return whyNotWritable(refused[0], path);
+  const refused = changes.find(([key]) => !isWritableProperty(key));
+  if (refused !== undefined) return whyNotWritable(refused[0]);
   return rewriteNote(
     io,
     path,

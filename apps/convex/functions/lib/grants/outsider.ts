@@ -52,7 +52,6 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
 import { normalizePath } from "../fileOps";
-import { accessSourceOf } from "../nodes/accessBackfill";
 import { isCanonicalPath } from "../filesFns/memberWrite";
 import { accessRowsOf } from "../nodes/accessRows";
 import { blockedBy } from "../blocks";
@@ -61,6 +60,7 @@ import { accessNamesFor, editNameFor, renderAccess, viewNameFor, type AccessRow 
 import { canSee, type PrivacyOverrides, type PrivacyRule } from "../privacy";
 import { ownedConfirmedEmailsOf } from "../signInEmails";
 import { getMembership } from "../workspaceAuth";
+import { located, nodeAt } from "../nodes/paths";
 
 /**
  * The most grant rows one lookup reads, across both indexes.
@@ -146,7 +146,6 @@ export async function guestViewOf(
   workspaceId: Id<"workspaces">,
   emails?: readonly string[],
 ): Promise<GuestView | null> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return null;
   if ((await ctx.db.get(workspaceId)) === null) return null;
   if ((await getMembership(ctx, workspaceId, userId)) !== null) return null;
   const rows = await accessRowsOf(ctx, workspaceId);
@@ -230,14 +229,11 @@ async function liveNodeFor(
       .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", locator.noteId as string))
       .take(2);
     if (found.length !== 1) return null;
-    node = found[0];
+    node = await located(ctx.db, found[0]);
   } else {
     const normalized = normalizePath(locator.path as string);
     if (normalized === null) return null;
-    node = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", normalized))
-      .unique();
+    node = await nodeAt(ctx.db, workspaceId, normalized);
   }
   if (node === null || node.goneAt !== undefined) return null;
   return node;
@@ -291,7 +287,6 @@ export async function visibleGrantedPaths(
  * node is live and open to them (`guestCanSee`).
  */
 export async function outsiderGrantsFor(ctx: QueryCtx, userId: Id<"users">): Promise<OutsiderGrant[]> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return [];
   const emails = await ownedConfirmedEmailsOf(ctx, userId);
   const candidates = await candidateGrants(ctx, userId, emails);
 

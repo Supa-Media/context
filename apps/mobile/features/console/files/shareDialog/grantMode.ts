@@ -5,19 +5,22 @@
 
 import type { Recipient } from "../recipients";
 import type { NoteScope } from "../scope";
-import { typedDomain, typedEmail, type GrantList, type GrantPick, type GrantRole } from "./grants";
+import { outsiderHandleOf, typedDomain, typedEmail, type GrantList, type GrantPick, type GrantRole } from "./grants";
 
 /** Who the list already names, in the shapes `recipientsFor` takes. */
 export function reachingOf(list: GrantList, ownerIds: readonly string[]) {
   const users = new Set(ownerIds);
   const groups = new Set<string>();
   const emails = new Set<string>();
+  const handles = new Set<string>();
   for (const entry of list.grantees) {
+    const handle = outsiderHandleOf(entry);
+    if (handle !== undefined) handles.add(handle);
     if (entry.kind === "user") users.add(entry.userId);
     else if (entry.kind === "group") groups.add(entry.name);
     else if (entry.kind === "email") emails.add(entry.email.toLowerCase());
   }
-  return { reachingUserIds: users, reachingGroups: groups, reachingEmails: emails };
+  return { reachingUserIds: users, reachingGroups: groups, reachingEmails: emails, reachingHandles: handles };
 }
 
 /**
@@ -55,6 +58,7 @@ export function pickOf(row: Recipient): GrantPick | null {
   if (row.kind === "member" && row.userId !== undefined) return { kind: "member", userId: row.userId, label: row.label };
   if (row.kind === "group" && row.group !== undefined) return { kind: "group", group: row.group, label: row.label };
   if (row.kind === "invite") return { kind: "email", email: row.key };
+  if (row.kind === "handle" && row.handle !== undefined) return { kind: "handle", handle: row.handle };
   return null;
 }
 
@@ -66,6 +70,7 @@ export function grantLine(row: Recipient, role: GrantRole, handle: string, offer
     return `${offersAllUsers ? "Every member of" : "Everyone in"} ${handle} will be able to open it, including everyone who signs in with a ${row.domain} email.`;
   }
   if (row.kind === "group") return `Everyone in the group can ${verb} this. You can take it back.`;
+  if (row.kind === "handle") return `${row.label} can ${verb} it, and finds it under Shared with me. You can take it back.`;
   if (row.kind === "invite") {
     return `They can ${verb} it once they sign in with ${row.key}, and find it under Shared with me.`;
   }

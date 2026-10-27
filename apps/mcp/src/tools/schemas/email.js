@@ -9,9 +9,10 @@ export function emailToolDefinitions() {
         "the person is shown this exact email and must say yes to it, and any change is a new email they are asked about again. " +
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
         "pass in_reply_to with the email's id from search_email, use the sender's address and start the subject with Re:. To pass an email on with its " +
-        "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. Don't repeat the whole email " +
+        "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. To attach a file from a website (an invoice PDF), download it with " +
+        "the browse download step and pass its download: id in attach. Don't repeat the whole email " +
         "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
-        "use save_email_draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
+        "use save_email_draft instead. At most 10 addresses, 20 emails an hour, 100 a day, and 10 a day to one address.",
       inputSchema: {
         type: "object",
         properties: {
@@ -33,6 +34,18 @@ export function emailToolDefinitions() {
             description:
               "Optional: the email:<address>/<id> id search_email gave for an email to forward. It goes below the body with all of its attachments, from that mailbox.",
           },
+          as: {
+            type: "string",
+            description:
+              "Group chats only, optional: the handle of the person in the chat it goes from, when that isn't whoever tagged you. It is shown to them, and only their 👍 or yes sends it.",
+          },
+          attach: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 5,
+            description:
+              "Optional: files to attach, by the download:<id> ids a browse download step gave (an invoice or statement from a website). Up to 5, 10 MB together.",
+          },
         },
         required: ["to", "subject", "body"],
         additionalProperties: false,
@@ -46,7 +59,7 @@ export function emailToolDefinitions() {
         "Save one plain-text email as a draft in the person's own Gmail, for them to read, change and send from Gmail themselves. " +
         "Nothing is sent and nobody else sees it, so it runs at once. Use it when the person asks for a draft, or to write an email " +
         "for them to finish. Write the whole email (to, subject, body); for a reply, use the sender's address and start the subject with Re:. " +
-        "At most 10 addresses, 10 drafts an hour and 50 a day.",
+        "At most 10 addresses, 30 drafts an hour and 200 a day.",
       inputSchema: {
         type: "object",
         properties: {
@@ -66,6 +79,13 @@ export function emailToolDefinitions() {
             type: "string",
             description:
               "Optional: the email:<address>/<id> id search_email gave for an email to forward. It goes below the body with all of its attachments, from that mailbox.",
+          },
+          attach: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 5,
+            description:
+              "Optional: files to attach, by the download:<id> ids a browse download step gave (an invoice or statement from a website). Up to 5, 10 MB together.",
           },
         },
         required: ["to", "subject", "body"],
@@ -108,6 +128,32 @@ export function emailToolDefinitions() {
             type: "integer",
             minimum: 1,
             description: "Optional. An attachment's number as the email lists it (1 for the first): returns the words in that PDF, Word, Excel or picture file instead of the email.",
+          },
+          from: {
+            type: "integer",
+            minimum: 0,
+            description: "Optional, with attachment. Where to start in a long attachment: the number its last part's more: line gave.",
+          },
+          summary: {
+            type: "object",
+            description:
+              "Optional, with attachment, for a CSV: totals worked out by Context over every row, instead of the rows themselves, with exact repeats left out. " +
+              "by: up to 3 column names, or \"month\"; where: [{ column, contains }]; dates: { from, to } as YYYY-MM-DD. " +
+              "Use it for any total, average or breakdown of a long file.",
+            properties: {
+              by: { type: "array", items: { type: "string" } },
+              where: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { column: { type: "string" }, contains: { type: "string" } },
+                  required: ["column", "contains"],
+                  additionalProperties: false,
+                },
+              },
+              dates: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, additionalProperties: false },
+            },
+            additionalProperties: false,
           },
         },
         required: ["id"],

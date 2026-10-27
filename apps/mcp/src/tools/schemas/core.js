@@ -82,7 +82,7 @@ export function coreToolDefinitions() {
           },
           args: {
             type: "object",
-            description: "Optional. e.g. mail, transcript, image, lists, limit. orient lists what each id takes.",
+            description: "Optional. e.g. mail, transcript, image, lists, related (with limit: the notes linked to, from and like this one), limit. orient lists what each id takes.",
           },
         },
         required: ["id"],
@@ -113,9 +113,9 @@ export function coreToolDefinitions() {
       name: "list_notes",
       title: "List notes",
       description:
-        "List note paths under a folder prefix (e.g. '1-projects'), or everywhere when omitted. " +
+        "List note paths under a folder prefix (e.g. 'projects'), or everywhere when omitted. " +
         "Use it to open up an area that orient only summarized — a project folder's contents, " +
-        "what is sitting unfiled in 0-inbox — before deciding something has not been written down.",
+        "what is sitting unfiled in inbox — before deciding something has not been written down.",
       inputSchema: {
         type: "object",
         properties: {
@@ -137,7 +137,7 @@ export function coreToolDefinitions() {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string", description: "e.g. '1-projects/togather/status.md'" },
+          path: { type: "string", description: "e.g. 'projects/togather/status.md'" },
           mail: {
             type: ["boolean", "string"],
             // "true" too: an app whose copy of this tool predates mail sends

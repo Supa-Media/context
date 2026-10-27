@@ -30,7 +30,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { api } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import {
   emptyResponsesFile,
   parseFormBlocks,
@@ -40,8 +39,9 @@ import {
 import { runFormAction } from "../functions/lib/formOps";
 import type { FileStore } from "../functions/lib/fileOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { FORM_BLOCK, FORM_NOTE, RESPONSES, type Fixture, fixture, rewriteForm, submit } from "./forms.helpers";
+import { FORM_BLOCK, FORM_NOTE, RESPONSES, type Fixture, bodyOf, fixture, keyOf, rewriteForm, submit } from "./keyedFixture.forms.helpers";
 import { asUser, captureError, errorCode } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -49,8 +49,8 @@ afterEach(() => {
 
 
 /** The response file, parsed back through the format that wrote it. */
-function responses(f: Fixture): Array<{ id: string; by: string; values: Record<string, string>; votes: string[] }> {
-  const stored = f.backend.snapshot()[RESPONSES];
+async function responses(f: Fixture): Promise<Array<{ id: string; by: string; values: Record<string, string>; votes: string[] }>> {
+  const stored = await bodyOf(f, RESPONSES);
   const config = (parseFormBlocks(FORM_BLOCK) as Array<{ config?: unknown }>)[0].config;
   const parsed = parseResponsesFile(stored, config) as {
     responses?: Array<{ id: string; by: string; values: Record<string, string>; votes: string[] }>;
@@ -67,7 +67,7 @@ function responses(f: Fixture): Array<{ id: string; by: string; values: Record<s
 describe("a member may submit, and that is the only write they get", () => {
   test("the author's write creates the response file, so the form collects from the start", async () => {
     const f = await fixture();
-    expect(f.backend.snapshot()[RESPONSES]).toContain("context:form responses id=bugs");
+    expect(await bodyOf(f, RESPONSES)).toContain("context:form responses id=bugs");
   });
 
   test("a member submits, though they cannot write a note", async () => {
@@ -89,7 +89,7 @@ describe("a member may submit, and that is the only write they get", () => {
     expect(result.formId).toBe("bugs");
     expect(result.responsesPath).toBe(RESPONSES);
 
-    const rows = responses(f);
+    const rows = (await responses(f));
     expect(rows).toHaveLength(1);
     expect(rows[0].values).toEqual({ summary: "Search is slow", area: "app" });
   });
@@ -101,9 +101,9 @@ describe("a member may submit, and that is the only write they get", () => {
     const after = f.backend.snapshot();
 
     const changed = Object.keys(after).filter((key) => after[key] !== before[key]);
-    expect(changed).toEqual([RESPONSES]);
+    expect(changed).toEqual([await keyOf(f, RESPONSES)]);
     // The form's own note is untouched: a submission never rewrites the block.
-    expect(after[FORM_NOTE]).toBe(FORM_BLOCK);
+    expect(await bodyOf(f, FORM_NOTE)).toBe(FORM_BLOCK);
   });
 
   test("note content never reaches the control plane's tables", async () => {
@@ -134,7 +134,7 @@ describe("who a response belongs to", () => {
     await submit(f, f.member, { summary: "From the member" });
     await submit(f, f.editor, { summary: "From the editor" });
 
-    const rows = responses(f);
+    const rows = (await responses(f));
     expect(rows.map((row) => row.by)).toEqual(["@alan", "@grace"]);
   });
 
@@ -152,7 +152,7 @@ describe("who a response belongs to", () => {
 
     const error = await captureError(() => submit(f, f.member, { summary: "Anonymous" }));
     expect(errorCode(error)).toBe("NO_USERNAME");
-    expect(responses(f)).toHaveLength(0);
+    expect((await responses(f))).toHaveLength(0);
   });
 });
 
@@ -196,7 +196,7 @@ describe("somebody else's context", () => {
     expect(JSON.stringify((outsider as { data?: unknown }).data)).toBe(
       JSON.stringify((absent as { data?: unknown }).data),
     );
-    expect(responses(f)).toHaveLength(0);
+    expect((await responses(f))).toHaveLength(0);
   });
 
   test("and writes nothing into the bucket on the way to being refused", async () => {
@@ -225,7 +225,7 @@ describe("what a submission can be aimed at", () => {
       }),
     );
     expect(errorCode(error)).toBe("FORM_NOT_FOUND");
-    expect(f.backend.snapshot()["1-projects/README.md"]).toBe("# Projects\n");
+    expect(await bodyOf(f, "1-projects/README.md")).toBe("# Projects\n");
   });
 
   /*
@@ -255,7 +255,7 @@ describe("what a submission can be aimed at", () => {
     expect(JSON.stringify((hidden as { data?: unknown }).data)).toBe(
       JSON.stringify((absent as { data?: unknown }).data),
     );
-    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(await bodyOf(f, "index.md")).toBe("# Context\n");
   });
 
   /*
@@ -272,7 +272,7 @@ describe("what a submission can be aimed at", () => {
 
     const error = await captureError(() => submit(f, f.member, { summary: "Hello" }));
     expect(errorCode(error)).toBe("FORM_INVALID");
-    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(await bodyOf(f, "index.md")).toBe("# Context\n");
   });
 
   test("re-aiming at an existing note does not overwrite it when the form is saved", async () => {
@@ -293,7 +293,7 @@ describe("what a submission can be aimed at", () => {
       expectedEtag: read.etag,
     });
 
-    expect(f.backend.snapshot()["1-projects/notes.md"]).toBe("# Notes\n\nkeep me\n");
+    expect(await bodyOf(f, "1-projects/notes.md")).toBe("# Notes\n\nkeep me\n");
     // And the author is told, rather than left with a form that quietly
     // collects nothing.
     expect(result.forms.occupied.join(" ")).toContain("notes.md");
@@ -304,7 +304,7 @@ describe("what a submission can be aimed at", () => {
     const f = await fixture();
     await submit(f, f.member, { summary: "Search is slow" });
     await rewriteForm(f, `${FORM_BLOCK}\n\nThanks.`);
-    expect(responses(f)).toHaveLength(1);
+    expect((await responses(f))).toHaveLength(1);
   });
 });
 
@@ -323,9 +323,9 @@ describe("editing and withdrawing", () => {
       responseId: sent.responseId,
       values: [{ field: "summary", value: "Search is slow on big contexts" }],
     });
-    expect(responses(f)[0].values.summary).toBe("Search is slow on big contexts");
+    expect((await responses(f))[0].values.summary).toBe("Search is slow on big contexts");
     // `by` is not the submitter's to rewrite either: an edit changes answers.
-    expect(responses(f)[0].by).toBe("@alan");
+    expect((await responses(f))[0].by).toBe("@alan");
   });
 
   /*
@@ -349,8 +349,8 @@ describe("editing and withdrawing", () => {
       }),
     );
     expect(errorCode(error)).toBe("FORM_FORBIDDEN");
-    expect(responses(f)).toHaveLength(1);
-    expect(responses(f)[0].by).toBe("@alan");
+    expect((await responses(f))).toHaveLength(1);
+    expect((await responses(f))[0].by).toBe("@alan");
   });
 
   test("and not by editing it into their own either", async () => {
@@ -366,7 +366,7 @@ describe("editing and withdrawing", () => {
       }),
     );
     expect(errorCode(error)).toBe("FORM_FORBIDDEN");
-    expect(responses(f)[0].values.summary).toBe("Mine");
+    expect((await responses(f))[0].values.summary).toBe("Mine");
   });
 
   test("nor by an outsider, who never gets as far as the response at all", async () => {
@@ -383,7 +383,7 @@ describe("editing and withdrawing", () => {
     // Not `FORM_FORBIDDEN`: they are refused at the workspace, which must not
     // tell them a response with that id exists.
     expect(errorCode(error)).not.toBe("FORM_FORBIDDEN");
-    expect(responses(f)).toHaveLength(1);
+    expect((await responses(f))).toHaveLength(1);
   });
 
   test("an editor may act on anybody's, because they could rewrite the file anyway", async () => {
@@ -398,10 +398,10 @@ describe("editing and withdrawing", () => {
     });
     // Refusing here would be a lock on a door standing open: `writeNote` puts
     // the whole response file in their hands.
-    expect(responses(f)[0].values.summary).toBe("Rewritten");
+    expect((await responses(f))[0].values.summary).toBe("Rewritten");
     // The author is still the author. An editor's correction does not make the
     // response theirs.
-    expect(responses(f)[0].by).toBe("@alan");
+    expect((await responses(f))[0].by).toBe("@alan");
   });
 
   test("a submitter may withdraw their own", async () => {
@@ -413,7 +413,7 @@ describe("editing and withdrawing", () => {
       formId: "bugs",
       responseId: sent.responseId,
     });
-    expect(responses(f)).toHaveLength(0);
+    expect((await responses(f))).toHaveLength(0);
   });
 
   test("`edit_own: false` makes an answer final, for its author and nobody above", async () => {
@@ -430,7 +430,7 @@ describe("editing and withdrawing", () => {
       }),
     );
     expect(errorCode(error)).toBe("FORM_FORBIDDEN");
-    expect(responses(f)).toHaveLength(1);
+    expect((await responses(f))).toHaveLength(1);
 
     // The editor is still able to, which is what makes this a policy about
     // submitters rather than a lock on the file.
@@ -440,7 +440,7 @@ describe("editing and withdrawing", () => {
       formId: "bugs",
       responseId: sent.responseId,
     });
-    expect(responses(f)).toHaveLength(0);
+    expect((await responses(f))).toHaveLength(0);
   });
 });
 
@@ -462,7 +462,7 @@ describe("upvotes", () => {
 
     expect((await vote()).votes).toBe(1);
     expect((await vote()).votes).toBe(1);
-    expect(responses(f)[0].votes).toEqual(["@grace"]);
+    expect((await responses(f))[0].votes).toEqual(["@grace"]);
   });
 
   test("can be taken back, and taking back one never cast is not an error", async () => {
@@ -518,13 +518,13 @@ describe("upvotes", () => {
   test("turning votes off over an existing response file refuses rather than rewriting it", async () => {
     const f = await fixture();
     await submit(f, f.member, { summary: "Search is slow" });
-    const before = f.backend.snapshot()[RESPONSES];
+    const before = await bodyOf(f, RESPONSES);
 
     await rewriteForm(f, FORM_BLOCK.replace("votes: named", "votes: off"));
     const error = await captureError(() => submit(f, f.member, { summary: "Another" }));
 
     expect(errorCode(error)).toBe("FORM_INVALID");
-    expect(f.backend.snapshot()[RESPONSES]).toBe(before);
+    expect(await bodyOf(f, RESPONSES)).toBe(before);
   });
 
 });
@@ -537,7 +537,7 @@ describe("what a member may put in a field", () => {
   test("an answer that mimics a table row does not forge a second response", async () => {
     const f = await fixture();
     await submit(f, f.member, { summary: "a | b | @someone | 99 | x" });
-    const rows = responses(f);
+    const rows = (await responses(f));
     expect(rows).toHaveLength(1);
     expect(rows[0].values.summary).toBe("a | b | @someone | 99 | x");
     expect(rows[0].by).toBe("@alan");
@@ -550,7 +550,7 @@ describe("what a member may put in a field", () => {
       submit(f, f.member, { summary: "ok", nonesuch: "smuggled" }),
     );
     expect(errorCode(error)).toBe("FORM_INVALID");
-    expect(f.backend.snapshot()[RESPONSES]).not.toContain("smuggled");
+    expect(await bodyOf(f, RESPONSES)).not.toContain("smuggled");
   });
 
   test("a select answer outside the declared options is refused", async () => {
@@ -629,11 +629,11 @@ describe("what the caller's role lets them see", () => {
 
     const hidden = await captureError(() => submit(f, f.member, { summary: "Mine" }));
     expect(errorCode(hidden)).toBe("FILE_NOT_FOUND");
-    expect(responses(f)).toHaveLength(0);
+    expect((await responses(f))).toHaveLength(0);
 
     const sent = await submit(f, f.owner, { summary: "The owner's" });
     expect(sent.formId).toBe("bugs");
-    expect(responses(f).map((row) => row.by)).toEqual(["@ada"]);
+    expect((await responses(f)).map((row) => row.by)).toEqual(["@ada"]);
   });
 });
 

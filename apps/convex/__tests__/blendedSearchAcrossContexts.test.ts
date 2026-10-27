@@ -5,8 +5,9 @@
 
 import { describe, expect, test, vi, afterEach } from "vitest";
 import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { BLEND_PAGE_SIZE, encodeCursor, queryFingerprint } from "../functions/lib/blendedSearch";
-import { addMember, asUser, copyTree } from "./fixtures.helpers";
+import { addMember, asUser, type TestConvex } from "./fixtures.helpers";
 import {
   BOB_BUCKET,
   BOB_PRIVATE_WORD,
@@ -18,6 +19,17 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/**
+ * The tree dates each note from its row's upload time (`editedAt`). A seeded bucket has no upload
+ * times, so the test stamps one on every file row it copied, as the bucket's own objects would carry.
+ */
+async function datedTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await t.run(async (ctx) => {
+    const files = (await ctx.db.query("nodes").collect()).filter((row) => row.workspaceId === workspaceId && row.kind === "file");
+    for (const row of files) await ctx.db.patch(row._id, { uploaded: Date.UTC(2026, 8, 12) });
+  });
+}
 
 describe("the blended search, across contexts", () => {
   test("a member of both contexts gets both, blended and labelled", async () => {
@@ -34,6 +46,8 @@ describe("the blended search, across contexts", () => {
       visibility: "team",
     });
     await indexBucket(f.t, f.bobWs);
+    await datedTree(f.t, f.aliceWs);
+    await datedTree(f.t, f.bobWs);
 
     const answer = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
       query: SHARED_WORD,
@@ -51,7 +65,7 @@ describe("the blended search, across contexts", () => {
     // Each row says when its note was last written, from the tree's row
     // ("edited Sep 12" on the console's result rows, 2026-10-17).
     for (const row of answer.results) expect(typeof row.edited).toBe("number");
-  }, 15_000);
+  }, 60_000); // the first test of the file pays to warm the deployment and its two copies, which takes longer than 15 seconds under load
 
   test("a context the caller is not in is never searched and never named", async () => {
     const f = await twoTenants();
@@ -385,7 +399,7 @@ describe("the blended search, across contexts", () => {
     expect(retry.sources.map((row) => row.state)).toEqual(["ok"]);
     expect(retry.results.map((row) => row.slug)).toEqual(["bob-context"]);
     expect(retry.matchCountIsFloor).toBe(false);
-  });
+  }, 60_000); // two tenants are set up and indexed first, which takes longer than the default five seconds under load
 
   test("a member removed between two pages does not keep the context", async () => {
     const f = await twoTenants();
@@ -443,17 +457,17 @@ describe("the blended search, across contexts", () => {
     // offset wiring in `searchContexts` — `offsets[workspaceId]`, and the depth
     // it asks for — is never exercised by anything but a unit test of the
     // arithmetic it feeds.
+    // Written through the product, as the workspace is keyed: a note made after keying goes in by its id.
+    const as = asUser(f.t, f.alice);
     for (let index = 0; index < BLEND_PAGE_SIZE + 4; index += 1) {
-      f.aliceBucket.seed(
-        `1-projects/note-${index}.md`,
-        `# Note ${index}\n\nThe ${SHARED_WORD} again, item ${index}.\n`,
-      );
+      await as.action(api.functions.files.writeNote, {
+        workspaceId: f.aliceWs,
+        path: `1-projects/note-${index}.md`,
+        text: `# Note ${index}\n\nThe ${SHARED_WORD} again, item ${index}.\n`,
+      });
     }
-    // Written straight into the bucket, so the tree copies them before the index reads its census.
-    await copyTree(f.t, f.aliceWs);
     await indexBucket(f.t, f.aliceWs);
 
-    const as = asUser(f.t, f.alice);
     const one = await as.action(api.functions.files.searchContexts, { query: SHARED_WORD });
     expect(one.results.length).toBe(BLEND_PAGE_SIZE);
     expect(one.cursor).not.toBeNull();
@@ -478,5 +492,5 @@ describe("the blended search, across contexts", () => {
       cursor: one.cursor ?? undefined,
     });
     expect(other.results.some((row) => firstPaths.has(`${row.slug}/${row.path}`))).toBe(false);
-  });
+  }, 60_000); // nineteen writes through the product, then an index that has to converge over all of them
 });

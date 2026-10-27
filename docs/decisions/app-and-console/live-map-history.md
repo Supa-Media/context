@@ -46,6 +46,8 @@ buckets' own `.context/audit/` folders — and walking every bucket a person
 belongs to, listing and reading audit objects for a week, is not something a
 map open can afford.
 
+*Superseded 2026-10-26: every agent move between workspaces now runs the console's engine (`acrossKeyed.js`), so its `contextMoves` row is the record and the report below has no caller ([notes-by-id](../storage-and-credentials/notes-by-id.md)).*
+
 **The smaller sound change was to report it.** `acrossContexts.js` calls
 `reportContextMove` after the move lands (deferred, swallowed, never able to
 fail the move), `POST /gateway/moves` hands it to `recordAgentMove`, and that

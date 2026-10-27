@@ -56,6 +56,24 @@ function traceOf(value: unknown): TraceEntry[] | null {
   return trace;
 }
 
+const KINDS = new Set(["one", "group", "job", "routine", "app"]);
+type TurnKind = "one" | "group" | "job" | "routine" | "app";
+type ModelUsage = { model: string; input: number; output: number; cacheRead: number; cacheWrite: number };
+
+/** Each model's counts, numbers only; a malformed list is dropped, never the turn. */
+function usageOf(value: unknown): ModelUsage[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parts: ModelUsage[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { model, input, output, cacheRead, cacheWrite } = entry as Record<string, unknown>;
+    if (typeof model !== "string") return undefined;
+    const n = (x: unknown) => (typeof x === "number" ? x : 0);
+    parts.push({ model, input: n(input), output: n(output), cacheRead: n(cacheRead), cacheWrite: n(cacheWrite) });
+  }
+  return parts;
+}
+
 export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
   const expected = nullableStringField(body, "expectedWorkspaceId");
@@ -64,6 +82,7 @@ export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<strin
   const outcome = body.outcome;
   const trace = traceOf(body.trace);
   const num = (key: string) => (typeof body[key] === "number" ? (body[key] as number) : 0);
+  const usage = usageOf(body.usage);
   if (
     accessToken === null ||
     !expected.ok ||
@@ -86,6 +105,8 @@ export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<strin
     rounds: num("rounds"),
     inputTokens: num("inputTokens"),
     outputTokens: num("outputTokens"),
+    ...(typeof body.kind === "string" && KINDS.has(body.kind) ? { kind: body.kind as TurnKind } : {}),
+    ...(usage === undefined ? {} : { usage }),
     trace,
   });
   return json({ recorded });

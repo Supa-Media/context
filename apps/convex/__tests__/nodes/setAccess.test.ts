@@ -18,7 +18,6 @@ import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
-import { refreshAccess, deriveAccess } from "../../functions/lib/nodes/accessBackfill";
 import { narrowRowForMove, setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { gatewayPost, errorCode } from "../fixtures.helpers";
@@ -26,6 +25,8 @@ import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "../controlPlane
 import { fixture } from "../files/fixtures.helpers";
 import { asUser } from "../fixtures.helpers";
 import { ADMIN, boundWorkspace, user } from "../noteIds/noteIds.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -87,24 +88,13 @@ async function addRows(t: T, ws: Id<"workspaces">, paths: string[]): Promise<voi
       const kind = raw.endsWith("/") || !last.includes(".") ? "folder" : "file";
       await ctx.db.insert("nodes", { workspaceId: ws, path, name: last, kind, observedAt: 1 });
     }
+    await parentRows(ctx, ws);
   });
 }
 
-async function setSource(t: T, accessSource: "file" | "shadow" | "rows"): Promise<void> {
-  await t.run(async (ctx) => {
-    const row = await ctx.db.query("nodeMigration").first();
-    if (row === null) await ctx.db.insert("nodeMigration", { paused: false, accessSource, updatedAt: 1 });
-    else await ctx.db.patch(row._id, { accessSource });
-  });
-}
 
 async function rowAt(t: T, ws: Id<"workspaces">, path: string) {
-  return await t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path))
-      .unique(),
-  );
+  return await t.run(async (ctx) => treeNodeAt(ctx.db, ws, path));
 }
 
 async function grantsOn(t: T, ws: Id<"workspaces">, path: string) {
@@ -241,7 +231,6 @@ describe("setAccess: the rows are the truth", () => {
   test("the console's group verb in rows mode gives the row a list of that group, and inherit where a tier is what it inherits", async () => {
     const w = await world();
     await addRows(w.t, w.ws, ["1-projects/", "1-projects/plan.md", "1-projects/other.md"]);
-    await setSource(w.t, "rows");
     const named = await w.t.mutation(internal.functions.nodesAccess.consoleAccess, {
       workspaceId: w.ws,
       actorUserId: w.owner,
@@ -271,34 +260,6 @@ describe("setAccess: the rows are the truth", () => {
     expect((await rowAt(w.t, w.ws, "1-projects/other.md"))?.access).toBeUndefined();
   });
 
-  test("a refresh in rows mode keeps an owner's base and list: nothing is derived from the rules", async () => {
-    const w = await world();
-    await addRows(w.t, w.ws, ["1-projects/", "1-projects/plan.md"]);
-    await setSource(w.t, "rows");
-    await w.t.run(async (ctx) =>
-      setAccessRow(ctx as MutationCtx, {
-        workspaceId: w.ws,
-        path: "1-projects",
-        base: "team",
-        grantees: [{ kind: "group", groupId: w.leads, role: "view" }],
-        actor: owner(w),
-      }),
-    );
-    // The rules say the folder is private. In rows mode they are not read to decide the rows.
-    await w.t.run(async (ctx) => {
-      await ctx.db.insert("nodePrivacy", {
-        workspaceId: w.ws,
-        etag: "e1",
-        invalid: false,
-        folders: [{ prefix: "1-projects", visibility: "private" }],
-        notes: [],
-        observedAt: 1,
-      });
-      await refreshAccess(ctx as MutationCtx, w.ws);
-    });
-    expect((await rowAt(w.t, w.ws, "1-projects"))?.access).toEqual({ base: "team" });
-    expect(await grantsOn(w.t, w.ws, "1-projects")).toMatchObject([{ granteeKind: "group", source: "owner" }]);
-  });
 
   test("a folder moved into a wider folder keeps its narrowing on its row, and a move that does not widen writes nothing", async () => {
     const w = await world();
@@ -332,13 +293,13 @@ describe("the gateway's setAccess op", () => {
           observedAt: now,
         });
       }
+      await parentRows(ctx, tenants.aliceWs);
     });
     return tenants;
   }
 
   test("in rows mode it sets the row for the grant's person, and says the version it made", async () => {
     const { t, aliceWs } = await tenantsWithRows();
-    await setSource(t, "rows");
     const answer = await bodyOf(
       await post(t, { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "setAccess", path: "1-projects", base: "team" }),
     );
@@ -350,39 +311,10 @@ describe("the gateway's setAccess op", () => {
     expect(stale).toEqual({ ok: false, code: "CONFLICT" });
   });
 
-  test("outside rows mode it writes nothing", async () => {
-    const { t, aliceWs } = await tenantsWithRows();
-    const answer = await bodyOf(
-      await post(t, { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "setAccess", path: "1-projects", base: "team" }),
-    );
-    expect(answer).toEqual({ ok: false, code: "NOT_ROWS_MODE" });
-    expect((await rowAt(t, aliceWs, "1-projects"))?.access).toBeUndefined();
-  });
 
-  test("the rules' writes are refused in rows mode, before anything is read or written", async () => {
-    const { t, aliceWs } = await tenantsWithRows();
-    await setSource(t, "rows");
-    for (const op of ["write", "written", "exported", "owed"]) {
-      const answer = await bodyOf(
-        await post(t, {
-          accessToken: ACCESS_A,
-          expectedWorkspaceId: aliceWs,
-          op,
-          expected: null,
-          folders: [],
-          notes: [],
-          previous: null,
-          etag: "e9",
-          rendered: "x",
-        }),
-      );
-      expect(answer).toEqual({ ok: false, code: "ROWS_MODE" });
-    }
-  });
 
   test("a malformed body and another tenant's workspace are refused", async () => {
     const { t, aliceWs, bobWs } = await tenantsWithRows();
-    await setSource(t, "rows");
     expect(
       await bodyOf(await post(t, { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "setAccess", path: "1-projects", base: "everyone" })),
     ).toEqual({ ok: false, code: "INVALID" });
@@ -390,104 +322,6 @@ describe("the gateway's setAccess op", () => {
     expect(await bodyOf(crossed)).toEqual({ ok: false });
     expect(bobWs).toBeDefined();
     expect((await rowAt(t, aliceWs, "1-projects"))?.access).toBeUndefined();
-  });
-});
-
-describe("back to Off from rows", () => {
-  /** A bound workspace whose rules are the file's, its rows derived from them, and the rows then taken over. */
-  async function rowsWorkspace(): Promise<{ t: T; ws: Id<"workspaces">; leads: Id<"workspaceGroups">; owner: Id<"users"> }> {
-    const t = makeTest();
-    const ws = await boundWorkspace(t, "acme");
-    const owner = await user(t, "owner@example.test");
-    const leads = await t.run(async (ctx) =>
-      ctx.db.insert("workspaceGroups", { workspaceId: ws, name: "acme-leads", createdBy: owner, createdAt: 1 }),
-    );
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      await ctx.db.insert("nodePrivacy", {
-        workspaceId: ws,
-        etag: "v1",
-        invalid: false,
-        folders: [
-          { prefix: "1-projects", visibility: "team" },
-          { prefix: "2-areas", visibility: "private" },
-        ],
-        notes: [{ path: "2-areas/memo.md", visibility: "team" }],
-        observedAt: now,
-      });
-      for (const [path, kind] of [
-        ["1-projects", "folder"],
-        ["1-projects/plan.md", "file"],
-        ["2-areas", "folder"],
-        ["2-areas/memo.md", "file"],
-      ] as const) {
-        await ctx.db.insert("nodes", { workspaceId: ws, path, name: path.slice(path.lastIndexOf("/") + 1), kind, observedAt: now });
-      }
-      await deriveAccess(ctx as MutationCtx, ws);
-    });
-    await setSource(t, "rows");
-    return { t, ws, leads, owner };
-  }
-
-  async function staff(t: T) {
-    return t.withIdentity({ subject: await user(t, ADMIN) });
-  }
-
-  test("writes the rows back as rules that answer what the rows answer", async () => {
-    const { t, ws, leads, owner } = await rowsWorkspace();
-    await t.run(async (ctx) => {
-      await setAccessRow(ctx as MutationCtx, {
-        workspaceId: ws,
-        path: "1-projects/plan.md",
-        base: "private",
-        grantees: [{ kind: "group", groupId: leads, role: "view" }],
-        actor: { userId: owner, role: "owner" },
-      });
-    });
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { privacyAuthority: true });
-    });
-    await (await staff(t)).mutation(api.functions.privacyRows.backToOff, {});
-    const rules = await t.run(async (ctx) =>
-      ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique(),
-    );
-    expect(rules?.notes).toEqual(
-      expect.arrayContaining([
-        { path: "1-projects/plan.md", visibility: "@acme-leads" },
-        { path: "2-areas/memo.md", visibility: "team" },
-      ]),
-    );
-    expect(rules?.folders).toEqual(
-      expect.arrayContaining([
-        { prefix: "1-projects", visibility: "team" },
-        { prefix: "2-areas", visibility: "private" },
-      ]),
-    );
-    expect(rules?.exportOwed).toBe(true);
-    // Every row answers under the rules as the rows did: the parity check finds no difference.
-    const parity = await t.query(internal.functions.nodesPrivacy.accessParity, { workspaceId: ws });
-    expect(parity.diffs).toEqual([]);
-    expect(parity.checked).toBeGreaterThan(0);
-  });
-
-  test("refused, naming the paths, when a row needs an email or an edit grant, and nothing changes", async () => {
-    const { t, ws } = await rowsWorkspace();
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", "1-projects/plan.md")).unique();
-      await ctx.db.insert("nodeAccess", { workspaceId: ws, nodeId: row!._id, granteeKind: "email", granteeEmail: "kola@example.test", role: "view", at: 1, source: "owner" });
-      const flag = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(flag!._id, { privacyAuthority: true });
-    });
-    const error = await (await staff(t))
-      .mutation(api.functions.privacyRows.backToOff, {})
-      .then(() => null, (caught: unknown) => caught);
-    expect(errorCode(error)).toBe("ROWS_NOT_REPRESENTABLE");
-    expect((error as { data: { paths: string[] } }).data.paths).toEqual(["1-projects/plan.md"]);
-    const source = await t.run(async (ctx) => (await ctx.db.query("nodeMigration").first())?.accessSource);
-    expect(source).toBe("rows");
-    const rules = await t.run(async (ctx) => ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique());
-    expect(rules?.etag).toBe("v1");
   });
 });
 
@@ -527,14 +361,4 @@ describe("the console in rows mode", () => {
     expect(errorCode(error)).toBe("FILE_NOT_FOUND");
   });
 
-  test("the rules' privacy-reset is refused in rows mode, since there is no file to repair", async () => {
-    const f = await fixture();
-    await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 });
-    });
-    const error = await asUser(f.t, f.owner)
-      .action(api.functions.files.resetPrivacy, { workspaceId: f.workspaceId })
-      .then(() => null, (caught: unknown) => caught);
-    expect(errorCode(error)).toBe("PRIVACY_MANIFEST_USABLE");
-  });
 });

@@ -17,7 +17,10 @@ import schema from "../../schema";
 import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
 import { setAccessRow } from "../../functions/lib/nodes/setAccess";
+import { outsiderGrantsFor } from "../../functions/lib/grants/outsider";
 import { asUser, addMember, createWorkspace } from "../fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -66,6 +69,7 @@ async function world(): Promise<World> {
     for (const path of ["1-projects", "1-projects/plan.md"]) {
       await ctx.db.insert("nodes", { workspaceId: ws, path, name: path.slice(path.lastIndexOf("/") + 1), kind: path.endsWith(".md") ? "file" : "folder", observedAt: 1 });
     }
+    await parentRows(ctx, ws);
   });
   return { t, ws, owner, editor, member, ana, kola, leads, betaTeam, ownerB, beta };
 }
@@ -74,7 +78,7 @@ const PLAN = "1-projects/plan.md";
 
 async function grantsOn(t: T, ws: Id<"workspaces">, path: string) {
   return await t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path)).unique();
+    const row = await treeNodeAt(ctx.db, ws, path);
     if (row === null) throw new Error(`no row at ${path}`);
     return await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect();
   });
@@ -82,7 +86,7 @@ async function grantsOn(t: T, ws: Id<"workspaces">, path: string) {
 
 async function accessOn(t: T, ws: Id<"workspaces">, path: string) {
   return await t.run(async (ctx) => {
-    const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path)).unique();
+    const row = await treeNodeAt(ctx.db, ws, path);
     return row?.access;
   });
 }
@@ -122,12 +126,22 @@ describe("the owner's list: who may set it, and what it writes", () => {
     expect(await accessOn(w.t, w.ws, PLAN)).toEqual({ base: "team" });
   });
 
-  test("someone outside the workspace is not named by handle: the answer is the one an unclaimed handle gets", async () => {
+  test("someone outside the workspace is named by their @handle, and the note reaches them as a guest", async () => {
     const w = await world();
-    const outsider = await setGrantees(w, w.owner, PLAN, [{ handle: "ana", role: "view" }]);
-    const nobody = await setGrantees(w, w.owner, PLAN, [{ handle: "nobody-holds-this", role: "view" }]);
-    expect(outsider).toEqual({ ok: false, code: "GRANTEE_NOT_FOUND" });
-    expect(nobody).toEqual(outsider);
+    expect(await setGrantees(w, w.owner, PLAN, [{ handle: "@ana", role: "view" }])).toMatchObject({ ok: true });
+    const grants = await grantsOn(w.t, w.ws, PLAN);
+    expect(grants.map((grant) => `${grant.granteeKind}|${grant.granteeUserId}|${grant.role}`)).toEqual([`user|${w.ana}|view`]);
+    // The outsider path is what opens it for her: she is not a member, and the guest rendering names her.
+    const reached = await w.t.run(async (ctx) => await outsiderGrantsFor(ctx as never, w.ana));
+    expect(reached.map((grant) => grant.path)).toContain(PLAN);
+  });
+
+  test("a handle nobody holds is still the one refusal, and nothing is written", async () => {
+    const w = await world();
+    expect(await setGrantees(w, w.owner, PLAN, [{ handle: "nobody-holds-this", role: "view" }])).toEqual({
+      ok: false,
+      code: "GRANTEE_NOT_FOUND",
+    });
     expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 
@@ -135,7 +149,7 @@ describe("the owner's list: who may set it, and what it writes", () => {
     const w = await world();
     await setGrantees(w, w.owner, PLAN, [{ groupId: w.leads, role: "view" }]);
     await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", w.ws).eq("path", PLAN)).unique();
+      const row = await treeNodeAt(ctx.db, w.ws, PLAN);
       await ctx.db.patch(row!._id, { access: { base: "team" } });
     });
     expect(await setGrantees(w, w.owner, PLAN, [])).toMatchObject({ ok: true });
@@ -159,16 +173,6 @@ describe("the owner's list: who may set it, and what it writes", () => {
     expect(JSON.stringify(otherTenant)).toBe(JSON.stringify(missingPath));
     // Tenant B's owner cannot even name the row in tenant B: it is not there either.
     expect(await setGrantees(w, w.ownerB, PLAN, [])).toEqual({ ok: false, code: "NOT_FOUND" });
-    expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
-  });
-
-  test("outside rows mode nothing is written", async () => {
-    const w = await world();
-    await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { accessSource: "file" });
-    });
-    expect(await setGrantees(w, w.owner, PLAN, [{ groupId: w.leads, role: "view" }])).toEqual({ ok: false, code: "NOT_ROWS_MODE" });
     expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 

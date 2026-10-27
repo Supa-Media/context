@@ -67,12 +67,12 @@ test("a group turn is offered email, calendar and the web, and nothing that read
   const sent = world.model.requests.at(-1);
   const send = JSON.stringify(sendTool(sent) ?? {});
   assert.match(send, /- email: Send one email as the person/, "email is offered");
-  assert.match(send, /- calendar: Add, move or cancel one event/, "calendar is offered");
+  assert.match(send, /- calendar: Add, edit, move, cancel or RSVP to one event/, "calendar is offered");
   assert.match(send, /- open_page: /, "and the web");
   const shown = JSON.stringify(sent.tools);
   for (const reads of ["search_email", "read_email", "email_search"]) assert.ok(!shown.includes(`"${reads}"`), `${reads} is not a group turn's`);
   assert.match(send, /- fill_login: /, "signing in is offered, from the workspace's vault");
-  assert.match(JSON.stringify(sent.system), /only with a login saved in this workspace for the whole workspace/);
+  assert.match(JSON.stringify(sent.system), /A password comes only from a login saved in this workspace for the whole workspace/);
 });
 
 test("a member tagger's email is held, the ask says to reply, and somebody else's yes sends nothing", async () => {
@@ -81,7 +81,7 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   assert.equal(sends().length, 0);
   assert.equal(live(PENDING_PREFIX).length, 1, "held in the chat's workspace");
-  assert.match(asked.body?.answer ?? "", /From: cy@gmail\.example[\s\S]*Give it a 👍 and I'll send it/, "the ask asks for a 👍");
+  assert.match(asked.body?.answer ?? "", /from @cy's email:[\s\S]*From: cy@gmail\.example[\s\S]*@cy, give it a 👍 and I'll send it\. Only @cy can OK it/, "the ask asks the sender, by name, for a 👍");
 
   const before = world.model.requests.length;
   world.model.install([{ text: "That one's Cy's to approve." }]);
@@ -100,15 +100,12 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.match(memory, /Done, I sent an email/, "the chat remembers it");
 });
 
-test("a tagger's calendar change is held for their yes the same way", async () => {
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: CREATE } }] }, { text: "Here it is." }]);
+test("a tagger's change to their own calendar is made at once (the owner, 2026-10-22)", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: CREATE } }] }, { text: "Done, rehearsal is on your calendar." }]);
   const asked = await tagged(TOKEN_GROUP_MEMBER, "Tex put rehearsal on my calendar friday 7 to 9", "cy");
   assert.equal(asked.status, 200);
-  assert.equal(changes().length, 0);
-  assert.match(asked.body?.answer ?? "", /Rehearsal[\s\S]*Give it a 👍 and I'll make the change/);
-  const yes = await tagged(TOKEN_GROUP_MEMBER, "yes tex", "cy");
   assert.equal(changes().length, 1);
-  assert.equal(yes.body?.answer, 'Done, I added "Rehearsal" to your calendar.');
+  assert.doesNotMatch(asked.body?.answer ?? "", /👍/);
 });
 
 test("a group turn can browse, and sign in only from its workspace's vault", async () => {
@@ -123,4 +120,57 @@ test("a group turn can browse, and sign in only from its workspace's vault", asy
   assert.doesNotMatch(login, /has no action/, login);
   assert.doesNotMatch(login, /filled|signed in/i, login);
   assert.match(page, /All fine/, "the page was read");
+});
+
+test("a link somebody wrote in the chat before the tag opens (beacon.sh, 2026-10-23)", async () => {
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
+    { text: "It says all fine." },
+  ]);
+  const said = [{ from: "ada", text: "https://example.com/status" }];
+  const { status } = await request(world.env, TOKEN_GROUP_EGRESS, "/agent", {
+    question: "Tex could you look into this and add it to the backlog",
+    group: { key: KEY, members: MEMBERS, from: "ada", chat: said },
+    timeZone: "UTC",
+  });
+  assert.equal(status, 200);
+  const [page] = toolReplies(world.model.requests.at(-1));
+  assert.match(page, /All fine/, "the page was read");
+
+  // Said in the chat a tag ago still counts (2026-10-24: "Tex try again" could not type the email asked for before it).
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
+    { text: "Still fine." },
+  ]);
+  await tagged(TOKEN_GROUP_EGRESS, "Tex check it again", "ada");
+  const [again] = toolReplies(world.model.requests.at(-1));
+  assert.match(again, /All fine/, "an address the chat wrote earlier opens");
+
+  // An address nobody in the chat wrote is still refused (no production setup opens the web here).
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/elsewhere"] } } }] },
+    { text: "Couldn't." },
+  ]);
+  await tagged(TOKEN_GROUP_EGRESS, "Tex what's the status?", "ada");
+  const [refused] = toolReplies(world.model.requests.at(-1));
+  assert.match(refused, /You can only open|only open/i, refused);
+});
+
+test("an ask already shown isn't re-posted as the answer to the next question (2026-10-23)", async () => {
+  const again = { ...EMAIL, subject: "Saturday", body: "Hi Jo,\n\nSaturday at 2.\n\nCy" };
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "Drafted it for Jo." }]);
+  const first = await tagged(TOKEN_GROUP_MEMBER, "Tex email Jo that it's Saturday at 2", "cy");
+  assert.match(first.body?.answer ?? "", /@cy, give it a 👍/);
+
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "I can read and write notes here, search the web and send one email for you." }]);
+  const next = await tagged(TOKEN_GROUP_MEMBER, "Tex what tools do you have?", "cy");
+  assert.equal(next.status, 200);
+  const [refused] = toolReplies(world.model.requests.at(-1));
+  assert.match(refused, /Not shown again/);
+  assert.doesNotMatch(next.body?.answer ?? "", /give it a 👍|Saturday at 2/i, "the old ask is not the answer");
+  assert.match(next.body?.answer ?? "", /search the web/);
+  assert.equal(sends().length, 1, "nothing new was sent");
+
+  const yes = await tagged(TOKEN_GROUP_MEMBER, "Tex, yes", "cy");
+  assert.match(yes.body?.answer ?? "", /^Done, I sent an email/, "the earlier ask still sends on their yes");
 });

@@ -281,7 +281,6 @@ test("which changes are followed, and which their writer already projected", () 
   // Still only logical: the bucket holds the old layout until it materializes.
   assert.equal(searchChangeOf("move_folder", ["x", "y"], { status: "logical_active" }), null);
   assert.equal(searchChangeOf("move_folder", ["x", "y"], { count: 3, queued: true }), null);
-  assert.deepEqual(searchChangeOf("materialize_move", ["x", "y"], { status: "complete" }).follow, { moved: [["x", "y"]] });
   assert.equal(searchChangeOf("set_visibility", ["a.md"], {}), null);
 });
 

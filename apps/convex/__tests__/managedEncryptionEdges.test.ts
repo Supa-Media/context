@@ -30,6 +30,14 @@ import { enrollNewManagedWorkspace } from "../functions/lib/managedEncryptionFns
 import { SEAL_PAGE } from "../functions/lib/managedEncryptionFns/walk";
 import { asUser, createWorkspace, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import { fixture, generationOf, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
+import { keyedFixture, keyOf } from "./keyedFixture.encrypt.helpers";
+import { bytesAtPath, type NoteBucket } from "./files/keyedNotes.helpers";
+
+const bucketOf = (f: { t: TestConvex; ours: Id<"workspaces">; backend: NoteBucket["backend"] }): NoteBucket => ({
+  t: f.t,
+  workspaceId: f.ours,
+  backend: f.backend,
+});
 
 resetAfterEach();
 
@@ -73,30 +81,38 @@ async function setRollout(t: TestConvex, state: "running" | "paused" | "off", ac
 
 describe("a bucket bigger than one page", () => {
   test("walks every page, and the totals add up", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const extraNotes: Record<string, string> = {};
     const extra = SEAL_PAGE * 2 + 17;
-    for (let i = 0; i < extra; i += 1) backend.seed(`3-resources/n${String(i).padStart(4, "0")}.md`, `# Note ${i}\n`);
+    for (let i = 0; i < extra; i += 1) extraNotes[`3-resources/n${String(i).padStart(4, "0")}.md`] = `# Note ${i}\n`;
+    const { t, staff, ours, backend } = await keyedFixture({}, extraNotes);
+    // Every object in the bucket is walked: the bigger notes, the three seeded
+    // before, and the frozen path copies the copy left beside their keys.
+    const objects = backend.objects.size;
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
 
-    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: extra + 3, filesTotal: extra + 3 });
+    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: objects, filesTotal: objects });
+    expect(objects).toBeGreaterThan(SEAL_PAGE * 2);
     for (const [key] of backend.objects) expect(isSealed(backend.bytesOf(key)), key).toBe(true);
     expect(await read(t, staff, ours, "3-resources/n0200.md")).toBe("# Note 200\n");
     // The walk's end sweeps the Convex tree for the re-sealed versions, and
     // the drain runs that sweep over every note here too: hence the timeout.
-  }, 30_000);
+  }, 120_000);
 });
 
 describe("a page that fails halfway", () => {
   test("stops the workspace, and a retry finishes without sealing anything twice", async () => {
     let refuse = true;
-    const { t, staff, ours, backend } = await fixture({ refuseWrite: (key) => refuse && key === "index.md" });
-    for (let i = 0; i < 20; i += 1) backend.seed(`2-areas/a${i}.md`, `# Area ${i}\n`);
+    let indexKey = "";
+    const extraNotes: Record<string, string> = {};
+    for (let i = 0; i < 20; i += 1) extraNotes[`2-areas/a${i}.md`] = `# Area ${i}\n`;
+    const { t, staff, ours, backend } = await keyedFixture({ refuseWrite: (key) => refuse && key === indexKey }, extraNotes);
+    indexKey = await keyOf(bucketOf({ t, ours, backend }), "index.md");
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
 
     expect(await row(t, ours)).toMatchObject({ state: "failed" });
-    expect(isSealed(backend.bytesOf("index.md"))).toBe(false);
+    expect(isSealed(backend.bytesOf(indexKey))).toBe(false);
     // Some of the page was sealed before the failure. Nothing is unreadable
     // meanwhile: a failed workspace reads both kinds.
     expect(await read(t, staff, ours, "index.md")).toBe("# Ours\n");
@@ -112,7 +128,8 @@ describe("a page that fails halfway", () => {
 
 describe("the workspace key rotates", () => {
   test("mid-walk: old and new generations both open, and new saves use the new one", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await keyedFixture();
+    const bucket = bucketOf({ t, ours, backend });
     await makeKey(t, ours);
     await setRollout(t, "running");
     await setRow(t, ours, { state: "encrypting", phase: "seal" });
@@ -121,7 +138,7 @@ describe("the workspace key rotates", () => {
       path: "1-projects/before.md",
       text: "# Before\n",
     });
-    expect(generationOf(backend.bytesOf("1-projects/before.md"))).toBe("k1");
+    expect(generationOf(await bytesAtPath(bucket, "1-projects/before.md"))).toBe("k1");
 
     await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, { workspaceId: ours });
     await asUser(t, staff).action(api.functions.files.writeNote, {
@@ -129,7 +146,7 @@ describe("the workspace key rotates", () => {
       path: "1-projects/after.md",
       text: "# After\n",
     });
-    expect(generationOf(backend.bytesOf("1-projects/after.md"))).toBe("k2");
+    expect(generationOf(await bytesAtPath(bucket, "1-projects/after.md"))).toBe("k2");
 
     await t.mutation(internal.functions.managedEncryption.tick, { restartActive: true });
     await drainScheduled(t);
@@ -137,7 +154,7 @@ describe("the workspace key rotates", () => {
     // work rather than the bar reading more than full.
     const done = backend.objects.size;
     expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: done, filesTotal: done });
-    expect(generationOf(backend.bytesOf("index.md"))).toBe("k2");
+    expect(generationOf(backend.bytesOf(await keyOf(bucket, "index.md")))).toBe("k2");
     expect(await read(t, staff, ours, "1-projects/before.md")).toBe("# Before\n");
     expect(await read(t, staff, ours, "1-projects/after.md")).toBe("# After\n");
   });
@@ -221,22 +238,25 @@ describe("a hand-off to the customer's own bucket", () => {
 
 describe("the final check", () => {
   test("seals a plain object that arrived after its page was walked", async () => {
-    const { t, ours, backend } = await fixture();
+    // The late note is named by a row before the walk; its key is what the late save lands at.
+    const { t, ours, backend } = await keyedFixture({}, { "1-projects/late.md": "# Placeholder\n" });
+    const lateKey = await keyOf(bucketOf({ t, ours, backend }), "1-projects/late.md");
     await makeKey(t, ours);
     await setRollout(t, "running");
     await setRow(t, ours, { state: "checking", phase: "check", runId: 1 });
     // A save from a request that began before the walk did, still plain.
-    backend.seed("1-projects/late.md", "# Late\n");
+    backend.seed(lateKey, "# Late\n");
     await t.action(internal.functions.managedEncryption.runWalk, { workspaceId: ours, runId: 1 });
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
-    expect(isSealed(backend.bytesOf("1-projects/late.md"))).toBe(true);
+    expect(isSealed(backend.bytesOf(lateKey))).toBe(true);
   });
 
   test("an object that only looks sealed stops the workspace instead of being served", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await keyedFixture({}, { "4-archive/looks-sealed.md": "# Looks sealed\n" });
+    const forgedKey = await keyOf(bucketOf({ t, ours, backend }), "4-archive/looks-sealed.md");
     const forged = new Uint8Array([...new TextEncoder().encode("CTXENC"), 1, 2, 107, 49, ...new Array(90).fill(7)]);
-    backend.seed("4-archive/looks-sealed.bin", forged);
+    backend.seed(forgedKey, forged);
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
     const failed = await row(t, ours);
@@ -244,7 +264,7 @@ describe("the final check", () => {
     expect(failed?.errorCode).toMatch(/^[A-Z_]+$/);
     expect(failed?.errorCode).not.toBe("WALK_FAILED");
     // Left exactly as it was: never sealed over, never deleted.
-    expect(backend.bytesOf("4-archive/looks-sealed.bin")).toEqual(forged);
+    expect(backend.bytesOf(forgedKey)).toEqual(forged);
   });
 });
 

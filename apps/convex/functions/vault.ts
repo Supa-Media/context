@@ -21,11 +21,11 @@
  * `__tests__/structure/analyzer/pins.helpers.ts`. It opens the bucket
  * credential and the data key, does one operation, and returns only what
  * that operation shows a person: an entry's name, sites, people and field
- * names. The one operation that returns a secret part is `reveal`, and its
- * only caller is `revealVaultEntry`, which answers the signed-in person on the
- * entry's people list who asked for that page; no gateway route and no tool
- * reaches it (decided by the owner, 2026-10-10: API keys and env variables a
- * person can see and copy). `edit` opens one to change it in place, and
+ * names. The one operation that returns a secret part is `reveal` (decided by
+ * the owner, 2026-10-10: API keys and env variables a person can see and
+ * copy). Its callers are not listed here, because a list rots: each must be a
+ * signed-in action that has already checked this person against the live link
+ * or their membership, and no gateway route and no tool reaches it. `edit` opens one to change it in place, and
  * `delete` removes one; both answer only names (`lib/vaultEdit.ts`).
  */
 

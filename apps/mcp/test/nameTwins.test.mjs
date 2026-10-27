@@ -6,14 +6,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { nameTwinRefusal, protectedFolderRefusal } from "../src/tree/twins.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function storeOf(keys) {
   const sorted = [...keys].sort();
-  return {
+  return withServedTree({
     async list({ prefix = "" } = {}) {
       return { objects: sorted.filter((key) => key.startsWith(prefix)).map((key) => ({ key })), truncated: false };
     },
-  };
+  });
 }
 
 const NONE = new PrivacyOverrides();
@@ -69,4 +70,16 @@ test("the Inbox's own folders stay put; a folder of a person's own in the Inbox 
   assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/ideas"), null);
   assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "recipes/email"), null);
   assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/email/2026"), null);
+});
+
+test("Tex's own folders stay put; a folder of a person's own in Tex's folder moves (owner, 2026-10-21)", async () => {
+  const store = storeOf(["tex/transcripts/2026-10-21.md", "tex/routines/daily/standup.md", "tex/trips/japan.md", "work/skills/a.md"]);
+  const rules = [{ prefix: "tex", vis: "team" }, { prefix: "work", vis: "team" }];
+  assert.match(await protectedFolderRefusal(store, "private", rules, NONE, "tex/transcripts"), /transcripts is one of Tex's own folders/);
+  assert.match(await protectedFolderRefusal(store, "private", rules, NONE, "tex/routines"), /one of Tex's own folders/);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "tex/trips"), null);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "tex/routines/daily"), null);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "work/skills"), null);
+  // A Tex folder this connection cannot see is never confirmed.
+  assert.equal(await protectedFolderRefusal(store, "team", [{ prefix: "work", vis: "team" }], NONE, "tex/transcripts"), null);
 });

@@ -20,12 +20,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, maintainSearchIndex, searchNotes, setFolderVisibility } from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex, searchNotes } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { attachMeaningIndex } from "../../mcp/src/search/meaning/store.js";
 import { MEANING_DIMENSIONS } from "../../mcp/src/search/meaning/embed.js";
 import { fuse } from "../functions/lib/blendedSearch";
+import { renderPrivacyManifest, setFolderVisibility } from "./seededRules.helpers";
 
 const DESCRIPTOR = { indexName: "context-meaning-ws1", accountId: "fake-account", apiToken: "fake-token", state: "ready" };
 

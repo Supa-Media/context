@@ -397,6 +397,28 @@ Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
 Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
 script Maya declining the save and test the handoff as the fallback.
 
+### A saved login carries Tex's task on, with no "done" from them
+
+Dev2, 2026-10-24, ordering Instacart groceries by text: the save-login page
+opened with no website filled in, and after the login was saved nothing
+happened until a "done" ("after adding the email and password Tex should know
+that i'm done adding"). Two rules follow. A login's `vault_add_link` needs its
+`site` (the tool refuses one without, so the model asks again with it); a
+secret or a card may still name none. And a texted turn (or a background job's
+turn) that minted a save link answers with `vaultWatch`; the sender's inbox
+then asks the control plane (`POST /agent-texts/vault-saved`, times only,
+never which entry) every 10 to 30 seconds for half an hour, and once a save
+link of theirs was used it queues a turn with no words and
+`event: "vault_saved"`. The gateway asks that turn its own fixed line
+(`apps/mcp/src/agent/vaultSaved.js`), only on the texting client's 1:1 turn,
+and Tex carries the task on. A text from them after the save means that text's
+turn already did, and nothing is queued; one save queues one turn. Polling
+rather than a push keeps the control plane from knowing the Worker's address,
+the same as the Gmail-connected text. Reversing it fails
+`apps/mcp/test/agentVaultSavedRoute.test.mjs`,
+`apps/agent/src/vaultWatch.test.ts` and
+`apps/convex/__tests__/vaultWatch.test.ts`.
+
 ### Tex's browser sign-ins are one sealed vault item
 
 Decided by the owner, 2026-10-20 ("Sealed in vault", over a Browserbase
@@ -408,7 +430,8 @@ with the same key and seal as a login, its associated data naming the jar, so
 the bucket alone never yields one and no entry's part opens as it.
 
 - **What is kept.** Every cookie the browser holds (a partitioned one aside)
-  and each https site's localStorage, where many apps keep a sign-in, as it
+  and each https site's localStorage and (since 2026-10-22, below) IndexedDB,
+  where many apps keep a sign-in, as it
   was when Tex last read a page there; a site read with nothing kept loses its
   saved storage, so signing out stays signed out.
 - **Where it goes.** Gateway to the screenshot Worker and back, with the
@@ -418,8 +441,11 @@ the bucket alone never yields one and no entry's part opens as it.
   storage is put back as its pages open, by a script in an isolated world
   that writes only the page's own origin and never over what it holds
   (`infra/site-shots/src/jar.ts`), so no site's code reads another's.
-- **Whose.** A personal workspace's only, with a data key: the browser is one
-  person's. A shared workspace keeps none. It is not listed with the logins.
+- **Whose.** A person's browser keeps its jar in their personal workspace,
+  with a data key. A group chat's browser keeps its own in the chat's shared
+  workspace, one per chat and set of people, at `.context/vault/groups/`
+  (the owner, 2026-10-24; [groups](./groups.md)); a shared workspace keeps
+  no other. Neither is listed with the logins.
 - **Failure.** A jar that does not open, or a restore that fails, is no jar:
   Tex signs in as before, and a browser that never got the jar is not read
   back over it.
@@ -429,7 +455,66 @@ the bucket, `jar` passed on to the turn, the personal check dropped),
 `infra/site-shots/src/jar.test.ts` and `browserbase.test.ts` ("sign-ins kept
 between browsers"); restore and read-back were checked in real Chromium.
 
-### A card pays only on the person's yes, each time
+### Browserbase Contexts stay off; the jar is how Tex stays signed in
+
+Weighed again 2026-10-22, when the owner asked to use every Browserbase
+feature we pay for. A Browserbase Context is a saved Chrome profile kept at
+Browserbase between sessions. It would keep more than the jar did (IndexedDB,
+service workers, a sign-in bound to the browser's own key), but it fails the
+rule this jar exists for, which non-negotiable #1 now names: the browser's
+sign-ins live sealed in the person's own bucket, with the key outside it.
+
+- **A kept Context is every sign-in held at a vendor.** The profile sits in
+  Browserbase's account, not the person's bucket. It does not leave with
+  Download as folders, a person cannot see or revoke it from Context, and
+  deleting their account would have to remember to delete it there too.
+  Browserbase lets us upload a profile encrypted to its key, but not take one
+  back out, so it cannot be sealed under ours and returned to the bucket.
+- **A Context made and deleted per browser buys nothing.** A browser already
+  lives until five idle minutes pass (`idle.ts`), and the next one is handed
+  the jar. A throwaway profile would hold exactly what the running browser
+  already holds.
+- **What stays true.** `createSession` sends no `browserSettings.context`;
+  `browserbase.test.ts` checks the request body never names one. Turning it on
+  is an owner decision recorded here, not a field flipped in a PR.
+
+Closing a gap means carrying more into the sealed jar, never keeping a
+profile at Browserbase. So the same day the jar took IndexedDB too (the owner's
+"use all these features", over leaving it), since Firebase Auth keeps its web
+sign-in there and every app built on it started signed out
+(`infra/site-shots/src/jarIdb.ts`):
+
+- **Whole databases of plain data.** A database is kept only when every value
+  is plain JSON and every key a string or number, so it comes back exactly as
+  it was; one holding a Blob, Date or buffer, or past 256 KB for its origin,
+  is left out whole, since half an app's database is worse than none.
+- **Put back only where nothing is.** A saved database is created only when
+  the origin has none by that name, inside the open's own upgrade, so the
+  page's own open waits until it is whole. One the browser holds is never
+  touched and its version does not move. Own origin only, in the isolated
+  world, as for localStorage.
+- **Read as storage is.** The origin the browser is on is read back after the
+  steps; an empty list is a sign-out and drops what was held, a read that
+  failed keeps it. A full jar gives up the IndexedDB read longest ago first.
+- **Read in an isolated world.** Both reads (localStorage and IndexedDB) run
+  in a fresh isolated world of the main frame, not the page's own: a page
+  that replaced `Promise` could otherwise answer with another site's origin
+  and plant data that would be restored there. `browserbase.test.ts` ("gives
+  a new browser the jar's cookies…") fails if a read moves back to the
+  page's world.
+
+What still starts signed out: sessionStorage, and a sign-in bound to the
+browser by Chrome's device-bound session credentials. Tex signs in again with
+the vault's login or hands the browser over.
+
+Tests: `infra/site-shots/src/jarIdb.test.ts` (sabotaged: dropping the
+existing-database check, the own-origin check, and the plain-data check) and
+`apps/mcp/test/agentBrowserJar.test.mjs` ("a site's IndexedDB is sealed like
+its storage…", "a full jar gives up the IndexedDB…"). A Firebase-shaped
+sign-in read from one Chromium and restored into a fresh one, before the
+page's own open, was checked by hand; another origin stayed signed out.
+
+### A card pays only on the person's yes, once a purchase
 
 Decided by the owner, 2026-10-21 ("add cards to the vault please"). A card is
 an entry of type `card` whose values are fixed fields (`number`, `exp_month`,
@@ -450,12 +535,12 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   card is used at shops nobody can list in advance; the yes below is what
   keeps that safe, and it names the site.
 - **The yes.** `fill_card` (`apps/mcp/src/agent/fillCard.js`) asks first,
-  every time (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
+  once a purchase (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
   text (the owner chose "Ask by text, every payment" on 2026-10-21, over an
   ask in the app and over a per-site yes): the gateway adds "Before I pay, I
-  need your OK to pay with your Visa ••4242 on shop.example. Give this a 👍 or say yes" to
-  the answer, in its own words, naming the card and the site the browser is
-  on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
+  need your OK to pay $12.00 with your Visa ••4242 on shop.example. Give this a 👍 or say yes" to
+  the answer, in its own words, naming the total, the card and the site the
+  browser is on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
   pay it"); "ok" or "sure" sets the ask aside, a no drops it
   (`apps/mcp/src/agent/textedPay.js`). The yes does not end the turn: the
   model is told what was allowed and fills the card in the browser it left
@@ -463,14 +548,32 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   texted asks do. Any other AI, and a card in a workspace other than the
   turn's own, is asked in the Context app instead, Allow or No. There is
   never a "from now on", because a payment cannot be taken back. A yes
-  writes one fill into the card's sealed meta, for that AI (client id), that
-  host, that person, for ten minutes, spent by a conditional write before the
-  card is typed, so two fills racing on one yes fill once. Storage without
+  writes one purchase into the card's sealed meta, for that AI (client id),
+  that host, that person and that total, for thirty minutes and at most
+  three fills, each spent by a conditional write before the card is typed,
+  so two fills racing on a yes's last fill fill once. A different total asks
+  again. Storage without
   conditional writes fills no card. Nothing is opened before the yes; a site
   the card isn't for, a page that isn't https, and a box the card has nothing
   for are refused before anyone is asked. A page Tex reads can make Tex ask,
   which is why the ask names the site and the card in the gateway's words:
   the person is answering about that checkout, not about the model's story.
+- **One yes, one purchase (2026-10-26).** A Vamoose bus checkout asked for
+  the same 👍 three times: the expiry menu refused the fill (its picker's
+  digit pattern had lost its backslash in the page script, so no numbered
+  menu ever matched), and then the cart timed out and was rebuilt, and each
+  fill had spent the yes. The owner's ask was that one yes cover the whole
+  purchase while the card and the amount stay the same. So `fill_card` names
+  the total the page shows, the ask says it, and the yes lasts for refills of
+  that purchase: a box refused and filled again, a page reset and filled
+  again. Going back to one fill per yes asks the person again for every
+  hiccup; dropping the total from the match lets a yes for $12 fill a $120
+  cart. The model is told the yes covers one purchase and never to pay twice
+  with it. Menus are picked by number, by "8 - Aug" or by month name, and a
+  one-box expiry aimed at a menu picks its month or its year
+  (`infra/site-shots/src/cardMenus.ts`). Tests:
+  `apps/mcp/test/agentFillCard.test.mjs` ("one yes is one purchase…", "a
+  different total asks again…") and `infra/site-shots/src/cardMenus.test.ts`.
 - **What the model sees.** The card's label and which parts were filled.
   Never a digit. It fills and never pays: the model presses the checkout's
   button itself with `browse`, after telling the person the total. The
@@ -481,9 +584,20 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
 - **Groups.** As for logins ([groups](./groups.md)): a group chat counts only
   a card given to the whole workspace, and the yes is asked of the person who
   tagged Tex.
-- **Not yet.** Card boxes inside a payment provider's own frame (Stripe
-  Elements, Shopify's checkout) are on another origin the browser does not
-  reach; there Tex hands the browser over for the card, as before.
+- **Payment frames (2026-10-24).** Checkouts keep the card's boxes in their
+  processor's frame (Stripe Elements, Braintree, Shopify's card fields). On
+  an Instacart order the person had said yes to their saved Mastercard and
+  Tex still sent them its browser to type it, because the fill step refused
+  the frame as another origin. A card's part (never a login) now goes into a
+  frame when, at the keys: the top page is the checkout the yes named; the
+  frame is on https and is the checkout's own site or a known processor's
+  (`PAYMENT_HOSTS`); and every document between it and the top page is the
+  checkout's own site (`location.ancestorOrigins`), so a processor's frame
+  inside an ad's frame gets nothing, and a frame hiding its ancestors gets
+  nothing (`infra/site-shots/src/paymentFrames.ts`). Widening the list to
+  "any frame" would hand the card to whatever third party the checkout
+  embeds; narrowing it back hands the person the browser for every Stripe
+  checkout. Tests: `infra/site-shots/src/paymentFrames.test.ts`.
 
 Tests: `apps/mcp/test/agentFillCard.test.mjs` (sabotaged: the ask skipped,
 the spend dropped, the host ignored, approve-always offered, the missing-part

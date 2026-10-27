@@ -39,6 +39,7 @@ import {
   siteFactsValidator,
 } from "./lib/websites/agentSite";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteRoot } from "./lib/websites/siteRoot";
 import { siteShotTargetHandler } from "./lib/websites/siteShots";
 import { forgetKeptPagesHandler, keptVersionsHandler } from "./lib/websites/history";
 import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
@@ -46,6 +47,7 @@ import {
   markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
   websitePublicationRepairNeededHandler,
+  publicationRepairActorHandler,
   websiteStarterRepairNeededHandler,
 } from "./lib/websites/state";
 
@@ -319,6 +321,13 @@ export const websiteResolutionPlan = internalQuery({
   handler: websiteResolutionPlanHandler,
 });
 
+/** Where the website's folder is now, wherever it is nested (`lib/websites/siteRoot.ts`). Unfiltered. INTERNAL. */
+export const siteRootNow = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.string(),
+  handler: async (ctx, { workspaceId }) => await siteRoot(ctx.db, workspaceId),
+});
+
 export const websiteLinkCatalog = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: linkCatalogValidator,
@@ -482,6 +491,12 @@ export const websitePublicationRepairNeeded = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: websitePublicationRepairNeededHandler,
+});
+
+export const publicationRepairActor = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.id("users")),
+  handler: publicationRepairActorHandler,
 });
 
 export const markWebsitePublicationEnsured = internalMutation({

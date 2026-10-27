@@ -85,7 +85,11 @@ breaking one, stop and say so rather than working around it.
    `team` (members), plus any mix of groups and named people, inside the
    workspace or not, each with view or edit (decided by the owner,
    2026-10-15). Every grantee is a person with an account or an email awaiting
-   one. No *setting* publishes a
+   one, or a phone number invited from a Tex chat
+   ([invited-family](./docs/decisions/texting-assistant/invited-family.md));
+   a Tex group chat in guest mode is the exception, its grantees whoever is
+   in the chat
+   ([group-guests](./docs/decisions/texting-assistant/group-guests.md)). No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
    indexed. **A link an owner mints and can revoke is the single exception**, and
    it is always a share row, never a value of a row's access. A link covers one note, or one folder and the subtree
@@ -106,8 +110,10 @@ breaking one, stop and say so rather than working around it.
    2026-10-17; since 2026-10-18 a small judge model lets a widening run only
    when the person's own words ask for it, with nothing to tap. What still
    waits for a yes, checked by the gateway and never by the model, is a step
-   nobody can take back: an email, a calendar change, a
-   handle claim, a vault key's first use
+   nobody can take back: an email, a handle claim, a vault key's first use
+   (a change to the person's own calendar that tells nobody no longer
+   waits for Tex; one Google would tell a guest about does: decided by the
+   owner, 2026-10-22)
    ([agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
@@ -234,11 +240,12 @@ change that would break a non-negotiable, or work framed as a spike — each a
 statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
-**Merging deploys to staging; production is a separate manual action.** Every
-merge to `main` runs `Deploy Staging`. Finish the PR and verify staging without
-asking again. Production requires an explicit request to run `Deploy to
-Production`, which deploys the run's fixed `main` commit only after that commit
-has passed staging. Do not trigger production as a side effect of merging.
+**Merging deploys staging and production side by side.** Every merge to
+`main` runs `Deploy Staging`, and its first job starts `Deploy to Production`
+at the same time (decided by the owner, 2026-10-23). Check that production
+finished; do not dispatch it a second time. The repository variable
+`AUTO_DEPLOY_PRODUCTION` puts staging back in front: `after-staging` waits
+for green staging and main CI, `off` makes production manual.
 Desktop releases, native builds, store submissions and secret rotation remain
 separate explicit actions. See [staging](./docs/staging.md).
 
@@ -303,7 +310,7 @@ checked is not a guard.**
 - **Control plane**: Convex (`@convex-dev/auth`, email OTP via Resend)
 - **Gateway**: Cloudflare Workers + R2/S3 via the storage adapter
 - **Mobile/web app**: React Native + Expo, Expo Router
-- **Ingestion**: Cloudflare Email Routing → Email Worker → `0-inbox/`
+- **Ingestion**: Cloudflare Email Routing → Email Worker → `inbox/`
 - **Framework**: [supa-framework](https://github.com/Supa-Media/supa-framework)
   (`@supa-media/*` from npmjs, public — no token, no `.npmrc` scope line)
 

@@ -255,10 +255,9 @@ function storeFor(
     noteCount?: number | null;
     managedEncryption: unknown;
     encryptionKey: unknown;
-    keyed?: boolean;
   },
   env: Env,
-  idLayout: IdLayoutHooks | null,
+  idLayout: IdLayoutHooks,
 ): ContextStore | null {
   const { binding, noteCap } = opened;
   // The cap counts the Convex tree, never the bucket (`store/noteCap.js`); the
@@ -285,13 +284,12 @@ function storeFor(
 }
 
 /**
- * The id layer's hooks for one capture (`apps/mcp/src/store/idLayout.js`, mode
- * "keys"), bound to its ticket. Mail creates and rewrites its own notes; it
+ * The id layer's hooks for one capture (`apps/mcp/src/store/idLayout.js`),
+ * bound to its ticket. Mail creates and rewrites its own notes; it
  * never retires one, so `removed` refuses. The ticket is the only credential,
  * and it names the workspace and the inbox the control plane will accept.
  */
 interface IdLayoutHooks {
-  mode: "keys";
   lookup: (paths: string[]) => Promise<unknown>;
   wrote: (record: { path: string; key: string; etag: string; keyed?: boolean; size?: number; at?: number }) => Promise<unknown>;
   adopt: (note: { path: string; noteId: string; key: string; etag: string; size?: number; at: number }) => Promise<unknown>;
@@ -300,7 +298,6 @@ interface IdLayoutHooks {
 
 function mailIdLayout(controlPlane: IngestControlPlane, ticket: string): IdLayoutHooks {
   return {
-    mode: "keys",
     lookup: (paths) => controlPlane.noteIdLookup(ticket, paths),
     wrote: (record) => controlPlane.noteIdWrote(ticket, record),
     adopt: (note) => controlPlane.noteIdAdopt(ticket, note),
@@ -555,10 +552,11 @@ export async function handleEmail(
     return refuse("control_plane_unavailable", username);
   }
   if (opened === null) return refuse("storage_unavailable", username);
-  // A keyed workspace's notes live at `notes/<noteId>.md`: the id layer writes a
+  // Every workspace's notes live at `notes/<noteId>.md`: the id layer writes a
   // new note at its id key and asks the control plane for its row, under this
-  // capture's ticket (`mailIdLayout`).
-  const store = storeFor(opened, env, opened.keyed ? mailIdLayout(controlPlane, resolution.ticket) : null);
+  // capture's ticket (`mailIdLayout`). A workspace the control plane says is
+  // not keyed is refused by the layer, never written at a path.
+  const store = storeFor(opened, env, mailIdLayout(controlPlane, resolution.ticket));
   if (!store) return refuse("storage_unavailable", username);
 
   try {

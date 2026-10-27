@@ -13,7 +13,7 @@ const MAIL_HEALTH_TIMEOUT_MS = 3_000;
 export function createMailHealthMethods({ post }) {
   return {
     /**
-     * `[{ address, state, lastSyncedAt, tell }]` for the owner of this personal
+     * `[{ address, state, lastSyncedAt, tell, readOnly }]` for the owner of this personal
      * workspace, or null for anyone else. A mailbox in a state this gateway
      * does not know is left out.
      */
@@ -31,6 +31,7 @@ export function createMailHealthMethods({ post }) {
           state: mailbox.state,
           lastSyncedAt: typeof mailbox.lastSyncedAt === "number" ? mailbox.lastSyncedAt : null,
           tell: mailbox.tell === true,
+          readOnly: mailbox.readOnly === true,
         }));
     },
 

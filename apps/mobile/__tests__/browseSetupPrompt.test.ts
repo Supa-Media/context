@@ -301,7 +301,7 @@ describe("every other context sees nothing", () => {
     const { container, unmount } = mount(
       emptyContextConsole({
         scaffoldReason: "empty",
-        rootEntries: [folder("1-projects"), folder("2-areas")],
+        rootEntries: [folder("projects"), folder("2-areas")],
       }),
       () => {},
     );
@@ -348,7 +348,7 @@ describe("a layout on its way is not a broken context", () => {
     // across the notice band above it.
     expect(container.textContent).not.toMatch(/Choose a note/);
     // The standard folders and the privacy file, each still on its way.
-    for (const row of ["1-projects", "2-areas", "3-resources", "9-archive", "privacy.md"]) {
+    for (const row of ["projects", "areas", "resources", "archive", "privacy.md"]) {
       expect(find(container, `browse-laying-out-${row}`)).not.toBeNull();
     }
     expect(container.querySelector('[aria-label="written"]')).toBeNull();

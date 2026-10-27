@@ -28,6 +28,7 @@ import { effectiveTimeZone } from "./lib/routines/model";
 import { armDream } from "./lib/dreams/model";
 import { armHeartbeat } from "./lib/heartbeats/model";
 import { armHousekeeping } from "./lib/housekeeping/model";
+import { acceptPhoneInvitations } from "./lib/invitations/join";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -452,6 +453,8 @@ export const consumeLinkCode = internalMutation({
     // And an account has one number: a new one replaces the old.
     await removeLinksOf(ctx, match.userId, "texts.phone.replaced");
     await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now });
+    // A workspace that invited this number from a Tex group chat is joined now: the code proved it.
+    await acceptPhoneInvitations(ctx, match.userId, args.phone);
 
     await recordAudit(ctx, {
       workspaceId: workspace._id,
@@ -591,5 +594,23 @@ export const textsTimeZone = internalQuery({
       .withIndex("by_phone", (q) => q.eq("phone", args.phone))
       .first();
     return effectiveTimeZone(undefined, link === null ? null : await accountTimeZone(ctx, link.userId));
+  },
+});
+
+/**
+ * The workspace a 1:1 text's decision is metered against: the sender's personal workspace, resolved as
+ * `applyTextsGrant` resolves it (a phone linked by code, texting not paused). Null when they would get no session.
+ */
+export const textsDecideWorkspace = internalQuery({
+  args: { phone: v.string() },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, args) => {
+    if (!isPhoneNumber(args.phone)) return null;
+    const link = await ctx.db
+      .query("phoneLinks")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .first();
+    if (link === null || (await phoneSignInPaused(ctx, link.userId))) return null;
+    return await personalWorkspaceOf(ctx, link.userId);
   },
 });

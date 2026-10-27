@@ -27,8 +27,44 @@ export const PROTOCOL_VERSION = 1;
  */
 export const CHANNELS = Object.freeze(["email", "google-chat", "imessage"]);
 
-/** Where unfiled things arrive. Not `inbox/`; see the decision. */
-export const INBOX_FOLDER = "0-inbox";
+/**
+ * Where unfiled things arrive: the Inbox, under its plain name since the
+ * numbers in front of the built-in folders were dropped (owner, 2026-10-21;
+ * see the decision). In a workspace whose Inbox is named otherwise (`0-inbox`
+ * where the rename was skipped, `Capture` where somebody renamed it), a note
+ * written here lands in the folder doing the Inbox's job: the control plane
+ * carries a built-in folder's default name to that folder (`jobPath`).
+ */
+export const INBOX_FOLDER = "inbox";
+
+/**
+ * The Inbox's name before the numbers were dropped. A workspace the rename
+ * skipped still has it, so a reader that cannot ask which folder does the
+ * Inbox's job lists both names.
+ */
+export const LEGACY_INBOX_FOLDER = "0-inbox";
+
+/** How a key's first segment can spell the Inbox: its word, with a sort number in front or not. */
+const INBOX_NAME = /^(?:\d+-)?inbox$/i;
+
+/**
+ * `key` with its Inbox spelled `INBOX_FOLDER`, so a reader recognises what
+ * this package wrote whatever the Inbox is called: `0-inbox/email/a.md` (a
+ * workspace the rename skipped) and, given `inbox` (the folder doing the job,
+ * when the caller knows it), `Capture/email/a.md` are `inbox/email/a.md`. Only
+ * the first segment is read; every other key is returned as it is.
+ *
+ * @param {string} key
+ * @param {string|null} [inbox] The path of the folder doing the Inbox's job.
+ */
+export function asInboxKey(key, inbox) {
+  if (typeof key !== "string") return key;
+  const home = typeof inbox === "string" ? inbox.replace(/\/+$/, "") : "";
+  if (home !== "" && (key === home || key.startsWith(`${home}/`))) return `${INBOX_FOLDER}${key.slice(home.length)}`;
+  const slash = key.indexOf("/");
+  const first = slash < 0 ? key : key.slice(0, slash);
+  return INBOX_NAME.test(first) ? `${INBOX_FOLDER}${key.slice(first.length)}` : key;
+}
 
 /**
  * The folder for one channel, before the account level.

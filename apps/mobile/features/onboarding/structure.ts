@@ -51,11 +51,11 @@ export function structureStepFor(scaffoldReason: string | undefined): StructureS
  * instead of rendering a blank row.
  */
 const PARA_LINES: Record<string, string> = {
-  "0-inbox": "Anything you have just captured and not filed yet.",
-  "1-projects": "Work with a finish line. When it is done, it moves to the archive.",
-  "2-areas": "Responsibilities that never finish — a team, your health, the finances.",
-  "3-resources": "Reference you want to find again, not tied to one project.",
-  "9-archive": "Finished or dormant. Nothing is deleted, it just moves out of the way.",
+  inbox: "Anything you have just captured and not filed yet.",
+  projects: "Work with a finish line. When it is done, it moves to the archive.",
+  areas: "Responsibilities that never finish — a team, your health, the finances.",
+  resources: "Reference you want to find again, not tied to one project.",
+  archive: "Finished or dormant. Nothing is deleted, it just moves out of the way.",
 };
 
 export interface ParaFolderLine {

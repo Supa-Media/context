@@ -23,8 +23,9 @@
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
  *                 the texting assistant. A plain request when the site sends
- *                 Markdown or readable HTML (./fetchText.ts), else a warm
- *                 browser (./read.ts)
+ *                 Markdown or readable HTML (./fetchText.ts); when the site
+ *                 refuses this Worker, the same through Browserbase's Fetch
+ *                 API (./browserbaseFetch.ts); else a warm browser (./read.ts)
  *   POST /browse  `{ session?, steps }` → `{ session, ran, page }`: one
  *                 browser the texting assistant drives across calls in one
  *                 question (./browse.ts). Its session id is held by the
@@ -47,9 +48,10 @@
 import puppeteer from "@cloudflare/puppeteer";
 import { DurableObject } from "cloudflare:workers";
 import { IdleTimer } from "./idle";
-import { fetchPage } from "./fetchText";
+import { fetchRead } from "./fetchText";
+import { BROWSERBASE_FETCH_TIMEOUT_MS, browserbaseFetch } from "./browserbaseFetch";
 import { parseReadRequest, read } from "./read";
-import type { BrowserbaseEnv } from "./browserbase";
+import { browserbaseConfigured, type BrowserbaseEnv } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { viewOnBrowserbase } from "./view";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
@@ -76,11 +78,11 @@ export class BrowserIdle extends DurableObject<Env> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close")) {
       const body = await request.json().catch(() => null);
-      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body);
+      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
       return await browse(env, url.pathname, body);
     }
     if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
@@ -141,10 +143,17 @@ async function readPage(env: Env, url: string): Promise<Response> {
   const started = Date.now();
   // The person's address and the page's text stay out of the log.
   const log = (via: string) => console.log(JSON.stringify({ event: "site_shots_read", via, ms: Date.now() - started }));
-  const fast = await fetchPage(url);
-  if (fast !== null) {
-    log(fast.via);
-    return json({ page: fast });
+  const fast = await fetchRead(url);
+  if (fast.page !== null) {
+    log(fast.page.via);
+    return json({ page: fast.page });
+  }
+  if (fast.refused && browserbaseConfigured(env)) {
+    const again = await fetchRead(url, browserbaseFetch(env), BROWSERBASE_FETCH_TIMEOUT_MS);
+    if (again.page !== null) {
+      log(`browserbase_${again.page.via}`);
+      return json({ page: again.page });
+    }
   }
   let browser: BrowserLike;
   try {

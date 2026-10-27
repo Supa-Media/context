@@ -16,7 +16,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { FileOpError } from "../fileOps/errors";
 import type { FileStore } from "../fileOps/store";
 
-const LANDING_OPERATIONS = new Set(["contextMoveImport", "contextMovePrepare"]);
+const LANDING_OPERATIONS = new Set(["contextMoveImport"]);
 
 /** Give a landing's store `narrowArrivals` in rows mode. Nothing is attached in file mode. */
 export async function attachArrivalAccess(

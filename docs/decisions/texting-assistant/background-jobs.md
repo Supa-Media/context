@@ -74,6 +74,42 @@ workspace they aren't in. Tests: `apps/mcp/test/agentBackground.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs`, `apps/agent/src/jobs.test.ts`
 and `apps/agent/src/groupJobs.test.ts`, each with a sabotage record.
 
-**Open:** a job's pictures are not texted; a text that adds to a running job
-("make it Friday") reaches the next turn with the job's status, not the job's
-own turn.
+**Open:** a job's pictures are not texted.
+
+### A running job can be steered, stopped and audited from the chat (2026-10-21)
+
+Owner, 2026-10-21: "does the orchestrator also route follow ups … to a running
+thread, for example if I say 'never mind make it yellow not green'", and
+"that's super important for an orchestrator, steering already running jobs,
+auditing it etc".
+
+- **Steer.** A texted turn that sees a running job its text changes calls
+  `send { action: "steer_job", args: { title } }` (`steer_background_job`).
+  The answer names the job (`steers`); the chat's inbox hands **the person's
+  own text** to the job's object (`/job-steer`), never words the model wrote,
+  and only for a job that chat started and that is still running. The job's
+  object sends it into its running turn through the existing steer route
+  (`apps/mcp/src/agent/steer.js`, with the job's own grant; a group's grant is
+  accepted there because only a group's job turns are ever named), where it
+  is taken in after the next tool call. One the turn never took in is shown to
+  the next turn as a follow-up ("newer than your plan"), and a job that
+  answered without it gets that turn instead of texting the old way; on its
+  last turn it texts what it made and says the change came too late.
+- **Stop.** The same call with `stop: true`: the chat shows the job stopped at
+  once, the stop text is sent into the running turn so it winds up at its next
+  step, and the job texts nothing more and runs no further turn. In a group,
+  anyone in the chat may stop a job anyone there started, as they may answer
+  it.
+- **Audit.** A job's turn streams each step as a short line (`withJobSteps`:
+  tool, action and what it was pointed at; never a note's text, a result, or an
+  email's body). The chat keeps the last five with the job, and every texted
+  turn is shown them, so "what is it doing?" is answered from what it did. The
+  whole record stays where it was: the person's Tex transcript.
+
+**What a simplification would cost:** passing the model's paraphrase instead
+of their text lets a model line steer a job (and, through a turn, vouch for
+nothing it should); dropping the after-the-last-look turn texts a result the
+person already changed; texting what a stopped job says on its way out
+ignores the stop. Tests: `apps/agent/src/jobSteer.test.ts`, and the steer and
+step checks in `apps/mcp/test/agentBackground.test.mjs`,
+`agentBackgroundRoute.test.mjs` and `agentSteer.test.mjs`.

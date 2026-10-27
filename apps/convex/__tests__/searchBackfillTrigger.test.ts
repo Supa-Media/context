@@ -32,7 +32,7 @@ describe("the trigger", () => {
     // provisioner recorded `backfilling` and returned, and the context waited
     // for its owner to run a search that might never come.
     expect(await queued(t, "runFileOperation")).toHaveLength(1);
-  });
+  }, 30_000); // the first action of a file pays to warm the deployment, which takes longer than the default five seconds under load
 
   test("a pass copies the notes and the count reaches the row", async () => {
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
@@ -124,8 +124,12 @@ describe("the trigger", () => {
 
     // One link over the whole fixture finishes it, so nothing follows: `ready`
     // ends the chain as surely as no progress does.
+    // Only the chain's own links count: the copy's follow-up jobs are `runFileOperation` too.
+    const chainLinks = async (deployment: typeof t) =>
+      (await queued(deployment, "runFileOperation")).filter((job) => JSON.stringify(job.args).includes("projectIndex"));
+
     await project(t, workspaceId);
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    expect(await chainLinks(t)).toHaveLength(0);
 
     // And a link that cannot finish the job schedules exactly one more —
     // never a fan-out, whatever it moved.
@@ -137,7 +141,7 @@ describe("the trigger", () => {
       // A link that cannot finish the job.
       operation: { kind: "projectIndex" as const, passes: 4 },
     });
-    expect((await queued(t2, "runFileOperation")).length).toBeLessThanOrEqual(1);
+    expect((await chainLinks(t2)).length).toBeLessThanOrEqual(1);
   });
 
   test("the chain runs out of links rather than running forever", async () => {
@@ -151,7 +155,8 @@ describe("the trigger", () => {
       operation: { kind: "projectIndex" as const, passes: 0 },
     });
 
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    // Only the chain's own links count: the copy's follow-up jobs are `runFileOperation` too.
+    expect((await queued(t, "runFileOperation")).filter((job) => JSON.stringify(job.args).includes("projectIndex"))).toHaveLength(0);
   });
 
   test("a row that stopped being backfilling stops the chain, without a credential", async () => {

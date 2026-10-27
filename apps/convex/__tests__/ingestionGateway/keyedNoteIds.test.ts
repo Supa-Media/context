@@ -35,7 +35,7 @@ const LOOKUP = "/gateway/ingest/note-ids/lookup";
 const WROTE = "/gateway/ingest/note-ids/wrote";
 const ADOPT = "/gateway/ingest/note-ids/adopt";
 
-const PATH = "0-inbox/email/0123456789abcdef01234567.md";
+const PATH = "inbox/email/0123456789abcdef01234567.md";
 const NOTE = "0190c0de-0000-7000-8000-00000000b001";
 const NOTE_KEY = `notes/${NOTE}.md`;
 const OTHER_NOTE = "0190c0de-0000-7000-8000-00000000b002";
@@ -94,11 +94,11 @@ describe("the id-layer routes for a capture", () => {
     expect(body.notes[PATH]).toMatchObject({ state: "keyed", key: NOTE_KEY, etag: "e1", noteId: NOTE });
   }, COLD);
 
-  test("lookup answers the same shape in a workspace that is not keyed", async () => {
+  test("lookup of a path no row holds answers keyed, with no notes, in a workspace never flipped", async () => {
     const { t } = await ready();
     const ticket = await boundTicket(t, "seyi");
     const body = await (await lookup(t, ticket, [PATH])).json();
-    expect(body).toEqual({ copies: {}, keyed: false, notes: {} });
+    expect(body).toEqual({ copies: {}, keyed: true, notes: {} });
   });
 
   test("wrote records the key's new version on the row", async () => {
@@ -201,9 +201,9 @@ describe("what a ticket may reach", () => {
 describe("the inbox bound", () => {
   test.each([
     ["a path outside the inbox", "1-projects/plan.md"],
-    ["a plumbing path inside the inbox", "0-inbox/.history/x.md"],
-    ["a dot segment escaping the inbox", "0-inbox/../x.md"],
-    ["the inbox folder itself", "0-inbox/"],
+    ["a plumbing path inside the inbox", "inbox/.history/x.md"],
+    ["a dot segment escaping the inbox", "inbox/../x.md"],
+    ["the inbox folder itself", "inbox/"],
   ])("adopt refuses %s", async (_label, path) => {
     const { t, workspaceId } = await ready();
     await keyOn(t, workspaceId);
@@ -219,12 +219,12 @@ describe("the inbox bound", () => {
   });
 
   test("the bound accepts the inbox and rejects its neighbours (pure)", () => {
-    expect(isInboxPath("0-inbox/", PATH)).toBe(true);
-    expect(isInboxPath("0-inbox/", "0-inbox/a/b/c.md")).toBe(true);
-    expect(isInboxPath("0-inbox/", "0-inboxes/a.md")).toBe(false);
-    expect(isInboxPath("0-inbox/", "0-inbox/.audit/a.json")).toBe(false);
-    expect(isInboxPath("0-inbox/", "0-inbox/a//b.md")).toBe(false);
-    expect(isInboxPath("0-inbox", "0-inbox/a.md")).toBe(false);
+    expect(isInboxPath("inbox/", PATH)).toBe(true);
+    expect(isInboxPath("inbox/", "inbox/a/b/c.md")).toBe(true);
+    expect(isInboxPath("inbox/", "inboxes/a.md")).toBe(false);
+    expect(isInboxPath("inbox/", "inbox/.audit/a.json")).toBe(false);
+    expect(isInboxPath("inbox/", "inbox/a//b.md")).toBe(false);
+    expect(isInboxPath("inbox", "inbox/a.md")).toBe(false);
   });
 });
 

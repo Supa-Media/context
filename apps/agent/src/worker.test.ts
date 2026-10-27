@@ -215,7 +215,8 @@ describe("worker", () => {
       const body = inbound({ group_id: "g-1", participants: ["+15555550100", "+15555550101"], content: "Tex, hi" });
       expect((await worker.fetch(post(body, SB_SECRET), e)).status).toBe(200);
       expect(routedTo).toEqual(["sendblue-group:g-1"]);
-      expect(urls).toEqual(["https://inbox/group-accept"]);
+      // With the Worker's own address, or the group's pictures have nowhere to be served from (2026-10-26).
+      expect(urls).toEqual(["https://inbox/group-accept?origin=https%3A%2F%2Fagent.example"]);
     });
   });
 
@@ -274,6 +275,8 @@ describe("worker", () => {
       replies: true,
       sendblueWebhook: false,
       sendblueReplies: false,
+      whapiWebhook: false,
+      whapiReplies: false,
       workerSecret: true,
       controlPlane: true,
       gatewayOrigin: "https://gw.example",

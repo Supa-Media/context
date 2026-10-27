@@ -195,6 +195,8 @@ export function previewFor(pathname: string): PreviewMeta {
 
 /** The 1200x630 card a Slack connect link shows, bundled like `/og/card.png`. */
 export const CONNECT_SLACK_CARD_PATH = "/og/connect-slack.png";
+/** The guide Tex texts beside a Google connect link: Google's warning and consent screens, what to tap (`og-google-connect.source.html`). */
+export const GOOGLE_CONNECT_GUIDE_PATH = "/og/google-connect.png";
 
 /**
  * A link Tex texts so the person connects Slack (`/connect/slack/<token>`,

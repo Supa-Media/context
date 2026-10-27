@@ -31,7 +31,6 @@ import { createMeaningClient } from "./client.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
-import { logicalPath, pendingMovesOf, readAtTreeName } from "../../moves/queued.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
 
@@ -171,15 +170,12 @@ export function mergeHits(wordHits, matches, keyField = "key") {
 
 /**
  * A snippet for a note found only by meaning: the start of the passage that
- * matched. `isVisible` is passed down to the read, so a note a queued folder
- * move is carrying somewhere narrower is never opened here — `atTreeNames`
- * drops the hit afterwards either way, but the bytes are not read first.
+ * matched.
  */
-async function meaningSnippet(store, match, chars = 200, isVisible) {
+async function meaningSnippet(store, match, chars = 200) {
   let text;
   try {
-    // At the name the tree draws, and only where the caller may see it there.
-    const object = await readAtTreeName(store, match.path, isVisible);
+    const object = await store.get(match.path);
     if (!object) return null; // moved or deleted since it was embedded
     text = await object.text();
   } catch {
@@ -213,19 +209,14 @@ function projectionOf(store) {
  * ready, since a ready database holds every note the writes have kept; a
  * filling one has not copied everything yet, so the note is read instead. A
  * statement that failed reads them all, the way a context with no database
- * does. Either way a note a queued move is carrying somewhere the caller may
- * not see is never opened, as `readAtTreeName` keeps it unread.
+ * does.
  */
-async function snippetsFor(store, reading, chars, isVisible, given) {
+async function snippetsFor(store, reading, chars, given) {
   const read = async (entries) =>
-    Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars, isVisible)]));
+    Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars)]));
   const projection = given ?? projectionOf(store);
   if (reading.length === 0 || !projection) return new Map(await read(reading));
-  const pending = pendingMovesOf(store?.pendingMoves);
-  const askable = reading.filter((entry) => {
-    const named = pending.length > 0 ? logicalPath(entry.meaning.path, pending) : entry.meaning.path;
-    return named === entry.meaning.path || (typeof isVisible === "function" && isVisible(named));
-  });
+  const askable = reading;
   let answered = null;
   try {
     answered = await passageSnippets(projection.client(), askable.map((entry) => entry.meaning), chars);
@@ -259,11 +250,6 @@ async function snippetsFor(store, reading, chars, isVisible, given) {
  * unless given (`../settings.js`); a word search that found only loose
  * any-word hits may add twice as many, never fewer than the loose cap.
  *
- * `isVisible` is the caller's own privacy engine. It reaches the snippet
- * read, so a note a queued folder move is carrying somewhere narrower is
- * never opened: `atTreeNames` drops such a hit from the answer afterwards,
- * and this keeps its bytes unread in the first place.
- *
  * @param {object} store
  * @param {{hits: any[], matchCount?: number}} found
  * @param {any} matches
@@ -272,10 +258,9 @@ async function snippetsFor(store, reading, chars, isVisible, given) {
  * Absent, it is the store's own (`store.searchIndex`), or none.
  *
  * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number,
- *   isVisible?: (path: string) => boolean,
  *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, isVisible, projection } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection } = {}) {
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
@@ -294,7 +279,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
   const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
-  const reads = await snippetsFor(store, reading, chars, isVisible, projection);
+  const reads = await snippetsFor(store, reading, chars, projection);
   const out = [];
   // The evidence behind each hit, beside the hits rather than on them: a
   // search across workspaces (`tools/search.js`) ranks by it, since one
@@ -321,57 +306,6 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return atTreeNames(await withMeaning(store, found, matches, { isVisible: options.isVisible, ...shape }), store?.pendingMoves, {
-    isVisible: options.isVisible,
-    prefix: options.prefix,
-    keyField: shape.keyField,
-  });
+  return await withMeaning(store, found, matches, shape);
 }
 
-/**
- * An answer at the names the tree draws while queued folder moves are still
- * copying (phase 4 of `docs/decisions/app-and-console/convex-tree.md`).
- *
- * Both indexes hold notes at their bucket keys, and a queued move leaves those
- * keys where they are until its copy lands. So each hit is folded through the
- * session's pending moves (`logicalPath`, the same fold every listing draws
- * with) and judged again by the caller's own `isVisible` at its new name: a
- * folder moved somewhere narrower takes its notes out of a team member's
- * answer at once, rather than when the copy finishes. A hit moving out of a
- * folder search's prefix leaves it, and a note found at both names (an index
- * that has seen the copy land and one that has not) is listed once. The count
- * drops by what was dropped, never below what is shown.
- *
- * @template T
- * @param {T} found
- * @param {unknown} moves the store's `pendingMoves`, absent when none
- * @param {{ isVisible?: (path: string) => boolean, prefix?: string, keyField?: string }} [options]
- * @returns {T}
- */
-export function atTreeNames(found, moves, { isVisible, prefix = "", keyField = "key" } = {}) {
-  const pending = pendingMovesOf(moves);
-  if (pending.length === 0 || !Array.isArray(found?.hits)) return found;
-  const hits = [];
-  const evidence = {};
-  const shown = new Set();
-  for (const hit of found.hits) {
-    const key = hit[keyField];
-    const named = typeof key === "string" ? logicalPath(key, pending) : key;
-    if (named !== key) {
-      if (typeof isVisible === "function" && !isVisible(named)) continue;
-      if (prefix && !named.startsWith(prefix)) continue;
-    }
-    if (shown.has(named)) continue;
-    shown.add(named);
-    hits.push(named === key ? hit : { ...hit, [keyField]: named });
-    if (found.evidence && key in found.evidence) evidence[named] = found.evidence[key];
-  }
-  const dropped = found.hits.length - hits.length;
-  if (dropped === 0 && hits.every((hit, index) => hit === found.hits[index])) return found;
-  return {
-    ...found,
-    hits,
-    ...(found.evidence ? { evidence } : {}),
-    ...(typeof found.matchCount === "number" ? { matchCount: Math.max(hits.length, found.matchCount - dropped) } : {}),
-  };
-}

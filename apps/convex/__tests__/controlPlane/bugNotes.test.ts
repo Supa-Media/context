@@ -50,10 +50,12 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { fileBugNote } from "../../functions/bugNotes";
+import { filedAsBugNote } from "../../functions/lib/gatewayRoutes/feedback";
 import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedback/bugNote";
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import {
   addMember,
@@ -67,6 +69,8 @@ import {
   type TestConvex,
 } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
+import { renderPrivacyManifestForFolders } from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const DSN = "https://0123456789abcdef0123456789abcdef@o1.ingest.example.invalid/42";
 const TEXTS = "Them: find my avocado note\n\nTex: I couldn't find a note about avocados.";
@@ -95,13 +99,15 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function world(rules: "para" | "team-everywhere" = "para") {
+async function world() {
   const tenants = await twoConnectedTenants();
   const { t, alice, grantA } = tenants;
   const staff = await createUser(t, "staff@example.invalid");
   const pinned = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
-  backend.seed(PRIVACY_KEY, rules === "para" ? renderPrivacyManifest("para") : teamEverywhere());
+  backend.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS));
   backend.seed("index.md", "# Context\n");
+  // A context has its Areas folder before anybody reports anything, and the check reads that folder's row.
+  backend.seed("areas/README.md", "# Areas\n");
   await seedStorageBinding(t, { workspaceId: pinned, boundBy: staff, bucket: PINNED_BUCKET });
   await copyTree(t, pinned);
   // Tex's own client and grant, as `textLinks.ts` makes them.
@@ -145,11 +151,6 @@ async function judgedByRows(t: TestConvex, workspaceId: Id<"workspaces">) {
   });
 }
 
-/** A manifest with `areas` opened to the team: every account reads it through the pin. */
-function teamEverywhere(): string {
-  return renderPrivacyManifest("para").replace("  2-areas: private\n", "  2-areas: private\n  areas: team\n");
-}
-
 async function report(t: TestConvex, body: Record<string, unknown>) {
   return await bodyOf(await gatewayPost(t, "/gateway/feedback", { accessToken: ACCESS_A, ...body }));
 }
@@ -190,6 +191,12 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(note).toContain(`reference: "${(answer.report as { eventId: string }).eventId}"`);
   });
 
+  test("Tex in a group chat files as its tagger, as a text does; any other AI goes to Sentry", () => {
+    expect(filedAsBugNote("context_texts")).toBe(true);
+    expect(filedAsBugNote("context_texts_group")).toBe(true);
+    expect(filedAsBugNote("some_other_ai")).toBe(false);
+  });
+
   test("a report without texts says so", async () => {
     const { t, pinned } = await world();
     await report(t, { message: "The link in your last text did not open." });
@@ -211,7 +218,9 @@ describe("bug reports by text, as notes in the pinned context", () => {
   });
 
   test("a folder anybody can read through the pin gets nothing, and the report is not counted", async () => {
-    const { t, pinned } = await world("team-everywhere");
+    const { t, pinned, staff } = await world();
+    // Open the Areas folder to every account, as the console does: the rows, not a manifest line, carry it.
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team", accounts: true });
     expect(await report(t, { message: "x", texts: TEXTS })).toEqual({ report: null, refused: "unavailable" });
     expect(bugs(await notesIn(t, pinned))).toEqual([]);
     expect(JSON.stringify(backend.snapshot())).not.toContain("avocado");
@@ -254,10 +263,7 @@ describe("bug reports by text, as notes in the pinned context", () => {
     // Alice reaches the pinned context through the pin alone: no membership, no names.
     expect(await sees(alice)).toBe(false);
     const base = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
-        .unique();
+      const row = await treeNodeAt(ctx.db, pinned, path!);
       return row?.access?.base;
     });
     expect(base).toBe("private");
@@ -296,10 +302,7 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(seen.kind === "visiblePaths" && seen.paths).toEqual([path]);
     expect(await sees(alice)).toBe(false);
     const state = await t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
-        .unique();
+      const row = await treeNodeAt(ctx.db, pinned, path!);
       const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
       const audited = (await ctx.db.query("auditEvents").withIndex("by_workspace", (q) => q.eq("workspaceId", pinned)).collect())
         .filter((event) => event.action === "access.base");

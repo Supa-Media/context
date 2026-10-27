@@ -13,7 +13,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
-import { contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import { addressable, contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
@@ -45,7 +45,7 @@ async function ownMailbox(ctx: QueryCtx, hashedAccessToken: string, mailboxId: s
     .withIndex("by_mailboxId", (q) => q.eq("mailboxId", mailboxId))
     .unique();
   if (row === null || row.grantId !== live.grant._id) return null;
-  const reach = await contextsForGrant(ctx, live);
+  const reach = addressable(await contextsForGrant(ctx, live));
   if (!reach.some((entry) => entry.workspaceId === row.workspaceId)) return null;
   return row;
 }
@@ -73,7 +73,7 @@ export const joinMailbox = internalMutation({
     if (!args.path || args.path.length > MAX_PATH || !/^mb_[a-z0-9]{8,32}$/.test(args.mailboxId)) return refused;
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null) return refused;
-    const target = (await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
+    const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return refused;
     const existing = await ctx.db
       .query("noteMailboxes")

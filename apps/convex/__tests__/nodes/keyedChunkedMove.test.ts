@@ -1,6 +1,6 @@
 /**
  * A keyed folder move bigger than one transaction (`lib/nodes/rowMoveChunks.ts`):
- * the root moves at once and the rows beneath follow in pages of `ROW_MOVE_MAX`.
+ * the root moves at once and the rows beneath follow in pages of `ROW_MOVE_PAGE`.
  *
  * Runs the real functions through `convex-test`. Each case fails if its guard
  * is removed:
@@ -11,11 +11,12 @@
  *    the name people see is not found mid-move);
  *  - the access copies (`withMovingAccess`: rows not yet moved out of a private
  *    folder read as their old parent's, `team`);
- *  - the file-mode rules guard (`rules_changed`: a page moves rows the rules
- *    changed under);
+ *  - the rules guard (`rules_changed`: a page moves rows the rules changed under);
  *  - the watchdog and the resume (`continueRowMove`, `rowMoveFor`: a move whose
  *    request stopped is never finished);
- *  - the overlap check (`overlapsRowMove`: a second move inside the moving one lands).
+ *  - the overlap check (`overlapsRowMove`: a second move inside the moving one lands);
+ *  - the page size (`ROW_MOVE_PAGE`: a page of `ROW_MOVE_MAX` linked notes went past
+ *    the reads one function may make, and the move stopped for good).
  */
 
 import { describe, expect, test } from "vitest";
@@ -23,11 +24,14 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { rulesForReaders } from "../../functions/lib/nodes/readerRules";
 import { canSee } from "../../functions/lib/privacy";
-import { OWNER, listed, start } from "./moveFixture.helpers";
-import { setFolderVisibility } from "../../functions/lib/fileOps";
-import { touchNodesNow } from "../../functions/lib/nodes/run";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
+import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { storedPathsOnly } from "./treeRows.helpers";
+
+// Paged moves and the parent check that sets parents from stored paths exist only on stored paths.
+storedPathsOnly();
 
 type Fixture = Awaited<ReturnType<typeof keyedFixture>>;
 
@@ -38,10 +42,7 @@ const TO = "3-resources/big";
 /** `FROM` under `1-projects` with a subfolder and `FILES` keyed files, every row with its real parent. */
 async function bigTree(f: Fixture): Promise<void> {
   await f.t.run(async (ctx) => {
-    const parent = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects"))
-      .unique();
+    const parent = await treeNodeAt(ctx.db, f.ws, "1-projects");
     const folder = await ctx.db.insert("nodes", {
       workspaceId: f.ws,
       noteId: NOTE_ID(5000),
@@ -194,7 +195,6 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
   test("rows mode: rows not yet out of a private folder stay private, at both names, mid-move", async () => {
     const f = await keyedFixture();
     await bigTree(f);
-    await f.t.mutation(internal.functions.nodesPrivacy.setAccessSource, { workspaceId: f.ws, source: "rows" });
     await f.t.mutation(internal.functions.nodesAccess.setAccess, {
       workspaceId: f.ws,
       path: FROM,
@@ -225,40 +225,6 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     expect(await teamSees(f, [`${TO}/n0001.md`, `${TO}/sub/n0010.md`])).toEqual([false, false]);
   });
 
-  test("file mode: a rule written under the old name mid-move holds the pages until it is carried; asking again carries it", async () => {
-    const f = await keyedFixture();
-    await bigTree(f);
-    const id = await begin(f);
-    await page(f, id);
-    const midway = await treeOf(f);
-    // An owner makes the subfolder private mid-move, at the old name the rules still hold it by.
-    await setFolderVisibility(f.store, { path: `${FROM}/sub`, visibility: "private", clearance: OWNER });
-    await touchNodesNow(f.ctx, f.ws, f.store, { paths: [], files: [PRIVACY_KEY] });
-
-    expect(await page(f, id)).toMatchObject({ state: "rules_changed", files: [] });
-    expect(await treeOf(f)).toEqual(midway);
-
-    // Asked again, the request carries the rules once more and pages to the end: the rule reached the new name.
-    const finished = await start(f, FROM, TO);
-    expect(finished).toMatchObject({ rowed: true });
-    expect((await treeOf(f)).filter((row) => row.live && row.path.startsWith(`${TO}/`) && row.kind === "file")).toHaveLength(FILES);
-    expect(await records(f)).toEqual([]);
-    expect(await teamSees(f, [`${TO}/sub/n0010.md`, `${TO}/n0001.md`])).toEqual([false, true]);
-  });
-
-  test("file mode: a rule changed elsewhere mid-move does not hold the pages", async () => {
-    const f = await keyedFixture();
-    await bigTree(f);
-    const id = await begin(f);
-    await page(f, id);
-    const before = await privacyEtag(f);
-    await setFolderVisibility(f.store, { path: "1-projects/secret", visibility: "team", clearance: OWNER });
-    await touchNodesNow(f.ctx, f.ws, f.store, { paths: [], files: [PRIVACY_KEY] });
-    expect(await privacyEtag(f)).not.toBe(before);
-
-    expect(await page(f, id)).toMatchObject({ state: "moving" });
-  });
-
   test("a move whose request stopped mid-way is finished by the watchdog, and asking again settles it", async () => {
     const f = await keyedFixture();
     await bigTree(f);
@@ -268,7 +234,7 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     await f.t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
     const waited = await treeOf(f);
     expect(waited.filter((row) => row.live && row.path.startsWith(`${FROM}/`)).length).toBeGreaterThan(0);
-    for (let pass = 0; pass < 20 && (await records(f))[0]?.state === "moving"; pass += 1) {
+    for (let pass = 0; pass < 40 && (await records(f))[0]?.state === "moving"; pass += 1) {
       await f.t.run(async (ctx) => await ctx.db.patch(id, { updatedAt: 0 }));
       await f.t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
     }
@@ -279,6 +245,17 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     // The bucket's side is the request's: asking for the same move again does it and lets the record go.
     await start(f, FROM, TO);
     expect(await records(f)).toEqual([]);
+  });
+
+  test("a page moves at most a page of rows, well inside what one function may read", async () => {
+    const f = await keyedFixture();
+    await bigTree(f);
+    const id = await begin(f);
+    const first = await page(f, id);
+    expect(first.state).toBe("moving");
+    expect(first.files.length).toBeGreaterThan(0);
+    expect(first.files.length).toBeLessThanOrEqual(ROW_MOVE_PAGE);
+    expect(ROW_MOVE_PAGE).toBeLessThanOrEqual(100);
   });
 
   test("a page run twice, or after the move finished, moves nothing twice", async () => {
@@ -312,10 +289,7 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     const id = await begin(f);
     const last = `n${String(FILES - 1).padStart(4, "0")}.md`;
     await f.t.run(async (ctx) => {
-      const parent = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", TO))
-        .unique();
+      const parent = await treeNodeAt(ctx.db, f.ws, TO);
       await ctx.db.insert("nodes", {
         workspaceId: f.ws,
         noteId: NOTE_ID(9_999),

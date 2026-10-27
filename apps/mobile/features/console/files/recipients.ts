@@ -35,7 +35,7 @@
  * them as statements, not buttons.
  */
 
-export type RecipientKind = "member" | "group" | "invite" | "domain";
+export type RecipientKind = "member" | "group" | "invite" | "domain" | "handle";
 
 export interface Recipient {
   kind: RecipientKind;
@@ -49,6 +49,11 @@ export interface Recipient {
   userId?: string;
   /** Set for `group` — the full name, without its `@`. */
   group?: string;
+  /**
+   * Set for `handle`: a typed `@name` nobody in this workspace holds, without the `@`. Never looked up here —
+   * the server resolves it on Share, and refuses one nobody holds. Also set on a `member` who has one.
+   */
+  handle?: string;
   /** Set for `domain`: everyone who signs in with an address there. */
   domain?: string;
   /**
@@ -66,6 +71,8 @@ export interface RecipientMember {
   userId: string;
   name?: string;
   email?: string;
+  /** Their own `@name` (their personal workspace), without the `@`. */
+  handle?: string;
 }
 
 export interface RecipientGroup {
@@ -74,6 +81,16 @@ export interface RecipientGroup {
   label: string;
   /** How many people it actually reaches. */
   liveCount: number;
+}
+
+/**
+ * The name a typed `@name` stands for, or `null`. Only with the `@`: somebody typing `kola` is looking for Kola
+ * in the list, and offering "share with @kola" under every half-typed word would be offering a stranger. The
+ * shape is the namespace's (`validateName` in `apps/convex`): 2 to 32 of `a-z0-9-`, no hyphen at either end.
+ */
+export function typedHandle(query: string): string | null {
+  const match = /^@([a-z0-9][a-z0-9-]{0,30}[a-z0-9])$/i.exec(query.trim());
+  return match === null ? null : match[1].toLowerCase();
 }
 
 /** Whether a typed string could be an email address at all. */
@@ -115,12 +132,24 @@ export function recipientsFor(
     reachingGroups?: ReadonlySet<string>;
     /** Addresses already on the note's list. */
     reachingEmails?: ReadonlySet<string>;
+    /** `@name`s (without the `@`) of people outside the workspace already on the note's list. */
+    reachingHandles?: ReadonlySet<string>;
+    /** The second line of the `@name` row, where the caller's share means something else. */
+    handleDetail?: string;
+    /**
+     * Whether the typed `@name` belongs to a person (`names.personByName`). Only `true` draws its row: a name
+     * nobody holds, an answer still on its way, and a caller that cannot ask all offer nothing to press.
+     */
+    handleFound?: boolean;
     /** The second line of the invite row, where the caller's invite means something else. */
     inviteDetail?: string;
   } = {},
 ): Recipient[] {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) return [];
+  // `@mari` looks for Mari as `mari` does: the sigil says "a person", it is not part of anybody's name.
+  const handle = typedHandle(needle);
+  const term = handle ?? needle;
 
   const reachingUsers = options.reachingUserIds ?? new Set<string>();
   const reachingGroups = options.reachingGroups ?? new Set<string>();
@@ -128,15 +157,15 @@ export function recipientsFor(
   const rank = (value: string | undefined) => {
     if (value === undefined) return 2;
     const lowered = value.toLowerCase();
-    if (lowered.startsWith(needle)) return 0;
-    return lowered.includes(needle) ? 1 : 2;
+    if (lowered.startsWith(term)) return 0;
+    return lowered.includes(term) ? 1 : 2;
   };
 
   const memberRows: Recipient[] = members
-    .filter((member) => matches(member.name, needle) || matches(member.email, needle))
+    .filter((member) => matches(member.name, term) || matches(member.email, term) || matches(member.handle, term))
     .map((member) => ({
       member,
-      order: Math.min(rank(member.name), rank(member.email)),
+      order: Math.min(rank(member.name), rank(member.email), rank(member.handle)),
     }))
     .sort((a, b) => a.order - b.order)
     .map(({ member }) => {
@@ -147,16 +176,15 @@ export function recipientsFor(
         label: member.name ?? member.email ?? member.userId,
         detail: reaches
           ? "Already has access — listed below"
-          : member.name !== undefined
-            ? member.email
-            : undefined,
+          : memberDetail(member),
         userId: member.userId,
+        ...(member.handle === undefined ? {} : { handle: member.handle }),
         ...(reaches ? { reaches: true } : {}),
       };
     });
 
   const groupRows: Recipient[] = groups
-    .filter((group) => matches(group.name, needle))
+    .filter((group) => matches(group.name, term))
     .map((group) => ({ group, order: rank(group.name) }))
     .sort((a, b) => a.order - b.order)
     .map(({ group }) => {
@@ -204,7 +232,30 @@ export function recipientsFor(
       detail: options.inviteDetail ?? "Not a member yet — inviting them also gives them this note",
     });
   }
+  /*
+    A typed `@name` that is nobody's here and no group's: offered as itself, and only once the server has said a
+    person holds it (Dev2, 2026-10-25: a row for a name nobody holds is a share sent to nobody). The answer is
+    yes or no and never who.
+  */
+  const handleIsOurs =
+    handle !== null &&
+    (members.some((member) => member.handle?.toLowerCase() === handle) ||
+      groups.some((group) => group.name.toLowerCase() === handle));
+  const handleReaches = handle !== null && options.reachingHandles?.has(handle) === true;
+  if (handle !== null && !handleIsOurs && !handleReaches && options.handleFound === true) {
+    offers.push({
+      kind: "handle",
+      key: `@${handle}`,
+      label: `@${handle}`,
+      detail: options.handleDetail ?? "Whoever holds this name. They find it under Shared with me",
+      handle,
+    });
+  }
+
   const answers = [...memberRows, ...groupRows].filter((row) => row.reaches === true);
+  if (handle !== null && !handleIsOurs && handleReaches) {
+    answers.push({ kind: "handle", key: `@${handle}`, label: `@${handle}`, detail: "Already has access — listed below", handle, reaches: true });
+  }
   if (looksLikeAddress(needle) && emailReaches) {
     answers.push({ kind: "invite", key: needle, label: needle, detail: "Already has access — listed below", reaches: true });
   }
@@ -212,6 +263,15 @@ export function recipientsFor(
   // Offers first and the invite last among them; answers below, because they
   // are not things to press. See the header.
   return [...offers, ...answers];
+}
+
+/** A member row's quieter line: their `@name` and their address, whichever they have. */
+function memberDetail(member: RecipientMember): string | undefined {
+  const parts = [
+    member.handle === undefined ? undefined : `@${member.handle}`,
+    member.name === undefined ? undefined : member.email,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
 /**
@@ -223,7 +283,13 @@ export function recipientsFor(
  * that appears over an untouched field is noise, and the people who already
  * have the note are listed right below it anyway.
  */
-export function noMatchHint(query: string): string | undefined {
+export function noMatchHint(query: string, handleFound?: boolean): string | undefined {
   if (query.trim().length === 0) return undefined;
-  return "Nobody here by that name. Type a full email address to invite somebody new.";
+  const handle = typedHandle(query);
+  if (handle !== null) {
+    return handleFound === false
+      ? `Nobody on Context goes by @${handle}. Check the spelling, or type their email.`
+      : `Looking for @${handle}…`;
+  }
+  return "Nobody here by that name. Type their @name or a full email address to share with somebody new.";
 }

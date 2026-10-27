@@ -36,9 +36,11 @@ import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { recordRead } from "../privacy/egress.js";
-import { createPending, findPending, takeDone } from "./approvals.js";
+import { createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { irreversibleOf } from "./irreversible.js";
+import { slackPlace } from "./connectors.js";
+import { likedPreviewAllows } from "./likedPreview.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
@@ -58,7 +60,6 @@ const RELOCATING_TOOLS = new Set([
   "move_notes",
   "move_folder",
   "archive_note",
-  "materialize_move",
 ]);
 
 /**
@@ -103,10 +104,24 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     const refused = await judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid });
     if (refused) return refused;
   }
-  const held = irreversibleOf(name, args, { into: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : null });
-  if (held === null || session.egress?.approved === true) return null;
+  if (session.egress?.approved === true) return null;
+  // A Slack post is asked about by the name Slack gives its channel or person, never an id.
+  const slack = name === "slack_api" ? await slackPlace(targetStore ?? store, args) : null;
+  const held = irreversibleOf(name, args, { into: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : null, slack });
+  if (held === null) return null;
   const { because, ...claim } = held;
   const userId = session.actorUserId;
+  // Their 👍 on Tex's own preview of exactly this message (`likedPreview.js`).
+  if (name === "slack_api" && likedPreviewAllows(session, args, slack)) {
+    await recordChange(store, "approve_action", session.scope, [], {
+      tool: suppliedName,
+      by: "thumbs_up_on_preview",
+      client_id: session.actorClientId ?? null,
+      team_visible: false,
+    }).catch(() => {});
+    console.log(JSON.stringify({ event: "thumbs_up_preview", tool: name, released: true }));
+    return null;
+  }
   const released = await takeDone(store, {
     name: suppliedName,
     args: supplied,
@@ -117,6 +132,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   const ledger = session.egress?.ledger ?? null;
   const texting = session.egress?.texting === true;
   const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {
@@ -144,8 +160,9 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   return {
     ...toolError(
       texting
-        ? `Not done yet: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
-            "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
+        ? `Held for their 👍, and nothing failed: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
+            "Right after your answer, in this same reply, they are shown exactly this and asked once. " +
+            "Say in one short line what you'd do, without repeating the message or asking for their OK or 👍 yourself. " +
             "Don't call this again in this turn."
         : `Not done: this would ${claim.summary}. It needs the person's approval first, because ${because}. ` +
             "They can approve it in the Context app. " +
@@ -474,12 +491,10 @@ async function routeToolCall(params, store, session, routed) {
       toolMoveNoteAcrossContexts(
         sourceTarget.store,
         sourceTarget.session,
-        destinationTarget.store,
         destinationTarget.session,
         crossArgs.source,
         crossArgs.destination,
-        crossArgs.expected_source_etag,
-        crossArgs.confirm_team_publish === true
+        crossArgs.expected_source_etag
       )
     );
     reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);

@@ -34,13 +34,19 @@ import { managedBucketBound } from "../functions/lib/managedEncryptionFns/rollou
 import { decryptWorkspace } from "../functions/managedEncryption";
 import { asUser, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import { ADMIN, fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
+import { keyedFixture, keyOf } from "./keyedFixture.encrypt.helpers";
+import { bytesAtPath, type NoteBucket } from "./files/keyedNotes.helpers";
 
 resetAfterEach();
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-async function encrypted(options: Parameters<typeof fixture>[0] = {}): Promise<Fixture> {
-  const f = await fixture(options);
+/** The keyed fixture, encrypted: every note at its `notes/` key, named by its row. */
+async function encrypted(
+  options: Parameters<typeof fixture>[0] = {},
+  extraNotes: Record<string, string> = {},
+): Promise<Fixture> {
+  const f = await keyedFixture(options, extraNotes);
   await asUser(f.t, f.staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
   await drainScheduled(f.t);
   expect(await row(f.t, f.ours)).toMatchObject({ state: "encrypted" });
@@ -54,6 +60,11 @@ const mode = (t: TestConvex, workspaceId: Id<"workspaces">) =>
 async function read(t: TestConvex, as: Id<"users">, workspaceId: Id<"workspaces">, path: string) {
   return (await asUser(t, as).action(api.functions.files.readNote, { workspaceId, path })).text;
 }
+
+const bucketOf = (f: Fixture): NoteBucket => ({ t: f.t, workspaceId: f.ours, backend: f.backend });
+
+/** The bytes of the note a path names, read from its key. */
+const bytesOf = (f: Fixture, path: string) => bytesAtPath(bucketOf(f), path);
 
 async function decrypt(f: Fixture) {
   await f.t.mutation(internal.functions.managedEncryption.decryptWorkspace, { workspaceId: f.ours, operator: ADMIN });
@@ -73,27 +84,29 @@ describe("decrypting a workspace", () => {
       path: "1-projects/new.md",
       text: "# New\n\nWritten on the way back.\n",
     });
-    expect(isSealed(backend.bytesOf("1-projects/new.md"))).toBe(false);
+    expect(isSealed(await bytesOf(f, "1-projects/new.md"))).toBe(false);
 
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "decrypted" });
     for (const [key] of backend.objects) expect(isSealed(backend.bytesOf(key)), key).toBe(false);
-    expect(new TextDecoder().decode(backend.bytesOf("1-projects/plan.md")!)).toBe(
+    expect(new TextDecoder().decode((await bytesOf(f, "1-projects/plan.md"))!)).toBe(
       "# Plan\n\nThe words people typed.\n",
     );
     expect(await read(t, staff, ours, "index.md")).toBe("# Ours\n");
   });
 
   test("once decrypted, a sealed save that lands late still opens rather than showing ciphertext", async () => {
-    const f = await encrypted();
+    // The straggler's row exists (a note named before the walk); its object is what lands late.
+    const f = await encrypted({}, { "0-inbox/straggler.md": "# Straggler placeholder\n" });
     const { t, staff, ours, backend } = f;
-    const sealed = backend.bytesOf("index.md")!;
+    const sealed = backend.bytesOf(await keyOf(bucketOf(f), "index.md"))!;
+    const stragglerKey = await keyOf(bucketOf(f), "0-inbox/straggler.md");
     await decrypt(f);
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "decrypted" });
     // A store built before Decrypt (an editing room, a request in flight)
     // writes one more sealed object after the last check.
-    backend.seed("0-inbox/straggler.md", sealed);
+    backend.seed(stragglerKey, sealed);
     expect(await mode(t, ours)).toBe("decrypting");
     expect(await read(t, staff, ours, "0-inbox/straggler.md")).toBe("# Ours\n");
     await asUser(t, staff).action(api.functions.files.writeNote, {
@@ -101,15 +114,15 @@ describe("decrypting a workspace", () => {
       path: "1-projects/after.md",
       text: "# After\n",
     });
-    expect(isSealed(backend.bytesOf("1-projects/after.md"))).toBe(false);
+    expect(isSealed(await bytesOf(f, "1-projects/after.md"))).toBe(false);
   });
 
   test("an object still sealed at the confirm pass is opened there, not left behind", async () => {
-    const f = await encrypted();
+    const f = await encrypted({}, { "0-inbox/late.md": "# Late placeholder\n" });
     const { t, ours, backend } = f;
-    // A sealed body from before the walk back. The path is not bound, so a
-    // copy under another key opens too.
-    const sealed = backend.bytesOf("index.md")!;
+    // A sealed body from before the walk back, landing at the key the late note's row names.
+    const sealed = backend.bytesOf(await keyOf(bucketOf(f), "index.md"))!;
+    const lateKey = await keyOf(bucketOf(f), "0-inbox/late.md");
     await decrypt(f);
     for (let i = 0; i < 20 && (await row(t, ours))?.phase !== "confirm"; i += 1) {
       const current = await row(t, ours);
@@ -117,17 +130,19 @@ describe("decrypting a workspace", () => {
     }
     expect(await row(t, ours)).toMatchObject({ state: "decrypting", phase: "confirm" });
     // As a request built before the switch would have written it.
-    backend.seed("0-inbox/late.md", sealed);
+    backend.seed(lateKey, sealed);
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "decrypted" });
-    expect(isSealed(backend.bytesOf("0-inbox/late.md"))).toBe(false);
-    expect(new TextDecoder().decode(backend.bytesOf("0-inbox/late.md")!)).toBe("# Ours\n");
+    expect(isSealed(backend.bytesOf(lateKey))).toBe(false);
+    expect(new TextDecoder().decode(backend.bytesOf(lateKey)!)).toBe("# Ours\n");
   });
 
   test("a failure stops this workspace only: still decrypting, rollout untouched, Decrypt again finishes", async () => {
     let refuse = false;
-    const f = await encrypted({ refuseWrite: (key) => refuse && key === "index.md" });
+    let indexKey = "";
+    const f = await encrypted({ refuseWrite: (key) => refuse && key === indexKey });
     const { t, staff, ours, backend } = f;
+    indexKey = await keyOf(bucketOf(f), "index.md");
     refuse = true;
     await decrypt(f);
     await drainScheduled(t);
@@ -163,8 +178,10 @@ describe("decrypting a workspace", () => {
 
   test("takes a half-walked workspace back too", async () => {
     let refuse = true;
-    const f = await fixture({ refuseWrite: (key) => refuse && key === "index.md" });
+    let indexKey = "";
+    const f = await keyedFixture({ refuseWrite: (key) => refuse && key === indexKey });
     const { t, staff, ours, backend } = f;
+    indexKey = await keyOf(bucketOf(f), "index.md");
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "failed" });

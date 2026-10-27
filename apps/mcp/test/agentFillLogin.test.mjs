@@ -225,7 +225,8 @@ test("signing in is Tex's to do: no saved login means asking Gmail or another em
   const prompt = webPrompt(new Set([BROWSE_TOOL, FILL_LOGIN_TOOL]));
   assert.match(prompt, /Gmail or another email/);
   assert.match(prompt, /vault_add/);
-  assert.match(prompt, /only for what truly needs them, a code, a captcha or a payment/);
+  // A captcha only once browse says it outlasted every try (captchaLadder.js, 2026-10-22).
+  assert.match(prompt, /only for what truly needs them, a code they can't text you, a captcha browse said outlasted Browserbase's solver, a reload and a fresh browser, or a payment/);
   assert.doesNotMatch(prompt, /so they sign in themselves/);
   assert.match(FILL_LOGIN_DEFINITION.description, /Gmail or another email/);
   assert.doesNotMatch(FILL_LOGIN_DEFINITION.description, /hand the browser over/);
@@ -235,4 +236,49 @@ test("a Google login saved for google.com fills on Google's sign-in page, and no
   assert.equal(siteMatches(["google.com"], "https://accounts.google.com"), true);
   assert.equal(siteMatches(["google.com"], "https://accounts.google.com.example.test"), false);
   assert.equal(siteMatches(["google.com"], "https://chatgpt.com"), false);
+});
+
+/*
+  AN EMAIL-FIRST SIGN-IN TAKES THE SAVED EMAIL (the owner's review of an
+  Instacart order, 2026-10-24). Instacart asks for the email alone first; with
+  no password box fill_login could not be called, so Tex typed a Gmail address
+  it found instead of the one saved for instacart.com.
+
+  Sabotage record (2026-10-24): `required: ["entry", "password_ref"]` with the
+  old password_ref check failed "fills the saved email alone"; dropping the
+  `guessedSignInEmail` call in browse.js failed "a found email is never typed".
+*/
+test("an email-first page: fill_login fills the saved email alone, and says to press continue", async () => {
+  const { store, id } = await vaultWith();
+  const { computer, web } = await signInPage(store);
+  const result = await web.call(FILL_LOGIN_TOOL, { entry: id, username_ref: 1 });
+  assert.notEqual(result.isError, true);
+  assert.match(result.content[0].text, /saved email for Netflix.*continue.*password_ref/s);
+  assert.equal(leaks(result), false);
+  assert.deepEqual(computer.typed, { 1: USERNAME });
+  assert.deepEqual(FILL_LOGIN_DEFINITION.inputSchema.required, ["entry"]);
+  assert.match(FILL_LOGIN_DEFINITION.description, /Never type an email or username into a sign-in yourself/);
+});
+
+test("a found email is never typed on a site with a saved login; theirs, or one on another site, still is", async () => {
+  const { store } = await vaultWith();
+  const { computer, web } = await signInPage(store);
+  const guessed = await web.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "someone.else@gmail.example" }] });
+  assert.equal(guessed.isError, true);
+  assert.match(guessed.content[0].text, /fill_login/);
+  // In the same call as the goto that opens the site, too.
+  const inOneCall = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://www.netflix.com/login" }, { do: "type", ref: 1, text: "someone.else@gmail.example" }] });
+  assert.equal(inOneCall.isError, true);
+  assert.equal(computer.calls.flat().filter((s) => s.do === "type").length, 0);
+
+  // An email the person wrote may be typed: it is theirs to give.
+  const told = webSession(fakeComputer(), "sign in to https://www.netflix.com/login with mine@example.test", { store });
+  await told.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://www.netflix.com/login" }] });
+  assert.notEqual((await told.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "mine@example.test" }] })).isError, true);
+
+  // A site with no saved login is not this guard's business.
+  const elsewhere = webSession(fakeComputer(), "open https://shop.example.test/signup", { store });
+  await elsewhere.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.test/signup" }] });
+  const typed = await elsewhere.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "someone.else@gmail.example" }] });
+  assert.doesNotMatch(typed.content[0].text, /fill_login/);
 });

@@ -1,4 +1,5 @@
 import { slackCall } from "./slack";
+import { channelIdByName, readMessages, searchMessages } from "./slackMessages";
 
 /**
  * Slack's two directory listings, read the way a person asks about them.
@@ -95,8 +96,54 @@ function truthy(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
-/** One Web API call; the two directory listings come back whole, trimmed and filtered. */
-export async function slackCallShaped(accessToken: string, method: string, args: Record<string, unknown>): Promise<Answer> {
+/** Posts whose `channel` may name a person: a DM is how a person asks for one ("message Segun"). */
+const POSTS = new Set(["chat.postMessage", "chat.scheduleMessage", "chat.meMessage"]);
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USER_ID = /^[UW][A-Z0-9]{2,}$/;
+
+/**
+ * The DM channel for a post addressed to a person, by user id or by the email
+ * they use in that Slack, or the channel as given; or Slack's own refusal
+ * (`users_not_found`) for an email nobody there uses. The person said yes to
+ * the post with that address in it, so the post goes to whoever Slack says
+ * owns it, and nowhere else.
+ */
+async function postChannel(accessToken: string, channel: string): Promise<{ channel: string } | { answer: Answer }> {
+  let user = USER_ID.test(channel) ? channel : undefined;
+  if (EMAIL.test(channel)) {
+    const found = await slackCall(accessToken, "users.lookupByEmail", { email: channel });
+    const body = (found.body ?? {}) as Entry;
+    const id = (body.user as Entry | undefined)?.id;
+    if (body.ok !== true || typeof id !== "string") return { answer: found };
+    user = id;
+  }
+  if (user === undefined) return { channel };
+  const opened = await slackCall(accessToken, "conversations.open", { users: user });
+  const body = (opened.body ?? {}) as Entry;
+  const id = (body.channel as Entry | undefined)?.id;
+  return body.ok === true && typeof id === "string" ? { channel: id } : { answer: opened };
+}
+
+/**
+ * One Web API call. A channel may be named as `#name`; the two directory
+ * listings come back whole, trimmed and filtered; messages and search hits
+ * come back trimmed and named (`slackMessages.ts`); and a post addressed to a
+ * person (user id or email) goes to the DM with them.
+ */
+export async function slackCallShaped(accessToken: string, method: string, given: Record<string, unknown>): Promise<Answer> {
+  let args = given;
+  if (typeof args.channel === "string" && args.channel.trim().startsWith("#")) {
+    const found = await channelIdByName(accessToken, args.channel.trim());
+    if ("answer" in found) return found.answer;
+    args = { ...args, channel: found.id };
+  }
+  if (method === "conversations.history" || method === "conversations.replies") return readMessages(accessToken, method, args);
+  if (method === "search.messages") return searchMessages(accessToken, args);
+  if (POSTS.has(method) && typeof args.channel === "string") {
+    const to = await postChannel(accessToken, args.channel.trim());
+    if ("answer" in to) return to.answer;
+    return slackCall(accessToken, method, { ...args, channel: to.channel });
+  }
   const listing = Object.hasOwn(LISTINGS, method) ? LISTINGS[method] : undefined;
   if (listing === undefined) return slackCall(accessToken, method, args);
   const { match, include_inactive, limit, cursor, ...rest } = args;

@@ -54,4 +54,11 @@ export function runSettingsChecks(check) {
   check("a non-URL is refused", acceptableGatewayUrl("gateway.example.test") === null);
   check("a file URL is refused", acceptableGatewayUrl("file:///etc/passwd") === null);
   check("no token field survives normalisation", !("token" in normalizeSettings({ version: 1, token: "shhh" })));
+  // Messages are no longer copied into notes (owner, 2026-10-21): a file that turned the import on reads as off.
+  check("an older file that turned iMessage import on reads as off", normalizeSettings({ version: 1, imessageEnabled: true }).imessageEnabled === false);
+  // The Messages backup is on by default (owner, 2026-10-26), and a person's "off" is kept.
+  check("the Messages backup is on for a fresh install", normalizeSettings({}).messagesBackup === true);
+  check("the Messages backup stays off once turned off", normalizeSettings({ version: 1, messagesBackup: false }).messagesBackup === false);
+  check("the backup copies pictures and not videos on a fresh install", normalizeSettings({}).messagesBackupPictures === true && normalizeSettings({}).messagesBackupVideos === false);
+  check("the backup's file switches are kept as set", normalizeSettings({ version: 1, messagesBackupPictures: false, messagesBackupVideos: true }).messagesBackupVideos === true && normalizeSettings({ version: 1, messagesBackupPictures: false }).messagesBackupPictures === false);
 }

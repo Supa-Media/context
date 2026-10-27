@@ -633,14 +633,6 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    */
   heldNotes?: Readonly<Record<string, string>>;
   /**
-   * Write a working `privacy.md` over one that is missing or unreadable.
-   *
-   * Present on every browser and inert on most of them, like every other
-   * mutating method here — and the UI decides whether to offer it from
-   * `canResetPrivacy` rather than from whether calling it would throw.
-   */
-  resetPrivacy: () => void;
-  /**
    * The emoji a folder or note was given with "Set icon…" in its menu, else a
    * built-in folder's default (`defaultFolderIcon`, decided by the owner,
    * 2026-10-13), else `null`: the plain folder icon, or nothing beside a note.
@@ -657,9 +649,9 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * The emoji the icon picker suggests for `path` from its name (Clef, through
    * `folderIcons.suggest`), or `null` for none. Never rejects. Absent where
    * nothing can be asked (the demo, tests), and the picker then offers only a
-   * random one.
+   * random one. With `"context"`, one of Context's own icons (`contextIconSuggest.ts`).
    */
-  suggestIcon?: (path: string) => Promise<string | null>;
+  suggestIcon?: (path: string, set?: "context") => Promise<string | null>;
   /**
    * Make one of the workspace's built-in folders (`builtInFolders.add`): an
    * extra the workspace lacks, or a main folder an older one does not have.
@@ -699,17 +691,6 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * capability: an absent function means the Explorer must not offer it.
    */
   updateStorageLayout?: () => void;
-  /**
-   * Whether that control should exist at all.
-   *
-   * Three things have to be true and none of them is `canEdit`: the manifest
-   * has to be broken (a reset is refused on one that parses), the caller has to
-   * be the owner (rewriting the access map is not an editor's to do), and this
-   * has to be a console that can act. An editor sees the banner explaining why
-   * nothing can be shared and no button, which is honest — the fix is theirs to
-   * ask for, not theirs to make.
-   */
-  canResetPrivacy: boolean;
   /**
    * Whether the tree's visibility markers are pressable. Owner-only:
    * visibility writes rewrite the access map that decides what a

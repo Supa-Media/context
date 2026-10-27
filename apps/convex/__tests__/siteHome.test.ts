@@ -5,7 +5,7 @@
  * The sidebar is the folder, exactly: every note the site publishes is a page,
  * with or without a title or a `nav:` line, in its folder. What it may say is
  * still only what the site publishes: the folder is read at the publication
- * clearance, so a `privacy.md`-private note is absent, and drafts,
+ * clearance, so a note made private is absent, and drafts,
  * members-only and encrypted notes are dropped. It answers for the homepage's
  * own workspace only, so no other site's unlisted pages become enumerable; a
  * signed-in member is answered as anybody; a site that is off is one null.
@@ -16,8 +16,11 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { pageTitle, routePathFor } from "../functions/lib/websites/snapshot";
-import { asUser, copyTree, readIntoTree } from "./fixtures.helpers";
-import { fixture, publish, type Fixture } from "./website.helpers";
+import { asUser } from "./fixtures.helpers";
+import { fixture, publish, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 beforeEach(() => vi.stubEnv("HOME_SITE_HANDLE", "atlas"));
 afterEach(() => {
@@ -134,10 +137,8 @@ describe("the copy the router keeps until the next Publish", () => {
     expect(before).toEqual(expect.any(String));
     expect(await revisionOf(f, "atlas-elsewhere")).toBeNull();
 
-    f.backend.seed("website/writing.md", "---\ntitle: Writing\nnav: 1\n---\n\nHalf a new essay.\n");
-    f.backend.seed("website/brand-new.md", "# Brand new\n\nNot published yet.\n");
-    // The pages written straight into the bucket reach the tree, as a save's touch would have them.
-    await readIntoTree(f.t, f.workspaceId);
+    await writeNote(f, "website/writing.md", "---\ntitle: Writing\nnav: 1\n---\n\nHalf a new essay.\n");
+    await writeNote(f, "website/brand-new.md", "# Brand new\n\nNot published yet.\n");
     await f.t.mutation(internal.functions.websites.recordRouteChange, { workspaceId: f.workspaceId });
     const saved = (await (await ask(f, { handle: "atlas" })).json()) as Answer;
     expect(JSON.stringify(saved)).toContain("Essays.");

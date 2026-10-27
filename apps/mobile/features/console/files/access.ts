@@ -148,6 +148,8 @@ export interface AccessMember {
   role: string;
   email?: string;
   name?: string;
+  /** Their own `@name`, without the `@`: the share field finds a member by it. */
+  handle?: string;
   isMe: boolean;
 }
 

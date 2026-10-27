@@ -31,9 +31,10 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { bugFolder } from "./lib/feedback/bugNote";
-import { accessSourceOf, refreshSnapshot } from "./lib/nodes/accessBackfill";
+import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { rowsAfter } from "./lib/nodes/paths";
 
 /** A pass whose last page ran this recently is in flight: the cron leaves it alone. Two cron periods. */
 export const PINNED_ACCOUNTS_IN_FLIGHT_MS = 30 * 60 * 1000;
@@ -52,7 +53,6 @@ export const start = internalMutation({
 });
 
 async function startPass(ctx: MutationCtx, pageSize?: number): Promise<string> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return "not in rows mode: nothing to move";
   const row = await switchRow(ctx);
   const phase: Phase = row?.pinnedAccountsAt === undefined ? "accounts" : "members";
   // Stamped now, not when the page runs: a second tick before then must see this pass in flight.
@@ -68,7 +68,7 @@ async function startPass(ctx: MutationCtx, pageSize?: number): Promise<string> {
  */
 export async function startIfDue(ctx: MutationCtx, now = Date.now()): Promise<boolean> {
   const row = await switchRow(ctx);
-  if (row === null || row.accessSource !== "rows" || row.pinnedAccountsDoneAt !== undefined) return false;
+  if (row === null || row.pinnedAccountsDoneAt !== undefined) return false;
   if (row.pinnedAccountsPageAt !== undefined && now - row.pinnedAccountsPageAt < PINNED_ACCOUNTS_IN_FLIGHT_MS) return false;
   if ((await pinnedContextWorkspace(ctx)) === null) return false;
   await startPass(ctx);
@@ -87,7 +87,6 @@ export const page = internalMutation({
   args: { phase: phaseValidator, after: v.union(v.null(), v.string()), pageSize: v.optional(v.number()) },
   returns: v.null(),
   handler: async (ctx, { phase, after, pageSize }): Promise<null> => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return null;
     // The first pass after the switch would grant every account the rows the second pass has made members-only.
     if (phase === "accounts" && (await switchRow(ctx))?.pinnedAccountsAt !== undefined) return null;
     const pinned = await pinnedContextWorkspace(ctx);
@@ -96,12 +95,7 @@ export const page = internalMutation({
       return null;
     }
     const size = Math.max(1, Math.min(pageSize ?? PINNED_ACCOUNTS_PAGE, PINNED_ACCOUNTS_PAGE));
-    const rows = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) =>
-        after === null ? q.eq("workspaceId", pinned._id) : q.eq("workspaceId", pinned._id).gt("path", after),
-      )
-      .take(size);
+    const rows = await rowsAfter(ctx.db, pinned._id, "", after ?? undefined, size);
     await stamp(ctx, { pinnedAccountsPageAt: Date.now() });
     const bugs = await bugRootOf(ctx, pinned._id);
     let changed = false;
@@ -140,9 +134,12 @@ function under(path: string, roots: readonly string[]): boolean {
 }
 
 async function ownGrants(ctx: MutationCtx, row: Doc<"nodes">): Promise<Doc<"nodeAccess">[]> {
-  return (await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect()).filter(
-    (grant) => grant.source !== "share",
-  );
+  return (
+    await ctx.db
+      .query("nodeAccess")
+      .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+      .collect()
+  ).filter((grant) => grant.source !== "share");
 }
 
 /** Pass 1: a `team` row outside the bug reports gets the `accounts` view grant, once. */

@@ -7,7 +7,7 @@
  * thrown, because the old way would move the frozen path copies the bucket
  * still holds, and those are not the notes (`keyed-design.md`).
  *
- * In order, as `moveStart.ts` does for a queued move:
+ * In order:
  *  1. The names the caller may see (`canSee`), and the notes under a folder
  *     it may not see in full are refused (a row move cannot leave them behind).
  *  2. The rules are carried to the new name (`carryPrivacy`), so the moved
@@ -32,18 +32,20 @@ import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { hidesBeneath } from "./builtJudge";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { MoveResult } from "../fileOps/moving";
-import { PRIVACY_KEY, canSee } from "../privacy";
+import { PRIVACY_KEY, canSee, isPlumbing } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
-import { touchNodesNow } from "./run";
 import { catchUpKeyedRows } from "./rowCatchUp";
 import type { RowMoveRefusal } from "./rowMove";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFollow";
 import { clearanceOf } from "../clearance";
+import { handedEtagAt, rowEtagFor } from "./handedVersion";
+import { queueLinkRepair } from "./linkRepair";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
 export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boolean): Error {
@@ -67,7 +69,6 @@ export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boole
       return new FileOpError("PATH_INVALID", "Built-in folders can't go into Archive. Archive the things inside them instead.");
     case "unkeyed":
     case "not_served":
-    case "not_keyed":
     case "rules_changed":
       return new FileOpError("CONFLICT", "The tree is still getting ready for this move. Try again in a moment.");
   }
@@ -106,7 +107,6 @@ interface RowMoveArgs {
 export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
   const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from });
-  if (!plan.keyed) return null;
   const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
   if (recorded !== null && !recorded.trash) {
     if (recorded.to !== to) throw await busyOrHidden(args);
@@ -125,12 +125,22 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
   if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
-  // The refusal says nothing of what is hidden, so it does not show that anything is.
-  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  // The refusal says nothing of what is hidden, so it does not show that anything is. Plumbing (a dot
+  // segment, such as a mail pass's attachment list) is hidden from every caller alike, so it hides nothing
+  // from this one and goes with its folder.
+  // On built paths a folder's files are not listed: the rules beneath it say whether any is hidden, and the
+  // place it lands says where every one of them lands (`hiddenBeneath`).
+  const folderBuilt = plan.built && plan.kind === "folder" && !plan.listed;
+  const seen = planned.files.filter((key) => !isPlumbing(key));
+  if (
+    seen.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+    (folderBuilt && (await hidesBeneath(ctx, workspaceId, from, clearance, state)))
+  ) {
     throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
   }
   const pairs = planned.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
-  assertMoveDestinationsVisible(pairs, clearance, state);
+  assertMoveDestinationsVisible(pairs.filter((pair) => !isPlumbing(pair.source)), clearance, state);
+  if (folderBuilt) assertDestinationsVisible([to], clearance, state.rules, state.overrides);
 
   // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
   // narrowing on its own row, which the move then carries (`narrowMove`). The file's own rules are left alone.
@@ -143,9 +153,10 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   // Rows mode hands out the rows' version, taken after this move's own narrowing: only a change that lands
   // between here and the move refuses it.
   if (rowsTruth) carried.etag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
+  // The caller's version as the row carries it (`handedVersion.ts`), read only once the caller may see the note.
+  const expectedEtag = await rowEtagFor(store, from, args.expectedEtag);
   // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, [{ path: from, expectedEtag: args.expectedEtag }]);
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path: from, expectedEtag }]);
 
   const answer = await ctx.runMutation(internal.functions.nodeRowMoves.rowMove, {
     workspaceId,
@@ -153,20 +164,22 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
     to,
     privacyEtag: carried.etag,
     // A chunked move judges each page's rows itself; within the cap the mutation checks the very files judged here.
-    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    ...(plan.tooLarge || folderBuilt ? {} : { plannedFiles: planned.files }),
     chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
     now,
-    ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+    ...(expectedEtag === undefined ? {} : { expectedEtag }),
   });
   if (!answer.ok) {
     // Nothing moved: take the carried rules back, as a move that never drew does.
     if (!rowsTruth) await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
-    await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] }).catch(() => {});
     // A taken name the caller cannot see is "not found", never "exists": that is the disclosure the guards prevent.
     const visibleTarget =
       plan.kind === "folder"
         ? folderVisibleAtScope(to, clearance, state.rules, state.overrides)
         : canSee(to, clearance.scope, state.rules, state.overrides, clearance.names);
+    if (answer.reason === "changed") {
+      throw new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.", answer.currentEtag);
+    }
     throw refusal(answer.reason, to, visibleTarget);
   }
   if (answer.chunked === undefined) {
@@ -207,8 +220,12 @@ async function settleRowMove(
 ): Promise<MoveResult> {
   const { workspaceId, store, from, to, now } = args;
   if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
+  // A note's collaboration history is filed by its note id, so nothing follows the move: the new name finds it, and
+  // the version it was handed before the move is still the one a read of the new name hands out.
+  const etag = moved.kind === "file" ? ((await handedEtagAt(store, to)) ?? moved.etag) : undefined;
   await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
+  // The links to what moved, and inside it, follow behind the move (`linkRepair.ts`); forwarding sends them on meanwhile.
+  await queueLinkRepair(ctx, workspaceId, moved.files, now);
   if (moved.kind === "folder") await remapFolderIcons(store, from, to);
   else await remapIcons(store, [{ from, to }]);
   if (args.projection) {
@@ -220,8 +237,9 @@ async function settleRowMove(
     paths: [to],
     queued: moved.files.length,
     rowed: true,
+    historyCarried: true,
     moved: moved.files,
-    ...(moved.etag === undefined ? {} : { etag: moved.etag }),
+    ...(etag === undefined ? {} : { etag }),
   };
 }
 

@@ -346,7 +346,8 @@ The database is kept current elsewhere, once per change rather than once per
 search: a write follows itself into a `ready` database
 (`search/writeProjection.js`, `search/d1/follow.js`), the control plane's
 scheduled copy fills one still filling (`fileOps/projection.ts`), and the
-daily check removes rows for notes that are gone (`prunePass.ts`). The
+daily check removes rows for notes that are gone and copies in the tree's notes
+the database lacks (`prunePass.ts`, below). The
 bucket's shard index under `.context/search/` is not maintained for such a
 context at all: a write does not re-index into it, the console's search
 schedules no pass over it, and a `maintainIndex` pass ends before opening the
@@ -411,3 +412,32 @@ deletes without a deploy.
 **What fails if reversed:** `retireShardIndex.test.ts`, and in
 `searchDatabaseOnly.test.ts` "a copy whose listing fails runs no
 bucket-index pass in its place".
+
+## The daily check re-files a ready database against the tree
+
+Found 2026-10-27, while looking into why searching felt clunky. After the
+built-in folders lost their numbers (2026-10-21), @supa's search database held
+3,362 of its 3,457 rows under the old names (`1-projects/`, `0-inbox/`…) and
+94 at real ones, so search missed nearly every note written before that day.
+27 of 34 databases held numbered rows. Two gaps let it stay that way:
+
+- the renames were finished by the row-move watchdog, and only the request
+  that starts a move follows it into the database, so nothing said the notes
+  moved;
+- the daily check only removed rows, and it asked the bucket whether a note
+  was gone by reading it. A numbered spelling of a built-in folder still opens
+  the folder doing its job (`canonicalJobPath`), so every old row read as
+  present.
+
+Now the daily check (`filesFns/prunePass.ts`) runs the copy's own pass
+(`projectSearchIndex`) against a `ready` database: rows at names the tree
+lacks go, asked of the tree's `taken` 100 names at a time rather than read by
+name, and notes the tree has that the database lacks or holds at an older
+version are copied in. The chain runs while the sweep has further to go, up
+to `PRUNE_CHAIN` (60) links a day, so whatever a write failed to follow is
+caught within a day, whatever the cause.
+
+**What fails if reversed:** `searchPrune.test.ts` ("a row at a folder's old
+name goes, though a read by the old name still opens the note", "the daily
+check copies notes the database lacks, at the names the tree has", "a whole
+renamed workspace is re-filed in one day's links").

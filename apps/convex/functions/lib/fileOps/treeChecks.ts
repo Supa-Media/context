@@ -23,13 +23,13 @@
  *   copy onto that exact name. That is the honest degradation; the connect
  *   screen already names such storage as without safe writes.
  *
- * A store the barrier did not attach a tree to (the unit tests' in-memory
- * store) answers from its own listing: there it is the only tree there is.
  * Every store the console and the move worker hand an operation has one
- * (`fileOperationBarrier.ts`, `moveBarrier.ts`).
+ * (`fileOperationBarrier.ts`, `moveBarrier.ts`); a store without one is refused
+ * (`attachedTree`), never answered from its own listing.
  */
 
 import { FileOpError } from "./errors";
+import { attachedTree } from "./walk";
 import type { FileStore } from "./store";
 
 /** The tree's names, as the barrier attaches them (`attachTreeListing`). */
@@ -54,27 +54,16 @@ export interface TreeJobs {
   claimed: { path: string; role: string }[];
 }
 
-/** The tree's folder jobs, or null for a store with no tree attached (the unit tests' own store). */
+/** The tree's folder jobs, or null when the tree gives none (`nodesGateway.folderJobs`). */
 export async function treeJobs(store: FileStore): Promise<TreeJobs | null> {
-  const tree = (store as { treeListing?: TreeNames }).treeListing;
-  return tree !== undefined && typeof tree.jobs === "function" ? await tree.jobs() : null;
-}
-
-function attached(store: FileStore): TreeNames | null {
-  const tree = (store as { treeListing?: TreeNames }).treeListing;
-  return tree !== undefined && typeof tree.taken === "function" ? tree : null;
+  const tree = attachedTree<TreeNames>(store);
+  return typeof tree.jobs === "function" ? await tree.jobs() : null;
 }
 
 /** Which of `paths` the tree draws a note or file at. Unfiltered: the caller decides what to say. */
 export async function filesInTree(store: FileStore, paths: readonly string[]): Promise<Set<string>> {
   if (paths.length === 0) return new Set();
-  const tree = attached(store);
-  if (tree === null) {
-    // No tree attached: the store is its own (see the header).
-    const found = new Set<string>();
-    for (const path of paths) if ((await store.get(path)) !== null) found.add(path);
-    return found;
-  }
+  const tree = attachedTree<TreeNames>(store);
   const found = new Set<string>();
   for (let at = 0; at < paths.length; at += TAKEN_BATCH) {
     for (const path of (await tree.taken(paths.slice(at, at + TAKEN_BATCH))).files) found.add(path);

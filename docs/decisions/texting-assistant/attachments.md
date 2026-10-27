@@ -72,3 +72,99 @@ picture just now." The saved conversation says a picture was sent, never its
 bytes.
 
 Tests: `agentOutgoingPictures.test.mjs`, `outgoing.test.ts`.
+
+## A texted file is kept for later texts and jobs (owner's review, 2026-10-24)
+
+The owner texted Tex a bank export (a CSV) for a spending breakdown. Its words
+reached that one turn and nothing else, so the background job doing the
+breakdown never had it, every later text asked for it again, and the turn that
+did see it texted cash-flow figures that weren't in it.
+
+Now a file that comes with a text (a file's words, or a PDF) is kept the way a
+file Tex's browser downloads is: in the person's own bucket under
+`.context/agent/downloads/`, for 30 days, named by a random `download:` id
+(`apps/mcp/src/agent/keptFiles.js`). The turn is told the id, the saved
+conversation keeps it, and any later turn or background job reads the file
+again with `read_file` (or `read_note`, or `fetch`) and that id; a long file
+is read in parts (`download:<id>@<from>`), each part naming where the next one
+starts, and a CSV's part says how many rows it has. `send_email` attaches it
+as it attaches a download. Pictures are not kept here: today's transcript
+already keeps them for `read_image`. A file's words are taken in up to
+1,000,000 characters (the Worker's ceiling matches) and a turn is shown the
+first 100,000, told where the rest is.
+
+A data file (CSV, TSV, a spreadsheet, JSON) of more than a glance plans its
+turn on the thinking model, and the turn is told that every figure comes from
+its rows, never estimated, and that a breakdown of the whole file is a
+background job with the file's id in its brief.
+
+The bucket is the tenancy boundary, so an id names nothing outside it, and
+what a kept file holds is someone else's words like any file: reading it marks
+the turn untrusted. Undo: drop `keepSentFiles` and `withKeptFiles` from
+`apps/mcp/src/agent/route.js`; `agentKeptFiles.test.mjs` fails.
+
+## A table is read whole, its repeats counted, its totals summed (owner's review, 2026-10-24)
+
+Later in the same chat the export arrived by email. Tex reported rent going
+out twice because the export repeated rows, and checked only after the person
+pushed back; a job then said the file was "too long for me to read every
+row". A CSV or TSV is now read as its own rows, never converted
+(`apps/mcp/src/tools/fileParts.js`), and every part, whichever part it is,
+starts with facts counted over the whole file: rows, header, rows that repeat
+an earlier row in every column, near-repeats (same date, amount and payee),
+and each amount column's total without and with the repeats. Parts end on a
+line break and name where the next starts (`from` on `read_file` and
+`read_email`, or `download:<id>@<from>`), so a long file is read in full.
+`summary` (`by` columns or `month`, `where`, `dates`) totals every row in the
+gateway with exact repeats left out, so a breakdown is arithmetic done once,
+not a model adding up 4,000 rows. Undo: route tables back through
+`toMarkdown` in `readFile.js`; `fileParts.test.mjs` and `readFile.test.mjs`
+fail.
+
+## One background job texts one result (owner's review, 2026-10-24)
+
+A job whose part finished while the person texted more was carried on to a
+new part (the Worker's `changed`), and that answer was never texted, but the
+gateway had already saved it to the conversation, and the next part worked
+the figures out again, differently: two "finished" results. Now a job's answer
+is not saved while a steer waits unread (`steer.pending()` in
+`apps/mcp/src/agent/route.js`), and the Worker hands the unsent answer to the
+next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
+it and keep its figures unless the new text changes them; its answer replaces
+the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
+fails.
+
+## A kept file is shown again on the next texts (owner's review, 2026-10-26)
+
+A resume PDF came with a text and Tex wrote a pitch from it. On the next
+text, on the small model, it looked for the file with
+`list_notes { prefix: "download:…" }` and `fetch { id: "download:…", args:
+{ mail: false } }`; the first lists notes and the second was refused as a
+mail read, so neither reached the kept file. Tex said the PDF "won't load",
+took back what it had read, and asked them to paste the text. The id in the
+saved conversation was not enough: a model had to choose the one call that
+reads it.
+
+So the files the last four texts kept ride along again as attachments marked
+`carried` (`carryKeptFiles`, `apps/mcp/src/agent/keptFiles.js`): the newest
+two, a PDF only up to 3 MB, a text file's first 30,000 characters with where
+the rest starts. They are told as files from earlier in the chat, never saved
+as sent with this text, never sent to the planner as a data file, and they
+mark the turn untrusted as the file did on its own turn, since its words are
+in front of the model again. A PDF turn falls back only to a model that can
+read it, as a picture turn does. `fetch` with a `download:` id reads it
+whatever other arguments come along, and a `list_notes` of one reads it too.
+An answer that still says a file won't open, or asks them to paste or resend
+it, with a kept file in reach and no read of it this turn, gets one more
+round naming the id (`keptClaims.js`). Undo: drop `carryKeptFiles` from the
+route; `agentKeptCarry.test.mjs` fails.
+
+The same chat: told "make sure this never happens again", Tex wrote the
+lesson into `tex/about-me.md` ("that's common sense, not about me info"). A
+lesson about how Tex works is filed with `report_problem`, a write to
+about-me in a turn that asks for one is refused with that reason
+(`lessonInAboutMe`, `bugCheck.js`), and the memory nudge leaves lessons out.
+And because a search for one first name found two people, the referral used
+the other person's work: every turn is told a fact is someone's only when
+what was read ties it to that person, never a shared first name
+(`SAME_NAME_LINE`, `prompt.js`).

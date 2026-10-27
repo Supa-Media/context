@@ -31,13 +31,13 @@ import { internalMutation, internalQuery, type ActionCtx } from "../_generated/s
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
-import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { setAccessRow } from "./lib/nodes/setAccess";
 import { recordAudit } from "./lib/audit";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { guestNamesIn, pinReadersAreGuests } from "./lib/pinnedReaders";
 import { getMembership } from "./lib/workspaceAuth";
+import { nodeAt } from "./lib/nodes/paths";
 
 export const destination = internalQuery({
   args: { userId: v.id("users") },
@@ -81,7 +81,6 @@ export const shareWithTeam = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId, path }) => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return true;
     const owner = (
       await ctx.db
         .query("workspaceMembers")
@@ -97,10 +96,7 @@ export const shareWithTeam = internalMutation({
     const answer = await setAccessRow(ctx, { workspaceId, path, base: "team", grantees: [], actor });
     if (!answer.ok) return false;
     // A base is not a list, so `setAccessRow` records nothing for it; the trail still says Tex opened this one.
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, path);
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: actor.userId,
@@ -131,6 +127,30 @@ export async function fileBugNote(
   report: { message: string; texts?: string; eventId: string; now: number },
 ): Promise<boolean> {
   const path = bugNotePath(where.folder, report);
+  return await fileTeamNote(ctx, where, path, renderBugNote({ ...report, handle: where.handle, team: where.team }), "bug_note");
+}
+
+/**
+ * Write a note into the pinned context that the team reads and nobody reaching
+ * it through the pin does: a bug report, or Tex's review of a conversation
+ * (`texReviews.ts`). Checked before the write, never after, at the clearance
+ * every pin reader holds, and refused (false, nothing written) when the path
+ * is readable through the pin. `log` names the kind in the error lines, which
+ * never carry the note's words.
+ *
+ * A note is created, never overwritten, unless `replace` says it is one that
+ * is rewritten whole each time, as the day's scores note is: then a note
+ * already there is replaced at the version the bucket reports, so the second
+ * review of a day lands rather than conflicting with the first.
+ */
+export async function fileTeamNote(
+  ctx: Pick<ActionCtx, "runAction" | "runMutation">,
+  where: Pick<BugDestination, "workspaceId" | "pinReaders">,
+  path: string,
+  text: string,
+  log: string,
+  options: { replace?: boolean } = {},
+): Promise<boolean> {
   const workspaceId: Id<"workspaces"> = where.workspaceId;
   try {
     // As a pin reader sees it: a guest's names and rules once they read as guests, plain `team` before.
@@ -141,29 +161,46 @@ export async function fileBugNote(
       operation: { kind: "visiblePaths", paths: [path] },
     });
     if (seen.kind !== "visiblePaths" || seen.paths.length > 0) {
-      console.error("bug_note_folder_not_private", { workspaceId });
+      console.error(`${log}_folder_not_private`, { workspaceId });
       return false;
     }
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "private",
-      actorName: null,
-      operation: { kind: "write", path, text: renderBugNote({ ...report, handle: where.handle, team: where.team }) },
-    });
-    // The report is filed either way; a team that cannot see it yet is a log line, not a lost report.
+    const write = async (expectedEtag?: string) =>
+      await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        actorName: null,
+        operation: { kind: "write", path, text, ...(expectedEtag === undefined ? {} : { expectedEtag }) },
+      });
+    try {
+      await write();
+    } catch (error) {
+      const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;
+      if (options.replace !== true || code !== "CONFLICT") throw error;
+      // The version an editor would read, not the conflict's raw bucket etag: once one rewrite has
+      // made the note a collaboration document, the raw etag is no base it accepts, and every
+      // later rewrite conflicted (the day's scores stopped after its second review, 2026-10-24 and 25).
+      const current = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "read", path },
+      });
+      if (current.kind !== "file") throw error;
+      await write(current.etag);
+    }
+    // The note is filed either way; a team that cannot see it yet is a log line, not a lost note.
     // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
     // budget and asks them to send the same texts again, though the note already holds them.
     try {
       if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
-        console.error("bug_note_not_shared", { workspaceId });
+        console.error(`${log}_not_shared`, { workspaceId });
       }
     } catch (error) {
-      console.error("bug_note_not_shared", { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
+      console.error(`${log}_not_shared`, { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
     }
     return true;
   } catch (error) {
-    // Never the report's words: only that it did not land.
-    console.error("bug_note_failed", { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
+    // Never the note's words: only that it did not land.
+    console.error(`${log}_failed`, { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
     return false;
   }
 }

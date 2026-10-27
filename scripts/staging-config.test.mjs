@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-test('staging gateway has its own origins, queue and presence namespace', () => {
+test('staging gateway has its own origins and presence namespace', () => {
   const config = read('apps/mcp/wrangler.toml').split('[env.staging]')[1];
   assert.ok(config, 'staging environment must exist');
   assert.match(config, /name = "context-mcp-staging"/);
   assert.match(config, /PUBLIC_ORIGIN = "https:\/\/mcp-staging.context.lc"/);
   assert.match(config, /ALLOWED_ORIGINS = "https:\/\/staging\.context\.lc https:\/\/tex-staging\.context\.lc"/);
-  assert.equal((config.match(/queue = "context-gateway-jobs-staging"/g) || []).length, 2);
-  assert.doesNotMatch(config, /queue = "context-gateway-jobs"|script_name/);
+  // The gateway job queue is gone: a move is rows, and image uploads are HTTP jobs.
+  assert.doesNotMatch(config, /queue|script_name/);
   assert.match(config, /\[\[env.staging.durable_objects.bindings\]\]/);
 });
 test('staging native builds use staging credentials', () => {
@@ -94,10 +94,11 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
 });
 
-test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
+test('the pinned homepage seed holds no privacy manifest: access lives on the rows', async () => {
   const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
   assert.equal(stagingContextLcNotes['privacy.md'], undefined);
-  assert.match(read('scripts/staging-personas.mjs'), /functions\/files:resetPrivacy/);
+  // `files:resetPrivacy` is gone with privacy.md; a seed that still called it stopped the run.
+  assert.doesNotMatch(read('scripts/staging-personas.mjs'), /resetPrivacy|privacy\.md/);
 });
 
 test('Google push settings sync in both deployments', () => {

@@ -52,7 +52,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
     "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
       "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
       "folder_defaults:\n  index.md: team\n  1-projects: team\n  2-areas: team\n" +
-      "  0-inbox: team\n  0-inbox/email/private-at-example-com: private\n```\n\n" +
+      "  inbox: team\n  inbox/email/private-at-example-com: private\n```\n\n" +
       "<!-- END BRAIN PRIVACY RULES -->\n"
   );
   recencyBucket.seed("index.md", "# Front page");
@@ -65,7 +65,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   let newestMailKey = "";
   for (let day = 0; day < 30; day += 1) {
     const at = new Date(recencyNow - (30 - day) * 24 * 60 * 60 * 1000);
-    const key = `0-inbox/email/name-at-example-com/${at.toISOString().slice(0, 10)}.md`;
+    const key = `inbox/email/name-at-example-com/${at.toISOString().slice(0, 10)}.md`;
     recencyBucket.seed(key, "a day of mail", at);
     newestMailKey = key;
   }
@@ -74,24 +74,24 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   // before the newest team-visible mail day, so the owner's "newest"
   // pointer below is proved against the team-visible group, not this one.
   recencyBucket.seed(
-    "0-inbox/email/private-at-example-com/2026-08-20.md",
+    "inbox/email/private-at-example-com/2026-08-20.md",
     "private mail",
     new Date(recencyNow - 18 * 24 * 60 * 60 * 1000)
   );
   // Two meetings, a different automated kind, collapsing to its own line.
   recencyBucket.seed(
-    "0-inbox/meetings/2026-09-05-standup-aaaaaaaa.md",
+    "inbox/meetings/2026-09-05-standup-aaaaaaaa.md",
     "meeting one",
     new Date(recencyNow - 2 * 24 * 60 * 60 * 1000)
   );
   recencyBucket.seed(
-    "0-inbox/meetings/2026-09-06-standup-bbbbbbbb.md",
+    "inbox/meetings/2026-09-06-standup-bbbbbbbb.md",
     "meeting two",
     new Date(recencyNow - 1 * 24 * 60 * 60 * 1000)
   );
   // One saved session at the unrouted default.
   recencyBucket.seed(
-    "0-inbox/sessions/claude/2026-09-06T10-00-00-000Z.md",
+    "inbox/sessions/claude/2026-09-06T10-00-00-000Z.md",
     "session one",
     new Date(recencyNow - 12 * 60 * 60 * 1000)
   );
@@ -100,7 +100,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   let newestCalendarKey = "";
   for (let day = 0; day < 3; day += 1) {
     const at = new Date(recencyNow - (3 - day) * 24 * 60 * 60 * 1000);
-    const key = `0-inbox/calendar/${at.toISOString().slice(0, 10)}.md`;
+    const key = `inbox/calendar/${at.toISOString().slice(0, 10)}.md`;
     recencyBucket.seed(key, "a day of the calendar", at);
     newestCalendarKey = key;
   }
@@ -134,7 +134,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   );
   check(
     "not one of 30 mail-day notes appears as an individual recency entry",
-    !/^- 0-inbox\/email\//m.test(ownerRecent)
+    !/^- inbox\/email\//m.test(ownerRecent)
   );
   check(
     "30 team-visible mail days collapse to a single line naming the count",
@@ -149,23 +149,23 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   check(
     "meetings collapse likewise: one line, not two individual entries",
     /^- 2 meetings arrived/m.test(ownerRecent) &&
-      !ownerRecent.includes("0-inbox/meetings/2026-09-05-standup-aaaaaaaa.md —") &&
-      !ownerRecent.includes("0-inbox/meetings/2026-09-06-standup-bbbbbbbb.md —")
+      !ownerRecent.includes("inbox/meetings/2026-09-05-standup-aaaaaaaa.md —") &&
+      !ownerRecent.includes("inbox/meetings/2026-09-06-standup-bbbbbbbb.md —")
   );
   check(
     "the collapsed meeting line points at the newer of the two",
-    ownerRecent.includes("newest `0-inbox/meetings/2026-09-06-standup-bbbbbbbb.md`")
+    ownerRecent.includes("newest `inbox/meetings/2026-09-06-standup-bbbbbbbb.md`")
   );
   check(
     "a saved session at the unrouted default collapses to its own kind",
     /^- 1 saved session arrived/m.test(ownerRecent) &&
-      !ownerRecent.includes("0-inbox/sessions/claude/2026-09-06T10-00-00-000Z.md —")
+      !ownerRecent.includes("inbox/sessions/claude/2026-09-06T10-00-00-000Z.md —")
   );
   check(
     "calendar days collapse to their own line — never counted as mail, never as an individual entry",
     /^- 3 calendar days arrived/m.test(ownerRecent) &&
       !/^- 34 mail days arrived/m.test(ownerRecent) &&
-      !/^- 0-inbox\/calendar\//m.test(ownerRecent)
+      !/^- inbox\/calendar\//m.test(ownerRecent)
   );
   check(
     "the collapsed calendar line points at the newest calendar day",
@@ -200,7 +200,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   // change, exactly as they would for an ingestion rewrite; the path does
   // not. It must stay collapsed regardless.
   recencyBucket.seed(
-    `0-inbox/email/name-at-example-com/${new Date(recencyNow - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}.md`,
+    `inbox/email/name-at-example-com/${new Date(recencyNow - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}.md`,
     "a day of mail, edited by hand just now",
     new Date(recencyNow + 60 * 1000)
   );
@@ -208,12 +208,12 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   const afterEditRecent = afterEditText.split("## Recently updated")[1]?.split("---")[0] || "";
   check(
     "a person's edit to a channel-day note stays collapsed, not promoted to an entry",
-    !/^- 0-inbox\/email\//m.test(afterEditRecent) && /^- 31 mail days arrived/m.test(afterEditRecent)
+    !/^- inbox\/email\//m.test(afterEditRecent) && /^- 31 mail days arrived/m.test(afterEditRecent)
   );
   check(
     "and the collapsed line's newest pointer moves to the edited note",
     afterEditRecent.includes(
-      `newest \`0-inbox/email/name-at-example-com/${new Date(recencyNow - 1 * 24 * 60 * 60 * 1000)
+      `newest \`inbox/email/name-at-example-com/${new Date(recencyNow - 1 * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10)}.md\``
     )
@@ -237,6 +237,6 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
   );
   check(
     "a team caller's collapsed newest day is never the private mailbox's",
-    !teamRecent.includes("newest `0-inbox/email/private-at-example-com")
+    !teamRecent.includes("newest `inbox/email/private-at-example-com")
   );
 }

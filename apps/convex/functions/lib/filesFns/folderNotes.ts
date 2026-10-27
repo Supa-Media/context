@@ -23,7 +23,7 @@ import { type FileStore, loadPrivacyState } from "../fileOps";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import { servedMoves } from "../nodes/manifestStore";
-import { physicalCandidates } from "../../../../mcp/src/moves/queued.js";
+import { physicalCandidates } from "../nodes/movePaths";
 
 /** Notes one page of a List asks for: a bound on one answer. */
 export const FOLDER_PAGE_ROWS = 2_000;

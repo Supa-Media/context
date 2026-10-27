@@ -41,7 +41,7 @@ function claimStore({ objects = {}, treeNames = [], treeServed = true } = {}) {
     configurable: true,
     value: async (request) => {
       assert.equal(request.ask, "names", "the claim asks the tree for names only");
-      if (!treeServed) return { served: false, loading: false };
+      if (!treeServed) return { served: false };
       const names = new Set(treeNames);
       return { served: true, files: request.paths.filter((path) => names.has(path)), folders: [] };
     },

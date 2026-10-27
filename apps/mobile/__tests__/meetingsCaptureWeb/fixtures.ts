@@ -216,6 +216,11 @@ export class FakeTrack extends EventTarget {
   stop(): void {
     this.stopped = true;
   }
+  /** `ended` once stopped or ended, or from birth for a dead tap (see "dead"). */
+  bornEnded = false;
+  get readyState(): "live" | "ended" {
+    return this.stopped || this.bornEnded ? "ended" : "live";
+  }
   /** What the browser does when the person presses "Stop sharing". */
   end(): void {
     this.stopped = true;
@@ -264,7 +269,13 @@ export type PickerAnswer =
   /** Resolved, video only — the "share audio" box left unticked. */
   | "silent"
   /** Resolved with audio: what the feature is for. */
-  | "audio";
+  | "audio"
+  /**
+   * Resolved with an audio track that was born `ended` and never delivers a
+   * sample — Chromium's answer on a Mac where the browser has no "Screen &
+   * System Audio Recording" permission. No error, no event.
+   */
+  | "dead";
 
 /**
  * Every mutable global the fake browser reads and writes, gathered on one
@@ -366,6 +377,11 @@ export function installGetUserMedia(withPicker = false, pickerSharesAudio = true
                 webState.pickerAnswer === "silent"
                   ? [new FakeTrack("video")]
                   : [new FakeTrack("video"), new FakeTrack("audio")];
+              if (webState.pickerAnswer === "dead") {
+                for (const track of webState.displayTracks) {
+                  if (track.kind === "audio") track.bornEnded = true;
+                }
+              }
               return new FakeStream(webState.displayTracks, "share");
             },
           }

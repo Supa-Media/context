@@ -21,7 +21,6 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -35,6 +34,8 @@ import {
   type TestConvex,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,7 +53,7 @@ interface Fixture {
   backend: MemoryS3;
 }
 
-async function fixture(options: { keyed?: boolean } = { keyed: true }): Promise<Fixture> {
+async function fixture(): Promise<Fixture> {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const lk = await createUser(t, "lk@example.invalid");
@@ -110,8 +111,6 @@ async function fixture(options: { keyed?: boolean } = { keyed: true }): Promise<
     path: "1-projects",
     visibility: "team",
   });
-  // Keyed, as a workspace is once its notes live at their ids: a move then changes rows and keeps every id.
-  if (options.keyed === true) await keyRows(t, workspaceId, backend);
   return { t, owner, lk, workspaceId, backend };
 }
 
@@ -150,35 +149,6 @@ function move(f: Fixture, from: string, to: string) {
 }
 
 
-/** The switch at `keys`, the flip started, and every live note keyed at its id, its bytes there too. */
-async function keyRows(t: TestConvex, workspaceId: Id<"workspaces">, backend: MemoryS3): Promise<void> {
-  const keyed = await t.run(async (ctx) => {
-    await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });
-    await ctx.db.insert("noteIdCopies", {
-      workspaceId,
-      status: "done",
-      runId: 1,
-      files: 0,
-      copied: 0,
-      failed: 0,
-      failures: [],
-      updatedAt: 1,
-      keyedAt: 1,
-    });
-    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect();
-    const out: { path: string; key: string }[] = [];
-    for (const row of rows) {
-      if (row.kind !== "file" || row.noteId === undefined || row.goneAt !== undefined) continue;
-      const key = `notes/${row.noteId}.md`;
-      await ctx.db.patch(row._id, { storageKey: key });
-      out.push({ path: row.path, key });
-    }
-    return out;
-  });
-  const bodies = backend.snapshot();
-  for (const { path, key } of keyed) backend.seed(key, bodies[path] ?? "");
-}
-
 /** Every forwarding entry this workspace has, gone: the ledger's cap, or a ledger that never recorded the move. */
 async function wipeLedger(f: Fixture): Promise<void> {
   await f.t.run(async (ctx) => {
@@ -198,10 +168,7 @@ async function shareRow(f: Fixture, token: string) {
 
 async function noteIdAt(f: Fixture, path: string): Promise<string | undefined> {
   return await f.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
-      .unique();
+    const row = await treeNodeAt(ctx.db, f.workspaceId, path);
     return row?.noteId;
   });
 }
@@ -265,7 +232,6 @@ describe("the id carries the link", () => {
       path: ENTRY,
       text: `# The new overview\n\n${IMPOSTOR_MARKER}\n`,
     });
-    await copyTree(f.t, f.workspaceId);
     const token = await teamLink(f, ENTRY);
 
     // The ledger still says ENTRY went to summary.md. The new link is for the note now at ENTRY.
@@ -310,26 +276,11 @@ describe("the id carries the link", () => {
     const token = await teamLink(f);
     const id = await noteIdAt(f, ENTRY);
     await f.t.run(async (ctx) => {
-      const other = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", LINKED))
-        .unique();
+      const other = await treeNodeAt(ctx.db, f.workspaceId, LINKED);
       await ctx.db.patch(other!._id, { noteId: id });
     });
     const result = await read(f, f.lk, token);
     expect(result.path).toBe(ENTRY);
-  });
-});
-
-describe("where the id cannot answer, the ledger still does", () => {
-  test("a move that gave the note a new id (rows not keyed yet) still follows through the ledger", async () => {
-    const f = await fixture({ keyed: false });
-    const token = await teamLink(f);
-    await move(f, ENTRY, "1-projects/transition/summary.md");
-
-    const result = await read(f, f.lk, token);
-    expect(result.path).toBe("1-projects/transition/summary.md");
-    expect(result.text).toContain("# Chapter transition");
   });
 });
 

@@ -11,9 +11,22 @@
  *  1. Dropping the `calendar.events` scope check in `claimCalendarWrite`. →
  *     "a calendar connected to read only changes nothing" fails.
  *  2. Dropping `hasGuests` from `findEvent`. → "an event with guests is never
- *     moved or cancelled" fails.
+ *     moved or cancelled" fails (without `notify_guests`).
  *  3. Taking the first of several matches. → "a move that matches two events
  *     changes neither" fails.
+ *  4. Dropping `notifyGuests !== guests.length > 0` from `readCalendarChange`.
+ *     → "a new event invites its guests with a Google Meet only as the change
+ *     the person said yes to" fails.
+ *  5. `createRequest` sent without its `id`. → "the same create sent twice
+ *     makes one event" fails.
+ *  6. The 409 answered as existing whatever its status. → "an event they
+ *     deleted is added again" fails.
+ *  7. `createdEventId` given a prefix outside base32hex (the "ctx" of
+ *     2026-10-24, "x" being past "v"). → "the id asked for is one Google
+ *     takes" and the whole-day birthday fail.
+ *  8. The 400 for an id, or the 409 of one deleted and gone, answered without
+ *     a second send. → "an id Google refuses never costs the event" and "an
+ *     event deleted and gone from a read is added again" fail.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -21,6 +34,7 @@ import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding 
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { CALENDAR_WRITE_HOURLY_LIMIT, CALENDAR_WRITE_SCOPE, readCalendarChange } from "../functions/lib/calendarWrite";
+import { GOOGLE_EVENT_ID } from "../functions/lib/gatewayRoutes/calendarWrite";
 
 const realFetch = globalThis.fetch;
 
@@ -29,7 +43,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-type Listed = { id: string; summary: string; start: { dateTime?: string; date?: string }; attendees?: Array<{ email: string; self?: boolean }> };
+type Listed = { id: string; summary: string; start: { dateTime?: string; date?: string }; attendees?: Array<{ email: string; self?: boolean; displayName?: string }> };
 
 /** Google Calendar, answered here: `events` is what a listing returns. Each request, recorded. */
 function calendar(events: Listed[] = [], status = 200) {
@@ -40,9 +54,31 @@ function calendar(events: Listed[] = [], status = 200) {
     const method = init?.method ?? "GET";
     calls.push({ method, url, auth: new Headers(init?.headers).get("Authorization"), body: init?.body ? JSON.parse(String(init.body)) : null });
     if (method === "GET") return new Response(JSON.stringify({ items: events }), { status: 200 });
-    return new Response(method === "DELETE" ? null : JSON.stringify({ id: "evt_fake" }), { status: method === "DELETE" && status === 200 ? 204 : status });
+    return new Response(method === "DELETE" ? null : JSON.stringify({ id: "evt_fake", hangoutLink: "https://meet.google.com/abc-defg-hij" }), { status: method === "DELETE" && status === 200 ? 204 : status });
   });
   return calls;
+}
+
+/**
+ * Google's token endpoints, answered here: a refresh mints a token, and
+ * tokeninfo says the grant holds `scopes`. Each URL asked, recorded. Calls
+ * after `calendar()`, whose stub it wraps.
+ */
+function grant(scopes: string[]) {
+  vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+  const asked: string[] = [];
+  const inner = globalThis.fetch;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://oauth2.googleapis.com/")) return await inner(input, init);
+    asked.push(url);
+    if (url.endsWith("/token")) return new Response(JSON.stringify({ access_token: "ya29.fresh", expires_in: 3600 }), { status: 200 });
+    if (url.endsWith("/tokeninfo") && String(init?.body ?? "").includes("access_token=ya29.fresh")) {
+      return new Response(JSON.stringify({ scope: scopes.join(" ") }), { status: 200 });
+    }
+    return new Response("{}", { status: 400 });
+  });
+  return asked;
 }
 
 type Tenants = Awaited<ReturnType<typeof twoConnectedTenants>>;
@@ -87,6 +123,7 @@ describe("changing the person's own calendar", () => {
     expect(calls[0]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none");
     expect(calls[0]!.auth).toBe("Bearer ya29.fake-access-token");
     expect(calls[0]!.body).toEqual({
+      id: expect.stringMatching(/^[0-9a-v]{32}$/),
       summary: "Dentist",
       start: { dateTime: CREATE.start },
       end: { dateTime: CREATE.end },
@@ -117,7 +154,8 @@ describe("changing the person's own calendar", () => {
     const calls = calendar([]);
     const { t, aliceWs } = await connected();
     expect(await change(t, ACCESS_A, aliceWs, CANCEL)).toEqual({ ok: false, refused: "not_found" });
-    expect(calls.map((call) => call.method)).toEqual(["GET"]);
+    // Asked by title, then once more by the moment alone, which a title written differently still finds.
+    expect(calls.map((call) => call.method)).toEqual(["GET", "GET"]);
     const limits = await t.run((ctx) => ctx.db.query("rateLimits").collect());
     expect(limits.filter((row) => row.key.startsWith("calendar_write."))).toHaveLength(0);
   });
@@ -129,19 +167,77 @@ describe("changing the person's own calendar", () => {
     expect(calls.map((call) => call.method)).toEqual(["GET"]);
   });
 
-  test("an event with guests is never moved or cancelled", async () => {
+  test("an event with guests is never moved or cancelled without notify_guests", async () => {
     const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid" }] }]);
     const { t, aliceWs } = await connected();
     expect(await change(t, ACCESS_A, aliceWs, CANCEL)).toEqual({ ok: false, refused: "has_guests" });
     expect(calls.map((call) => call.method)).toEqual(["GET"]);
   });
 
-  test("a calendar connected to read only changes nothing", async () => {
+  test("a checked move names the guests it would tell, and changes nothing", async () => {
+    const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid", displayName: "Jo Lee" }] }]);
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, MOVE, { check: true })).toEqual({ ok: true, calendar: "alice@gmail.example", guests: ["Jo Lee"] });
+    expect(calls.map((call) => call.method)).toEqual(["GET"]);
+    const limits = await t.run((ctx) => ctx.db.query("rateLimits").collect());
+    expect(limits.filter((row) => row.key.startsWith("calendar_write."))).toHaveLength(0);
+  });
+
+  test("a move the person said yes to with its guests named goes, and Google tells them", async () => {
+    const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid" }] }]);
+    const { t, aliceWs } = await connected();
+    expect((await change(t, ACCESS_A, aliceWs, { ...MOVE, notify_guests: true })).ok).toBe(true);
+    expect(calls.map((call) => call.method)).toEqual(["GET", "PATCH"]);
+    expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/evt_1?sendUpdates=all");
+  });
+
+  test("a calendar connected to read only changes nothing, and says a reconnect fixes it, naming the account", async () => {
     const calls = calendar();
+    const google = grant(["https://www.googleapis.com/auth/calendar.events.readonly"]);
     const { t, aliceWs } = await connected({ write: false });
-    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "no_calendar" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "calendar_read_only", accounts: ["alice@gmail.example"] });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "calendar_read_only", accounts: ["alice@gmail.example"] });
+    expect(calls).toHaveLength(0);
+    // Google was asked what the grant holds, with the token in a body, never a URL.
+    expect(google.filter((url) => url.endsWith("/tokeninfo"))).toHaveLength(2);
+  });
+
+  // @blessing, 2026-10-23: told twice "your Google connection can only read your calendar" while Settings said Connected.
+  test("stored scopes that say read-only are checked with Google first, and a grant that can write books the event", async () => {
+    const calls = calendar();
+    grant(["https://www.googleapis.com/auth/calendar.events.readonly", CALENDAR_WRITE_SCOPE]);
+    const { t, aliceWs } = await connected({ write: false });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls.map((call) => call.method)).toEqual(["POST"]);
+    const rows = await t.run((ctx) => ctx.db.query("googleConnections").collect());
+    expect(rows.some((row) => row.scopes.includes(CALENDAR_WRITE_SCOPE))).toBe(true);
+  });
+
+  test("with no calendar connected at all, it says so", async () => {
+    const calls = calendar();
+    const { t, aliceWs } = await twoConnectedTenants();
     expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "no_calendar" });
     expect(calls).toHaveLength(0);
+  });
+
+  test("a new event invites its guests with a Google Meet only as the change the person said yes to", async () => {
+    const calls = calendar();
+    const { t, aliceWs } = await connected();
+    const invite = { ...CREATE, guests: ["seyi@example.invalid"], meet: true };
+    expect(await change(t, ACCESS_A, aliceWs, invite)).toEqual({ ok: false, refused: "invalid" });
+    expect(await change(t, ACCESS_A, aliceWs, { ...invite, notify_guests: true }, { check: true })).toEqual({
+      ok: true,
+      calendar: "alice@gmail.example",
+      guests: ["seyi@example.invalid"],
+    });
+    expect(calls).toHaveLength(0);
+    expect(await change(t, ACCESS_A, aliceWs, { ...invite, notify_guests: true })).toEqual({ ok: true, calendar: "alice@gmail.example", meet: "https://meet.google.com/abc-defg-hij" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1");
+    const body = calls[0]!.body as Record<string, any>;
+    expect(body.attendees).toEqual([{ email: "seyi@example.invalid" }]);
+    expect(body.conferenceData.createRequest.conferenceSolutionKey).toEqual({ type: "hangoutsMeet" });
+    expect(typeof body.conferenceData.createRequest.requestId).toBe("string");
   });
 
   test("another tenant's token, or a grant on a shared workspace, never reaches it", async () => {
@@ -169,7 +265,7 @@ describe("changing the person's own calendar", () => {
   test("a Google failure is reported, not called done", async () => {
     calendar([], 500);
     const { t, aliceWs } = await connected();
-    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "unavailable" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "unavailable", google: { status: 500 } });
   });
 });
 
@@ -187,5 +283,151 @@ describe("what a change may be", () => {
     expect(readCalendarChange({ ...CANCEL, location: "x" })).toBeNull();
     expect(readCalendarChange({ ...MOVE, new_end: undefined })).toBeNull();
     expect(readCalendarChange({ ...CREATE, action: "invite" })).toBeNull();
+    expect(readCalendarChange({ ...CREATE, notify_guests: true })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: "yes" })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: true })?.notifyGuests).toBe(true);
+  });
+
+  test("only a create invites, 1 to 10 distinct addresses", () => {
+    const yes = { ...CREATE, notify_guests: true };
+    expect(readCalendarChange({ ...yes, guests: ["seyi@example.invalid"] })?.guests).toEqual(["seyi@example.invalid"]);
+    expect(readCalendarChange({ ...yes, guests: [] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: ["Seyi <seyi@example.invalid>"] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: ["a@example.invalid", "A@example.invalid"] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: Array.from({ length: 11 }, (_, i) => `p${i}@example.invalid`) })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: true, guests: ["seyi@example.invalid"] })).toBeNull();
+    expect(readCalendarChange({ ...CREATE, meet: true })?.meet).toBe(true);
+    expect(readCalendarChange({ ...CREATE, meet: "yes" })).toBeNull();
+    expect(readCalendarChange({ ...CANCEL, meet: true })).toBeNull();
+  });
+});
+
+/**
+ * Google Calendar keeping the events created with an id, as Google answers
+ * it: an id outside 5 to 1,024 of base32hex (0-9, a-v) is a 400, a second
+ * create of one is 409 even once it is deleted, and with `forget` a deleted
+ * event is gone from a read (404) rather than shown cancelled.
+ */
+function keepingCalendar({ forget = false } = {}) {
+  const made = new Map<string, { status: string }>();
+  const calls: Array<{ method: string; url: string; body: Record<string, unknown> | null }> = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://www.googleapis.com/calendar/")) return await realFetch(input, init);
+    const method = init?.method ?? "GET";
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+    calls.push({ method, url, body });
+    if (method === "POST") {
+      if (body?.id !== undefined && !/^[0-9a-v]{5,1024}$/.test(String(body.id))) {
+        return new Response(JSON.stringify({ error: { code: 400, message: "Invalid resource id value.", errors: [{ reason: "invalid" }] } }), { status: 400 });
+      }
+      const id = typeof body?.id === "string" ? body.id : `auto${made.size}`;
+      if (made.has(id)) return new Response(JSON.stringify({ error: { code: 409, message: "The requested identifier already exists." } }), { status: 409 });
+      made.set(id, { status: "confirmed" });
+      return new Response(JSON.stringify({ id }), { status: 200 });
+    }
+    const id = decodeURIComponent(url.split("/events/")[1]?.split("?")[0] ?? "");
+    const event = made.get(id);
+    if (forget && event?.status === "cancelled") return new Response("{}", { status: 404 });
+    return event ? new Response(JSON.stringify({ id, ...event }), { status: 200 }) : new Response("{}", { status: 404 });
+  });
+  return { made, calls };
+}
+
+describe("a create is safe to send again", () => {
+  test("the same create sent twice makes one event, and the second says it was there", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    // The same moment in another offset, and the title in other case, is the same event.
+    const again = { ...CREATE, title: " dentist ", start: "2026-10-20T19:00:00Z", end: "2026-10-20T20:00:00Z" };
+    expect(await change(t, ACCESS_A, aliceWs, again)).toEqual({ ok: true, calendar: "alice@gmail.example", existing: true });
+    expect(made.size).toBe(1);
+    expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET"]);
+  });
+
+  test("another time or title is another event", async () => {
+    const { made } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    await change(t, ACCESS_A, aliceWs, { ...CREATE, title: "Dentist follow-up" });
+    await change(t, ACCESS_A, aliceWs, { ...CREATE, start: "2026-10-21T15:00:00-04:00", end: "2026-10-21T16:00:00-04:00" });
+    expect(made.size).toBe(3);
+  });
+
+  test("an event they deleted is added again", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    for (const event of made.values()) event.status = "cancelled";
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(made.size).toBe(2);
+    expect(calls.at(-1)!.method).toBe("POST");
+    expect(calls.at(-1)!.body?.id).toBeUndefined();
+  });
+
+  test("the id asked for is one Google takes", async () => {
+    const { calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0]!.body?.id)).toMatch(GOOGLE_EVENT_ID);
+  });
+
+  test("a whole-day event is added, once, under an id Google takes (@shyoh, 2026-10-25: a birthday)", async () => {
+    const { made, calls } = keepingCalendar();
+    const { t, aliceWs } = await connected();
+    const birthday = { action: "create", title: "Tabi's birthday", start: "2026-10-25", end: "2026-10-26" };
+    expect(await change(t, ACCESS_A, aliceWs, birthday)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls[0]!.body).toMatchObject({ summary: "Tabi's birthday", start: { date: "2026-10-25" }, end: { date: "2026-10-26" } });
+    expect(await change(t, ACCESS_A, aliceWs, birthday)).toEqual({ ok: true, calendar: "alice@gmail.example", existing: true });
+    expect(made.size).toBe(1);
+  });
+
+  test("an event deleted and gone from a read is added again", async () => {
+    const { made, calls } = keepingCalendar({ forget: true });
+    const { t, aliceWs } = await connected();
+    await change(t, ACCESS_A, aliceWs, CREATE);
+    for (const event of made.values()) event.status = "cancelled";
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(made.size).toBe(2);
+    expect(calls.at(-1)!.body?.id).toBeUndefined();
+  });
+
+  test("an id Google refuses never costs the event: it goes again without one", async () => {
+    keepingCalendar();
+    const inner = globalThis.fetch;
+    const ids: unknown[] = [];
+    // Google tightening its id rule tomorrow: every id refused.
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith("https://www.googleapis.com/calendar/") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        ids.push(body.id);
+        if (body.id !== undefined) return new Response(JSON.stringify({ error: { code: 400, message: "Invalid resource id value." } }), { status: 400 });
+      }
+      return await inner(input, init);
+    });
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBeUndefined();
+  });
+});
+
+describe("a refusal says Google's reason", () => {
+  test("Google's status, reason and message come back with the refusal", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://www.googleapis.com/calendar/")) return await realFetch(input, init);
+      const error = { code: 403, message: "Calendar usage limits exceeded.\u202e", errors: [{ reason: "quotaExceeded" }] };
+      return new Response(JSON.stringify({ error }), { status: 403 });
+    });
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({
+      ok: false,
+      refused: "unavailable",
+      google: { status: 403, reason: "quotaExceeded", message: "Calendar usage limits exceeded." },
+    });
   });
 });

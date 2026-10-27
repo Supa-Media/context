@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 
   const prepared = await prepareLaunch(ctx);
   const { store, tokens, connection } = prepared;
-  const { localAgent, imessage, panel, notepad, capture, controller, updater, loop } = await createServices(
+  const { localAgent, imessage, messagesBackup, panel, notepad, capture, controller, updater, loop } = await createServices(
     ctx,
     prepared,
   );
@@ -133,7 +133,6 @@ async function main(): Promise<void> {
     connect: () => void ctx.connectThisMachine(),
     disconnect: () => void ctx.disconnectThisMachine(),
     toggleDetection: () => void ctx.update({ detectionEnabled: !ctx.settings.detectionEnabled }),
-    toggleImessage: () => void ctx.update({ imessageEnabled: !ctx.settings.imessageEnabled }),
     installUpdate: () => {
       // A stray click cannot install mid-meeting: `install()` re-checks
       // `controller.recording` itself, regardless of what this menu currently
@@ -151,6 +150,7 @@ async function main(): Promise<void> {
     connection,
     localAgent,
     imessage,
+    messagesBackup,
     panel,
     notepad,
     capture,
@@ -190,6 +190,7 @@ async function main(): Promise<void> {
     release workflow's gate, which does not run on a pull request.
   */
   imessage.reconfigure();
+  messagesBackup.reconfigure();
   setInterval(() => void drain(), DRAIN_INTERVAL_MS);
   push();
 
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
   app.on("before-quit", (event) => {
     markQuitting();
     imessage.stop();
+    messagesBackup.stop();
     if (!controller.recording) return;
     event.preventDefault();
     void endMeeting().then(() => app.quit());

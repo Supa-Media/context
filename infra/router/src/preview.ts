@@ -66,6 +66,7 @@ export {
   SITE_NAME,
   OG_CARD_PATH,
   CONNECT_SLACK_CARD_PATH,
+  GOOGLE_CONNECT_GUIDE_PATH,
   GENERIC_PREVIEW,
   normalisePath,
   previewFor,
@@ -85,7 +86,7 @@ export {
   shareCardTokenFrom,
 } from "./preview/shareLinks";
 
-export { consoleNoteFrom, previewForNote, PRODUCT_MANDATED_PATHS } from "./preview/notes";
+export { consoleNoteFrom, noteLinkFrom, NOTE_LINK_PREVIEW, previewForNote, PRODUCT_MANDATED_PATHS } from "./preview/notes";
 
 export {
   shortLinkFrom,

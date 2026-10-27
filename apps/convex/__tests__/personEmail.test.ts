@@ -361,6 +361,42 @@ describe("sending an email as the person", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("a downloaded file goes as a real attachment below the person's words", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    const files = [{ filename: "Invoice Sept 2026.pdf", contentType: "application/pdf", data: btoa("%PDF-1.4 invoice") }];
+    const email = { ...EMAIL, subject: "September invoice", body: "The September invoice is attached.", files };
+    expect(await send(t, ACCESS_A, aliceWs, { email })).toEqual({ ok: true, from: FROM });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toContain("/upload/gmail/v1/users/me/messages/send?uploadType=media");
+    expect(sent[0]!.message).toContain('Content-Type: application/pdf; name="Invoice Sept 2026.pdf"');
+    expect(sent[0]!.message).toContain("Content-Disposition: attachment;");
+    expect(sent[0]!.message).toContain(btoa("%PDF-1.4 invoice"));
+  });
+
+  test("a reply carrying a file stays in its thread", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    const files = [{ filename: "invoice.pdf", contentType: "application/pdf", data: btoa("%PDF-1.4 invoice") }];
+    const email = { ...EMAIL, from: FROM, subject: "Re: Welcome", replyTo: ANSWERED.id, files };
+    expect(await send(t, ACCESS_A, aliceWs, { email })).toEqual({ ok: true, from: FROM });
+    expect(sent[0]!.threadId).toBe("18beef");
+    expect(sent[0]!.message).toContain("In-Reply-To: <second@mail.example.invalid>");
+    expect(sent[0]!.message).toContain('name="invoice.pdf"');
+  });
+
+  test("a forward carries a downloaded file after the forwarded email's own", async () => {
+    const pdf = btoa("%PDF-1.4 receipt").replace(/\+/g, "-").replace(/\//g, "_");
+    const sent = gmail(200, { [RECEIPT.id]: RECEIPT, att_1: { data: pdf } });
+    const { t, aliceWs } = await connected();
+    const files = [{ filename: "invoice.pdf", contentType: "application/pdf", data: btoa("%PDF-1.4 invoice") }];
+    const email = { ...EMAIL, from: FROM, subject: "Fwd: Your receipt", body: "Both attached.", forward: RECEIPT.id, files };
+    expect(await send(t, ACCESS_A, aliceWs, { email })).toEqual({ ok: true, from: FROM });
+    const message = sent[0]!.message;
+    expect(message.indexOf('name="Receipt-2508.pdf"')).toBeGreaterThan(0);
+    expect(message.indexOf('name="invoice.pdf"')).toBeGreaterThan(message.indexOf('name="Receipt-2508.pdf"'));
+  });
+
   test("a Gmail failure is reported, not called sent", async () => {
     gmail(500);
     const { t, aliceWs } = await connected();
@@ -370,7 +406,7 @@ describe("sending an email as the person", () => {
 
 describe("what an email may be", () => {
   test("anything that could add a header or a hidden recipient is refused", () => {
-    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null, forward: null });
+    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null, forward: null, files: [] });
     expect(readPersonEmail({ ...EMAIL, subject: "Hi\nBcc: everyone@example.invalid" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["jo@example.invalid, sam@example.invalid"] })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["Jo <jo@example.invalid>"] })).toBeNull();
@@ -388,6 +424,19 @@ describe("what an email may be", () => {
     expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt/../x" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt", replyTo: "18cafe" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt" })?.forward).toBe("18rcpt");
+  });
+
+  test("a downloaded file is checked before it rides along", () => {
+    const file = { filename: "invoice.pdf", contentType: "application/pdf", data: btoa("%PDF") };
+    expect(readPersonEmail({ ...EMAIL, files: [file] })?.files).toEqual([{ filename: "invoice.pdf", contentType: "application/pdf", bytes: new TextEncoder().encode("%PDF") }]);
+    expect(readPersonEmail({ ...EMAIL, files: [{ ...file, filename: "a\r\nBcc: x@example.invalid" }] })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, files: [{ ...file, filename: "../../x.pdf" }] })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, files: [{ ...file, contentType: "text/html\r\nX: y" }] })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, files: [{ ...file, data: "not base64!" }] })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, files: Array.from({ length: 6 }, (_, i) => ({ ...file, filename: `f${i}.pdf` })) })).toBeNull();
+    const big = btoa("x".repeat(6 * 1024 * 1024));
+    expect(readPersonEmail({ ...EMAIL, files: [{ ...file, data: big }, { ...file, filename: "b.pdf", data: big }] })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, files: "invoice.pdf" })).toBeNull();
   });
 
   test("a forwarded file's name and type never become a header of their own", () => {

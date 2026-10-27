@@ -207,7 +207,7 @@ export function bindSharedDocument({
     job the first time it fires.
   */
   function onSeeded() {
-    if (room.text.length > 0) bind();
+    if (!durable && room.text.length > 0) bind();
   }
 
   /*
@@ -233,8 +233,19 @@ export function bindSharedDocument({
     blanked.
   */
   const settledEmptyRoom = () => settledRef.current && current.state.doc.length === 0;
+  /*
+    A durable note binds once its controller is ready, and not on text alone.
+    Before that the editor may be holding an offline draft
+    (`collaboration/offlineDraft.ts`), and the server's text can land in the
+    document a moment before the draft is merged into it: bound then, the
+    draft's words were replaced on screen, and a keystroke went into the
+    document without being queued for the bucket. `settled` is the
+    controller's `ready` in durable mode (`useNoteRoom`).
+  */
+  const durable = presence?.collaboration !== undefined;
+  const durableReady = () => settledRef.current;
 
-  if (presence?.collaboration?.ready === true || room.text.length > 0 || settledEmptyRoom()) {
+  if (durable ? presence?.collaboration?.ready === true || durableReady() : room.text.length > 0 || settledEmptyRoom()) {
     bind();
   } else {
     watching = true;
@@ -246,7 +257,7 @@ export function bindSharedDocument({
       the header on why swapping a `yCollab` in place is not safe.
     */
     bindIfWaiting.current = () => {
-      if (settledEmptyRoom()) bind();
+      if (durable ? durableReady() : settledEmptyRoom()) bind();
     };
   }
 

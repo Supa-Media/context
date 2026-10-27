@@ -61,6 +61,8 @@ export interface FolderListing {
   truncated: boolean;
   /** `privacy.md` is missing or unparseable, so nothing can be shared yet. */
   manifestUsable: boolean;
+  /** The listed folder's own built-in job, from the tree (`ownJob` in `lib/nodes/listing.ts`). */
+  role?: string;
 }
 
 /**

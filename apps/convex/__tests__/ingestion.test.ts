@@ -63,7 +63,7 @@ describe("the seeded default", () => {
       address: "seyi@context.lc",
       // No email receiver is deployed. See `ingestionIsReceiving`.
       receiving: false,
-      targetFolder: "0-inbox/",
+      targetFolder: "inbox/",
       allowedSenders: [OWNER_EMAIL],
       allowedDomains: [],
       allowAnySender: false,
@@ -184,7 +184,7 @@ describe("who may read", () => {
   test("the sole owner can read the policy", async () => {
     const { t, ownerId, workspaceId } = await scenario();
 
-    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
+    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("inbox/");
   });
 
   test("a member cannot — the allow-list is the owner's correspondent list", async () => {
@@ -208,7 +208,7 @@ describe("who may read", () => {
     const memberId = await createUser(t, "member@example.test");
     await addMember(t, workspaceId, memberId, "member", ownerId);
 
-    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
+    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("inbox/");
   });
 
   test("a non-member gets WORKSPACE_NOT_FOUND, not a forbidden", async () => {
@@ -437,7 +437,7 @@ describe("updating", () => {
       expect(errorCode(error)).toBe("INVALID_TARGET_FOLDER");
     }
 
-    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
+    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("inbox/");
   });
 
   test("the lists are capped", async () => {
@@ -514,7 +514,7 @@ describe("isolation", () => {
       address: "bob-ws@context.lc",
       // No email receiver is deployed. See `ingestionIsReceiving`.
       receiving: false,
-      targetFolder: "0-inbox/",
+      targetFolder: "inbox/",
       allowedSenders: ["bob@example.test"],
       allowedDomains: [],
       allowAnySender: false,
@@ -551,7 +551,7 @@ describe("the audit trail", () => {
     expect(rows[0]).toMatchObject({
       action: "ingestion.settings.updated",
       actorUserId: ownerId,
-      paths: ["0-inbox/"],
+      paths: ["inbox/"],
     });
   });
 

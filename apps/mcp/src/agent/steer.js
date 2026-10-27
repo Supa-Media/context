@@ -12,6 +12,21 @@
  * from its queue. A text that lands after the turn's last look is answered
  * on its own, as before.
  *
+ * Any kind of message the Worker forwards is steered (Dev2, 2026-10-26,
+ * reversing "replies, tapbacks and photos are never steered"): a text, an
+ * inline reply's words, a tapback's words, a picture's caption. Each is words
+ * only, capped the same (`MAX_STEER_TEXT`, `MAX_STEERED`), and vouches for
+ * nothing, as below.
+ *
+ * A turn the Worker cancels (`POST /agent/cancel`, `textingRoutes.js`) is
+ * marked under `.context/agent/cancel/<turn>.json`; the running turn asks
+ * `cancelled()` after each round, where it takes steered texts, and stops.
+ *
+ * A background job's turn (`background.js`) is named the same way, by the
+ * job's own object, in a 1:1 chat or a group: a follow-up the chat's turn
+ * passed to the job arrives here with the job's grant. A group's ordinary
+ * turns are never named, so two people's texts still never fold together.
+ *
  * The words are the person's, but they arrived after the turn's guards were
  * set up from its first text (the browser's addresses, the sharing judge, the
  * Mail checker), so they vouch for nothing those guards allow. Kept in the
@@ -21,12 +36,24 @@
 
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
+import { toolIsWriting } from "../tools/registry.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
+/** A group chat's grant (`apps/convex/functions/textGroups.ts`): only its background jobs name a turn. */
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+const texting = (session) => session.actorClientId === TEXTS_CLIENT_ID || session.actorClientId === TEXTS_GROUP_CLIENT_ID;
 export const STEER_PREFIX = ".context/agent/steer/";
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 export const MAX_STEER_TEXT = 4_000;
+export const CANCEL_PREFIX = ".context/agent/cancel/";
+/** A named turn while it runs: `{ user, wrote }` (`wrote`: a writing call may have started; written before it runs). */
+export const RUNNING_PREFIX = ".context/agent/running/";
+/** Calls outside the MCP's own tools that only read; any other one that succeeds may have changed something. */
+const READS = new Set(["search_web", "open_page", "read_skill", "read_learned_skill", "travel_time"]);
+const writing = (name) => !READS.has(name) && toolIsWriting(name);
+/** Refused when the running record cannot say a write may start: a cancel could otherwise succeed after it. */
+const UNRECORDED = { isError: true, content: [{ type: "text", text: "Could not record that this turn is about to change something, so it did not run. Try again." }] };
 /** The most texts one turn takes in. */
 export const MAX_STEERED = 5;
 
@@ -37,7 +64,7 @@ function keyOf(id) {
 
 /** `POST /agent/steer` `{ turn, id, text }`: keep a text for the turn it arrived during. */
 export async function handleSteer(request, store, session) {
-  if (session.actorClientId !== TEXTS_CLIENT_ID || !hasScope(session, SCOPE_WRITE)) return json({ error: "forbidden" }, 403);
+  if (!texting(session) || !hasScope(session, SCOPE_WRITE)) return json({ error: "forbidden" }, 403);
   let body;
   try {
     body = await request.json();
@@ -60,14 +87,22 @@ export async function handleSteer(request, store, session) {
  * turn the Worker named.
  */
 export function steerFor(store, session, body) {
-  if (session.actorClientId !== TEXTS_CLIENT_ID || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
+  if (!texting(session) || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
   const prefix = `${STEER_PREFIX}${body.turn}/`;
+  const running = `${RUNNING_PREFIX}${body.turn}.json`;
+  let open = 0; // writing calls started and not shown held
+  let marked = null; // the running record's `wrote: true`, once written
+  const mark = (value) => store.put(running, JSON.stringify({ user: session.actorUserId, wrote: value }));
   const seen = new Set();
   const taken = [];
   const words = [];
   return {
     taken,
     words,
+    /** Whether a writing call may have started: from then on no cancel stops the turn. */
+    get wrote() {
+      return open > 0;
+    },
     /** The line the turn is given after a tool round, or null when nothing came. */
     async next() {
       const texts = await this.take();
@@ -93,9 +128,74 @@ export function steerFor(store, session, body) {
         return []; // a text not picked up is answered on its own
       }
     },
-    /** Clear what this turn was sent, taken or not: one not taken is answered on its own. */
+    /**
+     * Whether a text sent to this turn is still waiting, untaken. For a job,
+     * that means its answer will not be texted: the Worker runs another part
+     * with that text instead (`apps/agent/src/jobRun.ts`).
+     */
+    async pending() {
+      try {
+        const page = await store.list({ prefix, limit: 20 });
+        return (page?.objects ?? []).some((object) => !seen.has(object.key));
+      } catch {
+        return false;
+      }
+    },
+    /** Mark the turn running, so `/agent/cancel` may stop it. */
+    async begin() {
+      await store.put(running, JSON.stringify({ user: session.actorUserId, wrote: false })).catch(() => {});
+    },
+    /**
+     * A tool call (or a web one, `web`). A writing one marks the turn as having
+     * changed something before it runs (pessimistic), and does not run when
+     * that mark cannot be written: no cancel after it. Only a call held for a
+     * yes, which ran nothing, takes the mark back.
+     */
+    track(call) {
+      return async (name, args) => {
+        if (!writing(name)) return call(name, args);
+        open += 1;
+        try {
+          await (marked ??= mark(true));
+        } catch {
+          open -= 1;
+          marked = null;
+          return UNRECORDED;
+        }
+        const result = await call(name, args);
+        if (result?.held === true && --open === 0) {
+          marked = null;
+          await mark(false).catch(() => {}); // left true, a cancel is only refused
+        }
+        return result;
+      };
+    },
+    trackWeb(web) {
+      return web === null ? null : { ...web, call: this.track((name, args) => web.call(name, args)) };
+    },
+    /**
+     * At the turn's end, before it answers: no longer running, then whether a
+     * cancel landed after its last look. In that order, against `/agent/cancel`
+     * writing its mark before reading the running one: a cancel that saw the
+     * turn running is always seen here.
+     */
+    async endCancelled() {
+      await store.delete(running).catch(() => {});
+      return open === 0 && this.cancelled();
+    },
+    /** Whether the Worker cancelled this turn. */
+    async cancelled() {
+      try {
+        return (await store.get(`${CANCEL_PREFIX}${body.turn}.json`)) !== null;
+      } catch {
+        return false;
+      }
+    },
+    /** Clear what this turn was sent, taken or not: one not taken is answered on its own; and its cancel mark. */
     async clear() {
       try {
+        await store.delete(`${CANCEL_PREFIX}${body.turn}.json`);
+        await store.delete(running);
         const page = await store.list({ prefix, limit: 100 });
         await Promise.all((page?.objects ?? []).map((object) => store.delete(object.key)));
       } catch {
@@ -103,6 +203,30 @@ export function steerFor(store, session, body) {
       }
     },
   };
+}
+
+/**
+ * `/agent/cancel`'s side: marks a turn cancelled only while it runs, for this
+ * person, and has not yet changed anything; else nothing, and false.
+ */
+export async function cancelTurn(store, session, turn) {
+  const state = async () => {
+    try {
+      const object = await store.get(`${RUNNING_PREFIX}${turn}.json`);
+      return object === null ? null : JSON.parse(await object.text());
+    } catch {
+      return null;
+    }
+  };
+  const before = await state();
+  if (before?.user !== session.actorUserId || before.wrote === true) return false;
+  const mark = `${CANCEL_PREFIX}${turn}.json`;
+  await store.put(mark, JSON.stringify({ at: Date.now() }));
+  // Ended meanwhile: whether it saw the mark cannot be told, so this says no; the turn's own answer says `cancelled` if it did.
+  const now = await state();
+  if (now?.user === session.actorUserId && now.wrote !== true) return true;
+  await store.delete(mark).catch(() => {});
+  return false;
 }
 
 /** How a taken text reaches the model, and the conversation. */

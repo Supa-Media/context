@@ -8,11 +8,9 @@
  * listing and it lands here as the server's answer for that folder, with no
  * walk of the bucket and no "something changed" hint to chase.
  *
- * `null` from the server means the workspace's first copy into the tree has
- * not finished, and then nothing here does anything: the root load says the
- * files are still loading (`TREE_LOADING`), never lists the bucket instead,
- * and the first live root listing clears that line (`useListings`). `served`
- * says which.
+ * `null` from the server means the tree does not serve the workspace, and then
+ * nothing here does anything: the root load says the file list cannot be read
+ * just now, and never lists the bucket instead.
  *
  * A refusal (membership taken away) clears the folder, for the reason
  * `refresh` gives: a listing kept after a refusal shows what was withheld.
@@ -67,7 +65,7 @@ export function vanishedFiles(before: ReadonlySet<string> | undefined, page: Fol
   return [...before].filter((path) => !now.has(path));
 }
 
-export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
+export function useLiveTree(deps: LiveTreeDeps): void {
   const { workspaceId, expanded, selectedPath, listings, commitLive, onVanished, offline } = deps;
   const selectedIsFolder = selectedPath !== null && listings[selectedPath] !== undefined;
   const key = useMemo(
@@ -115,8 +113,6 @@ export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
     if (vanished.length > 0) onVanished?.(vanished);
   }, [results, commitLive, onVanished]);
 
-  const root = results["f:"];
-  return { served: root !== undefined && root !== null && !(root instanceof Error) };
 }
 
 /** The listing as `listFiles` hands it to the console: the result's `kind` tag dropped. */

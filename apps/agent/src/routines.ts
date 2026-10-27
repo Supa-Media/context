@@ -46,6 +46,11 @@ export type RoutineDeps = {
   gatewayOrigin: string | undefined;
   /** Text one phone the answer, through that phone's own inbox. */
   textPhone: (phone: string, text: string, idempotencyKey: string) => Promise<PhoneTexted>;
+  /**
+   * Hand a chat routine's run to its chat's own queue (`groupRoutines.ts`),
+   * which reports how it went; `no_chat` when this Worker doesn't know the chat.
+   */
+  runInChat?: (run: DueRoutine) => Promise<"queued" | "no_chat" | "failed">;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -71,27 +76,50 @@ export async function runDueRoutines(deps: RoutineDeps): Promise<void> {
   if (due.length === 0) return;
   deps.log({ event: "routines_due", runs: due.length });
 
+  // One person's runs go one after another, so each sees what the one before
+  // it just texted (the owner, 2026-10-23: two reminders about the same call
+  // ran side by side at 9:00 and both texted). Different people still run at once.
+  const people = byPerson(due);
   let next = 0;
   const worker = async () => {
-    while (next < due.length) {
-      const run = due[next++];
-      try {
-        await runOne(run, deps, origin, secret, gateway);
-      } catch {
-        // One run's surprise is not the others' problem, and it is still owed
-        // an outcome, so the control plane does not wait on it.
-        deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
-        await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(
-          () => undefined,
-        );
+    while (next < people.length) {
+      for (const run of people[next++]) {
+        try {
+          await runOne(run, deps, origin, secret, gateway);
+        } catch {
+          // One run's surprise is not the others' problem, and it is still owed
+          // an outcome, so the control plane does not wait on it.
+          deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
+          await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(
+            () => undefined,
+          );
+        }
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, due.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, people.length) }, worker));
+}
+
+/** Due runs grouped by the phones they text, in the order they came. */
+export function byPerson(due: DueRoutine[]): DueRoutine[][] {
+  const groups = new Map<string, DueRoutine[]>();
+  for (const run of due) {
+    const key = [...run.phones].sort().join(",") || `run:${run.runId}`;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
+  return [...groups.values()];
 }
 
 async function runOne(run: DueRoutine, deps: RoutineDeps, origin: string, secret: string, gateway: string) {
   const started = Date.now();
+  if (run.chat !== undefined) {
+    // A chat routine answers in its chat, through the chat's own turn; never through the gateway's routine runner.
+    const handed = deps.runInChat ? await deps.runInChat(run) : "no_chat";
+    deps.log({ event: "routine_run", run: run.runId, chat: handed, ms: Date.now() - started });
+    if (handed === "queued") return;
+    await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: handed, texted: 0 }).catch(() => undefined);
+    return;
+  }
   const ran = await runRoutine(deps.fetch, gateway, run.accessToken, { path: run.path, timeZone: run.timeZone });
 
   // The gateway read the note just now; its `send:` is the current one.

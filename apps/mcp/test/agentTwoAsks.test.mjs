@@ -13,9 +13,10 @@
  * chat's, and one "yes" released both: two emails sent where the person
  * answered one ask.
  *
- * `armForText` now disarms what this ask does not name, which is the rule the
- * person's own next text already applied. An earlier ask is still theirs to
- * answer in the Context app; it just stops being a thing a bare yes reaches.
+ * `armForText` now drops what this ask does not name, which is the rule the
+ * person's own next text already applies. Tex's asks are answered in the
+ * texts and never in the app (Dev2, 2026-10-22), so an earlier one is not
+ * left waiting anywhere.
  *
  * Sabotage: drop the disarm in `armForText` → "a later ask leaves no earlier
  * one armed" fails.
@@ -24,7 +25,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { armForText, createPending, listPending } from "../src/tools/approvals.js";
+import { armForText, askedByText, createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const ACTOR = { workspaceId: "ws_1", userId: "user_a", clientId: "context_texts", client: "Tex" };
@@ -61,9 +62,9 @@ test("a later ask leaves no earlier one armed, so one yes answers one ask line",
   await armForText(store, { userId: ACTOR.userId, ids: [job.id] });
   assert.deepEqual(await armedIds(store), [job.id], "only the latest ask line is armed");
 
-  // Both are still waiting for the app; only the bare-yes route narrowed.
+  // The chat's is dropped, not left in the app where one tap would send it.
   const waiting = (await listPending(store, { userId: ACTOR.userId })).map(({ record }) => record.id).sort();
-  assert.deepEqual(waiting, [chat.id, job.id].sort(), "neither ask was dropped");
+  assert.deepEqual(waiting, [job.id], "the earlier ask was dropped");
 });
 
 test("one ask line naming two records arms both of them", async () => {
@@ -73,4 +74,14 @@ test("one ask line naming two records arms both of them", async () => {
   const second = await texted(store, "email bo");
   await armForText(store, { userId: ACTOR.userId, ids: [first.id, second.id] });
   assert.deepEqual(await armedIds(store), [first.id, second.id].sort(), "an ask that named both leaves both armed");
+});
+
+test("Tex's asks are known as texted, old records included, but a key's first use is still the app's", async () => {
+  const store = createMemoryStore();
+  const fresh = await texted(store, "email cy");
+  assert.equal(askedByText(fresh), true, "a texted ask is marked when raised");
+  assert.equal(askedByText({ actor: { client: "Tex" }, texting: false }), true, "one raised before the mark is known by its client");
+  assert.equal(askedByText({ actor: { client: "Texts (iMessage)" } }), true, "and by Tex's old name");
+  assert.equal(askedByText({ actor: { client: "Tex" }, kind: "vault_use" }), false, "a key's first use is answered in the app");
+  assert.equal(askedByText({ actor: { client: "Claude" } }), false, "another AI's ask is answered in the app");
 });

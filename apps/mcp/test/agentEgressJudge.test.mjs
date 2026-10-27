@@ -24,10 +24,13 @@
  *  5. `route.js` folding `quoted` into `question` (as the texting Worker did
  *     when inline replies landed). → `a texted turn is judged on the person's
  *     own text, never the message they replied to` fails.
+ *  6. `widening.js`'s inside-the-workspace shortcut for `move_note` removed.
+ *     → `a move inside another workspace runs without asking the judge` fails.
  */
 
 import { ask, call, request, textOf, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { teamNow } from "./accessRows.mjs";
 import { AI_GATEWAY_ENV } from "./agentModelFixture.mjs";
 import { judgedWords, judgeWords, MAX_JUDGED_WORDS } from "../src/privacy/judge.js";
 
@@ -42,7 +45,8 @@ function judgeText(request) {
 
 export async function runAgentEgressJudgeChecks(check) {
   const world = await createEgressWorld();
-  const { model, team, env, teamVisible, pending, objectsUnder } = world;
+  const { model, team, env, controlPlane, bucket, pending, objectsUnder } = world;
+  const teamVisible = (path) => teamNow(controlPlane, "ws_egress", bucket.get("privacy.md")?.body, path);
   env.SHARING_JUDGE = "on";
 
   try {
@@ -120,6 +124,17 @@ export async function runAgentEgressJudgeChecks(check) {
     check(
       "an ordinary write into another workspace runs without asking the judge",
       elsewhere.isError !== true && team.get("notes/judged-elsewhere.md") !== undefined && model.requests.length === before,
+    );
+
+    // 2026-10-24: every move Tex sent inside @supa was judged as "into @supa" and refused.
+    const moved = await call(env, TOKEN_MCP, "move_note", {
+      source: "notes/judged-elsewhere.md",
+      destination: "notes/moved/judged-elsewhere.md",
+      context: "@egress-team",
+    });
+    check(
+      "a move inside another workspace runs without asking the judge",
+      moved.isError !== true && team.get("notes/moved/judged-elsewhere.md") !== undefined && model.requests.length === before,
     );
 
     model.install([verdict(true, "Asked for.")]);

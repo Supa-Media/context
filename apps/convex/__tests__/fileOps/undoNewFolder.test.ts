@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { createFolder, removeNewFolder, setVisibility, writeFile } from "../../functions/lib/fileOps";
-import { NOW, bucket, capture, shareProjects } from "./fixtures.helpers";
+import { createFolder, removeNewFolder, writeFile } from "../../functions/lib/fileOps";
+import { NOW, capture, shareProjects } from "./fixtures.helpers";
+import { keyedBucket, liveRowsUnder, PARA_SEEDS, textAt } from "./keyedFixture.fileops1.helpers";
+import { setVisibility } from "../seededRules.helpers";
 
 /**
  * Undo after "New folder" (board 05c of the phone Home artboards, approved by
@@ -28,40 +30,42 @@ describe("undoing a new folder", () => {
   const owner = clearanceOf("private");
 
   test("an untouched new folder goes away completely", async () => {
-    const store = bucket();
-    await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
-    const removed = await removeNewFolder(store, { path: "2-areas/hiring", clearance: owner });
-    expect(removed.paths).toEqual(["2-areas/hiring/about.md"]);
-    expect(Object.keys(store.snapshot()).filter((key) => key.startsWith("2-areas/hiring"))).toEqual([]);
+    const f = await keyedBucket(PARA_SEEDS);
+    await createFolder(f.store, { path: "2-areas/hiring", clearance: owner, now: NOW });
+    const removed = await removeNewFolder(f.store, { path: "2-areas/hiring", clearance: owner });
+    // Keyed: the folder moves to the trash as rows (`rowTrash.ts`), and Restore brings it back.
+    expect(removed.paths).toEqual([expect.stringMatching(/^\.context\/trash\/[^/]+\/2-areas\/hiring$/)]);
+    expect(await liveRowsUnder(f, "2-areas/hiring")).toEqual([]);
   });
 
   test("a note put in it since keeps the folder", async () => {
-    const store = bucket();
-    await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
-    await writeFile(store, { path: "2-areas/hiring/plan.md", text: "# Plan\n", clearance: owner, now: NOW });
-    const error = await capture(() => removeNewFolder(store, { path: "2-areas/hiring", clearance: owner }));
+    const f = await keyedBucket(PARA_SEEDS);
+    await createFolder(f.store, { path: "2-areas/hiring", clearance: owner, now: NOW });
+    await writeFile(f.store, { path: "2-areas/hiring/plan.md", text: "# Plan\n", clearance: owner, now: NOW });
+    const error = await capture(() => removeNewFolder(f.store, { path: "2-areas/hiring", clearance: owner }));
     expect(error.code).toBe("FOLDER_NOT_EMPTY");
     expect(error.message).toBe("hiring has something in it now, so it was kept.");
-    expect(store.snapshot()["2-areas/hiring/about.md"]).toBe("");
-    expect(store.snapshot()["2-areas/hiring/plan.md"]).toBe("# Plan\n");
+    expect(await textAt(f, "2-areas/hiring/about.md")).toBe("");
+    expect(await textAt(f, "2-areas/hiring/plan.md")).toBe("# Plan\n");
   });
 
   test("a note the caller cannot see still keeps it", async () => {
-    const store = bucket();
-    await shareProjects(store);
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
     // A team reader made it; the owner then filed something private inside.
-    await createFolder(store, { path: "1-projects/hiring", clearance: clearanceOf("team"), now: NOW });
-    await writeFile(store, { path: "1-projects/hiring/pay.md", text: "# Pay\n", clearance: owner, now: NOW });
-    await setVisibility(store, { path: "1-projects/hiring/pay.md", visibility: "private", clearance: owner });
+    await createFolder(f.store, { path: "1-projects/hiring", clearance: clearanceOf("team"), now: NOW });
+    await writeFile(f.store, { path: "1-projects/hiring/pay.md", text: "# Pay\n", clearance: owner, now: NOW });
+    await setVisibility(f.store, { path: "1-projects/hiring/pay.md", visibility: "private", clearance: owner });
     const error = await capture(() =>
-      removeNewFolder(store, { path: "1-projects/hiring", clearance: clearanceOf("team") }),
+      removeNewFolder(f.store, { path: "1-projects/hiring", clearance: clearanceOf("team") }),
     );
     expect(error.code).toBe("FOLDER_NOT_EMPTY");
-    expect(store.snapshot()["1-projects/hiring/pay.md"]).toBe("# Pay\n");
+    expect(await textAt(f, "1-projects/hiring/pay.md")).toBe("# Pay\n");
   });
 
   test("words written into the about note keep it", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
+    const store = f.store;
     await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
     const written = await store.get("2-areas/hiring/about.md");
     await writeFile(store, {
@@ -73,32 +77,33 @@ describe("undoing a new folder", () => {
     });
     const error = await capture(() => removeNewFolder(store, { path: "2-areas/hiring", clearance: owner }));
     expect(error.code).toBe("FOLDER_NOT_EMPTY");
-    expect(store.snapshot()["2-areas/hiring/about.md"]).toContain("Who we are looking for.");
+    expect(await textAt(f, "2-areas/hiring/about.md")).toContain("Who we are looking for.");
   });
 
   test("a folder that is not there, or not the caller's to see, answers not found", async () => {
-    const store = bucket();
-    const missing = await capture(() => removeNewFolder(store, { path: "2-areas/nothing", clearance: owner }));
+    const f = await keyedBucket(PARA_SEEDS);
+    const missing = await capture(() => removeNewFolder(f.store, { path: "2-areas/nothing", clearance: owner }));
     expect(missing.code).toBe("FILE_NOT_FOUND");
     // `2-areas` is private in the PARA scaffold: a team caller must get the same answer.
-    await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
+    await createFolder(f.store, { path: "2-areas/hiring", clearance: owner, now: NOW });
     const hidden = await capture(() =>
-      removeNewFolder(store, { path: "2-areas/hiring", clearance: clearanceOf("team") }),
+      removeNewFolder(f.store, { path: "2-areas/hiring", clearance: clearanceOf("team") }),
     );
     expect(hidden.code).toBe(missing.code);
     expect(hidden.message).toBe(missing.message);
-    expect(store.snapshot()["2-areas/hiring/about.md"]).toBe("");
+    expect(await textAt(f, "2-areas/hiring/about.md")).toBe("");
   });
 
   test("a hidden folder with things in it answers not found too, not \"kept\"", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     // `2-areas` holds two notes a team caller cannot see; "kept" would say it exists.
-    const hidden = await capture(() => removeNewFolder(store, { path: "2-areas", clearance: clearanceOf("team") }));
+    const hidden = await capture(() => removeNewFolder(f.store, { path: "2-areas", clearance: clearanceOf("team") }));
     expect(hidden.code).toBe("FILE_NOT_FOUND");
   });
 
   test("the top of the workspace and plumbing are never a new folder", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
+    const store = f.store;
     expect((await capture(() => removeNewFolder(store, { path: "", clearance: owner }))).code).toBe("PATH_INVALID");
     expect((await capture(() => removeNewFolder(store, { path: ".context", clearance: owner }))).code).toBe(
       "PATH_INVALID",

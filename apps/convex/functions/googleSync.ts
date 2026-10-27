@@ -100,7 +100,7 @@ import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleC
 import { nextRecentImport } from "./lib/googleConnect/recentImport";
 import { remainingRepairDays } from "./lib/googleSync/repairDays";
 import * as forwardSyncJob from "./lib/googleSync/forwardSyncJob";
-import { pushedFirst, queueWorkspaceSweep } from "./lib/googleSync/drain";
+import { pushedFirst } from "./lib/googleSync/drain";
 import { lookSoonForMail } from "./lib/heartbeats/mail";
 
 /** Connections one sweep may start, bounded like every other sweep here. */
@@ -404,7 +404,6 @@ export const recordGoogleForwardSyncPass = internalMutation({
         syncCatchUp: undefined,
         updatedAt: now,
       });
-      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -455,7 +454,6 @@ export const recordGoogleForwardSyncPass = internalMutation({
         lastSyncFailure: error ?? "This service did not sync.",
         updatedAt: now,
       });
-      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -525,7 +523,6 @@ export const recordGoogleForwardSyncPass = internalMutation({
         lastSyncFailure: error ?? "This Google account did not sync.",
         updatedAt: now,
       });
-      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -652,7 +649,6 @@ export const recordGoogleForwardSyncPass = internalMutation({
         },
       });
     }
-    await queueWorkspaceSweep(ctx, connection.workspaceId);
     return { accepted: true };
   },
 });

@@ -12,15 +12,10 @@ import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import {
   SERVICE_TITLES,
   accountStatus,
-  STALE_AFTER_MS,
   enabledServices,
-  formatAgo,
-  formatDay,
-  formatWhen,
-  lastDelivered,
   listWords,
   needsReconnect,
-  storeFull,
+  readOnlyOf,
   type GoogleService,
 } from "./googleStatus";
 import { useGoogleStart } from "./useGoogleStart";
@@ -55,6 +50,12 @@ export interface GoogleConnection {
   connectionId: string;
   email: string;
   syncServices: GoogleSyncServices;
+  /**
+   * Services the grant lets Context read but not act through. Settings said
+   * "Connected" over these while Tex told @blessing it could only read her
+   * calendar (2026-10-23); now the row says so, with its Reconnect.
+   */
+  readOnly?: GoogleService[];
   syncStatus: string;
   /**
    * How often this account is polled, and how the last poll went.
@@ -238,16 +239,14 @@ function GoogleCardBody({
         </Text>
       ) : null}
       <Text variant="foot" style={styles.note}>
-        {empty
-          ? "Bring in Gmail, Calendar and Chat. Your 50 most recent emails come in when you connect, then new mail as it arrives."
-          : "Email, calendar and chat land in your inbox folder, checked every five minutes."}
+        Your AI reads mail, calendar and chat from Google when you ask. Nothing is copied into your notes.
         {actions ? "" : " Only an owner can connect or remove Google accounts."}
       </Text>
     </View>
   );
 }
 
-type RowAction = "reconnect" | "folders" | "disconnect";
+type RowAction = "reconnect" | "disconnect";
 
 /** One connected account: the address, one sentence, its services, and "…". */
 function GoogleAccountRow({
@@ -265,36 +264,24 @@ function GoogleAccountRow({
   const styles = useThemedStyles(makeStyles);
   const triggerRef = useRef<View>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [showFolders, setShowFolders] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const status = accountStatus(connection);
   const services = enabledServices(connection);
   const words = listWords(services.map((service) => SERVICE_TITLES[service]));
-  const delivered = lastDelivered(connection);
   const starting = google?.state.kind === "starting";
   const canReconnect = google !== undefined && google.redirectUri !== null;
   const broken = status.tone === "crit";
   // Reconnect is offered on the row only when signing in again is what fixes it.
-  const offerReconnect = needsReconnect(connection) && canReconnect;
+  const offerReconnect = (needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
 
-  const sentence =
-    broken && delivered !== undefined
-      ? `Stopped ${formatDay(delivered)}. ${status.text}`
-      : status.tone === "ok" && !connection.sync.catchingUp && delivered !== undefined
-        ? `Up to date · ${formatWhen(delivered)}`
-        : status.text;
-  const tint = broken ? styles.critText : status.tone === "warn" ? styles.warnText : null;
+  const sentence = status.text;
+  const tint = broken ? styles.critText : null;
 
   const reconnect = () => google?.start(EVERYTHING, connection.email);
   const items: MenuItem<RowAction>[] = [
     ...(canReconnect
       ? [{ id: "reconnect" as const, label: "Reconnect with Google", testID: `menu-reconnect-${connection.connectionId}` }]
       : []),
-    {
-      id: "folders",
-      label: showFolders ? "Hide folders and times" : "Show folders and times",
-      testID: `menu-folders-${connection.connectionId}`,
-    },
     ...(actions === undefined
       ? []
       : [{
@@ -308,7 +295,6 @@ function GoogleAccountRow({
   const choose = (id: RowAction) => {
     setMenu(null);
     if (id === "reconnect") reconnect();
-    if (id === "folders") setShowFolders((shown) => !shown);
     if (id === "disconnect") setConfirming(true);
   };
   const openMenu = () => {
@@ -364,18 +350,20 @@ function GoogleAccountRow({
             </View>
           ))}
         </View>
-        <View ref={triggerRef}>
-          <Pressable
-            onPress={openMenu}
-            style={styles.more}
-            accessibilityRole="button"
-            aria-haspopup="menu"
-            accessibilityLabel={`More for ${connection.email}`}
-            testID={`google-account-${connection.connectionId}`}
-          >
-            <Icon name="more" size={16} color={colors.muted} />
-          </Pressable>
-        </View>
+        {items.length > 0 ? (
+          <View ref={triggerRef}>
+            <Pressable
+              onPress={openMenu}
+              style={styles.more}
+              accessibilityRole="button"
+              aria-haspopup="menu"
+              accessibilityLabel={`More for ${connection.email}`}
+              testID={`google-account-${connection.connectionId}`}
+            >
+              <Icon name="more" size={16} color={colors.muted} />
+            </Pressable>
+          </View>
+        ) : null}
       </View>
       {menu !== null ? (
         <Menu<RowAction>
@@ -387,7 +375,6 @@ function GoogleAccountRow({
           onDismiss={() => setMenu(null)}
         />
       ) : null}
-      {showFolders ? <AccountDetail connection={connection} services={services} /> : null}
       {confirming && actions !== undefined ? (
         <View style={styles.confirm}>
           <Text variant="rowSub" role="status">
@@ -433,73 +420,18 @@ function GoogleAccountRow({
   );
 }
 
-/** A service's own health, for its dot. */
+/** A service's own health, for its dot: only a grant Google refuses is news. */
 function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
-  if (needsReconnect(connection) || (service === "gmail" && storeFull(connection))) return "crit";
-  const source = connection[service];
-  if (source?.lastFailure !== undefined) return "warn";
-  if (source?.lastSyncedAt !== undefined && Date.now() - source.lastSyncedAt > STALE_AFTER_MS) return "warn";
-  return source?.lastSyncedAt === undefined ? "neutral" : "ok";
+  if (needsReconnect(connection)) return "crit";
+  return readOnlyOf(connection).includes(service) ? "warn" : "ok";
 }
 
 /** The marks in words, with each one's health: an icon and a dot are not a label. */
 function serviceLabel(connection: GoogleConnection, services: GoogleService[]): string {
   if (services.length === 0) return "No services granted";
-  const said: Record<DotTone, string> = {
-    ok: "up to date",
-    warn: "paused",
-    crit: "stopped",
-    neutral: "waiting for its first sync",
-  };
-  return services
-    .map((service) => `${SERVICE_TITLES[service]} ${said[serviceTone(connection, service)]}`)
-    .join(", ");
-}
-
-/** An account's folders and each service's last delivery. */
-function AccountDetail({
-  connection,
-  services,
-}: {
-  connection: GoogleConnection;
-  services: GoogleService[];
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.detail}>
-      {services.map((service, index) => {
-        const source = connection[service];
-        const line =
-          source?.lastFailure !== undefined
-            ? `${source.lastSyncedAt === undefined ? "Nothing yet" : `Last new ${service === "gmail" ? "mail" : "item"} ${formatWhen(source.lastSyncedAt)}`}. ${source.lastFailure}`
-            : source?.lastSyncedAt === undefined
-              ? "Waiting for the first sync."
-              : Date.now() - source.lastSyncedAt > STALE_AFTER_MS
-                ? `Not synced since ${formatAgo(source.lastSyncedAt)}.`
-                : `Up to date · ${formatWhen(source.lastSyncedAt)}`;
-        return (
-          <View key={service} style={[styles.service, index === 0 ? null : styles.serviceDivided]}>
-            <View style={styles.serviceIcon}>
-              <Icon name={SERVICE_ICONS[service]} size={14} color={colors.text2} />
-            </View>
-            <View style={styles.rowText}>
-              <Text variant="rowTitle">{SERVICE_TITLES[service]}</Text>
-              <Text variant="treeMetaMono" style={styles.path}>
-                {source?.destinationFolder ?? "Waiting for setup"}
-              </Text>
-              <Text
-                variant="rowSub"
-                style={[styles.rowSub, source?.lastFailure === undefined ? null : styles.warnText]}
-              >
-                {line}
-              </Text>
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
+  const said = (service: GoogleService) =>
+    needsReconnect(connection) ? "stopped" : readOnlyOf(connection).includes(service) ? "read only" : "connected";
+  return services.map((service) => `${SERVICE_TITLES[service]} ${said(service)}`).join(", ");
 }
 
 /**
@@ -586,11 +518,6 @@ const makeStyles = (colors: Colors) =>
     confirmActions: { flexDirection: "row", gap: 20, alignItems: "center" },
     keep: { color: colors.text2, fontWeight: "600", paddingVertical: 4 },
     busy: { opacity: 0.6 },
-    detail: { paddingLeft: 14, paddingRight: 14, paddingBottom: 8 },
-    service: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 9 },
-    serviceDivided: { borderTopWidth: 1, borderTopColor: colors.line },
-    serviceIcon: { width: 20, alignItems: "center", paddingTop: 2 },
-    path: { marginTop: 2 },
     disconnect: { color: colors.crit, fontWeight: "700", paddingVertical: 4, alignSelf: "flex-start" },
     plus: {
       width: 34,

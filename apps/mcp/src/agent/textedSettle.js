@@ -20,6 +20,7 @@
  */
 
 import { disarmRecords, listPending } from "../tools/approvals.js";
+import { askOvertaken, droppedLine } from "./askOvertaken.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { settlePayByText } from "./textedPay.js";
 import { openTranscript } from "./transcript.js";
@@ -27,17 +28,32 @@ import { appendConversation, appendTold, readConversation, readTold } from "./co
 
 /**
  * What a texted turn is answered with before any model runs (`{ answer, … }`),
- * or what goes on to the model: `{ setAside }`, the asks this text moved on
- * from, which the model is told about (`setAsideLine`), or null.
+ * or what goes on to the model: `{ setAside }`, the asks still waiting for
+ * their yes, which the model is told about (`setAsideLine`), or null.
  */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null, thumbsUp = false }) {
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
+  /*
+    An ask Tex has since texted something else after by itself (a routine, a
+    check-in) is no longer what a yes or no answers: it is dropped, nothing is
+    sent, and the model answers the text (`askOvertaken.js`). A 👍 on the
+    ask's own words was put on it, so it still counts (`thumbsUpIsYes`).
+  */
+  if (!thumbsUp) {
+    const armed = await listPending(store, { userId: session.actorUserId, texting: true, now });
+    if (await askOvertaken(store, conversation, armed.map(({ record }) => record))) {
+      // One that cannot be dropped stays armed, but this same check keeps every later bare yes off it too.
+      const stuck = await disarmRecords(store, armed);
+      console.log(JSON.stringify({ event: "ask_overtaken", asks: armed.length, stuck }));
+      return { dropped: armed.map(({ record }) => ({ tool: record.tool, summary: record.summary })) };
+    }
+  }
   // A yes to a card's payment goes on to the model, which fills the card (`textedPay.js`).
   const pay = await settlePayByText(store, session, verdict, question, now);
   if (verdict !== null && pay.allowed.length === 0) {
-    const released = await settleByText(store, session, verdict, question);
+    const released = await settleByText(store, session, verdict);
     const settled = [...pay.replies, ...(released === null ? [] : [released])].join("\n") || null;
     if (settled !== null) {
       // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
@@ -49,34 +65,28 @@ export async function settleTextedText(store, session, { dispatch, question, has
     }
   }
   /*
-    A text that goes to the model is not the answer to an ask made before it:
-    the person has moved on, and a bare "yes" to the model's next question
-    must not release a call raised two texts ago. Disarmed here, before the
-    model runs, so an ask this turn raises is the only one a yes can reach.
+    A text that goes to the model leaves an ask standing (Dev2, 2026-10-22,
+    asked: "one sec" used to drop the email, and the yes after it did
+    nothing). It stops listening only when Tex's own answer asks something
+    else, so a bare "yes" is never taken as the yes to an older ask
+    (`textedAsk`), when a newer ask replaces it (`armForText`), on a no, or
+    when it expires. The model is told it still stands, so it neither asks
+    again nor says it was dropped.
   */
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
-  if ((await disarmRecords(store, asked)) > 0) {
-    // Still armed, a yes to the model's next question would release it.
-    return {
-      answer: "I couldn't clear what I asked you before. Reply NO to drop it, then send that again.",
-      provider: "gateway",
-      model: "none",
-      steps: [],
-    };
-  }
-  // Said to the model, or it goes on as if the ask still stood: "I'll cc him
-  // once you confirm" over an email nothing would ever send (2026-10-19).
-  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ tool: record.tool, summary: record.summary })) } : null;
+  // `id` and `args` let a correction drop exactly these (`claimCheck.js` rule 6); only `summary` is ever shown.
+  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ id: record.id, tool: record.tool, summary: record.summary, args: record.args })) } : null;
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
 }
 
-/** The model's note that what it asked before was set aside by this text, or "". */
-export function setAsideLine(setAside) {
-  if (!Array.isArray(setAside) || setAside.length === 0) return "";
+/** The model's note that what it asked before still waits for their yes, or was dropped (`droppedLine`), or "". */
+export function setAsideLine(setAside, dropped = []) {
+  if (!Array.isArray(setAside) || setAside.length === 0) return droppedLine(dropped);
   const each = setAside.map((entry) => `"${String(entry.summary ?? entry.tool).slice(0, 200)}"`).join(", ");
   return (
-    `(Context: you had asked the person to say yes to ${each}. This text is not that yes, so nothing was sent or changed and it no longer waits for a texted yes. ` +
-    "If they still want it, with any change this text asks for, make the call again with the change; they are asked again. Never say it is still waiting.)"
+    `(Context: you asked the person to give a 👍 or say yes to ${each}, and it still waits: their yes or 👍 makes it, nothing else is needed. ` +
+    "This text is not that yes. Answer it; don't show it again or ask for the yes again. Only if this text changes what it should be, " +
+    "make the call again with the change, and they are asked about the new one instead.)"
   );
 }
 

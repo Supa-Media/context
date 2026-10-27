@@ -186,3 +186,54 @@ person picks one. Opening the picker shows two quick picks above the grid:
 **Assigning icons automatically** would fill `folder-icons.json` with picks
 nobody made, and the owner said no.
 
+
+## The picker opens on Context's own hundred icons
+
+Decided by the owner, 2026-10-21 ("a set of 100 context-styled emojis that
+will be the default, but then people can still use the standard emojis ...
+great for uniformity"), picking board 1 option B and board 4 of the "Context
+icon set" canvas (project files `context-icons/`).
+
+- **A hundred drawings in the built-in folders' brush**, in twelve families
+  (work, money, home, people, learning, making, health, travel, nature, church
+  and community, things, symbols). Names, labels, search words and each one's
+  emoji twin are `packages/shared/src/contextIcons.cjs`; the drawings are the
+  app's (`files/contextIcons/drawings.ts`), drawn by the job icons' geometry.
+- **Stored as `context:icon:<name>`** in the same icon rows and
+  `folder-icons.json`. The setter accepts only a name in the set
+  (`checkFolderIcon`). Nothing anybody chose before is converted.
+- **Ink: blue only at the top of the workspace.** A built-in folder at the
+  root draws Tex blue; everything inside another folder draws in the text
+  colour: the parts Context files into, a built-in folder nested somewhere
+  (Website in Areas), and an icon a person chose (owner, 2026-10-26: "arent
+  all the non root folders supposed to be colored black", replacing the
+  2026-10-21 option B, where the parts were blue too).
+- **The picker has two tabs**, "Context icons" (the default) and "Emoji"
+  (the picker as it was). It opens on Emoji when an emoji is chosen now.
+  Search looks through both, Context icons first. Suggested on the Context
+  tab is a word of the name that is one of an icon's words, else Clef over
+  the hundred, family then icon (`contextIconSuggest.ts`); Random rolls from
+  the hundred.
+- **The emoji twin** is what an icon is written as wherever a drawing can't go
+  (`iconAsText`).
+
+**Tex's and the Inbox's own folders draw Context's icons too**, in the text
+colour (`context:part:<name>`, `defaultFolderIcon` and `texPartIcon`, drawn
+and never written). **Every folder Context makes for itself gets one**
+(owner, 2026-10-26, after tex/chats and tex/handbacks shipped bare):
+`apps/mcp/test/folderIcons.test.mjs` reads the code that writes notes and
+fails on any `tex/<name>` or `inbox/<name>` it spells without a drawn part.
+Tex's own folders (attention, chats, dreams, groups, handbacks, heartbeat,
+housekeeping, routines, skills, transcripts; `TEX_PARTS`) are kept where they are like the
+Inbox's, wherever Tex's folder is nested: renaming or moving one is refused
+by the control plane (`assertNotProtectedFolder`) and the gateway
+(`protectedFolderRefusal`), the menu dims Rename and Move to with the reason,
+and orient says so on Tex's line. Notes and folders of a person's own beside
+them are fine.
+
+What a "simplification" would cost: one blue for chosen icons makes a
+person's folders look built in; dropping the name check lets an icon name a
+drawing nobody can draw. `apps/mcp/test/contextIcons.test.mjs`,
+`apps/convex/__tests__/folderIcons.test.ts`,
+`apps/convex/__tests__/nodes/folderJobSettings.test.ts` and
+`apps/mobile/__tests__/contextIconPicker.test.ts` fail if either goes.

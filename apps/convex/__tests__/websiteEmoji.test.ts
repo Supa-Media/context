@@ -13,6 +13,9 @@ import { api, internal } from "../_generated/api";
 import { MAX_PUBLISHED_EMOJI_BYTES } from "../functions/lib/websites/emoji";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
+
 beforeEach(() => vi.stubEnv("HOME_SITE_HANDLE", "atlas"));
 afterEach(() => {
   vi.unstubAllGlobals();

@@ -3,7 +3,7 @@
  * session or a storage binding, and asking whether a turn may spend the
  * built-in model.
  */
-import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createSessionMethods({ post, required }) {
   return {
@@ -102,16 +102,12 @@ export function createSessionMethods({ post, required }) {
         // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
-        // Queued folder moves the tree draws already (`moves/queued.js`), a
-        // seventh: absent unless one is pending, which is nearly always.
-        pendingMoves: Array.isArray(parsed.pendingMoves) ? parsed.pendingMoves : [],
-        // Phase 3, an eighth sibling: the privacy rules while they are the
-        // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
+        // An eighth sibling: the access rules the rows render for this reader (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
-        // The layout the bytes are read from: `"ids"` while staff have switched
-        // to the id copies, `"keys"` once notes may live only at their id keys
-        // (`store/idLayout.js`), `null` for paths. Anything else is paths.
-        idLayout: parsed.idLayout === "ids" || parsed.idLayout === "keys" ? parsed.idLayout : null,
+        // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
+        // workspace is keyed; anything else is a control plane that cannot say
+        // where notes are, and the session store refuses it.
+        idLayout: parsed.idLayout === "keys" ? "keys" : null,
         // The staff console's feature switches (`functions/featureSwitches.ts`):
         // only a literal `true` turns one on, so a missing or odd value is off.
         features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
@@ -142,7 +138,11 @@ export function createSessionMethods({ post, required }) {
      * @returns {Promise<{ok: true, moves: {from: string, to: string}[]}|{ok: false, error: string, message: string}>}
      */
     async startMoveBatch(accessToken, expectedWorkspaceId, moves) {
-      return required(await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }), "move");
+      return required(
+        // The control plane moves every row before it answers: longer than a lookup.
+        await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }, { timeoutMs: CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS }),
+        "move"
+      );
     },
 
     /**

@@ -1,7 +1,7 @@
 /**
  * A change named by its paths that may narrow a website from outside
  * `website/`: a privacy change, a move, a delete, or a queued move starting,
- * turning round or finishing (`nodeMoves.ts`).
+ * turning round or finishing (`rowMove.ts`, `rowMoveChunks.ts`).
  *
  * `operationTouchesWebsite` (`./changes.ts`) answers for `website/` by path
  * alone. A page can also publish the notes of a folder it names with
@@ -20,8 +20,9 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import { PRIVACY_KEY, foldPath } from "../privacy";
-import { operationMayRestrictWebsite, operationTouchesWebsite, websiteNarrowingPaths } from "./changes";
+import { operationMayRestrictWebsite, operationNamesPaths, operationTouchesWebsite, websiteNarrowingPaths } from "./changes";
 import { pathsOverlap } from "./movingScan";
+import { namesWebsite, siteNameOf, siteRoot } from "./siteRoot";
 import { recordRouteChangeHandler } from "./routes";
 
 function normalized(path: string): string {
@@ -36,7 +37,8 @@ export async function routeChangeReaches(
 ): Promise<boolean> {
   const named = paths.map(normalized).filter((path) => path !== "");
   if (named.length === 0) return false;
-  if (named.some((path) => foldPath(path) === PRIVACY_KEY || pathsOverlap(path, DEFAULT_WEBSITE_ROOT))) {
+  const root = await siteRoot(ctx.db, workspaceId);
+  if (named.some((path) => foldPath(path) === PRIVACY_KEY || pathsOverlap(path, DEFAULT_WEBSITE_ROOT) || pathsOverlap(path, root))) {
     return true;
   }
   const rows = await ctx.db
@@ -63,6 +65,21 @@ export async function recordRouteChangeAtHandler(
   });
 }
 
+/**
+ * A note's new version landed at `path` (`noteIdsKeyed.ts`): when the path is
+ * under the website's folder nested somewhere else, the site is marked stale,
+ * so a page whose front matter now narrows it leaves the site at the rebuild
+ * two seconds on, whoever wrote it — the console, an AI client, or a live
+ * editing session. Under `website/` itself the writers already report it by
+ * name. One indexed read for any other note.
+ */
+export async function markNestedSiteWrite(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string): Promise<void> {
+  if (namesWebsite(path)) return;
+  const root = await siteRoot(ctx.db, workspaceId);
+  if (root === DEFAULT_WEBSITE_ROOT || siteNameOf(root, path) === null) return;
+  await recordRouteChangeHandler(ctx, { workspaceId });
+}
+
 /** A queued move was drawn, turned round or finished: its names changed for everyone at once. */
 export async function markWebsiteMoved(
   ctx: MutationCtx,
@@ -71,6 +88,21 @@ export async function markWebsiteMoved(
 ): Promise<void> {
   // A move is a narrowing for every page it carries away, as a one-go move is.
   await recordRouteChangeAtHandler(ctx, { workspaceId, paths: [move.from, move.to], unsafe: true });
+}
+
+/**
+ * Where the website's folder is, asked only for a change that may land
+ * outside `website/` and could therefore be under the folder nested
+ * somewhere else (owner, 2026-10-21). A read changes nothing and asks nothing.
+ */
+async function nestedSiteRoot(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  operation: FileOperation,
+  result: OperationResult,
+): Promise<string> {
+  if (!operationNamesPaths(operation, result) || operationTouchesWebsite(operation, result)) return DEFAULT_WEBSITE_ROOT;
+  return await ctx.runQuery(internal.functions.websites.siteRootNow, { workspaceId }).catch(() => DEFAULT_WEBSITE_ROOT);
 }
 
 /**
@@ -85,15 +117,16 @@ export async function markWebsiteAfterOperation(
   operation: FileOperation,
   result: OperationResult,
 ): Promise<void> {
-  if (operationTouchesWebsite(operation, result)) {
+  const root = await nestedSiteRoot(ctx, workspaceId, operation, result);
+  if (operationTouchesWebsite(operation, result, root)) {
     await ctx
       .runMutation(internal.functions.websites.recordRouteChange, {
         workspaceId,
-        unsafe: operationMayRestrictWebsite(operation, result),
+        unsafe: operationMayRestrictWebsite(operation, result, root),
       })
       .catch(() => {});
   }
-  const paths = websiteNarrowingPaths(operation, result);
+  const paths = websiteNarrowingPaths(operation, result, root);
   if (paths.length > 0) {
     await ctx
       .runMutation(internal.functions.websites.recordRouteChangeAt, { workspaceId, paths, unsafe: true })

@@ -19,6 +19,7 @@
  */
 
 import { noteProperties, parseListBody, selectListRows, setNoteProperty } from "../src/lists.js";
+import { withServedTree } from "./servedTree.mjs";
 import {
   compareStatuses,
   defaultStatusList,
@@ -143,10 +144,15 @@ const MANIFEST =
   "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  1-projects/secret/overview.md: private\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
+/** A bucket of `files`, whose front notes the control plane's tree serves (`withServedTree`). */
 function memoryStore(files) {
-  return {
+  return withServedTree({
     get: async (key) => (key in files ? { text: async () => files[key] } : null),
-  };
+    list: async ({ prefix = "" } = {}) => ({
+      objects: Object.keys(files).filter((key) => key.startsWith(prefix)).sort().map((key) => ({ key })),
+      truncated: false,
+    }),
+  });
 }
 
 export async function runStatusAdviceChecks(check) {

@@ -1,11 +1,9 @@
 /**
- * `search_notes`, then the tools that move notes: `archive_note`, `move_note`, `move_notes`, `move_folder`, `materialize_move`.
+ * `search_notes` and `related_notes`, then the tools that move notes: `archive_note`, `move_note`, `move_notes`, `move_folder`.
  *
  * Part of `baseToolDefinitions` (`../schemas.js`), which concatenates these
  * families in the order the list has always had; moved verbatim.
  */
-
-import { MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 
 export function searchAndMoveToolDefinitions() {
   return [
@@ -37,10 +35,30 @@ export function searchAndMoveToolDefinitions() {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "related_notes",
+      title: "Related notes",
+      description:
+        "The notes around one note, each with why: the notes it links to (linked_from_here), the " +
+        "notes that link to it (links_here), and notes whose text is like its title and headings " +
+        "(related_text). Linked notes come first. Use it after reading a note, to find what the " +
+        "user wrote nearby before asking them, and before writing, to find notes worth linking. " +
+        "A line saying the answer may be incomplete means some links or text could not be read yet.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note to start from, as read_note takes it" },
+          limit: { type: "integer", description: "How many related notes to return: 1 to 25, default 10" },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "archive_note",
       title: "Archive note",
       description:
-        "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`4-archive`, `5-archive`, `archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
+        "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`archive`, `4-archive`, `5-archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
         type: "object",
         properties: {
@@ -75,11 +93,6 @@ export function searchAndMoveToolDefinitions() {
           expected_source_etag: {
             type: "string",
             description: "Optional etag from read_note for conflict-safe moves",
-          },
-          confirm_team_publish: {
-            type: "boolean",
-            description:
-              "Required when a cross-context move publishes a private source note into team-visible destination scope.",
           },
         },
         required: ["source", "destination"],
@@ -130,31 +143,6 @@ export function searchAndMoveToolDefinitions() {
           dry_run: { type: "boolean", description: "When true, validate and return the move plan only" },
         },
         required: ["source", "destination"],
-        additionalProperties: false,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    },
-    {
-      name: "materialize_move",
-      title: "Finish folder move",
-      description:
-        "Owner-only maintenance command for a logical folder move an earlier version of move_folder left in storage. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0, or append :inspect to the id in clients with an older batch_size schema, to inspect progress without changing anything. Set resume_background to restart a stalled queued worker.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          id: { type: "string", description: "Logical move id an earlier move_folder returned" },
-          batch_size: {
-            type: "integer",
-            minimum: 0,
-            maximum: MOVE_MATERIALIZE_BATCH,
-            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}. Use 0 for a read-only status check.`,
-          },
-          resume_background: {
-            type: "boolean",
-            description: "Queue a fresh background worker after this pass if work remains",
-          },
-        },
-        required: ["id"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

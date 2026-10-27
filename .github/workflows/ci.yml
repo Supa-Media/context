@@ -68,10 +68,15 @@ jobs:
       # by raising its own allowance, renaming a big file, or adding an
       # exclusion. `pnpm architecture` runs the same check locally.
       architecture-check: true
-      # The Convex suite is about three minutes on one runner, the longest job
-      # on a pull request. Three runners each take a third of the files
-      # (vitest --shard); `ci / Test Summary` still fails if any shard does.
-      convex-test-shards: 3
+      # The Convex suite is the longest job on main: six runners each take a
+      # sixth of the files (vitest --shard); `ci / Test Summary` still fails
+      # if any shard does.
+      convex-test-shards: 6
+      # On a pull request, run only the Convex tests the change reaches: main
+      # records which files each test used, and `scripts/convex-tests.mjs`
+      # picks from that map (docs/decisions/testing/convex-test-impact.md).
+      # Main still runs the whole suite, and production requires it green.
+      convex-test-map: "apps/convex/.test-map"
       # `convex typecheck` runs in convex-deploy-typecheck below, in parallel;
       # upstream's copy sat in front of shard 1's tests and made it the
       # slowest check (173s against 94-106s for the other shards).
@@ -164,7 +169,6 @@ jobs:
           - 'packages/**'
           - 'infra/**'
           - 'plugins/context/**'
-          - 'docs/deferred/**'
           - 'apps/mobile/features/auth/**'
           - 'apps/mobile/features/workspace/presets.ts'
           - 'apps/mobile/features/design/tokens/colors.ts'
@@ -377,6 +381,8 @@ jobs:
       - name: Releases require staging, deploy what changed, and cover everything Convex bundles
         run: |
           node --test scripts/production-release.test.mjs
+          node --test scripts/promote-production.test.mjs
+          node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           node --test scripts/release-communication-evidence.test.mjs

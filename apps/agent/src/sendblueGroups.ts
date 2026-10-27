@@ -17,7 +17,8 @@ import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { holdsAsYes, takesBackYes } from "./thumbs";
-import { call, E164, getJson, handleOf, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
+import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
+import type { InboundAttachment } from "./inbound";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -40,6 +41,20 @@ export type GroupMessage = {
   sms?: true;
   /** A like on one of Tex's asks, or one taken back (`thumbs.ts`); `text` is then the tapback's own words. */
   reaction?: Reaction;
+  /**
+   * WhatsApp names the message a reaction is on rather than quoting it: its
+   * words are read before the reaction is queued, and only when Tex sent it in
+   * this same group (`index.ts`, `groupLine.ts` `readOwnMessage`). Dropped then.
+   */
+  reactionOn?: string;
+  /**
+   * A picture or file sent in the chat, by Sendblue's address only, never its
+   * bytes: fetched when a turn reads it, as a 1:1 text's are (`attachments.ts`).
+   * A link's preview card is not one (`isLinkPreview`).
+   */
+  attachments?: InboundAttachment[];
+  /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
+  routine?: { runId: string; path: string };
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };
@@ -70,7 +85,9 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
   // The sender is in the chat whatever the list says.
   if (!participants.includes(from)) participants.push(from);
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
-  if (text === "") return { kind: "ignored", reason: "empty" };
+  // An SMS group never has its files read: it is answered with one fixed line (`groupInbox.ts`).
+  const attachment = payload.service === "SMS" || (text !== "" && TAPBACK.test(text)) ? null : sentFile(payload.media_url, text);
+  if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
   // A like on an ask, or one taken back off it, is read: it may be the asker's yes (`thumbs.ts`). Any other tapback is not.
   const reaction = TAPBACK.test(text) ? (readTapback(text) ?? readRemovedTapback(text)) : null;
   if (TAPBACK.test(text) && (reaction === null || !(holdsAsYes(reaction) || takesBackYes(reaction)))) return { kind: "ignored", reason: "reaction" };
@@ -87,7 +104,21 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(payload.service === "SMS" ? { sms: true as const } : {}),
     ...(reaction !== null ? { reaction } : {}),
+    ...(attachment !== null ? { attachments: [attachment] } : {}),
   };
+}
+
+/** The file a group message carried, or null: none, not https, or a link's preview card (`isLinkPreview`). */
+function sentFile(mediaUrl: unknown, text: string): InboundAttachment | null {
+  if (typeof mediaUrl !== "string" || mediaUrl === "" || isLinkPreview(mediaUrl, text)) return null;
+  try {
+    const url = new URL(mediaUrl);
+    if (url.protocol !== "https:") return null;
+    // No type or size is sent; the bytes and the name tell (`attachments.ts`).
+    return { url: mediaUrl, mimeType: "", filename: decodeURIComponent(url.pathname.split("/").pop() ?? "").slice(0, 200), size: null };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -141,6 +172,18 @@ export async function sendGroupText(
   return sent.handle;
 }
 
+/** A picture into a group, by an address Sendblue fetches, threaded like the text it goes with. */
+export async function sendGroupMedia(fetcher: Fetch, keys: SendblueKeys, chat: { line: string; groupId: string }, url: string, replyTo?: string): Promise<void> {
+  const plain = { from_number: chat.line, group_id: chat.groupId, media_url: url };
+  if (replyTo) {
+    const sent = await sendCall(fetcher, keys, { ...plain, reply_to: { message_handle: replyTo } }, "/api/send-group-message");
+    if (sent.status >= 200 && sent.status < 300) return;
+    if (sent.status !== 400) throw new ServiceError("sendblue", sent.status);
+  }
+  const sent = await sendCall(fetcher, keys, plain, "/api/send-group-message");
+  if (sent.status < 200 || sent.status >= 300) throw new ServiceError("sendblue", sent.status);
+}
+
 /** A tapback on a group message, the same for every tagger so it says nothing about them. Best effort; never throws. */
 export async function reactInGroup(fetcher: Fetch, keys: SendblueKeys, chat: { line: string }, messageHandle: string, reaction: string): Promise<void> {
   let status: number | null = null;
@@ -149,7 +192,10 @@ export async function reactInGroup(fetcher: Fetch, keys: SendblueKeys, chat: { l
   } catch {
     // costs only the tapback
   }
-  if (status === null || status < 200 || status >= 300) console.log(JSON.stringify({ event: "sendblue_group_reaction", outcome: "refused", status }));
+  if (status !== null && status >= 200 && status < 300) return;
+  console.log(JSON.stringify({ event: "sendblue_group_reaction", outcome: "refused", status }));
+  // An emoji the line refuses still leaves the chat a sign it landed, as in a 1:1 (`line.ts`).
+  if (reaction !== "like") await reactInGroup(fetcher, keys, chat, messageHandle, "like");
 }
 
 /**

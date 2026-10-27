@@ -21,7 +21,7 @@
  * be produced for another person without the secret.
  */
 
-import { fileWords } from "../tools/readFile.js";
+import { fileWords, typeOfFile } from "../tools/readFile.js";
 import { pdfLinks } from "../tools/pdfLinks.js";
 
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
@@ -49,6 +49,17 @@ export async function browserOwner(env, userId) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`tex-browser:${userId}`));
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A group chat's browser tag (the owner, 2026-10-24): one browser per chat and
+ * set of people in it, so a sign-in code texted after Tex asks for it lands in
+ * the same browser, and somebody added to the chat gets a new one. Its own
+ * label, so it never equals any person's tag.
+ */
+export async function groupBrowserOwner(env, group) {
+  if (typeof group?.key !== "string" || !group.key || typeof group?.members !== "string" || !group.members) return null;
+  return await browserOwner(env, `group:${group.key}:${group.members}`);
 }
 
 async function post(binding, path, body) {
@@ -90,6 +101,33 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
   const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
   const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
+  async function browseOn(session, steps, handoff, fresh) {
+    if (browserbaseWanted()) {
+      // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
+      // the person is being handed this browser; it asks Browserbase for nothing.
+      const held = jar !== null ? await jar.load() : null;
+      const response = await post(binding, "/browse", {
+        provider: "browserbase",
+        owner,
+        steps,
+        ...(handoff ? { handoff: true } : {}),
+        // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
+        ...(fresh ? { fresh: true } : {}),
+        ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+      });
+      // 402: Browserbase won't start a browser until its bill is paid.
+      // Cloudflare's browser does this question; nothing can be handed over.
+      if (response.status === 402) browserbaseRefusedAt = now();
+      else if (response.status !== 501) {
+        onBrowserbase = true;
+        const result = await browseResult(response, jar);
+        // The person's own page, never a link to the browser itself.
+        return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
+      } else browserbaseMissing = true;
+    }
+    return await browseResult(await post(binding, "/browse", session === null ? { steps } : { session, steps }));
+  }
+
   return {
     provider: "cloudflare",
     async readPage(url) {
@@ -101,29 +139,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
     },
 
-    async browse(session, steps, { handoff = false } = {}) {
-      if (browserbaseWanted()) {
-        // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
-        // the person is being handed this browser; it asks Browserbase for nothing.
-        const held = jar !== null ? await jar.load() : null;
-        const response = await post(binding, "/browse", {
-          provider: "browserbase",
-          owner,
-          steps,
-          ...(handoff ? { handoff: true } : {}),
-          ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
-        });
-        // 402: Browserbase won't start a browser until its bill is paid.
-        // Cloudflare's browser does this question; nothing can be handed over.
-        if (response.status === 402) browserbaseRefusedAt = now();
-        else if (response.status !== 501) {
-          onBrowserbase = true;
-          const result = await browseResult(response, jar);
-          // The person's own page, never a link to the browser itself.
-          return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
-        } else browserbaseMissing = true;
-      }
-      return await browseResult(await post(binding, "/browse", session === null ? { steps } : { session, steps }));
+    async browse(session, steps, { handoff = false, fresh = false } = {}) {
+      return await withFileWords(env?.AI, await browseOn(session, steps, handoff, fresh));
     },
 
     /** Whether a question may carry on in a browser an earlier one opened. */
@@ -139,6 +156,26 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       await post(binding, "/browse/close", { session });
     },
   };
+}
+
+/**
+ * A downloaded file (`infra/site-shots/src/download.ts`) with its words, read
+ * the way `read_file` reads one, so Tex can tell it took the right invoice
+ * before emailing it. A file whose words can't be read goes on without them.
+ */
+export async function withFileWords(ai, result) {
+  const file = result?.file;
+  if (!file || typeof file.data !== "string") return result;
+  let words = null;
+  try {
+    const bytes = Uint8Array.from(atob(file.data), (ch) => ch.charCodeAt(0));
+    const type = typeOfFile(String(file.name ?? ""), bytes);
+    const read = type === null ? null : await fileWords(ai, String(file.name ?? "file"), type, bytes);
+    words = typeof read?.text === "string" ? read.text : null;
+  } catch {
+    words = null;
+  }
+  return words === null ? result : { ...result, file: { ...file, words } };
 }
 
 /**

@@ -2,10 +2,10 @@
  * `fill_card`: PAY WITH A SAVED CARD, WITHOUT THE MODEL EVER HOLDING IT.
  *
  * `fillLogin.js`'s sibling. The model names a card (an id from `fetch
- * vault:`) and the checkout's boxes by their numbers. The gateway asks the
- * person first, every time, in the Context app (`vault/pay.js`): the yes names
- * the card and the site the browser is on, read from the browser and never
- * from the model. Tex asks by text, with its answer; any other AI's ask waits
+ * vault:`), the checkout's total and its boxes by their numbers. The gateway
+ * asks the person first, once a purchase (`vault/pay.js`): the yes names the
+ * card, the total, and the site the browser is on, read from the browser and
+ * never from the model. Tex asks by text, with its answer; any other AI's ask waits
  * in the Context app. On a yes, each part is opened through the vault's one door
  * (`vault/fill.js`) and handed to the browser's fill step, which checks the
  * site and the kind of box again as it types (`infra/site-shots`). What comes
@@ -18,7 +18,7 @@
 import { openForFill, VaultRefused } from "../vault/fill.js";
 import { isEntryId, readMeta, siteMatches } from "../vault/entries.js";
 import { CARD_PARTS, cardLabel, cardPartValue } from "../vault/card.js";
-import { payAllowed } from "../vault/pay.js";
+import { payAllowed, payTotal } from "../vault/pay.js";
 import { actorMayUse } from "../vault/access.js";
 
 export const FILL_CARD_TOOL = "fill_card";
@@ -30,14 +30,17 @@ export const FILL_CARD_DEFINITION = {
   name: FILL_CARD_TOOL,
   description:
     "Pay with a card the person saved: fills the card boxes on the checkout page your browser is on. " +
-    "First get to the payment step with send action browse, then pass the card's id from fetch vault: and the numbers of the boxes. " +
-    "Each time, the person is asked to allow that card on that site; when the answer says they are being asked, tell them what you're buying and the total, and fill again once they allowed it. " +
+    "First get to the payment step with send action browse, then pass the card's id from fetch vault:, the total the page shows, and the numbers of the boxes. " +
+    "The boxes are often in the payment processor's frame (a card form from another site), read after the page and numbered from 1001: those numbers fill too. " +
+    "The person is asked once a purchase to allow that card, that total, on that site; when the answer says they are being asked, tell them what you're buying, and fill again once they allowed it. " +
+    "Their yes covers filling again for that purchase (a box refused, a page that reset) while the total stays the same: never ask them again for it. " +
     "You never see the card; it fills and never pays: press the page's pay button with send action browse yourself, after they know the total. " +
     "If there is no saved card, never ask for the number: send manage action vault_add's link with type card.",
   inputSchema: {
     type: "object",
     properties: {
       entry: { type: "string", description: "The card's id from fetch vault:." },
+      total: { type: "string", description: "The total to pay, as the checkout shows it, like $131.50." },
       number_ref: { type: "integer", description: "The card number box's number from the last reading." },
       exp_ref: { type: "integer", description: "One expiry box (MM/YY), when the page has one." },
       exp_month_ref: { type: "integer", description: "The expiry month box or menu, when month and year are separate." },
@@ -47,12 +50,12 @@ export const FILL_CARD_DEFINITION = {
       postal_code_ref: { type: "integer", description: "The billing ZIP or postcode box, when the page has one." },
       context: { type: "string", description: "The workspace the card is saved in, like @team, when it is not the person's own." },
     },
-    required: ["entry", "number_ref"],
+    required: ["entry", "total", "number_ref"],
   },
   annotations: { openWorldHint: true },
 };
 
-/** One checkout gets one fill; a retry after a refused box is the second. */
+/** One checkout gets one fill; a retry after a refused box is the second (and a later turn may fill again on the same yes). */
 export const MAX_CARD_FILLS_PER_TURN = 2;
 
 const REFUSED = {
@@ -79,6 +82,8 @@ export function fillCardTool(browser, store, { asks = null } = {}) {
     definition: FILL_CARD_DEFINITION,
     async call(args) {
       if (!isEntryId(args?.entry)) return text("entry must be a card id from fetch vault:.", true);
+      const total = payTotal(args?.total);
+      if (total === null) return text("total must be the checkout's total as the page shows it, like $131.50.", true);
       const boxes = [];
       for (const [arg, part] of Object.entries(REF_ARGS)) {
         if (args?.[arg] === undefined) continue;
@@ -112,7 +117,7 @@ export function fillCardTool(browser, store, { asks = null } = {}) {
       if (missing) return text(`${cardLabel(meta)} has nothing saved for the ${missing.part.replace("_", " ")} box; leave that box for the person.`, true);
       // Nothing is opened before the person's yes for this card on this site.
       // Only the turn's own vault is asked about by text: a yes texted to Tex settles in the turn's store (`textedPay.js`).
-      const yes = await payAllowed(vault, { entryId: args.entry, meta, host, asks: vault === store ? asks : null });
+      const yes = await payAllowed(vault, { entryId: args.entry, meta, host, total, asks: vault === store ? asks : null });
       if (!yes.allowed) return text(yes.message, true);
       fills += 1;
 
@@ -131,11 +136,18 @@ export function fillCardTool(browser, store, { asks = null } = {}) {
         if (!value) return text(`${cardLabel(meta)} has nothing saved for the ${part.replace("_", " ")} box.`, true);
         const filled = await browser.fillSecret({ ref, value, origin, field: `cc-${part.replace(/_/g, "-")}` });
         if (!filled.ok) {
-          return text(`Couldn't fill the ${part.replace("_", " ")} box: ${filled.reason}. Read the page again; the yes was used, so filling again asks the person again.`, true);
+          const again =
+            yes.left > 0
+              ? `Their yes still covers ${yes.left === 1 ? "one more fill" : `${yes.left} more fills`} of this ${total} purchase: fix what's wrong and fill again, without asking them.`
+              : "That was the last fill their yes covered, so filling again asks them again.";
+          return text(`Couldn't fill the ${part.replace("_", " ")} box: ${filled.reason}. Read the page again. ${again}`, true);
         }
         done.push(part.replace("_", " "));
       }
-      return text(`Filled ${done.join(", ")} with ${cardLabel(meta)}. Tell the person the total, then press the page's pay button with send action browse.`);
+      return text(
+        `Filled ${done.join(", ")} with ${cardLabel(meta)}. Press the page's pay button with send action browse; if the page resets first, fill again on the same yes. ` +
+          "It covers this one purchase only: never pay twice with it.",
+      );
     },
   };
 }

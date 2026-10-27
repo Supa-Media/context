@@ -1,34 +1,20 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
+import { treeView } from "../../functions/lib/fileOps/walk";
+import { DELETE_CONFIRMATION, type FileStore, archivePath, copyPath, createFolder, deletePath, listFolder, movePath, readFile, trashPath, writeFile } from "../../functions/lib/fileOps";
+import { canSee } from "../../functions/lib/privacy";
+import { NOW, shareProjects, capture, errorShape, names } from "./fixtures.helpers";
 import {
-  DELETE_CONFIRMATION,
-  type FileStore,
-  archivePath,
-  copyPath,
-  createFolder,
-  deletePath,
-  listFolder,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  writeFile,
-} from "../../functions/lib/fileOps";
-import {
-  PRIVACY_KEY,
-  canSee,
-  parsePrivacyManifest,
-} from "../../functions/lib/privacy";
-import { type MemoryStore } from "../storeStub.helpers";
-import {
-  NOW,
-  bucket,
-  historyKeys,
-  shareProjects,
-  capture,
-  errorShape,
-  names,
-} from "./fixtures.helpers";
+  keyedBucket,
+  liveRowsUnder,
+  PARA_SEEDS,
+  rowOf2,
+  rowRulesOf,
+  textAt,
+  type KeyedBucket,
+} from "./keyedFixture.fileops1.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 /* -------------------------------------------------------------------------- */
 /*                      a destination you cannot see                          */
@@ -49,17 +35,18 @@ import {
  * `move_folder` check the destination before reading it, and the tool
  * description promises exactly that). These are the control plane's copy.
  */
+
 describe("a destination the caller cannot see", () => {
   /** `1-projects` shared, `2-areas` private, and one real note inside it. */
-  async function withHiddenNote(): Promise<MemoryStore & FileStore> {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("2-areas/finance/notes.md", "# Notes\n\nsalaries\n");
-    return store;
+  async function withHiddenNote(): Promise<KeyedBucket> {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("2-areas/finance/notes.md", "# Notes\n\nsalaries\n");
+    return f;
   }
 
   test("copying cannot confirm a note exists where the caller cannot look", async () => {
-    const store = await withHiddenNote();
+    const { store } = await withHiddenNote();
     const taken = await capture(() =>
       copyPath(store, {
         from: "1-projects/context-lc.md",
@@ -82,7 +69,7 @@ describe("a destination the caller cannot see", () => {
   });
 
   test("moving cannot confirm one either", async () => {
-    const store = await withHiddenNote();
+    const { store } = await withHiddenNote();
     const taken = await capture(() =>
       movePath(store, {
         from: "1-projects/context-lc.md",
@@ -110,9 +97,9 @@ describe("a destination the caller cannot see", () => {
    * because `canSee(from)` refuses them the source from that moment on.
    */
   test("a shared note cannot be moved somewhere only the owner can look", async () => {
-    const store = await withHiddenNote();
+    const f = await withHiddenNote();
     const error = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/taken.md",
         clearance: clearanceOf("team"),
@@ -120,9 +107,9 @@ describe("a destination the caller cannot see", () => {
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
-    expect(store.snapshot()["2-areas/finance/taken.md"]).toBeUndefined();
+    expect(await textAt(f, "2-areas/finance/taken.md")).toBeNull();
     // ...and the note is still where the rest of the team can see it.
-    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("team") });
+    const listing = await listFolder(treeView(f.store), { path: "1-projects", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toContain("context-lc.md");
   });
 
@@ -132,7 +119,7 @@ describe("a destination the caller cannot see", () => {
    * every editor who is allowed to use it.
    */
   test("a move and a copy inside shared space are untouched", async () => {
-    const store = await withHiddenNote();
+    const { store } = await withHiddenNote();
     const moved = await movePath(store, {
       from: "1-projects/context-lc.md",
       to: "1-projects/renamed.md",
@@ -149,7 +136,7 @@ describe("a destination the caller cannot see", () => {
   });
 
   test("the owner is not affected — private scope sees everything", async () => {
-    const store = await withHiddenNote();
+    const { store } = await withHiddenNote();
     const moved = await movePath(store, {
       from: "1-projects/context-lc.md",
       to: "2-areas/finance/filed.md",
@@ -169,7 +156,7 @@ describe("a destination the caller cannot see", () => {
    * An owner who wants editors to archive shares `9-archive`.
    */
   test("archiving follows the same rule, in both directions", async () => {
-    const store = await withHiddenNote();
+    const { store } = await withHiddenNote();
     const refused = await capture(() =>
       archivePath(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team"), now: NOW }),
     );
@@ -215,13 +202,13 @@ describe("a destination the caller cannot see", () => {
    * before this test existed.
    */
   test("a folder move is refused on any destination, not just the first", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/team-folder/a.md", "# A\n");
-    store.seed("1-projects/team-folder/b.md", "# B\n");
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("1-projects/team-folder/a.md", "# A\n");
+    await f.store.put("1-projects/team-folder/b.md", "# B\n");
 
     const error = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/team-folder",
         to: "2-areas/hidden-folder",
         clearance: clearanceOf("team"),
@@ -229,17 +216,21 @@ describe("a destination the caller cannot see", () => {
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
-    expect(store.snapshot()["2-areas/hidden-folder/a.md"]).toBeUndefined();
-    expect(store.snapshot()["2-areas/hidden-folder/b.md"]).toBeUndefined();
+    expect(await liveRowsUnder(f, "2-areas/hidden-folder")).toEqual([]);
 
     // The control: the same folder move inside shared space carries both files.
-    const moved = await movePath(store, {
+    const moved = await movePath(f.store, {
       from: "1-projects/team-folder",
       to: "1-projects/renamed-folder",
       clearance: clearanceOf("team"),
       now: NOW,
     });
-    expect(moved.paths.sort()).toEqual([
+    expect((moved.moved ?? []).map((pair) => pair.to).sort()).toEqual([
+      "1-projects/renamed-folder/a.md",
+      "1-projects/renamed-folder/b.md",
+    ]);
+    expect(await liveRowsUnder(f, "1-projects/renamed-folder")).toEqual([
+      "1-projects/renamed-folder",
       "1-projects/renamed-folder/a.md",
       "1-projects/renamed-folder/b.md",
     ]);
@@ -258,23 +249,24 @@ describe("a destination the caller cannot see", () => {
    * write permission is decided from the manifest as it stands.
    */
   test("a rename that carries its own visibility with it is allowed", async () => {
-    const store = bucket();
-    store.seed("2-areas/shared/plan.md", "# Plan\n");
-    await setFolderVisibility(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("2-areas/shared/plan.md", "# Plan\n");
+    await setFolderVisibility(f.store, {
       path: "2-areas/shared",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
 
-    const moved = await movePath(store, {
+    const moved = await movePath(f.store, {
       from: "2-areas/shared",
       to: "2-areas/shared-renamed",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(moved.paths).toEqual(["2-areas/shared-renamed/plan.md"]);
+    // A keyed folder move is one row change, answered with the folder's new path.
+    expect(moved.paths).toEqual(["2-areas/shared-renamed"]);
     // ...and it really is still readable afterwards, which is the premise.
-    const listing = await listFolder(store, { path: "2-areas/shared-renamed", clearance: clearanceOf("team") });
+    const listing = await listFolder(treeView(f.store), { path: "2-areas/shared-renamed", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["plan.md"]);
   });
 
@@ -290,19 +282,17 @@ describe("a destination the caller cannot see", () => {
    * owner is unaffected.
    */
   test("a shared note inside a private folder cannot be moved by a team caller", async () => {
-    const store = bucket();
-    store.seed("2-areas/open.md", "# Open\n");
-    await setVisibility(store, {
-      path: "2-areas/open.md",
-      visibility: "team",
-      clearance: clearanceOf("private"),
+    // Rows mode (production): the note's own exception is its row's `access.base`, and the row moves with it.
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.t.run((ctx) => ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 }));
+    await f.store.put("2-areas/open.md", "# Open\n");
+    await f.t.run(async (ctx) => {
+      const row = await treeNodeAt(ctx.db, f.workspaceId, "2-areas/open.md");
+      await ctx.db.patch(row!._id, { access: { base: "team" } });
     });
-    // They can read it — that is the whole point of the exception.
-    const readable = await readFile(store, { path: "2-areas/open.md", clearance: clearanceOf("team") });
-    expect(readable.visibility).toBe("team");
 
     const refused = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "2-areas/open.md",
         to: "2-areas/open-renamed.md",
         clearance: clearanceOf("team"),
@@ -312,15 +302,17 @@ describe("a destination the caller cannot see", () => {
     expect(refused.code).toBe("FILE_NOT_FOUND");
 
     // The owner can, and the note keeps its exception.
-    const moved = await movePath(store, {
+    const moved = await movePath(f.store, {
       from: "2-areas/open.md",
       to: "2-areas/open-renamed.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/open-renamed.md"]);
-    const after = await readFile(store, { path: "2-areas/open-renamed.md", clearance: clearanceOf("team") });
-    expect(after.visibility).toBe("team");
+    expect(await rowOf2(f, "2-areas/open-renamed.md")).toEqual({
+      path: "2-areas/open-renamed.md",
+      access: { base: "team" },
+    });
   });
 
   /**
@@ -330,15 +322,15 @@ describe("a destination the caller cannot see", () => {
    * shared folder into space they cannot see and believe it stayed shared.
    */
   test("copying a folder into space the caller cannot see is still refused", async () => {
-    const store = bucket();
-    store.seed("2-areas/shared/plan.md", "# Plan\n");
-    await setFolderVisibility(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("2-areas/shared/plan.md", "# Plan\n");
+    await setFolderVisibility(f.store, {
       path: "2-areas/shared",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
     const error = await capture(() =>
-      copyPath(store, {
+      copyPath(f.store, {
         from: "2-areas/shared",
         to: "2-areas/elsewhere",
         clearance: clearanceOf("team"),
@@ -353,18 +345,18 @@ describe("a destination the caller cannot see", () => {
    * from the attempt that it is. The gateway refuses this too.
    */
   test("a destination carrying its own exception is refused", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/mine.md", "# Mine\n");
-    store.seed("1-projects/held-back.md", "# Held back\n");
-    await setVisibility(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("1-projects/mine.md", "# Mine\n");
+    await f.store.put("1-projects/held-back.md", "# Held back\n");
+    await setVisibility(f.store, {
       path: "1-projects/held-back.md",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
 
     const taken = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/mine.md",
         to: "1-projects/held-back.md",
         clearance: clearanceOf("team"),
@@ -372,7 +364,7 @@ describe("a destination the caller cannot see", () => {
       }),
     );
     const free = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/mine.md",
         to: "2-areas/never.md",
         clearance: clearanceOf("team"),
@@ -383,7 +375,7 @@ describe("a destination the caller cannot see", () => {
     expect(taken.message).not.toContain("held-back");
 
     // ...and an ordinary move inside the shared folder still works.
-    const moved = await movePath(store, {
+    const moved = await movePath(f.store, {
       from: "1-projects/mine.md",
       to: "1-projects/renamed.md",
       clearance: clearanceOf("team"),
@@ -400,19 +392,19 @@ describe("a destination the caller cannot see", () => {
    * back empty. The trailing slash is load-bearing here too.
    */
   test("a shared subfolder of a private folder is reachable from the root", async () => {
-    const store = bucket();
-    store.seed("2-areas/shared/plan.md", "# Plan\n");
-    store.seed("2-areas/sha/secret.md", "# Secret\n");
-    await setFolderVisibility(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("2-areas/shared/plan.md", "# Plan\n");
+    await f.store.put("2-areas/sha/secret.md", "# Secret\n");
+    await setFolderVisibility(f.store, {
       path: "2-areas/shared",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
 
-    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
+    const root = await listFolder(treeView(f.store), { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).toContain("2-areas");
 
-    const areas = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
+    const areas = await listFolder(treeView(f.store), { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(areas.entries)).toContain("shared");
     // The prefix boundary: `2-areas/sha` is not unhidden by `2-areas/shared`.
     expect(names(areas.entries)).not.toContain("sha");
@@ -421,27 +413,34 @@ describe("a destination the caller cannot see", () => {
   });
 
   test("a team exception unhides its own folder and not a name it prefixes", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("2-areas/finance/public.md", "# Public\n");
-    store.seed("2-areas/fin/secret.md", "# Secret\n");
-    await setVisibility(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("2-areas/finance/public.md", "# Public\n");
+    await f.store.put("2-areas/fin/secret.md", "# Secret\n");
+    await setVisibility(f.store, {
       path: "2-areas/finance/public.md",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
 
-    const listing = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
+    const listing = await listFolder(treeView(f.store), { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toContain("finance");
     expect(names(listing.entries)).not.toContain("fin");
   });
 });
 
+/**
+ * Permanent delete is not available in a keyed workspace (`fileOps/deleting.ts`):
+ * every workspace is keyed, and a keyed row and its key are retired only by
+ * emptying the trash. What is left to assert is that the refusal changes
+ * nothing, that the confirmation still has to be given, and that a caller who
+ * cannot see a note gets the same answer as for a note that does not exist.
+ */
 describe("deleting is the permanent one", () => {
   test("without the confirmation, nothing happens", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      deletePath(store, {
+      deletePath(f.store, {
         path: "1-projects/context-lc.md",
         confirmation: "yes",
         clearance: clearanceOf("private"),
@@ -449,244 +448,90 @@ describe("deleting is the permanent one", () => {
     );
     expect(error.code).toBe("CONFIRMATION_REQUIRED");
     expect(error.message).toMatch(/cannot be undone/);
-    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
+    expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
   });
 
   test("an empty confirmation is not a confirmation", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      deletePath(store, { path: "1-projects/context-lc.md", confirmation: "", clearance: clearanceOf("private") }),
+      deletePath(f.store, { path: "1-projects/context-lc.md", confirmation: "", clearance: clearanceOf("private") }),
     );
     expect(error.code).toBe("CONFIRMATION_REQUIRED");
   });
 
-  test("with the confirmation, the file is gone", async () => {
-    const store = bucket();
-    await deletePath(store, {
-      path: "1-projects/context-lc.md",
-      confirmation: DELETE_CONFIRMATION,
-      clearance: clearanceOf("private"),
-    });
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
-  });
-
-  /**
-   * "Permanent" has to mean it. A `.history/` copy left behind would make the
-   * console's plainest sentence a lie, in the one product whose whole claim is
-   * that you know where your data is.
-   */
-  test("nothing is quietly kept behind", async () => {
-    const store = bucket();
-    await deletePath(store, {
-      path: "1-projects/pay.md",
-      confirmation: DELETE_CONFIRMATION,
-      clearance: clearanceOf("private"),
-    });
-    const survivors = Object.entries(store.snapshot()).filter(([, body]) =>
-      body.includes("salaries"),
+  test("with the confirmation, a keyed workspace still refuses, and the note stays", async () => {
+    const f = await keyedBucket(PARA_SEEDS);
+    const error = await capture(() =>
+      deletePath(f.store, {
+        path: "1-projects/context-lc.md",
+        confirmation: DELETE_CONFIRMATION,
+        clearance: clearanceOf("private"),
+      }),
     );
-    expect(survivors).toEqual([]);
+    expect(error.code).toBe("KEYED_WORKSPACE");
+    expect(error.message).toMatch(/Permanent delete is not available in a keyed workspace/);
+    expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
   });
 
-  test("deleting a folder takes everything under it", async () => {
-    const store = bucket(); // An own folder: built-in ones cannot be deleted.
-    for (const key of ["work/README.md", "work/plan.md", "work/deep/notes.md"]) store.seed(key, "# Note\n");
-    await deletePath(store, {
-      path: "work",
-      confirmation: DELETE_CONFIRMATION,
-      clearance: clearanceOf("private"),
-    });
-    const remaining = Object.keys(store.snapshot()).filter((key) =>
-      key.startsWith("work/"),
-    );
-    expect(remaining).toEqual([]);
-  });
-
-  /**
-   * The half that was missing, said as a fact about keys rather than about
-   * content.
-   *
-   * `nothing is quietly kept behind` above searches for a string, which is the
-   * right assertion for "is my salary data gone" and the wrong one for "is
-   * there a copy". These name the bucket directly: after a permanent delete,
-   * **no key under `.history/` for that path may remain**. Everything else in
-   * this product is reversible — archive, an overwritten note — and this one
-   * says on screen that it is not. A hidden copy is still a copy: it is in the
-   * customer's bucket, on their storage bill, and in whatever their provider
-   * hands over.
-   */
-  describe("permanent means the history goes too", () => {
-    test("a deleted note leaves no key under .history/ for its path", async () => {
-      const store = bucket();
-      await deletePath(store, {
-        path: "1-projects/pay.md",
-        confirmation: DELETE_CONFIRMATION,
-        clearance: clearanceOf("private"),
-      });
-      expect(
-        historyKeys(store).filter((key) => key.startsWith(".history/1-projects/pay.md.")),
-      ).toEqual([]);
-    });
-
-    test("and no key anywhere in the bucket still holds its content", async () => {
-      const store = bucket();
-      await deletePath(store, {
-        path: "1-projects/pay.md",
-        confirmation: DELETE_CONFIRMATION,
-        clearance: clearanceOf("private"),
-      });
-      expect(
-        Object.entries(store.snapshot()).filter(([, body]) => body.includes("salaries")),
-      ).toEqual([]);
-    });
-
-    /**
-     * The path a real person takes: write a note, change it, delete it.
-     *
-     * The edit no longer stashes the first draft — nothing does — so the first
-     * half of this now guards that, and the second half still guards the purge.
-     * A bucket connected before snapshots stopped is the case the seeded
-     * fixtures below cover; this one is the bucket of somebody who joined after.
-     */
-    test("a note written, edited, then deleted leaves nothing of either version", async () => {
-      const store = bucket();
-      const first = await writeFile(store, {
-        path: "1-projects/secret.md",
-        text: "# Secret\n\nthe first draft\n",
-        clearance: clearanceOf("private"),
-        now: NOW,
-      });
-      await writeFile(store, {
-        path: "1-projects/secret.md",
-        text: "# Secret\n\nthe second draft\n",
-        expectedEtag: first.etag,
-        clearance: clearanceOf("private"),
-        now: NOW + 60_000,
-      });
-      // The edit kept nothing, so there is nothing for the delete to miss.
-      expect(
-        Object.entries(store.snapshot()).filter(([, body]) => body.includes("the first draft")),
-      ).toEqual([]);
-
-      await deletePath(store, {
-        path: "1-projects/secret.md",
-        confirmation: DELETE_CONFIRMATION,
-        clearance: clearanceOf("private"),
-      });
-
-      expect(
-        historyKeys(store).filter((key) => key.startsWith(".history/1-projects/secret.md.")),
-      ).toEqual([]);
-      expect(
-        Object.entries(store.snapshot()).filter(([, body]) => body.includes("draft")),
-      ).toEqual([]);
-    });
-
-    test("deleting a folder purges the whole history subtree beneath it", async () => {
-      const store = bucket();
-      store.seed("work/pay.md", "# Pay\n\nsalaries\n");
-      for (const key of ["pay.md", "deep/old.md"]) store.seed(`.history/work/${key}.2026-07-01T09-00-00-000Z.md`, "# old\n");
-      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/")).length).toBe(2);
-      await deletePath(store, {
+  test("a folder's permanent delete is refused too, and everything under it stays", async () => {
+    const f = await keyedBucket(PARA_SEEDS); // An own folder: built-in ones cannot be deleted.
+    for (const path of ["work/README.md", "work/plan.md", "work/deep/notes.md"]) await f.store.put(path, "# Note\n");
+    const error = await capture(() =>
+      deletePath(f.store, {
         path: "work",
         confirmation: DELETE_CONFIRMATION,
         clearance: clearanceOf("private"),
-      });
-      expect(historyKeys(store).filter((key) => key.startsWith(".history/work/"))).toEqual([]);
-    });
+      }),
+    );
+    expect(error.code).toBe("KEYED_WORKSPACE");
+    expect(await liveRowsUnder(f, "work")).toEqual([
+      "work",
+      "work/README.md",
+      "work/deep",
+      "work/deep/notes.md",
+      "work/plan.md",
+    ]);
+  });
 
-    /**
-     * The purge is narrow. Deleting one note must not take the history of the
-     * notes beside it — that would be the opposite failure, and just as silent.
-     */
-    test("it takes only this path's history, never a neighbour's", async () => {
-      const store = bucket();
-      const before = historyKeys(store).filter((key) => key.startsWith(".history/2-areas/"));
-      expect(before.length).toBeGreaterThan(0);
-
-      await deletePath(store, {
+  test("a refused permanent delete leaves the note's exception in place", async () => {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await capture(() =>
+      deletePath(f.store, {
         path: "1-projects/pay.md",
         confirmation: DELETE_CONFIRMATION,
         clearance: clearanceOf("private"),
-      });
-
-      expect(historyKeys(store).filter((key) => key.startsWith(".history/2-areas/"))).toEqual(
-        before,
-      );
-      expect(store.snapshot()["1-projects/context-lc.md"]).toBeDefined();
-      expect(store.snapshot()[".history/1-projects/context-lc.md.old.md"]).toBeDefined();
-    });
-
-    /**
-     * Archive is the recoverable one, and it must stay that way: it is what the
-     * delete dialog points people at instead. Archiving is a move, and a move
-     * keeps its snapshot.
-     */
-    test("archiving still keeps a history entry — only deleting purges", async () => {
-      const store = bucket();
-      await archivePath(store, { path: "2-areas/health.md", clearance: clearanceOf("private"), now: NOW });
-      expect(historyKeys(store).some((key) => key.startsWith(".history/2-areas/health.md."))).toBe(
-        true,
-      );
-    });
-
-    test("a refused delete purges nothing", async () => {
-      const store = bucket();
-      const before = historyKeys(store);
-      await capture(() =>
-        deletePath(store, {
-          path: "1-projects/pay.md",
-          confirmation: "yes",
-          clearance: clearanceOf("private"),
-        }),
-      );
-      expect(historyKeys(store)).toEqual(before);
-    });
-
-    /**
-     * A `team` caller cannot see the note, so they cannot delete it — and they
-     * must not be able to reach through the refusal to shred its history
-     * either. The refusal has to be total, not just about the live key.
-     */
-    test("a caller who cannot see the note cannot purge its history", async () => {
-      const store = bucket();
-      await shareProjects(store);
-      const before = historyKeys(store);
-      await capture(() =>
-        deletePath(store, {
-          path: "1-projects/pay.md",
-          confirmation: DELETE_CONFIRMATION,
-          clearance: clearanceOf("team"),
-        }),
-      );
-      expect(historyKeys(store)).toEqual(before);
-    });
-  });
-
-  test("a deleted note's exception is forgotten, so a later note at that path is not secretly private", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await deletePath(store, {
-      path: "1-projects/pay.md",
-      confirmation: DELETE_CONFIRMATION,
-      clearance: clearanceOf("private"),
-    });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
-    expect(manifest.overrides.has("1-projects/pay.md")).toBe(false);
-  });
-
-  test("a team caller cannot delete what they cannot see", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    const error = await capture(() =>
-      deletePath(store, {
-        path: "1-projects/pay.md",
-        confirmation: DELETE_CONFIRMATION,
-        clearance: clearanceOf("team"),
       }),
     );
-    expect(error.code).toBe("FILE_NOT_FOUND");
-    expect(store.snapshot()["1-projects/pay.md"]).toContain("salaries");
+    const { overrides } = await rowRulesOf(f);
+    expect(overrides.has("1-projects/pay.md")).toBe(true);
+  });
+
+  test("a team caller cannot trash what they cannot see, and gets the answer for a note that is not there", async () => {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    const hidden = await capture(() =>
+      trashPath(f.store, { path: "1-projects/pay.md", clearance: clearanceOf("team"), now: NOW }),
+    );
+    const absent = await capture(() =>
+      trashPath(f.store, { path: "1-projects/never.md", clearance: clearanceOf("team"), now: NOW }),
+    );
+    expect(hidden.code).toBe("FILE_NOT_FOUND");
+    expect(errorShape(hidden)).toBe(errorShape(absent));
+    expect(await textAt(f, "1-projects/pay.md")).toContain("salaries");
+  });
+
+  test("a team caller's permanent delete of a hidden note is refused exactly as one of a note that is not there", async () => {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    const hidden = await capture(() =>
+      deletePath(f.store, { path: "1-projects/pay.md", confirmation: DELETE_CONFIRMATION, clearance: clearanceOf("team") }),
+    );
+    const absent = await capture(() =>
+      deletePath(f.store, { path: "1-projects/never.md", confirmation: DELETE_CONFIRMATION, clearance: clearanceOf("team") }),
+    );
+    expect(errorShape(hidden)).toBe(errorShape(absent));
+    expect(await textAt(f, "1-projects/pay.md")).toContain("salaries");
   });
 });
 
@@ -697,4 +542,3 @@ describe("deleting is the permanent one", () => {
 /* -------------------------------------------------------------------------- */
 /*                 a bulk operation acts on what you can see                  */
 /* -------------------------------------------------------------------------- */
-

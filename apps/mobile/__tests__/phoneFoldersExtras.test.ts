@@ -126,10 +126,10 @@ describe("the Folders page, as board 2 draws it", () => {
   const source = {
     notes: [
       { path: "index.md", title: "Front page" },
-      { path: "0-inbox/loose.md", title: "Loose" },
+      { path: "inbox/loose.md", title: "Loose" },
       { path: "2-areas/garden.md", title: "Garden" },
     ],
-    folders: ["0-inbox", "2-areas"],
+    folders: ["inbox", "2-areas"],
     shared: new Set<string>(),
   };
   const page = () =>

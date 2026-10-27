@@ -23,18 +23,12 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  type FileStore,
-  maintainSearchIndex,
-  notePathIndex,
-  setFolderVisibility,
-  setVisibility,
-} from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex, notePathIndex } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { nodesPagedStore } from "../functions/lib/nodes/manifestStore";
-import { privacyMirrorOf } from "../functions/lib/nodes/privacyMirror";
-import { compareKeys } from "../functions/lib/nodes/sweep";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { privacyMirrorOf } from "./privacyMirrorOf.helpers";
+import { compareKeys } from "../functions/lib/nodes/table";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore() as MemoryStore & FileStore;
@@ -60,7 +54,7 @@ async function indexed(store: FileStore): Promise<void> {
   }
 }
 
-/** The tree's store over this bucket: its rows, as a sweep records them, and its rules mirror. */
+/** The tree's store over this bucket: its rows as the tree holds them, and its rules mirror. */
 async function served(store: MemoryStore & FileStore): Promise<FileStore> {
   const listing = await store.list({ limit: 10_000 });
   const rows = (listing.objects ?? [])

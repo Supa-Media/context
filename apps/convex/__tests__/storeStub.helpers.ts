@@ -23,6 +23,8 @@
  */
 
 import type { ScaffoldStore } from "../functions/lib/scaffold";
+import { registerBucket } from "./bucketRegistry.helpers";
+import type { FileStore } from "../functions/lib/fileOps/store";
 
 /**
  * What the stub holds.
@@ -100,7 +102,27 @@ export interface MemoryStore extends ScaffoldStore {
   };
 }
 
-export function memoryStore(
+/**
+ * An in-memory store with the Convex tree's names attached as its own listing:
+ * a unit test has no tree to serve, so the store's objects stand for the tree's
+ * rows (`namesListing`, `filesInTree`). Production attaches the real tree
+ * (`lib/nodes/treeNames.ts`) and refuses a store without one; a test that
+ * exercises the tree attaches its own `treeListing` over this store.
+ */
+export function memoryStore(options: Parameters<typeof plainMemoryStore>[0] = {}): MemoryStore {
+  const store = plainMemoryStore(options);
+  Object.defineProperty(store, "treeListing", {
+    enumerable: false,
+    configurable: true,
+    value: {
+      list: (listing: Parameters<MemoryStore["list"]>[0]) => store.list(listing),
+      taken: async (paths: readonly string[]) => ({ files: paths.filter((path) => store.objects.has(path)) }),
+    },
+  });
+  return store;
+}
+
+function plainMemoryStore(
   options: {
     ignoreIfMatch?: boolean;
     /**
@@ -283,7 +305,7 @@ function listPage(
       .filter((entry) => entry.kind === "object")
       .map((entry) => ({
         key: entry.name,
-        size: objects.get(entry.name)!.body.length,
+        size: objects.get(entry.name)!.bytes.byteLength,
         uploaded: new Date(0),
         etag: objects.get(entry.name)!.etag,
       })),
@@ -367,11 +389,24 @@ export function memoryS3(
   bucket: string,
   options: MemoryS3Options = {},
 ): MemoryS3 {
+  const backend: MemoryS3 = makeMemoryS3(bucket, options);
+  return backend;
+}
+
+function makeMemoryS3(bucket: string, options: MemoryS3Options): MemoryS3 {
   const objects = new Map<string, StoredValue>();
   const requests: { method: string; key: string }[] = [];
   let counter = 0;
   const failureMessage =
     options.errorMessage ?? "The request signature we calculated does not match.";
+  registerBucket(bucket, {
+    rulesSource: (key) => ({
+      text: async () => objects.get(key)?.body ?? null,
+      remove: async () => {
+        objects.delete(key);
+      },
+    }),
+  });
 
   const fetchImpl = async (
     input: URL | RequestInfo,
@@ -535,7 +570,7 @@ export function memoryS3(
     return errorResponse(405, "MethodNotAllowed", "unsupported");
   };
 
-  return {
+  const backend: MemoryS3 = {
     objects,
     requests,
     seed(key, body) {
@@ -556,6 +591,18 @@ export function memoryS3(
     },
     fetchImpl,
   };
+  latestS3ByBucket.set(bucket, backend);
+  return backend;
+}
+
+/**
+ * The newest `memoryS3` made for `bucket`, so a fixture that seeds a workspace's
+ * tree from its bucket's objects (`__tests__/fixtures.helpers.ts`) reads what the
+ * test seeded without the test passing it in.
+ */
+const latestS3ByBucket = new Map<string, MemoryS3>();
+export function latestS3Of(bucket: string): MemoryS3 | null {
+  return latestS3ByBucket.get(bucket) ?? null;
 }
 
 function listXml(page: ReturnType<typeof listPage>, modifiedAt?: (key: string) => Date | undefined): string {
@@ -579,4 +626,24 @@ function listXml(page: ReturnType<typeof listPage>, modifiedAt?: (key: string) =
       .join("") +
     `</ListBucketResult>`
   );
+}
+
+/**
+ * The tree's names for a store built over another (`{ ...store, list }`): the
+ * wrapper's own `list`, so a walk through the tree sees what the wrapper shows.
+ */
+export function withTreeOf<T extends FileStore>(wrapper: T): T {
+  Object.defineProperty(wrapper, "treeListing", {
+    enumerable: false,
+    configurable: true,
+    value: {
+      list: (listing: Parameters<FileStore["list"]>[0]) => wrapper.list(listing),
+      taken: async (paths: readonly string[]) => ({
+        files: (await Promise.all(paths.map(async (path) => ((await wrapper.get(path)) === null ? null : path)))).filter(
+          (path): path is string => path !== null,
+        ),
+      }),
+    },
+  });
+  return wrapper;
 }

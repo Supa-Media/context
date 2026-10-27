@@ -30,7 +30,7 @@ import {
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
-import { accountTimeZone, runsRoutines, userForActorName, workspaceOwner, writingRole } from "./access";
+import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner, writingRole } from "./access";
 import { PROPS_AT_PATHS } from "../nodes/facts";
 import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
@@ -61,12 +61,8 @@ export async function recordRoutineSignalHandler(
   const workspaceId = ctx.db.normalizeId("workspaces", args.workspaceId);
   if (workspaceId === null) return null;
   const workspace = await ctx.db.get(workspaceId);
-  // A shared workspace runs no routines: nothing to scan, and any row left from before goes.
+  // A shared workspace runs only its chat routines; the commit keeps those alone.
   if (workspace === null) return null;
-  if (!runsRoutines(workspace)) {
-    await dropRoutines(ctx, workspaceId);
-    return null;
-  }
   const paths = routinePathsOf(args.paths);
   if (paths === null) return null;
 
@@ -255,7 +251,10 @@ export async function commitRoutinesHandler(
 ): Promise<{ upserted: number; deleted: number }> {
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return { upserted: 0, deleted: 0 };
-  if (!runsRoutines(workspace)) return { upserted: 0, deleted: await dropRoutines(ctx, args.workspaceId) };
+  // A shared workspace's routine without a chat never runs; a personal one's `chat:` means nothing.
+  const schedules = args.schedules
+    .filter((schedule) => runsRoutine(workspace, schedule))
+    .map((schedule) => (workspace.kind === "personal" ? { ...schedule, chat: undefined, wake: undefined } : schedule));
   const now = Date.now();
   const existing = await ctx.db
     .query("routines")
@@ -267,7 +266,7 @@ export async function commitRoutinesHandler(
   let upserted = 0;
   let owner: Id<"users"> | null | undefined;
 
-  for (const schedule of args.schedules.slice(0, MAX_ROUTINES_PER_WORKSPACE)) {
+  for (const schedule of schedules.slice(0, MAX_ROUTINES_PER_WORKSPACE)) {
     found.add(schedule.path);
     const row = byPath.get(schedule.path);
     let writer: Id<"users"> | null = null;
@@ -336,16 +335,6 @@ export async function commitRoutinesHandler(
   return { upserted, deleted };
 }
 
-/** Delete every routine row of a workspace that runs none. The notes stay. */
-async function dropRoutines(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<number> {
-  const rows = await ctx.db
-    .query("routines")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
-    .take(MAX_ROUTINES_PER_WORKSPACE * 2);
-  for (const row of rows) await ctx.db.delete(row._id);
-  return rows.length;
-}
-
 /**
  * Whether a routine nobody was seen writing may run as the workspace's owner:
  * only where the owner is the only person who could have written it. A
@@ -400,6 +389,8 @@ function scheduleFields(schedule: RoutineSchedule): Omit<
     paused: schedule.paused,
     send: schedule.send,
     to: schedule.to,
+    chat: schedule.chat,
+    wake: schedule.wake,
   };
 }
 

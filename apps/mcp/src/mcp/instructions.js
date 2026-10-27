@@ -143,7 +143,7 @@ stop paying.
 1. **Their folders are theirs.** Do not assume a layout. Context workspaces
    have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive)
    that cannot be deleted, but people rename, move and nest them, so find each
-   by its job, never by a name like \`0-inbox\`.
+   by its job, never by a name like \`inbox\`.
    \`orient\` names which folder plays which role and reports the real shape, and
    their front page states their conventions. Follow those, and where they are silent,
    ask rather than invent a filing system for somebody else's notes.

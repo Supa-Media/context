@@ -74,6 +74,12 @@ export type ExplorerProps = {
    */
   onOpenPinned?: (path: string) => void;
   /**
+   * Raise the console's share sheet for a path, in place of this tree's own copy. The tree's copy was drawn
+   * without the people, the groups or the named audiences (nothing passed it `access`), so right-click Share
+   * looked like a different, emptier sheet from the one the note's Share button opens.
+   */
+  onShare?: (path: string) => void;
+  /**
    * Raised while this region owns a menu or a dialog, so the frame can put the
    * keyboard into `overlay` scope. Without it, ⌘K opens the palette *behind* an
    * open context menu.

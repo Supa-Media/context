@@ -20,8 +20,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, type DatabaseReader, type MutationCtx } from "../_generated/server";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
-import { copyRowOf, ensureCopyRow, idCopyPaused } from "./lib/noteIds/state";
+import { copyRowOf, ensureCopyRow } from "./lib/noteIds/state";
 import { staffOnly } from "./nodesMigration";
 import {
   CLEANUP_FAILED_LABEL,
@@ -74,8 +73,6 @@ async function gateInput(db: DatabaseReader, workspaceId: Id<"workspaces">, now:
   const cleanup = copy?.cleanup;
   return {
     now,
-    paused: await idCopyPaused(db),
-    keyed: await keyedWorkspace(db, workspaceId),
     keyedAt: copy?.keyedAt,
     cleanup:
       cleanup === undefined
@@ -109,9 +106,8 @@ export async function cleanupViewOf(db: DatabaseReader, workspaceId: Id<"workspa
   };
 }
 
-/** Whether the cleanup's run is the current one, not paused, and in the state `running` names. */
+/** Whether the cleanup's run is the current one and in the state `running` names. */
 async function currentRun(db: DatabaseReader, workspaceId: Id<"workspaces">, runId: number, running: "count" | "delete"): Promise<CleanupRow | null> {
-  if (await idCopyPaused(db)) return null;
   const cleanup = (await copyRowOf(db, workspaceId))?.cleanup;
   if (cleanup === undefined || cleanup.runId !== runId || cleanup.running !== running) return null;
   return cleanup;
@@ -174,7 +170,7 @@ async function startRun(ctx: MutationCtx, workspaceId: Id<"workspaces">, running
   return runId;
 }
 
-/** Count what a Delete would remove, for one workspace. Refused only while paused or already running. */
+/** Count what a Delete would remove, for one workspace. Refused only while already running. */
 export const countOld = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ started: v.number() }),
@@ -197,7 +193,7 @@ export const countOld = mutation({
 
 /**
  * Delete the old copies for one workspace. Refused, with the reason, unless
- * every gate passes (`lib/cleanup/gate.ts`): paused, running, not keyed, seven
+ * every gate passes (`lib/cleanup/gate.ts`): running, no keyed time, seven
  * days since the flip, a count finished within a day, and no live note still
  * read from its old path.
  */
@@ -224,14 +220,14 @@ export const deleteGateOpen = internalQuery({
   handler: async (ctx, { workspaceId }) => deleteRecheckRefusal(await gateInput(ctx.db, workspaceId, Date.now())) === null,
 });
 
-/** Whether a count page may run: its run is current and not paused. */
+/** Whether a count page may run: its run is current. */
 export const countCurrent = internalQuery({
   args: { workspaceId: v.id("workspaces"), runId: v.number() },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId, runId }) => (await currentRun(ctx.db, workspaceId, runId, "count")) !== null,
 });
 
-/** Whether a delete page may run: its run is current, not paused, and its cursor is the one the chain stored. */
+/** Whether a delete page may run: its run is current, and its cursor is the one the chain stored. */
 export const deleteCurrent = internalQuery({
   args: { workspaceId: v.id("workspaces"), runId: v.number(), cursor: v.optional(v.string()) },
   returns: v.boolean(),

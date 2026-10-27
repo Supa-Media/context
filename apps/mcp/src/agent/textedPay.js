@@ -1,7 +1,7 @@
 /**
  * A texted yes to a card's payment ask (`vault/pay.js`): settled before any
  * model runs, like every texted yes (`textedApprovals.js`), but it does not
- * end the turn. The yes is one fill of the card on that site; filling it is
+ * end the turn. The yes is one purchase with the card on that site; filling it is
  * the model's next step in the browser it left on the checkout, so the turn
  * goes on to the model with a line saying what the person allowed.
  *
@@ -26,7 +26,18 @@ export async function settlePayByText(store, session, verdict, texted, now = Dat
   if (waiting.length === 0 || verdict === null) return { allowed, replies };
   if (verdict === "approve" && !PLAIN_YES.test(texted)) {
     // Not a yes to a payment: nothing a later bare yes may reach either.
-    await disarmRecords(store, waiting);
+    // `disarmRecords` counts the ones it could neither drop nor disarm — a
+    // record whose etag moved under the conditional put, or a store refusing
+    // the write. Those stay armed for the rest of the ask's life, so a later
+    // plain "yes" would pay. Saying so is the whole of the guard: the person
+    // is the only one who can tell that yes from the one they meant.
+    const stuck = await disarmRecords(store, waiting);
+    if (stuck > 0) {
+      replies.push(
+        "I couldn't close the card question I asked you earlier, so it is still open: " +
+          'say "pay it" if you mean that one, and don\'t just say yes.'
+      );
+    }
     return { allowed, replies };
   }
   for (const { record } of waiting) {
@@ -52,6 +63,7 @@ export function paidLine(allowed) {
   const each = allowed.map((summary) => `"${String(summary).slice(0, 200)}"`).join(", ");
   return (
     `(Context: the person just texted yes to ${each}. Fill the card now with fill_card on the checkout your browser is on, ` +
-    "then press the page's pay button with browse and tell them it is done. The yes is for one fill in the next 10 minutes.)"
+    "then press the page's pay button with browse and tell them it is done. The yes covers this one purchase for the next 30 minutes, " +
+    "filling again included if a box is refused or the page resets, so never ask them again for it.)"
   );
 }

@@ -24,7 +24,7 @@ import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { catchUpPage, type CatchUpStore } from "./lib/moveCatchUp";
+import { catchUpPage, type CatchUpRows, type CatchUpStore } from "./lib/moveCatchUp";
 import { keptManagedBucketOption, managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import {
   CATCH_UP_PASS_DELAYS_MS,
@@ -145,10 +145,19 @@ export const runMoveCatchUp = internalAction({
         managedEncryption: await managedEncryptionOption(ctx, args.workspaceId),
       }) as unknown as CatchUpStore;
 
+      // A late version kept beside its note is a note of its own, so it gets a tree row (`moveCatchUpRows.ts`).
+      const rows: CatchUpRows = {
+        besideOf: (key) =>
+          ctx.runQuery(internal.functions.moveCatchUpRows.besideOf, { workspaceId: args.workspaceId, key }),
+        adopt: (copy) =>
+          ctx.runMutation(internal.functions.moveCatchUpRows.adoptLateCopy, { workspaceId: args.workspaceId, ...copy }),
+      };
+
       const page = await oldStore.list({ cursor: args.cursor, limit: MIGRATION_PAGE_SIZE });
       const counts = await catchUpPage({
         source: oldStore,
         target,
+        rows,
         objects: page.objects,
         since: args.since,
         byteCap: MIGRATION_OBJECT_BYTE_CAP,
@@ -156,11 +165,6 @@ export const runMoveCatchUp = internalAction({
         byteBudget: MIGRATION_WAVE_BYTE_BUDGET,
       });
       log("page", { listed: page.objects.length, ...counts });
-      // What came across is not named one by one, so the Convex tree is swept
-      // for it; otherwise the console showed the bucket as it was until the cron.
-      if (counts.copied + counts.keptBeside > 0) {
-        await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
-      }
       truncated = page.truncated && page.cursor !== undefined && page.cursor !== args.cursor;
       cursor = page.cursor;
     } catch (error) {

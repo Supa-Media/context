@@ -5,14 +5,12 @@ import { v } from "convex/values";
  * The workspace's file tree, in the control plane (decided by the owner,
  * 2026-10-12: "a move to Convex to have a better overall experience").
  *
- * One row per file or folder the bucket holds — names, versions and sizes,
- * **never note text** — plus each workspace's privacy rules, parsed. The
- * bucket stays canonical: these rows are rebuilt from a listing of it
- * (`lib/nodes/sweep.ts`) and kept current by re-checking what each change
- * touched (`lib/nodes/touch.ts`). Phase 1 of the migration is a **shadow**:
- * nothing reads these rows to answer a person yet; a parity check holds the
- * tree they describe equal to the bucket's at every clearance
- * (`lib/nodes/parity.ts`). See `docs/decisions/app-and-console/convex-tree.md`.
+ * One row per file or folder — names, versions and sizes, **never note
+ * text** — plus each workspace's privacy rules, parsed. The product's seam
+ * writes the rows (writes, moves, trash and the keyed copy report what they
+ * did, `lib/nodes/table.ts`); nothing lists the bucket to decide which names
+ * exist. A workspace's rows answer reads once its `nodeTrees` row is `ready`
+ * (`lib/nodes/treeGate.ts`). See `docs/decisions/app-and-console/convex-tree.md`.
  *
  * Who may see a row is never stored on it. It is decided when served, by the
  * same `canSee` over the workspace's rules that every listing applies.
@@ -69,7 +67,7 @@ export const nodeTables = {
     chaosNote: v.optional(v.boolean()),
     /**
      * The note's stable id (`lib/nodes/noteIds.ts`): assigned when the row is
-     * inserted, carried by a queued move to where the note lands, and
+     * inserted, carried by a move to where the note lands, and
      * backfilled for rows that predate it. Never a path, and never reused.
      */
     noteId: v.optional(v.string()),
@@ -135,7 +133,9 @@ export const nodeTables = {
     .index("by_workspace_storageKey", ["workspaceId", "storageKey"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
-    .index("by_workspace_observed", ["workspaceId", "observedAt"]),
+    .index("by_workspace_observed", ["workspaceId", "observedAt"])
+    /** The rows that carry an access setting of their own: the access scan reads these, never the whole tree (`accessRows.ts`). */
+    .index("by_workspace_access", ["workspaceId", "access.base"]),
 
   /**
    * One workspace's tree bookkeeping: how far a sweep has got, and whether the
@@ -166,6 +166,16 @@ export const nodeTables = {
     /** Retired: the gathered edits live on `nodeTreeEdits` now. Read once by `flushEdits`, never written. */
     edits: v.optional(v.array(v.string())),
     editsDueAt: v.optional(v.number()),
+    /**
+     * Where this workspace's readers take a row's path from (`lib/nodes/paths.ts`): `built` from its parents and
+     * names, so a move patches the moved row alone; absent, the stored `path`. Flipped with no row move in flight.
+     */
+    paths: v.optional(v.literal("built")),
+    /**
+     * Folder moves made on built paths. A device's feed token carries it (`nodesFeed.ts`): such a move renames
+     * everything beneath the folder with no change-log row, so a device walks after one.
+     */
+    folderMoves: v.optional(v.number()),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
       v.object({
@@ -192,10 +202,9 @@ export const nodeTables = {
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * One workspace's privacy rules, parsed from the `privacy.md` the bucket
-   * holds (`etag`). Rules only: the prose around the managed block is note
-   * text and is not kept. In phase 1 this is a mirror the parity check
-   * compares; phase 3 makes it the authority and writes `privacy.md` from it.
+   * retired 2026-10-22: the file-mode privacy mirror. Access is decided by the
+   * tree rows (`nodes.access`, `nodeAccess`) alone. Rows are kept, with no
+   * data migration; nothing writes or reads them any more.
    */
   nodePrivacy: defineTable({
     workspaceId: v.id("workspaces"),
@@ -206,19 +215,11 @@ export const nodeTables = {
     folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
     notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
     observedAt: v.number(),
-    /**
-     * Phase 3, while these rules are the authority: the bucket version of the
-     * last `privacy.md` written from them. A listing that shows another
-     * version means the file was edited past us, and it is written again.
-     */
+    // retired 2026-10-22: file-mode export bookkeeping, unused.
     exportedEtag: v.optional(v.string()),
-    /** The rules changed and the bucket's `privacy.md` has not been written from them yet. */
+    // retired 2026-10-22: file-mode export bookkeeping, unused.
     exportOwed: v.optional(v.boolean()),
-    /**
-     * Phase 3: these rules are only a copy of a `privacy.md` that has since
-     * moved, so they are not the authority and the file decides until the
-     * next read of it replaces them (`lib/nodes/privacyAuthority.ts`).
-     */
+    // retired 2026-10-22: file-mode authority bookkeeping, unused.
     fileAhead: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
 
@@ -251,6 +252,10 @@ export const nodeTables = {
   }).index("by_workspace_seq", ["workspaceId", "seq"]),
 
   /**
+   * RETIRED 2026-10-23: nothing reads or writes it since #2100 made moves row
+   * changes only. Kept so production's leftover rows still validate; remove
+   * the table once those rows are deleted.
+   *
    * Moves the tree shows already and the bucket has not finished (phase 4).
    *
    * One row per move, oldest first. `from` and `to` are paths as they were
@@ -434,8 +439,8 @@ export const nodeTables = {
     passSeq: v.optional(v.number()),
     /**
      * The workspace's flip to keyed rows started at this time (`keys` mode).
-     * With the switch at `keys`, this makes the workspace keyed for good
-     * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
+     * Every workspace is keyed now (2026-10-22) and nothing reads this to
+     * decide it; kept on the row as history.
      */
     keyedAt: v.optional(v.number()),
     /** The one recheck of this keyed workspace's rows against their keys was started then (`lib/noteIds/keyedRecheck.ts`). */
@@ -477,9 +482,11 @@ export const nodeTables = {
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * The id copy's switch, a single row (absent means running and `paths`).
-   * `mode` says which keys reads use; nothing reads ids yet, so it stays
-   * `paths` until a later phase says otherwise.
+   * RETIRED 2026-10-22 (`docs/decisions/storage-and-credentials/notes-by-id.md`).
+   * The switch and its pause are gone: every workspace is keyed. The row stays
+   * only because prod holds it at `keys` and the id-layout query still reads
+   * `mode`. Nothing writes it now. Remove the table, and the
+   * rows, with those readers.
    */
   noteIdLayout: defineTable({
     paused: v.boolean(),
@@ -495,16 +502,9 @@ export const nodeTables = {
    */
   nodeMigration: defineTable({
     paused: v.boolean(),
-    /**
-     * Phase 3: the rules in `nodePrivacy` are the authority, and `privacy.md`
-     * is written from them (`lib/nodes/privacyAuthority.ts`). Absent or false:
-     * the file is, and the rules follow it.
-     */
+    // retired 2026-10-22: the rows are the only authority; no flag is read.
     privacyAuthority: v.optional(v.boolean()),
-    /**
-     * Which store the tree's reads answer from (`nodeAccess`, PR 2 onward).
-     * Nothing reads it yet: absent or `file` is the only behaviour today.
-     */
+    // retired 2026-10-22: reads always answer from `nodeAccess`; no source switch.
     accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
     /**
      * When the pinned workspace's `team` rows were given the `accounts` grant (`functions/pinnedAccounts.ts`).

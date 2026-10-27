@@ -326,10 +326,16 @@ the console's tier verb sends none. Before this, a tier change cleared the list,
 so making a note `team` quietly removed every person the owner had named.
 
 The owner names people with `nodesAccess.setGrantees`: a handle (a group of
-this workspace, or one of its members), a group id, or an email. Someone
-outside the workspace is named by email only: an email grant is stored whether
-or not an account holds it, so no answer says whether a handle exists anywhere
-else, and an outsider's handle gets the same refusal as a handle nobody holds. Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
+this workspace, or any person's own `@name`), a group id, or an email. Someone
+outside the workspace may be named by their handle (decided by the owner,
+2026-10-25, reversing "outsiders by email only": people share by `@seyi`, and
+sharing is addressed by name). Whether a handle is held was never a secret,
+since `names.checkNameAvailable` answers it to anyone signed in, so the
+refusal for a handle nobody holds tells nothing new. What stays private is the
+holder: the list shows an outsider by their `@handle`, never their name or
+address (`shareList.ts`). The share field offers a typed `@name` only once
+`names.personByName` says a person holds it (owner, 2026-10-26: no row for a
+name nobody holds), and that query answers yes or no, never who. Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
 with nothing else in it, and nothing is written. A missing account and a
 deleted one are the same refusal. A member or an editor is `FORBIDDEN`. A
 non-member, or a path with no row, is `NOT_FOUND`. Each list is capped at 100

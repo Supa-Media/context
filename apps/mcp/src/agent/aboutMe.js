@@ -13,6 +13,8 @@
  * other write.
  */
 
+import { identityPrompt } from "./identity.js";
+
 export const ABOUT_ME_PATH = "tex/about-me.md";
 
 /**
@@ -74,8 +76,15 @@ export async function readTexNote(callTool, path) {
   }
 }
 
-/** What the system prompt says about it, given whether this turn may write. */
-export function aboutMePrompt(text, { edits }) {
+/**
+ * What the system prompt says about it, given whether this turn may write,
+ * after who they are by their account (`identity.js`) when that is known.
+ */
+export function aboutMePrompt(text, { edits, identity = null }) {
+  return identityPrompt(identity) + noteFacts(text, { edits });
+}
+
+function noteFacts(text, { edits }) {
   const body = typeof text === "string" ? text.trim() : "";
   const keep = edits
     ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write: fetch it first and keep the rest. One short line per fact, never more than ${MAX_ABOUT_ME_LINES} lines: when it's getting long, merge and drop what's stale.`
@@ -92,6 +101,37 @@ export function aboutMePrompt(text, { edits }) {
     "",
     `What you know about them, from ${ABOUT_ME_PATH} (yours to keep current):`,
     shown,
+    ...goalsLine(shown),
     ...(keep ? ["", keep] : []),
   ].join("\n");
+}
+
+/** How many goals are named back at most, and how long each may be. */
+const MAX_GOALS = 8;
+const MAX_GOAL_CHARS = 200;
+
+/**
+ * The lines under a "Goals" heading of the note, as plain text (the owner,
+ * 2026-10-25, `pushback.js`). Named back after the note so a request is
+ * weighed against them: a goal buried in the middle of a long note was
+ * passed over when a donut order arrived (pushback bench, gh-77).
+ */
+export function goalsIn(text) {
+  const lines = String(text ?? "").split("\n");
+  const start = lines.findIndex((line) => /^#{1,6}\s+(?:my\s+|their\s+|current\s+)?goals?\b/i.test(line.trim()));
+  if (start === -1) return [];
+  const goals = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,6}\s/.test(line.trim())) break;
+    const goal = line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "").trim();
+    if (goal !== "") goals.push(goal.slice(0, MAX_GOAL_CHARS));
+    if (goals.length === MAX_GOALS) break;
+  }
+  return goals;
+}
+
+function goalsLine(text) {
+  const goals = goalsIn(text);
+  if (goals.length === 0) return [];
+  return ["", `Their goals right now: ${goals.join(" ")} Weigh every request against these before you act on it.`];
 }

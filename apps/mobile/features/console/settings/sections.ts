@@ -148,6 +148,27 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    // The apps Tex acts in as this person, with Connect and Disconnect. A row since 2026-10-21:
+    // as a card at the foot of Profile nobody found it. Account scope: a connection is the person's own.
+    key: "texApps",
+    keywords: "apps tex uses slack linear outlook planning center notion jira connect reconnect disconnect integration assistant",
+    label: "Apps Tex uses",
+    scope: "account",
+    group: "You",
+    icon: "link",
+    personalOnly: false,
+  },
+  {
+    // The texts a Mac backs up for Tex and their AIs (owner, 2026-10-26): the person's own, whichever workspace is open.
+    key: "messages",
+    keywords: "messages imessage texts text sms backup back up copy mac full disk access tex sister phone number",
+    label: "Messages",
+    scope: "account",
+    group: "You",
+    icon: "chat",
+    personalOnly: false,
+  },
+  {
     key: "invitations",
     // "brain" is kept in the haystack, like the one on "Sign out & delete"
     // below: the word is retired from the copy, not from what people type.

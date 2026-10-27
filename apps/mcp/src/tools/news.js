@@ -40,10 +40,87 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-26",
+    text:
+      "search with `args: { texts: true, with?, since? }` searches the person's own texts (iMessage and SMS), from the backup their Mac keeps " +
+      "in their storage; fetch `texts:` lists their conversations and `texts:<id>` reads one (`since`, `before`, `limit`). Only their own " +
+      "personal workspace, with private access, and never from a group chat.",
+  },
+  {
+    date: "2026-10-26",
+    text:
+      "move_note into another workspace no longer takes `confirm_team_publish`: every such move runs the engine the console's Move uses, " +
+      "which keeps a private note private where it lands.",
+  },
+  {
+    date: "2026-10-26",
+    newTool: true,
+    text:
+      "fetch a note with `{ related: true }` (and `limit`, 1 to 25) for the notes around it, each with why: the notes it links to " +
+      "(linked_from_here), the notes linking to it (links_here), and notes whose text is like its title and headings (related_text). " +
+      "related_notes `{ path, limit }` is the same by name.",
+  },
+  {
+    date: "2026-10-24",
+    text:
+      "read_file and read_email (with `attachment`) take `from`: the character a long file's next part starts at, which each part names under `more:`. " +
+      "For a CSV or TSV they also take `summary` (`by` columns or \"month\", `where` [{ column, contains }], `dates` { from, to }): totals over every row, exact repeats left out.",
+  },
+  {
+    date: "2026-10-24",
+    text:
+      "send_email and calendar_event take `as` in a group chat: the handle of the person in the chat it goes from, when that isn't whoever tagged Tex. " +
+      "They are shown the exact copy, and only their 👍 or yes makes it.",
+  },
+  {
+    date: "2026-10-23",
+    text:
+      "calendar_event takes `calendar`: the address of one of their connected Google accounts (fetch calendar: names each). " +
+      "A create goes on that calendar; any other change looks for the event there only.",
+  },
+  {
+    date: "2026-10-23",
+    text:
+      "calendar_event takes action `edit` (find the event by `title` and `start` as they are now, then any of `new_title`, `new_start` + `new_end`, " +
+      "`location`, `notes`, `add_guests`, `remove_guests`, `meet`, `reminders`, `recurrence`) and `rsvp` (`response`: accepted, declined or tentative); " +
+      "`all_events: true` changes every time a repeating event happens. create also takes `reminders` (minutes before) and `recurrence` (RRULE lines).",
+  },
+  {
+    date: "2026-10-23",
+    text:
+      "calendar_event create takes `guests` (email addresses to invite) and `meet: true` (a Google Meet link, given back when made). " +
+      "An invite is shown to the person with the guests named, and their yes or 👍 makes it and Google emails the invite.",
+  },
+  {
+    date: "2026-10-22",
+    newTool: true,
+    text:
+      "send `google_chat` (google_chat `{ to | space, text }`, or `{ action: \"spaces\" }` to list their spaces) sends one Google Chat " +
+      "message as the person: a direct message to a person by their work email, or a post in a space by its name. It waits for their 👍 " +
+      "to the exact message. Until their Google account allows it, it says so and how they reconnect.",
+  },
+  {
+    date: "2026-10-22",
+    text:
+      "calendar_event moves and cancels events with guests too: the person is shown the change with the guests named, and their yes " +
+      "or 👍 makes it and Google tells the guests. `notify_guests` is set by Context on that approved change; leave it out.",
+  },
+  {
+    date: "2026-10-22",
+    text:
+      "materialize_move is gone. A folder move no longer leaves a pass to finish: move_folder moves the folder in one step, or says it could not, so there is nothing to resume.",
+  },
+  {
+    date: "2026-10-22",
+    text:
+      'send_email and save_email_draft take `attach`: up to 5 "download:<id>" ids a browse `download` step gave. Each goes in as a real ' +
+      "attachment, so a PDF found on a site (an invoice, a statement) reaches the recipient without the person downloading it.",
+  },
+  {
     date: "2026-10-21",
     text:
       'fetch id "calendar:" with args `{ date: "YYYY-MM-DD", days? }` reads what is on the person\'s calendar that day (and up to 13 days after), ' +
-      "from every connected Google account and workspace, wherever the day notes are filed. Use it for any question about a date.",
+      "asked of every connected Google calendar at that moment. Use it for any question about a date.",
   },
   {
     date: "2026-10-21",
@@ -98,7 +175,7 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-10-19",
     text:
       "fetch with a file's path (a PDF, Word, Excel, CSV or picture file a note links, such as an email attachment under " +
-      "`0-inbox/email/<mailbox>/attachments/`) returns the words in the file, marked untrusted. Older clients can call read_file `{ path }`. " +
+      "`inbox/email/<mailbox>/attachments/`) returns the words in the file, marked untrusted. Older clients can call read_file `{ path }`. " +
       "fetch an `email:<address>/<id>` id with `args: { attachment: 1 }` reads that email's first attachment straight from Gmail.",
   },
   {
@@ -223,7 +300,7 @@ export const TOOL_NEWS = Object.freeze([
   },
   {
     date: "2026-10-07",
-    text: "remember works without `note`: a fact with no note it belongs in is filed under 0-inbox/memories.",
+    text: "remember works without `note`: a fact with no note it belongs in is filed under inbox/memories.",
   },
   {
     date: "2026-10-03",
@@ -266,7 +343,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "812c15a6";
+export const TOOL_SHAPE = "27fc8e9e";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

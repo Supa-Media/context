@@ -1,37 +1,27 @@
 import { describe, expect, test } from "vitest";
-import {
-  INDEX_KEY,
-  PARA_FOLDERS,
-  PRIVACY_KEY,
-  MAX_CUSTOM_FOLDERS,
-  MAX_FOLDER_DESCRIPTION_LENGTH,
-  MAX_FOLDER_NAME_LENGTH,
-  hasForeignContent,
-  renderPrivacyManifest,
-  scaffoldContext,
-  scaffoldFiles,
-  validateCustomFolders,
-} from "../../functions/lib/scaffold";
+import { INDEX_KEY, PARA_FOLDERS, PRIVACY_KEY, MAX_CUSTOM_FOLDERS, MAX_FOLDER_DESCRIPTION_LENGTH, MAX_FOLDER_NAME_LENGTH, hasForeignContent, scaffoldContext, scaffoldFiles, validateCustomFolders } from "../../functions/lib/scaffold";
 import { gatewayInternals } from "../gatewayFormat.helpers";
 import { memoryStore } from "../storeStub.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
 describe("a fresh bucket", () => {
-  test("gets the PARA folders, an index, and a privacy manifest", async () => {
+  test("gets the PARA folders and an index, and no access file", async () => {
     const store = memoryStore();
     const result = await scaffoldContext(store, { structureTemplate: "para" });
 
     expect(result).toMatchObject({ scaffolded: true, reason: "created" });
     expect(result.written.sort()).toEqual(
       [
-        "0-inbox/about.md",
-        "1-projects/about.md",
-        "2-areas/about.md",
-        "3-resources/about.md",
-        "9-archive/about.md",
+        "inbox/about.md",
+        "projects/about.md",
+        "areas/about.md",
+        "resources/about.md",
+        "archive/about.md",
         INDEX_KEY,
-        PRIVACY_KEY,
       ].sort(),
     );
+    // Access is on the tree's rows, not in a file in the bucket.
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   test("writes no key under any namespace — tenancy is the bucket itself", async () => {
@@ -41,10 +31,10 @@ describe("a fresh bucket", () => {
     for (const key of store.objects.keys()) {
       expect(key).not.toMatch(/^tenants\//);
       expect(key).not.toMatch(/^workspaces\//);
-      // A note lives at `1-projects/foo.md`, full stop. Every scaffolded key
+      // A note lives at `projects/foo.md`, full stop. Every scaffolded key
       // is either at the root or directly inside a PARA folder.
       const [head] = key.split("/");
-      expect([...PARA_FOLDERS, INDEX_KEY, PRIVACY_KEY]).toContain(head);
+      expect([...PARA_FOLDERS, INDEX_KEY]).toContain(head);
     }
   });
 
@@ -76,19 +66,12 @@ describe("a fresh bucket", () => {
  * These run the gateway's own parser over what we wrote. A change to either
  * side that breaks the other fails here.
  */
-describe("the privacy manifest the gateway will read", () => {
-  test("parses with the gateway's own parsePrivacyManifest", async () => {
+describe("the access the gateway will read", () => {
+  test("a fresh layout leaves no access file for the gateway to parse", async () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "para" });
 
-    const { parsePrivacyManifest } = gatewayInternals();
-    const parsed = parsePrivacyManifest(store.objects.get(PRIVACY_KEY)!.body);
-
-    expect(parsed.rules.map((rule) => rule.prefix).sort()).toEqual(
-      [...PARA_FOLDERS].sort(),
-    );
-    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
-    expect(parsed.overrides.size).toBe(0);
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   test("a custom manifest parses too, with no folder rules", () => {
@@ -107,24 +90,24 @@ describe("the privacy manifest the gateway will read", () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "para" });
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      store.objects.get(PRIVACY_KEY)!.body,
-    );
+    // With no access file, the gateway judges by its default: private. The rows that
+    // give a new workspace its folder access are checked over the rows in onboarding.test.ts.
+    const { canSee } = gatewayInternals();
+    const noRules: never[] = [];
+    const noOverrides = new Map();
 
     for (const key of [
-      "0-inbox/about.md",
-      "1-projects/about.md",
-      "1-projects/anything.md",
+      "inbox/about.md",
+      "projects/about.md",
+      "projects/anything.md",
       INDEX_KEY,
-      PRIVACY_KEY,
     ]) {
-      expect(canSee(key, "team", rules, overrides), `${key} is team-visible`).toBe(
+      expect(canSee(key, "team", noRules, noOverrides), `${key} is team-visible`).toBe(
         false,
       );
     }
     // …and the owner sees their own notes, or the scaffold would be pointless.
-    expect(canSee("1-projects/anything.md", "private", rules, overrides)).toBe(true);
+    expect(canSee("projects/anything.md", "private", noRules, noOverrides)).toBe(true);
   });
 
   test("declares no reserved or plumbing path, which the gateway would reject", async () => {
@@ -140,12 +123,12 @@ describe("the privacy manifest the gateway will read", () => {
 });
 
 describe('structureTemplate "custom"', () => {
-  test("writes only the index and the privacy manifest", async () => {
+  test("writes only the index", async () => {
     const store = memoryStore();
     const result = await scaffoldContext(store, { structureTemplate: "custom" });
 
-    expect(result.written.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
-    expect([...store.objects.keys()].sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
+    expect(result.written.sort()).toEqual([INDEX_KEY]);
+    expect([...store.objects.keys()].sort()).toEqual([INDEX_KEY]);
     for (const folder of PARA_FOLDERS) {
       expect(store.objects.has(`${folder}/about.md`)).toBe(false);
     }
@@ -155,7 +138,7 @@ describe('structureTemplate "custom"', () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "custom" });
     const index = store.objects.get(INDEX_KEY)!.body;
-    expect(index).not.toContain("1-projects/");
+    expect(index).not.toContain("projects/");
   });
 });
 
@@ -331,26 +314,26 @@ describe("folder notes: about.md now, README.md in workspaces scaffolded before"
       store.seed(`${folder}/README.md`, body);
     }
     // ...and the layout was cut short: the last two folders never landed.
-    store.objects.delete("2-areas/README.md");
-    store.objects.delete("9-archive/README.md");
+    store.objects.delete("areas/README.md");
+    store.objects.delete("archive/README.md");
 
     expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(false);
     const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });
     expect(resumed.reason).toBe("created");
     // The folders that already had their note under the old name are not
     // given a second one beside it.
-    expect(store.objects.has("0-inbox/about.md")).toBe(false);
-    expect(store.objects.has("1-projects/about.md")).toBe(false);
+    expect(store.objects.has("inbox/about.md")).toBe(false);
+    expect(store.objects.has("projects/about.md")).toBe(false);
     expect(resumed.skipped).toEqual(
-      expect.arrayContaining(["0-inbox/about.md", "1-projects/about.md"]),
+      expect.arrayContaining(["inbox/about.md", "projects/about.md"]),
     );
   });
 
   test("a README.md in a scaffolded folder that is not ours still makes a resume refuse", async () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "para" });
-    store.objects.delete("1-projects/about.md");
-    store.seed("1-projects/README.md", "my own words, not yours\n");
+    store.objects.delete("projects/about.md");
+    store.seed("projects/README.md", "my own words, not yours\n");
 
     expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(true);
     const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });

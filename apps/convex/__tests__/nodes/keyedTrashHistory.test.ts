@@ -21,9 +21,9 @@ import { renderNewFolderAbout } from "../../functions/lib/fileOps/folders";
 import { readFile } from "../../functions/lib/fileOps/reading";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { OWNER, fixture, type Fixture } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, liveAt, rowOf, treeOf } from "./keyedFixture.helpers";
+import { parentRows } from "./treeRows.helpers";
 
 const KEEP = "1-projects/keep.md";
 
@@ -34,7 +34,6 @@ type Deleted = { kind: "deleted"; paths: string[] };
 function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) {
   const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
   attachQueueMove(f.ctx, args, f.store, f.store);
-  attachWorkspaceKeyed(f.ctx, f.ws, f.store);
   attachTreeListing(f.ctx, f.ws, f.store);
   return executeOperation(f.store, OWNER, operation, Date.now());
 }
@@ -82,8 +81,11 @@ async function addNewFolder(f: Fixture, path: string, extra?: string): Promise<v
       });
       f.store.seed(`notes/${NOTE_ID(902)}.md`, "# Typed\n");
     }
+    await parentRows(ctx, f.ws);
   });
   f.store.seed(`notes/${NOTE_ID(901)}.md`, renderNewFolderAbout(path));
+  // This store has no id layer, so Undo's read of the about note's words, by name, reads the path.
+  f.store.seed(`${path}/about.md`, renderNewFolderAbout(path));
 }
 
 describe("a keyed trash carries the note's collaboration history with its row", () => {
@@ -191,20 +193,5 @@ describe("removeNewFolder and a plugin's delete trash the rows in a keyed worksp
     ).rejects.toMatchObject({ data: { code: "CONFLICT" } });
     expect(await treeOf(f)).toEqual(before);
     expect(await liveAt(f, "1-projects/launch/brief.md")).toBe(true);
-  });
-});
-
-describe("outside a keyed workspace the same operations are unchanged", () => {
-  test("a plugin's delete still deletes the file permanently, with no trash copy", async () => {
-    // S3 honours If-Match on DELETE; a plugin's delete is refused where the store cannot make a guarded delete.
-    const f = await fixture("s3");
-    // The version a caller holds is the one `readFile` reports: a collaborative note's revision, not the raw etag.
-    const current = await readFile(f.store, { path: KEEP, clearance: OWNER });
-
-    const deleted = (await operate(f, { kind: "pluginDelete", path: KEEP, expectedEtag: current.etag })) as Deleted;
-
-    expect(deleted).toEqual({ kind: "deleted", paths: [KEEP] });
-    expect(f.store.snapshot()[KEEP]).toBeUndefined();
-    expect(Object.keys(f.store.snapshot()).some((key) => key.startsWith(".context/trash/"))).toBe(false);
   });
 });

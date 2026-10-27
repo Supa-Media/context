@@ -3,6 +3,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ABOUT_ME_PATH, FIRST_LOOK_AFTER_LINK_MS } from "../functions/lib/dreams/firstLook";
 import { asUser, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
+import { parentRows } from "./nodes/treeRows.helpers";
 
 /**
  * A FIRST LOOK FOR EVERYONE TEX TEXTS WITH WHO HAS NO ABOUT-ME (owner, 2026-10-17).
@@ -63,9 +64,17 @@ async function row(t: T, userId: Id<"users">) {
 }
 
 async function aboutMe(t: T, workspaceId: Id<"workspaces">, goneAt?: number) {
-  await t.run((ctx) =>
-    ctx.db.insert("nodes", { workspaceId, path: ABOUT_ME_PATH, name: "about-me.md", kind: "file", observedAt: 1, ...(goneAt ? { goneAt } : {}) }),
-  );
+  await t.run(async (ctx) => {
+    await ctx.db.insert("nodes", {
+      workspaceId,
+      path: ABOUT_ME_PATH,
+      name: "about-me.md",
+      kind: "file",
+      observedAt: 1,
+      ...(goneAt ? { goneAt } : {}),
+    });
+    await parentRows(ctx, workspaceId);
+  });
 }
 
 /** A day and a bit after the phone was linked. */

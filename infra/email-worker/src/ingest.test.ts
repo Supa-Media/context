@@ -417,7 +417,7 @@ describe("what gets written", () => {
     expect(decision.kind).toBe("capture");
     if (decision.kind !== "capture") return;
     const fingerprint = await captureFingerprint("msg-1@example.com", new Uint8Array());
-    expect(decision.key).toBe(`0-inbox/email/${fingerprint.slice(0, 24)}.md`);
+    expect(decision.key).toBe(`inbox/email/${fingerprint.slice(0, 24)}.md`);
   });
 
   it("gives a redelivered message the same key", async () => {
@@ -457,7 +457,7 @@ describe("what gets written", () => {
     // fails — as does an existing workspace connecting with zero migration.
     const decision = await decide(rawMessage());
     if (decision.kind !== "capture") return;
-    expect(decision.key.startsWith("0-inbox/")).toBe(true);
+    expect(decision.key.startsWith("inbox/")).toBe(true);
     expect(decision.key).not.toMatch(/workspace|tenant/);
   });
 });

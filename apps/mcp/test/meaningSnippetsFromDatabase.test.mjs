@@ -157,21 +157,6 @@ test("a database that fails reads the notes, and the answer keeps its snippets",
   }
 });
 
-test("a note moving somewhere the caller cannot see is never asked for", async () => {
-  const notes = { "team/plan.md": "# Plan\n\nthe secret plan\n" };
-  const { store, reads, d1, finish } = world(notes);
-  store.pendingMoves = [{ from: "team", to: "private" }];
-  const isVisible = (path) => !path.startsWith("private/");
-  try {
-    const result = await meaningOnly(store, [match("team/plan.md", 0.9)], { isVisible });
-    assert.deepEqual(result.hits, []);
-    assert.deepEqual(reads, []);
-    assert.ok(d1.requests.every((request) => !JSON.stringify(request.params ?? []).includes("team/plan.md")));
-  } finally {
-    finish();
-  }
-});
-
 test("a rows-mode workspace never asks the bucket for privacy.md, and its rules still decide", async () => {
   const gets = [];
   const bucket = {
@@ -186,8 +171,9 @@ test("a rows-mode workspace never asks the bucket for privacy.md, and its rules 
   assert.deepEqual(gets.filter((key) => key === PRIVACY_KEY), []);
   assert.equal(canSee("team/open.md", "team", state.rules, state.overrides), true);
   assert.equal(canSee("team/held.md", "team", state.rules, state.overrides), false);
-  // While the file is the authority, it is read as before.
-  const legacy = withPrivacyAuthority(bucket, { rules: { ...rules, accessVersion: undefined } });
-  await loadPrivacyState(legacy);
-  assert.ok(gets.includes(PRIVACY_KEY));
+  // Without an access version the rows still decide, and the bucket is still never asked for the file.
+  const unversioned = withPrivacyAuthority(bucket, { rules: { ...rules, accessVersion: undefined } });
+  const unversionedState = await loadPrivacyState(unversioned);
+  assert.deepEqual(gets.filter((key) => key === PRIVACY_KEY), []);
+  assert.equal(canSee("team/held.md", "team", unversionedState.rules, unversionedState.overrides), false);
 });

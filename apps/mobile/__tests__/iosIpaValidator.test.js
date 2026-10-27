@@ -25,6 +25,11 @@ function ipaFixture(options = {}) {
   fs.mkdirSync(extension, { recursive: true });
   fs.writeFileSync(path.join(app, "Info.plist"), hostPlist(options.host));
   fs.writeFileSync(path.join(extension, "Info.plist"), extensionPlist(options.extension));
+  if (options.messages !== null) {
+    const messages = path.join(app, "PlugIns", "ContextMessages.appex");
+    fs.mkdirSync(messages, { recursive: true });
+    fs.writeFileSync(path.join(messages, "Info.plist"), extensionPlist({ name: "ContextMessages", bundle: "lc.context.mobile.messages", point: "com.apple.message-payload-provider", ...options.messages }));
+  }
   const ipa = path.join(root, "Context.ipa");
   execFileSync("zip", ["-q", "-r", ipa, "Payload"], { cwd: root });
   return ipa;
@@ -63,6 +68,15 @@ describe("iOS Live Activity IPA validator", () => {
     "rejects widget version drift %#",
     (extension) => expect(() => validateIpa(ipaFixture({ extension }), { verifySignatures: false })).toThrow(/version must exactly match/),
   );
+
+  test.each([
+    [null, /exactly one embedded ContextMessages/],
+    [{ bundle: "evil.messages" }, /ContextMessages extension has the wrong bundle id/],
+    [{ point: "com.apple.widgetkit-extension" }, /ContextMessages extension has the wrong bundle id or extension point/],
+    [{ build: "41" }, /ContextMessages extension version must exactly match/],
+  ])("rejects a missing or wrong iMessage extension %#", (messages, message) => {
+    expect(() => validateIpa(ipaFixture({ messages }), { verifySignatures: false })).toThrow(message);
+  });
 
   test("rejects missing and duplicate embedded widget extensions", () => {
     const missing = ipaFixture();

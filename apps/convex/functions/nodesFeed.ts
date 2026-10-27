@@ -6,7 +6,7 @@
  *
  *  - `head` is a live query each device subscribes to. Its answer moves when
  *    a change this reader may hear of lands, the rules change, or a queued
- *    folder move starts, finishes or is undone, and that is the device's cue
+ *    folder move starts or finishes, and that is the device's cue
  *    to catch up. A move is answered with a walk (`movesMark`), because it
  *    renames everything under it without a log row. A change they may not hear of moves
  *    nothing.
@@ -16,8 +16,8 @@
  *  - `walkStart` is where a catch-up after a whole walk starts.
  *
  * All of it answers once the workspace's first copy has finished
- * (`treeReadiness`); before that it is `null`, and a device's walk is told
- * the tree is still loading. Staff's Pause does not stop it.
+ * (the `nodeTrees` row is `ready`); before that it is `null`, the tree does
+ * not serve, and a device's walk is refused. Staff's Pause does not stop it.
  */
 
 import { v } from "convex/values";
@@ -31,10 +31,9 @@ import { treeServesNow } from "./lib/nodes/listing";
 import { readerMirror, readerView } from "./lib/nodes/readerRules";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { audienceOfNames } from "./lib/pinnedReaders";
-import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import type { PrivacyMirror } from "./lib/nodes/table";
-import { MOVES_PER_WORKSPACE } from "./lib/nodes/moveOverlay";
+import { movingRowMoves } from "./lib/nodes/rowMoveChunks";
 import {
   NODE_HEAD_SCAN,
   NODE_LOG_PAGE,
@@ -50,26 +49,11 @@ import {
   type CurrentFile,
   type FeedMove,
 } from "./lib/nodes/log";
+import { nodeAt } from "./lib/nodes/paths";
 
-/**
- * The queued folder moves every listing draws already (`moving`; a
- * `preparing` row is drawn nowhere yet), as the feed reads them.
- */
+/** The keyed moves every listing draws already (`moving`), as the feed reads them. */
 async function feedMoves(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<FeedMove[]> {
-  const rows = await ctx.db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .take(MOVES_PER_WORKSPACE * 2);
-  return rows
-    .filter((row) => row.state === "moving")
-    .map((row) => ({ id: row._id, from: row.from, to: row.to, ...(row.undone === true ? { undone: true } : {}) }));
-}
-
-async function nodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+  return (await movingRowMoves(ctx.db, workspaceId)).map((row) => ({ id: row._id, from: row.from, to: row.to }));
 }
 
 /**
@@ -82,12 +66,19 @@ async function feedPrivacy(
   mirror: PrivacyMirror | null,
   moves: FeedMove[],
 ): Promise<string | null> {
-  return feedToken(mirror, movesMark(moves), await rowsVersionOf(ctx, workspaceId));
+  // A folder moved on built paths renames everything beneath it with no log row, so the count of them is in
+  // the token too, and a device walks after one (`builtMove.ts`).
+  const tree = await ctx.db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const folders = tree?.folderMoves ?? 0;
+  const marks = [movesMark(moves), folders === 0 ? "" : `f${folders}`].filter((mark) => mark !== "").join(".");
+  return feedToken(mirror, marks, await rowsVersionOf(ctx, workspaceId));
 }
 
 /** The access rows' version while rows judge the workspace, else `undefined`. */
 async function rowsVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number | undefined> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return undefined;
   return await accessVersionOf(ctx, workspaceId);
 }
 
@@ -190,7 +181,7 @@ export const changes = internalQuery({
     const skip = (path: string) => underPendingMove(path, moves);
     for (const row of rows) {
       if (row.gone || current.has(row.path) || skip(row.path)) continue;
-      const node = await nodeAt(ctx, args.workspaceId, row.path);
+      const node = await nodeAt(ctx.db, args.workspaceId, row.path);
       current.set(
         row.path,
         node === null || node.kind !== "file" || node.goneAt !== undefined
@@ -213,7 +204,7 @@ export const changes = internalQuery({
     if (page.since === null) return full;
     const live = new Set<string>();
     for (const folder of page.unsettled) {
-      const node = await nodeAt(ctx, args.workspaceId, folder);
+      const node = await nodeAt(ctx.db, args.workspaceId, folder);
       if (node !== null && node.kind === "folder" && node.goneAt === undefined) live.add(folder);
     }
     const settled = settleFolders(page, live, clearance, rules);

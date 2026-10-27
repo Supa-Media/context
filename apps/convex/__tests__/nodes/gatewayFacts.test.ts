@@ -14,8 +14,7 @@
  *    for notes the reader may see, and a note never read is absent;
  *  - the forwarding ledger (`ask: "forwarding"`, held in Convex since
  *    2026-10-14) names no path the reader may not see: an entry from such a
- *    path is absent, and one to such a path says only `to: null`; a queued
- *    move's ticket reads the whole ledger only while its job holds the lease.
+ *    path is absent, and one to such a path says only `to: null`.
  *
  * Sabotage (temporary local edits, reverted):
  *  - dropping the `visible` filter on candidates: the member case fails;
@@ -26,11 +25,16 @@
  *    reader may not see" fails at member clearance;
  *  - judging a folder entry by `canSee` rather than the folder rule: the
  *    same case fails (the rename of a private folder the team reaches
- *    through a shared note goes missing, as the tree would still show it).
- *  - a ticket answered for any workspace it names, not only its job's: the
- *    refusal case fails (`ticket` with another workspace answers).
+ *    through a shared note goes missing, as the tree would still show it);
+ *  - dropping the seed's `visible` check: "a hidden seed answers what an
+ *    absent one does" fails at member clearance;
+ *  - a 200-row cap on each side whose overflow marks the answer incomplete:
+ *    "hidden backlinkers never change a team reader's answer" fails;
+ *  - marking every answer short while any move is queued: the same case
+ *    fails on its private move.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
@@ -41,6 +45,7 @@ import { modules } from "../../test.setup";
 import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { hashToken } from "../../functions/lib/crypto";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -51,12 +56,12 @@ const CAPTURE = token("facts_capture");
 const OTHER = token("facts_other");
 const CLIENT = "mcp_client_facts";
 
+// Rows are keyed by their path with no trailing slash, so a folder's rule names it the same way.
 const RULES = {
-  etag: "privacy-1",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [{ path: "2-areas/shared.md", visibility: "team" }],
 };
@@ -71,28 +76,17 @@ const PATHS = [
   "2-areas/shared.md",
 ];
 
+/** Each path's bucket object at version `e-<path>`, the version the facts answer name. */
 async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at: 10,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: path.length, uploaded: 1_000 })),
-    gone: [],
-    vanishedUnder: [],
-  });
+  await seedTreeRows(t, workspaceId, paths.map((path) => ({ path, etag: `e-${path}` })));
 }
 
-async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[], mismatches = 0) {
+async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
   await observe(t, workspaceId, paths);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
-  await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: 30, clearances: 2, mismatches, privacyMatches: true },
-  });
+  await translateMirror(t, workspaceId, RULES);
 }
 
-async function fixture(options: { mismatches?: number } = {}) {
+async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
@@ -117,7 +111,7 @@ async function fixture(options: { mismatches?: number } = {}) {
     await ctx.db.insert("workspaceMembers", { workspaceId: other, userId: outsiderId, role: "owner", joinedAt: now });
     return { ws, other, ownerId, memberId, outsiderId };
   });
-  await proved(t, ids.ws, PATHS, options.mismatches ?? 0);
+  await proved(t, ids.ws, PATHS);
   await proved(t, ids.other, ["privacy.md", "1-projects/theirs.md"]);
   await registerClient(t, CLIENT);
   const grant = (accessToken: string, userId: Id<"users">, workspaceId: Id<"workspaces">, scopes: string[]) =>
@@ -128,31 +122,6 @@ async function fixture(options: { mismatches?: number } = {}) {
   await grant(CAPTURE, ids.memberId, ids.ws, ["context:capture"]);
   await grant(OTHER, ids.outsiderId, ids.other, ["context:read", "context:private"]);
   return { t, ...ids };
-}
-
-const TICKET = token("facts_move_ticket");
-
-/** A queued move holding its lease, as `/gateway/jobs/open` leaves it. */
-async function leasedJob(t: T, workspaceId: Id<"workspaces">) {
-  return await t.run(async (ctx) => {
-    const now = Date.now();
-    const member = await ctx.db.query("workspaceMembers").filter((q) => q.eq(q.field("workspaceId"), workspaceId)).first();
-    const grant = await ctx.db.query("oauthGrants").first();
-    return await ctx.db.insert("gatewayJobs", {
-      hashedTicket: await hashToken(TICKET),
-      workspaceId,
-      actorUserId: member!.userId,
-      actorClientId: CLIENT,
-      grantId: grant!._id,
-      kind: "materialize_move",
-      status: "running",
-      attempts: 1,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: now + 60_000,
-      leasedAt: now,
-    });
-  });
 }
 
 async function withFacts(t: T, workspaceId: Id<"workspaces">) {
@@ -181,6 +150,13 @@ async function facts(t: T, body: Record<string, unknown>) {
 }
 
 const LINKS = { ask: "links", sources: ["1-projects/plan.md"], names: ["plan"] };
+const NEIGHBORS = { ask: "neighbors", path: "1-projects/plan.md" };
+
+async function addLinks(t: T, workspaceId: Id<"workspaces">, links: Array<[string, "path" | "name", string]>) {
+  await t.run(async (ctx) => {
+    for (const [source, kind, target] of links) await ctx.db.insert("nodeLinks", { workspaceId, source, kind, target });
+  });
+}
 
 describe("POST /gateway/tree/facts", () => {
   test("a move's candidates are what the reader may see", async () => {
@@ -246,12 +222,12 @@ describe("POST /gateway/tree/facts", () => {
       { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OTHER, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OWNER, expectedWorkspaceId: other, ask: "forwarding" },
-      { ticket: token("facts_no_job"), expectedWorkspaceId: ws, ask: "forwarding" },
-      { ticket: TICKET, expectedWorkspaceId: ws, ...LINKS },
-      { ticket: TICKET, expectedWorkspaceId: other, ask: "forwarding" },
-      { ticket: TICKET, accessToken: OWNER, expectedWorkspaceId: ws, ask: "forwarding" },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors" },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: ["1-projects/plan.md"] },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "x".repeat(2_000) },
+      { accessToken: CAPTURE, expectedWorkspaceId: ws, ...NEIGHBORS },
+      { accessToken: OTHER, expectedWorkspaceId: ws, ...NEIGHBORS },
     ];
-    await leasedJob(t, ws);
     for (const body of refusals) {
       const response = await gatewayPost(t, "/gateway/tree/facts", body);
       expect(await responseFingerprint(response), JSON.stringify(body).slice(0, 60)).toBe(notServed);
@@ -259,8 +235,8 @@ describe("POST /gateway/tree/facts", () => {
     expect(notServed).toContain('{"served":false}');
   });
 
-  test("a first copy not finished is still loading for a reader the grant lets in; parity changes nothing", async () => {
-    const { t, ws, ownerId } = await fixture({ mismatches: 3 });
+  test("a tree not ready yet is not served to a reader the grant lets in", async () => {
+    const { t, ws, ownerId } = await fixture();
     await seedStorageBinding(t as never, { workspaceId: ws, boundBy: ownerId, status: "connected" });
     await withFacts(t, ws);
     expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toMatchObject({ served: true });
@@ -268,7 +244,7 @@ describe("POST /gateway/tree/facts", () => {
       const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique();
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
-    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false, loading: true });
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false });
   });
 
   test("props are only for notes the reader may see, and a note never read is absent", async () => {
@@ -341,17 +317,6 @@ describe("POST /gateway/tree/facts", () => {
     }
   });
 
-  test("a queued move's ticket reads the whole ledger while its job holds the lease, and nothing else", async () => {
-    const { t, ws } = await fixture();
-    const moves = [{ from: "1-projects/was.md", to: "1-projects/secret/codes.md", kind: "note" as const }];
-    await t.mutation(internal.functions.smallData.recordForwarding, { workspaceId: ws, moves, now: 1_000 });
-    const job = await leasedJob(t, ws);
-    const asJob = await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" });
-    expect(asJob.forwarding.map(({ from, to }: Record<string, string>) => [from, to])).toEqual([["1-projects/was.md", "1-projects/secret/codes.md"]]);
-    await t.run(async (ctx) => ctx.db.patch(job, { status: "complete" }));
-    expect(await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" })).toEqual({ served: false });
-  });
-
   test("another workspace's ledger never answers", async () => {
     const { t, ws, other } = await fixture();
     await t.mutation(internal.functions.smallData.recordForwarding, {
@@ -360,5 +325,134 @@ describe("POST /gateway/tree/facts", () => {
       now: 1_000,
     });
     expect(await facts(t, { accessToken: OTHER, expectedWorkspaceId: other, ask: "forwarding" })).toEqual({ served: true, forwarding: [] });
+  });
+  test("a note's backlinks are what the reader may see", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/later.md", "1-projects/secret/codes.md", "2-areas/mine.md"]);
+    expect(owner.neighbors.links).toEqual([]);
+    for (const reader of [MEMBER, OWNER_TEAM]) {
+      const team = await facts(t, { accessToken: reader, expectedWorkspaceId: ws, ...NEIGHBORS });
+      // plan.md's own text has not been read for links yet, so its answer may be short.
+      expect(team.neighbors).toEqual({ links: [], backlinks: ["1-projects/later.md"], complete: false });
+    }
+  });
+
+  test("a note's links resolve paths and bare names, and name only what the reader may see", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await addLinks(t, ws, [
+      ["1-projects/later.md", "name", "shared"],
+      ["1-projects/later.md", "path", "1-projects/secret/codes.md"],
+      ["1-projects/later.md", "path", "1-projects/missing.md"],
+      ["1-projects/later.md", "name", "nobody"],
+    ]);
+    const later = { ask: "neighbors", path: "1-projects/later.md" };
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...later });
+    expect(owner.neighbors.links).toEqual(["1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/shared.md"]);
+    const member = await facts(t, { accessToken: MEMBER, expectedWorkspaceId: ws, ...later });
+    expect(member.neighbors.links).toEqual(["1-projects/plan.md", "2-areas/shared.md"]);
+  });
+
+  test("a bare name beside the note wins, and a name two visible notes share names neither", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await seedTreeRows(t, ws, [{ path: "1-projects/secret/plan.md", etag: "e-twin" }, { path: "2-areas/x/later.md", etag: "e-later2" }]);
+    await addLinks(t, ws, [["2-areas/mine.md", "name", "later"]]);
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    // codes.md's [[plan]] now means the plan.md beside it.
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/later.md", "2-areas/mine.md"]);
+    const mine = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "2-areas/mine.md" });
+    // [[later]] matches two visible notes, so it names neither.
+    expect(mine.neighbors.links).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("hidden backlinkers never change a team reader's answer, however many", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    // The seed's own links read, so its answer is whole and anything that made it short would show.
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as MutationCtx["db"];
+      const plan = await db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", "1-projects/plan.md")).unique();
+      await ctx.db.patch(plan!._id, { parsed: plan!.etag });
+    });
+    const ask = async () => responseFingerprint(await gatewayPost(t, "/gateway/tree/facts", { accessToken: MEMBER, expectedWorkspaceId: ws, ...NEIGHBORS }));
+    const before = await ask();
+    expect(before).toContain('"complete":true');
+    await seedTreeRows(t, ws, Array.from({ length: 250 }, (_, n) => ({ path: `2-areas/hidden-${n}.md`, etag: `e-h${n}` })));
+    await addLinks(t, ws, Array.from({ length: 250 }, (_, n): [string, "path", string] => [`2-areas/hidden-${n}.md`, "path", "1-projects/plan.md"]));
+    expect(await ask()).toBe(before);
+    // Nor does a move of a note they cannot see, though it links here.
+    await t.run(async (ctx) =>
+      ctx.db.insert("rowMoves", {
+        workspaceId: ws,
+        from: "1-projects/secret/codes.md",
+        to: "1-projects/secret/old/codes.md",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 0,
+        left: 1,
+        now: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    expect(await ask()).toBe(before);
+  });
+
+  test("a note mid-move is named where the tree shows it, and the answer says it may be short", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await t.run(async (ctx) =>
+      ctx.db.insert("rowMoves", {
+        workspaceId: ws,
+        from: "1-projects/later.md",
+        to: "1-projects/done/later.md",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 0,
+        left: 1,
+        now: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS });
+    expect(owner.neighbors.backlinks).toEqual(["1-projects/done/later.md", "1-projects/secret/codes.md", "2-areas/mine.md"]);
+    expect(owner.neighbors.complete).toBe(false);
+    const moved = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "1-projects/done/later.md" });
+    expect(moved.neighbors.complete).toBe(false);
+  });
+
+  test("a percent-encoded path link names the note it spells", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await seedTreeRows(t, ws, [{ path: "1-projects/road map.md", etag: "e-road" }]);
+    await addLinks(t, ws, [["1-projects/later.md", "path", "1-projects/road%20map.md"]]);
+    const later = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "neighbors", path: "1-projects/later.md" });
+    expect(later.neighbors.links).toEqual(["1-projects/plan.md", "1-projects/road map.md"]);
+  });
+
+  test("a hidden seed answers what an absent one does", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    const ask = (path: string) => gatewayPost(t, "/gateway/tree/facts", { accessToken: MEMBER, expectedWorkspaceId: ws, ask: "neighbors", path });
+    const hidden = await responseFingerprint(await ask("1-projects/secret/codes.md"));
+    expect(hidden).toBe(await responseFingerprint(await ask("1-projects/nope.md")));
+    expect(hidden).not.toContain("plan");
+  });
+
+  test("a note's neighbors before the facts are whole say so", async () => {
+    const { t, ws } = await fixture();
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...NEIGHBORS })).toEqual({ served: true, neighbors: null });
   });
 });

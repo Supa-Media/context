@@ -16,7 +16,6 @@ import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
-import { withPendingMoves } from "./moves/queued.js";
 
 /**
  * Build the storage adapter for one session.
@@ -226,9 +225,8 @@ export async function storeForSession(session, env, controlPlane) {
   });
 
   /**
-   * Queue a folder move through the control plane (`moves/queued.js`): the
-   * tree draws it at once and the bucket catches up behind it. Bound to this
-   * request's own session, as `rotateEncryptionKeys` is.
+   * Move a folder or a note through the control plane as rows (`tools/moves/queuedFolder.js`): the
+   * tree draws it at once, and the rows are the truth. Bound to this request's own session.
    */
   Object.defineProperty(store, "startQueuedMove", {
     value: async (from, to, expectedEtag) =>
@@ -248,11 +246,6 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  /**
-   * Whether the workspace's notes live at their own keys (`idLayout` "keys"):
-   * then a note moves as a row change through `startQueuedMove`, and never as
-   * bytes (`tools/moves/queuedFolder.js`). Non-enumerable, as the seam is.
-   */
   /**
    * Move a note into another workspace through the control plane's engine
    * (`tools/moves/acrossKeyed.js`), from this request's workspace. Bound to
@@ -284,51 +277,29 @@ export async function storeForSession(session, env, controlPlane) {
       configurable: true,
     });
   }
-  return storeThroughMoves(store, opened.pendingMoves, (moved) =>
-    controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
-  );
+  return store;
 }
 
 /**
  * The id layer's hooks for one session (`store/idLayout.js`), bound to its own
- * access token: `null` while the layout is paths, or when this control plane
- * cannot answer for ids. The "keys" layout needs all four; "ids" needs the
- * first two.
+ * access token: `null` when the control plane names no layout. The layer needs
+ * all four, and a control plane that names "keys" without them is refused.
  */
 function idLayoutHooks(layout, session, controlPlane) {
-  if (layout !== "ids" && layout !== "keys") return null;
-  if (typeof controlPlane.noteIdLookup !== "function" || typeof controlPlane.noteIdWrote !== "function") return null;
-  const hooks = {
-    mode: layout,
-    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
-    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
-  };
-  if (layout === "ids") return hooks;
-  if (typeof controlPlane.noteIdAdopt !== "function" || typeof controlPlane.noteIdRemoved !== "function") {
+  if (layout !== "keys") return null;
+  const methods = ["noteIdLookup", "noteIdWrote", "noteIdAdopt", "noteIdRemoved"];
+  if (methods.some((name) => typeof controlPlane[name] !== "function")) {
     throw new StorageUnavailable("the keys layout needs a control plane that adopts notes");
   }
   return {
-    ...hooks,
+    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
+    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
     adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
     removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
+    ...(typeof controlPlane.noteIdResolve === "function"
+      ? { resolve: (noteIds) => controlPlane.noteIdResolve(session.accessToken, session.workspaceId, noteIds) }
+      : {}),
   };
-}
-
-/**
- * While queued moves are pending, the store a request reads through moves a
- * note to where the tree draws it before it touches it (`withPendingMoves`),
- * and tells the tree what it moved. The store itself when nothing is pending.
- */
-function storeThroughMoves(store, pendingMoves, report) {
-  return withPendingMoves(store, pendingMoves, {
-    onMoved: async (moved) => {
-      try {
-        await report(moved);
-      } catch {
-        // The tree is told again by the move's own pass; a missed hint is never a failed read.
-      }
-    },
-  });
 }
 
 export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
@@ -355,7 +326,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     writable: false,
     configurable: true,
   });
-  return storeThroughMoves(store, opened?.pendingMoves, () => {});
+  return store;
 }
 
 /**

@@ -9,6 +9,7 @@
 
 import { VAULT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 import { VaultSealError, openPart, sealPart } from "./seal.js";
+import { isSharedHost } from "./sharedHosts.js";
 
 export { VAULT_PREFIX };
 
@@ -61,6 +62,13 @@ const bare = (host) => (host.startsWith("www.") ? host.slice(4) : host);
  * May an entry saved for `sites` fill a page at `origin`? The page must be
  * https, and its host the saved one or beneath it ("netflix.com" fills
  * "www.netflix.com" and "accounts.netflix.com", never "netflix.com.evil.io").
+ *
+ * "Beneath it" is unbounded when the saved site is one anyone can publish
+ * under, so a login saved for `github.io` would be typed into anybody's page
+ * there. Such a host fills on **itself** and never beneath it
+ * (`sharedHosts.js`, the list the proxy step already pins keys against). A
+ * real address under one, `my-app.github.io`, is one person's and keeps its
+ * own subdomains.
  */
 export function siteMatches(sites, origin) {
   let url;
@@ -73,7 +81,8 @@ export function siteMatches(sites, origin) {
   const page = bare(url.hostname.toLowerCase());
   return (Array.isArray(sites) ? sites : []).some((site) => {
     const saved = typeof site === "string" ? bare(site) : "";
-    return saved.length > 0 && (page === saved || page.endsWith(`.${saved}`));
+    if (saved.length === 0) return false;
+    return page === saved || (!isSharedHost(saved) && page.endsWith(`.${saved}`));
   });
 }
 

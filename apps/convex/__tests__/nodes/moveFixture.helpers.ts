@@ -1,25 +1,24 @@
 /**
  * A served workspace and an in-memory R2 for the queued-move tests (phase 4
  * of `docs/decisions/app-and-console/convex-tree.md`): the real Convex
- * functions through `convex-test`, an owner and a member, and a tree swept
- * and proved so it serves.
+ * functions through `convex-test`, an owner and a member, and a tree seeded
+ * from its bucket so it serves.
  */
 
 import { expect } from "vitest";
 import { convexTest } from "convex-test";
-import { api, internal } from "../../_generated/api";
+import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, setFolderVisibility } from "../../functions/lib/fileOps";
+import type { FileStore } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
-import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
-import { runMoveWork } from "../../functions/lib/nodes/moveWork";
-import { runNodesOperation } from "../../functions/lib/nodes/run";
+import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
+import { renderPrivacyManifest, setFolderVisibility, translateSeededRules } from "../seededRules.helpers";
+import { pathObjectsOf, seedTreeRows } from "../fixtures.helpers";
 
 export type T = ReturnType<typeof convexTest>;
 export type Store = MemoryStore & FileStore;
@@ -81,10 +80,12 @@ export async function fixture(kind: "r2" | "s3" = "r2") {
   });
   const store = await bucket(kind);
   const ctx = bridge(t);
-  await runNodesOperation(ctx, { workspaceId: ids.ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ids.ws,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
+  // The tree's rows are written by the product's seam for each object in the bucket, served as a finished copy would leave them.
+  await seedTreeRows(t, ids.ws, pathObjectsOf(store));
+  // The seeded rules become rows. The store keeps its copy: the store-level suites here read the rules from it.
+  await translateSeededRules(t, ids.ws, {
+    text: async () => (await store.get(PRIVACY_KEY))?.text() ?? null,
+    remove: async () => {},
   });
   return {
     t,
@@ -107,16 +108,11 @@ export async function listed(who: Fixture["owner"], ws: Id<"workspaces">, path: 
   return listing!.entries.map((entry: { path: string }) => entry.path).sort();
 }
 
+/** A keyed folder or note move: a row change, answered in the call (there is no queue to wait on). */
 export const start = (f: Fixture, from: string, to: string, clearance = OWNER) =>
-  startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance, now: Date.now() });
+  startRowMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance, now: Date.now() });
 
-export async function drain(f: Fixture): Promise<void> {
-  for (let pass = 0; pass < 20; pass += 1) {
-    const queue = await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws });
-    if (queue.length === 0) return;
-    await runMoveWork(f.ctx, f.ws, f.store);
-  }
-  throw new Error("moves did not drain");
-}
+/** Kept for callers written when moves queued: keyed moves finish inside `start`, so there is nothing to drain. */
+export async function drain(_f: Fixture): Promise<void> {}
 
 export const bucketKeys = (store: Store) => Object.keys(store.snapshot()).filter((key) => !key.startsWith(".")).sort();

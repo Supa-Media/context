@@ -22,6 +22,16 @@
   //                         the secret set on Sendblue's receive webhook, which
   //                         points at https://<this worker>/sendblue. Absent,
   //                         every delivery is refused.
+  //   WHAPI_TOKEN           the Whapi.Cloud channel's API token (Bearer), for
+  //                         replies on Tex's WhatsApp line
+  //   WHAPI_LINE            Tex's own WhatsApp number in E.164. A secret rather
+  //                         than a var because this repository is public.
+  //   WHAPI_WEBHOOK_SECRET  a random value of 16+ characters that Whapi sends on
+  //                         every delivery in the x-tex-webhook-secret header.
+  //                         The webhook is https://<this worker>/whapi. Absent,
+  //                         every delivery is refused. All three absent means
+  //                         the WhatsApp line is simply off; it is never a
+  //                         failed deploy.
   //   AGENT_WORKER_SECRET   opens the control plane's /agent-texts/* routes only
   //   CONTROL_PLANE_ORIGIN  the Convex HTTP origin, from CONTROL_PLANE_URL. A
   //                         secret rather than a var because this repository is
@@ -51,7 +61,12 @@
   },
   "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
   "vars": {
-    "GATEWAY_ORIGIN": "https://mcp.context.lc"
+    "GATEWAY_ORIGIN": "https://mcp.context.lc",
+    // A link to a note goes as a Context card when "on" (src/appCards.ts);
+    // the team id is the APPLE_TEAM_ID secret. Off until the Messages
+    // extension ships, so a tap opens the note.
+    "APP_CARDS": "off",
+    "APP_CARD_EXTENSION_ID": "lc.context.mobile.messages"
   },
   "triggers": { "crons": ["* * * * *"] },
   // Converts a texted iPhone photo (HEIC) to a JPEG the model can read
@@ -70,7 +85,9 @@
       "images": { "binding": "IMAGES" },
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
-        "SIMULATOR": "on"
+        "SIMULATOR": "on",
+        "APP_CARDS": "off",
+        "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
       }
     }
   }

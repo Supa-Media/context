@@ -55,6 +55,9 @@ function repoFile(relative: string): string {
 const SET_ELSEWHERE: Record<string, string> = {
   APP_ENV: "synced only by scripts/staging-env.mjs; absent production value keeps the staging bypass disabled",
   STAGING_CONVEX_DEPLOYMENT: "synced only by scripts/staging-env.mjs from the staging GitHub environment variable",
+  CONVEX_TEST_MAP_RECORD:
+    "read only by the test runner (vitest.config.ts, testImpact.setup.ts), which CI points at a " +
+    "directory on pushes to main to record the Convex test map; no deployed function reads it",
   CONVEX_CLOUD_URL: "set by Convex itself on every deployment; used to verify the staging selector",
   CONVEX_SITE_URL: "set by Convex itself on every deployment; nothing to push",
   INGESTION_RECEIVER:
@@ -63,6 +66,9 @@ const SET_ELSEWHERE: Record<string, string> = {
   CONTEXT_PRICING:
     "absent is free (owner, 2026-10-20); pricing comes back only when someone sets it to `on` " +
     "by hand, so a deploy must never be able to start charging",
+  CONTEXT_TREE_PATHS:
+    "the test suite's way to build every workspace's paths from parents (`lib/nodes/paths.ts`); " +
+    "a deployment flips workspaces one at a time on their own rows, never all at once from the environment",
   FREE_MANAGED_STORAGE:
     "an emergency brake set by hand to exactly `disabled`; normal production is on when " +
     "the managed account is configured, and a deploy must not silently disable existing signup",

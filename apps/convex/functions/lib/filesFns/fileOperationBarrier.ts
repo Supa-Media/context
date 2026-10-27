@@ -33,19 +33,20 @@ import type { FormNotifyMaterial } from "../formOps";
 import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
-import { mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
+import { siteLens } from "../websites/siteLens";
+import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
+import { texFolderOf } from "../routines/texFolder";
 import { executeOperation } from "./executeOperation";
-import { announceTreeChange, manifestSource } from "./treeOps";
+import { announceTreeChange } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
 import { recordProjectionOutcome } from "./projectionOutcome";
-import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
+import { isNodesOperation, runNodesOperation } from "../nodes/run";
 import { isTreeRead, treeReadAnswer } from "../nodes/treeReads";
-import { TreeUnbound } from "../nodes/treeLoading";
-import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
+import { TreeUnbound } from "../nodes/treeGate";
+import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
-import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
-import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
+import { jobLens } from "./jobLens";
 import { attachArrivalAccess } from "../nodes/arrivalAccess";
 import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
@@ -71,18 +72,11 @@ import {
 import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
+import { hideOldCopiesPass, readOldCopyTexts } from "../oldCopies/hiding";
+import { isMessagesBackupOperation, runMessagesBackupOperation } from "../messagesBackup/exportLog";
+import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
-
-/** Operations that write `privacy.md`'s rules: refused in rows mode, where the rows are written instead. */
-const PRIVACY_WRITE_OPERATIONS = new Set([
-  "setVisibility",
-  "setNoteGroup",
-  "setFolderGroup",
-  "setFolderVisibility",
-  "resetPrivacy",
-  "ensurePrivacy",
-]);
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -107,15 +101,13 @@ export async function runFileOperationHandler(
     operation: Infer<typeof operationValidator>;
   },
 ): Promise<OperationResult> {
-  // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
-  // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
-  // credential is opened.
-  if (PRIVACY_WRITE_OPERATIONS.has(args.operation.kind) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
-    throw new ConvexError({
-      code: "ROWS_MODE",
-      message: "Access is kept on the tree's rows now. Change it through the console, or the gateway's set access.",
-    });
-  }
+  // The site's reads by `website/...` are judged where its folder is now, and answered by the name asked
+  // (`lib/websites/siteLens.ts`, owner 2026-10-21).
+  const lens = await siteLens(ctx, args);
+  if (lens !== null) return lens.relabel(await runFileOperationHandler(ctx, { ...args, operation: lens.operation as typeof args.operation }));
+  // A path under a built-in folder's default name (`inbox/...`) goes to the folder doing that job (`jobLens.ts`).
+  const job = await jobLens(ctx, args);
+  if (job !== null) return await runFileOperationHandler(ctx, { ...args, operation: job as typeof args.operation });
   /*
    * A PROJECTION PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
    *
@@ -209,7 +201,7 @@ export async function runFileOperationHandler(
   // `maintainIndex` stops here, before any credential, and `indexNotes`
   // follows the change into the database alone.
   let operation: FileOperation = args.operation as FileOperation;
-  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "pruneIndex" || args.operation.kind === "hideOldCopies") {
     // Never fails the operation it rides on: a move's copy must not stop over a derivative.
     const target = await ctx
       .runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId })
@@ -326,7 +318,7 @@ export async function runFileOperationHandler(
   }
 
   // Which notes exist, and what their facts say, is answered from the Convex
-  // tree with no bucket credential decrypted at all, or "still loading"
+  // tree with no bucket credential decrypted at all, or "NOT_SERVED"
   // (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
   if (isTreeRead(args.operation)) {
     try {
@@ -354,7 +346,7 @@ export async function runFileOperationHandler(
     .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
     .catch(() => null);
   const encryptionLookup = managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
-  // Queued moves the tree draws already (`lib/nodes/moveBarrier.ts`); a failed read fails the operation.
+  // Keyed moves the tree draws already (`lib/nodes/moveBarrier.ts`); a failed read fails the operation.
   const movesLookup = pendingMovesLookup(ctx, args.workspaceId);
 
   let credential: GatewayCredential | null;
@@ -410,10 +402,12 @@ export async function runFileOperationHandler(
   // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
   const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
   // A plaintext secret is in scope from here to the end of this function. It
-  // is used to construct one store and nothing else — it is not logged, not
+  // is used to construct the stores below and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
   // store.
   let store: FileStore;
+  // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
+  let keyStore: FileStore | null = null;
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -444,6 +438,9 @@ export async function runFileOperationHandler(
       managedEncryption,
       idLayout,
     }) as unknown as FileStore;
+    if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
+      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption }) as unknown as FileStore;
+    }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
     // Nothing it says helps here, and re-throwing it would put provider text
@@ -463,9 +460,9 @@ export async function runFileOperationHandler(
     });
   }
 
-  // `privacy.md` decided by the rules held as the authority, where they are
-  // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
-  // below goes through this, the console's and the gateway's alike.
+  // The access rules, rendered from the tree's rows for this reader (`apps/mcp/src/store/privacyAuthority.js`).
+  // Every read of the rules below goes through this, the console's and the gateway's alike.
+  // A row's tier set by the operation itself (a copy narrowed, a move's destination tightened) goes through `setAccess`.
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId, readerAudience(args))) as unknown as FileStore;
   // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
   attachSmallData(ctx, args.workspaceId, store);
@@ -477,10 +474,7 @@ export async function runFileOperationHandler(
     attachTreeListing(ctx, args.workspaceId, store);
     return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
   }
-
-  // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;
-  store = await storeWithMoves(ctx, args, store, await movesLookup);
 
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
@@ -490,6 +484,23 @@ export async function runFileOperationHandler(
   if (args.operation.kind === "readTrashed") {
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     return await readTrashedText(store, { ...args.operation, clearance }).catch((error) => rethrowUnreadable(toConvexError(error)));
+  }
+
+  // Old copies (`lib/oldCopies/hiding.ts`): rows moved to a hidden name, and the owner's export reading them back.
+  if (args.operation.kind === "hideOldCopies") {
+    return await hideOldCopiesPass(ctx, args.workspaceId, store, projection, args.operation.cursor ?? null);
+  }
+  if (args.operation.kind === "readOldCopies") {
+    return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, keyStore ?? store, args.operation.paths) };
+  }
+  if (isMessagesBackupOperation(args.operation)) return await runMessagesBackupOperation(keyStore ?? store, args.operation);
+  // A queued move's links (`lib/nodes/linkRepair.ts`): the notes it rewrote are told to the tree as any write is.
+  if (args.operation.kind === "repairLinks") {
+    const written = recordWrites(store);
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const result = await repairLinks(ctx, args.workspaceId, store, clearance, args.operation.pairs);
+    if (written.size > 0) await announceTreeChange(ctx, store, args, { paths: [...written], narrows: false }, result, null);
+    return result;
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
@@ -507,6 +518,8 @@ export async function runFileOperationHandler(
       walk, not when it arrived.
     */
     const written = recordWrites(store);
+    // Its contact lookup lists the contacts folder by the tree's names, never the bucket's (`contactLookup.js`).
+    attachTreeListing(ctx, args.workspaceId, store);
     const result = await runGoogleForwardSync(ctx, store, forwardSyncJob);
     if (written.size > 0) {
       await announceTreeChange(ctx, store, args, { paths: [...written], narrows: false }, result, null);
@@ -514,7 +527,7 @@ export async function runFileOperationHandler(
     return result;
   }
 
-  let wroteActivity: { teamVisible: boolean } | null = null;
+  let wroteActivity: { teamVisible: boolean; reprivate: boolean } | null = null;
   let dueNotification: (FormNotifyMaterial & { responseId: string }) | null = null;
   /*
     What this operation does to the file tree, if anything, and — for one
@@ -528,13 +541,13 @@ export async function runFileOperationHandler(
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
   // capped.
-  const listing = await manifestSource(ctx, args, store);
-  attachQueueMove(ctx, args, listing.store, bucket, undefined, projection);
+  const listing = { store };
+  attachQueueMove(ctx, args, listing.store, bucket, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
-  attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
   await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
-  if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
+  // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
+  const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -559,7 +572,6 @@ export async function runFileOperationHandler(
     ? asRelocation(store, operate)
     : operate()
   ).catch(rethrowUnreadable);
-  if (result.kind === "manifest") Object.assign(result, { source: listing.source }, listing.since === undefined ? {} : { since: listing.since, privacy: listing.privacy ?? null });
 
   // Website rows are a derivative of bucket bytes: mark them stale after the
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.
@@ -569,13 +581,10 @@ export async function runFileOperationHandler(
   // `tex/routines/`) too. The person who acted is named by `actorName`, the handle `authorizeFileAccess` resolved from live
   // membership; `recordRoutineSignal` keeps them as the writer only if they
   // can write here now. Best effort, like the website mark above.
-  let routinePaths = routinePathsTouched(args.operation as FileOperation, result);
+  let routinePaths = routinePathsTouched(args.operation as FileOperation, result, texBefore);
   if (routinePaths.length === 0 && mayTouchNestedRoutines(args.operation as FileOperation, result)) {
     // Tex's folder may be nested anywhere (owner, 2026-10-18): ask where, and name its routines as rows do.
-    const tex = await ctx
-      .runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: args.workspaceId })
-      .then((held) => held.jobs.tex ?? null, () => null);
-    routinePaths = routinePathsTouched(args.operation as FileOperation, result, tex);
+    routinePaths = routinePathsTouched(args.operation as FileOperation, result, await texFolderOf(ctx, args.workspaceId));
   }
   if (routinePaths.length > 0) {
     await ctx
@@ -618,7 +627,6 @@ export async function runFileOperationHandler(
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
   const landedChange = treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
-  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();
 
   /*
@@ -644,6 +652,12 @@ export async function runFileOperationHandler(
     late-landing stamp cannot walk the dot backwards.
   */
   if (wroteActivity !== null) {
+    // The activity file names private notes: whatever row it has, it is private again (non-negotiable 5).
+    if ((wroteActivity as { reprivate: boolean }).reprivate) {
+      await ctx
+        .runMutation(internal.functions.nodesAccess.keepActivityPrivate, { workspaceId: args.workspaceId })
+        .catch(() => {});
+    }
     await ctx
       .runMutation(internal.functions.files.markWorkspaceActivity, {
         workspaceId: args.workspaceId,

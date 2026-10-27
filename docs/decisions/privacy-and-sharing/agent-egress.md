@@ -24,7 +24,10 @@ model.
 single yes to something nobody can take back, asked for separately:
 
 - an email (`send_email`; [sending-email](../communications/sending-email.md));
-- a calendar change (`calendar_event`; [calendar-writes](../communications/calendar-writes.md));
+- a calendar change asked by another connected AI (`calendar_event`;
+  [calendar-writes](../communications/calendar-writes.md)). Tex changes the
+  person's own calendar at once (the owner, 2026-10-22): no event it touches
+  has anyone else on it, so nobody is told;
 - claiming a workspace's @handle (`create_workspace` without `dry_run`;
   [workspace setup](../gateway-protocol/workspace-setup.md)), held by
   `handleClaimOf` in `apps/mcp/src/tools/session.js`;
@@ -100,7 +103,19 @@ writes.
 (`elsewhereOnly`), which names no link, no publication and nobody new, and was
 the friction approvals were removed for; nor, for now, a move of a note into
 another workspace, which takes its own path (`moves/acrossContexts.js`) and
-carries the note's visibility with it. Without `SHARING_JUDGE`, or without an
+carries the note's visibility with it. Nor a move *inside* another workspace
+(`move_note`, `move_notes` or `move_folder` addressed with `context` alone, not
+asked to publish) whose every destination that workspace's own manifest reads
+no wider than its source: it is a relocation there, an ordinary write. A note
+is read as it lands, the narrower of what it is and what its new folder
+grants, since that is what the move installs (`narrowMove` on keyed rows);
+measuring the folder alone refused the same reorganize a second time
+(2026-10-25, a private note bound for a team folder). Judging
+it as a move "into" the workspace refused Tex every move of a reorganize the
+owner asked for in their own shared workspace (2026-10-24); the owner said yes
+to this exception on 2026-10-25. A destination that reads wider there, a
+publish, or a move between two workspaces is judged as before
+(`apps/mcp/test/movesInsideAnotherWorkspace.test.mjs`). Without `SHARING_JUDGE`, or without an
 AI gateway to ask, nothing is judged and such calls run at once as before.
 Tests: `apps/mcp/test/agentEgressJudge.test.mjs`, sabotage record in its
 header.

@@ -206,3 +206,58 @@ describe("no match", () => {
     expect(noMatchHint("")).toBeUndefined();
   });
 });
+
+describe("finding somebody by their @name", () => {
+  const PEOPLE: RecipientMember[] = [
+    { userId: "u1", name: "Mari Lola", email: "mari@example.invalid", handle: "marilola" },
+    { userId: "u2", name: "kola", email: "kola@example.invalid" },
+  ];
+
+  test("a typed @ does not hide a member: @mari finds Mari Lola by name, and by her handle", () => {
+    expect(recipientsFor("@mari", PEOPLE, []).map((row) => row.key)).toContain("u1");
+    expect(recipientsFor("@marilola", PEOPLE, [])[0]).toMatchObject({ kind: "member", userId: "u1" });
+  });
+
+  test("a member's row says their @name, so the person typing can tell two Maris apart", () => {
+    expect(recipientsFor("mari", PEOPLE, [])[0].detail).toBe("@marilola · mari@example.invalid");
+  });
+
+  test("an @name outside the workspace is offered only once the server says a person holds it", () => {
+    expect(recipientsFor("@seyi", PEOPLE, [], { handleFound: true })).toEqual([
+      expect.objectContaining({ kind: "handle", key: "@seyi", label: "@seyi" }),
+    ]);
+    // Nobody holds it, the answer has not come back yet, or nobody could ask: no row to press by mistake.
+    expect(recipientsFor("@se", PEOPLE, [], { handleFound: false })).toEqual([]);
+    expect(recipientsFor("@seyi", PEOPLE, [], {})).toEqual([]);
+  });
+
+  test("an @name a member holds is that member, not a second row for the same person", () => {
+    const rows = recipientsFor("@marilola", PEOPLE, []);
+    expect(rows.filter((row) => row.kind === "handle")).toEqual([]);
+  });
+
+  test("a group's name is the group, not a person's handle", () => {
+    const rows = recipientsFor("@supa-leads", [], GROUPS);
+    expect(rows.map((row) => row.kind)).toEqual(["group"]);
+  });
+
+  test("only something shaped like a name: no @ at all, one letter, spaces or an address are not offered as one", () => {
+    for (const query of ["seyi", "@s", "@se yi", "@-seyi", "@seyi@example.invalid", "@@seyi"]) {
+      expect(recipientsFor(query, [], [], { handleFound: true }).some((row) => row.kind === "handle")).toBe(false);
+    }
+  });
+
+  test("an @name already on the note's list is not offered again", () => {
+    const rows = recipientsFor("@seyi", [], [], { reachingHandles: new Set(["seyi"]) });
+    expect(rows).toEqual([expect.objectContaining({ kind: "handle", reaches: true })]);
+  });
+
+  test("the empty hint says an @name works too", () => {
+    expect(noMatchHint("zz")).toMatch(/@name/);
+  });
+
+  test("a typed @name nobody holds says so, and says it is looking while the answer is on its way", () => {
+    expect(noMatchHint("@se", false)).toBe("Nobody on Context goes by @se. Check the spelling, or type their email.");
+    expect(noMatchHint("@se", undefined)).toBe("Looking for @se…");
+  });
+});

@@ -391,11 +391,9 @@ export function browser(
     setScope: record("setScope"),
     openLinkPaths: new Set<string>(),
     linkPaths: [],
-    resetPrivacy: noop,
     iconOf: () => null,
     setIcon: async () => {},
     addBuiltInFolder: async () => "",
-    canResetPrivacy: false,
     // Both are `canEdit && isOwner` in the real hook, so an owner is the only
     // shape in which they can differ from `canEdit` — and moving them
     // independently is `explorerMenuStaleGate.test.ts`'s subject, not this
@@ -437,6 +435,7 @@ export function browser(
 export function mount(
   canEdit: boolean,
   over: Partial<FileBrowser> = {},
+  props: { onShare?: (path: string) => void } = {},
 ): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
@@ -457,6 +456,7 @@ export function mount(
           onOpenPinned: (path: string) => calls.props.push({ name: "onOpenPinned", args: [path] }),
           onOverlayChange: (open: boolean) =>
             calls.props.push({ name: "onOverlayChange", args: [open] }),
+          ...props,
         }),
       ),
     );

@@ -5,6 +5,7 @@
  * the sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   MANIFEST_KEY,
   R2Store,
@@ -29,7 +30,7 @@ export async function runSearchShardsCorruptionAndConcurrencyChecks(check) {
     for (let n = 0; n < 4; n += 1) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA QUOKKA, ${n}.\n`);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
 
     bucket.seed("1-projects/note-1.md", "# Note 1\n\nA BILBY replaced the quokka.\n");
@@ -70,7 +71,7 @@ export async function runSearchShardsCorruptionAndConcurrencyChecks(check) {
     for (let n = 0; n < 5; n += 1) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA DUGONG, ${n}.\n`);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
     // Corrupt the shard alone and edit one note in it. The manifest still
     // vouches for the other four, so a pass that took its staleness verdict as
@@ -116,7 +117,7 @@ export async function runSearchShardsCorruptionAndConcurrencyChecks(check) {
     for (let n = 0; n < 24; n += 1) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA PANGOLIN, ${n}.\n`);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
     const before = storedManifest(bucket);
     // The fullest shard, chosen from the manifest rather than assumed: which
@@ -214,7 +215,7 @@ export async function runSearchShardsCorruptionAndConcurrencyChecks(check) {
     const bucket = createBucket();
     bucket.seed(MANIFEST_KEY, serializeManifest(emptyManifest(4)));
     bucket.seed("1-projects/lonely.md", "# Lonely\n\nA SOLITARY OKAPI.\n");
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
     const occupied = shardKey(shardOf("1-projects/lonely.md", 4));
     bucket.resetCounts();

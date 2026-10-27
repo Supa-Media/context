@@ -13,8 +13,8 @@ import { internal } from "../../../_generated/api";
 import type { MutationCtx } from "../../../_generated/server";
 import { workspaceArchived } from "../archivedWorkspaces";
 
-/** Links one day's check may chain (`filesFns/prunePass.ts`). */
-export const PRUNE_CHAIN = 10;
+/** Links one day's check may chain (`filesFns/prunePass.ts`): one copies at most 100 notes, so 60 re-file a 6,000-note workspace in a day. */
+export const PRUNE_CHAIN = 60;
 /** How often each `ready` database is checked. */
 export const PRUNE_EVERY_MS = 24 * 60 * 60 * 1_000;
 /** Checks one sweep run may start. */

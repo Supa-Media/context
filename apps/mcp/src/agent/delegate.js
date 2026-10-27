@@ -240,7 +240,7 @@ export function delegateSession(callTool, { handle, home, now = Date.now, vouch 
         title: { type: "string", description: "The job in a few words." },
         brief: { type: "string", description: "Everything the agent needs: what to do, where (repo, folder, links), constraints." },
         done_when: { type: "string", description: "How you'll both know it's finished." },
-        folder: { type: "string", description: "The project folder the task note goes in, beside that project's notes, e.g. 1-projects/launch." },
+        folder: { type: "string", description: "The project folder the task note goes in, beside that project's notes, e.g. projects/launch." },
         context: { type: "string", description: 'The workspace that project is in, as "@name". Leave out for their own.' },
         again: { type: "string", description: "A task note you already handed off, as @name/path.md: its message again, nothing written." },
       },
@@ -306,7 +306,7 @@ export function delegateSession(callTool, { handle, home, now = Date.now, vouch 
     if (brief.length > MAX_BRIEF) return text(`Keep the brief under ${MAX_BRIEF} characters; link to notes for the rest.`, true);
     const doneWhen = oneLine(given.done_when).slice(0, MAX_DONE_WHEN) || DEFAULT_DONE;
     const folder = cleanFolder(given.folder);
-    if (folder === null) return text("folder must be the project folder the task belongs in, like 1-projects/launch.", true);
+    if (folder === null) return text("folder must be the project folder the task belongs in, like projects/launch.", true);
     if (given.context !== undefined && (typeof given.context !== "string" || !CONTEXT_NAME.test(given.context))) {
       return text('context must be a workspace name like "@team".', true);
     }

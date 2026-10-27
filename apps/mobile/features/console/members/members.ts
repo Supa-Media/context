@@ -27,6 +27,8 @@ export interface ConsoleMember {
   role: string;
   email?: string;
   name?: string;
+  /** Their own `@name` (their personal workspace), without the `@`. */
+  handle?: string;
   joinedAt: number;
   /** True for the signed-in person, so the row can say so instead of guessing. */
   isMe: boolean;
@@ -198,7 +200,7 @@ export function describeMembersFailure(error: unknown): MembersFailure {
     case "INVALID_INVITEE":
       return {
         headline: errorMessageOf(error) ?? "That is not a @name or an email address.",
-        next: "Invite somebody by their @name, or by the address they signed up with.",
+        next: "Invite somebody by their @name, the address they signed up with, or their phone number.",
       };
     case "INSUFFICIENT_ROLE":
       return {

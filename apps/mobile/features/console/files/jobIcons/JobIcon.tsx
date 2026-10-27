@@ -15,7 +15,9 @@ const TILE_INSET = 38 / 56;
 
 /**
  * A built-in folder's drawn icon (`geometry.ts`), in Tex's blue: one ink for
- * every job, the shape tells them apart (board 8). At list size it is the bare
+ * every job, the shape tells them apart (board 8). One nested inside another
+ * folder draws in the text colour instead (`nested`): blue is for the top of
+ * the workspace only (owner, 2026-10-26). At list size it is the bare
  * drawing, heavier and without the brush's grain; `tile` puts it on the
  * landing pages' paper at heading size (board 9), grain and all.
  *
@@ -26,6 +28,7 @@ export const JobIcon = memo(function JobIcon({
   size,
   tile = false,
   archived = false,
+  nested = false,
   testID,
 }: {
   job: DrawnJob;
@@ -37,11 +40,13 @@ export const JobIcon = memo(function JobIcon({
    * with Archive's box on its corner, so Archive/Projects reads as "archived projects".
    */
   archived?: boolean;
+  /** Inside another folder: drawn in the text colour. */
+  nested?: boolean;
   testID?: string;
 }) {
   const scheme = useScheme();
   const colors = useColors();
-  const ink = archived ? colors.chromeMuted : texColors[scheme].ink;
+  const ink = archived ? colors.chromeMuted : nested ? colors.text : texColors[scheme].ink;
   const drawing = tile ? Math.round(size * TILE_INSET) : size;
   const svg = <Drawing job={job} size={drawing} ink={ink} {...(tile || archived || testID === undefined ? {} : { testID })} />;
   const box = Math.round(drawing * BOX_SHARE);

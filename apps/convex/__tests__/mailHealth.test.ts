@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
-import { STALE_AFTER_MS, STORE_FULL_CODE, TELL_AGAIN_AFTER_MS, mailboxState } from "../functions/lib/mailHealth/model";
+import { GMAIL_SEND_SCOPE } from "../functions/lib/googleOAuth";
+import { TELL_AGAIN_AFTER_MS, mailboxState } from "../functions/lib/mailHealth/model";
 import {
   addMember,
   asUser,
@@ -28,10 +29,8 @@ import {
  *
  * Run as temporary local edits and reverted (2026-10-20).
  *
- *   `mailboxState` ignoring `STALE_AFTER_MS` (stale never returned)
- *     → "a mailbox with no successful pass for six hours is stale" fails
  *   `mailboxState` reading `health: "error"` as `needs_reconnect`
- *     → "a rate-limited mailbox is recovering, and nobody is told" fails
+ *     → "a mailbox whose last copying pass failed is ok, and nobody is told" fails
  *   `clearOwner` without the `personalWorkspaceOf` check
  *     → "an owner's grant on a shared workspace reads nothing" fails
  *     (it is also what refuses a member: a role check beside it never failed
@@ -55,7 +54,7 @@ const OWNER_SCOPES = ["context:read", "context:write", "context:private"];
 const HOUR = 60 * 60 * 1000;
 
 type T = ReturnType<typeof setupTest>;
-type Mailbox = { address: string; state: string; lastSyncedAt: number | null; tell: boolean };
+type Mailbox = { address: string; state: string; lastSyncedAt: number | null; tell: boolean; readOnly: boolean };
 
 afterEach(() => {
   vi.useRealTimers();
@@ -174,35 +173,25 @@ describe("a mailbox's state", () => {
     expect(mailboxState(base, now)).toEqual({ state: "ok", lastSyncedAt: now - 10 * 60_000 });
   });
 
-  test("a rate-limited mailbox is recovering, and nobody is told", () => {
-    const limited = { ...base, health: "error" as const, gmail: { ...base.gmail!, lastFailureCode: "GMAIL_RATE_LIMITED", retryAt: now + 60_000 } };
-    expect(mailboxState(limited, now)!.state).toBe("recovering");
+  /*
+    Mail is no longer copied (owner, 2026-10-21): no pass falls behind and no
+    store fills, so a mailbox is ok until Google refuses its grant. A row left
+    by the last copying pass, failed, full or days old, says nothing now.
+  */
+  test("a mailbox whose last copying pass failed is ok, and nobody is told", () => {
+    const old = now - 30 * 24 * HOUR;
+    const leftovers = {
+      ...base,
+      health: "error" as const,
+      syncBytesWritten: 5_000,
+      gmail: { ...base.gmail!, lastSyncedAt: old, lastFailureCode: "MAIL_QUOTA_EXCEEDED" },
+    };
+    expect(mailboxState(leftovers, now)).toEqual({ state: "ok", lastSyncedAt: old });
+    expect(mailboxState({ ...base, gmail: { ...base.gmail!, lastSyncedAt: undefined } }, now)).toEqual({ state: "ok", lastSyncedAt: null });
   });
 
-  test("a mailbox with no successful pass for six hours is stale, however it is failing", () => {
-    const old = now - STALE_AFTER_MS - 60_000;
-    expect(mailboxState({ ...base, gmail: { ...base.gmail!, lastSyncedAt: old } }, now)!.state).toBe("stale");
-    expect(
-      mailboxState({ ...base, health: "error" as const, gmail: { ...base.gmail!, lastSyncedAt: old, lastFailureCode: "GMAIL_RATE_LIMITED" } }, now)!.state,
-    ).toBe("stale");
-  });
-
-  test("a mailbox Google wants signed in again needs reconnecting, before anything else", () => {
-    const old = now - STALE_AFTER_MS - 60_000;
-    expect(mailboxState({ ...base, health: "reconnect_required" as const, gmail: { ...base.gmail!, lastSyncedAt: old } }, now)!.state).toBe(
-      "needs_reconnect",
-    );
-  });
-
-  test("a mailbox at its storage ceiling is full, by the pass's code or by the count", () => {
-    expect(mailboxState({ ...base, gmail: { ...base.gmail!, lastFailureCode: STORE_FULL_CODE } }, now)!.state).toBe("store_full");
-    expect(mailboxState({ ...base, syncBytesWritten: 1_000 }, now)!.state).toBe("store_full");
-  });
-
-  test("a new mailbox that has not read mail yet is not stale; one connected hours ago is", () => {
-    const fresh = { ...base, createdAt: now - HOUR, gmail: { ...base.gmail!, lastSyncedAt: undefined } };
-    expect(mailboxState(fresh, now)).toEqual({ state: "ok", lastSyncedAt: null });
-    expect(mailboxState({ ...fresh, createdAt: now - STALE_AFTER_MS - 1 }, now)!.state).toBe("stale");
+  test("a mailbox Google wants signed in again needs reconnecting", () => {
+    expect(mailboxState({ ...base, health: "reconnect_required" as const }, now)!.state).toBe("needs_reconnect");
   });
 
   test("a disconnected mailbox, or an account without Gmail, is not listed", () => {
@@ -225,6 +214,19 @@ describe("who reads a person's mailboxes", () => {
       { address: "ada@example.invalid", state: "ok", tell: false },
     ]);
     expect(typeof mailboxes![1]!.lastSyncedAt).toBe("number");
+  });
+
+  test("a mailbox connected before Context asked to send is read-only, and says so", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await person(t);
+    await mailbox(t, workspaceId, userId, "old@example.invalid", (row) => ({ scopes: row.scopes.filter((scope) => scope !== GMAIL_SEND_SCOPE) }));
+    await mailbox(t, workspaceId, userId, "new@example.invalid", (row) => ({ scopes: [...row.scopes, GMAIL_SEND_SCOPE] }));
+    const token = await grant(t, workspaceId, userId);
+    const mailboxes = await readHealth(t, token, workspaceId);
+    expect(mailboxes!.map(({ address, readOnly }) => ({ address, readOnly }))).toEqual([
+      { address: "new@example.invalid", readOnly: false },
+      { address: "old@example.invalid", readOnly: true },
+    ]);
   });
 
   test("another tenant reads nothing of theirs, and is told only of its own", async () => {
@@ -313,7 +315,7 @@ describe("a check-in tells them once a day", () => {
     expect(row!.mailRaising).toBeUndefined();
   });
 
-  test("a day later, or in a new state, it is owed again", async () => {
+  test("a day later it is owed again", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const t = setupTest();
     const ada = await broken(t);
@@ -321,11 +323,11 @@ describe("a check-in tells them once a day", () => {
     await raise(t, beat.accessToken, ada.workspaceId, [{ address: "ada@example.invalid", state: "needs_reconnect" }]);
     await result(t, beat.runId, "texted");
     expect((await readHealth(t, ada.owner, ada.workspaceId))![0]!.tell).toBe(false);
-    // Reconnected, then full: a new state is news.
-    await t.run((ctx) => ctx.db.patch(ada.id, { health: "active", syncBytesWritten: 2_000_000_000 }));
-    expect((await readHealth(t, ada.owner, ada.workspaceId))![0]).toMatchObject({ state: "store_full", tell: true });
-    // Back to the old state, and a day on: owed again.
-    await t.run((ctx) => ctx.db.patch(ada.id, { health: "reconnect_required", syncBytesWritten: 0 }));
+    // Reconnected: ok, and nothing to tell.
+    await t.run((ctx) => ctx.db.patch(ada.id, { health: "active" }));
+    expect((await readHealth(t, ada.owner, ada.workspaceId))![0]).toMatchObject({ state: "ok", tell: false });
+    // Broken again within the day: already told.
+    await t.run((ctx) => ctx.db.patch(ada.id, { health: "reconnect_required" }));
     expect((await readHealth(t, ada.owner, ada.workspaceId))![0]!.tell).toBe(false);
     vi.setSystemTime(Date.now() + TELL_AGAIN_AFTER_MS + 60_000);
     const later = await grant(t, ada.workspaceId, ada.userId);

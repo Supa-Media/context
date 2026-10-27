@@ -19,11 +19,11 @@
 
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
 
-type Point = readonly [number, number];
-type Stroke = readonly Point[];
+export type Point = readonly [number, number];
+export type Stroke = readonly Point[];
 
 /** Points round a circle, its radius wobbling a little as a hand's does. */
-function circle(cx: number, cy: number, r: number, from = -100, sweep = 375, n = 18): Point[] {
+export function circle(cx: number, cy: number, r: number, from = -100, sweep = 375, n = 18): Point[] {
   const points: Point[] = [];
   for (let i = 0; i <= n; i++) {
     const angle = ((from + (sweep * i) / n) * Math.PI) / 180;
@@ -34,7 +34,7 @@ function circle(cx: number, cy: number, r: number, from = -100, sweep = 375, n =
 }
 
 /** Points along an elliptical arc from `a0` to `a1` degrees. */
-function arc(cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, n = 10): Point[] {
+export function arc(cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, n = 10): Point[] {
   const points: Point[] = [];
   for (let i = 0; i <= n; i++) {
     const angle = ((a0 + ((a1 - a0) * i) / n) * Math.PI) / 180;
@@ -175,24 +175,31 @@ export interface DrawnStroke {
   dry: string;
 }
 
-const drawn = new Map<DrawnJob, readonly DrawnStroke[]>();
+const drawn = new Map<string, readonly DrawnStroke[]>();
 
 /**
- * The strokes of `job`'s drawing, computed once. The main and dry passes of
- * each stroke draw from one generator in turn, as the board did, so this is
- * the board's drawing to the tenth of a unit.
+ * The strokes of the drawing `points`, kept under `key` and computed once.
+ * The main and dry passes of each stroke draw from one generator in turn, as
+ * the boards did, so a drawing is the board's to the tenth of a unit. The
+ * wobble's seed comes from the name `seed`, so two drawings with the same points (Areas and
+ * the Repeat icon) still wobble apart.
  */
-export function jobStrokes(job: DrawnJob): readonly DrawnStroke[] {
-  const known = drawn.get(job);
+export function drawnStrokes(key: string, seed: string, points: readonly Stroke[]): readonly DrawnStroke[] {
+  const known = drawn.get(key);
   if (known !== undefined) return known;
-  const next = generator(seedFor(job));
-  const strokes = DRAWINGS[job].map((points) => {
-    const d = strokePath(points, JITTER, next);
-    return { d, dry: strokePath(points, DRY_JITTER, next) };
+  const next = generator(seedFor(seed));
+  const strokes = points.map((stroke) => {
+    const d = strokePath(stroke, JITTER, next);
+    return { d, dry: strokePath(stroke, DRY_JITTER, next) };
   });
   const frozen = Object.freeze(strokes);
-  drawn.set(job, frozen);
+  drawn.set(key, frozen);
   return frozen;
+}
+
+/** The strokes of `job`'s drawing. */
+export function jobStrokes(job: DrawnJob): readonly DrawnStroke[] {
+  return drawnStrokes(`job:${job}`, job, DRAWINGS[job]);
 }
 
 /** The SVG box every drawing is in. */

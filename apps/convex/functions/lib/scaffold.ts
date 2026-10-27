@@ -72,7 +72,7 @@ export type {
   ScaffoldStore,
   StructureTemplate,
 } from "./scaffold/store";
-export { FOLDER_PURPOSE, INDEX_KEY, PARA_FOLDERS, PRIVACY_KEY } from "./scaffold/store";
+export { FOLDER_PURPOSE, INDEX_KEY, LEGACY_PARA_FOLDERS, PARA_FOLDERS, PRIVACY_KEY } from "./scaffold/store";
 
 export type { FolderRejection, FolderValidation } from "./scaffold/customFolders";
 export {
@@ -82,7 +82,6 @@ export {
   validateCustomFolders,
 } from "./scaffold/customFolders";
 
-export { renderPrivacyManifest, renderPrivacyManifestForFolders } from "./scaffold/privacyManifest";
 
 export { renderCustomFolderReadme, renderFolderReadme, renderIndex } from "./scaffold/readmes";
 

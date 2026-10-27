@@ -27,7 +27,7 @@
  */
 
 import { readConversation, shownHistory } from "../agent/conversation.js";
-import { callKey, createPending, findPending } from "./approvals.js";
+import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore } from "./approvals.js";
 import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
 import { toolError } from "./results.js";
 
@@ -35,8 +35,14 @@ export { REPORT_TOOL };
 
 /** How many messages between them go with a report, newest last: the ask and their answer included. */
 export const REPORT_TEXTS_TURNS = 12;
-/** The longest report shown by text: with the line about texts, one text under `TEXTED_ASK_CAP`. */
-export const TEXTED_REPORT_CAP = 2_000;
+/**
+ * The longest report shown by text. It was 2,000 characters, and on
+ * 2026-10-26 a person who had just given up on a booking was texted a whole
+ * paragraph of steps and refs to read and 👍 (the owner's review: "report
+ * failures plainly without long bug-report dumps"). Their texts carry the
+ * detail; the report says what went wrong in a few plain sentences.
+ */
+export const TEXTED_REPORT_CAP = 500;
 /** The texts attached, in characters. Kept equal to `MAX_REPORT_TEXTS_CHARS` in the control plane. */
 export const MAX_REPORT_TEXTS_CHARS = 16_000;
 
@@ -53,9 +59,14 @@ export function reportCopy(message, shareTexts) {
   return `${said}\n\n${texts}`;
 }
 
+/** The group chat's client (`agent/groupTurn.js`). */
+const GROUP_CLIENT_ID = "context_texts_group";
+
 /** "file a bug", "send a bug report to the team", "report this to the developers". */
 const ASKS_TO_FILE = [
   /\b(?:file|send|submit|open|log|raise|write up|make)\b[^.?!\n]{0,30}?\b(?:bug|issue|ticket|bug report)\b/i,
+  // "File the fact that you can't see your own diagram as a bug report" (Tex Devs group, 2026-10-26).
+  /\b(?:file|submit|log|raise|report)\b[^?!\n]{0,160}?\b(?:as|into)\s+(?:an?\s+)?(?:bug|issue|ticket)s?\b/i,
   /\breport\s+(?:it|this|that)\b[^.?!\n]{0,20}\b(?:team|devs?|developers?|engineers?)\b/i,
 ];
 
@@ -78,7 +89,8 @@ export async function recentTexts(store) {
  * went, or the answer to give instead: a refusal, the sent report, or a hold.
  */
 export async function reportGate(supplied, { store, session }) {
-  const shareTexts = supplied?.share_texts === true;
+  // A group chat's report never carries texts: the tagger's own texts with Tex aren't the chat's to send, nor the chat theirs.
+  const shareTexts = supplied?.share_texts === true && session.actorClientId !== GROUP_CLIENT_ID;
   if (session.egress?.approved === true) {
     return await sendReport(store, reportMessage(supplied), shareTexts ? await recentTexts(store) : undefined);
   }
@@ -89,7 +101,10 @@ export async function reportGate(supplied, { store, session }) {
   const message = reportMessage(supplied);
   if (message === null) return await sendReport(store, null);
   if ([...message].length > TEXTED_REPORT_CAP) {
-    return toolError(`Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it whole. Shorten it.`);
+    return toolError(
+      `Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it at a glance. ` +
+        "Say what went wrong in two or three plain sentences, with no step lists or element numbers; share_texts carries the detail.",
+    );
   }
 
   // Their own text asked for it, and none of their texts go: sent now (4. above).
@@ -101,6 +116,7 @@ export async function reportGate(supplied, { store, session }) {
   }
   const userId = session.actorUserId;
   const existing = await findPending(store, { name: REPORT_TOOL, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

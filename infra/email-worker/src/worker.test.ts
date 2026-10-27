@@ -191,10 +191,12 @@ describe("an emailed image is stored as an image", () => {
 
 describe("a message that should be captured is", () => {
   it("written to the target folder with an audit record", async () => {
-    const { observed, bucket } = await run(rawMessage());
+    const { observed, bucket, notes } = await run(rawMessage());
     expect(observed.rejected).toEqual([]);
+    expect([...notes.keys()].filter((path) => path.startsWith("0-inbox/email/"))).toHaveLength(1);
     const keys = [...bucket.objects.keys()];
-    expect(keys.filter((key) => key.startsWith("0-inbox/email/"))).toHaveLength(1);
+    // The note's bytes are at its id key, never at its path.
+    expect(keys.filter((key) => key.startsWith("0-inbox/"))).toHaveLength(0);
     expect(keys.filter((key) => key.startsWith(".context/audit/"))).toHaveLength(1);
   });
 
@@ -282,10 +284,11 @@ describe("a message that should be captured is", () => {
   it("not namespaced by tenant", async () => {
     // Tenancy is bucket-level. A `tenants/<id>/` or `workspaces/<slug>/` prefix
     // here would break an existing workspace connecting with zero migration.
-    const { bucket } = await run(rawMessage());
+    const { bucket, notes } = await run(rawMessage());
     for (const key of bucket.objects.keys()) {
-      expect(key.startsWith("0-inbox/") || key.startsWith(".context/audit/")).toBe(true);
+      expect(/^notes\/[0-9a-f-]{36}\.md$/.test(key) || key.startsWith(".context/audit/")).toBe(true);
     }
+    for (const path of notes.keys()) expect(path.startsWith("0-inbox/")).toBe(true);
   });
 
   it("written once, however many times it is redelivered", async () => {
@@ -293,9 +296,9 @@ describe("a message that should be captured is", () => {
     // rejecting one would make a transient network blip look like policy.
     const bucket = bucketStub();
     const raw = rawMessage();
-    await run(raw, { bucket });
+    const first = await run(raw, { bucket });
     const afterFirst = [...bucket.objects.keys()].filter((k) => k.endsWith(".md")).length;
-    const second = await run(rawMessage(), { bucket });
+    const second = await run(rawMessage(), { bucket, plane: first.controlPlane });
     expect(second.observed.rejected).toEqual([]);
     expect([...bucket.objects.keys()].filter((k) => k.endsWith(".md"))).toHaveLength(afterFirst);
     expect(second.controlPlane.calls).toContain("record");

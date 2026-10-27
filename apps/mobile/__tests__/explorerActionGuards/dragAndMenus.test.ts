@@ -196,6 +196,23 @@ describe("an overlay does not follow the reader into another context", () => {
   });
 });
 
+/**
+ * **One share sheet.** Right-click Share on a tree row used to open the tree's own copy of the dialog, which
+ * nothing handed the people, the groups or the named audiences — so it was a different, emptier sheet from the
+ * one the note's Share button opens (Dev2, 2026-10-25). Where the console gives the tree `onShare`, Share goes
+ * there and the tree draws no sheet of its own.
+ */
+describe("right-click Share opens the console's one share sheet", () => {
+  test("Share hands the path to onShare and the tree mounts no dialog of its own", () => {
+    const shared: string[] = [];
+    const { container } = mount(true, { canShare: true } as never, { onShare: (path) => shared.push(path) });
+    openRowMenu(container, "note.md");
+    pressMenuItem("Share…");
+    expect(shared).toEqual(["note.md"]);
+    expect(shareDialogFor("note.md")).toBeNull();
+  });
+});
+
 describe("what may be dragged, and what may be dropped on", () => {
   test("privacy.md is not draggable even for an editor", () => {
     // Not a `canEdit` rule, which is why it is not in the block above: this

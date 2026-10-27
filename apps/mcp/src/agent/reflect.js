@@ -204,7 +204,7 @@ export async function afterTextedTurn({ env, controlPlane, store, session, offer
     if (used.length > 0) await stampUsed(dispatch, used, today);
     await reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today });
     // Every 10 texts, what was learned goes to about-me now, not at the dream (`memoryNudge.js`).
-    await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now });
+    await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now, current: { question, answer: turn?.answer, tainted } });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
   }

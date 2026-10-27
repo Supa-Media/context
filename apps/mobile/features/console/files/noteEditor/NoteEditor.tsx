@@ -161,7 +161,8 @@ export function NoteEditor({
     editor cannot read it, let alone write it — which makes this the affordance
     and not the guard. A pencil that leads to a refusal is worse than no pencil.
   */
-  const durableReady = presence?.collaboration?.ready !== false;
+  // An offline draft takes typing before the shared document is here (`offlineDraft.ts`).
+  const durableReady = presence?.collaboration?.ready !== false || presence?.collaboration?.drafting === true;
   const editable =
     canEdit &&
     durableReady &&

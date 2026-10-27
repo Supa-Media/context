@@ -312,7 +312,7 @@ export interface IngestInput {
 }
 
 /** Where a capture lands when the owner has not configured anything. */
-export const DEFAULT_TARGET_FOLDER = "0-inbox/";
+export const DEFAULT_TARGET_FOLDER = "inbox/";
 
 /**
  * Validate the target folder the control plane handed back.

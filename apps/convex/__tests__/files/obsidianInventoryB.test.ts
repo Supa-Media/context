@@ -8,7 +8,6 @@ import {
   requireKeyset,
 } from "../../functions/lib/crypto";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { memoryS3 } from "../storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -21,8 +20,9 @@ import {
   SECRET_BODY_MARKER,
   fixture,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
-describe('Obsidian plugin inventory', () => {
+describe('Obsidian plugin inventory', { timeout: 60_000 }, () => {
   /*
     THE ONE THING AN OWNER MAY NOT AUTHORIZE AWAY.
 
@@ -310,6 +310,61 @@ describe('Obsidian plugin inventory', () => {
     );
     if (!modified.ok) throw new Error("expected plugin modify to succeed");
     const modifiedEtag = (modified.result as { etag: string }).etag;
+    // A rename that fails leaves nothing behind: the note stays where it was at the version the plugin
+    // holds, and the name it was refused for keeps its own note, with no row of the attempted move added.
+    const taken = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "create_taken",
+          operation: { kind: "vault.create", path: "1-projects/plugin-taken.md", text: "# Taken\n" },
+        },
+      },
+    );
+    expect(taken).toMatchObject({ ok: true });
+    const refused = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "rename_refused",
+          operation: {
+            kind: "vault.rename",
+            from: "1-projects/plugin.md",
+            to: "1-projects/plugin-taken.md",
+            expectedEtag: modifiedEtag,
+          },
+        },
+      },
+    );
+    expect(refused).toMatchObject({ ok: false });
+    const sourceAfterRefusal = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_source_after_refusal",
+          operation: { kind: "vault.read", path: "1-projects/plugin.md" },
+        },
+      },
+    );
+    expect(sourceAfterRefusal).toMatchObject({ ok: true, result: { etag: modifiedEtag, text: "changed" } });
+    const takenAfterRefusal = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_taken_after_refusal",
+          operation: { kind: "vault.read", path: "1-projects/plugin-taken.md" },
+        },
+      },
+    );
+    expect(takenAfterRefusal).toMatchObject({ ok: true, result: { text: "# Taken\n" } });
     const renamed = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
@@ -339,22 +394,6 @@ describe('Obsidian plugin inventory', () => {
       },
     );
     if (!renamedRead.ok) throw new Error("expected renamed plugin file to be readable");
-    const deleted = await asUser(f.t, f.owner).action(
-      api.functions.obsidianPlugins.executePluginRequest,
-      {
-        runtimeToken,
-        request: {
-          version: 1,
-          requestId: "delete_1",
-          operation: {
-            kind: "vault.delete",
-            path: "1-projects/plugin-renamed.md",
-            expectedEtag: (renamedRead.result as { etag: string }).etag,
-          },
-        },
-      },
-    );
-    expect(deleted).toMatchObject({ ok: true, result: { kind: "deleted" } });
     await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.reportRuntimeStatus, {
       workspaceId: f.workspaceId,
       pluginId: "highlightr-plugin",

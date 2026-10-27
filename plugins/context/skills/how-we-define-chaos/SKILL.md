@@ -12,7 +12,7 @@ score before and after:
 
 ```
 chaos: 34 → 31 of 100 (calmer; lower is calmer)
-  1-projects/launch: 14 → 9 items (fine)
+  projects/launch: 14 → 9 items (fine)
 ```
 
 Nobody tidies for the person automatically. They do it, or they ask you to.
@@ -56,7 +56,7 @@ either.
 - **Never thin:** the root and the built-in folders (Inbox, Projects, Areas,
   Resources, Clients, Teams, Products). They only count as crowded.
 - **Never scored:** Archive, and everything under it.
-- **Contacts are scored on hygiene, not count.** In `0-inbox/contacts/` a page
+- **Contacts are scored on hygiene, not count.** In `inbox/contacts/` a page
   filed under its letter is calm however many there are. A page under
   `other/` (no name yet) is half chaos: find the person's name. A page loose
   in contacts or in a non-letter folder is unsorted. A page whose frontmatter

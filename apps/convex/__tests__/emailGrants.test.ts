@@ -16,6 +16,7 @@
  *    the ownership lookup refuses an unverified address too, so the test is a guard only when both are broken.
  */
 
+import { seedTreeRows } from "./fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../_generated/api";
@@ -26,6 +27,7 @@ import { modules } from "../test.setup";
 import { grantedNamesFor } from "../functions/lib/grantedNames";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { asUser, addMember, createWorkspace } from "./fixtures.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -66,15 +68,7 @@ async function world(): Promise<World> {
     [ws, owner],
     [beta, ownerB],
   ] as const) {
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: workspace,
-      at: 10,
-      rows: ["1-projects/", PLAN].map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-      gone: [],
-      vanishedUnder: [],
-    });
-    await t.mutation(internal.functions.nodes.begin, { workspaceId: workspace, at: 5 });
-    await t.mutation(internal.functions.nodes.finish, { workspaceId: workspace, at: 20, files: 2 });
+    await seedTreeRows(t, workspace, ["1-projects/", PLAN]);
     // The folder is team and the note is private: the note is visible only through its list.
     await t.run(async (ctx) => {
       await setAccessRow(ctx as unknown as MutationCtx, { workspaceId: workspace, path: "1-projects", base: "team", actor: { userId: actor, role: "owner" } });
@@ -94,10 +88,7 @@ async function emailGrant(w: World, email: string, workspace = w.ws, who = w.own
 
 async function noteTokenOf(w: World, workspace = w.ws): Promise<string> {
   return await w.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspace).eq("path", PLAN))
-      .unique();
+    const row = await treeNodeAt(ctx.db, workspace, PLAN);
     if (row === null) throw new Error(`no row at ${PLAN}`);
     return `#${row.noteId ?? row._id}`;
   });

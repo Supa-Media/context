@@ -90,10 +90,8 @@ export async function recordKeyedCheckPage(
     counted.differs += 1;
     await applyObservation(convexNodeTable(ctx, workspaceId), {
       at: Date.now(),
-      source: "seam",
       rows: [{ path: answer.path, etag: answer.headEtag, size: answer.headSize, keyed: { noteId: node.noteId, storageKey: answer.key } }],
       gone: [],
-      vanishedUnder: [],
     });
   }
   return counted;
@@ -150,7 +148,6 @@ export async function runCheckChain(ctx: ActionCtx, args: CheckArgs, deps: Check
       ...(args.after === undefined ? {} : { after: args.after }),
       limit: COPY_PAGE,
     });
-    if (page.paused) return;
     let { checked, missing, differs } = args;
     if (page.items.length > 0) {
       const answers = await checkItems(ctx, args, page.items, deps);

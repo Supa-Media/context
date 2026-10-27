@@ -69,6 +69,8 @@ import {
   type DetectionView,
   type ImessageStatus,
   type LocalAgentAsk,
+  type MessagesBackupDownload,
+  type MessagesBackupFilesChoice,
   type LocalAgentReply,
   type LocalAgentStatus,
   type MachineApprovalResult,
@@ -82,6 +84,7 @@ import {
   type TrayCommand,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
+import { downloadFrom, filesChoiceFrom } from "../core/shell/imessageStatus.ts";
 
 /** An `IpcMainInvokeEvent`/`IpcMainEvent`, as much of one as the guard reads. */
 export interface BridgeSenderEvent {
@@ -176,6 +179,12 @@ export interface ConsoleBridgeDeps {
   imessage: () => ImessageStatus;
   /** Turn import on or off. Never touches the microphone, the calendar, or anything else the tray already gates. */
   setImessageEnabled: (enabled: boolean) => void;
+  /** The Messages backup's "What's copied" switches. */
+  setImessageFiles: (choice: MessagesBackupFilesChoice) => void;
+  /** Download messages into Downloads, with the pictures (`main/messagesDownload.ts`). */
+  downloadImessage: () => Promise<MessagesBackupDownload>;
+  /** After Delete the backup: off here, and its cursor started over (`MessagesBackupService.forget`). */
+  forgetImessage: () => Promise<void>;
   requestImessageFullDiskAccess: () => Promise<void>;
   /**
    * Whether this machine has a coding CLI to ask, and asking it.
@@ -548,6 +557,15 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     deps.setImessageEnabled(enabled);
     return null;
   });
+  handle(BRIDGE_CHANNELS.imessageSetFiles, (payload) => {
+    deps.setImessageFiles(filesChoiceFrom(payload));
+    return null;
+  });
+  handle(BRIDGE_CHANNELS.imessageDownload, async () => downloadFrom(await deps.downloadImessage()));
+  handle(BRIDGE_CHANNELS.imessageForget, async () => {
+    await deps.forgetImessage();
+    return null;
+  });
   handle(BRIDGE_CHANNELS.imessageRequestFullDiskAccess, () =>
     deps.requestImessageFullDiskAccess(),
   );
@@ -667,6 +685,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.imessageStatus,
         BRIDGE_CHANNELS.imessageSetEnabled,
         BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
+        BRIDGE_CHANNELS.imessageSetFiles,
+        BRIDGE_CHANNELS.imessageDownload,
+        BRIDGE_CHANNELS.imessageForget,
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
       ]) {

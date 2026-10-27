@@ -28,11 +28,13 @@
 
 import { createEmailRoute } from "./email.mjs";
 import { createCalendarRoute } from "./calendar.mjs";
+import { createGoogleChatRoute } from "./googleChat.mjs";
 import { createClearances } from "./clearances.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
 import { createDreamRoutes } from "./dreams.mjs";
+import { createMoveRoutes } from "./moves.mjs";
 import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
 
 const encoder = new TextEncoder();
@@ -92,6 +94,8 @@ export function createControlPlaneStub(options = {}) {
     /** Which calendar may be changed, or a refusal for every change (`calendar.mjs`). */
     calendarAddress: null,
     calendarRefusal: null,
+    /** The live calendar's answer to a request for days (`calendar.mjs`), or null for none connected. */
+    calendarDays: null,
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
     omitBindingWorkspaceId: false,
@@ -183,6 +187,9 @@ export function createControlPlaneStub(options = {}) {
     userId = "user_test",
     alsoMemberOf = [],
     grantedNamesByWorkspace = {},
+    // The names a group chat's grant is minted with in its own workspace, whatever its client (a guest chat's,
+    // `apps/convex/functions/lib/controlPlane/liveGrants.ts`).
+    grantedNames,
     expiresAt,
     toolsListedAt,
   }) {
@@ -197,6 +204,7 @@ export function createControlPlaneStub(options = {}) {
       userId,
       alsoMemberOf,
       grantedNamesByWorkspace,
+      grantedNames,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
       toolsListedAt,
@@ -232,6 +240,7 @@ export function createControlPlaneStub(options = {}) {
     const namesFor = (workspaceId) => {
       // Match Convex: only the first-party console grant receives live group
       // names. Ordinary OAuth and pinned reach carry no such authority.
+      if (Array.isArray(grant.grantedNames) && workspaceId === grant.workspaceId) return [...grant.grantedNames];
       if (grant.clientId !== "context_console") return undefined;
       const names = grant.grantedNamesByWorkspace?.[workspaceId];
       return Array.isArray(names) ? [...names] : [];
@@ -257,6 +266,8 @@ export function createControlPlaneStub(options = {}) {
         ...(namesFor(membership.workspaceId) === undefined
           ? {}
           : { grantedNames: namesFor(membership.workspaceId) }),
+        // A group chat's pin, as the control plane marks it (`liveGrants.ts`).
+        ...(membership.setupOnly === true ? { setupOnly: true } : {}),
       });
     }
     return rows;
@@ -287,9 +298,11 @@ export function createControlPlaneStub(options = {}) {
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
   const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
   const calendar = createCalendarRoute(clearedOwnAccount, flags);
+  const googleChat = createGoogleChatRoute(clearedOwnAccount);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);
+  const moves = createMoveRoutes(grantForAccessToken, coveredContexts);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -436,6 +449,7 @@ export function createControlPlaneStub(options = {}) {
         // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
         // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
         const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
+        const privacy = heldRules.get(served) ?? (await tree.rulesFor(served));
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
@@ -443,6 +457,8 @@ export function createControlPlaneStub(options = {}) {
           ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
+          // The access rules, rendered from the rows on the real route (`gatewayRoutes/credentials.ts`).
+          privacy,
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));
@@ -621,28 +637,8 @@ export function createControlPlaneStub(options = {}) {
           });
           return ok({ ticket });
         }
-        const grant = await grantForAccessToken(body.accessToken);
-        if (!grant) return ok({ ticket: null });
-        const covered = coveredContexts(grant);
-        const named = covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
-        if (!named || named.role !== "owner") return ok({ ticket: null });
-        if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
-          return ok({ ticket: null });
-        }
-        if (body.job?.kind !== "materialize_move" || typeof body.job?.moveId !== "string") {
-          return ok({ ticket: null });
-        }
-        const ticket = `job-ticket-${gatewayJobs.size + 1}`;
-        gatewayJobs.set(ticket, {
-          workspaceId: named.workspaceId,
-          actorUserId: grant.userId,
-          actorClientId: grant.clientId,
-          grantId: grant.grantId,
-          kind: "materialize_move",
-          moveId: body.job.moveId,
-          status: "queued",
-        });
-        return ok({ ticket });
+        // Image uploads are the only jobs now: a move is rows in the control plane, not a job.
+        return ok({ ticket: null });
       }
 
       case "/gateway/jobs/open": {
@@ -884,7 +880,8 @@ export function createControlPlaneStub(options = {}) {
       default: {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
-          (await calendar.handle(path, body)) ?? (await dreams.handle(path, body));
+          (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
+          (await moves.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -913,6 +910,12 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
+  /** The rules `/gateway/binding` carries for one workspace, as given, in place of rendering them (a guest chat's). */
+  const heldRules = new Map();
+  function holdRules(workspaceId, held) {
+    heldRules.set(workspaceId, held);
+  }
+
   /** What `/gateway/builtin-model` answers for one workspace. */
   function setBuiltinVerdict(workspaceId, verdict) {
     builtinVerdicts.set(workspaceId, verdict);
@@ -939,8 +942,10 @@ export function createControlPlaneStub(options = {}) {
     revoke,
     mailboxes: mail.mailboxes,
     dreams,
+    moves,
     issueCode,
     setBuiltinVerdict,
+    holdRules,
     builtinReports,
     builtinStarts,
     setMeetingSummaryVerdict,
@@ -957,6 +962,7 @@ export function createControlPlaneStub(options = {}) {
     emailCalls: email.calls,
     mailReadCalls: email.mailCalls,
     calendarCalls: calendar.calls,
+    googleChat,
     workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,
     refreshTokens,

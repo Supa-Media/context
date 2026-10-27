@@ -182,7 +182,7 @@ export async function recordHeartbeatResultHandler(
     : texted && textedToday >= MAX_CHECK_IN_TEXTS_A_DAY
       ? (firstBeatTomorrow(zone, now) ?? nextBeatAfter(zone, now))
       : (row.nextBeatAt ?? nextBeatAfter(zone, now));
-  // A look that failed (the tree still loading, the gateway unreachable) is tried again soon, once, rather
+  // A look that failed (the tree not serving yet, the gateway unreachable) is tried again soon, once, rather
   // than at the next slot hours later; a second failure in a row waits for the slot.
   // One that found them mid-conversation looks again once the chat has gone quiet, however often that takes.
   const retry = args.outcome === "failed" && row.lastOutcome !== "failed" && nextBeatAt !== null

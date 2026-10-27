@@ -257,19 +257,3 @@ export function widenWarning(name: string): string {
   );
 }
 
-/** The state where nothing can be shared at all. */
-export const BROKEN_MANIFEST_HEADLINE =
-  "privacy.md cannot be read, so nothing in this workspace can be shared.";
-
-/**
- * Where the repair is, or why it is not being offered.
- *
- * The button itself stays in Browse, where it already is: a second copy of the
- * one control that rewrites the whole access map is a second thing to keep
- * honest. This says which of the two states the reader is in and nothing else.
- */
-export function brokenManifestNext(canRepair: boolean): string {
-  return canRepair
-    ? "Every note reads private until it is repaired. Browse offers to write a fresh one, with every folder private."
-    : "Every note reads private until it is repaired, and only an owner of this workspace can do that.";
-}

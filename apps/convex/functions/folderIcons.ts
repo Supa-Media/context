@@ -19,6 +19,8 @@ import type { Audience } from "./lib/nodes/rowAccess";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { nameSaysSomething, suggestIconFor } from "@context/shared/src/iconSuggest";
+import { contextIconByWords, suggestContextIconFor } from "@context/shared/src/contextIconSuggest";
+import { contextIconMarker } from "@context/shared/src/contextIcons.cjs";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
@@ -31,8 +33,9 @@ import type { PrivacyState } from "./lib/fileOps/privacyState";
 import type { Visibility } from "./lib/privacy";
 import { checkFolderIcon, visibleFolderIcons } from "./lib/fileOps/folderIcons";
 import { toConvexError } from "./lib/filesFns/operationErrors";
-import { servedNodesStore } from "./lib/nodes/manifestStore";
-import { NO_BUCKET, servedStoreOrLoading } from "./lib/nodes/treeLoading";
+import { NO_BUCKET, servedNodesStore } from "./lib/nodes/manifestStore";
+import { servedStoreOrNotServed } from "./lib/nodes/treeGate";
+import { attachTreeListing } from "./lib/nodes/treeNames";
 
 type Icons = Array<{ path: string; icon: string }>;
 
@@ -58,7 +61,7 @@ async function judgedState(ctx: ActionCtx, workspaceId: Id<"workspaces">, audien
   };
 }
 
-/** The icons this clearance may see, over the tree's rules; none while the tree is still loading. */
+/** The icons this clearance may see, over the tree's rules; none while the tree does not serve. */
 async function visible(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
@@ -91,7 +94,9 @@ export const set = action({
   returns: iconsValidator,
   handler: async (ctx, args): Promise<Icons> => {
     const clearance = await clearanceFor(ctx, args.workspaceId, "editor");
-    const tree = await servedStoreOrLoading(ctx, args.workspaceId);
+    const tree = await servedStoreOrNotServed(ctx, args.workspaceId);
+    // "Does the folder exist" is the tree's answer, asked through its listing (`namesListing`).
+    attachTreeListing(ctx, args.workspaceId, tree);
     let path: string;
     try {
       path = await checkFolderIcon({
@@ -112,7 +117,8 @@ export const set = action({
 });
 
 /**
- * The emoji the picker suggests for `path`, from its name alone, or `null`:
+ * The emoji the picker suggests for `path`, from its name alone, or `null`
+ * (with `set: "context"`, one of Context's own icons, `contextIconSuggest.ts`):
  * a name that says nothing (`untitled-2026-10-14`), switched
  * off, over the day's cap, or Clef not answering. Null is "no suggestion",
  * never an error; the picker still offers a random one.
@@ -127,7 +133,7 @@ export const set = action({
  * workspace; past the day's cap the lookup by meaning still answers.
  */
 export const suggest = action({
-  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  args: { workspaceId: v.id("workspaces"), path: v.string(), set: v.optional(v.literal("context")) },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args): Promise<string | null> => {
     const started = Date.now();
@@ -141,6 +147,15 @@ export const suggest = action({
     });
     const path = args.path.slice(0, 1024);
     if (!open || !nameSaysSomething(path)) return null;
+    if (args.set === "context") {
+      // One of Context's own icons: a word of the name first, then Clef over the hundred.
+      const byWords = contextIconByWords(path);
+      if (byWords !== null) return logged(contextIconMarker(byWords.name), "words", started);
+      const picked = await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev) =>
+        jev ? await suggestContextIconFor(path, (request) => jev.decide(request)) : null,
+      );
+      return logged(picked, "clef", started);
+    }
     if (state === "ready") {
       const near = await nearestByMeaning(ctx, args.workspaceId, set, path);
       if (near !== null) return logged(near, "meaning", started);
@@ -155,7 +170,7 @@ export const suggest = action({
 });
 
 /** One line per answered suggestion: which way it came and how long it took. Never the name or the emoji. */
-function logged(icon: string | null, via: "meaning" | "clef", started: number): string | null {
+function logged(icon: string | null, via: "meaning" | "clef" | "words", started: number): string | null {
   console.log(JSON.stringify({ event: "icon_suggest", via, answered: icon !== null, ms: Date.now() - started }));
   return icon;
 }

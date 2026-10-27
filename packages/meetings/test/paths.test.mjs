@@ -125,14 +125,14 @@ export function runPathChecks(check) {
 
   check(
     "a meeting note lands in the meetings folder, with no folders under it",
-    meetingNotePath(session()) === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
+    meetingNotePath(session()) === "inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "no date folders: the key is the folder and a filename, nothing between",
     // The reversal this file is the record of. A `YYYY/MM` tree gave two
     // directory levels per meeting, most of them holding one note, in front of
     // a filename that already starts with the same date.
-    meetingNotePath(session()).slice("0-inbox/meetings/".length).includes("/") === false
+    meetingNotePath(session()).slice("inbox/meetings/".length).includes("/") === false
   );
   check("the folder constant is the one in the path", meetingNotePath(session()).startsWith(`${MEETINGS_FOLDER}/`));
   check(
@@ -167,7 +167,7 @@ export function runPathChecks(check) {
   );
   check(
     "...including across a year boundary",
-    meetingNotePath(session({ startedAt: "2025-12-31T23:59:59.000Z" })) === "0-inbox/meetings/2025-12-31-weekly-sync-8h9jkmnp.md"
+    meetingNotePath(session({ startedAt: "2025-12-31T23:59:59.000Z" })) === "inbox/meetings/2025-12-31-weekly-sync-8h9jkmnp.md"
   );
   check(
     "months are zero-padded",
@@ -179,7 +179,7 @@ export function runPathChecks(check) {
   );
   check(
     "an unslugifiable title still produces a usable key",
-    meetingNotePath(session({ title: "\u{1F389}" })) === "0-inbox/meetings/2026-03-04-meeting-8h9jkmnp.md"
+    meetingNotePath(session({ title: "\u{1F389}" })) === "inbox/meetings/2026-03-04-meeting-8h9jkmnp.md"
   );
   check(
     "an unparseable startedAt is refused rather than filed under NaN",
@@ -218,7 +218,7 @@ export function runPathChecks(check) {
   check("...and no `workspaces/` segment", !key.split("/").includes("workspaces"));
   check(
     "the whole key is exactly the documented shape, so a prefix cannot be slipped in",
-    key === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
+    key === "inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "extra session fields change nothing at all",
@@ -236,7 +236,7 @@ export function runPathChecks(check) {
   check("no root means no prefix", normalizeRoot(undefined) === "" && normalizeRoot("") === "");
   check("a root is normalized to one trailing slash", normalizeRoot("/vault/") === "vault/");
   check("...collapsing repeats", normalizeRoot("//vault//notes//") === "vault/notes/");
-  check("a root prefixes the whole key", meetingNotePath(session(), { root: "vault" }) === "vault/0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md");
+  check("a root prefixes the whole key", meetingNotePath(session(), { root: "vault" }) === "vault/inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md");
   check("...and only at the front", meetingNotePath(session(), { root: "vault" }).indexOf("vault/") === 0);
   check("a root that traverses is refused", attempt(() => normalizeRoot("../../etc")).threw);
   check("...including in the middle", attempt(() => normalizeRoot("vault/../../etc")).threw);
@@ -256,7 +256,7 @@ export function runPathChecks(check) {
   check(
     "no folder at all is exactly what it was before",
     meetingNotePath(session(), {}) === meetingNotePath(session()) &&
-      meetingNotePath(session(), { folder: undefined }) === "0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
+      meetingNotePath(session(), { folder: undefined }) === "inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md"
   );
   check(
     "a chosen folder is the folder the note lands in, dumped straight into it",
@@ -429,7 +429,7 @@ export function runPathChecks(check) {
   check("...with a root too", isMeetingNotePath(meetingNotePath(session(), { root: "vault" }), { root: "vault" }));
   check("...but not under the wrong root", !isMeetingNotePath(meetingNotePath(session(), { root: "vault" }), { root: "other" }));
   check("an ordinary note is not a meeting note", !isMeetingNotePath("1-projects/portable/overview.md"));
-  check("a file loose in the meetings folder is not one either", !isMeetingNotePath("0-inbox/meetings/notes.md"));
+  check("a file loose in the meetings folder is not one either", !isMeetingNotePath("inbox/meetings/notes.md"));
   check("a non-string is not one, and does not throw", !isMeetingNotePath(null));
 
   /*
@@ -443,7 +443,15 @@ export function runPathChecks(check) {
   */
   check(
     "a meeting filed under the old YYYY/MM folders is still recognised",
-    isMeetingNotePath("0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md")
+    isMeetingNotePath("inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md")
+  );
+  check(
+    "a meeting under the numbered Inbox a workspace the 2026-10-21 rename skipped still has is a meeting",
+    isMeetingNotePath("0-inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md") &&
+      isMeetingNotePath("0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md") &&
+      isMeetingNotePath("inbox/meetings/2026-03-04-weekly-sync-8h9jkmnp.md", { folder: "0-inbox/meetings" }) &&
+      !isMeetingNotePath("1-projects/meetings/2026-03-04-weekly-sync-8h9jkmnp.md") &&
+      !isMeetingNotePath("inboxes/meetings/2026-03-04-weekly-sync-8h9jkmnp.md")
   );
   check(
     "...in a chosen folder too",
@@ -451,15 +459,15 @@ export function runPathChecks(check) {
   );
   check(
     "...and under a root",
-    isMeetingNotePath("vault/0-inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { root: "vault" })
+    isMeetingNotePath("vault/inbox/meetings/2026/03/2026-03-04-weekly-sync-8h9jkmnp.md", { root: "vault" })
   );
   check(
     "...but a deeper tree than either shape is still not a meeting",
-    !isMeetingNotePath("0-inbox/meetings/2026/03/04/2026-03-04-weekly-sync-8h9jkmnp.md")
+    !isMeetingNotePath("inbox/meetings/2026/03/04/2026-03-04-weekly-sync-8h9jkmnp.md")
   );
   check(
     "...and neither is an undated folder that happens to sit under it",
-    !isMeetingNotePath("0-inbox/meetings/archive/2026-03-04-weekly-sync-8h9jkmnp.md")
+    !isMeetingNotePath("inbox/meetings/archive/2026-03-04-weekly-sync-8h9jkmnp.md")
   );
 
   /*
@@ -474,17 +482,17 @@ export function runPathChecks(check) {
   */
   check(
     "a note inside a date-named folder is not a meeting",
-    !isMeetingNotePath("0-inbox/meetings/2026-03-04-offsite/agenda.md")
+    !isMeetingNotePath("inbox/meetings/2026-03-04-offsite/agenda.md")
   );
   check(
     "...nor one inside a date-named folder under the old date tree",
-    !isMeetingNotePath("0-inbox/meetings/2026/03/2026-03-04-offsite/agenda.md")
+    !isMeetingNotePath("inbox/meetings/2026/03/2026-03-04-offsite/agenda.md")
   );
   check(
     "...and a slug with dots in it is still a meeting",
     // `[^/]+` refuses separators and nothing else: the slug can hold anything
     // `slugifyTitle` produces and anything a person renamed a file to.
-    isMeetingNotePath("0-inbox/meetings/2026-03-04-v1.2-release-8h9jkmnp.md")
+    isMeetingNotePath("inbox/meetings/2026-03-04-v1.2-release-8h9jkmnp.md")
   );
 
   /*
@@ -498,7 +506,7 @@ export function runPathChecks(check) {
     meeting. So the property under test is agreement: hand both functions the
     same options and the recogniser answers true for the builder's own key.
   */
-  const folders = [undefined, "2-areas/team", "1-projects", "0-inbox/meetings"];
+  const folders = [undefined, "2-areas/team", "1-projects", "inbox/meetings"];
   const roots = [undefined, "vault"];
   check(
     "the recogniser answers true for every key the builder makes, on the same options",

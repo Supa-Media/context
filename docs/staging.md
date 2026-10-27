@@ -5,7 +5,13 @@ The staging app is served at `https://staging.context.lc`, with MCP at
 It has a separate Convex deployment in the existing Context project.
 
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
-against a selected branch. Merging never deploys production.
+against a selected branch. A merge's staging run also starts `Deploy to
+Production` in its first job, so the two deploy side by side and neither
+waits on the other (decided by the owner, 2026-10-23). The repository
+variable `AUTO_DEPLOY_PRODUCTION` changes that: `after-staging` makes
+`Promote to Production` start production only after the staging run passes,
+CI on `main` has passed on the same commit, and it is still `main`'s tip;
+`off` leaves production to the manual press below.
 
 A staging run deploys only what the commit can affect. Its first job,
 `scripts/deploy-plan.mjs`, compares the commit with what staging is running
@@ -25,9 +31,10 @@ A manual run deploys everything unless `full` is unchecked. Run it with `full`
 after rotating a staging secret, since a component's secrets are synced only
 when that component deploys.
 
-To release, open **Actions → Deploy to Production → Run workflow** and select
-`main`. The action requires a successful staging deployment for that exact
-commit, then deploys the components that changed since production's last
+To release by hand, open **Actions → Deploy to Production → Run workflow** and select
+`main`. The action requires a successful staging deployment and a green CI
+run on `main` for that exact commit (a release started beside staging
+skips both), then deploys the components that changed since production's last
 successful run, chosen by the same planner with `--target production`: Convex,
 the Workers, web, router and production OTA. Tick `full` to redeploy
 everything, for recovery or after rotating a production secret. The OTA update

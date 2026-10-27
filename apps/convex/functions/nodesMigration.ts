@@ -12,7 +12,7 @@
  * tests allow a public function to trigger and never to read from.
  */
 
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
@@ -22,8 +22,6 @@ import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
-import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { requestSmallDataSync } from "./lib/smallData/state";
 import { startIfDue } from "./pinnedAccounts";
 
@@ -73,84 +71,11 @@ export async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces
   return live;
 }
 
-function treeOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"nodeTrees"> | null> {
-  return ctx.db
-    .query("nodeTrees")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
-function privacyOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"nodePrivacy"> | null> {
-  return ctx.db
-    .query("nodePrivacy")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
-const stateOf = (row: Doc<"nodeTrees"> | null): NodeTreeState | null =>
-  row === null
-    ? null
-    : {
-        status: row.status,
-        cursor: row.cursor,
-        startedAt: row.startedAt,
-        leaseAt: row.leaseAt,
-        sweptAt: row.sweptAt,
-        dirty: row.dirty,
-        files: row.files,
-        error: row.error,
-      };
-
-/**
- * One word for where a workspace is, the same word the console shows:
- * `waiting` (never started), `copying`, `stuck` (the last pass failed),
- * `copied` (swept, not checked against the bucket yet), `matches`,
- * `differs` (the last check found mismatches), `skipped` (a store that
- * can be listed neither in order nor by token, retried daily), `keyed`
- * (the notes live at `notes/<id>.md`, so no check against the bucket's paths
- * runs, and a result left from before the flip says nothing any more).
- */
-export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped" | "keyed";
-
-export function stageOf(row: Doc<"nodeTrees"> | null, keyed = false): MigrationStage {
-  if (row === null || row.status === "empty") return row?.error ? "stuck" : "waiting";
-  if (row.status === "unsupported") return "skipped";
-  if (row.error !== undefined) return "stuck";
-  if (row.status === "filling" || row.cursor !== undefined) return "copying";
-  if (keyed) return "keyed";
-  if (row.parity === undefined) return "copied";
-  return row.parity.mismatches === 0 && row.parity.privacyMatches ? "matches" : "differs";
-}
-
-const stageValidator = v.union(
-  v.literal("waiting"),
-  v.literal("copying"),
-  v.literal("stuck"),
-  v.literal("copied"),
-  v.literal("matches"),
-  v.literal("differs"),
-  v.literal("skipped"),
-  v.literal("keyed"),
-);
-
 const rowValidator = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.union(v.string(), v.null()),
-  stage: stageValidator,
-  files: v.number(),
   /** Only archived accounts hold it, so no round starts work on it. */
   archived: v.boolean(),
-  /** A pass ran in the last few minutes. */
-  running: v.boolean(),
-  sweptAt: v.union(v.number(), v.null()),
-  /** A change is waiting for the next sweep. */
-  dirty: v.boolean(),
-  /** A fixed, path-free label. */
-  error: v.union(v.string(), v.null()),
-  parity: v.union(
-    v.null(),
-    v.object({ checkedAt: v.number(), mismatches: v.number(), privacyMatches: v.boolean() }),
-  ),
   /**
    * The facts fill (`lib/nodes/facts.ts`): the links, front matter and chaos
    * details Lists, Boards, the map and the chaos score read. `null` before
@@ -187,10 +112,6 @@ export const report = query({
   returns: v.object({
     phase: v.number(),
     paused: v.boolean(),
-    /** The rules here are the authority, and `privacy.md` is their export. */
-    privacyAuthority: v.boolean(),
-    /** Workspaces whose `privacy.md` is still to be written from changed rules. */
-    owedExports: v.number(),
     changedAt: v.union(v.number(), v.null()),
     rows: v.array(rowValidator),
     truncated: v.boolean(),
@@ -201,34 +122,19 @@ export const report = query({
     const { ids, truncated } = await boundWorkspaces(ctx);
     const now = Date.now();
     const rows = [];
-    let owedExports = 0;
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
       if (workspace === null) continue;
-      const tree = await treeOf(ctx, workspaceId);
-      if ((await privacyOf(ctx, workspaceId))?.exportOwed === true) owedExports += 1;
       rows.push({
         workspaceId,
         slug: workspace.slug ?? null,
-        stage: stageOf(tree, await keyedWorkspace(ctx.db, workspaceId)),
-        files: tree?.files ?? 0,
         archived: await workspaceArchived(ctx.db, workspace),
-        running: tree?.leaseAt !== undefined && now - tree.leaseAt < NODE_SWEEP_LEASE_MS,
-        sweptAt: tree?.sweptAt ?? null,
-        dirty: tree?.dirty ?? false,
-        error: tree?.error ?? null,
-        parity:
-          tree?.parity === undefined
-            ? null
-            : { checkedAt: tree.parity.checkedAt, mismatches: tree.parity.mismatches, privacyMatches: tree.parity.privacyMatches },
         facts: factsOf(await factStateRow(ctx.db, workspaceId), now),
       });
     }
     return {
       phase: MIGRATION_PHASE,
       paused: switchRow?.paused === true,
-      privacyAuthority: switchRow?.privacyAuthority === true,
-      owedExports,
       changedAt: switchRow?.updatedAt ?? null,
       rows,
       truncated,
@@ -236,112 +142,48 @@ export const report = query({
   },
 });
 
-/** Schedule a sweep for each workspace that needs one and has none running. */
-async function startSweeps(ctx: MutationCtx, ids: readonly Id<"workspaces">[]): Promise<number> {
-  const now = Date.now();
-  let started = 0;
-  for (const workspaceId of ids) {
-    const state = stateOf(await treeOf(ctx, workspaceId));
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
-    // An unlistable store is tried again only once its day has passed (`nodeSweepDue`).
-    if (state?.status === "unsupported" && !nodeSweepDue(state, now, keyed)) continue;
-    // A pass that holds the lease is already running; a second would only double the work.
-    if (state?.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) continue;
-    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "private",
-      operation: { kind: "nodesSweep" },
-    });
-    started += 1;
-  }
-  return started;
-}
-
 /**
- * Stop or resume the migration. Stopping takes effect at each sweep's next
- * pass. Resuming starts a sweep wherever one is due (never started, dirty,
- * interrupted, or stale), so nothing stopped mid-way is left behind.
+ * Stop or resume the migration: while paused, the facts fill (`lib/nodes/run.ts`)
+ * holds. Resuming starts nothing: each fill is scheduled by the change or read
+ * that needs it, and the cron's backstop (`keepCurrent`) finds what is owed.
  */
 export const setPaused = mutation({
   args: { paused: v.boolean() },
-  returns: v.object({ started: v.number() }),
+  returns: v.null(),
   handler: async (ctx, { paused }) => {
     const userId = await staffOnly(ctx);
     const existing = await ctx.db.query("nodeMigration").first();
     const fields = { paused, updatedAt: Date.now(), updatedBy: userId };
     if (existing === null) await ctx.db.insert("nodeMigration", fields);
     else await ctx.db.patch(existing._id, fields);
-    if (paused) return { started: 0 };
-    return { started: await startDueSweeps(ctx) };
-  },
-});
-
-/**
- * Make the rules held here the authority for `privacy.md`, or hand it back to
- * the file (phase 3). Handing it back waits until every changed rule has been
- * written to its workspace's file, so the file it hands back to is current.
- * Turning it on writes nothing: each workspace's file is already its rules'
- * export, and a file edited since is put back by the next listing that sees it.
- */
-export const setPrivacyAuthority = mutation({
-  args: { on: v.boolean() },
-  returns: v.null(),
-  handler: async (ctx, { on }): Promise<null> => {
-    const userId = await staffOnly(ctx);
-    if (!on) {
-      for await (const row of ctx.db.query("nodePrivacy")) {
-        if (row.exportOwed === true) {
-          throw new ConvexError({
-            code: "EXPORTS_OWED",
-            message: "Some privacy files are still being written. Try again in a minute.",
-          });
-        }
-      }
-    }
-    const existing = await ctx.db.query("nodeMigration").first();
-    const fields = { privacyAuthority: on, updatedAt: Date.now(), updatedBy: userId };
-    if (existing === null) await ctx.db.insert("nodeMigration", { paused: false, ...fields });
-    else await ctx.db.patch(existing._id, fields);
     return null;
   },
 });
 
-/** Start a sweep for every bound workspace whose copy is due: never started, dirty, interrupted, failed or stale. */
-async function startDueSweeps(ctx: MutationCtx): Promise<number> {
-  const ids = await liveBoundWorkspaces(ctx);
-  const now = Date.now();
-  const due: Id<"workspaces">[] = [];
-  for (const workspaceId of ids) {
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
-    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now, keyed)) due.push(workspaceId);
-  }
-  return await startSweeps(ctx, due);
-}
 
 /**
- * The cron that keeps every copy current (`crons.ts`), for workspaces nobody
- * has opened as well as new ones: a copy that is due is swept again, and one
- * whose last pass failed is retried. Does nothing while paused.
+ * The cron that keeps each workspace's icons, emoji and forwarding current
+ * (`crons.ts`), and starts the facts fill a served tree is owed. Does nothing
+ * for the facts while paused.
  */
 export const keepCurrent = internalMutation({
   args: {},
-  returns: v.object({ started: v.number() }),
+  returns: v.null(),
   handler: async (ctx) => {
     // Each workspace's icons, emoji and forwarding: imported once, and their files written where owed.
     for (const workspaceId of await liveBoundWorkspaces(ctx)) await requestSmallDataSync(ctx, workspaceId);
-    if (await migrationPaused(ctx.db)) return { started: 0 };
+    if (await migrationPaused(ctx.db)) return null;
     // The pinned workspace's one-off move to "team means members", started here after a deploy (`pinnedAccounts.ts`).
     await startIfDue(ctx);
-    const started = await startDueSweeps(ctx);
     await startDueFactFills(ctx);
-    return { started };
+    return null;
   },
 });
 
 /**
  * Start the facts fill (`lib/nodes/facts.ts`) wherever a served tree's links
  * and front matter are behind it and no pass holds them: a backstop for the
- * fills each change and sweep schedule, and the first fill of every tree
+ * fills each change schedules, and the first fill of every tree
  * served before the facts existed.
  */
 async function startDueFactFills(ctx: MutationCtx): Promise<void> {
@@ -357,39 +199,3 @@ async function startDueFactFills(ctx: MutationCtx): Promise<void> {
     });
   }
 }
-
-/** Copy one workspace's tree again now, or every live workspace's when `workspaceId` is left out. */
-export const start = mutation({
-  args: { workspaceId: v.optional(v.id("workspaces")) },
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx, { workspaceId }) => {
-    await staffOnly(ctx);
-    if (await migrationPaused(ctx.db)) {
-      throw new ConvexError({ code: "MIGRATION_PAUSED", message: "The migration is paused. Resume it first." });
-    }
-    const ids = workspaceId === undefined ? await liveBoundWorkspaces(ctx) : [workspaceId];
-    return { started: await startSweeps(ctx, ids) };
-  },
-});
-
-/** Compare one workspace's copy with its bucket, or every live copied one's when `workspaceId` is left out. */
-export const checkParity = mutation({
-  args: { workspaceId: v.optional(v.id("workspaces")) },
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx, { workspaceId }) => {
-    await staffOnly(ctx);
-    const ids = workspaceId === undefined ? await liveBoundWorkspaces(ctx) : [workspaceId];
-    let started = 0;
-    for (const id of ids) {
-      const tree = await treeOf(ctx, id);
-      if (tree?.status !== "ready") continue;
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: id,
-        scope: "private",
-        operation: { kind: "nodesParity" },
-      });
-      started += 1;
-    }
-    return { started };
-  },
-});

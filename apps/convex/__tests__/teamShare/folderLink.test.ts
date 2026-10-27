@@ -250,10 +250,11 @@ describe("a folder gets a link too", () => {
     );
     const presetFolders = [...presets.matchAll(/folder:\s*"([^"]+)"/g)].map((m) => m[1]!);
     const shipped = [...new Set([...PARA_FOLDERS, ...presetFolders])];
-    // `4-archive` is not shipped any more, but every workspace made before
-    // `9-archive` still has it, and the resolver has to find it there.
+    // `4-archive` and `9-archive` are not shipped any more, but workspaces made
+    // before (and any the 2026-10-21 rename skipped) still have them, and the
+    // resolver has to find them there.
     const archiveRoots = [
-      ...new Set([...shipped.filter((folder) => /^(?:\d+-)?archive$/i.test(folder)), "4-archive"]),
+      ...new Set([...shipped.filter((folder) => /^(?:\d+-)?archive$/i.test(folder)), "4-archive", "9-archive"]),
     ];
     expect(
       archiveRoots.length,
@@ -273,10 +274,11 @@ describe("a folder gets a link too", () => {
 
     // Non-vacuity: the archive branch and the fallback both have to be here, or
     // this passes by only ever exercising one of them.
-    expect(returned.has("0-inbox/sessions")).toBe(true);
+    expect(returned.has("inbox/sessions")).toBe(true);
     expect([...returned].some((folder) => folder.endsWith("/chat-history"))).toBe(true);
     // The archive a new workspace gets, and the one an older PARA workspace
     // still has. Both have to resolve to their own `chat-history`.
+    expect(returned.has("archive/chat-history")).toBe(true);
     expect(returned.has("9-archive/chat-history")).toBe(true);
     expect(returned.has("4-archive/chat-history")).toBe(true);
 

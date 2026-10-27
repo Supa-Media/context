@@ -13,7 +13,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser } from "./fixtures.helpers";
-import { fixture, publish } from "./website.helpers";
+import { fixture, publish, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -34,7 +37,7 @@ describe("the last good website release", () => {
     // empty body makes the page a "problem", but `audience: members` parsed
     // cleanly and says exactly what the owner wants; the last good release is
     // a public copy of the very page they just restricted.
-    f.backend.seed(
+    await writeNote(f,
       "website/notes.md",
       "---\ntitle: Board notes\nnav: 1\naudience: members\n---\n",
     );
@@ -69,7 +72,7 @@ describe("the last good website release", () => {
     // and its parsed audience falls back to the permissive default. An
     // audience line that does not say `public` is not evidence of consent to
     // keep serving the public copy.
-    f.backend.seed(
+    await writeNote(f,
       "website/notes.md",
       "---\ntitle: Board notes\nnav: 1\naudience: Members\n---\n\nStill here.\n",
     );
@@ -98,7 +101,7 @@ describe("the last good website release", () => {
     // members-only. Its release was never public, and this reader passed the
     // membership gate to get here, so refusing it would be the release
     // fallback failing at the one case it exists for.
-    f.backend.seed(
+    await writeNote(f,
       "website/notes.md",
       "---\ntitle: Board notes\nnav: 1\naudience: members\n---\n",
     );

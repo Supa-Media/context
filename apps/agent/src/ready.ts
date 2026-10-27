@@ -31,9 +31,14 @@ export const READY_GIVE_UP_MS = 20 * 60_000;
 
 export const READY_COPY = {
   // Gmail first, a personal one, which becomes their main email (Dev2, 2026-10-20).
-  // Google's unverified-app warning is explained on the page, where it happens.
+  // Google's unverified-app warning and its permissions page are said here too,
+  // with a picture of both after the link (the owner, 2026-10-23: "prepare them
+  // for the unsafe screen ... send them a picture ... make sure they also click
+  // select all").
   ready:
     "You're good to go! Next, connect your personal Gmail, the one you check most. It becomes your main email on Context, and I'll get to know you from it. Open the link below and tap Connect Gmail.",
+  guide:
+    "Google will warn that it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context (unsafe). On the next page tick Select all and tap Continue, so I can do everything for you. Here's what it looks like:",
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
@@ -84,13 +89,16 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     await armBy(storage, nextAt);
     return;
   }
-  const texts = answer.status === "ready" ? [READY_COPY.ready, answer.url] : [READY_COPY.late];
+  const parts: Array<string | { url: string }> =
+    answer.status === "ready" ? [READY_COPY.ready, answer.url, READY_COPY.guide, { url: guideUrl(answer.url) }] : [READY_COPY.late];
   let sent = owed.sent ?? 0;
   try {
-    for (const [index, text] of texts.entries()) {
+    for (const [index, part] of parts.entries()) {
       if (index < sent) continue;
-      if (owed.channel === "simulator") await record(storage, "in", text, now);
-      else await lineFor(deps, owed.chatId).sendText(owed.chatId, text, `ready:${owed.since}:${index}`);
+      const key = `ready:${owed.since}:${index}`;
+      if (owed.channel === "simulator") await record(storage, "in", typeof part === "string" ? part : `[picture ${part.url}]`, now);
+      else if (typeof part === "string") await lineFor(deps, owed.chatId).sendText(owed.chatId, part, key);
+      else await lineFor(deps, owed.chatId).sendMedia(owed.chatId, part, key);
       sent = index + 1;
     }
   } catch {
@@ -103,12 +111,17 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     return;
   }
   // The next turn's history is owed this text, by name (`told.ts`).
-  await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late");
+  await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late", owed.chatId, now);
   await storage.delete(READY_KEY);
   // The Gmail it asked for is texted about when it connects (`gmailWatch.ts`).
   if (answer.status === "ready") {
     await watchForGmail(storage, { phone: owed.phone, chatId: owed.chatId, ...(owed.channel ? { channel: owed.channel } : {}) }, now);
   }
+}
+
+/** The picture of Google's two screens, served beside the app the link opens (`infra/router`, `/og/google-connect.png`). */
+export function guideUrl(link: string): string {
+  return new URL("/og/google-connect.png", link).href;
 }
 
 type ReadyAnswer = { status: "ready"; url: string } | { status: "waiting" } | { status: "gone" };

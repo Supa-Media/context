@@ -46,7 +46,9 @@ export function decideJobChange(
   path: string | null,
   isFolder: (path: string) => boolean,
 ): JobChange | JobRefusal {
-  if (job === "website") return { code: "PATH_INVALID", message: "Website keeps its name and place: your site is published from it." };
+  if (job === "website") {
+    return { code: "PATH_INVALID", message: "Your site is published from its own folder, so the job stays with it. Rename or move that folder instead: its pages go with it." };
+  }
   if (!canGiveJob(job) || !isRowRole(job)) {
     return {
       code: "PATH_INVALID",
@@ -77,20 +79,27 @@ export function isRefusal(value: JobChange | JobRefusal): value is JobRefusal {
 export async function surveyFolders(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"nodes">[]> {
   const folders: Doc<"nodes">[] = [];
   let read = 0;
-  let level: (Id<"nodes"> | undefined)[] = [undefined];
+  // Each level's folders with their paths, built as the survey goes down: a row's stored path is not where it is.
+  let level: { id: Id<"nodes"> | undefined; path: string }[] = [
+    { id: undefined, path: "" },
+  ];
   for (let depth = 1; depth <= SURVEY_DEPTH && level.length > 0; depth += 1) {
-    const next: Id<"nodes">[] = [];
-    for (const parentId of level) {
+    const next: { id: Id<"nodes">; path: string }[] = [];
+    for (const parent of level) {
       if (read >= SURVEY_ROWS) return folders;
       const rows = await db
         .query("nodes")
-        .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", parentId))
+        .withIndex("by_parent_name", (q) =>
+          q.eq("workspaceId", workspaceId).eq("parentId", parent.id),
+        )
         .take(SURVEY_ROWS - read);
       read += rows.length;
       for (const row of rows) {
         if (row.kind !== "folder" || row.goneAt !== undefined) continue;
-        folders.push(row);
-        next.push(row._id);
+        const path =
+          parent.path === "" ? row.name : `${parent.path}/${row.name}`;
+        folders.push({ ...row, path });
+        next.push({ id: row._id, path });
       }
     }
     level = next;

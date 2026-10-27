@@ -26,6 +26,7 @@ import { eraseWorkspaceTrash } from "../../functions/lib/trash/erase";
 import { TRASH_KEEP_MS } from "../../functions/lib/trash/bin";
 import { OWNER, fixture, type Fixture } from "../nodes/moveFixture.helpers";
 import { keyedFixture, liveAt, rowOf } from "../nodes/keyedFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const DAY = 24 * 60 * 60 * 1000;
 type Moved = { kind: "moved"; from: string; to: string };
@@ -96,10 +97,14 @@ describe("the Trash page lists what is in the trash", () => {
   test("with privacy on rows, a note private by its own row stays hidden once its row is in the trash", async () => {
     const f = await keyedFixture();
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 });
-      const folder = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects")).unique();
+      await ctx.db.insert("nodeMigration", {
+        paused: false,
+        accessSource: "rows",
+        updatedAt: 1,
+      });
+      const folder = await treeNodeAt(ctx.db, f.ws, "1-projects");
       await ctx.db.patch(folder!._id, { access: { base: "team" } });
-      const keep = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "1-projects/keep.md")).unique();
+      const keep = await treeNodeAt(ctx.db, f.ws, "1-projects/keep.md");
       await ctx.db.patch(keep!._id, { access: { base: "private" } });
     });
     await trash(f, "1-projects/keep.md");
@@ -198,16 +203,15 @@ describe("emptying the trash after 30 days", () => {
     expect(await erasures(f)).toEqual([]);
   });
 
-  test("a workspace that is not keyed has nothing erased", async () => {
+  test("a workspace whose copy row was never flipped is emptied on time too: every workspace is keyed", async () => {
     const f = await keyedFixture();
     const key = await trash(f, "1-projects/keep.md", Date.now() - 31 * DAY);
     await f.t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      await ctx.db.patch(layout!._id, { mode: "ids" });
+      for (const row of await ctx.db.query("noteIdCopies").collect()) await ctx.db.patch(row._id, { keyedAt: undefined });
     });
 
-    expect(await f.t.mutation(internal.functions.trash.claimErasure, { workspaceId: f.ws })).toBeNull();
-    expect(await liveAt(f, key)).toBe(true);
+    expect(await f.t.mutation(internal.functions.trash.claimErasure, { workspaceId: f.ws })).not.toBeNull();
+    expect(await liveAt(f, key)).toBe(false);
   });
 
   test("the daily pass hands a workspace on only when it is owed an erasure", async () => {

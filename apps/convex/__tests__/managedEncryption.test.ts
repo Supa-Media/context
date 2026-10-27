@@ -26,7 +26,6 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
 import {
   asUser,
   captureError,
@@ -36,6 +35,8 @@ import {
   seedStorageBinding,
 } from "./fixtures.helpers";
 import { ADMIN, fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
+import { keyOf, keyedFixture } from "./keyedFixture.encrypt.helpers";
+import { bytesAtPath } from "./files/keyedNotes.helpers";
 
 resetAfterEach();
 
@@ -69,17 +70,26 @@ describe("the rollout is staff-only", () => {
 
 describe("the walk", () => {
   test("seals every object in our bucket, checks it, and reads still return plain text", async () => {
-    const { t, staff, ours, theirs, backend } = await fixture();
+    const { t, staff, ours, theirs, backend } = await keyedFixture();
+    const bucket = { t, workspaceId: ours, backend };
     await expect(
       asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" }),
     ).resolves.toEqual({ added: 1, targets: 1 });
     expect(await row(t, theirs)).toBeNull();
     await drainScheduled(t);
 
-    expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: 3, filesTotal: 3 });
-    for (const key of [PRIVACY_KEY, "index.md", "1-projects/plan.md"]) {
+    // Every object in the bucket is walked: the keyed notes at `notes/<noteId>.md`
+    // and the frozen path copies the copy left. There is no access file to walk.
+    const objects = Object.keys(backend.snapshot());
+    expect(await row(t, ours)).toMatchObject({
+      state: "encrypted",
+      filesDone: objects.length,
+      filesTotal: objects.length,
+    });
+    for (const key of [await keyOf(bucket, "index.md"), await keyOf(bucket, "1-projects/plan.md")]) {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
     }
+    for (const key of objects) expect(isSealed(backend.bytesOf(key))).toBe(true);
     expect(JSON.stringify(backend.snapshot())).not.toContain("The words people typed");
     // Sealing rewrote every object, so the Convex tree is swept for their new
     // versions once the walk ends. Sabotage: drop the `requestSweep` in
@@ -88,11 +98,12 @@ describe("the walk", () => {
       await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ours)).unique(),
     );
     expect(tree?.sweptAt).toBeTypeOf("number");
-    // The id copy never reached this workspace, so there is nothing to diagnose.
+    // A keyed workspace's rows take their keys' new versions only through the
+    // diagnosis the walk ends with, so one is scheduled for ours and no one else's.
     const checks = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) =>
       job.name.includes("noteIdsCopy:runCheck"),
     );
-    expect(checks).toEqual([]);
+    expect(checks.map((job) => (job.args[0] as { workspaceId: string }).workspaceId)).toEqual([ours]);
 
     const status = await asUser(t, staff).query(api.functions.managedEncryption.rolloutStatus, {});
     expect(status).toMatchObject({ state: "complete", counts: { encrypted: 1, notStarted: 1 } });
@@ -108,23 +119,15 @@ describe("the walk", () => {
   });
 
   test("a walk over a workspace with id copies ends by diagnosing them", async () => {
-    const { t, staff, ours } = await fixture();
+    const { t, staff, ours } = await keyedFixture();
     // Sealing rewrites every id key too, so a keyed row's version is behind its
     // key until the diagnosis takes the key's. A keyed workspace's sweep adopts
     // nothing, so the sweep alone leaves it behind. Sabotage: drop the
     // `checkAfterRewrite` call in `afterWalk` and no check is scheduled here.
-    await t.run(async (ctx) => {
-      await ctx.db.insert("noteIdCopies", {
-        workspaceId: ours,
-        status: "done",
-        runId: 3,
-        files: 0,
-        copied: 0,
-        failed: 0,
-        failures: [],
-        updatedAt: Date.now(),
-      });
-    });
+    const copy = await t.run((ctx) =>
+      ctx.db.query("noteIdCopies").withIndex("by_workspace", (q) => q.eq("workspaceId", ours)).unique(),
+    );
+    expect(copy).not.toBeNull();
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
@@ -133,12 +136,13 @@ describe("the walk", () => {
       job.name.includes("noteIdsCopy:runCheck"),
     );
     expect(checks.map((job) => (job.args[0] as { workspaceId: string; runId: number }))).toEqual([
-      expect.objectContaining({ workspaceId: ours, runId: 3 }),
+      expect.objectContaining({ workspaceId: ours, runId: copy!.runId }),
     ]);
   });
 
   test("a save during the rollout is written sealed", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await keyedFixture();
+    const bucket = { t, workspaceId: ours, backend };
     // The walk makes the key before a row ever leaves `waiting`.
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, { workspaceId: ours, create: true });
     await t.run((ctx) =>
@@ -156,7 +160,7 @@ describe("the walk", () => {
       path: "1-projects/new.md",
       text: "# New\n\nWritten mid-walk.\n",
     });
-    expect(isSealed(backend.bytesOf("1-projects/new.md"))).toBe(true);
+    expect(isSealed(await bytesAtPath(bucket, "1-projects/new.md"))).toBe(true);
     // A plain object from before the walk still opens in `migrating`.
     const old = await asUser(t, staff).action(api.functions.files.readNote, {
       workspaceId: ours,
@@ -222,7 +226,8 @@ describe("the walk", () => {
 
 describe("failing closed", () => {
   test("a mode with no key refuses the note rather than writing it plain", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await keyedFixture();
+    const before = Object.keys(backend.snapshot()).sort();
     await t.run((ctx) =>
       ctx.db.insert("managedEncryptionWorkspaces", {
         workspaceId: ours,
@@ -241,7 +246,8 @@ describe("failing closed", () => {
       }),
     );
     expect(errorCode(error)).toBe("ENCRYPTED_UNREADABLE");
-    expect(backend.bytesOf("1-projects/new.md")).toBeNull();
+    // Nothing reached the bucket: no new id key, and no path object either.
+    expect(Object.keys(backend.snapshot()).sort()).toEqual(before);
   });
 });
 

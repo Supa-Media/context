@@ -271,7 +271,8 @@ describe("/gateway/binding — the search index", () => {
     expect(response.status).toBe(200);
     expect(text).not.toContain("searchIndex");
     const body = JSON.parse(text) as Record<string, unknown>;
-    expect(Object.keys(body)).toEqual(["binding"]);
+    // The rows' access rules and `keyed` (every workspace is) ride beside the binding; no search index does.
+    expect(Object.keys(body).sort()).toEqual(["binding", "idLayout", "keyed", "privacy"]);
     expect((body.binding as { bucket: string }).bucket).toBe("tenant-a");
   });
 

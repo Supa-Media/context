@@ -10,6 +10,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { CHAOS_DAYS, chaosExtraOf, dayOf, factStateRow } from "./lib/nodes/facts";
+import { located, nodePaths } from "./lib/nodes/paths";
 
 const extraValidator = v.object({
   path: v.string(),
@@ -34,8 +35,10 @@ export const extras = internalQuery({
       .withIndex("by_workspace_chaos", (q) => q.eq("workspaceId", workspaceId).eq("chaosNote", true))
       .collect();
     const found = [];
-    for (const row of rows) {
-      if (row.kind !== "file" || row.goneAt !== undefined) continue;
+    const paths = await nodePaths(ctx.db, workspaceId);
+    for (const chaos of rows) {
+      const row = chaos.kind === "file" && chaos.goneAt === undefined ? await located(ctx.db, chaos, paths) : null;
+      if (row === null) continue;
       const extra = chaosExtraOf(row.path, row.props);
       if (extra !== null) found.push({ path: row.path, ...extra });
     }

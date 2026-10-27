@@ -149,3 +149,10 @@ test("a skipped answer in a judged section is written and read back", async () =
   const [section] = parseJudgedSections(`${text}\n`);
   assert.equal(section.blocks.get("a-b-c-d").skipped, "no answer: model_unavailable");
 });
+
+test("a run's Gmail searches are written as a Mail line and read back, and the browser's line stays its own", () => {
+  const run = { ...RESULT.runs[0], browser: ["open shop.example/form"], mail: ['mail search "serving sunday": 0 found', "mail read 19a3c0servingrq"] };
+  const { answers } = parseResult(resultMarkdown({ ...RESULT, runs: [run] }));
+  assert.deepEqual(answers[0].mail, ['mail search "serving sunday": 0 found', "mail read 19a3c0servingrq"]);
+  assert.deepEqual(answers[0].browser, ["open shop.example/form"]);
+});

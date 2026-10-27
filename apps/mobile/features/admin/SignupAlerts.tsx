@@ -1,7 +1,8 @@
 /**
  * "Email me about every signup": one switch per staff member, at the top of
- * the Waitlist tab. On, the server mails this person's own sign-in address for
- * each new waitlist signup and each brand-new account. See
+ * the Waitlist tab. On, the server mails the team inbox (or, with none set,
+ * this person's own sign-in address) for each new waitlist signup, each
+ * brand-new account and each handle picked. See
  * `apps/convex/functions/signupAlerts.ts`.
  */
 
@@ -34,7 +35,7 @@ export function SignupAlerts() {
     <View style={[styles.row, compact && styles.rowCompact]} testID="admin-signup-alerts">
       <View style={styles.words}>
         <Text variant="rowTitle">Email me about every signup</Text>
-        <Text variant="meta">New waitlist signups and new accounts, sent to {alerts.email}.</Text>
+        <Text variant="meta">New waitlist signups, accounts and handles, sent to {alerts.email} right away.</Text>
       </View>
       <Switch
         label="Email me about every signup"

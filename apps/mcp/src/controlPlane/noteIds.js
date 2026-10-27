@@ -1,6 +1,6 @@
 /**
- * Where each note's bytes live, read and recorded by the control plane while
- * the layout is "ids" or "keys" (`store/idLayout.js`, and
+ * Where each note's bytes live, read and recorded by the control plane
+ * (`store/idLayout.js`, and
  * `docs/decisions/storage-and-credentials/notes-by-id.md`).
  *
  * Both calls spend the same two proofs `/gateway/tree/facts` does: the gateway
@@ -18,9 +18,10 @@ function text(value) {
 
 /**
  * One `notes` entry as the id layer may act on it, or `null`. A keyed entry
- * needs a real id key and a version; anything malformed is dropped, which the
- * layer reads as "no row" in a workspace that is not keyed and refuses in one
- * that is (the lookup then names no note there, so a read finds nothing).
+ * needs a real id key and a version; anything malformed is dropped (the lookup
+ * then names no note there, so a read finds nothing). A row the control plane
+ * says is still at its path is carried as `{state: "path"}` only so the layer
+ * can refuse it.
  */
 export function narrowNote(entry) {
   if (!entry || typeof entry !== "object") return null;
@@ -38,8 +39,7 @@ export function narrowNote(entry) {
       };
     }
     case "path":
-      if (typeof entry.key !== "string" || entry.key === "") return null;
-      return { state: "path", key: entry.key, etag: text(entry.etag), keyEtag: text(entry.keyEtag), fresh: entry.fresh === true };
+      return { state: "path" };
     case "gone":
       return { state: "gone" };
     case "folder":
@@ -58,15 +58,14 @@ export const NOTE_ID_RESOLVE_MAX = 200;
 export function createNoteIdMethods({ post, required }) {
   return {
     /**
-     * Where each path's id copy is, and whether it is fresh
-     * (`/gateway/note-ids/lookup`). Paths with no live row are absent from
-     * `copies`. Entries without a usable key are dropped, and an `etag` that
-     * is not a string reads as `null`.
+     * What the tree says about each path (`/gateway/note-ids/lookup`): `keyed`
+     * for the workspace, and `notes`, one entry per path with a row. Paths with
+     * no row are absent.
      *
      * @param {string} accessToken
      * @param {string} workspaceId
      * @param {string[]} paths
-     * @returns {Promise<{copies: Record<string, {key: string, etag: string|null, keyEtag: string|null, fresh: boolean}>}>}
+     * @returns {Promise<{keyed: boolean, notes: Record<string, object>}>}
      */
     async noteIdLookup(accessToken, workspaceId, paths) {
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > NOTE_ID_LOOKUP_MAX) {
@@ -78,25 +77,6 @@ export function createNoteIdMethods({ post, required }) {
         accessToken,
         expectedWorkspaceId: workspaceId,
       });
-      const copies = required(parsed, "copies");
-      if (!copies || typeof copies !== "object" || Array.isArray(copies)) {
-        throw new ControlPlaneError("malformed note id copies");
-      }
-      const narrowed = {};
-      for (const path of Object.keys(copies)) {
-        const copy = copies[path];
-        if (!copy || typeof copy !== "object") continue;
-        if (typeof copy.key !== "string" || copy.key === "") continue;
-        narrowed[path] = {
-          key: copy.key,
-          etag: typeof copy.etag === "string" && copy.etag !== "" ? copy.etag : null,
-          keyEtag: typeof copy.keyEtag === "string" && copy.keyEtag !== "" ? copy.keyEtag : null,
-          fresh: copy.fresh === true,
-        };
-      }
-      // `keyed` and `notes` arrive from a control plane that knows keyed rows;
-      // an older one sends `copies` only, which the layer reads as before.
-      if (parsed.notes === undefined) return { copies: narrowed, ...(parsed.keyed === true ? { keyed: true } : {}) };
       if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
         throw new ControlPlaneError("malformed note id entries");
       }
@@ -105,7 +85,7 @@ export function createNoteIdMethods({ post, required }) {
         const entry = narrowNote(parsed.notes[path]);
         if (entry !== null) notes[path] = entry;
       }
-      return { copies: narrowed, keyed: parsed.keyed === true, notes };
+      return { keyed: parsed.keyed === true, notes };
     },
 
     /**
@@ -142,15 +122,14 @@ export function createNoteIdMethods({ post, required }) {
     },
 
     /**
-     * Record that the id copy at `key` holds the path's version `etag`
-     * (`/gateway/note-ids/wrote`). `recorded` says whether the control plane
-     * kept it: false when the row has moved on since, which is not an error.
-     * A keyed write (`keyed: true`) records the key's new version, its size and
-     * when it landed (`at`) on the row itself.
+     * Record a keyed write (`/gateway/note-ids/wrote`): the key's new version,
+     * its size and when it landed (`at`), on the row itself. `recorded` says
+     * whether the control plane kept it: false when the row has moved on
+     * since, which is not an error.
      *
      * @param {string} accessToken
      * @param {string} workspaceId
-     * @param {{path: string, key: string, etag: string, keyEtag?: string, keyed?: boolean, size?: number, at?: number}} copy
+     * @param {{path: string, key: string, etag: string, keyed?: boolean, size?: number, at?: number}} copy
      * @returns {Promise<{recorded: boolean}>}
      */
     async noteIdWrote(accessToken, workspaceId, copy) {
@@ -159,7 +138,6 @@ export function createNoteIdMethods({ post, required }) {
         path: copy?.path,
         key: copy?.key,
         etag: copy?.etag,
-        ...(typeof copy?.keyEtag === "string" && copy.keyEtag !== "" ? { keyEtag: copy.keyEtag } : {}),
         ...(copy?.keyed === true ? { keyed: true } : {}),
         ...(Number.isFinite(copy?.size) ? { size: copy.size } : {}),
         ...(Number.isFinite(copy?.at) ? { at: copy.at } : {}),

@@ -8,8 +8,18 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { readIntoTree } from "./fixtures.helpers";
-import { fixture, pressPublish, publish } from "./website.helpers";
+import { asUser, readIntoTree } from "./fixtures.helpers";
+import {
+  bodyKeyOf,
+  fixture,
+  pressPublish,
+  publish,
+  writeNote,
+} from "./website.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
+
+// Each test keys a workspace and runs the tree to its end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -34,7 +44,11 @@ describe("public list blocks read the tree", () => {
     if (resolved.kind !== "page") throw new Error("expected a website page");
     expect(resolved.markdown).toContain("First post");
     expect(resolved.markdown).toContain("Second post");
-    expect(f.backend.requests.filter((request) => request.key.startsWith("website/posts/"))).toEqual([]);
+    const postKeys = [
+      await bodyKeyOf(f.t, f.workspaceId, "website/posts/first.md"),
+      await bodyKeyOf(f.t, f.workspaceId, "website/posts/second.md"),
+    ];
+    expect(f.backend.requests.filter((request) => postKeys.includes(request.key))).toEqual([]);
   });
 
   test("a lone draft key added since Publish takes the note off the list", async () => {
@@ -49,8 +63,12 @@ describe("public list blocks read the tree", () => {
     await pressPublish(f);
     // A bare `draft` line, which the front matter parser drops as a property:
     // the facts' website flags still carry it.
-    f.backend.seed("website/posts/held.md", "---\ntitle: Held post\ndraft\n---\n\nHeld\n");
-    await readIntoTree(f.t, f.workspaceId);
+    await writeNote(f, "website/posts/held.md", "---\ntitle: Held post\ndraft\n---\n\nHeld\n");
+    // A draft may narrow the menu, so the route link catalog is withheld until the
+    // owner's rebuild lands (docs/decisions/websites.md); the rebuild runs here.
+    await asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+      workspaceId: f.workspaceId,
+    });
 
     const resolved = await f.t.action(api.functions.websites.resolvePage, {
       handle: "atlas",
@@ -73,10 +91,11 @@ describe("public list blocks read the tree", () => {
     await readIntoTree(f.t, f.workspaceId);
     // Facts as a fill before the flags wrote them, and a fill state from then.
     await f.t.run(async (ctx) => {
-      const row = await ctx.db
-        .query("nodes")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "website/posts/old.md"))
-        .unique();
+      const row = await treeNodeAt(
+        ctx.db,
+        f.workspaceId,
+        "website/posts/old.md",
+      );
       const props = JSON.parse(row!.props!) as Record<string, unknown>;
       delete props.site;
       await ctx.db.patch(row!._id, { props: JSON.stringify(props) });

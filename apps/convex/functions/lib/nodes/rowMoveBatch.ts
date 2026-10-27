@@ -25,15 +25,17 @@ import { remapIcons } from "@context/shared/src/folderIcons.cjs";
 import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
-import { assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { hidesBeneath } from "./builtJudge";
 import type { MoveResult } from "../fileOps/moving";
 import { loadPrivacyState, type PrivacyState } from "../fileOps/privacyState";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import { catchUpKeyedRows } from "./rowCatchUp";
+import { queueLinkRepair } from "./linkRepair";
+import { rowEtagFor } from "./handedVersion";
 import { PRIVACY_KEY, canSee } from "../privacy";
 import { type AddedRules, carryPrivacy, releasePrivacy } from "./movePrivacy";
-import { touchNodesNow } from "./run";
 import { ROW_MOVE_MAX, type RowMoveRefusal } from "./rowMove";
 import { refusal } from "./rowMoveStart";
 
@@ -50,6 +52,8 @@ interface Planned {
   kind: "file" | "folder";
   files: string[];
   rows: number;
+  /** A folder on built paths: its files are not listed, and the rules beneath it are judged (`hiddenBeneath`). */
+  builtFolder: boolean;
 }
 
 /** The refusal a batch's throw carries (`nodeRowMoves.rowMoveBatch`): which move, and why. */
@@ -85,13 +89,15 @@ export async function startRowMoveBatch(
   const { workspaceId, store, moves, clearance, now } = args;
   if (moves.length === 0) throw new FileOpError("PATH_INVALID", "A batch needs at least one move.");
 
+  // Each move's names are read at once: one after another, a batch of 20 outlasted the gateway's wait (2026-10-26).
+  const plans = await Promise.all(moves.map((move) => ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: move.from })));
   const planned: Planned[] = [];
-  for (const move of moves) {
-    const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: move.from });
+  for (const [index, move] of moves.entries()) {
+    const plan = plans[index];
     if (plan.kind === null) throw notFound();
     if (plan.tooLarge) throw refusal("too_large", move.to, true);
     if (plan.unkeyed) throw refusal("unkeyed", move.to, true);
-    planned.push({ move, kind: plan.kind, files: plan.files, rows: plan.rows });
+    planned.push({ move, kind: plan.kind, files: plan.files, rows: plan.rows, builtFolder: plan.built && plan.kind === "folder" && !plan.listed });
   }
   if (planned.reduce((sum, entry) => sum + entry.rows, 0) > ROW_MOVE_MAX) {
     throw new FileOpError("FOLDER_TOO_LARGE", "These moves hold too many notes to make in one step. Make them in smaller batches.");
@@ -103,7 +109,10 @@ export async function startRowMoveBatch(
     const { move } = entry;
     if (!canSee(move.from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
     // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
-    if (entry.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+    if (
+      entry.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+      (entry.builtFolder && (await hidesBeneath(ctx, workspaceId, move.from, clearance, state)))
+    ) {
       throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
     }
     assertMoveDestinationsVisible(
@@ -111,6 +120,7 @@ export async function startRowMoveBatch(
       clearance,
       state,
     );
+    if (entry.builtFolder) assertDestinationsVisible([move.to], clearance, state.rules, state.overrides);
   }
 
   // Each move's rules go to its new name before any row moves, as one move's do; a batch that fails takes them back.
@@ -122,14 +132,17 @@ export async function startRowMoveBatch(
     for (const entry of [...carried].reverse()) {
       await releasePrivacy(store, { from: entry.to, undone: true, added: entry.added }).catch(() => {});
     }
-    await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] }).catch(() => {});
   };
   try {
+    // Every move's narrowing in one call: one a move read the workspace's rows again for each note.
+    if (rowsTruth) {
+      await ctx.runMutation(internal.functions.nodesAccess.narrowMoves, {
+        workspaceId,
+        moves: planned.map(({ move }) => ({ from: move.from, to: move.to })),
+      });
+    }
     for (const { move } of planned) {
-      if (rowsTruth) {
-        await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from: move.from, to: move.to });
-        continue;
-      }
+      if (rowsTruth) continue;
       const carry = await carryPrivacy(store, move.from, move.to);
       if (carry === null) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
       carried.push({ from: move.from, to: move.to, added: carry.added });
@@ -141,18 +154,19 @@ export async function startRowMoveBatch(
     await undoCarried();
     throw error;
   }
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   // The callers' versions are the keys' (`idLayout.js`); rows the keys moved on from without telling them catch up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, moves.map((move) => ({ path: move.from, expectedEtag: move.expectedEtag })));
+  // Each caller's version as the row carries it (`handedVersion.ts`).
+  const expectations = await Promise.all(planned.map(({ move }) => rowEtagFor(store, move.from, move.expectedEtag)));
+  await catchUpKeyedRows(ctx, workspaceId, store, planned.map(({ move }, index) => ({ path: move.from, expectedEtag: expectations[index] })));
 
   try {
     await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveBatch, {
       workspaceId,
-      moves: planned.map(({ move, files }) => ({
+      moves: planned.map(({ move, files, builtFolder }, index) => ({
         from: move.from,
         to: move.to,
-        ...(move.expectedEtag === undefined ? {} : { expectedEtag: move.expectedEtag }),
-        plannedFiles: files,
+        ...(expectations[index] === undefined ? {} : { expectedEtag: expectations[index] }),
+        ...(builtFolder ? {} : { plannedFiles: files }),
       })),
       privacyEtag,
       now,
@@ -163,13 +177,19 @@ export async function startRowMoveBatch(
   }
 
   if (!rowsTruth) for (const entry of carried) await releasePrivacy(store, { from: entry.from, undone: false, added: entry.added });
-  await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   await recordForwarding(
     store,
     planned.map(({ move }) => ({ from: move.from, to: move.to, kind: "note" as const })),
     { now },
   );
   await remapIcons(store, planned.map(({ move }) => ({ from: move.from, to: move.to })));
+  // The links follow behind the moves (`linkRepair.ts`).
+  await queueLinkRepair(
+    ctx,
+    workspaceId,
+    planned.flatMap(({ move, files }) => files.map((file) => ({ from: file, to: move.to + file.slice(move.from.length) }))),
+    now,
+  );
   if (args.projection) {
     await followInProjection(
       store,

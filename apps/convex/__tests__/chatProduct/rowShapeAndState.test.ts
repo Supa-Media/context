@@ -272,9 +272,9 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     const [view] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
       workspaceId,
     });
-    expect(view?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(view?.chat?.destinationFolder).toBe("inbox/google-chat/person-at-example-invalid");
     expect(view?.chat?.destinationPath).toBe(
-      "0-inbox/google-chat/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+      "inbox/google-chat/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
     );
   });
 });

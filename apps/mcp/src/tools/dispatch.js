@@ -17,7 +17,9 @@ import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
 import { toolSaveEmailDraft, toolSendEmail } from "./email.js";
 import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
+import { toolListTexts, toolReadTexts, toolSearchTexts } from "./texts.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
+import { toolGoogleChat } from "./googleChat.js";
 import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
@@ -38,12 +40,12 @@ import { toolReadCalendar } from "./calendarRead.js";
 import { toolListNotes, toolReadNote } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
-import { toolMaterializeMove, toolProfileMoveReferences } from "./moves/materialize.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
 import { toolMoveNotes } from "./moves/notes.js";
 import { toolOpenAiFetch, toolOpenAiSearch, toolSearchNotes } from "./search.js";
+import { toolRelatedNotes } from "./related.js";
 import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolProposeNote, toolReviewProposal } from "./proposalActions.js";
 import { toolReadActivity } from "../activity/readActivity.js";
@@ -61,33 +63,14 @@ import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
 import { toolConnectApp, toolSlackApi } from "./connectors.js";
 import { toolAppChange, toolAppRead } from "./apps.js";
-import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
-
-const STALLED_MOVE_MS = 5 * 60 * 1000;
-
-async function moveWorkerStalled(store, id) {
-  const key = moveJobKey(id);
-  if (!key) return false;
-  try {
-    const marker = await getWithLegacyFallback(store, key);
-    if (!marker) return false;
-    const job = JSON.parse(await marker.text());
-    const updatedAt = Date.parse(job.updated_at);
-    return moveJobActive(job) && Number.isFinite(updatedAt) &&
-      Date.now() - updatedAt > STALLED_MOVE_MS;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The tools that only list and read: their walks are answered from the Convex
  * tree (`tree/served.js`) and never from the bucket. Where the tree cannot
- * answer, the call says so ("still loading") rather than listing storage. A
- * tool that writes keeps the bucket's own listing, so what it lists is always
- * what it is about to change.
+ * answer, the call says so ("could not be read just now") rather than listing
+ * storage. A tool that writes is not in this set: the names it needs come from
+ * the tree too, one at a time (`tree/names.js`, `tree/twins.js`, `moves/folder.js`).
  */
 export const TREE_LISTING_TOOLS = new Set([
   "orient",
@@ -161,7 +144,7 @@ async function runTool(name, args, store, scope) {
     case "read_contact":
       return toolReadContact(store, scope, rules, overrides, args);
     case "read_file":
-      return toolReadFile(store, scope, rules, overrides, args.path);
+      return toolReadFile(store, scope, rules, overrides, args.path, args.from, args.summary ?? null);
     case "read_image":
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
@@ -208,6 +191,8 @@ async function runTool(name, args, store, scope) {
       return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
       return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
+    case "related_notes":
+      return toolRelatedNotes(store, scope, rules, overrides, args);
     case "archive_note":
       return toolArchiveNote(store, scope, rules, overrides, args.path, args.expected_etag);
     case "move_note":
@@ -224,39 +209,6 @@ async function runTool(name, args, store, scope) {
       return toolMoveNotes(store, scope, rules, overrides, args.moves, args.dry_run === true);
     case "move_folder":
       return toolMoveFolder(store, scope, rules, overrides, args.source, args.destination, args.dry_run === true);
-    case "materialize_move":
-      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
-      if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
-      {
-        // Cached connector schemas may still require batch_size >= 1. Let
-        // those clients inspect the marker through the existing string field.
-        if (typeof args.id === "string" && args.id.endsWith(":inspect")) {
-          return toolMaterializeMove(store, scope, args.id.slice(0, -8), 0);
-        }
-        if (typeof args.id === "string" && args.id.endsWith(":profile")) {
-          return toolProfileMoveReferences(store, args.id.slice(0, -8));
-        }
-        if (args.batch_size === 0) return toolMaterializeMove(store, scope, args.id, 0);
-        // Check before this pass refreshes updated_at. Old clients do not know
-        // resume_background, so an ordinary call must revive a stalled worker.
-        const restartWorker = args.resume_background === true ||
-          await moveWorkerStalled(store, args.id);
-        const result = await toolMaterializeMove(store, scope, args.id, args.batch_size);
-        const text = result?.content?.[0]?.text || "";
-        if (restartWorker && !result?.isError && !moveFinished(text)) {
-          if (typeof store.enqueueGatewayJob !== "function") {
-            return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);
-          }
-          try {
-            const queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: args.id });
-            if (queued === false) return toolText(`${text}\nbackground worker already active`);
-          } catch {
-            return toolText(`${text}\nbackground restart failed; retry resume_background`);
-          }
-          return toolText(`${text}\nbackground worker queued`);
-        }
-        return result;
-      }
     // `archive_chat` is the name this tool shipped under, and a client holding
     // a cached tool list is still calling it. It is no longer *listed* — the
     // rename is the point — but refusing it would drop sessions on the floor
@@ -291,8 +243,16 @@ async function runTool(name, args, store, scope) {
       return toolSearchEmail(store, scope, rules, overrides, args);
     case "read_email":
       return toolReadEmail(store, args);
+    case "search_texts":
+      return toolSearchTexts(store, args);
+    case "list_texts":
+      return toolListTexts(store, args);
+    case "read_texts":
+      return toolReadTexts(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
+    case "google_chat":
+      return toolGoogleChat(store, args);
     case "forward_rule":
       return toolForwardRule(store, args);
     case "create_workspace":

@@ -97,6 +97,28 @@ describe("runDueRoutines", () => {
     expect(report?.auth).toBe("Bearer worker-secret");
   });
 
+  it("runs one person's routines one after another, and different people's at once", async () => {
+    const order: string[] = [];
+    let open = 0;
+    let overlapped = false;
+    const h = harness({
+      runs: [due("once"), due("every-3"), due("theirs", { phones: [PHONE_B] })],
+      gateway: async (token) => {
+        order.push(`start ${token}`);
+        if (token !== "grant_theirs" && open++ > 0) overlapped = true;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (token !== "grant_theirs") open--;
+        order.push(`end ${token}`);
+        return Response.json({ outcome: "answered", answer: ANSWER, send: "text" });
+      },
+    });
+    await runDueRoutines(h.deps);
+    expect(overlapped).toBe(false);
+    expect(order.indexOf("start grant_every-3")).toBeGreaterThan(order.indexOf("end grant_once"));
+    expect(order.indexOf("start grant_theirs")).toBeLessThan(order.indexOf("end grant_once"));
+    expect(h.results).toHaveLength(3);
+  });
+
   it("texts a finished routine's last answer too", async () => {
     const h = harness({
       runs: [due("r1")],
@@ -250,7 +272,7 @@ describe("runDueRoutines", () => {
     let running = 0;
     let most = 0;
     const h = harness({
-      runs: Array.from({ length: 10 }, (_, i) => due(`r${i}`)),
+      runs: Array.from({ length: 10 }, (_, i) => due(`r${i}`, { phones: [`+1555555020${i}`] })),
       gateway: async () => {
         running++;
         most = Math.max(most, running);

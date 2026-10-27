@@ -17,6 +17,15 @@ import { modules } from "../test.setup";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { beginCopyPass, copyRowOf } from "../functions/lib/noteIds/state";
+import { translateBucketRules } from "./seededRules.helpers";
+import type { MutationCtx } from "../_generated/server";
+import { applyObservation } from "../functions/lib/nodes/observe";
+import { convexNodeTable } from "../functions/lib/nodes/convexTable";
+import type { LeftAudiences, NodeRow } from "../functions/lib/nodes/table";
+import { seamRows } from "./nodeTable.helpers";
+import { seedTreeFromBucket } from "./treeSeeding.helpers";
+export { pathObjectsOf, seedTreeFromStore, seedTreeRows } from "./treeSeeding.helpers";
 
 /**
  * Bound to our schema on purpose. `ReturnType<typeof convexTest>` would
@@ -254,8 +263,11 @@ export async function bindFakeStorage(
  * differ) is a staff alarm no test is about.
  */
 const LATER_MS = 10_000;
+// Rounds a drain may take: keyed workspaces chain more passes than path-keyed ones did (a write's
+// fact fill, a scan's next page), so a slow runner needs more than the 50 a bound used to allow.
+const DRAIN_ROUNDS = 500;
 export async function drainScheduled(t: TestConvex): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < DRAIN_ROUNDS; attempt += 1) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
@@ -272,26 +284,51 @@ export async function drainScheduled(t: TestConvex): Promise<void> {
 }
 
 /**
- * The workspace's first copy into the Convex tree, run to its end against the
- * bucket it is bound to. Every reader of which notes exist reads that tree
- * and never the bucket (decided by the owner, 2026-10-13; see
- * `docs/decisions/app-and-console/convex-tree.md`), so a fixture that seeds a
- * bucket copies it before anything lists it, as the first walk of a real
- * workspace does. A change made through the app keeps the copy current on its
- * own; one written straight into the bucket afterwards needs another call,
- * as a real one waits for the next sweep.
+ * The workspace's first copy into the Convex tree. Every reader of which notes
+ * exist reads that tree and never the bucket, so a fixture that seeds a bucket
+ * lays its objects into the tree before anything lists it, as the first walk of
+ * a real workspace used to. The objects are the ones the test seeded into the
+ * bucket it connected (`storeStub.helpers.ts`), and the rows are written as the
+ * seam would have written them: a served tree and one row per path object.
+ *
+ * A change made through the app keeps the copy current on its own; one written
+ * straight into the bucket afterwards needs another call.
  */
 export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
-  for (let pass = 0; pass < 50; pass += 1) {
-    await t.action(internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "private",
-      operation: { kind: "nodesSweep" },
-    });
-    const state = await t.query(internal.functions.nodes.state, { workspaceId });
-    if (state?.status === "ready" && state.cursor === undefined) return;
+  await seedTreeFromBucket(t, workspaceId);
+  await keyWorkspace(t, workspaceId);
+  await translateBucketRules(t, workspaceId);
+}
+
+/**
+ * Key the workspace the way production keyed every workspace: every note
+ * copied to its id key by the real copy pass, and the pass's end flipping the
+ * rows to those keys. After it, the bucket's path objects are frozen copies
+ * nothing reads again, so a test changes notes through the product, never by
+ * writing a path into the bucket.
+ */
+export async function keyWorkspace(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  if (await t.run(async (ctx) => (await copyRowOf(ctx.db, workspaceId))?.keyedDoneAt !== undefined)) return;
+  // The copy pass works from a served tree: a workspace whose tree was never laid gets its bucket's notes first.
+  const treeReady = await t.run(async (ctx) =>
+    (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique())?.status === "ready",
+  );
+  if (!treeReady) await seedTreeFromBucket(t, workspaceId);
+  await t.run(async (ctx) => {
+    const layout = await ctx.db.query("noteIdLayout").first();
+    if (layout === null) await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });
+    else if (layout.mode !== "keys") await ctx.db.patch(layout._id, { mode: "keys" });
+  });
+  await t.mutation(internal.functions.noteIdsCopy.backfill, { workspaceId });
+  await t.run((ctx) => beginCopyPass(ctx, workspaceId, { force: true }));
+  // A big workspace's copy runs as a chain of passes, longer than one drain.
+  let row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
+  for (let round = 0; round < 1_000 && row?.keyedDoneAt === undefined; round += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+    row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
   }
-  throw new Error("the tree's first copy never finished");
+  if (row?.keyedDoneAt === undefined) throw new Error(`the workspace never finished keying: ${JSON.stringify(row?.failures.slice(0, 3))}`);
 }
 
 /**
@@ -625,4 +662,23 @@ export async function captureError(fn: () => Promise<unknown>): Promise<unknown>
     return error;
   }
   throw new Error("Expected the call to throw, but it resolved.");
+}
+
+/**
+ * Lays one seam observation into a workspace's tree through the production
+ * rules (`applyObservation` over the Convex table). Test-only: production rows
+ * come from the product's own writes.
+ */
+export async function applyTreeObservation(
+  t: TestConvex,
+  args: { workspaceId: Id<"workspaces">; at: number; rows: NodeRow[]; gone: string[]; left?: LeftAudiences[] },
+): Promise<void> {
+  await t.run(async (ctx) => {
+    await applyObservation(convexNodeTable(ctx as MutationCtx, args.workspaceId), {
+      at: args.at,
+      rows: seamRows(args.rows),
+      gone: args.gone,
+      ...(args.left === undefined ? {} : { left: args.left }),
+    });
+  });
 }

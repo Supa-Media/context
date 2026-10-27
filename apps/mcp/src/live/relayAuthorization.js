@@ -12,7 +12,7 @@ import {
   SCOPE_WRITE,
   storeForSession,
 } from "../session.js";
-import { canSee } from "../privacy/engine.js";
+import { canSee, readsAsChat } from "../privacy/engine.js";
 import { collaborationHead } from "./collaborationHttp.js";
 import { createControlPlane } from "../controlPlane.js";
 import { presenceClientKey as livePresenceClientKey } from "./presence.js";
@@ -103,13 +103,19 @@ export async function authorizeLiveRelay(env, { sender, accessToken, documentId,
   }
   const allowed = new Set();
   for (const recipient of recipients) {
-    const access = accessByGrant.get(recipient.grantId);
-    if (
-      access && hasScope(access, SCOPE_READ) &&
-      canSee(sender.path, access.scope, privacy.rules, privacy.overrides, access.grantedGroups)
-    ) {
-      allowed.add(recipient.id);
-    }
+    if (recipientMaySee(session, accessByGrant.get(recipient.grantId), sender.path, privacy)) allowed.add(recipient.id);
   }
   return { sender: true, recipients: allowed };
+}
+
+/**
+ * Whether one recipient's live grant may receive a sender's update to `path`, judged by the sender's rules.
+ *
+ * A Tex guest chat's rules are read for the chat alone (`session.js` `grantedGroupsOf`), so they can't judge anyone
+ * else's reach: its keystrokes reach only a reader who sees everything, and the rest get the saved note.
+ */
+export function recipientMaySee(senderSession, access, path, privacy) {
+  if (!access || !hasScope(access, SCOPE_READ)) return false;
+  if (readsAsChat(senderSession?.grantedGroups) && access.scope !== "private") return false;
+  return canSee(path, access.scope, privacy.rules, privacy.overrides, access.grantedGroups);
 }

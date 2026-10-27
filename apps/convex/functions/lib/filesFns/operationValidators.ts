@@ -11,8 +11,6 @@ import {
   activityValidator,
   contextMoveExportedValidator,
   contextMoveFinishedValidator,
-  contextMovePlannedValidator,
-  contextMoveSettledValidator,
   contextMoveLandedValidator,
   contextMoveRemovedValidator,
   deletedValidator,
@@ -31,7 +29,6 @@ import {
   chaosScoreValidator,
   movedValidator,
   notesValidator,
-  privacyResetValidator,
   storageLayoutReadValidator,
   storageMigrationResultValidator,
   vaultClearResultValidator,
@@ -75,11 +72,40 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
   v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
   v.object({ kind: v.literal("trashedText"), path: v.string(), text: v.string(), encrypted: v.boolean() }),
+  v.object({ kind: v.literal("linksRepaired"), notes: v.number(), links: v.number(), capped: v.boolean() }),
+  v.object({
+    kind: v.literal("oldCopiesHidden"),
+    cursor: v.union(v.string(), v.null()),
+    days: v.number(),
+    contacts: v.number(),
+    files: v.number(),
+    firstDay: v.optional(v.string()),
+    lastDay: v.optional(v.string()),
+    stopped: v.optional(v.string()),
+    looked: v.optional(v.object({ rows: v.number(), unread: v.number(), theirs: v.number() })),
+  }),
+  v.object({ kind: v.literal("messagesErased"), deleted: v.number(), next: v.union(v.null(), v.string()) }),
+  v.object({ kind: v.literal("messagesReads"), reads: v.array(v.object({ at: v.number(), who: v.string(), how: v.string() })) }),
+  v.object({
+    kind: v.literal("messagesLog"),
+    objects: v.array(v.object({ key: v.string(), text: v.string() })),
+    next: v.union(v.null(), v.string()),
+  }),
+  v.object({
+    kind: v.literal("oldCopyTexts"),
+    results: v.array(
+      v.union(
+        v.object({ path: v.string(), outcome: v.literal("read"), note: v.object({ text: v.string() }) }),
+        v.object({ path: v.string(), outcome: v.literal("error"), code: v.string(), message: v.string() }),
+      ),
+    ),
+  }),
   v.object({
     kind: v.literal("moveQueued"),
     queued: v.boolean(),
     count: v.optional(v.number()),
     rowed: v.optional(v.boolean()),
+    historyCarried: v.optional(v.boolean()),
     moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
     error: v.optional(v.string()),
     message: v.optional(v.string()),
@@ -90,12 +116,6 @@ export const operationResultValidator = v.union(
     moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
     error: v.optional(v.string()),
     message: v.optional(v.string()),
-  }),
-  v.object({
-    kind: v.literal("nodesParity"),
-    clearances: v.number(),
-    mismatches: v.number(),
-    privacyMatches: v.boolean(),
   }),
   treeChangesValidator,
   folderNotesValidator,
@@ -126,12 +146,9 @@ export const operationResultValidator = v.union(
   contextMoveLandedValidator,
   contextMoveRemovedValidator,
   contextMoveFinishedValidator,
-  contextMovePlannedValidator,
-  contextMoveSettledValidator,
   visibilityResultValidator,
   activityRecordedValidator,
   folderCreatedValidator,
-  privacyResetValidator,
   storageMigrationResultValidator,
   storageLayoutReadValidator,
   imageWrittenValidator,
@@ -267,26 +284,13 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("pruneIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
-  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
-  v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
+  /** The Convex tree's facts fill (`lib/nodes/run.ts`); scheduled only. */
   v.object({ kind: v.literal("nodesFactFill"), passes: v.optional(v.number()) }),
-  v.object({
-    kind: v.literal("nodesTouch"),
-    paths: v.array(v.string()),
-    files: v.array(v.string()),
-    /** An agent's moves, old name to new, so pins and recents follow (`placesFollow.ts`). */
-    moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
-    /** Who could see each key the change took away, before it: gone rows narrow to it. */
-    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
-  }),
-  v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({
     kind: v.literal("nodesMoveBatch"),
     moves: v.array(v.object({ from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) })),
   }),
-  v.object({ kind: v.literal("nodesMoveWork") }),
-  v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({ kind: v.literal("nodesSmallData") }),
   /** A folder List's notes from the Convex tree's facts (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
@@ -315,7 +319,6 @@ export const operationValidator = v.union(
     })),
   }),
   v.object({ kind: v.literal("clearVault"), countOnly: v.boolean() }),
-  v.object({ kind: v.literal("ensurePrivacy") }),
   v.object({
     kind: v.literal("removeEncryption"),
     path: v.string(),
@@ -443,7 +446,6 @@ export const operationValidator = v.union(
       destination: v.string(),
       bytes: v.bytes(),
       etag: v.string(),
-      collaborationEtag: v.optional(v.string()),
       sourceVisibility: v.union(v.literal("private"), v.literal("team")),
     })),
   }),
@@ -452,7 +454,6 @@ export const operationValidator = v.union(
     sources: v.array(v.object({
       path: v.string(),
       etag: v.string(),
-      collaborationEtag: v.optional(v.string()),
     })),
   }),
   v.object({
@@ -460,23 +461,6 @@ export const operationValidator = v.union(
     from: v.string(),
     survivors: v.array(v.string()),
   }),
-  v.object({
-    kind: v.literal("contextMovePlan"),
-    from: v.string(),
-    to: v.string(),
-    skip: v.array(v.string()),
-    maxObjectBytes: v.number(),
-  }),
-  v.object({
-    kind: v.literal("contextMovePrepare"),
-    root: v.optional(v.string()),
-    objects: v.array(v.object({
-      destination: v.string(),
-      sourceVisibility: v.union(v.literal("private"), v.literal("team")),
-    })),
-  }),
-  v.object({ kind: v.literal("contextMoveArrived"), paths: v.array(v.string()), root: v.optional(v.string()) }),
-  v.object({ kind: v.literal("contextMoveForget"), paths: v.array(v.string()) }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("archiveTidy") }),
@@ -484,39 +468,22 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */
   v.object({ kind: v.literal("readTrashed"), path: v.string(), trash: v.string() }),
+  /** Sent only by `oldCopies.hideWorkspace`. */
+  v.object({ kind: v.literal("hideOldCopies"), cursor: v.optional(v.string()) }),
+  /** Sent only by `oldCopies.readForExport`, for an owner. */
+  v.object({ kind: v.literal("readOldCopies"), paths: v.array(v.string()) }),
+  /** Sent only by `messagesExport.readLogForExport`, for an owner. */
+  v.object({ kind: v.literal("readMessagesLog"), after: v.optional(v.string()) }),
+  /** Sent only by `messagesExport.eraseBackupPage`, after an owner asked. */
+  v.object({ kind: v.literal("eraseMessagesBackup"), after: v.optional(v.string()) }),
+  /** Sent only by `messagesExport.recentReads`, for an owner. */
+  v.object({ kind: v.literal("readMessagesReads") }),
+  /** Sent only by `linkRepairs.repairWorkspace`. */
+  v.object({ kind: v.literal("repairLinks"), pairs: v.array(v.object({ from: v.string(), to: v.string() })) }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),
     confirmation: v.string(),
-  }),
-  v.object({
-    kind: v.literal("setVisibility"),
-    path: v.string(),
-    visibility: visibilityValidator,
-  }),
-  v.object({
-    kind: v.literal("setNoteGroup"),
-    path: v.string(),
-    /**
-     * The group's full name WITHOUT the `@`, already proven to belong to this
-     * workspace by `setNoteGroup` before the operation is dispatched. A plain
-     * string here rather than a group id: this is the value that lands in
-     * `privacy.md`, and the manifest holds names, not ids.
-     */
-    group: v.string(),
-  }),
-  v.object({
-    kind: v.literal("setFolderGroup"),
-    path: v.string(),
-    /**
-     * The name WITHOUT the `@`, already proven to belong to this workspace by
-     * `setFolderGroup` before the operation is dispatched. A plain string
-     * rather than an id for the same reason its note-shaped sibling is one:
-     * this is the value that lands in `privacy.md`, and the manifest holds
-     * names, not ids — which is what lets it stay legible on export and mean
-     * nothing without the control plane.
-     */
-    group: v.string(),
   }),
   v.object({
     kind: v.literal("visibilityLine"),
@@ -524,12 +491,6 @@ export const operationValidator = v.union(
     path: v.string(),
     to: v.string(),
     teamVisible: v.boolean(),
-  }),
-  v.object({
-    kind: v.literal("setFolderVisibility"),
-    path: v.string(),
-    visibility: visibilityValidator,
-    onlyIfUnset: v.optional(v.boolean()),
   }),
   v.object({
     /**
@@ -579,7 +540,6 @@ export const operationValidator = v.union(
     responseId: v.string(),
     to: v.string(),
   }),
-  v.object({ kind: v.literal("resetPrivacy") }),
   v.object({
     kind: v.literal("migrateStorage"),
     cleanup: v.boolean(),

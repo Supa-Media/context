@@ -24,7 +24,7 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
-import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder } from "./jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, websiteFolder } from "./jobIcons/folderJobs";
 import { setJobFoldersNow } from "./jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
@@ -129,7 +129,12 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
 
   const jobs = useMemo(() => {
     // As the real console does (`useFolderJobs`): the folder page and a note's chips read where Projects is from here.
-    setJobFoldersNow({ inbox: inboxFolder(tree.listings), projects: projectsFolder(tree.listings), archive: archiveFolder(tree.listings) });
+    setJobFoldersNow({
+      inbox: inboxFolder(tree.listings),
+      projects: projectsFolder(tree.listings),
+      archive: archiveFolder(tree.listings),
+      website: websiteFolder(tree.listings),
+    });
     return loadedJobs(tree.listings);
   }, [tree]);
   const twins = useMemo(() => loadedTwins(tree.listings), [tree]);
@@ -263,12 +268,11 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // folder loads on expansion — so `knownNotePaths` alone is already the
       // complete answer and there is no docmap to merge in.
       linkPaths: knownNotePaths(tree.listings),
-      resetPrivacy: noop,
       // The icons the tree came with (a homepage scene names some); nothing here can set one.
       // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
       iconOf: (path: string) => {
         const job = jobs.get(path);
-        if (job !== undefined) return jobIconMarker(job);
+        if (job !== undefined) return jobIconMarker(job, path.includes("/"));
         const twin = twins.get(path);
         return (twin === undefined ? null : twinIconMarker(twin)) ?? shownIcon(tree.icons ?? {}, path);
       },
@@ -277,7 +281,6 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       addBuiltInFolder: async () => {
         throw new Error("The landing page cannot add folders.");
       },
-      canResetPrivacy: false,
       canSetVisibility: false,
       // No bucket behind this surface, so a Download would do nothing.
       canDownload: false,

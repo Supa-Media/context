@@ -6,63 +6,8 @@ import {
   buildKeyExportDocument,
   canReadAuditTrail,
   describeKeyExportFailure,
-  describeMoveProgress,
   type ConsoleAuditEvent,
 } from "../features/console/advanced/advanced";
-
-describe("describing durable folder moves", () => {
-  test("uses measured progress and a human phase name", () => {
-    expect(
-      describeMoveProgress({
-        jobId: "job-1",
-        status: "running",
-        phase: "copying",
-        completed: 400,
-        total: 500,
-        updatedAt: 0,
-      }),
-    ).toEqual({ headline: "Moving a large folder", detail: "Copying safely · 400 of 500 · 80%" });
-  });
-
-  test("never invents a percentage before a total exists", () => {
-    expect(
-      describeMoveProgress({
-        jobId: "job-1",
-        status: "queued",
-        updatedAt: 0,
-      }).detail,
-    ).toBe("Waiting to start");
-  });
-
-  test("shows link progress, recent pace, and elapsed time without a false ETA", () => {
-    const job = {
-      jobId: "job-2",
-      status: "running" as const,
-      phase: "rewriting" as const,
-      completed: 25,
-      total: 100,
-      progressChangedAt: 60_000,
-      progressPerMinute: 2.5,
-      updatedAt: 60_000,
-    };
-    expect(describeMoveProgress(job, 180_000).detail).toBe(
-      "Updating links · 25 of 100 · 25% · 2.5/min recently · Last advanced 2 min ago",
-    );
-    expect(describeMoveProgress(job, 720_000).detail).toBe(
-      "Updating links · 25 of 100 · 25% · No progress for 11 min",
-    );
-  });
-
-  test("turns a provider failure into one short actionable sentence", () => {
-    expect(
-      describeMoveProgress({
-        jobId: "job-1",
-        status: "failed",
-        updatedAt: 0,
-      }).detail,
-    ).toBe("Paused safely; try the move again when storage is reachable.");
-  });
-});
 
 describe("who may read the audit trail through the console", () => {
   // `listEvents` itself is member-readable on the backend, and `paths` is now

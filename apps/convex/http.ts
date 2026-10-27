@@ -97,7 +97,7 @@ import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
-import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler, keyedSibling } from "./functions/lib/noteIds/http";
+import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler } from "./functions/lib/noteIds/http";
 import { ingestNoteIdsAdoptHandler, ingestNoteIdsLookupHandler, ingestNoteIdsWroteHandler } from "./functions/lib/noteIds/ingestHttp";
 import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
@@ -108,18 +108,24 @@ import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
+import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
 import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
+import * as googleChat from "./functions/lib/gatewayRoutes/googleChat";
+import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
+import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
+import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
 import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
+import * as texIdentity from "./functions/lib/gatewayRoutes/texIdentity";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
 import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import * as mailHealth from "./functions/lib/gatewayRoutes/mailHealth";
@@ -554,7 +560,8 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
     binding,
     ...(noteCap === null ? {} : { noteCap }),
     ...(counted === null ? {} : { noteCount: counted.notes }),
-    ...(await keyedSibling(ctx, binding.workspaceId)),
+    // Every workspace is keyed (2026-10-22): the email worker writes each note to its id key.
+    keyed: true,
     ...managed,
   });
 });
@@ -876,9 +883,29 @@ export const gatewayCalendarWrite = gatewayRoute(calendarWrite.gatewayCalendarWr
 
 http.route({ path: "/gateway/calendar/event", method: "POST", handler: gatewayCalendarWrite });
 
+// One Google Chat message, as the token's person, after they said yes to it; and their spaces, by name.
+export const gatewayChatSend = gatewayRoute(googleChat.gatewayChatSendHandler);
+export const gatewayChatSpaces = gatewayRoute(googleChat.gatewayChatSpacesHandler);
+
+http.route({ path: "/gateway/chat/send", method: "POST", handler: gatewayChatSend });
+http.route({ path: "/gateway/chat/spaces", method: "POST", handler: gatewayChatSpaces });
+
+// The Chat messages written to the token's person lately, read live for Tex's check-ins.
+export const gatewayChatRecent = gatewayRoute(googleChatRead.gatewayChatRecentHandler);
+
+http.route({ path: "/gateway/chat/recent", method: "POST", handler: gatewayChatRecent });
+
+// Days of the person's own calendars, read live: nothing of a calendar is copied into notes.
+export const gatewayPersonCalendarDays = gatewayRoute(personCalendar.gatewayPersonCalendarDaysHandler);
+
+http.route({ path: "/gateway/calendar/days", method: "POST", handler: gatewayPersonCalendarDays });
+
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
 http.route({ path: "/gateway/feedback", method: "POST", handler: gatewayFeedback });
+
+// Tex's review of a finished conversation: scores for everyone, words only where everyone said yes.
+http.route({ path: "/gateway/tex-review", method: "POST", handler: gatewayRoute(texReview.gatewayTexReviewHandler) });
 
 export const gatewayLinksList = gatewayRoute(links.gatewayLinksListHandler);
 
@@ -900,6 +927,9 @@ http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewa
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+/* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
+export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
+http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
 export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
 http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
@@ -925,10 +955,14 @@ http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnl
 /* A tagged message or a command in a group chat Tex is in (`functions/textGroups.ts`). */
 export const agentTextsGroup = agentWorkerRoute(agentTextGroups.agentTextsGroupHandler);
 http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGroup });
+/* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
+http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
+http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });
 http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsGmailHandler) });
+http.route({ path: "/agent-texts/vault-saved", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsVaultSavedHandler) });
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */

@@ -14,7 +14,6 @@
 import { describe, expect, test } from "vitest";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { OWNER, type Fixture } from "./moveFixture.helpers";
 import { bytesOf, keyedFixture, liveAt, rowOf, treeOf } from "./keyedFixture.helpers";
 
@@ -24,7 +23,6 @@ function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) 
   const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
   attachQueueMove(f.ctx, args, f.store, f.store);
   // The barrier attaches the keyed question to every operation's store (`fileOperationBarrier.ts`).
-  attachWorkspaceKeyed(f.ctx, f.ws, f.store);
   return executeOperation(f.store, OWNER, operation, Date.now());
 }
 

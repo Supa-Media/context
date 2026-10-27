@@ -13,6 +13,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { removeUserGrantsIn } from "../grants/removeUserGrants";
+import { personalWorkspaceOf } from "../faces/people";
 import { deleteMemberPlaces } from "../places";
 import { getMembership, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { MAX_MEMBERS_RETURNED } from "./constants";
@@ -27,6 +28,8 @@ export async function listMembersHandler(
     role: string;
     email?: string;
     name?: string;
+    /** Their personal workspace's name, without the `@`: what people type to find them. */
+    handle?: string;
     isMe: boolean;
     joinedAt: number;
   }[]
@@ -42,11 +45,13 @@ export async function listMembersHandler(
   const rows = [];
   for (const member of members) {
     const user = await ctx.db.get(member.userId);
+    const handle = (await personalWorkspaceOf(ctx, member.userId))?.slug;
     rows.push({
       userId: member.userId,
       role: member.role,
       email: user?.email,
       name: user?.name,
+      ...(handle === undefined ? {} : { handle }),
       isMe: member.userId === userId,
       joinedAt: member.joinedAt,
     });

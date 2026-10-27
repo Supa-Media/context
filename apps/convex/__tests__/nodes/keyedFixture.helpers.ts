@@ -6,9 +6,11 @@
  */
 
 import { expect } from "vitest";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { fixture, type Fixture } from "./moveFixture.helpers";
+import { nodeAt, nodePaths } from "../../functions/lib/nodes/paths";
 
 export const NOTE_ID = (n: number) => `0190a000-0000-7000-8000-${String(n).padStart(12, "0")}`;
 
@@ -57,12 +59,8 @@ export interface RawRow {
 
 /** The row at exactly `path`, live or not. */
 export async function rowOf(f: Fixture, path: string): Promise<RawRow> {
-  const row = await f.t.run(async (ctx) =>
-    await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", path))
-      .unique(),
-  );
+  // Where the tree says the row is (`paths.ts`), built from parents or stored, as the product reads it.
+  const row = await f.t.run(async (ctx) => await nodeAt(ctx.db, f.ws, path));
   if (row === null) throw new Error(`no row at ${path}`);
   return row as RawRow;
 }
@@ -70,7 +68,18 @@ export async function rowOf(f: Fixture, path: string): Promise<RawRow> {
 /** Every row of the workspace, with its parent as a path, so a test can read the tree's shape. */
 export async function treeOf(f: Fixture) {
   return await f.t.run(async (ctx) => {
-    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws)).collect();
+    const stored = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws))
+      .collect();
+    // Each row at the path the tree reads it at; one whose parents spell none is marked, never dropped.
+    const paths = await nodePaths(ctx.db, f.ws);
+    const rows = await Promise.all(
+      stored.map(async (row) => ({
+        ...row,
+        path: (await paths.pathOf(row)) ?? `?${row.path}`,
+      })),
+    );
     const pathOf = new Map(rows.map((row) => [row._id as string, row.path]));
     return rows
       .map((row) => ({
@@ -135,9 +144,7 @@ export async function bigFolder(f: Fixture, path: string, count: number, idBase 
   });
 }
 
+/** The etag a move is made under: the rows-version etag the production guard compares (`privacyEtagOf`). */
 export async function privacyEtag(f: Fixture): Promise<string | null> {
-  return await f.t.run(async (ctx) => {
-    const mirror = await ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-    return mirror?.etag ?? null;
-  });
+  return await f.t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: f.ws });
 }

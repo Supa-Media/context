@@ -186,13 +186,10 @@ describe("a stranger cannot reach another workspace's files", () => {
       // empty list rather than a refusal would still be an existence oracle
       // they could walk one guess at a time.
       (workspaceId) => as.action(api.functions.files.folderPaths, { workspaceId }),
-      // Counts and phase reveal less than a path, but the existence of a long
-      // move is still activity in another tenant and therefore owner-only.
-      (workspaceId) => as.query(api.functions.files.listDurableMoves, { workspaceId }),
       // Owner-only, and absent here since it was written. The one exit from a
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
-      (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
+      (workspaceId) => as.action(api.functions.files.setDirectoryVisibility, { workspaceId, path: "1-projects", visibility: "private" }),
       (workspaceId) => as.action(api.functions.files.updateStorageLayout, { workspaceId }),
       // Owner-only, and a writer of `privacy.md` like the two visibility
       // setters beside it. The group name resolves against the workspace the

@@ -183,6 +183,22 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // inside their limits, never an event with guests.
   // `__tests__/calendarWrite.test.ts` carries the behavioural half.
   "http.gatewayCalendarWrite",
+  // The person's own Google Chat (`/gateway/chat/send` and
+  // `/gateway/chat/spaces`, owner 2026-10-22: Tex messages people on Chat).
+  // The same argument as the calendar route: gateway secret plus the
+  // person's live write grant; the account is resolved from that grant's own
+  // personal workspace, and only a connection whose consent granted every
+  // Chat send scope. The token is minted inside the route, spent on finding
+  // the direct message or space and one message (or one listing of spaces),
+  // and never returned, logged or stored. A stolen gateway secret alone sends
+  // nothing; with a live token, that one person's messages, inside their
+  // limits. `__tests__/googleChatSend.test.ts` carries the behavioural half.
+  "http.gatewayChatSend",
+  "http.gatewayChatSpaces",
+  // `/gateway/chat/recent` (owner 2026-10-23: check-ins read Chat): the same
+  // argument, a connection whose consent granted `chat.messages.readonly`; the
+  // token is spent on listing spaces and reading a few, never returned.
+  "http.gatewayChatRecent",
   // The person's own Gmail, read (`/gateway/email/search` and
   // `/gateway/email/read`, owner 2026-10-18: mail the sync does not hold is
   // read from the connection). Gateway secret plus the person's live access
@@ -197,4 +213,14 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // hour. `__tests__/personMail.test.ts` carries the behavioural half.
   "http.gatewayPersonMailSearch",
   "http.gatewayPersonMailRead",
+  // The person's own Google Calendar, read (`/gateway/calendar/days`, owner
+  // 2026-10-21: calendars are no longer copied into notes, so a day is asked
+  // of Google when it is wanted). The same clearance as the Gmail reads
+  // above: gateway secret plus a live access token on a grant holding
+  // `context:private`, addressed to a personal workspace its person owns.
+  // The calendars are that workspace's own connections, never named by the
+  // request. The token is minted inside the route, spent on events.list and
+  // never returned, logged or stored, and nothing read is kept.
+  // `__tests__/personCalendar.test.ts` carries the behavioural half.
+  "http.gatewayPersonCalendarDays",
 ]);

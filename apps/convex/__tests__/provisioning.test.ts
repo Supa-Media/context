@@ -31,10 +31,13 @@ import {
   createUser,
   createWorkspace,
   drainScheduled,
+  keyWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { seedTreeFromBucket } from "./treeSeeding.helpers";
+import { bodyAtPath, notePaths, objectsOutsideNotes } from "./keyedFixture.onboard.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
-import { gatewayInternals } from "./gatewayFormat.helpers";
+import { canSeeInRows, rowFolderRules } from "./scaffold/rowsAccess.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
 afterEach(() => {
@@ -119,6 +122,12 @@ async function connectingViaBindStorage(options: ConnectOptions = {}) {
     ...(rootPrefix ? { rootPrefix } : {}),
   });
   return { t, owner, workspaceId, backend };
+}
+
+/** Verify, with the tree's rows laid from the bucket first: the count is the tree's (`servedNoteCount`). */
+async function verifyCounted(t: TestConvex, workspaceId: Id<"workspaces">) {
+  await seedTreeFromBucket(t, workspaceId);
+  await t.action(internal.functions.provisioning.verifyStorageBinding, { workspaceId });
 }
 
 function binding(t: TestConvex, owner: Id<"users">, workspaceId: Id<"workspaces">) {
@@ -467,7 +476,7 @@ describe("verification classifies the bucket without touching it", () => {
 
   test("a bucket that already holds a context says so, with no prompt to answer", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     const before = backend.snapshot();
 
     const result = await t.action(
@@ -500,9 +509,9 @@ describe("verification classifies the bucket without touching it", () => {
   test("a live workspace whose first pages are all .history is not reported empty", async () => {
     const { t, backend, workspaceId } = await connecting();
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
 
     expect(
       await t.action(internal.functions.provisioning.verifyStorageBinding, {
@@ -514,22 +523,21 @@ describe("verification classifies the bucket without touching it", () => {
   /* ------------------------------------------------------------------ */
 
   /**
-   * The note count, end to end through the real S3 adapter.
+   * The note count, end to end. It is the tree's (`servedNoteCount`): the
+   * bucket holds frozen path copies beside the id keys.
    *
-   * `noteCount.test.ts` proves the walk. These prove it reaches the row a
+   * `nodes/servedNoteCount.test.ts` proves the count. These prove it reaches the row a
    * console reads — a separate failure, and the one that would leave the tile
    * blank forever with a perfectly correct counter sitting behind it.
    */
   test("a verified bucket carries a note count and the moment it was taken", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
-    backend.seed("1-projects/ship-it/notes.md", "# Notes\n");
-    backend.seed("2-areas/health.md", "# Health\n");
-    backend.seed("1-projects/diagram.png", "binary");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it/notes.md", "# Notes\n");
+    backend.seed("areas/health.md", "# Health\n");
+    backend.seed("projects/diagram.png", "binary");
 
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
 
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ noteCount: 3, noteCountTruncated: false });
@@ -540,13 +548,11 @@ describe("verification classifies the bucket without touching it", () => {
   test("history revisions are not counted as notes", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
 
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    await verifyCounted(t, workspaceId);
 
     expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 1 });
   });
@@ -559,10 +565,8 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a later failed probe does not erase the count", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    backend.seed("projects/ship-it.md", "# Ship it\n");
+    await verifyCounted(t, workspaceId);
     const countedAt = (await binding(t, owner, workspaceId))?.noteCountedAt;
     expect(countedAt).toBeTypeOf("number");
 
@@ -587,11 +591,9 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("rebinding to another bucket clears the count with everything else", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
-    backend.seed("2-areas/health.md", "# Health\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    backend.seed("projects/ship-it.md", "# Ship it\n");
+    backend.seed("areas/health.md", "# Health\n");
+    await verifyCounted(t, workspaceId);
     expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 2 });
 
     const elsewhere = memoryS3("some-other-bucket", { unreachable: true });
@@ -614,11 +616,9 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a member cannot read the owner's note count", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/private-thing.md", "# Secret\n");
-    backend.seed("2-areas/another.md", "# Also secret\n");
-    await t.action(internal.functions.provisioning.verifyStorageBinding, {
-      workspaceId,
-    });
+    backend.seed("projects/private-thing.md", "# Secret\n");
+    backend.seed("areas/another.md", "# Also secret\n");
+    await verifyCounted(t, workspaceId);
 
     const guest = await createUser(t, "guest@example.invalid");
     await addMember(t, workspaceId, guest, "member");
@@ -640,7 +640,7 @@ describe("verification classifies the bucket without touching it", () => {
   /** An editor is not the owner either. Write access is not a licence to count. */
   test("an editor cannot read the note count either", async () => {
     const { t, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -657,6 +657,7 @@ describe("verification classifies the bucket without touching it", () => {
   /** A freshly scaffolded bucket is counted as it now stands, not as found. */
   test("a scaffold is counted after it lands, not before", async () => {
     const { t, owner, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
@@ -687,7 +688,7 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a later failed probe does not erase what the last good one learned", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -721,34 +722,28 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("an empty bucket gets a context the gateway can read", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     const result = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
       { workspaceId, structure: PARA },
     );
 
     expect(result).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [
-        "0-inbox/about.md",
-        "1-projects/about.md",
-        "2-areas/about.md",
-        "3-resources/about.md",
-        "9-archive/about.md",
-        "index.md",
-        "privacy.md",
-      ].sort(),
+    expect(await notePaths(t, workspaceId)).toEqual(
+      ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
 
-    const { parsePrivacyManifest } = gatewayInternals();
-    expect(
-      parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body).rules.map(
-        (rule) => rule.prefix,
-      ),
-    ).toEqual([...PARA_FOLDERS]);
+    // The access is on the rows: one folder rule per PARA folder, all private.
+    const rules = await rowFolderRules(t, workspaceId);
+    expect(rules.map((rule) => rule.prefix)).toEqual([...PARA_FOLDERS].sort());
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
   });
 
   test("a custom layout gets the owner's own folders, with their own words", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: {
@@ -760,28 +755,19 @@ describe("scaffolding the layout the caller asked for", () => {
       },
     });
 
-    expect([...backend.objects.keys()].sort()).toEqual([
-      "clients/about.md",
-      "index.md",
-      "privacy.md",
-      "reading/about.md",
-    ]);
-    // Their description, verbatim, in the folder's about.md and in the manifest.
-    expect(backend.objects.get("clients/about.md")!.body).toContain(
-      "One folder per client.",
-    );
-    expect(backend.objects.get("index.md")!.body).toContain(
+    expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
+    // Their description, verbatim, in the folder's about.md and in the index.
+    expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
+    expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
     );
-    // …and every one of them starts private, read back through the gateway's
-    // own parser.
-    const { parsePrivacyManifest } = gatewayInternals();
-    const parsed = parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body);
-    expect(parsed.rules.map((rule) => rule.prefix).sort()).toEqual([
-      "clients",
-      "reading",
-    ]);
-    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
+    // …and every one of them starts private, judged over the rows.
+    const rules = await rowFolderRules(t, workspaceId);
+    expect(rules.map((rule) => rule.prefix)).toEqual(["clients", "reading"]);
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    expect(await canSeeInRows(t, workspaceId, "clients/acme.md", "team")).toBe(false);
   });
 
   /**
@@ -793,9 +779,9 @@ describe("scaffolding the layout the caller asked for", () => {
     backend.objects.clear();
     backend.seed(PRIVACY_KEY, "# hand written, do not touch\n");
     backend.seed("index.md", "# My workspace\n");
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
     const before = backend.snapshot();
 
@@ -817,6 +803,7 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("running it twice writes nothing the second time", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: PARA,
@@ -853,6 +840,7 @@ describe("scaffolding the layout the caller asked for", () => {
     const { t, backend, workspaceId } = await connecting({
       rootPrefix: "notes/workspace/",
     });
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: {
@@ -861,11 +849,11 @@ describe("scaffolding the layout the caller asked for", () => {
       },
     });
 
-    expect([...backend.objects.keys()].sort()).toEqual([
-      "notes/workspace/index.md",
-      "notes/workspace/privacy.md",
-      "notes/workspace/work/about.md",
-    ]);
+    // Notes sit under their ids beneath the prefix; the manifest at its plain path.
+    expect(await notePaths(t, workspaceId)).toEqual(["index.md", "work/about.md"]);
+    // Only note bodies, under their ids: no access file, and nothing else beside them.
+    expect([...backend.objects.keys()].filter((key) => !/notes\/[0-9a-f-]+\.md$/.test(key)).sort()).toEqual([]);
+    expect(backend.objects.has("notes/workspace/privacy.md")).toBe(false);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {
       expect(key).not.toContain(workspaceId);

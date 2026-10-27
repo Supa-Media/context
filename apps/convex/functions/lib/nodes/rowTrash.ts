@@ -4,8 +4,7 @@
  * A keyed note's bytes sit at `notes/<noteId>.md`, so a trash that moved bytes
  * would move frozen path copies and leave the live note where it was. Instead
  * the note's row (or a folder's rows) move into `.context/trash/<stamp>/<path>`,
- * the same destination the queued byte trash names (`trashStart.ts`), and
- * Restore moves them back. Nothing is copied, deleted or queued, and no privacy
+ * the hidden trash folder, and Restore moves them back. Nothing is copied, deleted or queued, and no privacy
  * rule is written: the note keeps its rules at its own name for Restore, as a
  * trash made in one go does (`trashPath`).
  *
@@ -31,9 +30,11 @@ import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import { TRASH_ROOT, type FileStore } from "../fileOps/store";
 import { catchUpKeyedRows } from "./rowCatchUp";
 import { canSee } from "../privacy";
+import { hidesBeneath } from "./builtJudge";
 import { refusal } from "./rowMoveStart";
 import { carryRowHistory } from "./rowHistory";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
+import { rowEtagFor } from "./handedVersion";
 
 /** Trash destinations tried for one stamp before the trash is refused: the bucket's own bound. */
 const TRASH_ATTEMPTS = 100;
@@ -100,12 +101,19 @@ export async function startRowTrash(
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the trash was not made.");
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot be trashed as one step: the row move takes all of it.
-  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  // On built paths a folder's files are not listed: the rules beneath it say whether any is hidden (`hiddenBeneath`).
+  const folderBuilt = plan.built && plan.kind === "folder" && !plan.listed;
+  if (
+    planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) ||
+    (folderBuilt && (await hidesBeneath(ctx, workspaceId, path, clearance, state)))
+  ) {
     throw new FileOpError("CONFLICT", "That folder cannot be moved to the trash in one step.");
   }
 
   // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, [{ path, expectedEtag: args.expectedEtag }]);
+  // The caller's version as the row carries it (`handedVersion.ts`).
+  const expectedEtag = await rowEtagFor(store, path, args.expectedEtag);
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path, expectedEtag }]);
   const stamp = timestampSlug(now);
   const destination = (n: number) => `${TRASH_ROOT}/${n === 1 ? stamp : `${stamp}-${n}`}/${path}`;
   const attempt = (to: string) =>
@@ -114,11 +122,11 @@ export async function startRowTrash(
       from: path,
       to,
       privacyEtag: null,
-      ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+      ...(plan.tooLarge || folderBuilt ? {} : { plannedFiles: planned.files }),
       chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
       now,
       trash: true,
-      ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      ...(expectedEtag === undefined ? {} : { expectedEtag }),
     });
   let to = destination(1);
   let answer = await attempt(to);
@@ -126,13 +134,20 @@ export async function startRowTrash(
     to = destination(n);
     answer = await attempt(to);
   }
+  if (!answer.ok && answer.reason === "changed") {
+    throw new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.", answer.currentEtag);
+  }
   if (!answer.ok) throw refusal(answer.reason, path, true);
 
   const moves = answer.chunked === undefined
     ? planned.files.map((key) => ({ from: key, to: `${to}${key.slice(path.length)}` }))
     : await pagesOf(ctx, workspaceId, store, { id: answer.chunked, to, state: "moving" }, path);
   await carryRowHistory(store, moves);
-  if (args.projection) await followInProjection(store, { written: [], gone: moves.map((pair) => pair.from) }, args.projection);
+  if (args.projection) {
+    // A folder trashed on built paths lists no files: the search index follows the folder itself into the trash.
+    const change = folderBuilt ? { written: [], gone: [], moved: [[path, to]] } : { written: [], gone: moves.map((pair) => pair.from) };
+    await followInProjection(store, change, args.projection);
+  }
   return { from: path, to, paths: [to], queued: moves.length, rowed: true };
 }
 
@@ -162,7 +177,7 @@ export async function restoreRowTrash(
     from: trash,
     to: path,
     privacyEtag: null,
-    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    ...(plan.tooLarge || (plan.built && !plan.listed) ? {} : { plannedFiles: planned.files }),
     // The caller judged the trash as a whole; a page judges nothing that comes out of the trash.
     chunk: { scope: "private", grantedNames: [] },
     now,

@@ -51,6 +51,11 @@ export const membershipTables = {
     userId: v.id("users"),
     addedBy: v.id("users"),
     addedAt: v.number(),
+    /**
+     * Added because the person is in a Tex guest chat of this group (`lib/textGroupGuestSync.ts`), and removed when
+     * they are no longer in it. A row without it is the owner's and the chat never touches it.
+     */
+    viaChat: v.optional(v.id("textGroups")),
   })
     .index("by_group", ["groupId"])
     .index("by_group_user", ["groupId", "userId"])
@@ -115,11 +120,13 @@ export const membershipTables = {
     /**
      * `name` — a `@handle` out of the shared namespace, stored undecorated.
      * `email` — a lowercased address.
+     * `phone` — an E.164 number (2026-10-27): resolved to the account that
+     *   number is linked to or verified on, and never mailed or texted.
      *
      * Kept as an explicit field rather than derived from the string's shape, so
      * no reader has to guess and no two readers can guess differently.
      */
-    inviteeKind: v.union(v.literal("name"), v.literal("email")),
+    inviteeKind: v.union(v.literal("name"), v.literal("email"), v.literal("phone")),
     invitee: v.string(),
     role: v.union(v.literal("editor"), v.literal("member")),
     invitedBy: v.id("users"),

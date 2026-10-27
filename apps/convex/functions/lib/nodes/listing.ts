@@ -8,13 +8,13 @@
  * name is still `canSee` and `folderVisibleAtScope` over the same rules, and a
  * withheld folder still answers exactly as an absent one does. What this file
  * owns is only which rows make up a folder, and when the tree is there to
- * answer at all (`treeReadiness`).
+ * answer at all (`treeServes`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Clearance } from "../clearance";
-import { listFolder, type FolderListing } from "../fileOps/listing";
+import { folderVisibleAtScope, listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile, readMirror } from "./privacyMirror";
@@ -24,7 +24,13 @@ import { childrenThroughMoves } from "./moveOverlay";
 import { drawnMoves } from "./rowMoveChunks";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 import { folderJobsOf } from "./folderJobs";
-import { compareListingEntries, isRowRole, jobAt } from "@context/shared/src/folderRoles.cjs";
+import {
+  compareListingEntries,
+  isRowRole,
+  jobAt,
+  type RowRole,
+} from "@context/shared/src/folderRoles.cjs";
+import { nodeAt } from "./paths";
 
 export { readMirror };
 
@@ -36,29 +42,12 @@ export { readMirror };
 export const NODE_LISTING_ROWS = 5_000;
 
 /**
- * Where a workspace's tree is, for a reader: `served` once its first copy has
- * finished, `loading` before that, `unsupported` for a store that cannot be
- * listed in key order (one that ignores key order), which no sweep can copy.
- *
- * Decided by the owner, 2026-10-13 ("the only thing that should be reading
- * from storage directly should be actually opening and editing a note"):
- * Convex always answers. Until then a reader read the bucket wherever the
- * last parity check differed, a pass failed, or staff paused the migration.
- * Now parity is an alarm for staff, a failed pass is retried behind a tree
- * that keeps serving, and Pause stops copying work only. A re-sweep of a
- * finished copy keeps `ready`, so it keeps serving the rows it has.
+ * Whether this workspace's tree answers its readers: its `nodeTrees` row is
+ * `ready`, the served marker the workspace was born with (`lib/noteIds/born.ts`).
+ * A workspace without one is not served, and no reader is told it is loading.
  */
-export type TreeReadiness = "served" | "loading" | "unsupported";
-
-export function treeReadiness(tree: Pick<Doc<"nodeTrees">, "status"> | null): TreeReadiness {
-  if (tree === null) return "loading";
-  if (tree.status === "unsupported") return "unsupported";
-  return tree.status === "ready" ? "served" : "loading";
-}
-
-/** Whether this workspace's tree answers its readers: its first copy has finished. */
 export function treeServes(tree: Pick<Doc<"nodeTrees">, "status"> | null): boolean {
-  return treeReadiness(tree) === "served";
+  return tree !== null && tree.status === "ready";
 }
 
 /**
@@ -73,11 +62,9 @@ async function childrenOf(
 ): Promise<{ rows: Doc<"nodes">[]; more: boolean }> {
   let parentId: Id<"nodes"> | undefined;
   if (folder !== "") {
-    const node = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", folder))
-      .unique();
-    if (node === null || node.kind !== "folder" || node.goneAt !== undefined) return { rows: [], more: false };
+    const node = await nodeAt(ctx.db, workspaceId, folder);
+    if (node === null || node.kind !== "folder" || node.goneAt !== undefined)
+      return { rows: [], more: false };
     parentId = node._id;
   }
   const rows: Doc<"nodes">[] = [];
@@ -87,17 +74,22 @@ async function childrenOf(
   for await (const row of children) {
     if (row.goneAt !== undefined) continue;
     if (rows.length === NODE_LISTING_ROWS) return { rows, more: true };
-    rows.push(row);
+    // At the path it is at: the folder's, and its own name.
+    rows.push({
+      ...row,
+      path: folder === "" ? row.name : `${folder}/${row.name}`,
+    });
   }
   return { rows, more: false };
 }
 
 /** The row at one bucket key, live or gone. */
-async function rowAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
-  return await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+async function rowAt(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<Doc<"nodes"> | null> {
+  return await nodeAt(ctx.db, workspaceId, path);
 }
 
 /**
@@ -139,17 +131,13 @@ export function folderRowsStore(
 }
 
 /** Where this workspace's tree is now, read in the caller's transaction. */
-export async function treeReadinessNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<TreeReadiness> {
+/** Whether the tree serves this workspace now (`treeServes`). */
+export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
   const tree = await db
     .query("nodeTrees")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return treeReadiness(tree);
-}
-
-/** Whether the tree serves this workspace now (`treeReadiness`). */
-export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
-  return (await treeReadinessNow(db, workspaceId)) === "served";
+  return treeServes(tree);
 }
 
 /** One folder's listing at `clearance`, from the tree's rows and its privacy mirror. */
@@ -175,7 +163,24 @@ export async function listFolderFromNodes(
     clearance,
     judged: { ...judged, manifestUsable },
   });
-  return await withFolderJobs(ctx, workspaceId, folder, rows, listing);
+  // Read whether or not the caller may see the folder, so a withheld folder costs what an absent one does.
+  const job = await ownJob(ctx, workspaceId, folder);
+  const own = folderVisibleAtScope(folder, clearance, judged.rules, judged.overrides) ? job : null;
+  return { ...(await withFolderJobs(ctx, workspaceId, folder, rows, listing)), ...(own === null ? {} : { role: own }) };
+}
+
+/**
+ * The listed folder's own job, so a page opened on a nested built-in folder
+ * (a website moved into Areas, opened before Areas has listed) knows what it
+ * is without its parent's listing. Its row's job, or at the top level the one
+ * its name gives it, as its parent's listing would say.
+ */
+async function ownJob(ctx: QueryCtx, workspaceId: Id<"workspaces">, folder: string): Promise<RowRole | null> {
+  if (folder === "") return null;
+  const row = await rowAt(ctx, workspaceId, folder);
+  const byName = folder.includes("/") ? null : jobAt(await folderJobsOf(ctx.db, workspaceId), folder);
+  if (row === null || row.goneAt !== undefined || row.kind !== "folder") return null;
+  return isRowRole(row.role) ? row.role : byName;
 }
 
 /**

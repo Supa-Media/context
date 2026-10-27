@@ -64,6 +64,8 @@ export const openStorageBindingReturns = v.union(
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
     /** `guest` for a pin reader: the binding's rules are rendered for a guest (`lib/pinnedReaders.ts`). */
     audience: v.optional(v.literal("guest")),
+    /** A Tex guest chat's names: its rules are the guest rules read for it (`lib/nodes/chatFolders.ts`). */
+    chatNames: v.optional(v.array(v.string())),
   }),
 );
 
@@ -79,7 +81,6 @@ export const openGatewayJobReturns = v.union(
       actorClientId: v.string(),
       grantId: v.id("oauthGrants"),
       kind: gatewayJobKindValidator,
-      moveId: v.optional(v.string()),
       imageSha256: v.optional(v.string()),
       imageBytes: v.optional(v.number()),
     }),

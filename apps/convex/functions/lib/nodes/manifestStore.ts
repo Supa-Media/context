@@ -23,6 +23,21 @@ import { foldRows, type PendingMove } from "./moveOverlay";
 import { mirrorFile } from "./privacyMirror";
 import { NODE_PRIVACY_KEY, type NodeRow, type PrivacyMirror } from "./table";
 
+/**
+ * The store under the rows: no bucket at all. `servedNodesStore` answers
+ * `list` from the rows and `privacy.md` from the mirror itself, so anything
+ * that reaches this is a read a tree answer should never have made, and it
+ * fails rather than open the bucket.
+ */
+export const NO_BUCKET: FileStore = {
+  list: async () => {
+    throw new Error("a tree read reads no bucket");
+  },
+  get: async () => {
+    throw new Error("a tree read reads no bucket");
+  },
+} as unknown as FileStore;
+
 /** One page of live file rows in key order, from just after `after`. */
 export type NodePage = (after: string | undefined, limit: number) => Promise<{ rows: NodeRow[]; cursor: string | null }>;
 
@@ -181,7 +196,7 @@ export async function servedNodesStore(
       cursor: result.cursor,
     };
   };
-  const moves = await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId });
+  const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
   return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror, moves);
 }
 

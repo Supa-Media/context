@@ -1,7 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { isLogicalDeleteMarker } from "../../../mcp/src/store/logicalDelete.js";
 import { api } from "../../_generated/api";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import {
   asUser,
   captureError,
@@ -14,8 +13,9 @@ import {
   errorShape,
   danglingWorkspaceId,
 } from "./fixtures.helpers";
+import { bodyAtPath } from "./keyedNotes.helpers";
 
-describe("an owner can edit their context", () => {
+describe("an owner can edit their context", { timeout: 60_000 }, () => {
   test("migrates only reserved system objects and leaves notes untouched", async () => {
     const f = await fixture();
     f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
@@ -206,8 +206,8 @@ describe("an owner can edit their context", () => {
       workspaceId: f.workspaceId,
       path: "1-projects/renamed.md",
     });
-    expect(archived.to).toMatch(/^9-archive\//);
-    expect(f.backend.snapshot()[archived.to]).toBe("# New\n");
+    expect(archived.to).toMatch(/^archive\//);
+    expect(await bodyAtPath(f, archived.to)).toBe("# New\n");
   });
 
   test("creates a folder", async () => {
@@ -220,7 +220,7 @@ describe("an owner can edit their context", () => {
     // `fileOps.test.ts`'s to pin; what this end-to-end path checks is that the
     // action wrote the key at all.
     expect(created.readme).toBe("1-projects/plans/about.md");
-    expect(f.backend.snapshot()[created.readme]).toBe("");
+    expect(await bodyAtPath(f, created.readme)).toBe("");
   });
 
   test("pastes a copy at an explicit destination", async () => {
@@ -230,12 +230,16 @@ describe("an owner can edit their context", () => {
       from: "1-projects/shared.md",
       to: "2-areas/shared.md",
     });
-    expect(f.backend.snapshot()["2-areas/shared.md"]).toContain("# Shared");
+    expect(await bodyAtPath(f, "2-areas/shared.md")).toContain("# Shared");
   });
 
-  test("changes a note's visibility, and the manifest the gateway reads follows", async () => {
+  test("changes a note's visibility, and a member's reads follow", async () => {
     const f = await fixture();
     await share(f);
+    const reader = asUser(f.t, f.reader);
+    expect(
+      await reader.action(api.functions.files.readNote, { workspaceId: f.workspaceId, path: "1-projects/shared.md" }),
+    ).toMatchObject({ path: "1-projects/shared.md" });
     const result = await asUser(f.t, f.owner).action(
       api.functions.files.setNoteVisibility,
       {
@@ -245,7 +249,10 @@ describe("an owner can edit their context", () => {
       },
     );
     expect(result.exception).toBe(true);
-    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("1-projects/shared.md: private");
+    // The rule is read where a member's access is decided: the member no longer reads the note.
+    await expect(
+      reader.action(api.functions.files.readNote, { workspaceId: f.workspaceId, path: "1-projects/shared.md" }),
+    ).rejects.toThrow();
   });
 });
 

@@ -20,12 +20,18 @@ import assert from "node:assert/strict";
 import { callTool } from "../src/tools/dispatch.js";
 import { compareKeys } from "../src/tree/served.js";
 import { propsOf } from "../src/tree/props.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
-const PRIVACY =
-  "---\nrole: privacy-manifest\n---\n\n" +
-  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
-  "<!-- END BRAIN PRIVACY RULES -->\n";
+/**
+ * The access rows the control plane serves beside the binding: `1-projects/` is the team's, everything else
+ * private. The gateway judges by these, never by a `privacy.md` in the bucket.
+ */
+const ROWS = {
+  etag: "rows-1",
+  accessVersion: 1,
+  folders: [{ prefix: "1-projects", visibility: "team" }],
+  notes: [],
+};
 
 const SEALED = "---\ncontext_encryption: v1\n---\n\n```context-encrypted\n{\"v\":1,\"ciphertext\":\"0000\"}\n```\n";
 
@@ -73,14 +79,14 @@ function servedStore(notes, { unread = [] } = {}) {
       };
     },
   });
-  return store;
+  // The session wraps its store the same way: the rules come from the rows, not from a file in the bucket.
+  return withPrivacyAuthority(store, { rules: ROWS });
 }
 
 const text = (answer) => answer.content[0].text;
 
 test("a meeting the tree has not read is listed by its date and says its details are still loading", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "0-inbox/meetings/2026-10-02-review.md": "---\nstarted: 2026-10-02T10:00:00Z\nduration: 30m\nattendees: [Ana, Ben]\n---\n# Review\n",
     "0-inbox/meetings/2026-10-01-standup.md": "---\nstarted: 2026-10-01T09:00:00Z\n---\n# Standup\n",
     "0-inbox/meetings/2026-09-30-sealed.md": SEALED,
@@ -94,7 +100,6 @@ test("a meeting the tree has not read is listed by its date and says its details
 
 test("a channel day the tree has not read is listed off its path, and says so", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "0-inbox/email/me-at-example-com/2026-10-02.md": "---\naccount: me@example.com\nmessages: 3\n---\n# Mail\n",
     "0-inbox/email/me-at-example-com/2026-10-01.md": "---\naccount: me@example.com\nmessages: 1\n---\n# Mail\n",
   }, { unread: ["0-inbox/email/me-at-example-com/2026-10-01.md"] });
@@ -105,7 +110,6 @@ test("a channel day the tree has not read is listed off its path, and says so", 
 
 test("list_contacts tells a contact page, an imported one, a note of your own and a sealed page apart from props", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "0-inbox/contacts/ana.md": "---\nupdated: \"2026-10-01T00:00:00.000Z\"\ntype: \"contact\"\n---\n\n# Ana Silva\n\n**Organization:** Example Ltd\n",
     "0-inbox/contacts/imessage/mum.md": "---\nrole: communication-contact\n---\n\n# Mum\n",
     "0-inbox/contacts/mine.md": "# Something I wrote\n",
@@ -124,7 +128,6 @@ const LIST_SOURCE = "# Board\n\n```list\nfrom: 1-projects/work\nshow: status\n``
 
 test("a note the tree has not read is left out of a List, which says it is pending", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "1-projects/board.md": LIST_SOURCE,
     "1-projects/work/a.md": "---\nstatus: doing\n---\n# A\n",
     "1-projects/work/b.md": "---\nstatus: done\n---\n# B\n",
@@ -138,7 +141,6 @@ test("a note the tree has not read is left out of a List, which says it is pendi
 
 test("a List whose every note the tree has read is not pending, and leaves sealed notes out", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "1-projects/board.md": LIST_SOURCE,
     "1-projects/work/a.md": "---\nstatus: doing\n---\n# A\n",
     "1-projects/work/sealed.md": SEALED,
@@ -150,7 +152,6 @@ test("a List whose every note the tree has read is not pending, and leaves seale
 
 test("a List never reads a property off Object.prototype", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "1-projects/board.md": "# Board\n\n```list\nfrom: 1-projects/work\nshow: constructor\n```\n",
     "1-projects/work/a.md": "---\nstatus: doing\n---\n# A\n",
   });
@@ -163,7 +164,6 @@ test("a List never reads a property off Object.prototype", async () => {
 
 test("props the tree cannot answer leave every row pending rather than reading the notes", async () => {
   const store = servedStore({
-    "privacy.md": PRIVACY,
     "1-projects/board.md": LIST_SOURCE,
     "1-projects/work/a.md": "---\nstatus: doing\n---\n# A\n",
   });

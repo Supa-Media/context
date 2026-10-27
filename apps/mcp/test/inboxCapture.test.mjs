@@ -21,7 +21,7 @@ export async function runInboxCaptureChecks() {
     { waitUntil() {} }
   );
   const inboxBody = await inbox.json();
-  check("inbox capture lands in 0-inbox", inboxBody.ok && inboxBody.path.startsWith("0-inbox/") && objects.has(inboxBody.path));
+  check("inbox capture lands in inbox", inboxBody.ok && /^inbox\/[^/]+\.md$/.test(inboxBody.path) && objects.has(inboxBody.path));
   const granolaPayload = {
     title: "Weekly Leadership Sync",
     text: "## Summary\nWe made a decision.",
@@ -44,7 +44,7 @@ export async function runInboxCaptureChecks() {
   check(
     "structured Granola capture preserves context",
     granolaBody.ok &&
-      granolaBody.path.startsWith("0-inbox/granola/") &&
+      granolaBody.path.startsWith("inbox/granola/") &&
       granolaNote.includes('source: "granola"') &&
       granolaNote.includes('external-id: "granola-note-123"') &&
       granolaNote.includes("Seyi") &&

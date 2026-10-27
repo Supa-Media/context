@@ -805,10 +805,9 @@ export async function runPrivacyGroupChecks(check) {
       destination: "1-projects/q3.md",
     });
     check("the owner's move succeeded", /moved/i.test(move) && !/error/i.test(move));
-    check(
-      "a group-scoped note moved into a team folder keeps its group",
-      bucket.text("privacy.md").includes("1-projects/q3.md: @supa-owners")
-    );
+    // The owner's read names the tier the moved note's row gives it.
+    const movedOwnerRead = await callTool(env, OWNER_TOKEN, "read_note", { path: "1-projects/q3.md" });
+    check("a group-scoped note moved into a team folder keeps its group", movedOwnerRead.includes("visibility: @supa-owners"));
     const teamReadsMoved = await callTool(env, TEAM_TOKEN, "read_note", {
       path: "1-projects/q3.md",
     });

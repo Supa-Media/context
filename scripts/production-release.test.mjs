@@ -18,6 +18,42 @@ test('promotion verifies the dispatch commit rather than the current main tip', 
   assert.equal(url, good.html_url);
 });
 
+test('a commit whose CI on main failed, is pending or never ran cannot be promoted', async () => {
+  const ci = { ...good, html_url: 'https://example.com/ci' };
+  for (const runs of [[], [{ ...ci, conclusion: 'failure' }], [{ ...ci, status: 'in_progress' }], [{ ...ci, head_sha: 'b'.repeat(40) }], [{ ...ci, conclusion: 'failure' }, ci]]) {
+    const request = async (url) => ({ ok: true, json: async () => ({ workflow_runs: url.pathname.endsWith('/ci.yml/runs') ? runs : [good] }) });
+    await assert.rejects(requireStagingRelease(env, request), /CI has not passed/);
+  }
+  const asked = [];
+  await requireStagingRelease(env, async (url) => {
+    asked.push(url.pathname.split('/').at(-2));
+    return { ok: true, json: async () => ({ workflow_runs: [good] }) };
+  });
+  assert.deepEqual(asked, ['deploy-staging.yml', 'ci.yml']);
+});
+
+test('a release started beside staging skips the staging and CI wait, and only that', async () => {
+  const none = () => assert.fail('a release beside staging asks GitHub nothing');
+  assert.equal(await requireStagingRelease({ ...env, ALONGSIDE_STAGING: 'true' }, none), 'started alongside staging');
+  // The flag does not lift the main-only, manual-event rule.
+  await assert.rejects(requireStagingRelease({ ...env, ALONGSIDE_STAGING: 'true', GITHUB_REF: 'refs/heads/feature' }, none), /manually from main/);
+  // Anything but the exact string still waits.
+  for (const value of [undefined, 'false', '', 'TRUE']) {
+    await assert.rejects(requireStagingRelease({ ...env, ALONGSIDE_STAGING: value }, reply([])), /not completed staging/);
+  }
+});
+
+test('a merge starts production beside staging unless the variable puts staging first', () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const staging = readFileSync(new URL('deploy-staging.yml', dir), 'utf8');
+  assert.match(staging, /  production:\n    name: Start production alongside staging\n    if: \$\{\{ github\.event_name == 'push' && vars\.AUTO_DEPLOY_PRODUCTION != 'off' && vars\.AUTO_DEPLOY_PRODUCTION != 'after-staging' \}\}/);
+  assert.match(staging, /run: gh workflow run deploy-production\.yml --ref main -f alongside_staging=true/);
+  const production = readFileSync(new URL('deploy-production.yml', dir), 'utf8');
+  assert.match(production, /ALONGSIDE_STAGING: \$\{\{ inputs\.alongside_staging \}\}/);
+  const promote = readFileSync(new URL('promote-production.yml', dir), 'utf8');
+  assert.match(promote, /vars\.AUTO_DEPLOY_PRODUCTION == 'after-staging'/);
+});
+
 test('automatic events and non-main refs cannot promote', async () => {
   for (const change of [{ GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/tags/main' }]) {
     await assert.rejects(requireStagingRelease({ ...env, ...change }, () => assert.fail('must reject before API access')), /manually from main/);

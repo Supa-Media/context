@@ -14,7 +14,7 @@ export const REFRESH = "lin-refresh-0000-fake";
 export type Seen = { url: string; method: string; body: string; auth: string | null };
 
 /** Linear's MCP server and its authorization server, as their metadata and JSON-RPC answer. */
-export function stubLinear(options: { expiredToken?: string } = {}) {
+export function stubLinear(options: { expiredToken?: string; scopes?: () => string[] } = {}) {
   const seen: Seen[] = [];
   vi.stubEnv("APP_ORIGIN", APP);
   vi.stubGlobal(
@@ -26,7 +26,8 @@ export function stubLinear(options: { expiredToken?: string } = {}) {
       const auth = new Headers(init?.headers).get("Authorization");
       seen.push({ url, method, body, auth });
       if (url === "https://mcp.linear.app/.well-known/oauth-protected-resource/mcp") {
-        return Response.json({ resource: SERVER, authorization_servers: ["https://mcp.linear.app"] });
+        const scopes = options.scopes?.();
+        return Response.json({ resource: SERVER, authorization_servers: ["https://mcp.linear.app"], ...(scopes === undefined ? {} : { scopes_supported: scopes }) });
       }
       if (url === "https://mcp.linear.app/.well-known/oauth-authorization-server") {
         return Response.json({
@@ -55,7 +56,13 @@ export function stubLinear(options: { expiredToken?: string } = {}) {
         if (rpc.method === "tools/list") {
           return answer({
             tools: [
-              { name: "list_issues", description: "List issues.", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+              {
+                name: "list_issues",
+                description: "List issues.",
+                // As Planning Center's server sends it: Convex refuses a field named `$schema`.
+                inputSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: { team: { type: "string" } } },
+                annotations: { readOnlyHint: true },
+              },
               { name: "create_issue", description: "Create an issue.", inputSchema: { type: "object" }, annotations: { readOnlyHint: false } },
               { name: "unmarked", description: "Says nothing about itself.", inputSchema: { type: "object" } },
             ],

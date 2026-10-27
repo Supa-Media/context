@@ -5,7 +5,6 @@
  * already has.
  */
 
-import { internal } from "../../../_generated/api";
 import type { Doc } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { productBackingOff } from "../googleSchedule";
@@ -44,7 +43,6 @@ export async function markPushPending(
   if (row.health === "reconnect_required") return;
   const pending: Pending = { ...(row.push?.pending ?? {}) };
   const markedAt = pending[product];
-  const alreadyPending = markedAt !== undefined;
   // Already marked, and no pass has claimed the mark yet: the pass that claims it covers this
   // notification too, so there is nothing to write. A busy mailbox notifies many times a minute,
   // and each write re-ran every query that reads the connection.
@@ -60,12 +58,8 @@ export async function markPushPending(
     push: { ...(row.push ?? {}), pending, lastPushAt: now },
     nextSyncAt,
   });
-  // One sweep per burst: later notifications before the pass only move the
-  // timestamp. A failing row waits for the five-minute cron like any other.
-  if (!alreadyPending && !failing) {
-    const delayMs = Math.max(0, (nextSyncAt ?? now) - now);
-    await ctx.scheduler.runAfter(delayMs, internal.functions.googleSync.sweepDueGoogleSyncs, {});
-  }
+  // Nothing is scheduled: no pass copies mail any more (owner, 2026-10-21),
+  // so a notification is recorded and nothing else (`crons.ts`).
 }
 
 /**
@@ -90,7 +84,7 @@ export function settlePending(
 /**
  * The push half of a successful pass's report: clear what it covered, and if
  * a notification arrived while it ran, make the connection due again after the
- * gap and queue the sweep that will claim it. Answers the row's new `push` and
+ * gap. Nothing is queued: no pass is scheduled any more (`crons.ts`). Answers the row's new `push` and
  * the earliest the next pass is due because of it (`Infinity` when nothing is
  * left pending).
  */
@@ -99,12 +93,9 @@ export async function settlePushAfterPass(
   row: Doc<"googleConnections">,
   product: PushProduct,
   now: number,
-  catchUp: boolean,
+  _catchUp: boolean,
 ): Promise<{ push: Doc<"googleConnections">["push"]; dueAt: number }> {
   if (row.push === undefined) return { push: undefined, dueAt: Infinity };
   const pending = settlePending(row, product, row.syncStartedAt);
-  if (pending !== undefined && !catchUp) {
-    await ctx.scheduler.runAfter(PUSH_MIN_GAP_MS, internal.functions.googleSync.sweepDueGoogleSyncs, {});
-  }
   return { push: { ...row.push, pending }, dueAt: pending === undefined ? Infinity : now + PUSH_MIN_GAP_MS };
 }

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleEmail, type Env, type InboundMessage } from "./index";
 import { REFUSAL } from "./refusal";
 import { AUTHSERV, rawMessage, streamOf } from "./fixtures.test-helpers";
+import { controlPlaneStub } from "./workerHarness.test-helpers";
 
 const ENV: Env = {
   CONTROL_PLANE_URL: "https://control-plane.test",
@@ -79,7 +80,11 @@ async function deliver(
     },
     async forward() {},
   };
+  const ids = controlPlaneStub();
   const controlPlane = {
+    noteIdLookup: ids.noteIdLookup,
+    noteIdAdopt: ids.noteIdAdopt,
+    noteIdWrote: ids.noteIdWrote,
     async resolveIngestion() {
       return {
         ticket: "ticket-1",
@@ -110,11 +115,15 @@ async function deliver(
     now: () => new Date("2026-08-26T09:00:00.000Z"),
     nonce: () => "0123456789abcdef",
   });
+  lastRows = ids.rows;
   return rejected;
 }
 
-const inbox = (bucket: ReturnType<typeof bucketHolding>) =>
-  [...bucket.objects.keys()].filter((key) => key.startsWith("0-inbox/"));
+/** The rows the last delivery's tree holds. */
+let lastRows = new Map<string, unknown>();
+
+/** The capture notes the tree names under the inbox: their bytes are at id keys, never these paths. */
+const inbox = (_bucket: ReturnType<typeof bucketHolding>) => [...lastRows.keys()].filter((path) => path.startsWith("0-inbox/"));
 
 let logs: string[];
 

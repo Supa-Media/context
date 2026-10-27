@@ -41,7 +41,7 @@ import {
 import { toolReadNote } from "../src/tools/notes/read.js";
 import { toolReadActivity } from "../src/activity/readActivity.js";
 import { loadPrivacyState } from "../src/privacy/state.js";
-import { PRIVACY_KEY } from "../src/privacy/engine.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { ACTIVITY_PATH, renderFile } from "../../../packages/shared/src/activity.cjs";
 import { FOLDER_ICONS_KEY, remapIcons, serializeFolderIcons } from "../../../packages/shared/src/folderIcons.cjs";
 
@@ -85,40 +85,35 @@ class MemoryStore {
   }
 }
 
-const RULES = `# Privacy
-
-<!-- BEGIN BRAIN PRIVACY RULES -->
-
-\`\`\`yaml
-default_visibility: private
-
-folder_defaults:
-  1-projects/: team
-  1-projects/vault/: private
-
-note_overrides:
-  # none
-\`\`\`
-
-<!-- END BRAIN PRIVACY RULES -->
-`;
+/**
+ * The access rows the control plane serves beside the binding: `1-projects` is team, and its `vault`
+ * folder is private. Nothing in the bucket says so; the store is wrapped with these as the session does.
+ */
+const ROWS = {
+  etag: "rows-1",
+  accessVersion: 1,
+  folders: [
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/vault", visibility: "private" },
+  ],
+  notes: [],
+};
 
 /** A store as a gateway with a control plane opens it, answering the ledger it is given. */
 function heldStore(ledger, { withToken = true } = {}) {
-  const store = new MemoryStore();
-  store.seed(PRIVACY_KEY, RULES);
-  store.seed("1-projects/plan.md", "# Plan\n");
-  store.seed("1-projects/vault/codes.md", "# Codes\n");
+  const raw = new MemoryStore();
+  raw.seed("1-projects/plan.md", "# Plan\n");
+  raw.seed("1-projects/vault/codes.md", "# Codes\n");
   // What the bucket's file says is beside the point once the hooks are on: it
   // names the hidden destination, and must never be read.
-  store.seed(
+  raw.seed(
     FORWARDING_PATH,
     serializeForwarding({
       version: 1,
       entries: [{ from: "1-projects/was.md", to: "1-projects/vault/codes.md", kind: "note", at: 1 }],
     }),
   );
-  store.seed(FOLDER_ICONS_KEY, serializeFolderIcons({ "1-projects/q3": "📦" }));
+  raw.seed(FOLDER_ICONS_KEY, serializeFolderIcons({ "1-projects/q3": "📦" }));
   const recorded = [];
   const asked = [];
   const controlPlane = {
@@ -135,17 +130,18 @@ function heldStore(ledger, { withToken = true } = {}) {
     reportActivity: async () => {},
   };
   if (withToken) {
-    store.treeFacts = async (request) => {
+    raw.treeFacts = async (request) => {
       asked.push(request);
       return { served: true, forwarding: ledger };
     };
   }
-  attachChangeReporters(store, WORKSPACE, controlPlane);
-  return { store, recorded, asked };
+  attachChangeReporters(raw, WORKSPACE, controlPlane);
+  const store = withPrivacyAuthority(raw, { rules: ROWS });
+  return { store, raw, recorded, asked };
 }
 
 test("with the hooks, neither file is read", async () => {
-  const { store, recorded, asked } = heldStore([
+  const { store, raw, recorded, asked } = heldStore([
     { from: "1-projects/old.md", to: "1-projects/plan.md", kind: "note", at: 5 },
   ]);
   assert.equal(Object.keys(store).includes("forwardingLedger"), false, "the hooks are not enumerable");
@@ -159,15 +155,15 @@ test("with the hooks, neither file is read", async () => {
     [WORKSPACE, { forwarding: [{ from: "1-projects/a.md", to: "1-projects/b.md", kind: "note" }] }],
     [WORKSPACE, { icons: [{ from: "1-projects/q3", to: "1-projects/q4" }] }],
   ]);
-  assert.deepEqual(store.gets.filter((key) => key === FORWARDING_PATH || key === FOLDER_ICONS_KEY), []);
-  assert.deepEqual(store.puts, []);
+  assert.deepEqual(raw.gets.filter((key) => key === FORWARDING_PATH || key === FOLDER_ICONS_KEY), []);
+  assert.deepEqual(raw.puts, []);
 });
 
 test("a store with no token to ask with reads an empty ledger, not the bucket's", async () => {
-  const { store } = heldStore([], { withToken: false });
+  const { store, raw } = heldStore([], { withToken: false });
   const ledger = await readForwarding(store);
   assert.deepEqual(ledger.entries, []);
-  assert.deepEqual(store.gets, []);
+  assert.deepEqual(raw.gets, []);
 });
 
 test("a trail into a hidden place is not found, exactly as a path that never existed", async () => {
@@ -184,9 +180,9 @@ test("a trail into a hidden place is not found, exactly as a path that never exi
 });
 
 test("an activity line about a note moved out of sight is absent", async () => {
-  const { store } = heldStore([{ from: "1-projects/was.md", to: null, kind: "note", at: 1 }]);
+  const { store, raw } = heldStore([{ from: "1-projects/was.md", to: null, kind: "note", at: 1 }]);
   const line = (at, paths) => ({ at, kind: "revised", paths, n: paths.length, vis: "team", by: "@kemi", via: "Claude", note: null });
-  store.seed(
+  raw.seed(
     ACTIVITY_PATH,
     renderFile([line("2026-10-14T11:00:00.000Z", ["1-projects/plan.md"]), line("2026-10-14T10:00:00.000Z", ["1-projects/was.md"])], ""),
   );

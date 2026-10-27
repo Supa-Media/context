@@ -59,6 +59,7 @@
  */
 
 import { SEGMENT_MS } from "@context/meetings/chunks";
+import { hasLiveAudio } from "../core/capture/displayMedia.ts";
 
 /** What we ask for, best first. The browser's own answer is what gets sent. */
 const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -113,9 +114,11 @@ async function openStream(name: "mic" | "system"): Promise<MediaStream> {
     track.stop();
     display.removeTrack(track);
   }
-  if (display.getAudioTracks().length === 0) {
+  // `hasLiveAudio`, not a count: a tap macOS has not allowed arrives as a
+  // track that is already `ended` and never delivers a sample.
+  if (!hasLiveAudio(display.getAudioTracks())) {
     for (const track of display.getTracks()) track.stop();
-    throw new Error("no system audio track");
+    throw new Error("no live system audio track");
   }
   return display;
 }

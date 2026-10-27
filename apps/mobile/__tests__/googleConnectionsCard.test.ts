@@ -131,15 +131,12 @@ function render(node: ReturnType<typeof createElement>) {
 }
 
 describe("an account is one row", () => {
-  test("the row is the address, once, and the folders wait behind its menu", async () => {
+  test("the row is the address, once, and names no folder: nothing lands in one", () => {
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
     expect(screen.text().match(/person@example\.invalid/g)).toHaveLength(1);
     expect(screen.text()).not.toContain("0-inbox/email/person-at-example-invalid");
-    await screen.click("google-account-google_1");
-    await screen.click("menu-folders-google_1");
-    expect(screen.text()).toContain("0-inbox/email/person-at-example-invalid");
     screen.unmount();
   });
 
@@ -154,7 +151,7 @@ describe("an account is one row", () => {
     screen.unmount();
   });
 
-  test("each mark says its own health in words, for anybody who cannot see the dot", () => {
+  test("each mark says it is connected in words, for anybody who cannot see the dot", () => {
     const screen = render(createElement(GoogleConnectionsCard, {
       connections: [connection({
         gmail: {
@@ -166,47 +163,43 @@ describe("an account is one row", () => {
       actions,
     }));
     expect(screen.container.innerHTML).toContain(
-      "Email paused, Calendar up to date, Chat waiting for its first sync",
+      "Email connected, Calendar connected, Chat connected",
     );
     screen.unmount();
   });
 });
 
-describe("where connected data appears", () => {
-  test("each service says its own folder and its own delivery state", async () => {
-    const screen = render(createElement(GoogleConnectionsCard, {
-      connections: [connection({
-        calendar: {
-          destinationFolder: "0-inbox/calendar", destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-          syncCursorReady: true, lastSyncedAt: Date.now() - 60_000,
-        },
-        chat: { destinationFolder: "hidden-chat-folder", destinationPath: "x", cursorCount: 0 },
-        syncServices: { gmail: true, calendar: true, chat: false },
-      })], actions,
-    }));
-    await screen.click("google-account-google_1");
-    await screen.click("menu-folders-google_1");
-    expect(screen.text()).toContain("Up to date · ");
-    expect(screen.text()).toContain("Waiting for the first sync.");
-    expect(screen.text()).not.toContain("hidden-chat-folder");
+describe("nothing is copied, so nothing is behind", () => {
+  /*
+    Mail, calendar and chat are read from Google when asked and never copied
+    into notes (owner, 2026-10-21). The row says "Connected" where it said
+    "Up to date · 3:57 PM", and the card says what Context does now.
+  */
+  test("a connected account says Connected, however long ago its last copy ran", () => {
+    const old = connection({
+      syncStatus: "error",
+      lastError: "Google is briefly unavailable.",
+      gmail: {
+        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+        destinationPath: "x", historyCursorReady: true, lastSyncedAt: Date.now() - 9 * 24 * 60 * 60 * 1000,
+        lastFailure: "Google rate-limited this mailbox.",
+      },
+    });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [old], actions }));
+    expect(screen.text()).toContain("Connected");
+    expect(screen.text()).not.toContain("Up to date");
+    expect(screen.text()).not.toContain("not synced");
+    expect(screen.text()).not.toContain("retrying");
+    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
     screen.unmount();
   });
 
-  test("a service's own failure is shown on its line, with when it last delivered", async () => {
-    const screen = render(createElement(GoogleConnectionsCard, {
-      connections: [connection({
-        gmail: {
-          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-          destinationPath: "0-inbox/email/person/YYYY-MM-DD.md", historyCursorReady: true,
-          lastSyncedAt: Date.parse("2026-09-29T12:56:26Z"),
-          lastFailure: "Google rate-limited this mailbox. The next scheduled pass will try again.",
-        },
-      })], actions,
-    }));
-    await screen.click("google-account-google_1");
-    await screen.click("menu-folders-google_1");
-    expect(screen.text()).toContain("Last new mail");
-    expect(screen.text()).toContain("Google rate-limited this mailbox.");
+  test("the card says nothing is copied into notes", () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).toContain(
+      "Your AI reads mail, calendar and chat from Google when you ask. Nothing is copied into your notes.",
+    );
+    expect(screen.text()).not.toContain("land in your inbox folder");
     screen.unmount();
   });
 });
@@ -216,8 +209,6 @@ describe("nothing on the row is a setting", () => {
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    await screen.click("google-account-google_1");
-    await screen.click("menu-folders-google_1");
     expect(screen.text()).not.toContain("Where it lands");
     expect(screen.text()).not.toContain("Sync schedule");
     expect(screen.container.querySelector('[data-testid^="edit-google-"]')).toBeNull();
@@ -238,8 +229,8 @@ describe("nothing on the row is a setting", () => {
 });
 
 describe("the account's health belongs to the account", () => {
-  test("a healthy account says so in one line", () => {
-    expect(accountStatus(connection())).toEqual({ tone: "ok", text: "Up to date." });
+  test("a healthy account says Connected", () => {
+    expect(accountStatus(connection())).toEqual({ tone: "ok", text: "Connected" });
   });
 
   test("a grant that needs reconnecting is critical, and says it in one short line", () => {
@@ -250,92 +241,25 @@ describe("the account's health belongs to the account", () => {
     expect(accountStatus(stale)).toEqual({ tone: "crit", text: "Google wants you to sign in again." });
   });
 
-  test("...and any other failure keeps the server's own sentence, and retries without them", () => {
-    const failed = connection({ syncStatus: "error", lastError: "Google refused this mailbox." });
-    expect(accountStatus(failed)).toEqual({ tone: "warn", text: "Google refused this mailbox. Retrying on its own." });
-    expect(accountStatus(connection({ syncStatus: "error" }))).toEqual({
-      tone: "warn",
-      text: "Not syncing right now; retrying on its own.",
-    });
-  });
-
-  test("a full mailbox is the person's to fix, and says so without offering a reconnect", () => {
-    const full = connection({ syncStatus: "error", errorCode: "MAIL_QUOTA_EXCEEDED", lastError: "This connection reached its storage quota." });
-    expect(accountStatus(full)).toEqual({ tone: "crit", text: "Email storage is full, so new mail isn't being saved." });
-    const screen = render(createElement(GoogleConnectionsCard, { connections: [full], actions }));
-    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
+  // @blessing, 2026-10-23: Settings said Connected while Tex could only read her calendar.
+  test("a service Context can only read is said on the row, with a Reconnect, never just Connected", () => {
+    const readOnly = connection({ readOnly: ["calendar"] });
+    expect(accountStatus(readOnly)).toEqual({ tone: "warn", text: "Calendar read only. Reconnect and tick Select all." });
+    expect(accountStatus(connection({ readOnly: [] }))).toEqual({ tone: "ok", text: "Connected" });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [readOnly], actions }));
+    expect(screen.text()).toContain("Calendar read only.");
     screen.unmount();
   });
 
-  test("an account with no successful pass for hours says when it last synced, never 'Up to date'", () => {
-    const now = Date.parse("2026-10-20T18:00:00Z");
-    const at = now - 9 * 60 * 60 * 1000;
-    const quiet = connection({
-      syncServices: { gmail: true, calendar: false, chat: false },
-      gmail: {
-        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-        destinationPath: "x", historyCursorReady: true, lastSyncedAt: at,
-      },
+  test("a failure left by the last copying pass is not news: nothing is copied any more", () => {
+    expect(accountStatus(connection({ syncStatus: "error", lastError: "Google refused this mailbox." }))).toEqual({
+      tone: "ok",
+      text: "Connected",
     });
-    expect(accountStatus(quiet, now)).toEqual({ tone: "warn", text: "Not synced since 9 hours ago." });
-    // Five hours is not yet stale: a slow afternoon of mail, not a broken sync.
-    expect(accountStatus({ ...quiet, gmail: { ...quiet.gmail!, lastSyncedAt: now - 5 * 60 * 60 * 1000 } }, now).tone).toBe("ok");
-  });
-
-  test("...naming the service when only one of them stopped, even while it is failing", () => {
-    const now = Date.parse("2026-10-20T18:00:00Z");
-    const stale = connection({
-      syncStatus: "error",
-      lastError: "Google is briefly unavailable.",
-      syncServices: { gmail: true, calendar: true, chat: false },
-      gmail: {
-        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-        destinationPath: "x", historyCursorReady: true, lastSyncedAt: now - 3 * 24 * 60 * 60 * 1000,
-      },
-      calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true, lastSyncedAt: now - 60_000 },
-    });
-    expect(accountStatus(stale, now)).toEqual({ tone: "warn", text: "Email not synced since 3 days ago." });
-  });
-
-  test("a stale account's row has no Reconnect: only Google refusing the grant offers one", () => {
-    const screen = render(createElement(GoogleConnectionsCard, {
-      connections: [connection({
-        syncStatus: "error",
-        gmail: {
-          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-          destinationPath: "x", historyCursorReady: true, lastSyncedAt: Date.now() - 10 * 60 * 60 * 1000,
-        },
-      })],
-      actions,
-    }));
-    expect(screen.text()).toContain("Email not synced since 10 hours ago.");
-    expect(screen.text()).not.toContain("Up to date");
-    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
-    screen.unmount();
-  });
-
-  test("a service that stopped reaches the row by name, never as green 'Syncing'", () => {
-    const status = accountStatus(connection({
-      gmail: {
-        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-        destinationPath: "0-inbox/email/person/YYYY-MM-DD.md", historyCursorReady: true,
-        lastFailure: "Google rate-limited this mailbox.",
-      },
-      calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true },
-      chat: { destinationFolder: "0-inbox/google-chat", destinationPath: "x", cursorCount: 1 },
-    }));
-    expect(status).toEqual({
-      tone: "warn",
-      text: "Email paused, retrying on its own.",
-    });
-  });
-
-  test("connected and never synced is a state of its own, not an error", () => {
+    const full = connection({ syncStatus: "error", errorCode: "MAIL_QUOTA_EXCEEDED" });
+    expect(accountStatus(full)).toEqual({ tone: "ok", text: "Connected" });
     const fresh = connection({ sync: { ...SYNCING, everSynced: false, cursorReady: false } });
-    expect(accountStatus(fresh)).toEqual({
-      tone: "warn",
-      text: "Connected; waiting for the first pass.",
-    });
+    expect(accountStatus(fresh)).toEqual({ tone: "ok", text: "Connected" });
   });
 
   test("the reason reaches the row itself rather than a panel somebody has to open", () => {
@@ -450,11 +374,10 @@ describe("the owner gate", () => {
     const screen = render(createElement(GoogleConnectionsCard, {
       connections: [connection({ syncStatus: "reconnect_required" })],
     }));
-    await screen.click("google-account-google_1");
     expect(document.querySelector('[data-testid="connect-google"]')).toBeNull();
     expect(document.querySelector('[data-testid*="reconnect-google_1"], [data-testid^="reconnect-google-"]')).toBeNull();
-    expect(document.querySelector('[data-testid^="menu-disconnect-"]')).toBeNull();
-    expect(document.querySelector('[data-testid="menu-folders-google_1"]')).not.toBeNull();
+    // Nothing left in the menu for them, so no menu.
+    expect(document.querySelector('[data-testid="google-account-google_1"]')).toBeNull();
     expect(screen.text()).toContain("Only an owner can connect or remove Google accounts");
     screen.unmount();
   });

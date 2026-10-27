@@ -59,10 +59,3 @@ test("a name with no keyed row has no note id, and neither does plumbing", async
   assert.equal(await layered.noteIdAt(PATH), null);
   assert.equal(await layered.noteIdAt(".context/collaboration/v1/heads/x.json"), null);
 });
-
-test("the ids layout does not answer note ids: the engine's check is off where there are no keyed rows", async () => {
-  const notes = { [PATH]: { state: "keyed", key: idKeyFor(NOTE, PATH), etag: "e", noteId: NOTE } };
-  const layered = withIdLayout(bucket(), hooks(notes, "ids"));
-
-  assert.equal(layered.noteIdAt, undefined);
-});

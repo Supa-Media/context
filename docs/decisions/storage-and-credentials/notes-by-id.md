@@ -37,6 +37,42 @@ moves many notes, so the cost was paid constantly.
   migration.
 - There is no gateway mode without a control plane.
 
+## The migration is finished; its machinery is gone
+
+*Decided by the owner, 2026-10-22* ("remove all code that does not operate on
+notes by id and every fallback"). Production was 29 of 31 workspaces keyed, with
+none of their notes off their id keys; the other two have no storage or are
+archived with no rows.
+
+What was removed: the switch (`noteIds.setMode`, `setPaused`, `startAll`,
+`start`, `restart`), the workflow that started every workspace and verified its
+rows, the cron's copy starts (`keepCurrent` now only re-checks keyed rows),
+the copy-pass counts in the admin report, and the cleanup's pause gate. Still
+to go: the gateway's unlayered session arm and the `keyed` flag on the lookup
+answer. What stays is the keyed row, the old-copy cleanup, the diagnosis and
+the shared-id repair.
+
+The keyed predicate went on 2026-10-26 (Dev2's go to delete the not-keyed
+branches): `keyedWorkspace` and the queries asking it (`nodes.isKeyed`,
+`noteIds.keyedFor`, `nodeRowMoves.keyedNow`) are gone, and every caller acts
+as it did for a keyed workspace. `keyedAt` on the copy row is still written
+at birth and is history, never a question. The wire still says `keyed: true`
+on the binding, the ingest binding and the lookup, because a gateway or email
+worker deployed a step behind refuses an answer without it. Nothing is
+`not_keyed` any more: a storage move keeps the rows, the trash empties on
+time, old copies are hidden, a share's entry follows its note id, and a
+verification counts from the tree. The vault replacement's clear, which
+deleted the bucket by key, refuses in every workspace (it always did once
+every workspace was keyed) and needs rebuilding on rows before it can come
+back. Reintroducing the predicate as a branch fails, among others,
+`noteIds/keyedStorageMove.test.ts` ("a workspace whose copy row was never
+flipped") and `trash/emptying.test.ts`.
+
+The copy pass itself (`beginCopyPass`, `noteIdsCopy.run`, `copyPage`, `flip`)
+is kept only because the test fixture keys a test workspace through it. No
+production path starts it. Removing it means rewriting that fixture to write
+keyed rows directly.
+
 **The migration** (owner, 2026-10-15). Every row gets its `noteId`. The
 mover copies each object to its id key, and the row records the version of the
 source it copied; a copy counts only while the note's current version still
@@ -60,10 +96,47 @@ What a "simplification" would cost: reading a name, a folder or a rule from
 the bucket again brings back a second answer that disagrees with the rows,
 and keying bytes by path brings back copies on every move.
 
+## A workspace made after the switch is keyed by the cron
+
+*Found 2026-10-22: five workspaces made that morning showed "Differs" in the
+console.* `startAll` and the switch to `keys` reach only the workspaces that
+exist when they run, and the 15-minute `noteIds.keepCurrent` used to continue
+only passes that had already started. A workspace made later had no copy row,
+so nothing ever copied or flipped it: it stayed on path keys, and the console
+fell back to the old bucket check. Now, with the switch at `ids` or `keys`,
+the cron starts the first pass of any live workspace with no copy row (or an
+idle one) once its tree is ready, at most `FIRST_COPIES_PER_TICK` a tick, and
+that pass's end flips it. A finished, complete pass that is still unkeyed in
+keys mode (its flip ran before the tree was ready) is flipped again. Removing
+either fails `__tests__/noteIds/firstCopy.test.ts`.
+
+## A new workspace is born keyed
+
+*Decided by the owner, 2026-10-22* ("make sure that new and current workspaces
+are all notes by id"). A workspace bound to its own new managed bucket, with no
+tree rows, tree state or copy row yet, is keyed at that binding
+(`lib/noteIds/born.ts`, from `storage.applyBinding`): its copy row is written
+done and keyed, and its tree ready (a keyed workspace is never swept, so
+nothing else would make it serve). Its first notes are written at their id
+keys. The born-keyed call no longer checks a switch, since there is none.
+Removing it fails `__tests__/noteIds/bornKeyed.test.ts`.
+
+## A storage move keeps a keyed workspace's tree
+
+*Found 2026-10-22.* `applyBinding` forgot the whole tree when a workspace's
+storage moved to another bucket, because the rows used to be copies of the old
+bucket's names. In a keyed workspace the rows are the only names there are, and
+the keys (`notes/<noteId>.md`) move as they are, so forgetting them left the
+workspace empty with nothing able to rebuild it. A keyed workspace now keeps
+its rows, links, grants and log (`keepKeyedTreeForStorage`); only queued byte
+moves and the small-data sync state go, and a diagnosis checks every key in the
+new bucket so rows take its versions (a move may seal or unseal them).
+Forgetting the rows again fails `__tests__/noteIds/keyedStorageMove.test.ts`.
+
 ## Moves in a keyed workspace are row changes
 
-*Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (switch at
-`keys` and the flip started, `lib/noteIds/keyedState.ts`) a move, rename or
+*Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (every workspace, since
+2026-10-22) a move, rename or
 archive of a file or folder rewrites `nodes` rows and copies nothing:
 `lib/nodes/rowMove.ts` (`applyRowMove`), entered from `startQueuedMove`
 (`lib/nodes/moveStart.ts`), which is the one place every move is decided.
@@ -124,7 +197,11 @@ archive of a file or folder rewrites `nodes` rows and copies nothing:
   cannot run is reported as not done and the forwarding record covers it.
   `keyedFolderMove.test.mjs` fails if it is dropped.
 - **Not carried yet:** a move made in the console does not rewrite body links
-  (forwarding covers them); routines are not re-keyed. Shares need no carrying: they follow the note by
+  (forwarding covers them); routines are not re-keyed. The console's path-move
+  link rewrite and its test (`linkRewrite.test.ts`) went with the path moves
+  (2026-10-22); carrying links on a console rename, as the gateway does with
+  `rewriteRowedLinks`, is the open follow-up to the owner's ask that renames
+  update links on both sides. Shares need no carrying: they follow the note by
   its id (below).
 
 **Known gap.** A rename can fail before the new name is claimed (the journal
@@ -199,11 +276,11 @@ starts a new generation once, and an offline editor on the old one cannot
 reattach; the Markdown is never overwritten. `test/rename.mjs` fails if the
 check is skipped or stamps without comparing.
 
-**Open:** collaboration heads are still path-keyed. They record the note id
-they were made for, so a name cannot pass one note's history to another, but
-keying the heads by note id would remove the carry entirely. The rename gap in
-the section above is the other open item for a workspace with live
-collaborative notes.
+**Superseded 2026-10-25:** heads are filed by note id
+([paths-on-read](./paths-on-read.md#editing-history-is-filed-by-note-id)), so
+a move no longer carries them, and the rename gap and the
+`COLLABORATION_RENAME_MAX` gap above apply only to heads the backfill has not
+filed yet.
 
 ## A move into another workspace, when either end is keyed
 
@@ -248,10 +325,16 @@ does its keyed half through its own credential barrier:
   the note would land readable by the destination's team. A full pending list
   stops the move before anything lands.
 - **From an AI client,** `move_note` into another workspace asks the same
-  engine (`POST /gateway/moves/across`, `tools/moves/acrossKeyed.js`) when
-  either end is keyed, and the gateway writes no bytes itself. The route
-  serves only an owner of the source with private access and an editor or
-  owner of the destination, and answers every other caller alike.
+  engine (`POST /gateway/moves/across`, `tools/moves/acrossKeyed.js`), and
+  the gateway writes no bytes itself. The route serves only an owner of the
+  source with private access and an editor or owner of the destination, and
+  answers every other caller alike. Since 2026-10-26 (Dev2's go to delete the
+  not-keyed branches) this is the only cross-workspace move: the gateway's
+  path-based copy-then-delete, with its own `confirm_team_publish` and
+  rollback, is gone, and a store with no engine refuses before reading
+  anything (`test/keyedMoveAcross.test.mjs`). The engine's `contextMoves` row
+  is the move's record, so the `POST /gateway/moves` report
+  (`recordAgentMove`) has no caller left.
 
 What a "simplification" would cost: listing the bucket in a keyed source plans
 the frozen copies, and narrowing through the rules file in rows mode publishes
@@ -422,3 +505,20 @@ id-resolved path again lets a note that moved away lend its old address's
 ledger entry to the link of the note now there. `shareFollowsNoteId.test.ts`
 fails on each ("a renamed note opens with no forwarding left", "a note that
 moved away does not lend its old path's ledger entry to the note now there").
+
+## The id layout is a constant, not a row
+
+*Decided 2026-10-26.* `/gateway/binding` answers `idLayout: "keys"` on every
+deployment. It used to read the retired `noteIdLayout` row, which only a
+deployment that ran the migration from the staff console holds. Staging and any
+new self-hosted deployment had none, so the gateway, told `keyed: true` with no
+id layer, refused every one of their workspaces as having no reachable storage
+(the staging Tex check failed this way from 2026-10-22). A staging fixture made
+before notes by id has no tree rows, so `stagingPersonas.prepare` keys it the
+way a new workspace is born (`lib/noteIds/born.ts`) and the seed writes its
+notes again.
+
+What a "simplification" would cost. Reading the row again breaks every
+deployment that never held it. `controlPlane/binding.test.ts` fails ("a context
+that has never encrypted anything has no encryptionKey key at all" checks the
+answer on a deployment with no row).

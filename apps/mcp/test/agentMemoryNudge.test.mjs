@@ -13,13 +13,16 @@
  *     nudge again".
  *  4. The first nudge running over texts from before → "the first turn only
  *     starts the count".
+ *  5. `memoryNudge` ignoring `answersAskAboutThem` (applied 2026-10-23,
+ *     observed failing) → "their answer to a question about them is kept at
+ *     once, not ten texts later".
  */
 
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { NUDGE_EVERY, NUDGE_MARKER, nudgeCallTool, nudgeQuestion, textsSince } from "../src/agent/memoryNudge.js";
+import { NUDGE_EVERY, NUDGE_MARKER, answersAskAboutThem, nudgeCallTool, nudgeQuestion, textsSince } from "../src/agent/memoryNudge.js";
 import { ABOUT_ME_PATH } from "../src/agent/aboutMe.js";
 import { eventKey } from "../src/agent/events.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
@@ -214,4 +217,27 @@ test("10 texts since the last nudge: about-me is written once, and the next text
   requests.length = 0;
   await text("thanks");
   assert.equal(nudges().length, 0);
+});
+
+test("a question Tex asked about them is an ask; an answer that ends on a statement is not", () => {
+  const asked = [
+    { role: "assistant", text: "Your home address isn't in your notes or email, and I need it for the commute block. What is it?" },
+    { role: "user", text: "2911 Queens Plaza N", theirs: true },
+  ];
+  assert.equal(answersAskAboutThem(asked), true);
+  assert.equal(answersAskAboutThem([{ role: "assistant", text: "Done." }, asked[1]]), false);
+  assert.equal(answersAskAboutThem([asked[1]]), false);
+});
+
+// The owner, 2026-10-23: Tex asked for their home address, was told it, and kept it nowhere.
+test("their answer to a question about them is kept at once, not ten texts later", async () => {
+  bucket.set(NUDGE_MARKER, { body: JSON.stringify({ at: START - 1 }), etag: "m0" });
+  bucket.set(eventKey(START, "seed00"), {
+    body: JSON.stringify({ v: 1, at: START, question: "block my commute", answer: "Your home address isn't in your notes. What is it?", by: "them" }),
+    etag: "e0",
+  });
+  script = [{ text: "Done." }, { calls: [["write", { path: ABOUT_ME_PATH, content: "- Home: 2911 Queens Plaza N, Long Island City.\n" }]] }, { text: "DONE" }];
+  await text("2911 Queens Plaza N Long Island City NY 11101");
+  assert.equal(nudges().length, 2, "one nudge right away");
+  assert.match(bucket.get(ABOUT_ME_PATH)?.body ?? "", /Queens Plaza/);
 });

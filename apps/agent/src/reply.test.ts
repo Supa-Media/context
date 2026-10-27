@@ -219,33 +219,18 @@ describe("replyTo", () => {
     expect(reply).toEqual(["Three things."]);
   });
 
-  it("names the fixed texts sent since the last turn, and says they were delivered only once answered", async () => {
-    let delivered = 0;
+  // The fixed texts sent since the last turn reach the gateway as events now (`told.ts`, events.test.ts "told").
+  it("never names fixed texts on /agent: the event log carries them", async () => {
     const reply = await replyTo(message("Done"), {
       ...deps({
         "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }],
         "/agent": (body) => {
-          // Names only: the gateway writes its own line for each (`apps/mcp/src/agent/conversation.js`).
-          expect(body.told).toEqual(["setup", "ready"]);
-          return [200, { answer: "Google's connected. Reading your mail now." }];
+          expect(body.told).toBeUndefined();
+          return [200, { answer: "Google's connected." }];
         },
       }),
-      told: ["setup", "ready"],
-      onToldDelivered: async () => void delivered++,
     });
-    expect(reply).toEqual(["Google's connected. Reading your mail now."]);
-    expect(delivered).toBe(1);
-
-    const failed = await replyTo(message("Done"), {
-      ...deps({
-        "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }],
-        "/agent": () => [500, {}],
-      }),
-      told: ["ready"],
-      onToldDelivered: async () => void delivered++,
-    });
-    expect(failed).toEqual([COPY.unavailable]);
-    expect(delivered).toBe(1);
+    expect(reply).toEqual(["Google's connected."]);
   });
 
   it("notes a finished setup, so the next turn knows it happened", async () => {

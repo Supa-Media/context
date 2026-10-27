@@ -15,8 +15,8 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { applyObservation, pruneUnobserved } from "../../functions/lib/nodes/observe";
-import { nodeSweepDue, type NodeRow, type NodeTreeState, type Observation, type StoredNode } from "../../functions/lib/nodes/table";
+import { applyObservation } from "../../functions/lib/nodes/observe";
+import { type NodeRow, type NodeTable, type Observation, type StoredNode } from "../../functions/lib/nodes/table";
 import { applyAll, memoryNodeTable } from "../nodeTable.helpers";
 
 const NOTE_A = "0190a000-0000-7000-8000-00000000000a";
@@ -25,18 +25,21 @@ const NOTE_C = "0190a000-0000-7000-8000-00000000000c";
 const keyFor = (noteId: string) => `notes/${noteId}.md`;
 
 function bucket(at: number, rows: { path: string; etag?: string; size?: number }[] = [], extra: Partial<Observation> = {}): Observation {
-  return { at, rows, gone: [], vanishedUnder: [], ...extra };
+  return { at, rows, gone: [], ...extra };
 }
 
 /** A seam observation for one keyed write of `path` under `noteId`. */
 function seam(at: number, path: string, noteId: string, etag: string): Observation {
   const row: NodeRow = { path, etag, size: 1, keyed: { noteId, storageKey: keyFor(noteId) } };
-  return { at, rows: [row], gone: [], vanishedUnder: [], source: "seam" };
+  return { at, rows: [row], gone: [] };
 }
 
 function seamGone(at: number, path: string): Observation {
-  return { at, rows: [], gone: [path], vanishedUnder: [], source: "seam" };
+  return { at, rows: [], gone: [path] };
 }
+
+/** One seam observation, answered with the paths the tree could not hold. */
+const applyObservationOnce = (table: NodeTable, observation: Observation) => applyObservation(table, observation);
 
 function find(table: { rows(): StoredNode[] }, path: string): StoredNode | undefined {
   return table.rows().find((node) => node.path === path);
@@ -47,110 +50,6 @@ async function keyedRow(table: ReturnType<typeof memoryNodeTable>, path: string,
   await applyAll(table, seam(at, path, noteId, etag));
   return find(table, path) as StoredNode;
 }
-
-describe("bucket observations never change a keyed row", () => {
-  test("a listing of the path object leaves the keyed row's etag, noteId and observation time alone", async () => {
-    const table = memoryNodeTable();
-    await keyedRow(table, "1-projects/a.md", NOTE_A, 10);
-
-    await applyAll(table, bucket(20, [{ path: "1-projects/a.md", etag: "frozen-path-copy" }]));
-
-    expect(find(table, "1-projects/a.md")).toMatchObject({ etag: "k1", observedAt: 10, noteId: NOTE_A, storageKey: keyFor(NOTE_A) });
-  });
-
-  test("a gone observation of the path does not tombstone a keyed row", async () => {
-    const table = memoryNodeTable();
-    await keyedRow(table, "1-projects/a.md", NOTE_A, 10);
-
-    await applyAll(table, bucket(20, [], { gone: ["1-projects/a.md"] }));
-
-    expect(find(table, "1-projects/a.md")?.goneAt).toBeUndefined();
-  });
-
-  test("a vanish scan of its folder does not tombstone a keyed row, but still tombstones an unkeyed sibling", async () => {
-    const table = memoryNodeTable();
-    await keyedRow(table, "1-projects/keyed.md", NOTE_A, 10);
-    await applyAll(table, bucket(10, [{ path: "1-projects/plain.md", etag: "p" }]));
-
-    await applyAll(table, bucket(20, [], { vanishedUnder: ["1-projects/"] }));
-
-    expect(find(table, "1-projects/keyed.md")?.goneAt).toBeUndefined();
-    expect(find(table, "1-projects/plain.md")?.goneAt).toBe(20);
-  });
-
-  test("a bucket listing does not revive a keyed row that is gone", async () => {
-    const table = memoryNodeTable();
-    await keyedRow(table, "1-projects/a.md", NOTE_A, 10);
-    await applyAll(table, seamGone(20, "1-projects/a.md"));
-
-    await applyAll(table, bucket(30, [{ path: "1-projects/a.md", etag: "frozen" }]));
-
-    expect(find(table, "1-projects/a.md")).toMatchObject({ goneAt: 20, noteId: NOTE_A, etag: "k1" });
-  });
-
-  test("pruneUnobserved never removes a keyed row, even one no observation has seen since the sweep began", async () => {
-    const table = memoryNodeTable();
-    await keyedRow(table, "1-projects/a.md", NOTE_A, 10);
-    await applyAll(table, bucket(15, [{ path: "1-projects/plain.md", etag: "p" }]));
-
-    const pruned = await pruneUnobserved(table, 1_000);
-
-    expect(pruned.more).toBe(false);
-    expect(find(table, "1-projects/a.md")).toBeDefined();
-    // The unkeyed row nobody saw is still pruned: the rule protects keyed rows only.
-    expect(find(table, "1-projects/plain.md")).toBeUndefined();
-  });
-
-  test("pruneUnobserved terminates when keyed rows are the only old rows (they are not counted as work)", async () => {
-    const table = memoryNodeTable();
-    for (let index = 0; index < 3; index += 1) {
-      await keyedRow(table, `1-projects/k${index}.md`, `${NOTE_A.slice(0, -1)}${index}`, 10);
-    }
-
-    const pruned = await pruneUnobserved(table, 1_000);
-
-    expect(pruned.more).toBe(false);
-    expect(pruned.removedFiles).toBe(0);
-    expect(table.rows().filter((node) => node.kind === "file")).toHaveLength(3);
-  });
-});
-
-describe("a keyed workspace adopts nothing from the bucket", () => {
-  test("a bucket row with no row in a keyed workspace is not inserted, and no folder is made for it", async () => {
-    const table = memoryNodeTable();
-
-    await applyAll(table, bucket(10, [{ path: "new/folder/a.md", etag: "e" }], { keyedWorkspace: true }));
-
-    expect(table.rows()).toEqual([]);
-  });
-
-  test("the same bucket row is adopted in a workspace that is not keyed, with its folders", async () => {
-    const table = memoryNodeTable();
-
-    await applyAll(table, bucket(10, [{ path: "new/folder/a.md", etag: "e" }], { keyedWorkspace: false }));
-
-    expect(find(table, "new/folder/a.md")).toMatchObject({ kind: "file", etag: "e" });
-    expect(find(table, "new/folder")).toMatchObject({ kind: "folder" });
-  });
-
-  test("a folder marker key is its own file row, named empty, under the folder it marks, in a workspace that is not keyed", async () => {
-    const table = memoryNodeTable();
-
-    await applyAll(table, bucket(10, [{ path: "a/", etag: "marker" }], { keyedWorkspace: false }));
-
-    expect(find(table, "a")).toMatchObject({ kind: "folder" });
-    expect(find(table, "a/")).toMatchObject({ kind: "file", name: "" });
-  });
-
-  test("an unkeyed row in a keyed workspace is still observed as it always was", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, bucket(10, [{ path: "plain.md", etag: "old" }]));
-
-    await applyAll(table, bucket(20, [{ path: "plain.md", etag: "new" }], { keyedWorkspace: true }));
-
-    expect(find(table, "plain.md")).toMatchObject({ etag: "new", observedAt: 20 });
-  });
-});
 
 describe("seam observations write keyed rows", () => {
   test("a seam write with no row at its path inserts a keyed file under the given noteId and storageKey, with its folders", async () => {
@@ -321,38 +220,12 @@ describe("seam gone observations tombstone keyed rows only", () => {
 
   test("a seam gone leaves an unkeyed row at the same path alone", async () => {
     const table = memoryNodeTable();
-    await applyAll(table, bucket(10, [{ path: "plain.md", etag: "p" }]));
+    // An unkeyed file as the first copy left it: a row a bucket observation no longer writes, so it is laid directly.
+    await table.insert({ path: "plain.md", name: "plain.md", kind: "file", etag: "p", observedAt: 10 });
 
     await applyAll(table, seamGone(20, "plain.md"));
 
+    expect(find(table, "plain.md")).toMatchObject({ kind: "file", etag: "p" });
     expect(find(table, "plain.md")?.goneAt).toBeUndefined();
   });
-
-  test("a seam observation ignores vanishedUnder: an unkeyed sibling under the prefix stays", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, bucket(10, [{ path: "1-projects/plain.md", etag: "p" }]));
-
-    await applyAll(table, { at: 20, rows: [], gone: [], vanishedUnder: ["1-projects/"], source: "seam" });
-
-    expect(find(table, "1-projects/plain.md")?.goneAt).toBeUndefined();
-  });
 });
-
-describe("nodeSweepDue in a keyed workspace", () => {
-  const ready: NodeTreeState = { status: "ready", dirty: true, files: 3, sweptAt: 0 };
-
-  test("a keyed workspace is never due, however dirty or stale its tree", () => {
-    expect(nodeSweepDue(ready, 10 * 60 * 60_000, true)).toBe(false);
-    expect(nodeSweepDue(null, 0, true)).toBe(false);
-  });
-
-  test("a workspace that is not keyed is due as it was", () => {
-    expect(nodeSweepDue(ready, 10 * 60 * 60_000)).toBe(true);
-    expect(nodeSweepDue(ready, 10 * 60 * 60_000, false)).toBe(true);
-  });
-});
-
-/** One observation applied to completion, returning its result (`taken` is read from the last call). */
-async function applyObservationOnce(table: ReturnType<typeof memoryNodeTable>, observation: Observation) {
-  return await applyObservation(table, observation);
-}

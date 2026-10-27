@@ -51,6 +51,15 @@ export interface DesktopSettings {
    * install reads nothing until somebody has seen the toggle and turned it on.
    */
   imessageEnabled: boolean;
+  /**
+   * Back up this Mac's Messages into the person's own storage, for Tex and
+   * their AIs to read when asked (`docs/decisions/communications/messages-backup.md`).
+   * Not notes: nothing of it appears in the tree or in notes search.
+   */
+  messagesBackup: boolean;
+  /** "What's copied": pictures and documents, and videos, each up to 25 MB (owner's pick: pictures on, videos off). */
+  messagesBackupPictures: boolean;
+  messagesBackupVideos: boolean;
   transcription: TranscriptionMode;
   /**
    * The MCP endpoint this machine connects to, e.g. `https://…/mcp`.
@@ -103,6 +112,15 @@ export const DEFAULT_SETTINGS: DesktopSettings = Object.freeze({
   askBeforeEveryMeeting: true,
   blocklist: [],
   imessageEnabled: false,
+  /*
+    On (owner, 2026-10-26): the first-run card says so and shows the switch,
+    and nothing is read until the person grants Full Disk Access by hand,
+    which macOS never lets an app ask for.
+  */
+  messagesBackup: true,
+  messagesBackupPictures: true,
+  // Videos take most of the space (board 2, 2026-10-26).
+  messagesBackupVideos: false,
   /*
     On device, which is where audio stays until somebody says otherwise.
 
@@ -180,7 +198,12 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     // string, which is truthy — must not resolve to silent recording.
     askBeforeEveryMeeting: bool(source["askBeforeEveryMeeting"], true),
     blocklist,
-    imessageEnabled: bool(source["imessageEnabled"], DEFAULT_SETTINGS.imessageEnabled),
+    // Always off, whatever an older file says: messages are no longer copied
+    // into notes (owner, 2026-10-21; `docs/decisions/communications/live-not-copied.md`).
+    imessageEnabled: false,
+    messagesBackup: bool(source["messagesBackup"], DEFAULT_SETTINGS.messagesBackup),
+    messagesBackupPictures: bool(source["messagesBackupPictures"], DEFAULT_SETTINGS.messagesBackupPictures),
+    messagesBackupVideos: bool(source["messagesBackupVideos"], DEFAULT_SETTINGS.messagesBackupVideos),
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
     // The same guard as the base URL: https, or a loopback address for a local
     // gateway. A settings file naming an `http://` endpoint would otherwise

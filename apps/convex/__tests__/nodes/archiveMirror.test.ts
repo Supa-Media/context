@@ -3,9 +3,9 @@ import { internal } from "../../_generated/api";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
-import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { NOTE_ID, keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
 import { OWNER, TEAM, start, type Fixture } from "./moveFixture.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 // Archive keeps the workspace's shape (owner, 2026-10-18; `lib/nodes/archiveTwins.ts`,
 // `archiveMirror.cjs`): each built-in folder has a marked twin in Archive that follows its
@@ -157,7 +157,7 @@ describe("the hourly tidy finds the workspaces that still have date folders", ()
     expect(await scheduledTidies(f)).toBe(0);
 
     await f.t.run(async (ctx) => {
-      const archive = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", "9-archive")).unique();
+      const archive = await treeNodeAt(ctx.db, f.ws, "9-archive");
       await ctx.db.insert("nodes", {
         workspaceId: f.ws,
         noteId: NOTE_ID(501),
@@ -178,7 +178,6 @@ describe("the tidy, in a workspace that keeps its notes by id", () => {
   function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) {
     const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
     attachQueueMove(f.ctx, args, f.store, f.store);
-    attachWorkspaceKeyed(f.ctx, f.ws, f.store);
     attachTreeListing(f.ctx, f.ws, f.store);
     return executeOperation(f.store, OWNER, operation, Date.now());
   }

@@ -8,7 +8,7 @@
  * through the id layer. Sabotage, each confirmed to fail a case here (local edits, reverted):
  *
  *  - the census lists the bucket again (`namesOf` returns the store): the names,
- *    no-bucket-list and loading cases fail;
+ *    no-bucket-list and not-served cases fail;
  *  - the fallback scan lists the bucket again (`scan.js` without `namesOf`): the scan case fails;
  *  - the sync records the read's etag instead of the listed one (`shards/sync.js`,
  *    as it did until 2026-10-16): the "settles" case fails, every note read again.
@@ -106,10 +106,10 @@ test("the fallback scan of a keyed workspace names its hits by the tree's names,
   assert.equal(bucket.counts.gets.includes(idKeyFor(NOTES[0].noteId, NOTES[0].path)), true, "the body is read at its id key");
 });
 
-test("a keyed workspace whose tree is still loading gets no census, and the bucket is not listed instead", async () => {
+test("a keyed workspace whose tree is not served gets no census, and the bucket is not listed instead", async () => {
   const { bucket, store } = keyedWorkspace({ served: false });
   await assert.rejects(syncShardedIndex(store, { budget: createSearchBudget(200), isIndexable: defaultIsIndexable }));
-  assert.equal(bucket.counts.list, 0, "no bucket listing while the tree is loading");
+  assert.equal(bucket.counts.list, 0, "no bucket listing where the tree does not answer");
   assert.equal(storedManifest(bucket), null, "no index is written from a census nobody has");
 });
 

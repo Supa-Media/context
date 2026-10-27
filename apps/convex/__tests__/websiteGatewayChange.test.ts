@@ -22,8 +22,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
+import { bodyKeyOf } from "./website.helpers";
 import {
   FAKE_STORAGE,
   asUser,
@@ -35,6 +35,10 @@ import {
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -96,7 +100,7 @@ describe("a bucket change the console did not make", () => {
     // The owner restricts the page from an AI client. The gateway writes the
     // object itself, so no Convex file operation runs and nothing has yet
     // told the control plane that its derivative is out of date.
-    f.backend.seed("website/notes.md", RESTRICTED_NOTES);
+    f.backend.seed(await bodyKeyOf(f.t, f.workspaceId, "website/notes.md"), RESTRICTED_NOTES);
 
     // Asking for a path that does not exist is enough to be handed the menu,
     // and it never touches the restricted page's own source, so the page-level
@@ -124,7 +128,7 @@ describe("a bucket change the console did not make", () => {
 
   test("keeps serving the pages that are still public", async () => {
     const f = await liveSite();
-    f.backend.seed("website/notes.md", RESTRICTED_NOTES);
+    f.backend.seed(await bodyKeyOf(f.t, f.workspaceId, "website/notes.md"), RESTRICTED_NOTES);
     await gatewayPost(f.t, "/gateway/website", { workspaceId: f.workspaceId });
     await f.t.action(internal.functions.websites.reconcileWorkspace, {
       workspaceId: f.workspaceId,
@@ -140,7 +144,7 @@ describe("a bucket change the console did not make", () => {
 
   test("answers the same to a caller without the gateway secret, and changes nothing", async () => {
     const f = await liveSite();
-    f.backend.seed("website/notes.md", RESTRICTED_NOTES);
+    f.backend.seed(await bodyKeyOf(f.t, f.workspaceId, "website/notes.md"), RESTRICTED_NOTES);
 
     const refused = await gatewayPost(
       f.t,

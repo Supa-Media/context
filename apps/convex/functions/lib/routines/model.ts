@@ -138,6 +138,10 @@ export interface RoutineSchedule {
   paused: boolean;
   send: "text" | "note" | "both";
   to: string[];
+  /** A shared workspace's routine: the group chat it answers into (`chat:`, 16 hex). */
+  chat?: string;
+  /** `wake: new mail`: also due soon after new mail in a mailbox shared with its chat (`lib/routines/wake.ts`). */
+  wake?: "mail";
 }
 
 /**
@@ -160,6 +164,8 @@ export function scheduleFromNote(path: string, text: string): RoutineSchedule | 
     paused: settings.paused,
     send: settings.send,
     to: settings.to.slice(0, 20),
+    ...(settings.chat === null ? {} : { chat: settings.chat }),
+    ...(settings.wake === null ? {} : { wake: settings.wake }),
   };
 }
 

@@ -201,12 +201,16 @@ export const callApp = internalAction({
       return refreshed.accessToken;
     };
 
+    /** What went wrong on the last failed call, said to Tex so it can tell the person (never a token). */
+    let failure: string | undefined;
+
     /** Run once, and once more on a refreshed token if the app said the first was no good. */
     const withToken = async <T extends { kind: string }>(run: (token: string) => Promise<T>): Promise<T | "gone" | "failed"> => {
       let token: string | null;
       try {
         token = await tokenFor(false);
-      } catch {
+      } catch (error) {
+        failure = `the token could not be read or refreshed (${error instanceof Error ? error.message.slice(0, 120) : "unknown"})`;
         return "failed";
       }
       if (token === null) return "gone";
@@ -222,7 +226,10 @@ export const callApp = internalAction({
       if (spec.kind === "tools") return spec.tools.map(({ run: _run, ...tool }) => tool);
       const listed = await withToken((token) => mcpListTools(spec.serverUrl, token));
       if (listed === "gone" || listed === "failed") return listed;
-      if (listed.kind !== "ok" || listed.tools === undefined) return "failed";
+      if (listed.kind !== "ok" || listed.tools === undefined) {
+        failure = listed.kind === "failed" ? listed.reason : listed.kind === "error" ? listed.message : undefined;
+        return "failed";
+      }
       await ctx.runMutation(internal.functions.connectionApps.noteTools, {
         connectionId: row.id,
         readOnlyTools: listed.tools.filter((tool) => tool.readOnly).map((tool) => tool.name),
@@ -236,7 +243,7 @@ export const callApp = internalAction({
         await markGone("tools.list");
         return { ok: false, refused: "reconnect_required" };
       }
-      if (tools === "failed") return { ok: false, refused: "unavailable" };
+      if (tools === "failed") return { ok: false, refused: "unavailable", ...(failure === undefined ? {} : { message: failure }) };
       return capped({ ok: true, team: row.teamName, body: { tools } });
     }
 
@@ -259,7 +266,7 @@ export const callApp = internalAction({
         await markGone(`tools.call:${name}`);
         return { ok: false, refused: "reconnect_required" };
       }
-      if (tools === "failed") return { ok: false, refused: "unavailable" };
+      if (tools === "failed") return { ok: false, refused: "unavailable", ...(failure === undefined ? {} : { message: failure }) };
       const tool = tools.find((t) => t.name === name);
       if (tool === undefined) return { ok: false, refused: "unknown_tool" };
       readOnly = tool.readOnly;
@@ -267,7 +274,7 @@ export const callApp = internalAction({
     // A read that would change something waits for the person's yes, as a change.
     if (!readOnly && !change) return { ok: false, refused: "needs_yes" };
 
-    const outcome = await runTool(spec, name, toolArguments, withToken);
+    const outcome = await runTool(spec, name, toolArguments, withToken, () => failure);
     await ctx.runMutation(internal.functions.connections.noteCall, {
       connectionId: row.id,
       workspaceId: args.workspaceId,
@@ -287,6 +294,7 @@ async function runTool(
   name: string,
   toolArguments: Record<string, unknown>,
   withToken: <T extends { kind: string }>(run: (token: string) => Promise<T>) => Promise<T | "gone" | "failed">,
+  failure: () => string | undefined,
 ): Promise<AppCallOutcome> {
   if (spec.kind === "tools") {
     const tool = spec.tools.find((t) => t.name === name)!;
@@ -295,20 +303,42 @@ async function runTool(
       return { kind: result.status === 401 ? "unauthorized" : "ok", result };
     });
     if (answer === "gone") return { ok: false, refused: "reconnect_required" };
-    if (answer === "failed") return { ok: false, refused: "unavailable" };
+    if (answer === "failed") return unavailable(failure());
     return { ok: true, team: "", body: answer.result.body };
   }
   const answer = await withToken((token) => mcpCall(spec.serverUrl, token, "tools/call", { name, arguments: toolArguments }));
   if (answer === "gone") return { ok: false, refused: "reconnect_required" };
-  if (answer === "failed" || answer.kind === "failed") return { ok: false, refused: "unavailable" };
+  if (answer === "failed") return unavailable(failure());
+  if (answer.kind === "failed") return unavailable(answer.reason);
   if (answer.kind === "error") return { ok: false, refused: "unavailable", message: answer.message };
   if (answer.kind === "unauthorized") return { ok: false, refused: "reconnect_required" };
   return { ok: true, team: "", body: answer.result };
 }
 
+function unavailable(message: string | undefined): AppCallOutcome {
+  return { ok: false, refused: "unavailable", ...(message === undefined ? {} : { message }) };
+}
+
 function capped(outcome: AppCallOutcome): AppCallOutcome {
-  if (outcome.ok && JSON.stringify(outcome.body ?? null).length > MAX_ANSWER_CHARS) return { ok: false, refused: "too_large" };
-  return outcome;
+  if (!outcome.ok) return outcome;
+  if (JSON.stringify(outcome.body ?? null).length > MAX_ANSWER_CHARS) return { ok: false, refused: "too_large" };
+  return { ...outcome, body: convexSafe(outcome.body) };
+}
+
+/**
+ * An app's answer with every field name Convex can't carry left out: a name
+ * starting with `$` (a tool's JSON Schema opens with `$schema`, which failed
+ * every Planning Center read) or one outside printable ASCII. What Tex reads
+ * from a tool list is its arguments' names and types, which keep theirs.
+ */
+export function convexSafe(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(convexSafe);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "" && !key.startsWith("$") && /^[\x20-\x7e]+$/.test(key))
+      .map(([key, entry]) => [key, convexSafe(entry)]),
+  );
 }
 
 export type { Id };

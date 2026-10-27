@@ -12,6 +12,7 @@
  * `loadPrivacyState` and the token-rules case fails.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
@@ -25,10 +26,11 @@ import { mirrorFile } from "../../functions/lib/nodes/privacyMirror";
 import { loadPrivacyState } from "../../functions/lib/fileOps/privacyState";
 import { PRE_PARSED_RULES } from "../../../mcp/src/privacy/engine.js";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, resetPrivacyManifest, syncManifest } from "../../functions/lib/fileOps";
+import { type FileStore, syncManifest } from "../../functions/lib/fileOps";
 import { recordActivity } from "../../functions/lib/activity";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { memoryStore } from "../storeStub.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -102,16 +104,8 @@ async function fixture(): Promise<Fixture> {
     await ctx.db.insert("names", { name: "acme-leads", kind: "group", groupId: leads, claimedBy: owner, claimedAt: now });
     return { ws, owner, bob };
   });
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId: ids.ws,
-    at: 10,
-    rows: TREE.map((path) => ({ path, etag: `e-${path}`, size: 1 })),
-    gone: [],
-    vanishedUnder: [],
-  });
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ids.ws, mirror: RULES, at: 10 });
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: ids.ws, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: ids.ws, at: 20, files: TREE.length });
+  await seedTreeRows(t, ids.ws, TREE);
+  await translateMirror(t, ids.ws, RULES);
   return {
     t,
     ws: ids.ws,
@@ -124,7 +118,6 @@ async function fixture(): Promise<Fixture> {
 /** Rows mode on, with `plan.md` set private on its row only: the mirror still lists it as team. */
 async function rowsWithPlanPrivate(): Promise<Fixture> {
   const f = await fixture();
-  await f.t.mutation(internal.functions.nodesPrivacy.setAccessSource, { workspaceId: f.ws, source: "rows" });
   await f.t.mutation(internal.functions.nodesAccess.setAccess, {
     workspaceId: f.ws,
     path: "1-projects/plan.md",
@@ -233,12 +226,13 @@ describe("the remaining readers: facts, feed and inbox titles", () => {
 });
 
 describe("readerMirror", () => {
-  test("file mode: it is the mirror, unchanged", async () => {
+  test("the reader's view is the rows' rules, with no privacy.md behind it", async () => {
     const f = await fixture();
     const reader = await f.t.run(async (ctx) => await readerMirror(ctx, f.ws));
-    const mirror = await f.t.run(async (ctx) => await readMirror(ctx.db, f.ws));
-    expect(reader).toEqual(mirror);
-    expect(reader?.rows).toBeUndefined();
+    expect(reader?.rows).toBe(true);
+    expect(reader?.folders).toContainEqual({ prefix: "1-projects", visibility: "team" });
+    // Nothing stores a mirror any more: the tree's `nodePrivacy` row is never written.
+    expect(await f.t.run(async (ctx) => await readMirror(ctx.db, f.ws))).toBeNull();
   });
 
   test("rows mode: the rows' rules, with a rows etag that changes when a row does", async () => {
@@ -317,19 +311,6 @@ describe("the rows' rules are a usable manifest", () => {
     expect(manifest.entries.map((entry) => entry.path)).toContain("1-projects/plan.md");
   });
 
-  test("Reset privacy.md is refused: the rules are readable, nothing is broken", async () => {
-    const store = rowsServedStore();
-    const put = store.put;
-    let wrote = false;
-    store.put = (async (...args: Parameters<FileStore["put"]>) => {
-      wrote = true;
-      return await put(...args);
-    }) as FileStore["put"];
-    await expect(resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: 1 })).rejects.toMatchObject({
-      code: "PRIVACY_MANIFEST_USABLE",
-    });
-    expect(wrote).toBe(false);
-  });
 
   test("activity is still recorded under the rows' rules", async () => {
     const landed = await recordActivity(rowsServedStore(), {
@@ -344,25 +325,13 @@ describe("the rows' rules are a usable manifest", () => {
 });
 
 describe("writers stand down in rows mode", () => {
-  test("a mirror refresh read from the file is not stored in rows mode", async () => {
+  test("a rules refresh is not stored as a mirror in rows mode: the rows are the rules", async () => {
     const f = await rowsWithPlanPrivate();
-    await f.t.mutation(internal.functions.nodes.savePrivacy, {
-      workspaceId: f.ws,
-      mirror: { ...RULES, etag: "privacy-2", folders: [] },
-      at: 30,
-    });
+    await translateMirror(f.t, f.ws, { ...RULES, folders: [] });
     const held = await f.t.query(internal.functions.nodes.privacy, { workspaceId: f.ws });
-    expect(held?.etag).toBe("privacy-1");
-  });
-
-  test("file mode still stores the refresh it is given", async () => {
-    const f = await fixture();
-    await f.t.mutation(internal.functions.nodes.savePrivacy, {
-      workspaceId: f.ws,
-      mirror: { ...RULES, etag: "privacy-2" },
-      at: 30,
-    });
-    const held = await f.t.query(internal.functions.nodes.privacy, { workspaceId: f.ws });
-    expect(held?.etag).toBe("privacy-2");
+    expect(held).toBeNull();
+    // The refresh went to the rows: `plan.md` keeps its own private base, and the served mirror is the rows' view.
+    const served = await f.t.query(internal.functions.nodes.served, { workspaceId: f.ws });
+    expect(served?.mirror?.notes).toContainEqual({ path: "1-projects/plan.md", visibility: "private" });
   });
 });

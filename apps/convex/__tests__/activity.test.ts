@@ -28,9 +28,9 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ACTIVITY_PATH, parseFile } from "@context/shared/src/activity.cjs";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
+import { bodyAtPath } from "./files/keyedNotes.helpers";
 import {
   copyTree,
   FAKE_STORAGE,
@@ -41,6 +41,8 @@ import {
   createWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
+import { nodeAt as treeNodeAt } from "../functions/lib/nodes/paths";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -68,6 +70,8 @@ async function fixture(): Promise<Fixture> {
   const backend = memoryS3(FAKE_STORAGE.bucket);
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
+  // A folder the console can set exists in the tree only once a note sits in it.
+  backend.seed("1-projects/plan.md", "# Plan\n");
   vi.stubGlobal("fetch", backend.fetchImpl);
 
   const encryptedSecretAccessKey = await encryptSecret(
@@ -104,9 +108,9 @@ async function fixture(): Promise<Fixture> {
 /** A note long enough to clear the substance threshold on its own. */
 const BODY = `# Week one\n\n${"a".repeat(600)}\n`;
 
-/** What is at a key right now, or undefined. `snapshot()` decodes as text. */
-function fileAt(backend: MemoryS3, key: string): string | undefined {
-  return backend.snapshot()[key];
+/** The text of the note at a path right now, read through its row's key, or undefined. */
+async function fileAt(f: Fixture, path: string): Promise<string | undefined> {
+  return (await bodyAtPath(f, path)) ?? undefined;
 }
 
 /**
@@ -120,12 +124,12 @@ async function stampOf(f: Fixture): Promise<number | null> {
   return await f.t.run(async (ctx) => (await ctx.db.get(f.workspaceId))?.activityAt ?? null);
 }
 
-function entriesIn(backend: MemoryS3) {
-  const raw = fileAt(backend, ACTIVITY_PATH);
+async function entriesIn(f: Fixture) {
+  const raw = await fileAt(f, ACTIVITY_PATH);
   return raw === undefined ? [] : parseFile(raw);
 }
 
-describe("a person editing in the console", () => {
+describe("a person editing in the console", { timeout: 60_000 }, () => {
   test("lands in activity.md under their own name, with no client", async () => {
     const f = await fixture();
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
@@ -140,7 +144,7 @@ describe("a person editing in the console", () => {
     });
 
     // Two lines: sharing the folder is activity too, and it happened first.
-    const entries = entriesIn(f.backend);
+    const entries = await entriesIn(f);
     expect(entries).toHaveLength(2);
     expect(entries[1]).toMatchObject({ kind: "published", paths: ["1-projects"] });
     expect(entries[0]).toMatchObject({
@@ -154,7 +158,7 @@ describe("a person editing in the console", () => {
     });
   });
 
-  test("is refused to a member, and taken back if somebody publishes it", async () => {
+  test("is refused to a member", async () => {
     const f = await fixture();
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: f.workspaceId,
@@ -162,33 +166,41 @@ describe("a person editing in the console", () => {
       text: BODY,
     });
 
-    // Private by inheritance: `privacy.md`'s format requires a private root,
-    // so a file at the root of the bucket is private in every manifest that
-    // parses at all.
+    // Private by inheritance: a file at the root of the context is private
+    // unless the owner says otherwise, so no member may read the trail.
     await expect(
       asUser(f.t, f.member).action(api.functions.files.readNote, {
         workspaceId: f.workspaceId,
         path: ACTIVITY_PATH,
       }),
     ).rejects.toThrow();
+  });
 
-    // And the case a person can create by hand, in Obsidian: an exact-note
-    // override publishing the file, which would hand every member an index of
-    // every private filename in the context. The next write takes it back.
-    f.backend.seed(
-      PRIVACY_KEY,
-      (fileAt(f.backend, PRIVACY_KEY) as string).replace(
-        "note_overrides:",
-        `note_overrides:\n  ${ACTIVITY_PATH}: team`,
-      ),
-    );
+  test("a row set team does not publish the trail: the next write takes it back to private, and a member is still refused", async () => {
+    const f = await fixture();
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: f.workspaceId,
-      path: "1-projects/another.md",
+      path: "1-projects/week-one.md",
       text: BODY,
     });
-
-    expect(fileAt(f.backend, PRIVACY_KEY)).not.toContain(`${ACTIVITY_PATH}: team`);
+    // Someone, or a bad change, sets the trail's own row to team.
+    await f.t.mutation(internal.functions.nodesAccess.setAccess, {
+      workspaceId: f.workspaceId,
+      path: ACTIVITY_PATH,
+      base: "team",
+      kind: "file",
+      actor: { userId: f.owner, role: "owner" },
+    });
+    // The next line the console writes is what re-privatises it, through the rows, as the gateway does.
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-two.md",
+      text: BODY,
+    });
+    const row = await f.t.run(
+      async (ctx) => await treeNodeAt(ctx.db, f.workspaceId, ACTIVITY_PATH),
+    );
+    expect(row?.access).toEqual({ base: "private" });
     await expect(
       asUser(f.t, f.member).action(api.functions.files.readNote, {
         workspaceId: f.workspaceId,
@@ -204,7 +216,7 @@ describe("a person editing in the console", () => {
       path: "1-projects/week-one.md",
       text: BODY,
     });
-    const before = fileAt(f.backend, ACTIVITY_PATH);
+    const before = await fileAt(f, ACTIVITY_PATH);
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: f.workspaceId,
       path: "1-projects/week-one.md",
@@ -212,10 +224,10 @@ describe("a person editing in the console", () => {
       expectedEtag: first.etag,
     });
 
-    expect(entriesIn(f.backend)).toHaveLength(1);
+    expect(await entriesIn(f)).toHaveLength(1);
     // Byte-identical, which is the claim that matters: the second save did not
     // rewrite the file at all, rather than rewriting it to the same thing.
-    expect(fileAt(f.backend, ACTIVITY_PATH)).toBe(before);
+    expect(await fileAt(f, ACTIVITY_PATH)).toBe(before);
   });
 
   test("records a private note privately, and shows a member nothing of it", async () => {
@@ -237,7 +249,7 @@ describe("a person editing in the console", () => {
     });
 
     // Three: the folder publish, the shared note, and the private one.
-    const stored = entriesIn(f.backend);
+    const stored = await entriesIn(f);
     expect(stored.map((entry) => entry.vis).sort()).toEqual([
       "private",
       "team",
@@ -542,7 +554,7 @@ describe("what never reaches the file", () => {
       workspaceId: f.workspaceId,
       path: "1-projects/empty",
     });
-    expect(fileAt(f.backend, ACTIVITY_PATH)).toBeUndefined();
+    expect(await fileAt(f, ACTIVITY_PATH)).toBeUndefined();
   });
 
   test("reading a note is not activity", async () => {
@@ -552,12 +564,12 @@ describe("what never reaches the file", () => {
       path: "1-projects/week-one.md",
       text: BODY,
     });
-    const before = fileAt(f.backend, ACTIVITY_PATH);
+    const before = await fileAt(f, ACTIVITY_PATH);
     await asUser(f.t, f.owner).action(api.functions.files.readNote, {
       workspaceId: f.workspaceId,
       path: "1-projects/week-one.md",
     });
-    expect(fileAt(f.backend, ACTIVITY_PATH)).toBe(before);
+    expect(await fileAt(f, ACTIVITY_PATH)).toBe(before);
   });
 
   test("no note text reaches the control plane's own tables", async () => {

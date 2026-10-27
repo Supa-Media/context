@@ -41,7 +41,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { factChaos } from "../tree/facts.js";
 import { propsOf } from "../tree/props.js";
 import { servedListingStore } from "../tree/served.js";
-import { extrasAtTreeNames, liveTotals, scoreKeys } from "./live.js";
+import { liveTotals, scoreKeys } from "./live.js";
 import { hasReview, isArchived, isExempt, parentOf } from "./rubric.js";
 
 /**
@@ -224,7 +224,7 @@ export async function changeChaos(store, touch) {
     if (keys === null || facts === null || !state || state.error) return null;
     const visibleToTeam = (path) => canSee(path, "team", state.rules, state.overrides);
     // The facts name notes by bucket key; the keys are drawn through pending moves.
-    const filed = extrasAtTreeNames(facts.extras, store.pendingMoves);
+    const filed = facts.extras;
     const extrasAfter = extrasAfterMoves(filed, moves);
     for (const [path, extra] of rewritten) extrasAfter.set(path, extra);
     const before = scoreKeys(keys, filed, visibleToTeam);

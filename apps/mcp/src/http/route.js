@@ -7,7 +7,7 @@
 
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
-import { attachGatewayJobQueue, attachLinkCalls, matchWellKnown } from "./routing.js";
+import { attachLinkCalls, matchWellKnown } from "./routing.js";
 import {
   authorizationServerMetadata,
   forbiddenResponse,
@@ -28,6 +28,7 @@ import {
   SCOPE_READ,
   SCOPE_WRITE,
   sessionForContext,
+  sessionForSetup,
   SessionRefusal,
   splitWorkspacePath,
   StorageUnavailable,
@@ -39,11 +40,16 @@ import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { handleReview } from "../agent/selfReview.js";
 import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
 import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
+import { handleMessagesBackup, isMessagesBackupPath, isMessagesBackupRead, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
+import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessagesBackupLog } from "../communications/messagesBackupRead.js";
+import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
+import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -65,7 +71,7 @@ import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
-import { handleSteer } from "../agent/steer.js";
+import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
@@ -133,7 +139,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH || isMessagesBackupPath(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -215,18 +221,25 @@ export async function route(request, env, ctx) {
     // app reads it over GET and answers over POST, so the POST-only gate below
     // is not asked of it either.
     const approvalsRoute = path === "/approvals";
+    // The Mac app's Messages backup (`communications/messagesBackup.js`): a
+    // batch, or one file. A path under the file route that is not one is
+    // still this route, refused below rather than read as anything else.
+    const messagesBackupRoute = isMessagesBackupPath(path);
     if (
       summaryRoute ||
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
-      path === "/agent/steer" ||
+      TEXTING_ROUTES.has(path) ||
+      path === "/agent/review" ||
       path === "/collaboration" ||
       approvalsRoute ||
+      messagesBackupRoute ||
       meetingRoute
     ) {
-      if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
+      const backupRead = messagesBackupRoute && isMessagesBackupRead(path, request.method);
+      if (!meetingRoute && !approvalsRoute && !backupRead && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -269,7 +282,7 @@ export async function route(request, env, ctx) {
       // connection's default workspace may clamp the person to `member` where
       // they are an `editor` in the one they asked to write into. Clamping
       // the route here would 403 them there, and they could never approve it.
-      const needed = summaryRoute
+      const needed = summaryRoute || messagesBackupRoute
         ? SCOPE_WRITE
         : approvalsRoute
         ? SCOPE_READ
@@ -289,6 +302,12 @@ export async function route(request, env, ctx) {
           // client can re-authorize for it rather than for everything.
           scope: [needed],
         });
+      }
+
+      // Owner, personal workspace, private tier: decided before a store opens.
+      if (messagesBackupRoute) {
+        const refusal = messagesBackupRefusal(session, slug);
+        if (refusal) return refusal;
       }
 
       let store;
@@ -316,9 +335,10 @@ export async function route(request, env, ctx) {
       // And the deployment's search settings (`search/settings.js`), on the
       // same terms; a texting setup may lay its own over them for one turn.
       store.searchSettings = searchSettingsFor(env);
-      attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
       attachImageUploads(store, session, controlPlane, origin);
+      // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.
+      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true, reader: session.actorClientName ?? null }) });
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -581,7 +601,6 @@ export async function route(request, env, ctx) {
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
         // Read at open time, so a turn's setup settings reach the contexts it addresses.
         targetStore.searchSettings = store.searchSettings;
-        attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
         attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;
@@ -629,6 +648,11 @@ export async function route(request, env, ctx) {
         return { session: target, store: targetStore };
       };
       store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
+      // A group chat's turn reads Tex's setup in the pin it may not otherwise address (`session.js`).
+      const setupSession = sessionForSetup(session);
+      if (setupSession !== null) {
+        store.openPinnedSetup = async () => ({ session: setupSession, store: await storeForSession(setupSession, env, controlPlane) });
+      }
 
       store.suggestDestination = (args) =>
         toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
@@ -649,16 +673,24 @@ export async function route(request, env, ctx) {
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));
-        return streamTurn((progress) => held(() => handleAgent(request, env, store, session, controlPlane, { progress })), {
+        return streamTurn((progress, step) => held(() => handleAgent(request, env, store, session, controlPlane, { progress, step })), {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }
       // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
       // setup an @context-lc editor picked, then a judge turn on its rules.
-      // A text sent while a texted turn runs, for that turn to take in (`agent/steer.js`).
-      if (path === "/agent/steer") return await handleSteer(request, store, session);
+      // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
+      if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
+      // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
+      if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
+      if (messagesBackupRoute) {
+        const file = parseFileRoute(path);
+        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store, session) : json({ ok: false, error: "not_found" }, 404);
+        if (file) return await handleMessagesBackupFile(request, store, file);
+        return path === MESSAGES_BACKUP_ROUTE ? await handleMessagesBackup(request, store) : json({ ok: false, error: "not_found" }, 404);
+      }
 
       return handleMcp(request, store, session);
     }

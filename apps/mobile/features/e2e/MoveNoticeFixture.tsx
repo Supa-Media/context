@@ -31,7 +31,6 @@ export function MoveNoticeFixture({ at }: { at?: string }) {
   const files = {
     notice: null,
     busy: false,
-    canResetPrivacy: false,
     resumeContextMove: () => {},
     dismissContextMove: () => {},
   };
@@ -48,7 +47,6 @@ export function MoveNoticeFixture({ at }: { at?: string }) {
           intro: null,
           introAnswer: { dismiss: () => {} },
           noBucket: false,
-          manifestBroken: false,
           moveNotices: contextMoveNotices(MOVES, dismissed),
           setDismissedMoves: setDismissed,
           storageMigration: { visible: false, dismiss: () => {} },

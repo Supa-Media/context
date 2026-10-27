@@ -25,11 +25,8 @@
  * credential at all, is what puts them in order. The engine half is the
  * "moving between two contexts" section of `lib/fileOps.ts`.
  *
- * Where the gateway's mover is set (`STORAGE_MOVER_ORIGIN`), the owner chose
- * the other side of that trade (2026-10-14, "Two keys"): the gateway holds
- * both buckets for one batch and carries the files itself, while this
- * deployment still opens one workspace per call to plan, narrow and record
- * (`lib/contextMoveMover.ts`). The three-call batches below are the fallback.
+ * Each batch is carried through this deployment: read out of one bucket and
+ * written into the other here, one workspace per call to plan, narrow and record.
  *
  * ## It has no size limit, so it cannot be one request
  *
@@ -75,9 +72,7 @@ import {
   mutation,
   query,
 } from "../_generated/server";
-import { carryHere } from "./lib/contextMoveBatches";
-import { CONTEXT_MOVE_CONFLICT_RETRIES, CONTEXT_MOVE_RETRY_MS, type MoverPass, carryOnMover } from "./lib/contextMoveMover";
-import { storageMoverOrigin } from "./lib/storageMover";
+import { CONTEXT_MOVE_CONFLICT_RETRIES, carryHere } from "./lib/contextMoveBatches";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 import { authorizeMove, messageOf, normalizeMovePath, TOO_MANY_PASSES } from "./lib/contextMoveAuthorize";
 
@@ -581,67 +576,17 @@ export const advanceContextMove = internalAction({
       );
     }
 
-    /*
-      THE GATEWAY'S MOVER, WHERE THIS DEPLOYMENT HAS ONE: the files go bucket
-      to bucket there and never through here (`lib/contextMoveMover.ts`). The
-      batches below are the fallback, and what a self-hosted deployment runs.
-    */
-    const origin = storageMoverOrigin();
-    // The mover carries bucket keys, and a keyed workspace's note is not at its
-    // path: where either end is keyed, the batches below carry it through each
-    // end's id layer instead (`contextMoveKeyed.test.ts`).
-    const keyed =
-      origin !== null &&
-      ((await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.sourceWorkspaceId })) ||
-        (await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.destinationWorkspaceId })));
-    if (origin !== null && !keyed) {
-      let pass: MoverPass;
-      try {
-        pass = await carryOnMover(ctx, {
-          moveId: args.moveId,
-          row,
-          source,
-          destination,
-          skipped,
-          origin,
-          batches: BATCHES_PER_PASS,
-          conflictsLeft,
-        });
-      } catch (error) {
-        return await stop("failed", messageOf(error));
-      }
+    // Batches carried through this deployment's own layer (`lib/contextMoveBatches.ts`): each end's
+    // keyed layer answers for its own notes, so a keyed workspace needs no other path.
+    try {
+      const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS, conflictsLeft });
       conflictsUsed = pass.conflicts ?? 0;
       movedObjects = pass.movedObjects;
       movedBytes = pass.movedBytes;
       remaining = pass.remaining;
       if (pass.failed !== undefined) return await stop("failed", pass.failed);
-      if (pass.retry === true) {
-        if (args.passesLeft <= 1) return await stop("failed", TOO_MANY_PASSES);
-        await ctx.runMutation(internal.functions.contextMoves.recordMoveProgress, {
-          moveId: args.moveId,
-          movedObjects,
-          movedBytes,
-          skipped,
-          status: "moving",
-        });
-        await ctx.scheduler.runAfter(CONTEXT_MOVE_RETRY_MS, internal.functions.contextMoves.advanceContextMove, {
-          moveId: args.moveId,
-          passesLeft: args.passesLeft - 1,
-          conflictsLeft: conflictsLeft - conflictsUsed,
-        });
-        return null;
-      }
-    } else {
-      try {
-        const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS, conflictsLeft });
-        conflictsUsed = pass.conflicts ?? 0;
-        movedObjects = pass.movedObjects;
-        movedBytes = pass.movedBytes;
-        remaining = pass.remaining;
-        if (pass.failed !== undefined) return await stop("failed", pass.failed);
-      } catch (error) {
-        return await stop("failed", messageOf(error));
-      }
+    } catch (error) {
+      return await stop("failed", messageOf(error));
     }
 
     if (remaining) {

@@ -1,0 +1,40 @@
+name: Promote to Production
+
+# With the repository variable AUTO_DEPLOY_PRODUCTION set to `after-staging`
+# (Settings → Secrets and variables → Actions → Variables), a green staging
+# run from a merge starts Deploy to Production for that commit, once CI on
+# main has passed on it too. scripts/promote-production.mjs says what it
+# checks; Deploy to Production checks staging again itself.
+#
+# Unset (the default since 2026-10-23), production starts beside staging from
+# deploy-staging.yml and this workflow does nothing. `off` leaves production
+# to a manual run.
+on:
+  workflow_run:
+    workflows: ["Deploy Staging"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  promote:
+    name: Start Deploy to Production
+    if: ${{ vars.AUTO_DEPLOY_PRODUCTION == 'after-staging' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Promote this commit if CI and staging passed and it is still main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGED_SHA: ${{ github.event.workflow_run.head_sha }}
+          STAGED_EVENT: ${{ github.event.workflow_run.event }}
+          STAGED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          STAGED_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: node scripts/promote-production.mjs

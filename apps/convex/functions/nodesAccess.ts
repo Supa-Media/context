@@ -18,10 +18,11 @@ import type { Id } from "../_generated/dataModel";
 import { addGranteesHandler } from "./lib/nodes/addGrantees";
 import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
 import { shareListHandler, shareListValidator } from "./lib/nodes/shareList";
-import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
+import { refreshSnapshot, resolveHandle } from "./lib/nodes/accessBackfill";
+import { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
-import { narrowRowForMove, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
+import { narrowRowForMove, narrowRowsForMoves, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
 import { listForTier, type BuiltIn } from "./lib/nodes/membersPosition";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { pinReadersAreGuests } from "./lib/pinnedReaders";
@@ -29,6 +30,7 @@ import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
 import { privacyEtagOf } from "./lib/nodes/readerRules";
+import { nodeAt } from "./lib/nodes/paths";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 type RawGrantee =
@@ -50,7 +52,6 @@ const answerValidator = v.union(
       v.literal("CONFLICT"),
       v.literal("NOT_FOUND"),
       v.literal("FORBIDDEN"),
-      v.literal("NOT_ROWS_MODE"),
       v.literal("PENDING_FULL"),
       v.literal("INVALID"),
     ),
@@ -84,7 +85,7 @@ function granteesOf(ctx: MutationCtx, raw: RawGrantee[]): GranteeInput[] | null 
 export const rowsMode = internalQuery({
   args: {},
   returns: v.boolean(),
-  handler: async (ctx): Promise<boolean> => (await accessSourceOf(ctx.db)) === "rows",
+  handler: async (): Promise<boolean> => true,
 });
 
 /**
@@ -120,7 +121,6 @@ export const exportAccessState = internalQuery({
     }),
   ),
   handler: async (ctx, { workspaceId }) => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return null;
     return await exportAccessStateOf(ctx, workspaceId);
   },
 });
@@ -138,10 +138,51 @@ export const setAccess = internalMutation({
   },
   returns: answerValidator,
   handler: async (ctx, args): Promise<SetAccessAnswer> => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false, code: "NOT_ROWS_MODE" };
     const grantees = args.grantees === undefined || args.grantees === "inherit" ? args.grantees : granteesOf(ctx, args.grantees);
     if (grantees === null) return { ok: false, code: "INVALID" };
     return await setAccessRow(ctx, { ...args, grantees });
+  },
+});
+
+/**
+ * A tier a file operation's own rule sets on one row, from the barrier's store (`lib/nodes/storeAuthority.ts`): a
+ * copy narrowed to private, a move's destination tightened. The operation was authorized before its store was
+ * opened, and only a base changes, never a list, so the write stands for an owner of the workspace. INTERNAL.
+ */
+export const setOperationTier = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    base: v.union(v.literal("private"), v.literal("team"), v.literal("inherit")),
+    expectedVersion: v.optional(v.number()),
+    kind: v.optional(v.union(v.literal("file"), v.literal("folder"))),
+  },
+  returns: answerValidator,
+  handler: async (ctx, args): Promise<SetAccessAnswer> => {
+    const members = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const owner = members.find((member) => member.role === "owner");
+    if (owner === undefined) return { ok: false, code: "FORBIDDEN" };
+    return await setAccessRow(ctx, { ...args, actor: { userId: owner.userId, role: "owner" } });
+  },
+});
+
+/**
+ * The activity file (`activity.md`, at the root) is private whatever its row says: it names private notes. Called
+ * by the barrier after a footnote lands in it, when the rules it was written under were not private. A row that
+ * is `team` goes back to `private` (its list is kept); no row means the root default, which is private.
+ */
+export const keepActivityPrivate = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    const row = await nodeAt(ctx.db, workspaceId, ACTIVITY_PATH);
+    if (row === null || row.access?.base !== "team") return null;
+    await ctx.db.patch(row._id, { access: { base: "private" } });
+    await refreshSnapshot(ctx, workspaceId);
+    return null;
   },
 });
 
@@ -173,17 +214,17 @@ export const consoleAccess = internalMutation({
   },
   returns: v.union(
     v.object({ ok: v.literal(true), path: v.string(), visibility: v.string(), inherited: v.string(), exception: v.boolean() }),
-    v.object({ ok: v.literal(false), code: v.union(v.literal("NOT_FOUND"), v.literal("GROUP_NOT_FOUND"), v.literal("NOT_ROWS_MODE")) }),
+    v.object({ ok: v.literal(false), code: v.union(v.literal("NOT_FOUND"), v.literal("GROUP_NOT_FOUND")) }),
   ),
   handler: async (ctx, args) => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false as const, code: "NOT_ROWS_MODE" as const };
     // The console changes what is in the tree: a path with no row does not exist, so nothing waits for one.
-    const exists = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-      .unique();
-    if (exists === null) return { ok: false as const, code: "NOT_FOUND" as const };
-    const rules = renderAccess(await scanAccessRows(ctx, args.workspaceId), "member");
+    const exists = await nodeAt(ctx.db, args.workspaceId, args.path);
+    if (exists === null)
+      return { ok: false as const, code: "NOT_FOUND" as const };
+    const rules = renderAccess(
+      await scanAccessRows(ctx, args.workspaceId),
+      "member",
+    );
     const inherited = visibilityOf(args.path, rules.rules) as string;
     const actor = { userId: args.actorUserId, role: "owner" as const };
 
@@ -260,8 +301,17 @@ export const narrowMove = internalMutation({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: v.null(),
   handler: async (ctx, { workspaceId, from, to }): Promise<null> => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return null;
     await narrowRowForMove(ctx, workspaceId, from, to);
+    return null;
+  },
+});
+
+/** `narrowMove` for every move of a batch in one transaction (`lib/nodes/rowMoveBatch.ts`). */
+export const narrowMoves = internalMutation({
+  args: { workspaceId: v.id("workspaces"), moves: v.array(v.object({ from: v.string(), to: v.string() })) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, moves }): Promise<null> => {
+    await narrowRowsForMoves(ctx, workspaceId, moves);
     return null;
   },
 });
@@ -274,7 +324,6 @@ export const narrowArrivals = internalMutation({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId, paths }): Promise<boolean> => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return false;
     return await pendPrivateArrivals(ctx, workspaceId, paths);
   },
 });
@@ -291,15 +340,11 @@ export const ensureFolderDefault = internalMutation({
     v.object({ ok: v.literal(true), visibility: v.string(), changed: v.boolean() }),
     v.object({
       ok: v.literal(false),
-      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL"), v.literal("INVALID")),
+      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("PENDING_FULL"), v.literal("INVALID")),
     }),
   ),
   handler: async (ctx, args) => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false as const, code: "NOT_ROWS_MODE" as const };
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
-      .unique();
+    const row = await nodeAt(ctx.db, args.workspaceId, args.path);
     const actor = { userId: args.actorUserId, role: "owner" as const };
     if (row === null) {
       const state = await ctx.db

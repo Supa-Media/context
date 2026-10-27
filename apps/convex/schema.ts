@@ -1,6 +1,10 @@
 import { defineSchema } from "convex/server";
 import { supaAuthTables } from "@supa-media/convex/schema";
 import { workspaceTables } from "./functions/lib/schema/workspaces";
+import { collaborationFilingTables } from "./functions/lib/schema/collaborationFiling";
+import { treeParentsTables } from "./functions/lib/schema/treeParents";
+import { treeFlipsTables } from "./functions/lib/schema/treeFlips";
+import { linkRepairTables } from "./functions/lib/schema/linkRepairs";
 import { obsidianPluginTables } from "./functions/lib/schema/obsidianPlugins";
 import { membershipTables } from "./functions/lib/schema/membership";
 import { shareTables } from "./functions/lib/schema/shares";
@@ -27,6 +31,7 @@ import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
+import { texReviewTables } from "./functions/lib/schema/texReviews";
 import { appearanceTables } from "./functions/lib/schema/appearance";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
@@ -42,6 +47,7 @@ import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { trashTables } from "./functions/lib/schema/trash";
+import { oldCopiesTables } from "./functions/lib/schema/oldCopies";
 import { meaningTables } from "./functions/lib/schema/meaning";
 import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
@@ -122,6 +128,7 @@ const schema = defineSchema({
   ...feedbackTables,
   ...textLinkTables,
   ...textGroupTables,
+  ...texReviewTables,
   ...vaultTables,
   ...connectionTables,
   ...signInEmailTables,
@@ -131,6 +138,11 @@ const schema = defineSchema({
   ...agentTurnTables,
   ...searchTimingTables,
   ...trashTables,
+  ...collaborationFilingTables,
+  ...treeParentsTables,
+  ...treeFlipsTables,
+  ...linkRepairTables,
+  ...oldCopiesTables,
   ...meaningTables,
   ...routineTables,
   ...dreamTables,

@@ -20,6 +20,7 @@ import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { type FolderJobs, type RowRole } from "@context/shared/src/folderRoles.cjs";
 import { twinsAlong } from "@context/shared/src/archiveMirror.cjs";
 import { folderJobsOf, jobOfRow } from "./folderJobs";
+import { nodeAt } from "./paths";
 
 export type ArchiveRefusal = "archive_stays" | "built_in_archived";
 
@@ -65,10 +66,7 @@ export async function markArchiveTwins(ctx: MutationCtx, workspaceId: Id<"worksp
   const jobs = await folderJobsOf(ctx.db, workspaceId);
   const marked: string[] = [];
   for (const twin of twinsAlong(jobs, jobs.jobs.archive, path)) {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", twin.path))
-      .unique();
+    const row = await nodeAt(ctx.db, workspaceId, twin.path);
     if (row === null || row.goneAt !== undefined || row.kind !== "folder" || row.archiveOf !== undefined) continue;
     await ctx.db.patch(row._id, { archiveOf: twin.role });
     marked.push(twin.path);
@@ -97,12 +95,13 @@ export async function twinsToFollow(
   for (const job of jobsUnder(jobs, from)) {
     const twinFrom = `${archive}/${job.path}`;
     if (follow.some((outer) => under(twinFrom, outer.from))) continue;
-    const row = await db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", twinFrom))
-      .unique();
+    const row = await nodeAt(db, workspaceId, twinFrom);
     if (row === null || row.goneAt !== undefined || row.kind !== "folder") continue;
-    follow.push({ from: twinFrom, to: `${archive}/${to}${job.path.slice(from.length)}`, role: job.role });
+    follow.push({
+      from: twinFrom,
+      to: `${archive}/${to}${job.path.slice(from.length)}`,
+      role: job.role,
+    });
   }
   return follow;
 }

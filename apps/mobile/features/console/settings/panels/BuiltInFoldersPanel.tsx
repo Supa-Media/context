@@ -215,7 +215,6 @@ function JobLine({
             </Text>
           )}
           <View style={styles.actions}>
-            {row.job === "website" ? <Text variant="meta">Fixed</Text> : null}
             {row.canChange && onChoose !== undefined ? (
               <Button
                 label={row.path === null ? "Use a folder" : "Change"}

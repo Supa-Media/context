@@ -10,6 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { PROVIDERS, providerAvailable } from "../providers/registry";
 import type { ProviderId } from "../providers/ids";
+import { slackMissingScopes } from "../providers/slack";
 import { TEXTS_GROUP_CLIENT_ID, mayConnect } from "./links";
 
 export type AppState = "connected" | "reconnect" | "not_connected" | "not_available";
@@ -55,7 +56,7 @@ export async function appCatalog(
         ? "not_available"
         : row === undefined
           ? "not_connected"
-          : row.reconnectRequiredAt !== undefined
+          : row.reconnectRequiredAt !== undefined || (spec.id === "slack" && slackMissingScopes(row.scope, row.grantedScopes).length > 0)
             ? "reconnect"
             : "connected",
       ...(row === undefined ? {} : { account: row.externalTeamName, connectionId: row._id }),

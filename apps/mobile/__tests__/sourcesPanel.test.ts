@@ -161,11 +161,12 @@ describe("nothing here is a setting, except who may send", () => {
     expect(text).not.toContain("Target folder");
   });
 
-  test("no schedule picker, and the interval is stated once as a fact", () => {
+  test("no schedule picker, and no interval: nothing is copied on one", () => {
     const container = panel(personal({ googleConnections: [CONNECTION] }));
     const text = container.textContent ?? "";
     expect(text).not.toContain("Sync schedule");
-    expect(text).toContain("every five minutes");
+    expect(text).not.toContain("every five minutes");
+    expect(text).toContain("Nothing is copied into your notes.");
   });
 
   test("no attachment policy: the choice is gone from the panel entirely", () => {

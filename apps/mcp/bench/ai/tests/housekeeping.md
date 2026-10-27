@@ -73,3 +73,34 @@ Today is 17 October. The May and early June notes are past three months; the 14 
 - must file: tomas/todo.md under tomas/todo.md
 - must file: tomas/3-resources/woodworking/joinery.md under tomas/3-resources/woodworking/
 - must: keep the line it would text to one plain sentence about what it changed
+
+## 7. A crowded folder is grouped by its names
+
+Tomas logs every run as its own note: `2-areas/running/` holds 240 dated run logs beside the two notes he reads. The run logs go together into one subfolder of running, in one move by name rather than hundreds written out; shoes and races stay where they are.
+
+- kind: task
+- must not file: tomas/2-areas/running/run-log-2026-03-01.md under tomas/2-areas/running/run-log-2026-03-01.md
+- must file: tomas/2-areas/running/run-log-2026-03-01.md under tomas/2-areas/running/
+- must not file: tomas/2-areas/running/run-log-2026-06-17-121.md under tomas/2-areas/running/run-log-2026-06-17-121.md
+- must file: tomas/2-areas/running/run-log-2026-06-17-121.md under tomas/2-areas/running/
+- must not file: tomas/2-areas/running/run-log-2026-10-14-240.md under tomas/2-areas/running/run-log-2026-10-14-240.md
+- must file: tomas/2-areas/running/run-log-2026-10-14-240.md under tomas/2-areas/running/
+- must file: tomas/2-areas/running/shoes.md under tomas/2-areas/running/shoes.md
+- must file: tomas/2-areas/running/races.md under tomas/2-areas/running/races.md
+
+## 8. A folder crowded with several kinds of note is grouped by each kind
+
+Tomas's `3-resources/woodworking/` holds his four reference notes beside 170 numbered build logs, 150 dated cut lists and 60 dated finish tests, the shape of a real folder of 480 that housekeeping once barely touched (2026-10-26). Every kind goes into a subfolder of woodworking, each in one move by name; the four reference notes stay where they are.
+
+- kind: task
+- must not file: tomas/3-resources/woodworking/build-log-001.md under tomas/3-resources/woodworking/build-log-001.md
+- must file: tomas/3-resources/woodworking/build-log-001.md under tomas/3-resources/woodworking/
+- must not file: tomas/3-resources/woodworking/build-log-170.md under tomas/3-resources/woodworking/build-log-170.md
+- must not file: tomas/3-resources/woodworking/cut-list-2026-01-16-002.md under tomas/3-resources/woodworking/cut-list-2026-01-16-002.md
+- must file: tomas/3-resources/woodworking/cut-list-2026-01-16-002.md under tomas/3-resources/woodworking/
+- must not file: tomas/3-resources/woodworking/cut-list-2026-10-10.md under tomas/3-resources/woodworking/cut-list-2026-10-10.md
+- must not file: tomas/3-resources/woodworking/finish-test-2026-02-01-02.md under tomas/3-resources/woodworking/finish-test-2026-02-01-02.md
+- must file: tomas/3-resources/woodworking/finish-test-2026-02-01-02.md under tomas/3-resources/woodworking/
+- must not file: tomas/3-resources/woodworking/finish-test-2026-09-28.md under tomas/3-resources/woodworking/finish-test-2026-09-28.md
+- must file: tomas/3-resources/woodworking/joinery.md under tomas/3-resources/woodworking/joinery.md
+- must file: tomas/3-resources/woodworking/timber.md under tomas/3-resources/woodworking/timber.md

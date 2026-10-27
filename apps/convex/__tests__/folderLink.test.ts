@@ -40,7 +40,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -55,6 +54,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -133,6 +133,8 @@ async function fixture(): Promise<Fixture> {
     }),
   );
 
+  // The tree first: a rule is written to a row, and a row exists once the tree has been copied.
+  await copyTree(t, workspaceId);
   // `1-projects` team-visible, and `transition-old` too, so the prefix twin is
   // refused by the BOUND rather than by happening to be private — which is the
   // only way that test means anything.
@@ -151,7 +153,6 @@ async function fixture(): Promise<Fixture> {
     visibility: "private",
   });
 
-  await copyTree(t, workspaceId);
   return { t, owner, member, stranger, workspaceId, backend };
 }
 

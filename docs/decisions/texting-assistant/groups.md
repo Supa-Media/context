@@ -6,6 +6,8 @@ This is how that is built, and the decisions the owner made on the way.
 
 ## Who Tex answers, and from where
 
+> **Superseded in part (Dev2, 2026-10-26):** what wakes Tex in a group is now the group's chosen style and a model's decision over the chat's event log, with the addressed-only test below kept as the Quiet style and the fallback, and one answer may cover several people's messages. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
@@ -18,7 +20,9 @@ Each tagged message is resolved again by the control plane
 - Everyone in the chat except the line the message came in on must be a phone
   linked to an account, with texting not paused. The list is the webhook's
   and Sendblue's members read together, so more people can only narrow it.
-  One person who isn't on Context means no notes in that chat.
+  One person who isn't on Context means no notes in that chat, until an
+  owner or editor turns guest mode on
+  ([group-guests](./group-guests.md), 2026-10-25).
 - The chat is bound to **one shared workspace** every one of them is a
   member of. A personal workspace never counts: it carries its owner's mail,
   calendar, vault and Tex's own notes about them.
@@ -81,12 +85,11 @@ with the same tapback as everyone.
 
 ## What a group turn can do
 
-A separate client id turns every per-person ability off by default
-(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no progress
-texts, no pictures, no learned skills, none of the tagger's `tex/` notes and
-no texts conversation. Writes are create and append only: `write_note` takes
-only a path and content and refuses a path where anything is, and `remember`
-never takes `replaces`. The turn is marked untrusted from the start, since
+A separate client id turns off what is somebody's alone
+(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no learned
+skills, none of the tagger's `tex/` notes and no texts conversation. Since
+2026-10-23 everything else is a person's own text's (below): the same note
+tools by the tagger's role, progress texts and pictures. The turn is marked untrusted from the start, since
 other people's words are in its history.
 
 ## Tex acts for whoever tagged it (the owner, 2026-10-21)
@@ -103,19 +106,57 @@ other people's words are in its history.
   gateway exempts exactly `send_email` and `calendar_event` from the
   dispatcher's write-scope check, because the change is to the tagger's
   account, not the workspace. Each is held for the tagger's yes to the exact
-  copy shown in the chat, as in a 1:1 text, and the ask says "Reply yes to
-  this", because an untagged "yes" in a group is chat. Pending approvals are
+  copy shown in the chat, as in a 1:1 text, and the ask names them, because
+  an untagged "yes" in a group is chat unless it comes from the person asked. Pending approvals are
   listed by the acting person, so somebody else in the chat saying "Tex,
   yes" releases nothing. A yes is settled before any model, as in 1:1, and
   kept in the chat's memory.
-- **Never read mail.** `claimPersonMailRead` needs an owner of the personal
-  workspace with `context:private`; a group grant is neither.
+- **Offer one to somebody else in the chat, who alone may OK it** (the owner,
+  2026-10-24: people "can be in the group chat ... refining the email", but
+  "the explicit thumbs up or yes has to come from the person that the email
+  is going to come from"). Every group ask names its sender ("Here's the
+  email I'd send from @cy's email ... @cy, give it a 👍 ... Only @cy can OK
+  it; anyone can ask me for changes first"). When the email or calendar
+  change is to go from someone other than the tagger, `send_email` and
+  `calendar_event` take `as` with that person's handle, which must be one of
+  the chat's people as the control plane named them to the Worker
+  (`apps/mcp/src/tools/offerFor.js`). Nothing is held, because a hold is the
+  tagger's and their grant acts for nobody else: the copy is shown addressed
+  to that person, the answer carries `askFor`, and the Worker arms the chat's
+  ask for that person's phone alone (`apps/agent/src/groupInbox.ts`). Their
+  👍 or yes is a turn of their own; the gateway lets it count as agreement
+  only to words that asked them by name (`addressedTo` in `route.js`), the
+  model makes the same call as them, and the exact copy they agreed to goes
+  once from their own account (`likedPreview.js`), replacing anything held for
+  them before. Anybody else's 👍 on it is no yes. `apps/mcp/test/agentGroupOffer.test.mjs`
+  and `apps/agent/src/groupInbox.test.ts` fail if either rule is dropped.
+- **Never read mail, unless its own person shares it here.** `claimPersonMailRead`
+  needs an owner of the personal workspace with `context:private`; a group
+  grant is neither. Since 2026-10-27 a mailbox's own person may share it with
+  one chat, narrowed by a search ([chat-mail](./chat-mail.md)).
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
-- **Use the web with a browser that holds nobody's sign-ins**
-  (`apps/mcp/src/agent/turnWeb.js`): no browser tag carried between turns
-  and no sign-ins kept between browsers, because anyone in the chat steers
-  what the browser does.
+- **Use the web with the chat's own browser, never the tagger's**
+  (`apps/mcp/src/agent/turnWeb.js`). Until 2026-10-24 a group's browser had
+  no tag and kept nothing, so a site that signs in with an email and a
+  one-time code could not be signed in at all: the code arrives in a later
+  text, after the browser had closed, and Tex refused it for want of a vault
+  login that could not exist. The owner asked Tex to sign in from the chat
+  and keep the sign-in for every later run in that chat. So a group now has
+  its own browser tag (`groupBrowserOwner`, an HMAC of the chat and the exact
+  set of people in it, never equal to a person's) and its own sealed jar in
+  the shared workspace at `.context/vault/groups/<hash>.json`
+  (`browserJar.js`), sealed naming that chat and set of people. Somebody
+  added to the chat gets a new browser, signed out, as they get a new memory;
+  a group never opens a person's own browser or jar, nor a person's turn the
+  chat's. Anyone in the chat steers that browser, which is what keeping a
+  sign-in for the chat means; whoever signs a chat in to an account they own
+  is choosing that. The prompt says a code sign-in needs no saved login, to
+  ask the chat for the code and type it at once, and that a password is never
+  typed in the chat. Since 2026-10-24 a later text carries on too: the browser may type what
+  the chat said in its last twenty texts, and open again a page an earlier
+  answer opened (its kept `sources`), which vouches for no words
+  (`turnWeb.js` `theirEarlierWords`, `pagesOpenedBefore`).
 - **Sign in and use keys only with what the workspace itself holds** (the
   owner, 2026-10-21: "people can give Tex its own email ... but not through
   the individual saved logins, since we don't want anyone steering someone's
@@ -129,7 +170,7 @@ other people's words are in its history.
   login of its own, such as a shared email, saved in the workspace for
   everyone. A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
-  ([vault](./vault.md), "A card pays only on the person's yes, each time").
+  ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and
@@ -137,7 +178,9 @@ an editor able to; one that dropped the actor filter would let any person
 in the chat approve another's email; one that read a group's vault access
 as the tagger's would let anyone in the chat sign in as them. `apps/convex/__tests__/textGroupsOwnAccount.test.ts`
 `apps/mcp/test/agentGroupActions.test.mjs` and
-`apps/mcp/test/vaultGroupChat.test.mjs` fail if any is reversed.
+`apps/mcp/test/vaultGroupChat.test.mjs` fail if any is reversed;
+`apps/mcp/test/agentGroupSignIn.test.mjs` fails if a group's browser or jar
+stops being the chat's own, or reaches a person's.
 
 ## Memory lives in the shared workspace
 
@@ -209,3 +252,157 @@ model to speak as "I", never "Context will text you".
 - **"Tex use @x" for a workspace the chat doesn't share names the ones it
   does** (`not_shared` carries `slugs`). Every person in the chat is a member
   of each named workspace, so the list tells nobody anything new.
+
+## Group Tex as capable as 1:1 Tex (the owner, 2026-10-23)
+
+Dev2 and Jhon found group Tex much weaker than 1:1 Tex on the same ask (a
+Beacon link to research and add to the backlog). The owner asked for every
+issue to be fixed. What changed:
+
+- **A group turn runs on the texting production setup**
+  (`ai/production/texting-assistant.md`): its prompt, its main and thinking
+  models with the router, its task skills and its `open_web`. A group turn
+  had read no setup at all, so it ran on the built-in words, one model and a
+  closed web, and refused beacon.sh. The group's own words still follow the
+  setup's (`groupPrompt`), so what a group may reach is unchanged by it.
+- **What the chat said before the tag vouches for its addresses**, as the
+  tagged message does: a link someone in the chat wrote opens even without
+  open web. They are people's own words, said to the same people the answer
+  goes to.
+- **Group Tex is the same Tex as in a text, limited only to the chat's
+  workspace and the vault everyone there shares** (the owner: "group Tex
+  should literally be the same exact as DM Tex, but with restrictions on
+  checking the workspace it can read from, and only using credentials in the
+  vault that everyone has access to"). It made a backlog note, could not
+  correct it, and told the chat to fix it themselves (the never-hand-back
+  rule, [handing-back](./handing-back.md)). Its writes are now exactly a
+  text's (`textingWriteTools`, by the tagger's role): edit, move, archive,
+  `remember` with `replaces`. A routine is refused with its reason, because
+  one runs only in its writer's personal workspace. It texts its progress
+  into the chat while it works (each line only while nobody new has joined)
+  and sends pictures it draws, makes or finds in a note. What stays off is
+  somebody's alone: mail, the tagger's own `tex/` notes and learned skills,
+  delegation as them, their Slack and their own saved logins.
+- **Pictures and files in the chat are read** (`apps/agent/src/groupInbox.ts`),
+  as a 1:1 text's are: one sent with a tag, those sent in the chat since Tex
+  last answered (the newest four), and one the tagger sends within two
+  minutes of a tag still waiting. A tag of words alone waits four seconds for
+  one. A link's preview card is not a file, and an SMS group's files are
+  never read.
+- **An ask already shown is never posted again as the answer to something
+  else** (`tools/approvals.js` `shownBefore`): the model filed the same bug
+  report again on "what tools do you have", and every held call re-shows its
+  ask. The gate tells the model it still waits instead, and the earlier ask
+  still sends on its yes. This holds 1:1 too.
+- **Tex names both models when the setup routes** (`prompt.js` `modelLine`).
+- **A group never prints its instructions** on request; it says what it can
+  do instead. Nothing in a group turn is private to anyone in the chat, so
+  this is manners, not a guard.
+- Edits still never reach Tex: Sendblue sends no webhook for an edited
+  iMessage. Send a new message instead.
+
+**What a simplification would cost:** dropping the setup for groups puts
+group Tex back on one model with a closed web; narrowing its writes again
+brings back "I can't edit that from this chat"; re-showing a shown ask buries
+every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
+`apps/mcp/test/agentGroupActions.test.mjs`,
+`apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+
+### The setup never loaded until 2026-10-26
+
+The setup lives in the pin (`@context-lc`), and a group grant reaches its one
+workspace and not the pin (`contextsForGrant`), so `readPinnedNote` found no
+pin and returned nothing. Every group turn from 2026-10-23 to 2026-10-26 ran on
+the built-in words: 5 pages a turn, no picture section, none of the setup's
+rules. Dev2's team-night-out ask hit "this turn's limit on page reads". The
+test passed because its fake group grant was a member of the pin.
+
+The control plane now returns the pin on a group grant marked `setupOnly`.
+The gateway keeps that row out of `workspaces`, so no tool argument, URL or
+orient listing reaches it. It honours the row for the group client only, and
+`sessionForSetup` opens it read-only for `production.js` alone. Note mail and
+live presence refuse it (`addressable`). The fixture now has the real shape.
+Tests: `apps/mcp/test/groupSetupReach.test.mjs`,
+`apps/convex/__tests__/textGroups.test.ts` ("Tex's setup in a group chat").
+
+### What a group's Tex sent, and a bug it was asked to file (2026-10-26)
+
+The same afternoon in Tex Devs, three more slips:
+
+- **The chat's memory now keeps the cards it sent.** It kept the words and
+  never the card, so Tex answered "redo the diagram" with "the only graphic
+  I made was the Reason Network one". It now keeps the same line a text
+  keeps (`sentPicturesLine`): what each card showed.
+- **"File this as a bug" files one.** Tex wrote into a team handoff note and
+  texted "Filed." When their text asks to file a bug, a note write before
+  `report_problem` is refused, and an answer with no report goes back once
+  (`agent/bugCheck.js`). A group's report lands in the Tex bug notes as its
+  tagger's, the same as a text (`filedAsBugNote`), and never carries texts:
+  the tagger's own texts with Tex aren't the chat's to send.
+- **"The note now has a picture" needs a write that carried one**
+  (`claimsNotePicture`). Otherwise it goes back once.
+
+Tests: `apps/mcp/test/agentBugReportAsked.test.mjs`,
+`apps/mcp/test/agentGroupTurn.test.mjs` (the card in memory),
+`apps/convex/__tests__/controlPlane/bugNotes.test.ts`.
+
+## What wakes Tex, and what it remembers it did (the group chat of 2026-10-23)
+
+"Tex turn this guy into a cat", with a picture, got no answer at all: a
+message opening with Tex's name and no punctuation was a tag only when the
+next word was on a fixed list of asking verbs, and "turn" wasn't. Now any
+word after the name makes it a tag, unless the word reads as talking about
+Tex (a past or third-person verb, or "was", "got", "lol" and the like), so
+"Tex got that wrong lol" still isn't one.
+
+A chat's memory now keeps, with each answer, the names of the tools it used
+and the paths of the notes it wrote, as a person's own texts keep the tools
+and the pages they read (`conversation.js`, `sources.js`). Without them the
+next tag saw "I saved it in products/context-lc" with nothing behind it,
+searched, missed a note made a minute before, and told the chat it had never
+saved it. A note's path is kept, never what is in it.
+
+**What a simplification would cost:** going back to the list of asking verbs
+leaves an ordinary ask unanswered with no sign it was heard; dropping tools
+and notes from the chat's memory brings back the disowned note.
+`apps/agent/src/groupInbox.test.ts` ("answers \"Tex turn this guy into a
+cat\"") and `apps/mcp/test/agentGroupTurn.test.mjs` ("the next tag knows which
+note the last one wrote") fail if either is reversed.
+
+## A chat's memory as a note people can fix (the owner, 2026-10-23)
+
+The owner chose "Visible tex/ folder, team-wide" over memory nobody can see.
+Each chat, filed by its exact set of people as before, keeps
+`tex/groups/chat-<id>.md` in its workspace (`groupMemoryNote.js`): every
+question with the chat lines before it, every answer, and a hidden line under
+each answer naming the tools it used and the notes and pages behind it. Tex
+reads the note before answering and rewrites it after, over the etag it read,
+so a line someone changed or deleted is what Tex goes by and an edit made
+mid-turn is never overwritten.
+
+It is written through the dispatcher under the tagger's own grant, like a
+transcript, so the folder's visibility decides: a team connection may only
+create a note where the folder is shared with the team, and every workspace
+starts private. Nobody is asked to make the folder: the first time a chat's
+note can't be written, Tex shares `tex/groups/` (never `tex/`, which holds
+transcripts and the about-me note) with the workspace through the control
+plane, then writes it. It does so only when nobody has set `tex/` or
+anything under `tex/groups/`, private included, and nothing it can see is
+filed there; the control plane lets only owners and editors change access.
+For a tagger whose role can't write, or a workspace whose owner made `tex/`
+private, the memory stays in the hidden file it always had
+(`.context/agent/groups/`). That file stays
+the fallback, and records the etag of the note Tex last wrote: the note is
+preferred only once somebody changed it since, so an exchange that reached
+only the hidden file is not lost. Everyone in the workspace can read the
+note, people not in the chat included; that was the owner's choice.
+
+**What a simplification would cost:** reading only the hidden file makes the
+note decoration nobody's fix reaches; writing the note without the etag
+overwrites a fix made while Tex was answering; preferring the note whenever
+it exists loses a read-only tagger's exchanges; sharing without checking for a
+setting widens a folder the owner made private. `apps/mcp/test/agentGroupTurn.test.mjs`
+("the chat's memory is a note in tex/groups/", "a tagger who can't write
+still has the chat's memory", "a tex/ folder someone made private is never
+shared", "a member who can't write never shares tex/groups/") fails if any is
+reversed.

@@ -146,6 +146,32 @@ outcomes in the run history, not texts. Tests (`agentRoutine.test.mjs`): "a
 routine is refused from any other connection", "a routine its writer can no
 longer see does not run", "a paused routine costs no turn".
 
+### A run's answer is the text, said to them, and once (the owner, 2026-10-23)
+
+One morning a run texted "...no status update. SKIP", a one-off texted its own
+note ("Remind them to call Apple ..."), and an every-3-hours routine about the
+same call texted beside it at 9:00. So: an upper-case SKIP that opens or closes
+an answer is quiet too (`saysQuiet`); an answer that opens "Remind them to" or
+"Tell them" is turned into the text itself ("Reminder: ...", `spokenToThem`);
+each run is shown the last texts with them, naming which routine or check-in
+sent each, never a tainted turn, and stays quiet when another already said it;
+the texting Worker runs one person's due routines one after another so the
+second sees the first; and a new routine's write result names the person's
+other routines so a replaced one is archived. Undo any of these and the
+morning above comes back. Tests: `routineVoice.test.mjs`, and "runs one
+person's routines one after another" (`apps/agent/src/routines.test.ts`).
+
+Later the same day an every-5-minutes "retry Planning Center" check texted
+"Planning Center's connected." over and over while every read failed, said
+"I couldn't stop this check myself" and sent a pause for approval. So: a text
+never makes a routine that runs more often than hourly (an existing one can
+still be edited); a routine stops itself by starting its answer with `DONE:`
+and is never offered a proposal; a minute-cadence run that would text exactly
+its last answer stays quiet; a run is told to claim only what a call in it
+showed; and when the person asks to stop a routine, Tex archives it at once.
+Tests: `routineVoice.test.mjs`, "a routine's own run is never offered a
+proposal" (`agentRoutine.test.mjs`).
+
 ### The texting Worker pulls due runs, and only texts phones that texted first
 
 The texting Worker (`apps/agent`) runs routines from a Cron Trigger every
@@ -185,10 +211,17 @@ code is kept, and never any text".
 
 ### Routines run only in a personal workspace, and text only their writer
 
+**Amended by the owner, 2026-10-27:** a shared workspace now runs one kind of
+routine, a chat routine, which names the group chat bound to it and answers
+there, never in anyone's own texts
+([chat-routines](./texting-assistant/chat-routines.md)). `runsRoutine`
+(`functions/lib/routines/access.ts`) asks it per routine. Everything below
+still holds for every other routine in a shared workspace.
+
 Decided by the owner, 2026-10-18, after someone's Tex texted them updates on
 another person's work, from a routine they never wrote. A shared workspace runs
 no routines: each person keeps theirs in their own personal workspace, where
-everything a routine texts is theirs to read. `runsRoutines`
+everything a routine texts is theirs to read. `runsRoutine`
 (`functions/lib/routines/access.ts`) is the one place this is asked, at every
 step a row could come into being or run: a signal from a shared workspace makes
 no row, a scan there deletes its rows instead of writing them, and a row left
@@ -260,6 +293,36 @@ never exports keys, touches plumbing or writes a malformed routine, whatever
 the model named", "a routine's own run is never offered a write", "and stops itself,
 recoverably".
 
+### A routine's run changes the person's own calendar, and nothing else (2026-10-26)
+
+A review of 2026-10-26: Tex made an hourly routine to retry adding a birthday
+that Google had refused, and every run texted "I can't reach your calendar
+from this chat right now ... Text me again later", because a run was offered
+read tools only and the calendar gate refused the routines connection. That
+hands the work back, against the owner's rule that Tex never does (2026-10-22),
+and a retry routine is what Tex's own help tells it to make. So a run is
+offered `calendar_event` beside its reads (`routineCalendarTools`), and the
+gate lets a routine's run (the `/agent` turn, `egress.routine` set from the
+grant, never a direct call on that connection) change an event nobody else is
+on at once, as a texted turn does
+([calendar-writes](./communications/calendar-writes.md)). A change that would
+tell a guest is refused, not held: nobody is on the line to say yes, so the
+run texts it as a question and the person's reply makes it. After a run has
+read words from outside (a page, an email), it may only add events, never
+cancel or rewrite one. Still no note
+write, email or other send. Tests (`calendarGate.test.mjs`): "a routine's run
+is offered their calendar, and no other write", "…adds the event at once", "a
+routine's change that would tell a guest is not made…", "a routine's run
+that read an email's words may not cancel…", "a routine's
+connection called directly never changes the calendar…".
+
+The same review: a daily reminder texted "This is the last one." and went on;
+its `until:` said "this week", read in the next week. A run may call itself
+the last only when it ends the routine with `DONE:`; any other answer has
+that sentence taken off (`withoutLastClaim`), and Tex writes `until:` as a
+date, never "this week" or "tomorrow". Test (`routineVoice.test.mjs`): "a run
+that goes on never says it is the last one".
+
 ### A routine note shows its schedule and its recent runs, and Pause is a line in the file
 
 The app draws a bar on any note under `tex/routines/<schedule>/` or `routines/<schedule>/`: the schedule in
@@ -294,3 +357,15 @@ owner's private reach never stands in for an editor.
 never the bucket" (no GET during a scan) and "a routine whose front matter
 the tree has not read yet waits, and keeps its writer". Removing either the
 facts hook or the writer hold turns the second one red.
+
+## A reminder written by text is told when it texts (a review of a chat, 2026-10-25)
+
+"Remind me to respond to elizabeth tmrw 5pm" got "Will do." after one
+write_note, and nothing showed a reminder would come. Every routine Tex
+writes by text is now read the way the scheduler reads it, and the write's
+result says the first moment it texts in the person's zone ("Sunday,
+October 25 at 5:00 pm, tomorrow"), or why it won't (a line it can't read, a
+time already gone, paused), so a wrong day is fixed before Tex answers
+(`apps/mcp/src/agent/routineWhen.js`). The reply stays "Will do." unless the
+owner decides otherwise. Undo: drop `withRunTime` from `textingWrites.js`;
+`agentRoutineWhen.test.mjs` fails.

@@ -151,11 +151,14 @@ export async function listSharedWithMeHandler(
     anybody ever linked into a personal inbox.
   */
   for (const identifier of identifiers) {
+    // Nothing is shared with a phone number (`mint.ts`).
+    const kind = identifier.kind;
+    if (kind === "phone") continue;
     const found = await ctx.db
       .query("noteShares")
       .withIndex("by_recipient", (q) =>
         q
-          .eq("recipientKind", identifier.kind)
+          .eq("recipientKind", kind)
           .eq("recipient", identifier.value)
           .eq("status", "active"),
       )

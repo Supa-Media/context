@@ -13,14 +13,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { asUser, copyTree, drainScheduled } from "./fixtures.helpers";
-import {
-  fixture,
-  publish,
-  publishWebsiteFolder,
-  type Fixture,
-} from "./website.helpers";
+import { fixture, publish, publishWebsiteFolder, writeNote, type Fixture } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,6 +39,7 @@ const resolveAs = (f: Fixture, routePath: string, user?: Fixture["owner"]) =>
  */
 async function setNotePrivate(f: Fixture, path: string): Promise<void> {
   await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
     workspaceId: f.workspaceId,
     path,
@@ -78,16 +76,15 @@ async function forgetIndex(f: Fixture): Promise<void> {
   });
 }
 
-const privacyText = (f: Fixture): string => f.backend.snapshot()[PRIVACY_KEY] ?? "";
-
 const paths = ["indexed", "probed"] as const;
 
-describe("a note privacy.md holds back is never served", () => {
+describe("a note held back is never served", () => {
   for (const path of paths) {
     test(`a private note with no audience is refused to anonymous readers (${path})`, async () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
       f.backend.seed("website/diary.md", `---\ntitle: Diary\nnav: 2\n---\n\n${SECRET}\n`);
+      await copyTree(f.t, f.workspaceId);
       await setNotePrivate(f, "website/diary.md");
       await publish(f);
       if (path === "probed") await forgetIndex(f);
@@ -105,13 +102,14 @@ describe("a note privacy.md holds back is never served", () => {
       await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
     }, 15_000);
 
-    test(`a members page privacy.md holds back is refused to every member (${path})`, async () => {
+    test(`a members page held back is refused to every member (${path})`, async () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
       f.backend.seed(
         "website/team.md",
         `---\ntitle: Team\naudience: members\n---\n\n${SECRET}\n`,
       );
+      await copyTree(f.t, f.workspaceId);
       await setNotePrivate(f, "website/team.md");
       await publish(f);
       if (path === "probed") await forgetIndex(f);
@@ -126,10 +124,8 @@ describe("a note privacy.md holds back is never served", () => {
     test(`a members page pointed at a group is not served, even to the group (${path})`, async () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
-      f.backend.seed(
-        "website/leads.md",
-        `---\ntitle: Leads\naudience: members\n---\n\n${SECRET}\n`,
-      );
+      await copyTree(f.t, f.workspaceId);
+      await writeNote(f, "website/leads.md", `---\ntitle: Leads\naudience: members\n---\n\n${SECRET}\n`);
       const group = await asUser(f.t, f.owner).mutation(api.functions.groups.createGroup, {
         workspaceId: f.workspaceId,
         label: "leads",
@@ -157,6 +153,7 @@ describe("a note privacy.md holds back is never served", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/diary.md", "---\ntitle: Diary\nnav: 2\n---\n\nDiary\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/diary.md");
     await publish(f);
 
@@ -170,6 +167,7 @@ describe("a note privacy.md holds back is never served", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/diary.md", "---\ntitle: Diary\n---\n\nDiary\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/diary.md");
     await publish(f); // the owner's refresh
     const byOwner = (await indexRows(f)).map((row) => row.objectKey);
@@ -182,7 +180,7 @@ describe("a note privacy.md holds back is never served", () => {
     expect(byReconcile).toEqual(byOwner);
   });
 
-  test("a folder list on a public page leaves out a note privacy.md holds back", async () => {
+  test("a folder list on a public page leaves out a note held back", async () => {
     const f = await fixture();
     f.backend.seed(
       "website/index.md",
@@ -190,6 +188,7 @@ describe("a note privacy.md holds back is never served", () => {
     );
     f.backend.seed("website/posts/open.md", "---\ntitle: Open post\n---\n\n# Open post\n");
     f.backend.seed("website/posts/closed.md", "---\ntitle: Closed post\n---\n\n# Closed post\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/posts/closed.md");
     await publish(f);
 
@@ -207,6 +206,7 @@ describe("making a published page private takes it off the site", () => {
     await publish(f);
     await expect(resolveAs(f, "/about")).resolves.toMatchObject({ kind: "page" });
 
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/about.md");
 
     // The manifest change is a website change that may narrow a route, so the
@@ -219,24 +219,6 @@ describe("making a published page private takes it off the site", () => {
     expect(JSON.stringify(page)).not.toContain("About");
   });
 
-  test("a privacy.md edited outside the product takes effect on the next request", async () => {
-    const f = await fixture();
-    f.backend.seed("website/index.md", HOME);
-    f.backend.seed("website/about.md", `---\ntitle: About\n---\n\n${SECRET}\n`);
-    await publish(f);
-    await expect(resolveAs(f, "/about")).resolves.toMatchObject({ kind: "page" });
-
-    // Obsidian, rclone or a text editor: no product event, the index is still
-    // fresh, and only the live read can notice.
-    const manifest = privacyText(f).replace(/^(\s*)website: team\s*$/m, "$1website: private");
-    expect(manifest).not.toBe(privacyText(f));
-    f.backend.seed(PRIVACY_KEY, manifest);
-
-    const page = await resolveAs(f, "/about");
-    expect(page).toMatchObject({ kind: "unavailable" });
-    expect(JSON.stringify(page)).not.toContain(SECRET);
-  });
-
   test("an unreadable source does not fall back to a release while a restriction is pending", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
@@ -245,6 +227,7 @@ describe("making a published page private takes it off the site", () => {
     expect((await indexRows(f)).find((row) => row.objectKey === "website/about.md")?.releaseId)
       .toBeDefined();
 
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/about.md");
     // Storage now fails every read: only the release could answer.
     vi.stubGlobal("fetch", async () => {
@@ -255,23 +238,28 @@ describe("making a published page private takes it off the site", () => {
   });
 });
 
-describe("turning a website on writes the folder rule to privacy.md", () => {
+describe("turning a website on publishes its folder", () => {
   test("enabling marks website/ as team, and the homepage serves", async () => {
     const f = await fixture();
+    // The tree is copied first, as production does, so the workspace is keyed before the product writes a note.
     await copyTree(f.t, f.workspaceId);
+    // The website folder needs a note before the console can set it: written through the product.
+    await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });
     await drainScheduled(f.t);
 
-    expect(privacyText(f)).toMatch(/^\s*website: team\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page" });
     expect((await websiteState(f))?.publicationRuleEnsuredAt).toBeDefined();
   });
 
   test("a website/ rule the owner already set to private is left alone, and nothing is served", async () => {
     const f = await fixture();
+    // The tree is copied first, as production does, so the workspace is keyed before the product writes a note.
     await copyTree(f.t, f.workspaceId);
+    // The website folder needs a note before the console can set it: written through the product.
+    await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "website",
@@ -282,8 +270,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
     });
     await drainScheduled(f.t);
 
-    expect(privacyText(f)).toMatch(/^\s*website: private\s*$/m);
-    expect(privacyText(f)).not.toMatch(/^\s*website: team\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "unavailable" });
   });
 
@@ -307,11 +293,11 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
       workspaceId: f.workspaceId,
     });
 
-    expect(privacyText(f)).toMatch(/^\s*website: team\s*$/m);
     expect((await websiteState(f))?.publicationRuleEnsuredAt).toBeDefined();
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
 
     // Once repaired, a later owner choice stands.
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "website",
@@ -320,7 +306,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
     await f.t.action(internal.functions.websites.reconcileWorkspace, {
       workspaceId: f.workspaceId,
     });
-    expect(privacyText(f)).toMatch(/^\s*website: private\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "unavailable" });
   });
 });

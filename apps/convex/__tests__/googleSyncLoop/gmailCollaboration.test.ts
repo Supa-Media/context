@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { FAKE_STORAGE } from "../fixtures.helpers";
 import { readDocument } from "@context/collaboration";
-import { S3Store } from "../../../mcp/src/store/s3.js";
-import { withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { isKeyedWorkspace } from "../../../mcp/src/store/idLayout.js";
 import { gmailDayStore } from "../../functions/lib/filesFns/gmailDayStore";
 import type { FileStore } from "../../functions/lib/fileOps";
-import { enableMailSync, googleAndBucket, endToEnd, runPass } from "./fixtures.helpers";
+import { enableMailSync, googleAndBucket, endToEnd, keyedStoreOver, runPass } from "./fixtures.helpers";
 
 /**
  * A Gmail day that has been opened is a collaboration document, and every
@@ -38,8 +35,8 @@ describe("a Gmail day with a collaboration document", () => {
     vi.stubGlobal("fetch", googleAndBucket({ backend, history: { messageIds: ["msg-1"], historyId: "1100" }, messages: [first] }).fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
-    const store = withLogicalDelete(new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl }));
-    const path = "0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
+    const store = keyedStoreOver(t, workspaceId, backend);
+    const path = "inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
     expect((await readDocument(store, path)).text).toContain("Quarterly numbers");
 
     vi.stubGlobal(
@@ -67,8 +64,8 @@ describe("a Gmail day with a collaboration document", () => {
     vi.stubGlobal("fetch", googleAndBucket({ backend, history: { messageIds: ["msg-1"], historyId: "1100" }, messages: [first] }).fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
-    const store = withLogicalDelete(new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl }));
-    const path = `0-inbox/email/person-at-example-invalid/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+    const store = keyedStoreOver(t, workspaceId, backend);
+    const path = `inbox/email/person-at-example-invalid/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
     expect((await readDocument(store, path)).text).toContain("Quarterly numbers");
 
     // msg-2's history was spent by a pass whose write was lost (before #1923):
@@ -95,7 +92,7 @@ describe("a Gmail day with a collaboration document", () => {
     const attached = () => "attached";
     Object.defineProperty(base, "treeListing", { value: attached, enumerable: false });
 
-    const days = gmailDayStore(base, "0-inbox/email/person");
+    const days = gmailDayStore(base, "inbox/email/person");
     expect(await isKeyedWorkspace(days)).toBe(true);
     expect((days as unknown as { treeListing: unknown }).treeListing).toBe(attached);
   });

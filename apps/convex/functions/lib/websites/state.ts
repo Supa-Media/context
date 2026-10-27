@@ -29,7 +29,7 @@ import { clearanceOf } from "../clearance";
 import { callerId } from "../filesFns/access";
 import { ensureWebsitePublicationRule } from "./publication";
 import { visibleTreePaths } from "./treeFacts";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
+import { getMembership, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 
 const STARTER_PATH = `${DEFAULT_WEBSITE_ROOT}/index.md`;
 
@@ -321,6 +321,20 @@ export async function websitePublicationRepairNeededHandler(
   return (
     state?.state === "enabled" && state.publicationRuleEnsuredAt === undefined
   );
+}
+
+/**
+ * Who the publication repair acts for: the person who turned the site on, while they are still an owner. Turning it
+ * on was their gesture that publishes the website folder; the repair finishes it and decides nothing new.
+ */
+export async function publicationRepairActorHandler(
+  ctx: QueryCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<Id<"users"> | null> {
+  const state = await stateRow(ctx, args.workspaceId);
+  if (state?.state !== "enabled" || state.enabledBy === undefined) return null;
+  const membership = await getMembership(ctx, args.workspaceId, state.enabledBy);
+  return membership?.role === "owner" ? state.enabledBy : null;
 }
 
 /** Mark the one publication-rule repair complete while the site is enabled. */

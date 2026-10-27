@@ -29,6 +29,7 @@ const TOKEN_TEXTS = `cat_prod_texts_${"0".repeat(25)}`;
 const TOKEN_APP = `cat_prod_appcl_${"0".repeat(24)}`;
 const TOKEN_FREE = `cat_prod_free_${"0".repeat(25)}`;
 const TOKEN_STAFF = `cat_prod_staff_${"0".repeat(24)}`;
+const TOKEN_GROUP = `cat_prod_group_${"0".repeat(24)}`;
 const GATEWAY_ACCOUNT = "0123456789abcdef0123456789abcdef";
 
 const WHO = "WHO-NOTE-MARK: You are Context, as the app file describes.";
@@ -164,13 +165,13 @@ function toolCallReply(name) {
   };
 }
 
-async function ask(env, token) {
+async function ask(env, token, extra = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/agent", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "What are you?" }),
+      body: JSON.stringify({ question: "What are you?", ...extra }),
     }),
     env,
     ctx,
@@ -195,6 +196,8 @@ before(async () => {
   const s3 = createS3Backend(S3_ENDPOINT);
   restore.push(s3.install());
   restore.push(controlPlane.install());
+  // The rules a binding carries are rendered from the tree this bucket serves.
+  controlPlane.serveTreesFrom(null, { s3 });
 
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -235,6 +238,13 @@ before(async () => {
     workspaceId: "ws_free", role: "owner", userId: "user_prod_free", accessToken: TOKEN_FREE,
     scopes, clientId: "context_texts", alsoMemberOf: member,
   });
+  // Tex in a group chat bound to a shared workspace (`groupTurn.js`).
+  await controlPlane.addGrant({
+    workspaceId: "ws_mine", role: "editor", userId: "user_prod_texts", accessToken: TOKEN_GROUP,
+    // The pin as the control plane really sends it to a group (`liveGrants.ts`): setup-only, never addressable.
+    scopes: ["context:read", "context:write"], clientId: "context_texts_group",
+    alsoMemberOf: member.map((entry) => ({ ...entry, setupOnly: true })),
+  });
   await controlPlane.addGrant({
     workspaceId: "ws_pinned", role: "owner", userId: "user_prod_staff", accessToken: TOKEN_STAFF,
     scopes, clientId: "context_texts",
@@ -268,6 +278,14 @@ test("a texted turn is told the texting production prompt, and not the app one",
   assert.ok(!system.includes(WHO), "the app file is not sent");
   assert.ok(!system.includes("No Markdown at all"), "the built-in texting style is not sent");
   assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
+});
+
+test("a group chat's turn runs on the texting production setup too (2026-10-23)", async () => {
+  const response = await ask(onGateway, TOKEN_GROUP, { group: { key: "a".repeat(64), members: "b".repeat(64), from: "ada" } });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  const system = gatewaySystem();
+  assert.equal(system.split(PROMPT).length, 2, "the production prompt, exactly once");
+  assert.ok(system.includes("THIS IS AN IMESSAGE GROUP CHAT"), "and what a group may do, after it");
 });
 
 test("an app turn has no production setup: the built-in words, and the retired app file is never read", async () => {
@@ -432,7 +450,17 @@ test("a text the router calls lookup stays on the main model", async () => {
   const ai = fakeAi([clefSays("lookup")]);
   await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
   assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
+  // Asked which model it is, it names both it runs on, not only the one answering.
+  assert.match(gatewaySystem(), /written by the AI model anthropic\/claude-haiku-5-5\. You run on two models: anthropic\/claude-haiku-5-5 answers most texts, and harder ones and long jobs go to anthropic\/claude-opus-5-5/);
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
+});
+
+test("a texted \"should we\" asks for Tex's judgment, so it runs on the thinking model without asking the router (pushback.js)", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2-should" });
+  const ai = fakeAi([clefSays("lookup")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE, { question: "should we skip the rollback to save time?", conversation: "texts" });
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5");
+  assert.equal(ai.calls.length, 0, "the router is not asked");
 });
 
 test("a think pick under the default cutoff clears a setup's lower one, and the trace keeps the confidence", async () => {
@@ -542,4 +570,28 @@ test("a fallback this deployment cannot call is no fallback, and the failure is 
   const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
   assert.ok(!trace.some((entry) => entry.kind === "fallback"));
   assert.deepEqual(trace.at(-1) && { kind: trace.at(-1).kind, ok: trace.at(-1).ok }, { kind: "model", ok: false });
+});
+
+test("a picture turn whose model fails goes on with the other model that sees it, never the blind fallback", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ROUTED_FRONT}\n  fallback: "@cf/acme/spare-model"`), etag: "pic1" });
+  const ai = fakeAi([clefSays("lookup")]);
+  const below = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://gateway.ai.cloudflare.com/") && JSON.parse(init.body).model === "claude-haiku-5-5") {
+      gatewayCalls.push({ url, headers: { ...init?.headers }, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ error: { type: "overloaded_error" } }), { status: 529, headers: { "Content-Type": "application/json" } });
+    }
+    return below(input, init);
+  };
+  try {
+    const picture = { name: "IMG_2634.png", mediaType: "image/png", data: "iVBORw0KGgo=" };
+    const response = await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE, { attachments: [picture] });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5", "Opus took over");
+    assert.ok(JSON.stringify(gatewayCalls.at(-1)?.body?.messages).includes('"type":"image"'), "and was shown the picture");
+    assert.ok(!ai.calls.some((call) => call.model === "@cf/acme/spare-model"), "the blind fallback was never asked");
+  } finally {
+    globalThis.fetch = below;
+  }
 });

@@ -13,7 +13,6 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { keyedSibling } from "../noteIds/http";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
 
 /**
@@ -75,34 +74,22 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
-  // Seventh: the queued folder moves the tree draws already, so the gateway
-  // reads a moved note where people see it (`moves/queued.js`). Absent unless
-  // one is pending. The workspace is the one the grant resolved to above.
-  const boundTo = (opened.binding as { workspaceId?: unknown } | null)?.workspaceId;
-  // Unreadable is no store at all: a gateway that wrote at a new name not knowing a move was
-  // pending would put a second copy beside the one the move is carrying there.
-  const pendingMoves = typeof boundTo === "string"
-    ? await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: boundTo as Id<"workspaces"> }).catch(() => null)
-    : [];
-  if (pendingMoves === null) return json({ binding: null });
-  // Phase 3: the workspace's privacy rules, while they are the authority
-  // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
-  // one the grant opened, never one the request named.
+  // The workspace's access rules, rendered from its rows for this reader (`nodesPrivacy.ts`). Absent only when
+  // they cannot be read, and the gateway then fails closed. The workspace is the one the grant opened, never one
+  // the request named.
   const privacy = await ctx
     .runQuery(internal.functions.nodesPrivacy.authority, {
       workspaceId: opened.binding.workspaceId as Id<"workspaces">,
       // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
       // judges by these rules, listing and search included, gives them the notes open to All Context users only.
       ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+      // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
+      ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
     })
     .catch(() => null);
   // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
   // Unlike the two above this is not caught: a switch the gateway cannot read must not be guessed at.
   const idLayout = await ctx.runQuery(internal.functions.noteIds.idLayout, {});
-  // Tenth: `keyed: true` only while the workspace is keyed (`keyedSibling`): its
-  // notes live at id keys and the path objects are frozen copies. The gateway
-  // refuses a keyed store that has no id layer (`sessionStore.js`).
-  const keyed = await keyedSibling(ctx, opened.binding.workspaceId as Id<"workspaces">);
   // Eleventh: the staff console's feature switches (`functions/featureSwitches.ts`),
   // absent while every one is off, as the siblings above are absent in the ordinary case.
   // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
@@ -136,13 +123,14 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
-    pendingMoves: pendingMoves.length > 0 ? pendingMoves : undefined,
-    // Eighth: the rules `privacy.md` is written from, while they are the
-    // authority. Absent otherwise, and then the gateway reads the file.
+    // Eighth: the access rules the gateway judges by. Absent only when they
+    // could not be read, and then the gateway treats everything as private.
     ...(privacy === null ? {} : { privacy }),
     // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
     ...(idLayout === null ? {} : { idLayout }),
-    ...keyed,
+    // Tenth: every workspace is keyed (2026-10-22): its notes live at id keys. The
+    // gateway refuses a keyed store that has no id layer (`sessionStore.js`).
+    keyed: true,
     ...(Object.values(features).some(Boolean) ? { features } : {}),
   });
 }

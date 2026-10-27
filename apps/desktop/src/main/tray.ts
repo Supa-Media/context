@@ -45,7 +45,6 @@ export interface TrayActions {
   record: () => void;
   end: () => void;
   toggleDetection: () => void;
-  toggleImessage: () => void;
   connect: () => void;
   disconnect: () => void;
   /** "Restart to update" — refused by `DesktopUpdater.install()` mid-meeting. */
@@ -100,7 +99,7 @@ export class AppTray {
    * meetings when it is not.
    */
   #menu(): Electron.Menu {
-    const { recording, detectionEnabled, imessageEnabled, connected, updateReady } = this.#state;
+    const { recording, detectionEnabled, connected, updateReady } = this.#state;
     return Menu.buildFromTemplate([
       ...(recording
         ? [{ label: "End & write up", click: () => this.#actions.end() }]
@@ -112,12 +111,6 @@ export class AppTray {
         type: "checkbox" as const,
         checked: detectionEnabled,
         click: () => this.#actions.toggleDetection(),
-      },
-      {
-        label: "Import iMessage",
-        type: "checkbox" as const,
-        checked: imessageEnabled,
-        click: () => this.#actions.toggleImessage(),
       },
       { type: "separator" as const },
       connected

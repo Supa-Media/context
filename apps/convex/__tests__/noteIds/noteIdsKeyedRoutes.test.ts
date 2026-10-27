@@ -104,13 +104,6 @@ describe("POST /gateway/note-ids/lookup: notes and keyed", () => {
     expect(Object.keys(body.notes as object).sort()).toEqual([PLAN, SECRET].sort());
   });
 
-  test("keyed is false before the flip: the switch alone does not make a workspace keyed", async () => {
-    const f = await fixture();
-    await seedCopies(f);
-    const body = await bodyOf(await post(f, LOOKUP, { accessToken: OWNER, workspaceId: f.ws, paths: [PLAN] }));
-    expect(body.keyed).toBe(false);
-  });
-
   test("a grant of another workspace gets nothing for notes or copies", async () => {
     const f = await fixture();
     await seedCopies(f);
@@ -136,7 +129,7 @@ describe("POST /gateway/note-ids/adopt", () => {
     expect(answer).toEqual({
       ok: true,
       adopted: false,
-      taken: { path: PLAN, state: "path", key: `notes/${NOTE_IDS.plan}.md`, etag: `e-${PLAN}`, keyEtag: "key-etag-0", fresh: true },
+      taken: { path: PLAN, state: "path", key: `notes/${NOTE_IDS.plan}.md`, etag: PLAN, keyEtag: "key-etag-0", fresh: true },
     });
   });
 

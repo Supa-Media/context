@@ -93,9 +93,8 @@ export const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/useri
 
 /**
  * `gmail.readonly` is the whole point and is a **restricted** scope (see
- * above). Reading is all everyone is asked for; sending and saving drafts
- * are tester-only write scopes below (`TESTER_WRITE_SCOPES`) until Google has
- * reviewed them. Nothing archives, deletes, or marks read — see the "What is
+ * above). Sending and saving drafts are the write scopes below
+ * (`WRITE_SCOPES`). Nothing archives, deletes, or marks read — see the "What is
  * deliberately not built" section of `docs/decisions/communications.md`.
  */
 export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"] as const;
@@ -146,29 +145,55 @@ export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
 /** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
 export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+/**
+ * Sending one Google Chat message the person approved, as them
+ * (`docs/decisions/communications/google-chat-messages.md`): post it, find the
+ * space or direct message it goes to, and start a direct message that does
+ * not exist yet. All three sensitive. None reads a message.
+ */
+export const CHAT_SEND_SCOPE = "https://www.googleapis.com/auth/chat.messages.create";
+export const CHAT_SPACES_READ_SCOPE = "https://www.googleapis.com/auth/chat.spaces.readonly";
+export const CHAT_SPACES_CREATE_SCOPE = "https://www.googleapis.com/auth/chat.spaces.create";
+export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_SPACES_CREATE_SCOPE] as const;
 
 /**
- * The write permissions, asked for only of testers (staff and the production
- * test account, `lib/googleWriteTesters.ts`) until Google has reviewed them
- * (decided by the owner, 2026-10-17: "it should work for testing accounts
- * before we need it approved"). An unverified app may ask its test users for
- * any scope; everyone else's consent screen stays the read-only one Google is
- * reviewing.
+ * Reading the person's own Google Chat messages, for Tex's check-ins
+ * (`gatewayRoutes/googleChatRead.ts`, owner 2026-10-23: "add slack and google
+ * chat"). Restricted, like Gmail's read.
+ */
+export const CHAT_READ_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly";
+export const CHAT_READ_SCOPES = [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE] as const;
+
+/**
+ * The write permissions, asked of everyone who connects the product (the
+ * owner, 2026-10-23, reversing the testers-only rule of 2026-10-17 after a
+ * texter's connected calendar refused Tex's booking: "??? what happened
+ * here", then "Yes, everyone" to email, drafts and Chat). The app is not yet
+ * verified by Google, so every consent screen already carries the unverified
+ * warning for Gmail's restricted read: these add no screen a person would not
+ * see anyway, and asking only staff left everyone else connected and still
+ * refused, with a reconnect that changed nothing.
  *
  * A write that reaches somebody waits for the person's yes to the exact copy.
  * `GMAIL_COMPOSE_SCOPE` is the one that does not: a draft saved with it is
  * read by nobody until the person sends it from Gmail themselves
  * (`docs/decisions/communications/sending-email.md`).
+ *
+ * Google Chat's send and read scopes ride on the Gmail connect every texter
+ * already has, so one reconnect lets Tex message people on Chat as them
+ * (approved by the owner, 2026-10-22), and read what was written to them for
+ * its check-ins (2026-10-23). They work only on a Google Workspace account.
  */
-export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE],
+export const WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
+  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
   calendar: [CALENDAR_WRITE_SCOPE],
+  chat: [...CHAT_SEND_SCOPES],
 };
 
-/** `scopesForProducts`, plus the write scopes of those products for a tester. */
-export function scopesForConnect(products: readonly GoogleProduct[], tester: boolean): string[] {
+/** The scopes a connect asks Google for: `scopesForProducts`, plus the write scopes of those products. */
+export function scopesForConnect(products: readonly GoogleProduct[]): string[] {
   const scopes = new Set(scopesForProducts(products));
-  if (tester) for (const product of products) for (const scope of TESTER_WRITE_SCOPES[product] ?? []) scopes.add(scope);
+  for (const product of products) for (const scope of WRITE_SCOPES[product] ?? []) scopes.add(scope);
   return [...scopes];
 }
 

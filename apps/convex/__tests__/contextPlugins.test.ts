@@ -24,7 +24,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { CONTEXT_PLUGINS } from "../../mcp/src/plugins/catalog.js";
 import { ENABLEMENT_KEY, parseEnablement } from "../../mcp/src/plugins/enablement.js";
@@ -35,11 +34,13 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -114,6 +115,8 @@ async function fixture(options: MemoryS3Options & { conditionalWrite?: boolean }
       updatedAt: Date.now(),
     }),
   );
+  // Keyed like every workspace: the seeded notes are copied to their id keys and named by rows.
+  await copyTree(t, workspaceId);
   const f: Fixture = { t, owner, member, stranger, workspaceId, backend };
   /*
     A real form, written by the owner — which is also what creates its response

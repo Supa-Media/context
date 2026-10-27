@@ -13,17 +13,23 @@
  *  3. `check` giving its notice every time it is asked.
  *     → "the notice is given once, so the check never loops" fails.
  *  5. `offersAHeldChange` without its preview and yes-ask checks.
+ *  6. `offersAHeldChange` without `SLACK_OFFER`. → `a Slack message offered
+ *     in Tex's own words is an offer too`.
  *     → emailGate's "a preview of a forward in Tex's own words is held as it
  *     is shown…" and "a preview of an email…" fail.
  *  4. `check` never giving `OFFER_NOTICE`.
  *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
+ *  7. `wrapWeb` not marking a call as tried (2026-10-22).
+ *     → "\"I couldn't open it\" with the web untried gets one more round…" fails.
+ *  8. `offersAHeldChange` without `CALENDAR_ASK` (2026-10-22).
+ *     → "a calendar change asked about in Tex's own words…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, OFFER_NOTICE, asksToMute, claimCheck, claimsAChange, offersAHeldChange } from "../src/agent/claimCheck.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -96,7 +102,20 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(!offersAHeldChange("Want me to add a to-do for Friday?"));
   assert.ok(!offersAHeldChange("Want me to send you the list?"));
   assert.ok(!offersAHeldChange("Want me to look into it?"));
+  // 2026-10-22: two prose asks with nothing held, and a 👍 on each reached nothing.
+  assert.ok(offersAHeldChange("Not yet. Say the word and I'll send it to Jo Park on Acme Slack."));
+  assert.ok(offersAHeldChange("Here's the message as it would go:\n\n“Hey Jo, testing.”\n\nSay yes and I'll try sending it again."));
+  assert.ok(!offersAHeldChange("Say the word and I'll look it up."));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+});
+
+test("a calendar change asked about in Tex's own words, with no question, is an offer (2026-10-22 5:04 PM)", () => {
+  const said = "Sunday, November 1, 3 to 5 pm, at Bethesda. Say yes and I’ll add it.";
+  assert.ok(offersAHeldChange(said));
+  assert.deepEqual(offeredKinds(said).map((entry) => entry.tool), ["calendar_event"]);
+  assert.ok(offersAHeldChange("Friday at 2 pm works. Give it a 👍 and I'll put it on your calendar."));
+  assert.ok(!offersAHeldChange("Say yes and I'll add it to your to-do list for Friday."));
+  assert.ok(!offersAHeldChange("Say the word and I'll add more detail."));
 });
 
 test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offer too (2026-10-21 2:25 PM)", () => {
@@ -108,12 +127,51 @@ test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offe
   assert.ok(!offersAHeldChange("To be fair, that's fine."));
 });
 
+test("a Slack message offered in Tex's own words is an offer too (2026-10-22)", () => {
+  assert.ok(offersAHeldChange("I found him this time. I'd DM Jo Park on Acme Slack: \"Hey Jo, just testing.\""));
+  assert.ok(offersAHeldChange("Want me to post that in #general on Slack?"));
+  assert.ok(offersAHeldChange("Shall I message Jo on Slack?"));
+  assert.ok(!offersAHeldChange("Jo posted in #general on Slack this morning."));
+  assert.ok(!offersAHeldChange("I'd check Slack first."));
+});
+
 test("an offer with nothing held is sent back; once the call is held, it goes", async () => {
   const offer = "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?";
-  assert.equal(claimCheck({ question: "dinner at 7" }).check(offer), OFFER_NOTICE);
+  const notice = claimCheck({ question: "dinner at 7" }).check(offer);
+  assert.equal(notice, offerNotice(offeredKinds(offer)));
+  assert.ok(notice.includes("calendar_event") && !notice.includes("slack_api"), "the notice names only the calendar it offered");
   const held = claimCheck({ question: "dinner at 7" });
   await held.wrap(async () => ({ isError: true, held: true, content: [] }))("calendar_event", {});
   assert.equal(held.check("I'll add Emmanuela and Sayo at 7."), null);
+});
+
+/*
+  2026-10-22: "I couldn't open the LSB text for 28 or 29 from here", then,
+  asked why, "I was wrong. I hadn't tried before I said it."
+*/
+test("an answer that says it couldn't open or read something is read as one; one that couldn't find a note is not", () => {
+  assert.equal(saysItCouldNot("I couldn't open the LSB text for 28 or 29 from here, so the Overview is blank."), true);
+  assert.equal(saysItCouldNot("I can\u2019t access that page."), true);
+  assert.equal(saysItCouldNot("I wasn't able to pull up the chapter."), true);
+  assert.equal(saysItCouldNot("Your notes don't have his number."), false);
+  assert.equal(saysItCouldNot("I couldn't find that in your notes."), false);
+});
+
+test("\"I couldn't open it\" with the web untried gets one more round; after a try, or with no web, it goes", async () => {
+  const said = "I couldn't open the LSB text for 28 or 29 from here.";
+  const web = { tools: [], usage: {}, call: async () => ({ content: [{ type: "text", text: "That page could not be opened." }], isError: true }) };
+
+  const untried = claimCheck({ question: "write the overview" });
+  untried.wrapWeb(web);
+  assert.equal(untried.check(said), TRY_NOTICE);
+
+  const tried = claimCheck({ question: "write the overview" });
+  await tried.wrapWeb(web).call("open_page", { urls: ["https://example.org/deut-28"] });
+  assert.equal(tried.check(said), null, "a try that failed is an honest can't");
+
+  const offline = claimCheck({ question: "write the overview" });
+  assert.equal(offline.wrapWeb(null), null);
+  assert.equal(offline.check(said), null, "a turn with no web has nothing to try");
 });
 
 /** A Workers AI binding that answers from a script, one reply per call. */
@@ -167,4 +225,14 @@ test("an answer backed by a write that went through goes as it is, in one round"
   const result = await turn(ai, claims, async () => ({ content: [{ type: "text", text: "Saved todo.md." }] }));
   assert.equal(result.answer, "It's on your to-do list now.");
   assert.equal(ai.calls.length, 2);
+});
+
+// Dev2, 2026-10-22: "the 2 messages from Tex should be merged into 1". The model's line about what it held goes; news stays.
+test("the model's one line about what it held is folded into the ask; anything else stays above it", async () => {
+  const { answerWithAsk } = await import("../src/agent/textedApprovals.js");
+  const ask = "Here's the email I'd send:\n\nTo: sayo@example.test\nSubject: Hi\n\nHello.\n\nGive it a 👍 and I'll send it.";
+  assert.equal(answerWithAsk("Drafted it again, the same joke note to Sayo from seyi@example.test", ask, []), ask);
+  assert.equal(answerWithAsk("I drafted the reply to Jo.", ask, []), ask);
+  assert.equal(answerWithAsk("Her quotes were for 6:30, so she may send a new one for 7.", ask, []), `Her quotes were for 6:30, so she may send a new one for 7.\n\n${ask}`);
+  assert.equal(answerWithAsk("Drafted it. Do you also want me to cc Sam?", ask, []), `Drafted it. Do you also want me to cc Sam?\n\n${ask}`);
 });

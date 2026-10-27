@@ -14,16 +14,25 @@
  */
 
 import { readAboutMe, readTexNote } from "./aboutMe.js";
+import { texterIdentity } from "./identity.js";
 
 export const JOBS_PATH = "tex/jobs.md";
 
 /** How much of the list a turn is shown. Open jobs are a handful; past this, it needs tidying. */
 export const MAX_JOBS_LINES = 60;
 
-/** `{ aboutMe, jobs }` for a texted turn, read side by side. Never throws (`readTexNote`). */
-export async function readTexNotes(callTool) {
-  const [aboutMe, jobs] = await Promise.all([readAboutMe(callTool), readTexNote(callTool, JOBS_PATH)]);
-  return { aboutMe, jobs };
+/**
+ * `{ aboutMe, jobs, identity }` for a texted turn, read side by side: the two
+ * notes, and who they are by their account when `account` (`{ controlPlane,
+ * session }`) is given (`identity.js`). Never throws (`readTexNote`).
+ */
+export async function readTexNotes(callTool, account = null) {
+  const [aboutMe, jobs, identity] = await Promise.all([
+    readAboutMe(callTool),
+    readTexNote(callTool, JOBS_PATH),
+    account === null ? null : texterIdentity(account.controlPlane, account.session),
+  ]);
+  return { aboutMe, jobs, identity };
 }
 
 const HOW =

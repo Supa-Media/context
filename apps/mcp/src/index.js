@@ -26,7 +26,7 @@
  *   POST /mcp                  MCP streamable HTTP (Authorization: Bearer <access token>)
  *   POST /@<slug>/mcp          the same context, named in the URL — a selector, never a boundary
  *   POST /t/<token>/mcp        compatibility fallback for clients that cannot set headers
- *   POST /inbox                drop a capture into 0-inbox/ (needs context:capture)
+ *   POST /inbox                drop a capture into inbox/ (needs context:capture)
  *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
  *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
  *   GET  /.well-known/openai-apps-challenge           ChatGPT plugin domain check (OPENAI_APPS_CHALLENGE)
@@ -58,7 +58,7 @@
 
 /*
  * Module map. This file is the Worker's entry and nothing more: the default
- * export's `fetch`, `scheduled` and `queue` handlers, the presence room's
+ * export's `fetch` and `scheduled` handlers, the presence room's
  * Durable Object class, and the names tests import from here. Everything else
  * lives by subject, and no module imports this file back:
  *
@@ -84,7 +84,7 @@
  *   activity/   record (recordChange), readActivity, changes
  *   orient/     tool, survey, frontPage, render, access
  *   notes/      visibleKeys, paths, storage, format, embeds, sealing
- *   moves/      queueConsumer, limits, jobs, objects
+ *   moves/      limits, jobs, objects
  *   search/     visibleNotes, scan, budget, pacing, maintenance, writeProjection
  *   ingestion/  inboxRoute, inbox, transcription
  *   agent/      route (`/agent`), turn, providers
@@ -103,7 +103,6 @@ import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
 import { authorizeLiveRelay } from "./live/relayAuthorization.js";
-import { handleGatewayJobMessage } from "./moves/queueConsumer.js";
 import { route } from "./http/route.js";
 import { NoteCapReached } from "./store/noteCap.js";
 
@@ -187,9 +186,5 @@ export default {
       }
       return json({ error: "server_error" }, 500);
     }
-  },
-
-  async queue(batch, env) {
-    await Promise.all((batch?.messages || []).map((message) => handleGatewayJobMessage(message, env)));
   },
 };

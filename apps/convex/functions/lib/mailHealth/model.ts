@@ -9,13 +9,14 @@
  *
  *  - `needs_reconnect`: Google refused the grant, or a permission is missing.
  *    Only the person can fix it, by connecting again.
- *  - `store_full`: the mailbox reached its storage ceiling, so new mail is not
- *    saved. It will not fix itself.
- *  - `stale`: no pass has read mail for `STALE_AFTER_MS`, whatever the reason.
- *    Worth one mention: something is wrong that retrying has not mended.
- *  - `recovering`: the last pass failed (rate-limited, Google briefly down) and
- *    the loop is retrying. Nobody is told.
  *  - `ok`.
+ *
+ * Mail is no longer copied into the person's notes (owner, 2026-10-21), so
+ * there is no sync pass to fall behind and no store to fill: `stale`,
+ * `store_full` and `recovering` described those passes and are never
+ * answered now. They stay in the wire's union so a gateway that still names
+ * them is understood. A grant Google refuses is still found the moment
+ * anything asks Google (a live read, a send), which marks the row.
  *
  * Read off the connection row only. Nothing here is mail.
  */
@@ -24,47 +25,22 @@ import type { Doc } from "../../../_generated/dataModel";
 
 export type MailboxState = "ok" | "needs_reconnect" | "store_full" | "stale" | "recovering";
 
-/** A mailbox with no pass that read mail for this long is stale. */
-export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
-
 /** A check-in tells the person about one mailbox's one state at most once in this long. */
 export const TELL_AGAIN_AFTER_MS = 24 * 60 * 60 * 1000;
 
-/** The pass's own code for a mailbox that hit its ceiling (`lib/filesFns/forwardSync.ts`). */
-export const STORE_FULL_CODE = "MAIL_QUOTA_EXCEEDED";
+/** The states a person hears about: only one, and only they can fix it. */
+export const TELLABLE: ReadonlySet<MailboxState> = new Set(["needs_reconnect"]);
 
-/** The states a person hears about: the two only they can fix, and a long silence. */
-export const TELLABLE: ReadonlySet<MailboxState> = new Set(["needs_reconnect", "store_full", "stale"]);
-
-/** The states that need the person to do something (orient names only these). */
-export const NEEDS_PERSON: ReadonlySet<MailboxState> = new Set(["needs_reconnect", "store_full"]);
-
-type Connection = Pick<
-  Doc<"googleConnections">,
-  "products" | "gmail" | "health" | "errorCode" | "disconnectedAt" | "syncBytesWritten" | "createdAt"
->;
+type Connection = Pick<Doc<"googleConnections">, "products" | "gmail" | "health" | "disconnectedAt">;
 
 /**
  * One live Gmail connection's state, or null for a row that is not one (no
  * Gmail, or disconnected on purpose: the person chose that, nobody is told).
- * Worst news first: a dead grant outranks a full store, which outranks a
- * long silence.
  */
-export function mailboxState(row: Connection, now: number): { state: MailboxState; lastSyncedAt: number | null } | null {
+export function mailboxState(row: Connection, _now: number): { state: MailboxState; lastSyncedAt: number | null } | null {
   if (row.disconnectedAt !== undefined || !row.products.includes("gmail") || row.gmail === undefined) return null;
-  const gmail = row.gmail;
-  const lastSyncedAt = gmail.lastSyncedAt ?? null;
-  const at = (state: MailboxState) => ({ state, lastSyncedAt });
-  if (row.health === "reconnect_required") return at("needs_reconnect");
-  const full =
-    gmail.lastFailureCode === STORE_FULL_CODE ||
-    row.errorCode === STORE_FULL_CODE ||
-    (row.syncBytesWritten ?? 0) >= gmail.quotaBytes;
-  if (full) return at("store_full");
-  // Never read mail: counted from when it was connected, so a new mailbox is not stale at once.
-  if (now - (lastSyncedAt ?? row.createdAt) > STALE_AFTER_MS) return at("stale");
-  const failing = row.health === "error" || gmail.lastFailureCode !== undefined || row.errorCode !== undefined;
-  return at(failing ? "recovering" : "ok");
+  const lastSyncedAt = row.gmail.lastSyncedAt ?? null;
+  return { state: row.health === "reconnect_required" ? "needs_reconnect" : "ok", lastSyncedAt };
 }
 
 /** One "already told" marker: this mailbox, this state, at this time. */

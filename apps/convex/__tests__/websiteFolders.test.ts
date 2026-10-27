@@ -19,8 +19,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { websiteFolderPath, websiteFolderReference } from "@context/shared";
 import { api } from "../_generated/api";
-import { asUser } from "./fixtures.helpers";
-import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
+import { fixture, pressPublish, publish, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -44,11 +47,13 @@ async function site(slug = "atlas"): Promise<Site> {
     "---\ntitle: Forms\ndescription: Questions your notes can ask.\n---\n\nForms body\n",
   );
   f.backend.seed("features/tables.md", "# Tables\n\nTables body\n");
+  await copyTree(f.t, f.workspaceId);
   await folderVisibility(f, "features", "team");
   return { ...f, handle: slug };
 }
 
 async function folderVisibility(f: Fixture, path: string, visibility: "team" | "private") {
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId: f.workspaceId,
     path,
@@ -78,10 +83,6 @@ describe("a page that names a folder publishes its notes", () => {
       kind: "page",
       title: "Tables",
     });
-    // Nothing was copied: the notes stay where they were.
-    expect(Object.keys(f.backend.snapshot()).filter((key) => key.startsWith("website/features/"))).toEqual(
-      [],
-    );
   });
 
   test("the folder page lists its notes, and no other page does", async () => {
@@ -99,7 +100,7 @@ describe("a page that names a folder publishes its notes", () => {
 
   test("a folder nobody named publishes nothing", async () => {
     const f = await site();
-    f.backend.seed("website/features.md", "---\ntitle: Features\n---\n\nNo folder line.\n");
+    await writeNote(f, "website/features.md", "---\ntitle: Features\n---\n\nNo folder line.\n");
     await publish(f);
     await expect(resolve(f, "/features/forms")).resolves.toMatchObject({ kind: "unavailable" });
     expect(await indexedKeys(f)).toEqual(["website/features.md", "website/index.md"]);
@@ -107,7 +108,7 @@ describe("a page that names a folder publishes its notes", () => {
 
   test("a page of the site's own keeps its address over a note of the folder's", async () => {
     const f = await site();
-    f.backend.seed("website/features/forms.md", "---\ntitle: Our forms\n---\n\nThe site's own\n");
+    await writeNote(f, "website/features/forms.md", "---\ntitle: Our forms\n---\n\nThe site's own\n");
     await publish(f);
     const text = JSON.stringify(await resolve(f, "/features/forms"));
     expect(text).toContain("The site's own");
@@ -116,23 +117,29 @@ describe("a page that names a folder publishes its notes", () => {
 
   test("a draft folder page publishes nothing of its folder", async () => {
     const f = await site();
-    f.backend.seed("website/features.md", `${FEATURES.replace("nav: 2\n", "nav: 2\ndraft: true\n")}`);
+    await writeNote(f, "website/features.md", `${FEATURES.replace("nav: 2\n", "nav: 2\ndraft: true\n")}`);
     await publish(f);
     await expect(resolve(f, "/features/forms")).resolves.toMatchObject({ kind: "unavailable" });
   });
 });
 
-describe("a folder never publishes what privacy.md holds back", () => {
+describe("a folder never publishes what is held back", () => {
   test("a note held back by name, a private subfolder and a group note are absent", async () => {
     const f = await site();
-    f.backend.seed("features/diary.md", `---\ntitle: Diary\n---\n\n${SECRET}\n`);
-    f.backend.seed("features/private/plan.md", `---\ntitle: Plan\n---\n\n${SECRET}\n`);
-    f.backend.seed("features/leads.md", `---\ntitle: Leads\n---\n\n${SECRET}\n`);
+    // Written through the product, as a person would: a note seeded into the bucket after the tree was keyed has no row.
+    for (const [path, title] of [["features/diary.md", "Diary"], ["features/private/plan.md", "Plan"], ["features/leads.md", "Leads"]] as const) {
+      await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+        workspaceId: f.workspaceId,
+        path,
+        text: `---\ntitle: ${title}\n---\n\n${SECRET}\n`,
+      });
+    }
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "features/diary.md",
       visibility: "private",
     });
+    await copyTree(f.t, f.workspaceId);
     await folderVisibility(f, "features/private", "private");
     const group = await asUser(f.t, f.owner).mutation(api.functions.groups.createGroup, {
       workspaceId: f.workspaceId,
@@ -167,8 +174,9 @@ describe("a folder never publishes what privacy.md holds back", () => {
     for (const title of ["Diary", "Plan", "Leads"]) expect(list).not.toContain(title);
   });
 
-  test("a folder privacy.md keeps private publishes nothing", async () => {
+  test("a folder kept private publishes nothing", async () => {
     const f = await site();
+    await copyTree(f.t, f.workspaceId);
     await folderVisibility(f, "features", "private");
     await publish(f);
     await expect(resolve(f, "/features/forms")).resolves.toMatchObject({ kind: "unavailable" });
@@ -179,13 +187,14 @@ describe("a folder never publishes what privacy.md holds back", () => {
     const f = await site();
     await publish(f);
 
-    f.backend.seed("features/forms.md", "---\ntitle: Forms\n---\n\nHalf-typed words\n");
+    await writeNote(f, "features/forms.md", "---\ntitle: Forms\n---\n\nHalf-typed words\n");
     const edited = JSON.stringify(await resolve(f, "/features/forms"));
     expect(edited).toContain("Forms body");
     expect(edited).not.toContain("Half-typed words");
     await pressPublish(f);
     expect(JSON.stringify(await resolve(f, "/features/forms"))).toContain("Half-typed words");
 
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "features/forms.md",

@@ -39,7 +39,7 @@
 
 import worker from "../src/index.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
-import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, summaryLine } from "../src/agent/housekeeping.js";
+import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, healthOf, summaryLine } from "../src/agent/housekeeping.js";
 import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/housekeepingGuard.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -245,8 +245,24 @@ async function toolRefusals(check) {
   );
 }
 
+// A big workspace's score misses its 2.5 s on a cold read and makes it on the next.
+async function healthChecks(check) {
+  const answers = ["## Chaos score\n\nNo score for this workspace yet.", "## Chaos score\n\nChaos 84 of 100 (chaotic).\n\nBiggest wins:\n- areas/apps/context: 221 items, chaos 100"];
+  let asked = 0;
+  const dispatch = async () => ({ content: [{ type: "text", text: answers[Math.min(asked++, answers.length - 1)] }] });
+  const health = await healthOf(dispatch);
+  check("a run whose first health read had no score asks again and gets the folders", asked === 2 && chaosFrom(health) === 84 && health.includes("areas/apps/context"));
+  let never = 0;
+  const none = await healthOf(async () => {
+    never += 1;
+    return { content: [{ type: "text", text: answers[0] }] };
+  });
+  check("a workspace with no score is asked three times, then run on what it said", never === 3 && none === answers[0]);
+}
+
 export async function runAgentHousekeepingChecks(check) {
   unitChecks(check);
+  await healthChecks(check);
   await toolRefusals(check);
 
   const previousFetch = globalThis.fetch;
@@ -353,6 +369,28 @@ export async function runAgentHousekeepingChecks(check) {
     const prompt = JSON.stringify(model.requests[0]);
     check("the run is told the Supa way and its jobs", prompt.includes("housekeeping run") && prompt.includes("PARA") && prompt.includes("Finished projects"));
 
+    /* ---------------- a crowded folder moves by its names, end to end ---------------- */
+
+    for (let i = 1; i <= 120; i += 1) {
+      bucket.set(`2-areas/runs/run-log-${String(i).padStart(3, "0")}.md`, { body: `# Run ${i}\n\nEasy 5 km.\n`, etag: `r${i}` });
+    }
+    bucket.set("2-areas/runs/shoes.md", { body: "# Shoes\n\nDaily trainers.\n", etag: "rs" });
+    model.install([
+      { toolCalls: [{ name: "manage", args: { action: "move_many", args: { folder: "2-areas/runs", match: "run-log-*", into: "2-areas/runs/logs" } } }] },
+      { text: "I moved 120 run logs into their own folder." },
+    ]);
+    const grouped = await ask(env, TOKEN_HOUSE, run);
+    const offeredManage = JSON.stringify(model.requests.at(-2)?.tools ?? []);
+    check(
+      "a run moves every note in a folder whose name matches, in one call, through the six-tool manage",
+      grouped.status === 200 && grouped.body?.changes === 120 &&
+        (await whereIs(env, "2-areas/runs/run-log-001.md")) === "2-areas/runs/logs/run-log-001.md" &&
+        (await whereIs(env, "2-areas/runs/run-log-120.md")) === "2-areas/runs/logs/run-log-120.md" &&
+        (await whereIs(env, "2-areas/runs/shoes.md")) === "2-areas/runs/shoes.md" &&
+        /match/.test(offeredManage) && /into/.test(offeredManage),
+      JSON.stringify({ status: grouped.status, body: grouped.body, at: await whereIs(env, "2-areas/runs/run-log-001.md") }),
+    );
+
     /* ---------------- a run with nothing to do ---------------- */
 
     model.install([{ text: "Everything here is already where it belongs." }]);
@@ -360,7 +398,7 @@ export async function runAgentHousekeepingChecks(check) {
     check(
       "a run that changes nothing says so, in the same day's log, and texts nothing",
       calm.status === 200 && calm.body?.outcome === "unchanged" && calm.body?.line === "" && log().includes("_Nothing changed._") &&
-        (log().match(/^## /gm) ?? []).length === 2,
+        (log().match(/^## /gm) ?? []).length === 3,
     );
 
     /* ---------------- a long run is not cut at a texted turn's rounds ---------------- */

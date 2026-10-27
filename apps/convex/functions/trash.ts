@@ -31,7 +31,6 @@ import { recordAudit } from "./lib/audit";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, personalNameFor, resolveFileAccess } from "./lib/filesFns/access";
 import { rulesForReaders } from "./lib/nodes/readerRules";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { canSee } from "./lib/privacy";
 import {
   GROUP_SCAN,
@@ -42,6 +41,7 @@ import {
   trashedItemOf,
   type StampFolder,
 } from "./lib/trash/bin";
+import { nodeAt, removalPage } from "./lib/nodes/paths";
 
 /** Things one Trash page lists: soonest erased first, and `more` past it. */
 export const LIST_MAX = 200;
@@ -67,19 +67,13 @@ const itemValidator = v.object({
 
 type Item = typeof itemValidator.type;
 
-/**
- * The Trash page: what this caller may see in the workspace's trash, soonest
- * erased first. A workspace that is not keyed answers an empty trash: its
- * trash is bytes in the bucket, which this does not list.
- */
+/** The Trash page: what this caller may see in the workspace's trash, soonest erased first. */
 export const listTrash = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ items: v.array(itemValidator), more: v.boolean(), keepDays: v.number() }),
   handler: async (ctx, { workspaceId }) => {
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
-    const empty = { items: [], more: false, keepDays: TRASH_KEEP_DAYS };
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return empty;
     const clearance = clearanceOf(scope, grantedNames);
     const live = scope === "private" ? null : await rulesForReaders(ctx, workspaceId);
     const items: Item[] = [];
@@ -156,7 +150,7 @@ export const emptyDue = internalMutation({
 });
 
 /** Remove one row and what hangs off it in the control plane: its grants. */
-async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
+export async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   for (const grant of await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect()) {
     await ctx.db.delete(grant._id);
   }
@@ -164,11 +158,12 @@ async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
 }
 
 /** Links a trashed note left at its own name (a trash leaves them there, for Restore), when nothing lives there now. */
-async function dropLinks(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string): Promise<void> {
-  const holder = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-    .unique();
+export async function dropLinks(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<void> {
+  const holder = await nodeAt(ctx.db, workspaceId, path);
   if (holder !== null && holder.goneAt === undefined) return;
   for (const link of await ctx.db
     .query("nodeLinks")
@@ -181,7 +176,7 @@ async function dropLinks(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: 
 /**
  * Erase the oldest trash past its date, in the control plane, and record what
  * the bucket must still remove. Answers the erasure's id, or `null` when there
- * is nothing to erase now (the workspace is not keyed, or no trash is due).
+ * is nothing to erase now (no trash is due).
  *
  * The rows go in this transaction: from here the note is gone, and Restore
  * finds nothing. A folder too big for one transaction (`GROUP_SCAN` rows) is
@@ -191,18 +186,31 @@ export const claimErasure = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.id("trashErasures"), v.null()),
   handler: async (ctx, { workspaceId }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return null;
     const now = Date.now();
     const due: StampFolder | undefined = (await stampFolders(ctx.db, workspaceId)).find((stamp) => stamp.eraseAt <= now);
     if (due === undefined) return null;
-    const rows = await rowsUnder(ctx.db, workspaceId, due.folder);
-    const item = await trashedItemOf(ctx.db, workspaceId, due, rows);
-    const files = rows.filter((row) => row.kind === "file" && row.goneAt === undefined);
-    const keys = files.flatMap((row) => (row.storageKey === undefined ? [] : [row.storageKey]));
-    const histories = files.filter((row) => row.path.endsWith(".md")).map((row) => row.path);
+    // Files first, and the folders once nothing is left beneath them (`removalPage`).
+    const page = await removalPage(ctx.db, workspaceId, due.folder, GROUP_SCAN);
+    const item = await trashedItemOf(ctx.db, workspaceId, due, [
+      ...page.folders,
+      ...page.files,
+    ]);
+    const rows = page.whole
+      ? [...page.files, ...page.folders.reverse()]
+      : page.files;
+    const files = rows.filter(
+      (row) => row.kind === "file" && row.goneAt === undefined,
+    );
+    const keys = files.flatMap((row) =>
+      row.storageKey === undefined ? [] : [row.storageKey],
+    );
+    const histories = files
+      .filter((row) => row.path.endsWith(".md"))
+      .map((row) => row.path);
     for (const row of rows) await removeRow(ctx, row);
-    for (const row of files) await dropLinks(ctx, workspaceId, row.path.slice(due.folder.length + 1));
-    if (rows.length < GROUP_SCAN) await removeRow(ctx, due.row);
+    for (const row of files)
+      await dropLinks(ctx, workspaceId, row.path.slice(due.folder.length + 1));
+    if (page.whole) await removeRow(ctx, due.row);
 
     const path = item?.path ?? due.folder;
     const erasure = await ctx.db.insert("trashErasures", {

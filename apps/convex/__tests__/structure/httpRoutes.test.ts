@@ -144,6 +144,7 @@ describe("the gateway's HTTP routes", () => {
    * this list exists to prevent; it is listed now, as is every later route. */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
+    "/gateway/agent/identity": "gatewayAgentIdentity",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
     "/gateway/privacy": "gatewayPrivacy",
@@ -161,6 +162,9 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/email/send": "gatewayPersonEmail",
     "/gateway/email/draft": "gatewayPersonEmailDraft",
     "/gateway/calendar/event": "gatewayCalendarWrite",
+    "/gateway/chat/send": "gatewayChatSend",
+    "/gateway/chat/spaces": "gatewayChatSpaces",
+    "/gateway/chat/recent": "gatewayChatRecent",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",
     "/gateway/authorize/start": "gatewayAuthorizeStart",

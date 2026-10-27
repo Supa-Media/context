@@ -6,8 +6,7 @@
  * Dispatched from `executeOperation`'s switch; the bodies are unchanged.
  */
 
-import { DELETE_CONFIRMATION, FileOpError, type FileStore, deletePath, movePath, readFile, trashKeyedRows } from "../fileOps";
-import { isKeyedStore } from "../noteIds/keyedStore";
+import { FileOpError, type FileStore, movePath, readFile, trashKeyedRows } from "../fileOps";
 import { inventoryPlugins, listManagedInstalls } from "../../../../mcp/src/plugins/inventory.js";
 import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plugins/enablement.js";
 import type { Clearance } from "../clearance";
@@ -271,12 +270,16 @@ export async function executePluginOperation(
             current.etag,
           );
         }
+        // A keyed workspace's row move checks the row's version, which is the note's bytes' etag. A collaborative
+        // note reads back its revision instead (what the plugin was handed by `vault.modify`), so the row is asked
+        // for the version it holds: the one `readFile` took beside that revision. The revision check above already
+        // proved the note is the one the plugin saw; the row move re-checks the row atomically.
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
           clearance,
           now,
-          expectedEtag: operation.expectedEtag,
+          expectedEtag: current.rawEtag ?? current.etag,
           requireAtomic: true,
         });
         return { kind: "moved", ...moved };
@@ -284,24 +287,17 @@ export async function executePluginOperation(
       case "pluginDelete": {
         // A keyed workspace's file is at its id key, which this store's reads do not reach: the version is
         // checked by the row move, and the file is trashed as its row (restorable), not deleted.
-        if (await isKeyedStore(store)) {
-          return { kind: "deleted", ...(await trashKeyedRows(store, { path: operation.path, clearance, now, expectedEtag: operation.expectedEtag })) };
-        }
+        // The row is asked for the version it holds, as the rename below does (see `pluginRename`).
         const current = await readFile(store, { path: operation.path, clearance });
-        if (current.etag !== operation.expectedEtag) {
+        // Either version names the note as it is now: the revision a read handed out, or the row's own.
+        if (current.etag !== operation.expectedEtag && current.rawEtag !== operation.expectedEtag) {
           throw new FileOpError(
             "CONFLICT",
             "That file changed somewhere else while the plugin was using it.",
             current.etag,
           );
         }
-        const deleted = await deletePath(store, {
-          path: operation.path,
-          confirmation: DELETE_CONFIRMATION,
-          clearance,
-          expectedEtag: operation.expectedEtag,
-        });
-        return { kind: "deleted", ...deleted };
+        return { kind: "deleted", ...(await trashKeyedRows(store, { path: operation.path, clearance, now, expectedEtag: current.rawEtag ?? current.etag })) };
       }
       default:
         throw new Error(`not a plugin operation: ${operation.kind}`);

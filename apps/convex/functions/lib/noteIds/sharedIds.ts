@@ -104,10 +104,10 @@ export function keeperOf(noteId: string, rows: readonly NodeDoc[]): NodeDoc {
 }
 
 /** The plan for one group: who keeps the id, who gets a new one, and whether a person must look first. */
-export function planGroup(group: SharedGroup, keyed: boolean): { keeper: NodeDoc; repairs: NodeDoc[]; needsLook: boolean } {
+export function planGroup(group: SharedGroup): { keeper: NodeDoc; repairs: NodeDoc[]; needsLook: boolean } {
   const keeper = keeperOf(group.noteId, group.rows);
   const repairs = group.rows.filter((row) => row._id !== keeper._id);
-  const needsLook = keyed && repairs.some((row) => row.storageKey === idKeyFor(group.noteId, row.path));
+  const needsLook = repairs.some((row) => row.storageKey === idKeyFor(group.noteId, row.path));
   return { keeper, repairs, needsLook };
 }
 

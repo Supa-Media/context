@@ -38,8 +38,10 @@
  * when it was read, so nothing legitimate is lost.
  */
 
-/** The most pictures one answer sends: a few photos, not an album. */
-export const MAX_PICTURES = 4;
+import { cardWords } from "./visuals/said.js";
+
+/** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
+export const MAX_PICTURES = 8;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
 /** The most bytes kept from tool results to check a web address against. */
@@ -57,12 +59,16 @@ const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 const MAX_GIVEN = 40;
 const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 
+/** The tools whose pictures this turn made, not read: `draw_picture`, `draw_visual`, `make_picture`. */
+const MADE_BY = new Set(["draw_picture", "draw_visual", "make_picture"]);
+
 /** What the model is told on a texted turn, so it never says it can't. */
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture (a poster, an invite, " +
-  "a chart, from a page you write) or make_picture (a photo: them in an outfit, a scene). Asked for a picture, make one " +
+  "you read in a tool result. It goes as a photo after your words. To make one, send draw_visual (your designed cards: " +
+  "options, photos, plans, days, boards, charts), draw_picture (a poster, an invite, from a page you write) or make_picture " +
+  "(a photo: them in an outfit, a scene). Asked for a picture, make one " +
   "now, guessing what they left out, then offer changes; don't ask first.";
 
 /**
@@ -100,6 +106,11 @@ function webAddress(value) {
   return url.href;
 }
 
+/** The shortest address worth looking up: "Main" alone could be anywhere, and anything. */
+const MIN_ADDRESS = 6;
+/** An address as it is compared: case, commas and spacing aside. */
+const plainAddress = (value) => (typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : "");
+
 /**
  * One turn's pictures. `enabled` is false for every turn that is not a text
  * from the person's phone; such a turn's tool results and answers pass through
@@ -121,7 +132,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "" });
           numbers.push(seen.length);
         }
       }
@@ -135,6 +146,7 @@ export function outgoingPictures({ enabled, question = "" }) {
   const take = (answer) => {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
     const pictures = [];
+    const captions = [];
     const named = new Set();
     let carried = 0;
     const stripped = answer.replace(PICTURE_LINE, (_, ref) => {
@@ -144,28 +156,97 @@ export function outgoingPictures({ enabled, question = "" }) {
         const picture = seen[Number(ref) - 1];
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
-          pictures.push(picture);
+          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+          captions.push(picture.caption);
         }
         return "";
       }
-      if (vouches(ref)) pictures.push({ url: webAddress(ref) });
+      if (vouches(ref)) {
+        pictures.push({ url: webAddress(ref) });
+        captions.push("");
+      }
       return "";
     });
-    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures };
+    // A card it drew and then forgot to name still goes: "Here's the graphic" with nothing after it
+    // is the one thing worse than no card (owner's group chat, 2026-10-26).
+    if (named.size === 0) {
+      for (const picture of unnamedCards()) {
+        if (pictures.length >= MAX_PICTURES || carried + picture.data.length > MAX_PICTURE_CHARS) break;
+        carried += picture.data.length;
+        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+        captions.push(picture.caption);
+      }
+    }
+    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions };
+  };
+
+  /**
+   * The cards to send when the answer named none: the last one this turn drew,
+   * or, when that was an option card, every option card (a swipeable set), one
+   * per number. A redrawn card replaces the one before it, so only the last goes.
+   */
+  const unnamedCards = () => {
+    const drawn = seen.filter((picture) => MADE_BY.has(picture.tool));
+    const last = drawn.at(-1);
+    if (!last) return [];
+    if (last.template !== "option") return [last];
+    const byCaption = new Map();
+    for (const picture of drawn) if (picture.template === "option") byCaption.set(picture.caption || picture.name, picture);
+    return [...byCaption.values()];
   };
 
   /** Picture N a tool showed this turn, for a tool that builds on it (`pictureMaker.js`). */
   const picture = (n) => (Number.isInteger(n) && n >= 1 ? (seen[n - 1] ?? null) : null);
+  /**
+   * Picture N only if this turn drew or made it, for keeping in a note
+   * (`withDrawnImages`). A picture read out of a note stays where it was:
+   * copying it into another note would be a second way to move it.
+   */
+  const made = (n) => {
+    const found = picture(n);
+    return found !== null && MADE_BY.has(found.tool) ? found : null;
+  };
   /** Whether a web address was read in a tool result or written by the person this turn: the rule `take` applies. */
   const vouches = (ref) => {
     const url = webAddress(ref);
     return url !== null && (text.includes(ref) || text.includes(url));
   };
 
-  return { wrap, take, picture, vouches };
+  /** Every word the turn's tool results showed, for finding a card's photos among them (`visuals/photos.js`). */
+  const read = () => text;
+
+  // Their about-me note, which names where they live: a places card's start (`visuals/distance.js`).
+  let known = "";
+  /** Keeps a texted turn's Tex notes' about-me text and hands the notes back, for `locates`. */
+  const knows = (notes) => {
+    if (typeof notes?.aboutMe === "string") known = notes.aboutMe.slice(0, MAX_SEEN_TEXT);
+    return notes;
+  };
+  /** Whether an address was in their words, a tool result this turn, or their about-me note, so it may go to a geocoder. */
+  const locates = (address) => {
+    const wanted = plainAddress(address);
+    return wanted.length >= MIN_ADDRESS && (plainAddress(text).includes(wanted) || plainAddress(known).includes(wanted));
+  };
+
+  return { wrap, take, picture, made, vouches, read, knows, locates };
 }
 
-/** The line the saved conversation keeps for what was sent, so "what was that picture?" has an answer. */
-export function sentPicturesLine(pictures) {
-  return pictures.length === 0 ? "" : `[Sent ${pictures.length === 1 ? "a picture" : `${pictures.length} pictures`} with this answer.]`;
+/**
+ * What a drawn card shows, in words, from the arguments it was drawn with:
+ * its title or option, and each thing on it with its facts. So a reply of
+ * "the 2nd one" to a set of option cards has an answer in the saved
+ * conversation, and a review reads what the card offered.
+ */
+function captionOf(name, args) {
+  if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
+  // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
+  return cardWords(args.data);
+}
+
+/** The line the saved conversation keeps for what was sent, so "what was that picture?" and "the 2nd one" have an answer. */
+export function sentPicturesLine(pictures, captions = []) {
+  if (pictures.length === 0) return "";
+  const named = captions.some(Boolean) ? `: ${pictures.map((_, i) => `${i + 1}. ${captions[i] || "a picture"}`).join("; ")}` : "";
+  const set = pictures.length > 1 ? " as one swipeable set" : "";
+  return `[Sent ${pictures.length === 1 ? "a picture" : `${pictures.length} pictures`}${set} with this answer${named}.]`;
 }

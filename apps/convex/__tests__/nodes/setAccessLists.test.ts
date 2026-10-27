@@ -25,7 +25,13 @@ import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { gatewayPost } from "../fixtures.helpers";
-import { ACCESS_A, bodyOf, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
+import {
+  ACCESS_A,
+  bodyOf,
+  twoConnectedTenants,
+} from "../controlPlane/fixtures.helpers";
+import { parentRows } from "./treeRows.helpers";
+import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -66,18 +72,14 @@ async function world(): Promise<World> {
         observedAt: 1,
       });
     }
+    await parentRows(ctx, ws);
     return { ws, owner, editor, leads };
   });
   return { t, ...ids };
 }
 
 async function rowAt(t: T, ws: Id<"workspaces">, path: string) {
-  return await t.run(async (ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path))
-      .unique(),
-  );
+  return await t.run(async (ctx) => treeNodeAt(ctx.db, ws, path));
 }
 
 async function grantsOn(t: T, ws: Id<"workspaces">, path: string) {
@@ -192,8 +194,11 @@ describe("a tier change keeps the owner's list", () => {
       });
     });
     const before = await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", aliceWs).eq("path", "1-projects")).unique();
-      return await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
+      const row = await treeNodeAt(ctx.db, aliceWs, "1-projects");
+      return await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_node", (q) => q.eq("nodeId", row!._id))
+        .collect();
     });
     expect(before).toHaveLength(1);
     const answer = await bodyOf(
@@ -201,8 +206,11 @@ describe("a tier change keeps the owner's list", () => {
     );
     expect(answer).toEqual({ ok: true, version: 1 });
     const after = await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", aliceWs).eq("path", "1-projects")).unique();
-      return await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
+      const row = await treeNodeAt(ctx.db, aliceWs, "1-projects");
+      return await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_node", (q) => q.eq("nodeId", row!._id))
+        .collect();
     });
     expect(after).toEqual(before);
   }, 30_000);
@@ -299,7 +307,9 @@ describe("a reset to inherit clears the owner's list, and team to private keeps 
       await gatewayPost(t, "/gateway/privacy", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "setAccess", path: "1-projects", base: "inherit" }),
     );
     expect(answer).toEqual({ ok: true, version: 1 });
-    const row = await t.run(async (ctx) => ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", aliceWs).eq("path", "1-projects")).unique());
+    const row = await t.run(async (ctx) =>
+      treeNodeAt(ctx.db, aliceWs, "1-projects"),
+    );
     expect(row?.access).toBeUndefined();
     const grants = await t.run(async (ctx) => ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect());
     expect(grants).toHaveLength(0);

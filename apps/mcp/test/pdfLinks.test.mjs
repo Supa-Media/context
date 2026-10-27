@@ -64,5 +64,7 @@ test("read_file hands back where a PDF's button goes, after its words", async ()
   const read = await fileWords(ai, "Kingdom City NYC.pdf", "application/pdf", compressed("https://pay.example.com/deposit"));
   assert.match(read.text, /^CLICK HERE to make payment\n\nLinks in this file \(where its buttons and linked words go\):\n- https:\/\/pay\.example\.com\/deposit$/);
   const sheet = await fileWords(ai, "a.csv", "text/csv", ascii("/URI (https://x.example.com/)"));
-  assert.equal(sheet.text, "CLICK HERE to make payment");
+  // A CSV is read as its own rows now (`fileParts.js`), and never gets a PDF's links.
+  assert.doesNotMatch(sheet.text, /Links in this file/);
+  assert.match(sheet.text, /\/URI \(https:\/\/x\.example\.com\/\)/);
 });

@@ -14,6 +14,7 @@ import {
 } from "./instructions.js";
 import { isVisibleNote } from "../orient/survey.js";
 import { listImmediateLayout } from "../notes/storage.js";
+import { servedListingStore } from "../tree/served.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { namedWithRest } from "../orient/render.js";
 import { readFrontPage } from "../orient/frontPage.js";
@@ -52,7 +53,8 @@ export async function instructionsForSession(store, session) {
     const { rules, overrides } = privacy;
     const [frontPage, root] = await Promise.all([
       readFrontPage(store, scope, rules, overrides, INSTRUCTIONS_INDEX_CHAR_CAP),
-      listImmediateLayout(store),
+      // The names come from the Convex tree: in a keyed workspace the bucket's root is `notes/` and `files/`.
+      listImmediateLayout(servedListingStore(store)),
     ]);
 
     const folders = root.prefixes

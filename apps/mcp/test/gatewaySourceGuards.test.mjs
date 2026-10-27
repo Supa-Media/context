@@ -143,31 +143,6 @@ test("no gateway module restates a move limit's value beside its name", () => {
 });
 
 /*
-  The redactor is only a guard if the call site hands it the value to redact.
-
-  `safeMoveStorageDetail(error, store)` reads `store.accessKeyId` to replace the
-  id a provider auth error echoes — the one credential shape its regexes cannot
-  see. Its own unit test calls the function directly, so dropping the second
-  argument at the call site redacts nothing and reddens nothing: measured, and
-  the suite stayed green. That is the same shape as this file's other guards —
-  a check that follows the code rather than the wiring goes quiet when the
-  wiring changes.
-*/
-test("every call to safeMoveStorageDetail passes the store it must redact against", () => {
-  const calls = FILES.flatMap((file) =>
-    [...file.text.matchAll(/(?<!function\s)\bsafeMoveStorageDetail\(([^)]*)\)/g)].map((match) => ({
-      path: file.path,
-      args: match[1],
-    })),
-  );
-  assert.ok(calls.length >= 1, "no call to safeMoveStorageDetail found");
-  const short = calls.filter(
-    (call) => call.args.split(",").filter((part) => part.trim() !== "").length !== 2,
-  );
-  assert.deepEqual(short, []);
-});
-
-/*
   A LINK MAY NOT BE POINTED SOMEWHERE ITS OWN NOTE'S READERS CANNOT GO, AND
   THAT RULE IS ONE ARGUMENT AT ONE CALL SITE.
 
@@ -196,34 +171,6 @@ test("every call to rewriteLinks passes the predicate that stops it publishing a
   assert.ok(calls.length >= 1, "no call to rewriteLinks found");
   const unguarded = calls.filter((call) => !/\ballowTarget\b/.test(call.args)).map((call) => call.path);
   assert.deepEqual(unguarded, []);
-});
-
-/*
-  The queue consumer has two channels out to the control plane and both must
-  stay path-free.
-
-  The progress channel is kept honest by `moveProgressFromText`'s integer
-  regex. The failure channel forwarded the tool's whole text, which a dozen of
-  `materialize.js`'s throws interpolate a source or destination path into, so a
-  customer's note path left the bucket and was stored where the control plane
-  only truncates it. `moveErrorForControlPlane` takes the paths out.
-
-  Asserted over the source because the unit test for that function calls it
-  directly: dropping it at the call site redacts nothing and reddens nothing.
-  That has now been the shape of four separate guards in this file.
-*/
-test("the queue consumer sanitises a move failure before the control plane sees it", () => {
-  const consumer = FILES.find((file) => file.path === "moves/queueConsumer.js");
-  assert.ok(consumer, "moves/queueConsumer.js not found");
-  assert.match(consumer.text, /\berror = moveErrorForControlPlane\(/);
-  // Only assignments that carry the TOOL'S TEXT are the hazard. A fixed string
-  // of our own (`error = "unsupported gateway job"`) names no path, and a first
-  // draft of this guard flagged it — caught because the clean tree went red,
-  // which is the reason to sabotage a new guard in both directions.
-  const unsanitised = [...consumer.text.matchAll(/^\s*error = ([^;]+);/gm)]
-    .map((match) => match[1].trim())
-    .filter((rhs) => /\btext\b/.test(rhs) && !/\bmoveErrorForControlPlane\(/.test(rhs));
-  assert.deepEqual(unsanitised, []);
 });
 
 /*
@@ -298,10 +245,9 @@ test("a gateway module that queries the v1 index also narrows it first", () => {
 /*
   Every `node:test` file is run. `test/run.mjs` runs only what `test/unit.list`
   names, so a file nobody added there passed nothing in CI while reading as
-  coverage: twenty-five of them did, until 2026-10-21. `test/run.mjs` runs
-  `moveQueueDedupe.test.mjs` on its own. `keyedCollabRename.test.mjs` fails on
-  `main` as it stands and is left out by name until it is fixed, so the gap is
-  written down instead of hidden.
+  coverage: twenty-five of them did, until 2026-10-21. A file that fails on
+  `main` is left out by name in `KNOWN_FAILING` until it is fixed, so the gap is
+  written down instead of hidden (none today).
 */
 /*
   The Mail checker reads a kept turn as the person who asked. A group's kept
@@ -318,8 +264,22 @@ test("the Mail checker is never handed a group's kept turns whole", () => {
   assert.match(call[1], /history:\s*group !== null \? checkerHistory\(history\) : history/);
 });
 
-const RUN_ON_THEIR_OWN = new Set(["test/moveQueueDedupe.test.mjs"]);
-const KNOWN_FAILING = new Set(["test/keyedCollabRename.test.mjs"]);
+/*
+  An email, a calendar change or a Slack post is checked before it is held:
+  the control plane's limits and, for an email, the Mail checker. Under the
+  default per-call limit those checks were cut off three times for one email
+  (2026-10-22), so nothing was held and the person was told it timed out.
+*/
+test("a texted turn gives a held send long enough to be checked and held", () => {
+  const route = FILES.find((file) => file.path === "agent/route.js");
+  const timeouts = /toolTimeouts:\s*\{([^}]*)\}/.exec(route.text)?.[1] ?? "";
+  for (const [name, least] of [["send_email", 120_000], ["save_email_draft", 120_000], ["calendar_event", 30_000], ["slack_api", 30_000]]) {
+    const ms = Number(new RegExp(`\\b${name}:\\s*([\\d_]+)`).exec(timeouts)?.[1]?.replace(/_/g, ""));
+    assert.ok(ms >= least, `${name} gets at least ${least} ms`);
+  }
+});
+
+const KNOWN_FAILING = new Set([]);
 
 test("every node:test file is listed in test/unit.list", () => {
   const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -332,6 +292,6 @@ test("every node:test file is listed in test/unit.list", () => {
     });
   const found = files("test");
   assert.ok(found.includes("test/agentGroupTurn.test.mjs"), "the scan finds node:test files");
-  const unlisted = found.filter((path) => !listed.has(path) && !RUN_ON_THEIR_OWN.has(path) && !KNOWN_FAILING.has(path));
+  const unlisted = found.filter((path) => !listed.has(path) && !KNOWN_FAILING.has(path));
   assert.deepEqual(unlisted, []);
 });

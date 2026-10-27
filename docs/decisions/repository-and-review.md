@@ -165,7 +165,7 @@ the filter unverified again, which is the state it was already in. Checking the
 reverse direction — a path covering nothing — would fail CI for something
 harmless and get the whole guard deleted.
 
-## Main deploys staging; production requires a manual release
+## Main deploys staging; production follows it unless turned off
 
 Decided 2026-09-22: every merge to `main` deploys staging, matching Togather's
 release flow. `Deploy to Production` is an explicit manual action, and refuses
@@ -178,6 +178,27 @@ The standing instruction to finish and merge green PRs remains; it no longer
 authorizes an automatic production deployment. `production-release.test.mjs`
 checks that no deployment workflow except staging has an automatic trigger,
 and proves failed, pending and mismatched staging runs cannot pass promotion.
+
+**Amended 2026-10-23 by the owner: production follows staging on every
+merge.** `Promote to Production` (`promote-production.yml`) starts `Deploy to
+Production` after a green staging run from a push to `main`, once CI on `main`
+has passed on the same commit and it is still `main`'s tip. Production's own
+check is unchanged and now also requires that CI run
+([convex-test-impact](./testing/convex-test-impact.md) says why). The owner
+asked for an easy way back to staging as a real stop: set the repository
+variable `AUTO_DEPLOY_PRODUCTION` to `off`, and the press is manual again.
+`promote-production.test.mjs` pins the trigger, the flag and each condition.
+
+**Amended again the same day by the owner: production deploys beside
+staging.** A Tex change should reach production in about five minutes, and
+staging (3 to 6 minutes) plus main's full suite (about 3) in front of
+production's own 3 to 4.5 cannot. So a merge's `Deploy Staging` run starts
+`Deploy to Production` in its first job, with `alongside_staging`, which skips
+the staging and CI wait in `production-release.mjs` and nothing else. The
+owner chose this knowing a test a pull request's selection skipped can reach
+production before main's full run reports it. `AUTO_DEPLOY_PRODUCTION=after-staging`
+restores the gated promotion above; `off` makes production manual.
+`production-release.test.mjs` pins both lanes.
 
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys

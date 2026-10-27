@@ -14,6 +14,11 @@ import {
 } from "./attachmentsFixtures.mjs";
 
 export async function runAttachmentsCoreChecks() {
+  /** The bases the gateway asked the control plane to set on one row, oldest first (`setAccess`). */
+  const rowWritesFor = (path) =>
+    controlPlane.calls
+      .filter((entry) => entry.path === "/gateway/privacy" && entry.body?.op === "setAccess" && entry.body.path === path)
+      .map((entry) => entry.body.base);
 
   // -- images: resolve-by-reference over an opaque, unlistable store
   //
@@ -486,6 +491,8 @@ export async function runAttachmentsCoreChecks() {
   );
   // persistExactVisibility's delete branch: `Keep-Narrowing.md` inherits team, so
   // asking for team takes the delete. It must remove nothing.
+  const keepRowsBeforeTwin = rowWritesFor(exactDeleteKeep).length;
+  const twinRowsBeforeTwin = rowWritesFor(exactDeleteTwin).length;
   await call("priv-token", "set_visibility", {
     path: exactDeleteTwin,
     visibility: "team",
@@ -493,12 +500,15 @@ export async function runAttachmentsCoreChecks() {
   });
   check(
     "changing a case-variant's visibility does not clear the original's narrowing",
-    (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+    rowWritesFor(exactDeleteTwin).length > twinRowsBeforeTwin &&
+      rowWritesFor(exactDeleteKeep).length === keepRowsBeforeTwin &&
       (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
   );
   // clearExactVisibility, through the source of a move.
   const keepMoveEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
     ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+  const keepRowsBeforeMove = rowWritesFor(exactDeleteKeep).length;
+  const twinRowsBeforeMove = rowWritesFor(exactDeleteTwin).length;
   await call("priv-token", "move_note", {
     source: exactDeleteTwin,
     destination: "1-projects/portable/keep-moved.md",
@@ -506,7 +516,8 @@ export async function runAttachmentsCoreChecks() {
   });
   check(
     "moving a case-variant away does not clear the original's narrowing either",
-    (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+    rowWritesFor(exactDeleteTwin).length > twinRowsBeforeMove &&
+      rowWritesFor(exactDeleteKeep).length === keepRowsBeforeMove &&
       (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
   );
   // Clear the override against what the note inherits, then drop the objects.

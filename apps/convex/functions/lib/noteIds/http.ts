@@ -45,26 +45,15 @@ import { loadPrivacyState } from "../fileOps";
 import { hashToken } from "../crypto";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { memberWritableWorkspace, writableWorkspace } from "../nodes/gatewayNames";
-import { GATEWAY_PATH_LENGTH, NO_BUCKET } from "../nodes/gatewayManifest";
+import { GATEWAY_PATH_LENGTH } from "../nodes/gatewayManifest";
 import { isNoteId } from "../nodes/noteIds";
-import { servedNodesStore } from "../nodes/manifestStore";
+import { NO_BUCKET, servedNodesStore } from "../nodes/manifestStore";
 import { canSee } from "../privacy";
 
 const NOT_SERVED = { served: false } as const;
 
 /** Paths one lookup may name. */
 export const NOTE_IDS_LOOKUP_PATHS = 200;
-
-/**
- * The `keyed` sibling a binding answer carries (`/gateway/binding`, `/gateway/ingest/binding`):
- * `keyed: true` only while the workspace is keyed (`keyedWorkspace`), so the wire
- * carries it only where it is true. The email worker refuses mail it cannot write
- * to an id key; the gateway refuses a keyed store without the id layer.
- */
-export async function keyedSibling(ctx: Pick<ActionCtx, "runQuery">, workspaceId: Id<"workspaces">): Promise<{ keyed?: true }> {
-  const keyed = await ctx.runQuery(internal.functions.noteIds.keyedFor, { workspaceId });
-  return keyed ? { keyed: true } : {};
-}
 
 /** A non-empty list of at most `NOTE_IDS_LOOKUP_PATHS` paths, each one path; `null` for anything else. */
 export function pathList(value: unknown): string[] | null {

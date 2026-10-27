@@ -95,3 +95,38 @@ binding it already has for HEIC, before upload (`shrinkPicture`,
 sharp. Without the binding, or when Images refuses, the picture goes as it
 was. Test: "sends the shrunk JPEG, not the PNG" in
 `apps/agent/src/outgoing.test.ts`.
+
+## A picture is read on its own turn, whatever model answers (a review of a chat, 2026-10-24)
+
+A person texted a screenshot of their chat with a tailor, then a second
+showing "Sunday after 3pm" agreed. Tex searched email and asked "Is there a
+time you want me to block?" ("are you dumb? we literally just agreed").
+Three changes:
+
+- The setup's fallback (a Workers AI model) can't see pictures. A turn
+  carrying one whose model fails now goes on with the setup's other model
+  that can (Opus after Haiku, Haiku after Opus), and only with none on the
+  blind one (`pictureFallback` in `apps/mcp/src/agent/attachments.js`; the
+  turn's fallback may be a function of the failed model, `turn.js`).
+- The turn is told to look at the pictures before anything else, and to take
+  what a screenshot shows (a time agreed, a place, a name, an amount) as
+  settled rather than asking for it or searching for it elsewhere.
+- An answer that asks them anything while a picture came with the text gets
+  one more round to look at it again (`PICTURE_NOTICE`, `replyChecks.js`).
+
+We could not see which of these happened on that chat: the Worker's logs and
+the turn reports were not readable from the session that made this change.
+Undo: drop `pictureFallback` from `route.js`; `agentProduction.test.mjs` "a
+picture turn whose model fails…" fails.
+
+## Figures about a picture are the picture's (a review of a chat, 2026-10-25)
+
+Asked about a Screen Time screenshot, Tex quoted category totals
+("Social 1h 37m, Travel 1h 6m…") that the person said weren't in it, then
+took them back when the next screenshot came. Now an answer that gives a
+figure on a turn that carries a picture, or that read one with read_image,
+gets one round to check each figure against the picture: it keeps only
+those it can read, says a sum it worked out is its own, and says what the
+picture doesn't show (`FIGURES_NOTICE`, `replyChecks.js`). The turn is told
+the same rule up front. Undo: drop the "figures" check;
+`agentReplyChecks.test.mjs` fails.

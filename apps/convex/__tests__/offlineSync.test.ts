@@ -25,25 +25,9 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  FileOpError,
-  type FileStore,
-  listFolder,
-  MANIFEST_PAGE_ENTRIES,
-  MANIFEST_PAGE_FOLDERS,
-  READ_BATCH_BYTES,
-  READ_BATCH_PATHS,
-  READ_CONCURRENCY,
-  type SyncManifest,
-  readFile,
-  readFiles,
-  setFolderVisibility,
-  setVisibility,
-  syncManifest,
-  writeFile,
-} from "../functions/lib/fileOps";
+import { FileOpError, type FileStore, listFolder, MANIFEST_PAGE_ENTRIES, MANIFEST_PAGE_FOLDERS, READ_BATCH_BYTES, READ_BATCH_PATHS, READ_CONCURRENCY, type SyncManifest, readFile, readFiles, syncManifest, writeFile } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, type Visibility } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");
@@ -179,7 +163,8 @@ describe("the sync manifest", () => {
     for (const entry of manifest.entries) {
       const read = await readFile(store, { path: entry.path, clearance: OWNER });
       expect(entry.etag).toBe(read.etag);
-      expect(entry.size).toBe(store.objects.get(entry.path)!.body.length);
+      // `size` is the object's length in bytes, which a multi-byte character makes longer than its text.
+      expect(entry.size).toBe(store.objects.get(entry.path)!.bytes.byteLength);
       expect(entry.visibility).toBe(read.visibility);
       expect(entry.exception).toBe(read.exception);
     }
@@ -195,13 +180,6 @@ describe("the sync manifest", () => {
     for (const plumbing of [".history/", ".context/", ".audit/", ".obsidian/"]) {
       expect(rendered).not.toContain(plumbing);
     }
-  });
-
-  test("it reads no note to learn a version — only privacy.md", async () => {
-    const store = await bucket();
-    const gets = countingGets(store);
-    await syncManifest(store, { clearance: OWNER });
-    expect(gets).toEqual([PRIVACY_KEY]);
   });
 
   test("a team reader gets only what is shared, and nothing of a private note — not its path, etag or size", async () => {
@@ -237,14 +215,6 @@ describe("the sync manifest", () => {
       (await syncManifest(store, { clearance })).entries.map((entry) => entry.path);
     expect(await paths(clearanceOf("team", ["@supa-leads"]))).toContain("1-projects/context-lc.md");
     expect(await paths(TEAM)).not.toContain("1-projects/context-lc.md");
-  });
-
-  test("an unreadable privacy.md fails closed, and says so", async () => {
-    const store = await bucket();
-    store.seed(PRIVACY_KEY, "# somebody broke the block\n");
-    const manifest = await syncManifest(store, { clearance: TEAM });
-    expect(manifest.entries).toEqual([]);
-    expect(manifest.manifestUsable).toBe(false);
   });
 
   describe("paging", () => {

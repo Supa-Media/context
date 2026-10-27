@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  The picture Tex texts beside a Google connect link
+  (apps/mcp/src/tools/workspaces.js, GOOGLE_GUIDE_PATH): the two Google screens
+  a person meets before Context is connected, and what to tap on each. Drawn,
+  not a screenshot, and labelled as a guide: Google's real screens differ in
+  detail by device and language. The owner, 2026-10-23: "prepare them for the
+  unsafe screen ... send them a picture of what it's gonna look like and what
+  they should click ... make sure they also click select all".
+
+  Render: node scripts/render-og-card.mjs google  (writes src/og-google-connect.png)
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1350px; background: #f4f1ea; font-family: "Instrument Sans", sans-serif; color: #1d1b16; }
+  .page { padding: 56px 56px 0; }
+  h1 { font-size: 52px; font-weight: 600; letter-spacing: -0.5px; }
+  .sub { font-size: 28px; color: #5b574d; margin-top: 10px; }
+  .row { display: flex; gap: 40px; margin-top: 44px; }
+  .step { width: 464px; }
+  .num { display: inline-flex; width: 52px; height: 52px; border-radius: 26px; background: #1d1b16; color: #fff; font-size: 30px; font-weight: 600; align-items: center; justify-content: center; }
+  .label { font-size: 30px; font-weight: 600; margin: 14px 0 18px; line-height: 1.25; }
+  .phone { background: #fff; border: 3px solid #d6d0c2; border-radius: 40px; height: 860px; padding: 40px 34px; position: relative; overflow: hidden; }
+  .warn { width: 64px; height: 64px; border-radius: 32px; background: #fdecea; color: #c5221f; font-size: 42px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .title { font-size: 34px; font-weight: 600; margin-top: 22px; line-height: 1.2; }
+  .body { font-size: 22px; color: #5b574d; margin-top: 18px; line-height: 1.45; }
+  .muted { height: 16px; background: #ece8df; border-radius: 8px; margin-top: 14px; }
+  .link { font-size: 26px; color: #1a73e8; font-weight: 600; margin-top: 28px; display: inline-block; padding: 10px 16px; border-radius: 12px; }
+  .tap { outline: 5px solid #e8590c; outline-offset: 4px; background: #fff4e6; }
+  .button { margin-top: 30px; display: inline-block; background: #1a73e8; color: #fff; font-size: 24px; font-weight: 600; padding: 16px 28px; border-radius: 26px; }
+  .gray { background: #f1f3f4; color: #3c4043; }
+  .check { display: flex; align-items: center; gap: 16px; font-size: 24px; margin-top: 22px; }
+  .box { width: 34px; height: 34px; border-radius: 6px; background: #1a73e8; color: #fff; font-size: 26px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+  .item { display: flex; gap: 16px; align-items: center; margin-top: 22px; }
+  .item .box { width: 28px; height: 28px; font-size: 20px; }
+  .item .lines { flex: 1; }
+  .item .muted { margin-top: 8px; }
+  .pill { padding: 10px 14px; border-radius: 12px; display: flex; gap: 16px; align-items: center; }
+  .arrow { position: absolute; right: 30px; font-size: 26px; font-weight: 600; color: #e8590c; }
+  .foot { font-size: 24px; color: #5b574d; margin-top: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Connecting Google: what you'll see</h1>
+  <div class="sub">Google hasn't finished reviewing Context yet, so it warns first. That's expected.</div>
+  <div class="row">
+    <div class="step">
+      <span class="num">1</span>
+      <div class="label">Tap Advanced, then<br>Go to Context (unsafe)</div>
+      <div class="phone">
+        <div class="warn">!</div>
+        <div class="title">Google hasn't verified this app</div>
+        <div class="body">The app is requesting access to sensitive info in your Google Account.</div>
+        <div class="muted" style="width: 92%"></div>
+        <div class="muted" style="width: 70%"></div>
+        <div class="button gray" style="margin-top: 40px">Back to safety</div>
+        <div><span class="link tap">Advanced</span></div>
+        <div class="muted" style="width: 88%; margin-top: 24px"></div>
+        <div class="muted" style="width: 60%"></div>
+        <div><span class="link tap">Go to Context (unsafe)</span></div>
+      </div>
+    </div>
+    <div class="step">
+      <span class="num">2</span>
+      <div class="label">Tick Select all,<br>then Continue</div>
+      <div class="phone">
+        <div class="title">Context wants access to your Google Account</div>
+        <div class="muted" style="width: 80%; margin-top: 22px"></div>
+        <div class="check pill tap"><span class="box">✓</span><b>Select all</b></div>
+        <div class="item"><span class="box">✓</span><div class="lines"><div class="muted" style="width: 90%"></div><div class="muted" style="width: 55%"></div></div></div>
+        <div class="item"><span class="box">✓</span><div class="lines"><div class="muted" style="width: 85%"></div><div class="muted" style="width: 50%"></div></div></div>
+        <div class="item"><span class="box">✓</span><div class="lines"><div class="muted" style="width: 92%"></div><div class="muted" style="width: 62%"></div></div></div>
+        <div class="item"><span class="box">✓</span><div class="lines"><div class="muted" style="width: 80%"></div><div class="muted" style="width: 45%"></div></div></div>
+        <div style="margin-top: 44px; display: flex; gap: 16px; justify-content: flex-end;">
+          <span class="button gray" style="margin-top: 0">Cancel</span>
+          <span class="button tap" style="margin-top: 0">Continue</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot">Leave any box unticked and Tex can't do that part for you.</div>
+</div>
+</body>
+</html>

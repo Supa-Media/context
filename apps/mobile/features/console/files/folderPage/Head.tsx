@@ -45,7 +45,7 @@ import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { JobIcon } from "../jobIcons/JobIcon";
 import { builtInLine } from "../jobIcons/folderJobs";
-import { jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
+import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -158,7 +158,7 @@ export function FolderHead({
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
         <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
           {icon === null ? null : job !== null ? (
-            <JobIcon job={job} size={large ? TILE_LARGE : TILE} tile testID="folder-head-job" />
+            <JobIcon job={job} size={large ? TILE_LARGE : TILE} tile nested={isNestedJobIcon(icon)} testID="folder-head-job" />
           ) : twin !== null ? (
             <JobIcon job={twin} size={large ? TILE_LARGE : TILE} tile archived testID="folder-head-twin" />
           ) : (

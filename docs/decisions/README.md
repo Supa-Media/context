@@ -28,6 +28,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
 - [Product analytics records outcomes and named interactions](./observability/product-analytics.md) (2026-10-21)
+- [Tex telemetry: every turn says where it came from and what it cost](./observability/tex-telemetry.md) (2026-10-24)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
@@ -37,6 +38,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
 - A move between the owner's own buckets is a third direction, and never touches the old one
+- [The tree is parent pointers, and note files need not work outside Context](./storage-and-credentials/paths-on-read.md) (2026-10-25)
+- [Editing history is filed by note id](./storage-and-credentials/paths-on-read.md#editing-history-is-filed-by-note-id) (2026-10-25)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
@@ -58,6 +61,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Live delivery is independent of saving
 - Permissions, stable identity, and verification are release gates
 - A live connection recovers on its own, and only the control plane says no
+- A shared note takes typing before its document arrives
+- A note that turns shared under the person typing keeps taking typing
+- A closed shared note's unsent typing is sent without opening it
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -109,6 +115,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A share link's preview may carry a title; nothing else's may
 - A folder link may also name two or three things inside it
 - An unlisted share is the third audience, and it is one row rather than a tier
+- A link shows the pictures its note embeds, and no other object (2026-10-25)
 - `privacy.md` is generated, and the console can generate a fresh one
 - The visibility tier is displayed, never stored
 - The audit trail's `details` are allow-listed
@@ -296,6 +303,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
 - [The front door is three landing pages under test](./websites/landing-pages.md)
+- [The website folder can be nested](./websites/nested-folder.md)
 
 ## [Release communication](./release-communication.md)
 
@@ -336,6 +344,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A shed index must say so to the caller it happened to, not only to the operator
 - With no connection, search reads the copy on the device, and says so
 - The map's graph is read per shard at request time, and stored nowhere
+- Related notes are the map's links for one note, plus one search
 - Every search is timed, and the time is all that is kept
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
@@ -375,6 +384,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The staff console's AI tab is the `ai/` folder of `@context-lc`](./app-and-console/admin-ai.md) (2026-10-16)
 - [Built-in folders are found by their job, not their name](./app-and-console/folder-jobs.md) (2026-10-18)
 - [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18)
+- [Built-in folders have no number in front](./app-and-console/folder-jobs.md#built-in-folders-have-no-number-in-front) (2026-10-21)
 - [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
@@ -436,6 +446,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Auto-organize, What changed and the app assistant are deleted, not switched off](./app-and-console/removed-features.md) (2026-10-17)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
+- [The picker opens on Context's own hundred icons](./app-and-console/custom-emoji.md#the-picker-opens-on-contexts-own-hundred-icons) (2026-10-21)
 - [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
 - [A note's common properties are chips under its name, a new note's included](./app-and-console/property-chips.md) (2026-10-14)
 - [Only a note in the Projects folder is offered the task chips](./app-and-console/property-chips.md) (2026-10-18)
@@ -497,6 +508,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A `finalizing` session has a deadline, because the gateway does not need one
 - Silence is not a transcript, and the engine's own evidence is what says so
 - A session that captured nothing is not filed
+- The call's audio is asked for at every meeting, and a dead track is no call audio
 - A segment id names its own meeting, and both sides check it
 - The phone had one barrier where the desktop has four, and both halves are named
 - The count is a kind, not a number, and every one of these guards reads an id
@@ -545,15 +557,20 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A hold is armed for a texted yes only once its ask goes out whole
 - A draft saved in the person's Gmail needs no yes (owner, 2026-10-19)
 - A standing forward: one 👍 lets a routine keep forwarding one kind of mail (owner, 2026-10-21)
+- An email is checked in time to be held (2026-10-22)
 - No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
+- Tex sends a Google Chat message as the person, on their one 👍 (owner, 2026-10-22)
 - A move or a cancel names the event by its title and start, and must match one
 - Never an event with guests
-- Testers only until Google's review (owner, 2026-10-17)
+- Asked of everyone who connects Calendar (owner, 2026-10-23)
+- A new event can invite guests and get a Google Meet
 - Synced mail first, then Gmail for what the sync does not hold (owner, 2026-10-18)
 - A pass fetches only the mail it has not seen
 - A Gmail day is rewritten through its collaboration document
 - A broken mailbox is said only when the person must act, and a long silence once (owner, 2026-10-20)
 - A mailbox recovers by itself unless the person has to give a permission (owner, 2026-10-20)
+- Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes (owner, 2026-10-21)
+- The Mac backs up Messages into the person's bucket, as records, never as notes (owner, 2026-10-26)
 
 ## [The desktop shell](./desktop.md)
 
@@ -663,6 +680,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
 - [The gateway suite runs as two jobs, and its slow file in shards](./testing/ci-pipelines.md)
 - [Per push, a real browser tests only the note editor](./testing/ci-pipelines.md)
+- [A pull request runs the Convex tests its change reaches](./testing/convex-test-impact.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
@@ -688,6 +706,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
 - Routines run only in a personal workspace, and text only their writer
+- A routine's run changes the person's own calendar, and nothing else (2026-10-26)
 - A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)
@@ -702,10 +721,19 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [Tex offers Google before it is asked, and shows Google's two screens (owner, 2026-10-23)](./texting-assistant/onboarding.md)
 - [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
+- [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
+- [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
+- [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
+- [A workspace keeps one playbook its group chats follow (2026-10-27)](./texting-assistant/group-playbook.md)
+- [A group chat sets routines that answer in the chat (2026-10-27)](./texting-assistant/chat-routines.md)
+- [A mailbox is shared with one group chat by its own person (2026-10-27)](./texting-assistant/chat-mail.md)
+- [A group chat checks in on its own, like a person's Tex (2026-10-27)](./texting-assistant/chat-mail.md#the-chat-checks-in-on-its-own)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
+- [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
@@ -722,21 +750,37 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
 - [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
-- [A card pays only on the person's yes, each time](./texting-assistant/vault.md)
+- [A saved login carries Tex's task on, with no "done" from them](./texting-assistant/vault.md)
+- [Browserbase Contexts stay off; the jar is how Tex stays signed in](./texting-assistant/vault.md)
+- [A card pays only on the person's yes, once a purchase](./texting-assistant/vault.md)
 - The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
+- [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
+- [Tex always knows who is texting it (2026-10-23)](./texting-assistant/who-they-are.md)
+- [What else Tex was not remembering](./texting-assistant/who-they-are.md#what-else-tex-was-not-remembering)
 - [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
+- [Tex asks the person only for a key, a yes, a choice, a fact or a body (2026-10-22)](./texting-assistant/handing-back.md)
+- [A small model reads an answer that asks them something](./texting-assistant/handing-back.md#a-small-model-reads-an-answer-that-asks-them-something)
+- [A captcha is the person's only after every way past it was tried](./texting-assistant/handing-back.md#a-captcha-is-the-persons-only-after-every-way-past-it-was-tried)
+- [A grocery order, handed back four ways (2026-10-24)](./texting-assistant/handing-back.md#a-grocery-order-handed-back-four-ways-2026-10-24)
+- [Tex scores every finished conversation, and keeps the words only where everyone said yes (2026-10-24)](./texting-assistant/self-review.md)
+- [A note they ask for is saved at once, where their folders say (2026-10-24)](./texting-assistant/saving-notes.md)
+- [A slow save is followed through, never told as failed unseen (2026-10-24)](./texting-assistant/saving-notes.md#a-slow-save-is-followed-through-never-told-as-failed-unseen-2026-10-24)
+- [Tex has a point of view, pushes back once, and never flatters (2026-10-25)](./texting-assistant/pushback.md)
+- [Tex answers with a designed card, in one line of words (2026-10-26)](./texting-assistant/visual-answers.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
 - [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
+- [A correction never leaves the ask it corrects waiting for a yes (2026-10-26)](./texting-assistant/honest-answers.md#a-correction-never-leaves-the-ask-it-corrects-waiting-for-a-yes-2026-10-26)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)
 - [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
 - [Tex writes down how it did a hard job, as a learned skill (2026-10-19)](./texting-assistant/learned-skills.md)
@@ -746,6 +790,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex hands a whole sub-project to another agent, and a supervisor loop keeps it on track (2026-10-17)](./texting-assistant/delegation.md)
 - [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
+- [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

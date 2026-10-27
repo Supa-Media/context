@@ -24,6 +24,7 @@
  * titles, removed one at a time, makes its case fail.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -48,15 +49,17 @@ async function keyedWorkspace(t: T, ws: Id<"workspaces">) {
   });
 }
 
-/** Bucket rows, observed as the sweep would see them (unkeyed). */
-async function observed(t: T, ws: Id<"workspaces">, paths: string[], at = 10) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId: ws,
-    at,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: 3, uploaded: 1 })),
-    gone: [],
-    vanishedUnder: [],
-  });
+/**
+ * Unkeyed live files, as a copied tree holds them: the rows the first copy left,
+ * each with the etag its bucket object had (`e-<path>`).
+ */
+async function observed(t: T, ws: Id<"workspaces">, paths: string[]) {
+  await seedTreeRows(t, ws, paths.map((path) => ({ path, etag: `e-${path}` })));
+}
+
+/** The seam's removal of a keyed note: a tombstone at `at`, for the key the row holds. */
+async function removeKey(t: T, ws: Id<"workspaces">, path: string, noteId: string, at: number) {
+  return await t.mutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: ws, path, key: `notes/${noteId}.md`, at });
 }
 
 async function notes(t: T, ws: Id<"workspaces">, paths: string[]) {
@@ -133,15 +136,11 @@ describe("notesFor: what the tree says about each path", () => {
   test("a trashed file answers gone, a live folder answers folder, and a path with no row is left out", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "keyed-notes-states");
-    await observed(t, ws, [PLAIN, SECRET]);
+    await observed(t, ws, [SECRET]);
     await keyedWorkspace(t, ws);
-    await t.mutation(internal.functions.nodes.observe, {
-      workspaceId: ws,
-      at: 20,
-      rows: [],
-      gone: [PLAIN],
-      vanishedUnder: [],
-    });
+    // PLAIN is a keyed note the store then removed: a seam tombstone (only keyed rows take one).
+    await adopt(t, ws, PLAIN, A, { at: 100 });
+    await removeKey(t, ws, PLAIN, A, 300);
     const answer = await notes(t, ws, [PLAIN, "1-projects", "1-projects/secret", "1-projects/none.md"]);
     expect(answer.notes).toEqual([
       { path: PLAIN, state: "gone" },
@@ -153,9 +152,10 @@ describe("notesFor: what the tree says about each path", () => {
   test("a folder retired as empty answers gone, so a note may take its name", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "keyed-notes-retired");
-    await observed(t, ws, [SECRET]);
     await keyedWorkspace(t, ws);
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: [SECRET], vanishedUnder: [] });
+    // The folder's only note is removed; the tombstone leaves the folder empty, so the tree retires it.
+    await adopt(t, ws, SECRET, A, { at: 100 });
+    await removeKey(t, ws, SECRET, A, 300);
     const answer = await notes(t, ws, ["1-projects/secret"]);
     expect(answer.notes).toEqual([{ path: "1-projects/secret", state: "gone" }]);
   });
@@ -170,18 +170,6 @@ describe("notesFor: what the tree says about each path", () => {
     ]);
   });
 
-  test("keyed is false while the switch is not at keys, or the flip has not begun", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "keyed-notes-flag");
-    await adopt(t, ws, PLAIN, A);
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(false);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
-    });
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(false);
-    await keyedWorkspace(t, ws);
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(true);
-  });
 });
 
 describe("adoptKeyed: a new note gets its row at its own id key", () => {
@@ -244,20 +232,20 @@ describe("adoptKeyed: a new note gets its row at its own id key", () => {
   test("a tombstone newer than the write holds the name: adopted false, answered gone", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "adopt-tombstone");
-    await observed(t, ws, [PLAIN]);
     await keyedWorkspace(t, ws);
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 100, rows: [], gone: [PLAIN], vanishedUnder: [] });
-    expect(await adopt(t, ws, PLAIN, A, { at: 50 })).toEqual({ adopted: false, taken: { path: PLAIN, state: "gone" } });
+    await adopt(t, ws, PLAIN, A, { at: 10 });
+    await removeKey(t, ws, PLAIN, A, 100);
+    expect(await adopt(t, ws, PLAIN, B, { at: 50 })).toEqual({ adopted: false, taken: { path: PLAIN, state: "gone" } });
   });
 
   test("a tombstone older than the write is replaced: the name is the new note", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "adopt-old-tombstone");
-    await observed(t, ws, [PLAIN]);
     await keyedWorkspace(t, ws);
-    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 50, rows: [], gone: [PLAIN], vanishedUnder: [] });
-    expect(await adopt(t, ws, PLAIN, A, { at: 200 })).toEqual({ adopted: true });
-    expect(await rowAt(t, ws, PLAIN)).toMatchObject({ noteId: A });
+    await adopt(t, ws, PLAIN, A, { at: 10 });
+    await removeKey(t, ws, PLAIN, A, 100);
+    expect(await adopt(t, ws, PLAIN, B, { at: 200 })).toEqual({ adopted: true });
+    expect(await rowAt(t, ws, PLAIN)).toMatchObject({ noteId: B });
     expect((await rowAt(t, ws, PLAIN))!.goneAt).toBeUndefined();
   });
 
@@ -288,21 +276,6 @@ describe("adoptKeyed: a new note gets its row at its own id key", () => {
     expect(await adopt(t, ws, "privacy.md", A)).toEqual({ adopted: false, taken: null });
     expect(await adopt(t, ws, ".context/x.md", B)).toEqual({ adopted: false, taken: null });
     expect(await rowAt(t, ws, "privacy.md")).toBeNull();
-  });
-
-  test("refused in a workspace that is not keyed: on the id switch, and on keys before the flip", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "adopt-not-keyed");
-    await t.run(async (ctx) => {
-      await ctx.db.insert("noteIdLayout", { paused: false, mode: "ids", updatedAt: 1, updatedBy: "test" });
-    });
-    expect(await adopt(t, ws, PLAIN, A)).toEqual({ adopted: false, taken: null });
-    await t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      await ctx.db.patch(layout!._id, { mode: "keys" });
-    });
-    expect(await adopt(t, ws, PLAIN, A)).toEqual({ adopted: false, taken: null });
-    expect(await rowAt(t, ws, PLAIN)).toBeNull();
   });
 
   test("refused when another row in the workspace already holds that note id: taken null", async () => {

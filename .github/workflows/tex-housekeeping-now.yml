@@ -1,0 +1,109 @@
+# Bring one person's next Tex housekeeping run forward to now, so a change to
+# housekeeping is checked on a real run instead of waiting for 9am in their
+# zone (docs/decisions/texting-assistant/housekeeping.md). Manual only. The
+# texting Worker's next Cron tick (within a minute) claims it as any due run,
+# with every check asked again there. It prints
+# `functions/housekeeping.ts:runHousekeepingNow`'s answer, one code (due,
+# running, not_armed, unknown_name), then waits up to ten minutes for the run
+# and prints its outcome code (tidied, unchanged, failed, daily_limit,
+# no_provider; `housekeepingNowStatus`), and nothing the run read or changed:
+# that goes into the person's own `tex/housekeeping/` note. The handle typed
+# here is visible to anyone who can read this repository's runs, so only a
+# handle its owner is happy to have seen should be typed.
+#
+# Ticking `timings` also watches the control plane's function log during the
+# run and prints, per function name, how many times it ran and how long it
+# took (count, total, slowest). Only names and milliseconds are printed, never
+# a log line, so nothing about the person's notes reaches the run's page. It is
+# how a slow housekeeping run is taken apart (2026-10-26).
+name: Tex housekeeping now
+
+on:
+  workflow_dispatch:
+    inputs:
+      handle:
+        description: "The person's handle or personal workspace's slug, without @."
+        required: true
+      timings:
+        description: "Print how long each control-plane function took during the run (names and milliseconds only)."
+        type: boolean
+        default: false
+
+jobs:
+  now:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Watch function timings
+        if: ${{ inputs.timings }}
+        run: |
+          nohup npx convex logs --jsonl > "$RUNNER_TEMP/convex-logs.jsonl" 2>/dev/null &
+          echo $! > "$RUNNER_TEMP/convex-logs.pid"
+          sleep 5
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Run now
+        run: |
+          case "$HANDLE" in
+            *[!a-z0-9-]*|"") echo "handle must be lowercase letters, digits and dashes"; exit 1 ;;
+          esac
+          npx convex run functions/housekeeping:runHousekeepingNow "{\"name\":\"$HANDLE\"}"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}
+
+      - name: Wait for the run's outcome
+        run: |
+          started=$(($(date +%s) * 1000))
+          for _ in $(seq 1 40); do
+            sleep 15
+            answer=$(npx convex run functions/housekeeping:housekeepingNowStatus "{\"name\":\"$HANDLE\"}")
+            status=$(echo "$answer" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);console.log(a.status==="running"?"running":(a.lastRunAt??0)>=Number(process.argv[1])-120000?a.status:"no_result")})' "$started")
+            if [ "$status" != "running" ]; then
+              echo "outcome: $status"
+              echo "Housekeeping outcome: \`$status\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "still running after ten minutes"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HANDLE: ${{ inputs.handle }}
+
+      - name: Function timings
+        if: ${{ always() && inputs.timings }}
+        run: |
+          kill "$(cat "$RUNNER_TEMP/convex-logs.pid")" 2>/dev/null || true
+          # Names and milliseconds only: a log line can carry a person's paths.
+          node -e '
+            const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n");
+            const by = new Map();
+            for (const line of lines) {
+              let log; try { log = JSON.parse(line); } catch { continue; }
+              if (log?.kind !== "Completion" || typeof log.identifier !== "string" || typeof log.executionTime !== "number") continue;
+              const name = log.identifier.replace(/[^A-Za-z0-9_:./-]/g, "");
+              const entry = by.get(name) ?? { count: 0, total: 0, max: 0 };
+              const ms = log.executionTime * 1000;
+              entry.count += 1; entry.total += ms; entry.max = Math.max(entry.max, ms);
+              by.set(name, entry);
+            }
+            const rows = [...by].sort((a, b) => b[1].total - a[1].total).slice(0, 40);
+            const table = ["| function | runs | total ms | slowest ms |", "|---|---:|---:|---:|",
+              ...rows.map(([name, e]) => `| ${name} | ${e.count} | ${Math.round(e.total)} | ${Math.round(e.max)} |`)].join("\n");
+            console.log(table);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + table + "\n");
+          ' "$RUNNER_TEMP/convex-logs.jsonl"

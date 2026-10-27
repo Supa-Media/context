@@ -105,8 +105,6 @@ function consoleData(over: Partial<FileBrowser> = {}): ConsoleData {
     archive: () => {},
     destroy: () => {},
     setVisibility: () => {},
-    resetPrivacy: () => {},
-    canResetPrivacy: false,
     canSetVisibility: true,
     canShare: true,
     shares: [],

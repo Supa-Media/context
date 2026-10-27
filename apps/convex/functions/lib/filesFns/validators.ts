@@ -64,6 +64,8 @@ export const listingValidator = v.object({
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
+  /** The listed folder's own built-in job: a nested Website page knows it before its parent lists. */
+  role: v.optional(v.string()),
 });
 
 export const imageWrittenValidator = v.object({
@@ -179,7 +181,7 @@ export const manifestValidator = v.object({
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
   /** Where the keys came from: the Convex tree (`nodes`) or a walk of the bucket. `tree`, the retired D1 table, is no longer sent. */
-  source: v.optional(v.union(v.literal("tree"), v.literal("bucket"), v.literal("nodes"))),
+  source: v.optional(v.union(v.literal("tree"), v.literal("nodes"))),
   /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
   since: v.optional(v.number()),
   privacy: v.optional(v.union(v.string(), v.null())),
@@ -284,6 +286,7 @@ export const movedValidator = v.object({
    * keyed rename through `moveEntry` failed validation after the rows had already moved.
    */
   rowed: v.optional(v.boolean()),
+  historyCarried: v.optional(v.boolean()),
   moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
 });
 
@@ -306,7 +309,6 @@ export const contextMoveExportedValidator = v.object({
     destination: v.string(),
     bytes: v.bytes(),
     etag: v.string(),
-    collaborationEtag: v.optional(v.string()),
     sourceVisibility: v.union(v.literal("private"), v.literal("team")),
   })),
   skipped: v.array(v.object({
@@ -347,26 +349,6 @@ export const contextMoveFinishedValidator = v.object({
   kind: v.literal("contextMoveFinished"),
 });
 
-/** A batch for the gateway's mover: names, sizes and tiers, never a byte. */
-export const contextMovePlannedValidator = v.object({
-  kind: v.literal("contextMovePlanned"),
-  objects: v.array(v.object({
-    source: v.string(),
-    destination: v.string(),
-    size: v.number(),
-    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
-  })),
-  skipped: v.array(v.object({
-    path: v.string(),
-    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
-  })),
-  remaining: v.boolean(),
-});
-
-export const contextMoveSettledValidator = v.object({
-  kind: v.literal("contextMoveSettled"),
-});
-
 export const activityRecordedValidator = v.object({ kind: v.literal("activityRecorded") });
 
 export const visibilityResultValidator = v.object({
@@ -381,24 +363,6 @@ export const folderCreatedValidator = v.object({
   kind: v.literal("folderCreated"),
   path: v.string(),
   readme: v.string(),
-});
-
-export const privacyResetValidator = v.object({
-  kind: v.literal("privacyReset"),
-  path: v.string(),
-  folders: v.array(v.string()),
-  /**
-   * A `.context/recover/` key, and the one place the console is told one.
-   *
-   * Shown because "we replaced your file" and "we replaced your file and here
-   * is where the old one went" are different sentences to somebody whose
-   * manifest had forty rules in it. This is the only copy this product still
-   * keeps of anything: `.history/` snapshots are gone, and versioning is the
-   * customer's to enable at their provider.
-   */
-  backedUpTo: v.union(v.string(), v.null()),
-  /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
-  partial: v.boolean(),
 });
 
 export const storageMigrationResultValidator = v.object({
@@ -450,22 +414,6 @@ export const activityEntryValidator = v.object({
 export const activityValidator = v.object({
   kind: v.literal("activity"),
   entries: v.array(activityEntryValidator),
-});
-
-export const durableMoveValidator = v.object({
-  jobId: v.id("gatewayJobs"),
-  status: v.union(
-    v.literal("queued"),
-    v.literal("running"),
-    v.literal("complete"),
-    v.literal("failed"),
-  ),
-  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting"))),
-  completed: v.optional(v.number()),
-  total: v.optional(v.number()),
-  progressChangedAt: v.optional(v.number()),
-  progressPerMinute: v.optional(v.number()),
-  updatedAt: v.number(),
 });
 
 /** The chaos score for one reader. See `chaosOps.ts`. */

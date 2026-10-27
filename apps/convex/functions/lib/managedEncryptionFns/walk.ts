@@ -397,6 +397,5 @@ export async function runWalkHandler(
  * against what a reader was just handed would be refused as changed.
  */
 async function afterWalk(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<void> {
-  await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
   await ctx.runMutation(internal.functions.noteIdsCopy.checkAfterRewrite, { workspaceId }).catch(() => {});
 }

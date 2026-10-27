@@ -111,11 +111,9 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     setScope: noop,
     openLinkPaths: new Set<string>(),
     linkPaths: [],
-    resetPrivacy: noop,
     iconOf: () => null,
     setIcon: async () => {},
     addBuiltInFolder: async () => "",
-    canResetPrivacy: false,
     canSetVisibility: false,
     canShare: false,
     shares: undefined,
@@ -154,7 +152,7 @@ describe("ChannelDayView", () => {
   function mount(
     files: FileBrowser,
     anchor: string | null,
-    path = "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md",
+    path = "inbox/email/name-at-example-com/2026/09/2026-09-07.md",
   ): HTMLElement {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -180,7 +178,7 @@ describe("ChannelDayView", () => {
 
   test("a legacy flat day is read from the path that was selected", async () => {
     const requested: string[] = [];
-    const legacy = "0-inbox/email/name-at-example-com/2026-09-07.md";
+    const legacy = "inbox/email/name-at-example-com/2026-09-07.md";
     const readRaw: FileBrowser["readRaw"] = async (path) => {
       requested.push(path);
       return {

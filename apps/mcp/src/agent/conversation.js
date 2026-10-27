@@ -14,7 +14,10 @@
  *
  * An answer also keeps the names of the tools it used, and nothing else about
  * them: without them the next turn saw its own earlier answer with no lookup
- * behind it and took it back (staging, 2026-10-10).
+ * behind it and took it back (staging, 2026-10-10). And the addresses of the
+ * web pages it read, never their text: without them "where are you reading
+ * from?" had no answer, and Tex took back that it had read anything
+ * (owner, 2026-10-22; `sources.js`).
  *
  * Bounded twice, by turns and by characters, because the whole file is read
  * into every turn's prompt.
@@ -22,6 +25,7 @@
 
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
+import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
 const CONVERSATIONS = {
@@ -73,7 +77,8 @@ export function usedTools(history) {
     if (tools.length === 0 || history[i - 1].role !== "user") continue;
     const words = history[i - 1].text.replace(/\s+/g, " ").replace(/"/g, "'").trim();
     const question = words.length > QUESTION_EXCERPT ? `${words.slice(0, QUESTION_EXCERPT - 1)}…` : words;
-    used.push({ question, tools });
+    const sources = sourcesOf(history[i].sources);
+    used.push({ question, tools, ...(sources.length > 0 ? { sources } : {}) });
   }
   return used;
 }
@@ -107,13 +112,15 @@ export function trimHistory(turns, { turns: most = MAX_HISTORY_TURNS, chars: roo
 }
 
 /** A kept turn as a turn reads it: the words, and only the marks this module writes. */
-function keptTurn({ role, text, tainted, tools, id, at, thread, theirs }) {
+export function keptTurn({ role, text, tainted, tools, sources, id, at, thread, theirs }) {
   const names = toolNames(tools);
+  const read = role === "assistant" ? sourcesOf(sources) : [];
   return {
     role,
     text,
     ...(tainted === true ? { tainted: true } : {}),
     ...(names.length > 0 ? { tools: names } : {}),
+    ...(read.length > 0 ? { sources: read } : {}),
     ...(role === "user" && typeof id === "string" ? { id } : {}),
     ...(role === "user" && Number.isFinite(at) ? { at } : {}),
     ...(role === "user" && typeof thread === "string" ? { thread } : {}),
@@ -176,7 +183,18 @@ export const EARLIER_TEXTS_DEFINITION = {
  */
 export function earlierTextsResult(history) {
   if (history.length === 0) return { content: [{ type: "text", text: "There are no earlier texts." }] };
-  const lines = history.map((turn) => `${turn.role === "user" ? "They" : "You"}: ${turn.text}`);
+  const lines = history.map((turn) => {
+    const read = turn.role === "assistant" ? sourcesOf(turn.sources) : [];
+    const notes = read.filter(isNoteSource);
+    const looked = read.filter(isReadSource);
+    const pages = read.filter((source) => !isNoteSource(source) && !isReadSource(source));
+    return [
+      `${turn.role === "user" ? "They" : "You"}: ${turn.text}`,
+      ...(pages.length > 0 ? [`(Web pages you read for this: ${pages.join(", ")})`] : []),
+      ...(notes.length > 0 ? [`(Notes you wrote for this: ${notes.map((note) => note.slice(NOTE_SOURCE_PREFIX.length)).join(", ")})`] : []),
+      ...(looked.length > 0 ? [`(Notes you read for this: ${looked.map((note) => note.slice(READ_SOURCE_PREFIX.length)).join(", ")})`] : []),
+    ].join("\n");
+  });
   return { content: [{ type: "text", text: lines.join("\n\n") }] };
 }
 
@@ -205,6 +223,7 @@ export function historyIsTainted(history) {
  * Append one question and its answer. `tainted` marks an answer written by a
  * turn that read from outside the workspace (`historyIsTainted`); it ages out
  * with the turn. `tools` is the names of the tools the answer used, `thread`
+ * `sources` the addresses of the web pages it read (`sources.js`), `thread`
  * the exchange the question was typed under (`threadView.js`), `theirs` that
  * the person sent the question (a check-in waits for those to go quiet).
  *
@@ -212,20 +231,21 @@ export function historyIsTainted(history) {
  * says whether the old file still has to be copied in: a history read from it
  * has no ids. A store with no listing keeps the old whole file.
  */
-export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], thread = null, at = Date.now(), theirs = false } = {}) {
+export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), theirs = false } = {}) {
   const path = conversationPath(name);
   if (path === null) return null;
   const names = toolNames(tools);
+  const read = sourcesOf(sources);
   if (eventsSupported(store)) {
     if (history.length > 0 && !history.some((turn) => typeof turn.id === "string")) {
-      await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used }) => keptTurn({ role, text, tainted: marked, tools: used })));
+      await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used, sources: was }) => keptTurn({ role, text, tainted: marked, tools: used, sources: was })));
     }
-    return await writeExchange(store, { at, question, answer, tainted, tools: names, thread, theirs });
+    return await writeExchange(store, { at, question, answer, tainted, tools: names, sources: read, thread, theirs });
   }
   const turns = trimHistory([
     ...history,
     { role: "user", text: question },
-    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) },
+    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}), ...(read.length > 0 ? { sources: read } : {}) },
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
   return null;

@@ -31,10 +31,12 @@
 
 import { call, request, textOf, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_MCP, TOKEN_MCP_TWO, TOKEN_CONSOLE, TOKEN_STRANGER_CONSOLE } from "./agentEgressFixtures.mjs";
+import { teamNow } from "./accessRows.mjs";
 
 export async function runAgentEgressChecks(check) {
   const world = await createEgressWorld();
-  const { controlPlane, bucket, team, env, teamVisible, objectsUnder, pending, done } = world;
+  const { controlPlane, bucket, team, env, objectsUnder, pending, done } = world;
+  const teamVisible = (path) => teamNow(controlPlane, "ws_egress", bucket.get("privacy.md")?.body, path);
   const claims = () => controlPlane.workspaceSetupCalls.filter((entry) => entry.dryRun === false).length;
   const wasHeld = (result) => result.isError === true && /needs the person's approval/.test(textOf(result));
   const approvalRows = async () => (await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET")).body?.approvals ?? [];

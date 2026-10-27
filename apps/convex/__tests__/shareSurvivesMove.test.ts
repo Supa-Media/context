@@ -34,7 +34,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -48,6 +47,7 @@ import {
   type TestConvex,
   copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -103,13 +103,13 @@ async function fixture(): Promise<Fixture> {
     }),
   );
 
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
     visibility: "team",
   });
 
-  await copyTree(t, workspaceId);
   return { t, owner, lk, workspaceId, backend };
 }
 

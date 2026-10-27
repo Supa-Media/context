@@ -43,7 +43,7 @@ export async function runMeetingTitleCollisionChecks(check, harness) {
     // key, byte-for-byte, and the old key is gone. Nothing here tells the
     // session record.
     const originalObject = recorder.get(originalPath);
-    const movedPath = "0-inbox/archive/filed-and-moved.md";
+    const movedPath = "inbox/archive/filed-and-moved.md";
     recorder.set(movedPath, { body: originalObject.body, etag: originalObject.etag });
     recorder.delete(originalPath);
 
@@ -113,7 +113,7 @@ export async function runMeetingTitleCollisionChecks(check, harness) {
     );
 
     const teamObject = recorder.get(teamOriginalPath);
-    const privatePath = "0-inbox/archive/team-meeting-gone-private.md";
+    const privatePath = "inbox/archive/team-meeting-gone-private.md";
     recorder.set(privatePath, { body: teamObject.body, etag: teamObject.etag });
     recorder.delete(teamOriginalPath);
 

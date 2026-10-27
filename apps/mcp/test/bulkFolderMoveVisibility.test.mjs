@@ -52,7 +52,6 @@ import {
   createControlPlaneStub,
   createS3Backend,
 } from "./controlPlaneStub.mjs";
-import { seedLegacyFolderMoveInMap } from "./legacyMoveJob.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 
@@ -228,38 +227,6 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "reading one note in a large folder gives it active collaboration history",
     textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
   );
-  // A job an older gateway left behind for this folder still finishes, and
-  // keeps the history a note gained before it was copied.
-  const activeMoveId = seedLegacyFolderMoveInMap(primary, "2-areas/active", "1-projects/active");
-  if (activeMoveId) {
-    let checkedReferenceBound = false;
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const progress = await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId });
-      if (!checkedReferenceBound && textOf(progress).includes("rewriting")) {
-        const key = `.context/moves/${activeMoveId}.json`;
-        const before = JSON.parse(primary.get(key).body).reference_scanned;
-        await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId, batch_size: 1 });
-        const after = JSON.parse(primary.get(key).body).reference_scanned;
-        check("one-object recovery advances the reference cursor by one note", after - before === 1);
-        checkedReferenceBound = true;
-      }
-      if (textOf(progress).includes("physical storage sync: complete")) break;
-    }
-    check("large move reached a bounded reference pass", checkedReferenceBound);
-  }
-  check(
-    "materialization moves the headed note and its identity",
-    primary.get(activeWitness)?.contentType === "application/x-context-logical-tombstone" &&
-      primary.get("1-projects/active/note-0000.md")?.body.startsWith("ACTIVE-0") &&
-      [...primary.values()].some((value) => {
-        try {
-          const head = JSON.parse(value.body);
-          return head.path === activeWitness && head.status === "moved" &&
-            head.destination === "1-projects/active/note-0000.md";
-        } catch { return false; }
-      }),
-  );
-
   for (let n = 0; n < 101; n += 1) {
     primary.set(`2-areas/medium/note-${n}.md`, { body: `MEDIUM-${n}`, etag: `m${n}` });
   }
@@ -360,11 +327,15 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     destination: "1-projects/circle",
   });
   check("a group-held folder moves", !groupMove?.isError);
-  const manifest = primary.get("privacy.md")?.body || "";
-  // In one go, each moved note carries its narrower value as its own
-  // exception (the logical path wrote one folder rule; the queue's tests hold
-  // that shape now).
-  const groupNotes = [...manifest.matchAll(/^  1-projects\/circle\/note-\d{4}\.md: (\S+)$/gm)].map((match) => match[1]);
+  // In one go, each moved note carries its narrower value as its own row. The owner sees every note, so each
+  // one's read names the tier its row gives it.
+  const groupNotes = [];
+  for (let n = 0; n < GROUP_BULK; n += 1) {
+    const read = textOf(
+      await callTool(env, TOKEN_OWNER, "read_note", { path: `1-projects/circle/note-${String(n).padStart(4, "0")}.md` }),
+    );
+    groupNotes.push(read.match(/^visibility: (\S+)$/m)?.[1]);
+  }
   check(
     "...and each moved note carries the GROUP, not a retiering to private",
     groupNotes.length === GROUP_BULK && groupNotes.every((value) => value === "@bulkvis-circle")

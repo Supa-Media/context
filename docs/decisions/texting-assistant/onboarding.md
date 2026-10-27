@@ -201,3 +201,38 @@ with a link that is not https), `apps/agent/src/gmailWatch.test.ts` (the
 Gmail text goes once, only after it connects, never with something that is
 not one address) and `apps/convex/__tests__/texHome.test.ts` (the first Gmail
 becomes the main email and no other, never folds an account). Each file's header records the sabotage runs.
+
+### Tex offers Google before it is asked, and shows Google's two screens (owner, 2026-10-23)
+
+The owner, after an existing Context user texted Tex and had to ask for the
+link to connect her Gmail: "make sure that whenever someone texts, that it
+tells them, hey, connect your email, so we can be proactive about this ...
+prepare them for the unsafe screen ... send them a picture of what it's gonna
+look like and what they should click, and make sure they also click select
+all".
+
+- **Offered once, on a texted turn.** Somebody set up by text is asked for
+  Gmail by the ready text; somebody who had Context first never saw it. Each
+  texted 1:1 turn reads their mailboxes (`/gateway/mail-health`); with no
+  Gmail, or only Gmails connected before every connect asked to send
+  (`readOnly`, see [calendar-writes](../communications/calendar-writes.md)),
+  the turn's prompt asks the model to offer the link once, after answering
+  what was asked (`apps/mcp/src/agent/googleOffer.js`). An answer in the
+  recent chat that already offered it keeps it away, so it is not said on
+  every text; mailboxes that cannot be read are never news.
+- **The two screens, said and shown.** Google has not verified Context, so it
+  warns first, and its permissions page lets a box be left unticked, which
+  leaves Tex unable to do that part. `connect_google`'s result and the ready
+  text both say: tap Advanced, then Go to Context (unsafe), then tick Select
+  all and Continue. Both send a picture of the two screens, drawn rather than
+  screenshotted and labelled as a guide, served by the router at
+  `/og/google-connect.png` beside the app the link opens
+  (`infra/router/og-google-connect.source.html`, rendered by
+  `scripts/render-og-card.mjs google`).
+
+Tests: `apps/mcp/test/googleOffer.test.mjs`,
+`apps/mcp/test/agentInstructions.test.mjs` (a texted turn with no Gmail is
+asked to offer it), `apps/mcp/test/workspaceSetup.test.mjs` (the link's steps
+and picture), `apps/agent/src/ready.test.ts` (the ready text's guide and
+picture), `infra/router/src/texHost.test.ts` (the picture is served) and
+`apps/convex/__tests__/mailHealth.test.ts` (`readOnly`).
