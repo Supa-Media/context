@@ -51,6 +51,8 @@ export const MAX_WAITING_ASKS = 8;
 export const MAX_TRANSCRIPT = 24_000;
 /** Decide on a text that came in while a turn runs is on the webhook's path: it waits no longer than a steer does. */
 export const RUNNING_DECIDE_MS = 5_000;
+/** Decide on what is waiting, with the person watching the typing bubble: slower than this, the fallback answers. */
+export const IDLE_DECIDE_MS = 4_000;
 
 /** Ask decide. The answer is checked like any other trust boundary: ids it names must be ones it was given. */
 export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: number): Promise<Decision> {
@@ -83,11 +85,16 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   };
 }
 
-/** `POST /agent/cancel { turn }`: the running turn stops, and its held asks are withdrawn. Whether the gateway took it. */
+/**
+ * `POST /agent/cancel { turn }`: the running turn stops, and its held asks are
+ * withdrawn. True only when the gateway says it cancelled it: `cancelled:
+ * false` (the turn already wrote or sent something, or there is no such turn)
+ * or no answer means it runs on, and the new message waits its turn.
+ */
 export async function cancelTurn(deps: { fetch: Fetch; gatewayOrigin: string }, accessToken: string, turn: string): Promise<boolean> {
   try {
-    const { status } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/cancel`, accessToken, { turn }, RUNNING_DECIDE_MS);
-    return status === 200;
+    const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/cancel`, accessToken, { turn }, RUNNING_DECIDE_MS);
+    return status === 200 && record(json).cancelled !== false;
   } catch {
     return false;
   }

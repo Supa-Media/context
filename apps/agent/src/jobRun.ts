@@ -27,7 +27,7 @@
 import { askAgent, askAgentStream, openSession, post, ServiceError, type AgentAnswer, type Fetch } from "./clients";
 import { textsFromAnswer, textsWithExact } from "./format";
 import { askControlPlane, GROUP_LINES } from "./groupInbox";
-import { peopleOf, sha256Hex } from "./groupChat";
+import { peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
@@ -298,7 +298,7 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
   turn.accessToken = asked.accessToken;
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
-    members: await sha256Hex(people.join(",")),
+    members: await peopleHash(message.line, people),
     ...(asked.handle ? { from: asked.handle } : {}),
     chat: [],
   };

@@ -56,14 +56,17 @@ import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
-import { noteTold } from "./told";
+import { clearTold, noteTold, owedTold } from "./told";
+import { startPresence, type Presence } from "./presence";
+import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
-import { chooseTurn, decideWhileRunning, logInbound, merged, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, type TexEvent } from "./events";
+import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, wordsOnly, type Entry, type Pending } from "./inboxTurn";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
+import { sha256Hex } from "./groupChat";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation } from "./reviewWatch";
@@ -149,8 +152,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
   return pictures;
 }
 
-const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
-const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
@@ -285,13 +286,22 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       if (!(await sendReply(storage, deps, kept))) return;
       continue;
     }
-    const choice = await chooseTurn(storage, deps, pending);
-    for (const [key] of choice.drop) await storage.delete(key);
-    if (choice.react !== undefined) await acknowledgeText(deps, choice.react);
-    if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer))) return;
+    // Read, the bubble and the tapback timer start before decide is asked: a slow decide never leaves the text sitting unread.
+    const first = pending[0][1].message;
+    const presence = first.channel === "simulator" ? undefined : await startPresence(lineFor(lineDeps(deps), first.chatId), first);
+    try {
+      const choice = await chooseTurn(storage, deps, pending);
+      for (const [key] of choice.drop) await storage.delete(key);
+      if (choice.answer.length === 0) await presence?.stop();
+      if (choice.react !== undefined) await acknowledgeText(deps, choice.react);
+      if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
+    } finally {
+      await presence?.stop();
+    }
   }
   await pruneSeen(storage, deps.now());
   await pruneMedia(storage, deps.now());
+  await pruneEvents(storage, deps.now());
 }
 
 /** A tapback on the person's text, picked from its words (`ackEmoji.ts`): decide's `react`. */
@@ -305,14 +315,14 @@ async function acknowledgeText(deps: InboxDeps, message: Message): Promise<void>
  * newest and then sent; the others are answered by it and go. False when it
  * has to wait (the turn could not start, or the send failed).
  */
-async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry[]): Promise<boolean> {
+async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry[], presence?: Presence): Promise<boolean> {
   const [key, item] = entries.at(-1)!;
   const message = merged(entries.map(([, entry]) => entry.message));
-  const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : []));
+  const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   const tries = (item.tries ?? 0) + 1;
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage, covers);
+    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage, covers, presence);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -330,7 +340,9 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     await storage.delete(NEW_LINE_KEY);
   }
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
-  const ready: Pending = { message, reply, attempts: 0, covers, turn: turn.turn, ...(turn.asks.length > 0 ? { asks: turn.asks } : {}) };
+  // One of the Worker's own texts (a failure, a limit, setup) is the system's: no turn the gateway recorded wrote it.
+  const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
+  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks } : {}) };
   await storage.put<Pending>(key, ready);
   return await sendReply(storage, deps, [key, ready]);
 }
@@ -343,7 +355,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
-      from: { kind: "tex" },
+      from: { kind: item.system ? "system" : "tex" },
       ...(item.turn ? { turn: item.turn } : {}),
       ...(item.covers ? { covers: item.covers } : {}),
       ...part,
@@ -394,10 +406,10 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     }
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
-      await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record);
+      await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from));
     }
     await storage.delete(key);
-    await flushOwed(storage, deps);
+    await flushOwed(storage, deps, item.message.from);
     if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, { ...lineDeps(deps), now: deps.now });
     return true;
   } catch {
@@ -424,9 +436,9 @@ function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"
 /** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
 const sessions = new WeakMap<InboxStorage, string>();
 
-async function flushOwed(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+async function flushOwed(storage: InboxStorage, deps: InboxDeps, phone: string): Promise<void> {
   const token = sessions.get(storage);
-  if (token !== undefined) await flushChat(storage, deps, token, "texts");
+  if (token !== undefined) await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(phone));
 }
 
 /**
@@ -450,43 +462,31 @@ function lineDeps(deps: InboxDeps): LineDeps {
   return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard };
 }
 
-/** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
-export const TYPING_REFRESH_MS = 55_000;
-/**
- * The bubble asked for again this soon after the first: on Sendblue the read
- * receipt and the bubble go out back to back, and Dev2 (2026-10-18) saw
- * "Read" with no bubble for 15 seconds, so the second ask lands after the
- * receipt has.
- */
-export const TYPING_AGAIN_MS = 1_500;
-/**
- * A text still being worked on this long gets a tapback that fits it (`ackEmoji.ts`), so the
- * person knows it landed even if the typing bubble never showed. Sendblue
- * sends the bubble on a best-effort basis, and on 2026-10-19 Dev saw "Read"
- * and nothing else for two minutes: "no typing indicator or thumbs up react
- * ... not acceptable". A quick answer needs no tapback; it is the answer.
- */
-export const ACKNOWLEDGE_AFTER_MS = 10_000;
+export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
 
 /**
- * Mark the text read and work out the reply with the typing bubble showing,
- * as a person would, texting any progress the turn reports on the way
- * (`apps/mcp/src/agent/progress.js`).
- *
- * The first bubble is awaited (it is quick, and bounded) so it cannot land
- * after a fast reply and hang in the chat; a renewal still in flight is
- * awaited before the reply goes out, for the same reason. The simulator draws
- * its own bubble from the queue, so it gets none; its progress goes to its log.
+ * Work out the reply with the typing bubble showing (`presence.ts`, started
+ * before decide when the drain has one), as a person would, texting any
+ * progress the turn reports on the way (`apps/mcp/src/agent/progress.js`).
+ * A renewal still in flight is awaited before the reply goes out, so it
+ * cannot hang in the chat. The simulator draws its own bubble from the
+ * queue, so it gets none; its progress goes to its log.
  *
  * Progress texts are sent once, as they happen, each with its own idempotency
  * key, and are not retried with the answer: a line about where a task had got
  * to is stale by the time a retry would send it.
+ *
+ * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
+ * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[] };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; fixed: boolean };
 
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[]): Promise<Answered> {
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let asks: string[] = [];
+  let modelWrote = false;
+  // The fixed texts sent since the last turn, named to this one for today's history too (`told.ts`); read before the session writes the events.
+  const told = await owedTold(storage);
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
   const onSetUp = () =>
     oweReadyText(
@@ -506,7 +506,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
       sessions.set(storage, token);
-      await flushChat(storage, deps, token, "texts");
+      await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from));
     },
   );
   const texts = await answerTexts(
@@ -516,6 +516,9 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       steer,
       covers,
       onSetUp,
+      told,
+      onToldDelivered: () => clearTold(storage, told),
+      onAnswered: () => void (modelWrote = true),
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
@@ -524,9 +527,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
+    presence,
   ).finally(end);
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks });
-  if (live.cancelled) return done([]);
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, fixed: !modelWrote });
+  if (live.cancelled) {
+    // Cancelled here though its answer came: what it armed is never left armed and unseen.
+    if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);
+    return done([]);
+  }
   await clearReactions(storage, reacted);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
@@ -593,7 +601,7 @@ async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: s
   }
 }
 
-async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
+async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage, presence?: Presence): Promise<string[]> {
   const simulator = message.channel === "simulator";
   let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();
@@ -633,37 +641,11 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
       await chain;
     }
   }
-  // Read first, then the bubble, as a person would: the text is seen, then
-  // answered. Both are quick and never throw.
-  const line = lineFor(lineDeps(deps), message.chatId);
-  await line.markRead(message.chatId, message.messageId);
-  const typing = () => line.startTyping(message.chatId);
-  await typing();
-  let renewal: Promise<void> = Promise.resolve();
-  const again = setTimeout(() => {
-    renewal = typing();
-  }, TYPING_AGAIN_MS);
-  const timer = setInterval(() => {
-    renewal = typing();
-  }, TYPING_REFRESH_MS);
-  // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
-  const messageId = message.tapback || !message.messageId ? undefined : message.messageId;
-  let acknowledged: Promise<void> = Promise.resolve();
-  const acknowledge =
-    messageId === undefined
-      ? undefined
-      : setTimeout(() => {
-          // A tapback is a message of ours, which can clear the bubble; the task is still going.
-          acknowledged = line.acknowledge(message.chatId, messageId, ackEmoji(message.text)).then(typing);
-        }, ACKNOWLEDGE_AFTER_MS);
+  const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
     return await replyTo(message, { ...deps, onProgress });
   } finally {
-    clearTimeout(again);
-    clearInterval(timer);
-    clearTimeout(acknowledge);
-    await renewal;
-    await acknowledged;
+    await shown.stop();
     await chain;
   }
 }

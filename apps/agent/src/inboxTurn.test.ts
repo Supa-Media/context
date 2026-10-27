@@ -11,13 +11,25 @@
  *  4. the `!decision.ok` branch dropping the text → "decide down: every
  *     text is answered" fails.
  *  5. `decidedByCode` false for LINK → "LINK is never put to decide" fails.
+ *  6. presence started after decide, not before (2026-10-27) → "decide too
+ *     slow…" fails.
+ *  7. the idle decide given the 30s default, not `IDLE_DECIDE_MS` → "decide
+ *     too slow…" fails.
+ *  8. `fallbackTurn` without `sameBurst` → "decide down: split words…" fails.
+ *  9. `fallbackTurn` without the photo rule → "decide down: a photo then its
+ *     words…" fails; `!decision.ok` answering the first text alone fails both.
+ * 10. a fixed reply logged under the turn → "a fixed text (no model…" fails.
+ * 11. the simulator put to decide → "the simulator is answered directly…"
+ *     fails.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { IDLE_DECIDE_MS } from "./decide";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { keptEvents } from "./events";
 import { sendblueChatId } from "./sendblue";
 import { whapiChatId } from "./whapi";
 
@@ -40,26 +52,38 @@ const msg = (chatId: string, eventId: string, text: string, extra: Partial<Messa
 
 type Decided = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; sender?: string };
 
-function world(decision: (body: Decided) => unknown) {
+function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean } = {}) {
   const decided: Decided[] = [];
   const asks: { question: string; covers?: string[]; chat?: string }[] = [];
+  const agentBodies: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
+  /** The order of what the person can see and what was asked: read, typing, decide, agent. */
+  const calls: string[] = [];
   const fetcher = (async (url: string, init?: RequestInit) => {
     const parsed = new URL(url);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     const path = parsed.pathname;
+    if (path === "/api/mark-read" || (parsed.host === "gate.whapi.cloud" && init?.method === "PUT" && path.startsWith("/messages/") && !path.endsWith("/reaction"))) calls.push("read");
+    if (/typing|presences/.test(path)) calls.push("typing");
     if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "tok" });
     if (path === "/agent-texts/decide") {
+      calls.push("decide");
       decided.push(body);
+      // A decide that never answers: only the caller's timeout ends the wait.
+      if (opts.decideNeverAnswers) {
+        await new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+      }
       return Response.json(decision(body));
     }
     if (path === "/agent/events") return Response.json({ written: [] });
     if (path === "/agent") {
+      calls.push("agent");
+      agentBodies.push(body);
       asks.push({ question: body.question, covers: body.covers, ...(body.chat ? { chat: body.chat } : {}) });
       return Response.json({ answer: `answer to ${body.question}` });
     }
-    if (path === "/api/send-reaction" || (parsed.host === "gate.whapi.cloud" && path.startsWith("/messages/") && init?.method === "PUT")) {
+    if (path === "/api/send-reaction" || (parsed.host === "gate.whapi.cloud" && path.endsWith("/reaction"))) {
       reactions.push(body.reaction ?? body.emoji);
       return Response.json({ status: "OK", sent: true });
     }
@@ -79,7 +103,7 @@ function world(decision: (body: Decided) => unknown) {
     whapi: { token: "wt", line: LINE },
     now: () => 5_000,
   };
-  return { deps, decided, asks, texts, reactions };
+  return { deps, decided, asks, agentBodies, texts, reactions, calls };
 }
 
 const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
@@ -125,13 +149,44 @@ describe("decide in a person's own chat", () => {
       expect([...(await storage.list({ prefix: "pending:" }))]).toEqual([]);
     });
 
-    it(`decide down: every text is answered, each on its own (${line.name})`, async () => {
+    it(`decide down: split words are one text, as before decide; a quoted reply stays its own (${line.name})`, async () => {
       const storage = new MemoryStorage();
       const w = world(() => ({ ok: false, reason: "capped" }));
-      await accept(storage, msg(line.chatId, "e1", "what's on today"), 1_000);
-      await accept(storage, msg(line.chatId, "e2", "and tomorrow"), 1_000);
+      await accept(storage, msg(line.chatId, "e1", "what's on"), 1_000);
+      await accept(storage, msg(line.chatId, "e2", "today"), 1_000);
+      await accept(storage, msg(line.chatId, "e3", "and this?", { quoted: "the venue" }), 1_000);
       await drain(storage, w.deps);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today", "and tomorrow"]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on\ntoday", "and this?"]);
+    });
+
+    it(`decide down: a photo then its words is one turn about the photo (${line.name})`, async () => {
+      const storage = new MemoryStorage();
+      const w = world(() => ({ ok: false, reason: "unavailable" }));
+      const photo = { attachments: [{ url: "https://cdn.example/p.jpg", filename: "p.jpg", mimeType: "image/jpeg", size: null }] };
+      await accept(storage, msg(line.chatId, "e1", "", photo), 1_000);
+      await accept(storage, msg(line.chatId, "e2", "what is this"), 1_000);
+      await drain(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what is this"]);
+      expect(w.agentBodies[0].attachments).toHaveLength(1);
+    });
+
+    it(`decide too slow: past ${IDLE_DECIDE_MS / 1000}s the fallback answers, and the text was read and the bubble up before decide was asked (${line.name})`, async () => {
+      vi.useFakeTimers();
+      try {
+        const storage = new MemoryStorage();
+        const w = world(() => ({ ok: false, reason: "unavailable" }), { decideNeverAnswers: true });
+        await accept(storage, msg(line.chatId, "e1", "what's on"), 1_000);
+        await accept(storage, msg(line.chatId, "e2", "today"), 1_000);
+        const draining = drain(storage, w.deps);
+        await vi.advanceTimersByTimeAsync(IDLE_DECIDE_MS + 100);
+        await draining;
+        const first = (name: string) => w.calls.findIndex((call) => call === name);
+        expect(first("decide")).toBeGreaterThan(first("read"));
+        expect(first("decide")).toBeGreaterThan(first("typing"));
+        expect(w.asks.map((ask) => ask.question)).toEqual(["what's on\ntoday"]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   }
 
@@ -150,6 +205,42 @@ describe("decide in a person's own chat", () => {
     await accept(storage, msg("chat_1", "e2", "second question", { quoted: "x" }), 1_000);
     await drain(storage, w.deps);
     expect(w.asks.map((ask) => ask.question)).toEqual(["first question", "second question"]);
+  });
+
+  it("a fixed text (no model, the daily limit, a failure) is logged as the system's with no turn; the model's answer as Tex's under its turn", async () => {
+    for (const [status, body] of [
+      [409, { error: "no_provider" }],
+      [429, { error: "daily_limit" }],
+      [500, {}],
+    ] as const) {
+      const storage = new MemoryStorage();
+      const w = world(all);
+      const fixed = (async (url: string, init?: RequestInit) =>
+        new URL(url).pathname === "/agent" ? Response.json(body, { status }) : w.deps.fetch(url, init)) as unknown as Fetch;
+      await accept(storage, msg("chat_1", "e1", "what's on"), 1_000);
+      await drain(storage, { ...w.deps, fetch: fixed });
+      const out = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind !== "person");
+      expect(out).toHaveLength(1);
+      expect(out[0]).toMatchObject({ from: { kind: "system" }, delivered: true });
+      expect(out[0].turn).toBeUndefined();
+      expect(out[0].covers).toBeUndefined();
+    }
+    const storage = new MemoryStorage();
+    const w = world(all);
+    await accept(storage, msg("chat_1", "e1", "what's on"), 1_000);
+    await drain(storage, w.deps);
+    const [answer] = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind !== "person");
+    expect(answer).toMatchObject({ from: { kind: "tex" }, text: "answer to what's on" });
+    expect(typeof answer.turn).toBe("string");
+  });
+
+  it("the simulator is answered directly, never put to decide", async () => {
+    const storage = new MemoryStorage();
+    const w = world(act("silent"));
+    await accept(storage, msg("sim_1", "e1", "what's on", { channel: "simulator" }), 1_000);
+    await drain(storage, w.deps);
+    expect(w.decided).toEqual([]);
+    expect(w.asks.map((ask) => ask.question)).toEqual(["what's on"]);
   });
 
   it("LINK is never put to decide", async () => {

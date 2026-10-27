@@ -18,6 +18,7 @@
  */
 
 import type { GroupStyle } from "./decide";
+import { armBy } from "./events";
 import type { InboxStorage } from "./inbox";
 
 const STYLE_KEY = "gstyle";
@@ -109,7 +110,17 @@ export type HeldOriginal<T> = { item: T; at: number };
 /** The style question went: open for a choice, holding the message it was asked before, and woken when it closes unanswered. */
 export async function openQuestion<T>(storage: InboxStorage, now: number, original?: T): Promise<void> {
   await storage.put(QUESTION_KEY, { at: now, ...(original !== undefined ? { original } : {}) });
-  if (original !== undefined) await storage.setAlarm(now + QUESTION_OPEN_MS);
+  if (original !== undefined) await armBy(storage, now + QUESTION_OPEN_MS, now);
+}
+
+/**
+ * The alarm for a question still holding a message stays set, whatever set a
+ * sooner one since (a message waiting `GROUP_TEXT_WAIT_MS`): a Durable Object
+ * has one alarm, so it is put back after each drain.
+ */
+export async function keepQuestionAlarm(storage: InboxStorage, now: number): Promise<void> {
+  const open = await storage.get<{ at: number; original?: unknown }>(QUESTION_KEY);
+  if (open?.original !== undefined) await armBy(storage, open.at + QUESTION_OPEN_MS, now);
 }
 
 /** A question nobody answered in time is closed; the message it held, to answer anyway. */

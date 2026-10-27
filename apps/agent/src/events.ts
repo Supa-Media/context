@@ -50,6 +50,8 @@ export const MAX_EVENT_TEXT = 3000;
 export const MAX_KEPT_EVENTS = 60;
 export const MAX_KEPT_CHARS = 24_000;
 export const KEEP_EVENTS_MS = 24 * 60 * 60 * 1000;
+/** The gateway takes an event only within a day of now: one this old is dropped before it is sent, never refused there. */
+export const SEND_WITHIN_MS = 23 * 60 * 60 * 1000;
 /** The gateway takes at most this many per call. */
 export const EVENTS_PER_POST = 50;
 const FLUSH_TIMEOUT_MS = 5_000;
@@ -82,7 +84,28 @@ export async function addEvent(storage: InboxStorage, event: Omit<TexEvent, "id"
   const from = { kind: event.from.kind, ...(event.from.who ? { who: event.from.who } : {}), ...(name ? { name } : {}) };
   await storage.put<Kept>(`${PREFIX}${id}`, { e: { ...event, ...text, from, at, id } });
   await prune(storage, event.at);
+  // Words held outside the customer's bucket never outlive the day, even in a chat that goes quiet.
+  await armBy(storage, at + KEEP_EVENTS_MS, at);
   return id;
+}
+
+/**
+ * Wake no later than `at`: a sooner alarm still to come is kept (a Durable
+ * Object has one alarm, and `setAlarm` replaces it). One already due (the
+ * one firing now) counts as none.
+ */
+export async function armBy(storage: InboxStorage, at: number, now: number): Promise<void> {
+  // A storage that cannot say which alarm is set (some tests' fakes) is left alone rather than overwritten.
+  if (storage.getAlarm === undefined) return;
+  const current = await storage.getAlarm();
+  if (current === null || current <= now || current > at) await storage.setAlarm(at);
+}
+
+/** Called from the alarm: events past the day go, and the alarm stays set for the oldest left. */
+export async function pruneEvents(storage: InboxStorage, now: number): Promise<void> {
+  await prune(storage, now);
+  const [oldest] = (await storage.list<Kept>({ prefix: PREFIX })).values();
+  if (oldest !== undefined) await armBy(storage, oldest.e.at + KEEP_EVENTS_MS, now);
 }
 
 /** The events kept for one chat, oldest first. */
@@ -103,11 +126,12 @@ export async function unwritten(storage: InboxStorage): Promise<TexEvent[]> {
  */
 export async function flushEvents(
   storage: InboxStorage,
-  deps: { fetch: Fetch; gatewayOrigin: string },
+  deps: { fetch: Fetch; gatewayOrigin: string; now: () => number },
   accessToken: string,
   conversation: Conversation,
   chat?: string,
 ): Promise<void> {
+  await prune(storage, deps.now(), SEND_WITHIN_MS);
   const waiting = (await unwritten(storage)).filter((event) => chat === undefined || event.chat === chat);
   // Every event in one call is the same chat's.
   const batches: TexEvent[][] = [];
@@ -139,12 +163,12 @@ export async function flushEvents(
   }
 }
 
-async function prune(storage: InboxStorage, now: number): Promise<void> {
+async function prune(storage: InboxStorage, now: number, within = KEEP_EVENTS_MS): Promise<void> {
   const kept = [...(await storage.list<Kept>({ prefix: PREFIX }))];
   let chars = kept.reduce((sum, [, { e }]) => sum + (e.text?.length ?? 0), 0);
   let count = kept.length;
   for (const [key, { e }] of kept) {
-    if (count <= MAX_KEPT_EVENTS && chars <= MAX_KEPT_CHARS && now - e.at <= KEEP_EVENTS_MS) break;
+    if (count <= MAX_KEPT_EVENTS && chars <= MAX_KEPT_CHARS && now - e.at <= within) break;
     await storage.delete(key);
     count -= 1;
     chars -= e.text?.length ?? 0;
@@ -162,18 +186,21 @@ const STALE_KEY = "ev-stale";
 /** As long as a held ask stays armed (`apps/mcp/src/tools/approvals.js`). */
 export const ASK_ARMED_MS = 12 * 60 * 60 * 1000;
 const MOST_ASKS = 8;
-/** `id` the ask event's id, `record` the approval record it stands for. */
-type Ask = { id: string; record: string; at: number };
+/** `id` the ask event's id, `record` the approval record it stands for, `who` the hash of the person it asks. */
+type Ask = { id: string; record: string; at: number; who: string };
+/** A record owed to the gateway to disarm, and whose ask it is: only that person's session disarms it. */
+type Owed = { record: string; who: string };
 
-/** Log one ask Tex sent (`kind: "ask"`), and keep it waiting for a yes. */
-export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string): Promise<void> {
+/** Log one ask Tex sent (`kind: "ask"`) to the person hashed `who`, and keep it waiting for their yes. */
+export async function logAsk(storage: InboxStorage, event: Omit<TexEvent, "id" | "kind" | "ask">, record: string, who: string): Promise<void> {
   const id = await addEvent(storage, { ...event, kind: "ask", ask: record });
   const asks = ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => event.at - ask.at < ASK_ARMED_MS);
-  await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at }].slice(-MOST_ASKS));
+  await storage.put<Ask[]>(ASKS_KEY, [...asks, { id, record, at: event.at, who }].slice(-MOST_ASKS));
 }
 
-export async function waitingAsks(storage: InboxStorage, now: number): Promise<string[]> {
-  return ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => now - ask.at < ASK_ARMED_MS).map((ask) => ask.id);
+/** The asks still waiting for a yes from the person hashed `who`: nobody else's words can make their ask stale. */
+export async function waitingAsks(storage: InboxStorage, now: number, who: string): Promise<string[]> {
+  return ((await storage.get<Ask[]>(ASKS_KEY)) ?? []).filter((ask) => now - ask.at < ASK_ARMED_MS && ask.who === who).map((ask) => ask.id);
 }
 
 /** Decide named these asks stale: forgotten here, owed to the gateway to disarm. */
@@ -182,23 +209,35 @@ export async function markStale(storage: InboxStorage, ids: readonly string[]): 
   const asks = (await storage.get<Ask[]>(ASKS_KEY)) ?? [];
   await storage.put<Ask[]>(ASKS_KEY, asks.filter((ask) => !ids.includes(ask.id)));
   // The gateway disarms by approval record, never by event id.
-  const records = asks.filter((ask) => ids.includes(ask.id)).map((ask) => ask.record);
-  const owed = (await storage.get<string[]>(STALE_KEY)) ?? [];
-  await storage.put<string[]>(STALE_KEY, [...new Set([...owed, ...records])].slice(-MOST_ASKS));
+  const records = asks.filter((ask) => ids.includes(ask.id)).map(({ record, who }) => ({ record, who }));
+  await storage.put<Owed[]>(STALE_KEY, [...(await owedStale(storage)), ...records].slice(-MOST_ASKS));
 }
 
-/** Everything owed to the gateway for this chat, sent with a session's token: the buffered events, then stale asks. */
+async function owedStale(storage: InboxStorage): Promise<Owed[]> {
+  const owed = (await storage.get<unknown[]>(STALE_KEY)) ?? [];
+  return owed.filter((entry): entry is Owed => typeof (entry as Owed)?.record === "string" && typeof (entry as Owed).who === "string");
+}
+
+/**
+ * Everything owed to the gateway for this chat, sent with a session's token:
+ * the buffered events, then the stale asks of `who` (the hash of the person
+ * whose session it is), never anyone else's.
+ */
 export async function flushChat(
   storage: InboxStorage,
-  deps: { fetch: Fetch; gatewayOrigin: string },
+  deps: { fetch: Fetch; gatewayOrigin: string; now: () => number },
   accessToken: string,
   conversation: Conversation,
-  chat?: string,
+  chat: string | undefined,
+  whoOf: () => Promise<string>,
 ): Promise<void> {
   await flushEvents(storage, deps, accessToken, conversation, chat);
-  const owed = (await storage.get<string[]>(STALE_KEY)) ?? [];
+  const owed = await owedStale(storage);
   if (owed.length === 0) return;
-  if (await staleAsks(deps, accessToken, owed)) await storage.delete(STALE_KEY);
+  const who = await whoOf();
+  const theirs = [...new Set(owed.filter((entry) => entry.who === who).map((entry) => entry.record))];
+  if (theirs.length === 0) return;
+  if (await staleAsks(deps, accessToken, theirs)) await storage.put<Owed[]>(STALE_KEY, owed.filter((entry) => entry.who !== who));
 }
 
 const NOT_DELIVERED: Record<EventReason, string> = {
@@ -208,6 +247,19 @@ const NOT_DELIVERED: Record<EventReason, string> = {
   failed: "the answer failed",
   timed_out: "the answer took too long",
   too_long: "too long to send",
+};
+
+/** Words as one line: a line break or control character in someone's words never forges a line (`apps/mcp/src/agent/logRender.js` `oneLine`). */
+const BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
+export const oneLine = (text: string): string => text.replace(BREAKS, " \u23ce ");
+
+/** A fixed Worker text (`told.ts`) as decide reads it: the gist of the gateway's words for it (`apps/mcp/src/agent/conversation.js` `TOLD`). */
+const TOLD_WORDS: Record<string, string> = {
+  setup: "Set them up by text and told them their notes would be ready in a couple of minutes.",
+  ready: "Told them their notes are ready and asked them to connect their Gmail.",
+  ready_late: "Told them their notes were taking longer than usual, so to text again in a few minutes.",
+  gmail_main: "Told them their Gmail connected and is now their main email.",
+  gmail: "Told them their Gmail connected.",
 };
 
 /**
@@ -230,10 +282,12 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     const today = day(event.at);
     if (today !== lastDay) lines.push(`--- ${today} ---`);
     lastDay = today;
-    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "System" : (event.from.name ?? "Them");
-    const words = event.text?.trim() || (event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
+    const who = event.from.kind === "tex" ? "You" : event.from.kind === "system" ? "Context" : oneLine(event.from.name ?? "Them");
+    const said = event.told ? (TOLD_WORDS[event.told] ?? "") : oneLine(event.text ?? "").trim();
+    const words = said || (event.kind === "picture" ? "(a picture)" : event.kind === "file" ? "(a file)" : event.kind === "reaction" ? "(a tapback)" : "");
     const unanswered = event.from.kind === "person" && !answered.has(event.id) ? "   (not answered)" : "";
-    lines.push(`[${time(event.at)}] ${who}: ${words}${unanswered}`);
+    // Each line carries its event id, so what decide is asked about by id is grounded in the line it reads.
+    lines.push(`<${event.id}> [${time(event.at)}] ${who}: ${words}${unanswered}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);
   }
   const limit = options.limit ?? MAX_KEPT_CHARS;

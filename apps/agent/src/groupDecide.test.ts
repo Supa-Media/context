@@ -29,164 +29,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
-import type { GroupMessage } from "./sendblueGroups";
+import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { keptEvents, type TexEvent } from "./events";
+import { keptEvents } from "./events";
 import { ENGAGEMENT_QUESTION, FOLLOW_TEXTS } from "./groupStyle";
-import { whapiGroupId } from "./whapi";
-import type { Fetch } from "./clients";
-
-const LINE = "+15555550199";
-const ADA = "+15555550101";
-const BO = "+15555550102";
-const CY = "+15555550103";
-const JID = "120363012345678901@g.us";
-const LINES = [
-  { name: "iMessage (Sendblue)", groupId: "11111111-2222-3333-4444-555555555555" },
-  { name: "WhatsApp (Whapi)", groupId: whapiGroupId(JID) },
-];
-
-type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[] };
-type Answer = { ok: true; act: "silent" | "react" | "answer"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number } | { ok: false; reason: string };
-
-const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
-const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
-
-function setup(
-  groupId: string,
-  opts: {
-    decide?: (body: Decide) => Answer;
-    control?: Record<string, unknown>;
-    controlFor?: (body: Record<string, unknown>) => Record<string, unknown> | undefined;
-    agent?: (body: Record<string, unknown>) => unknown;
-    hold?: boolean;
-    members?: string[][];
-  } = {},
-) {
-  const decided: Decide[] = [];
-  const asks: Record<string, unknown>[] = [];
-  const control: Record<string, unknown>[] = [];
-  const engagement: Record<string, unknown>[] = [];
-  const events: { conversation: unknown; events: TexEvent[] }[] = [];
-  const steers: Record<string, unknown>[] = [];
-  const cancels: Record<string, unknown>[] = [];
-  const texts: string[] = [];
-  const reactions: string[] = [];
-  let reads = 0;
-  let release = () => {};
-  const held = new Promise<void>((resolve) => (release = resolve));
-  let started = () => {};
-  const running = new Promise<void>((resolve) => (started = resolve));
-  const members = () => (opts.members ?? [[ADA, BO]])[Math.min(reads++, (opts.members ?? [[ADA, BO]]).length - 1)];
-  const handleOf = (phone: unknown) => (phone === ADA ? "ada" : phone === BO ? "bo" : "cy");
-  const fetcher = (async (url: string, init?: RequestInit) => {
-    const parsed = new URL(url);
-    const path = parsed.pathname;
-    const body = init?.body ? JSON.parse(String(init.body)) : {};
-    // Sendblue
-    if (path.startsWith("/api/v2/groups/")) return Response.json({ data: { participants: members().map((number) => ({ number })) } });
-    if (path === "/api/send-group-message") {
-      texts.push(body.content ?? body.media_url);
-      return Response.json({ message_handle: `h_out_${texts.length}` });
-    }
-    if (path === "/api/send-reaction") {
-      reactions.push(body.reaction);
-      return Response.json({});
-    }
-    // Whapi
-    if (parsed.host === "gate.whapi.cloud") {
-      if (path.startsWith("/groups/")) return Response.json({ participants: members().map((phone) => ({ id: `${phone.slice(1)}@s.whatsapp.net` })) });
-      if (path.endsWith("/reaction")) {
-        reactions.push(body.emoji);
-        return Response.json({ success: true });
-      }
-      if (path.startsWith("/messages/")) {
-        texts.push(body.body ?? body.media);
-        return Response.json({ sent: true, message: { id: `wa_out_${texts.length}` } });
-      }
-    }
-    if (path === "/agent-texts/decide") {
-      decided.push(body);
-      return Response.json((opts.decide ?? answerAll)(body));
-    }
-    if (path === "/agent-texts/group/engagement") {
-      engagement.push(body);
-      return Response.json({ ok: true });
-    }
-    if (path === "/agent-texts/group") {
-      control.push(body);
-      const only = opts.controlFor?.(body);
-      if (only) return Response.json(only);
-      return Response.json({
-        status: "ready",
-        slug: "band",
-        intro: false,
-        timeZone: "UTC",
-        handle: handleOf(body.sender),
-        accessToken: "cat_group",
-        names: [
-          { phone: ADA, handle: "ada" },
-          { phone: BO, handle: "bo" },
-        ],
-        ...(opts.control ?? {}),
-        // Chosen once a member chose, as the control plane's row says.
-        ...(engagement.length > 0 ? { engagementChosen: true } : {}),
-      });
-    }
-    if (path === "/agent/events") {
-      events.push(body);
-      return Response.json({ written: body.events.map((event: TexEvent) => event.id) });
-    }
-    if (path === "/agent/steer") {
-      steers.push(body);
-      return Response.json({ queued: true });
-    }
-    if (path === "/agent/cancel") {
-      cancels.push(body);
-      return Response.json({ cancelled: true });
-    }
-    if (path === "/agent") {
-      asks.push(body);
-      if (opts.hold && asks.length === 1) {
-        started();
-        await held;
-      }
-      const took = steers.filter((steer) => steer.turn === body.turn);
-      return Response.json(opts.agent?.(body) ?? { answer: `answer to ${body.question}`, ...(took.length > 0 ? { steered: took.map((steer) => steer.id) } : {}) });
-    }
-    throw new Error(`unexpected ${url}`);
-  }) as unknown as Fetch;
-  const deps: GroupDeps = {
-    fetch: fetcher,
-    controlPlaneOrigin: "https://control.example.test",
-    workerSecret: "secret",
-    gatewayOrigin: "https://gateway.example.test",
-    sendblue: { keyId: "id", secret: "key" },
-    whapi: { token: "wt", line: LINE },
-    hostPicture: async (picture) => `https://agent.example.test/media/${picture.name}`,
-    now: () => 1_000,
-  };
-  let n = 0;
-  const message = (text: string, extra: Partial<GroupMessage> = {}): GroupMessage => ({
-    kind: "group-message",
-    eventId: `ev_${++n}`,
-    groupId,
-    line: LINE,
-    from: ADA,
-    participants: [ADA, BO, LINE],
-    messageId: `in_${n}`,
-    text,
-    ...extra,
-  });
-  return { deps, decided, asks, control, engagement, events, steers, cancels, texts, reactions, release, running, message };
-}
-
-/** The words of each candidate decide was shown at the drain (not mid-turn). */
-async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof setup>, groupId: string): Promise<string[]> {
-  const byId = new Map((await keptEvents(storage, groupId)).map((event) => [event.id, event.text ?? ""]));
-  return w.decided.filter((body) => !body.running).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
-}
+import { ADA, answerAll, BO, CY, decidedWords, LINE, LINES, setup, silent, type Answer } from "./groupWorld.testing";
 
 for (const { name, groupId } of LINES) {
   describe(`a group's decided turns, ${name}`, () => {
@@ -273,11 +120,20 @@ for (const { name, groupId } of LINES) {
       expect(answer).toMatchObject({ delivered: true, covers: w.decided[0].candidates, turn: w.asks[0].turn });
     });
 
-    it("react puts a tapback on the newest message and sends no answer; silent sends nothing", async () => {
+    it("react puts a tapback on the newest untagged message and sends no answer; silent sends nothing", async () => {
       for (const act of ["react", "silent"] as const) {
         const storage = new MemoryStorage();
-        const w = setup(groupId, { decide: () => ({ ok: true, act, covers: [], stale: [], movedOn: false, confidence: 0.9 }) });
-        await acceptGroup(storage, w.message("Tex, thanks that worked"), 0);
+        // Untagged: an addressed message is always answered (code's floor), so only an untagged one can be left.
+        const w = setup(groupId, {
+          decide: (body) => (w.decided.length === 1 ? answerAll(body) : { ok: true, act, covers: [], stale: [], movedOn: false, confidence: 0.9 }),
+          control: { engagement: "helpful", engagementChosen: true },
+        });
+        await acceptGroup(storage, w.message("Tex hi"), 0);
+        await drainGroup(storage, w.deps);
+        w.asks.length = 0;
+        w.texts.length = 0;
+        w.reactions.length = 0;
+        await acceptGroup(storage, w.message("thanks that worked"), 10);
         await drainGroup(storage, w.deps);
         expect(w.asks).toEqual([]);
         expect(w.texts).toEqual([]);
@@ -285,26 +141,46 @@ for (const { name, groupId } of LINES) {
       }
     });
 
-    it("three people's repeats during Ada's turn: nobody else's is folded into it, and decided again after they need no second answer", async () => {
+    it("three people's repeats during Ada's turn: nobody else's is folded into it; theirs are decided again after, and silent leaves them unanswered", async () => {
       const storage = new MemoryStorage();
       const everyone = { participants: [ADA, BO, CY, LINE] };
       const w = setup(groupId, {
         hold: true,
         members: [[ADA, BO, CY]],
+        control: { engagement: "helpful", engagementChosen: true },
         decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : w.decided.filter((d) => !d.running).length === 1 ? answerAll(body) : silent()),
       });
       await acceptGroup(storage, w.message("Tex make a graphic", everyone), 0);
       const draining = drainGroup(storage, w.deps);
       await w.running;
-      expect(await acceptGroup(storage, w.message("wtf Tex", { from: BO, ...everyone }), 10)).toBe("queued");
-      expect(await acceptGroup(storage, w.message("Tex you are disappointing us", { from: CY, ...everyone }), 11)).toBe("queued");
+      // Bound now (the turn started), so their untagged lines are the chat's and reach decide (helpful).
+      expect(await acceptGroup(storage, w.message("wtf", { from: BO, ...everyone }), 10)).toBe("queued");
+      expect(await acceptGroup(storage, w.message("you are disappointing us", { from: CY, ...everyone }), 11)).toBe("queued");
       w.release();
       await draining;
       await drainGroup(storage, w.deps);
       expect(w.steers).toEqual([]);
       expect(w.asks).toHaveLength(1);
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
-      expect(await decidedWords(storage, w, groupId)).toEqual(["Tex make a graphic", "wtf Tex", "Tex you are disappointing us"]);
+      expect(await decidedWords(storage, w, groupId)).toEqual(["Tex make a graphic", "wtf", "you are disappointing us"]);
+    });
+
+    it("an addressed repeat from someone else is answered as their own turn whatever decide says (code's floor)", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, {
+        hold: true,
+        decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : w.decided.filter((d) => !d.running).length === 1 ? answerAll(body) : silent()),
+      });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      await acceptGroup(storage, w.message("Tex where is it", { from: BO }), 10);
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.steers).toEqual([]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "Tex where is it"]);
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
     });
 
     it("Ada's own follow-up during her turn folds into it: one answer", async () => {
@@ -354,7 +230,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a graphic\nTex no, a poster"]);
     });
 
-    it("covers holding Ada's and Bo's messages: Ada's turn has Bo's line only as chat, and Bo's request is a turn of his own", async () => {
+    it("covers holding Ada's and Bo's messages: Ada's turn has Bo's line as chat, and Bo's are decided again for him, a turn of his own", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true } });
       await acceptGroup(storage, w.message("Tex hi"), 0);
@@ -363,7 +239,8 @@ for (const { name, groupId } of LINES) {
       await acceptGroup(storage, w.message("lol", { from: BO }), 11);
       await acceptGroup(storage, w.message("Tex and the weather?", { from: BO }), 12);
       await drainGroup(storage, w.deps);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex check the setlist", "Tex and the weather?"]);
+      // Decide, asked again for Bo's newest, covered his "lol" with his request.
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex check the setlist", "lol\nTex and the weather?"]);
       expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "lol" }]);
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });

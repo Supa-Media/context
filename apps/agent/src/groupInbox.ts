@@ -49,6 +49,9 @@ import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupCont
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
+import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupAddress";
+export { addressesTex, groupCommand, offeredName };
+export type { Command };
 import { MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
@@ -61,15 +64,16 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
-import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { addEvent, flushChat, kindOf, logAsk, type Conversation } from "./events";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import { staleAsks } from "./decide";
 import { runningTurn, startTurn } from "./steer";
 import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
-import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
+import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -95,13 +99,6 @@ export function groupInboxName(groupId: string): string {
   return `sendblue-group:${groupId}`;
 }
 
-export type Command =
-  | { kind: "stop" }
-  | { kind: "start" }
-  | { kind: "use"; slug: string }
-  | { kind: "invite"; slug: string; role?: "editor" | "member" }
-  | { kind: "status" }
-  | { kind: "settings" };
 type Pending = GroupPending;
 
 const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
@@ -135,93 +132,6 @@ type OpenAsk = { from: string; at: number };
 const ANSWERS_ASK =
   /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
 
-const NAME = "(?:tex|context)";
-/** The name, not "Tex-Mex" or "Texas". */
-const WORD = `@?${NAME}(?![\\w-])`;
-/** Words a message to Tex starts with after its name, unpunctuated ("Tex what's on"), where "Tex got that wrong" is about it. */
-const ASKING =
-  "(?:what|what's|whats|who|who's|when|when's|where|where's|why|how|which|can|could|would|will|is|are|do|does|did|should|please|pls|" +
-  "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read)\\b";
-/** "Tex ^ do this", "Tex ↑": the message above is the ask. */
-const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
-/*
-  Any other word after the name is an ask too ("Tex turn this guy into a cat",
-  2026-10-23, went unanswered because "turn" was not on the list above),
-  unless it reads as talking about Tex: a past or third-person verb, or a word
-  people use about it ("Tex got that wrong lol", "Tex was down", "Tex sucks").
-*/
-const ABOUT = "(?:was|were|got|gets|has|had|have|said|says|just|keeps|kept|always|never|really|seems|thinks|lol|lmao|haha|too|again|isn't|wasn't|can't|won't|didn't|doesn't|[a-z]+ed|[a-z]+s)\\b";
-const OPENS = new RegExp(
-  `^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING}|\\s+(?!${ABOUT})[a-z])))`,
-  "i",
-);
-const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
-const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
-/** A reply to Tex that needs no answer. */
-const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
-const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
-/** A workspace slug on its own, with or without its `@`. */
-const BARE_NAME = /^@?([a-z0-9][a-z0-9-]{0,63})$/;
-
-/**
- * Whether a group message is meant for Tex. Read from the words alone, with
- * no model: its name opening or closing it, its name in a question, or an
- * inline reply to Tex that says more than thanks.
- */
-export function addressesTex(text: string, repliesToTex: boolean): boolean {
-  const words = unquoted(text);
-  if (words === "") return false;
-  if (OPENS.test(words) || CLOSES.test(words)) return true;
-  if (NAMED.test(words) && /\?\s*$/.test(words)) return true;
-  return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
-}
-
-/** The words without the quotes a person may type around them ("“Tex use @supa”"). */
-function unquoted(text: string): string {
-  return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
-}
-
-/**
- * The words after Tex's name, when they are one of the group commands. While
- * the chat is picking a workspace (`choices`), one of the names it was offered
- * on its own ("supa", "@supa", "Tex supa") picks it.
- *
- * Tex's name is optional here because the caller has already decided the
- * message is for Tex (`acceptGroup`). An unaddressed message reaches this
- * only through `offeredName` below, which is narrower on purpose.
- */
-export function groupCommand(text: string, choices: readonly string[] = []): Command | null {
-  const rest = unquoted(text)
-    .replace(new RegExp(`^(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}[\\s,:!.-]*`, "i"), "")
-    .trim()
-    .replace(/[.!]+$/, "")
-    .toLowerCase();
-  if (/^(?:stop|be quiet|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
-  if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
-  if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
-  if (/^settings\??$/.test(rest)) return { kind: "settings" };
-  const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
-  if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
-  const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
-  if (use) return { kind: "use", slug: use[1] };
-  const named = BARE_NAME.exec(rest);
-  return named && choices.includes(named[1]) ? { kind: "use", slug: named[1] } : null;
-}
-
-/**
- * One of the names Tex just offered, said on its own — the only words it
- * answers without being addressed, and only while that question is open.
- *
- * `groupCommand` takes Tex's name as optional, which is right once a message
- * is known to be for Tex and wrong as the way in: it would make a bare "stop"
- * or "start" from a conversation between two other people mute or unmute Tex.
- * Those words are chat, and chat is what `keepChatLine` is for.
- */
-export function offeredName(text: string, choices: readonly string[]): string | null {
-  if (choices.length === 0) return null;
-  const named = BARE_NAME.exec(unquoted(text).replace(/[.!]+$/, "").trim().toLowerCase());
-  return named !== null && choices.includes(named[1]) ? named[1] : null;
-}
 
 export { peopleOf };
 
@@ -239,7 +149,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
   const choices = await openChoice(storage, now);
   const yes = await answersOpenAsk(storage, message, now);
-  const engagement = (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
+  // An SMS never sets the style: anyone can send one that shows a member's number.
+  const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
   const addressed = addressesTex(message.text, repliesToTex) || offeredName(message.text, choices) !== null;
   const tagged = addressed || yes || engagement !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
@@ -256,7 +167,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     const ev = await logGroupInbound(storage, message, now);
     const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
-    if (reaches) await enqueue(storage, message, { ev, soft: true }, repliesToTex, seen, now);
+    if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     return kept ? "kept" : "queued";
   }
   // Nothing of an SMS group is logged: its sender vouches for nothing.
@@ -264,6 +175,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}) };
 
   if (running !== undefined && ev !== undefined && !byCode) {
+    // Seen before decide is asked: a webhook redelivered while decide is slow is a duplicate, never decided twice.
+    await storage.put(seen, now);
     const how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
       groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
     );
@@ -321,6 +234,8 @@ async function enqueue(
  * check this link out". Only their own tag, and only one sent a moment ago.
  */
 async function followsOwnTag(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  // An SMS joins nothing: its sender can be faked.
+  if (message.sms) return false;
   const pending = [...(await storage.list<Pending>({ prefix: "gpending:" })).values()];
   return pending.some((item) => item.message.from === message.from && item.attempts === 0 && !item.soft && now - (item.at ?? 0) < PICTURE_JOINS_MS);
 }
@@ -378,6 +293,16 @@ async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now:
 
 /** Answer what is waiting, oldest first: code's messages one by one, the rest as decide groups them. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
+  try {
+    await drainOnce(storage, deps);
+  } finally {
+    // One alarm per object: whatever set a sooner one, the style question's expiry and the events' day are kept.
+    await pruneEvents(storage, deps.now());
+    await keepQuestionAlarm(storage, deps.now());
+  }
+}
+
+async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> {
   // A 👍 on the ask joins the queue as the asker's answer.
   const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
   if (thumb !== undefined) {
@@ -412,7 +337,7 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
       if (choice.react) {
         await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
       }
-      entries = await ownTurn(storage, choice.answer);
+      entries = ownTurn(choice.answer);
       if (entries.length === 0) continue;
     }
     const [key, item] = entries.at(-1)!;
@@ -499,19 +424,19 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
   const conversation: Conversation = { group: message.groupId };
-  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
   if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
   // The first time Tex is asked something in a group whose style nobody chose, it asks that first and holds the message.
   if (asked.engagementChosen === false && !item.styleAsked && message.reaction === undefined && !(await questionOpen(storage, deps.now()))) {
     await openQuestion<Pending>(storage, deps.now(), { ...item, message, covers });
     await fixed(ENGAGEMENT_QUESTION);
-    return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+    return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   }
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });
-  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
 }
 
@@ -544,16 +469,18 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
-    members: await sha256Hex(people.join(",")),
+    members: await peopleHash(message.line, people),
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
     people: [...new Set(handles.values())].filter(Boolean),
     ...(guest ? { guest } : {}),
   };
+  // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
+  await notePeople(storage, message, group.members);
   // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
   const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
   await steer.onSession(accessToken);
-  const meta: SayMeta = { turn: steer.turn, covers, people: await sha256Hex(people.join(",")) };
+  const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
     "group Tex should literally be the same exact as DM Tex"): a long ask
@@ -592,7 +519,11 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   } finally {
     end();
   }
-  if (live.cancelled || answer.kind === "cancelled") return "cancelled";
+  if (live.cancelled || answer.kind === "cancelled") {
+    // Cancelled here though its answer came: what it armed is never left armed and unseen.
+    if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
+    return "cancelled";
+  }
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "unavailable" && answer.timedOut ? 504 : null);
@@ -625,7 +556,9 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   for (const text of texts) await say(storage, deps, message, text, meta);
   // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
   for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
-  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record);
+  // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
+  const askedWho = await sha256Hex(asks ?? message.from);
+  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho);
   await texSpoke(storage);
   log("answered");
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).

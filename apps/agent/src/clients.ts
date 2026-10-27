@@ -280,6 +280,7 @@ export async function askAgent(
     event,
     covers,
     chat,
+    told = [],
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -295,6 +296,8 @@ export async function askAgent(
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
     covers?: string[];
     chat?: string;
+    /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
+    told?: readonly string[];
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -313,6 +316,7 @@ export async function askAgent(
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
+    ...(told.length > 0 ? { told } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -349,7 +353,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
     const jobs = readStartedJobs(body.jobs);
     const steers = readSteers(body.steers);
     const askIds = Array.isArray(body.askIds)
-      ? body.askIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(id)).slice(0, 8)
+      ? body.askIds.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(id)).slice(0, 8)
       : [];
     return {
       kind: "answer",
