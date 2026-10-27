@@ -499,19 +499,19 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
   const conversation: Conversation = { group: message.groupId };
-  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
   if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
   // The first time Tex is asked something in a group whose style nobody chose, it asks that first and holds the message.
   if (asked.engagementChosen === false && !item.styleAsked && message.reaction === undefined && !(await questionOpen(storage, deps.now()))) {
     await openQuestion<Pending>(storage, deps.now(), { ...item, message, covers });
     await fixed(ENGAGEMENT_QUESTION);
-    return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+    return await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   }
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
   const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });
-  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
+  await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
 }
 
@@ -625,7 +625,9 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   for (const text of texts) await say(storage, deps, message, text, meta);
   // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
   for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
-  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record);
+  // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
+  const askedWho = await sha256Hex(asks ?? message.from);
+  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho);
   await texSpoke(storage);
   log("answered");
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).

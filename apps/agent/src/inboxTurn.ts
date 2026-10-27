@@ -6,8 +6,9 @@
  * second later) are joined by decide's `covers` into one turn, which is what
  * `fold`/`sameBurst` in `inbox.ts` did by rule. In a person's own chat Tex
  * stays silent only on a pure acknowledgement (a tapback, "ok", "thanks"),
- * whatever decide says: anything else is answered. Decide unreachable, every
- * text is answered on its own, as before decide.
+ * whatever decide says: anything else is answered. Decide unreachable or slower
+ * than `IDLE_DECIDE_MS`, and in the simulator, the texts are joined as they
+ * were before decide (`fallbackTurn`).
  *
  * A text that lands while a turn runs is decided with `running: true`
  * (`steer.ts`): fold, queue, or restart.
@@ -15,7 +16,7 @@
 
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
-import { decide, RUNNING_DECIDE_MS, type ControlDeps, type Decision } from "./decide";
+import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type Decision } from "./decide";
 import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
@@ -43,6 +44,8 @@ export type Pending = {
   turn?: string;
   /** The approval records the turn armed, logged as asks once its words went. */
   asks?: string[];
+  /** The reply is one of the Worker's own texts, logged as the system's with no turn (`inbox.ts` `sendReply`). */
+  system?: true;
 };
 export type Entry = [string, Pending];
 
@@ -71,7 +74,7 @@ export function pureAck(message: Message): boolean {
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: Message, candidates: string[], running: boolean): Promise<Decision> {
-  const asks = await waitingAsks(storage, deps.now());
+  const asks = await waitingAsks(storage, deps.now(), await sha256Hex(newest.from));
   const chat = newest.chatId;
   const decision = await decide(
     deps,
@@ -85,10 +88,38 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       waitingAsks: asks,
       newest: candidates.at(-1) ?? "",
     },
-    running ? RUNNING_DECIDE_MS : undefined,
+    // Idle, the person is watching the bubble: a slow decide falls back rather than keep them waiting.
+    running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
   );
   if (decision.ok) await markStale(storage, decision.stale);
   return decision;
+}
+
+export const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
+export const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
+
+/** Words sent back to back in the same place: one text, as before decide (`sameBurst`). */
+function sameBurst(a: Message, b: Message): boolean {
+  if (!wordsOnly(a) || !wordsOnly(b) || a.tapback || b.tapback || a.sms || b.sms) return false;
+  return Boolean(a.threaded) === Boolean(b.threaded) && a.quoted === b.quoted && a.threadStart === b.threadStart;
+}
+
+/**
+ * What the next turn answers when decide cannot say (down, capped, slow) or
+ * is not asked (the simulator): the first text and what main's rules joined
+ * to it, so decide down is never worse than before decide. A photo takes the
+ * words after it, words take the one photo after them, and words sent back
+ * to back in the same place are one text.
+ */
+export function fallbackTurn(burst: Entry[]): Entry[] {
+  const turn: Entry[] = [burst[0]];
+  for (const entry of burst.slice(1)) {
+    const soFar = merged(turn.map(([, item]) => item.message));
+    const next = entry[1].message;
+    if (!(mediaOnly(soFar) || sameBurst(soFar, next) || (wordsOnly(soFar) && mediaOnly(next)))) break;
+    turn.push(entry);
+  }
+  return turn;
 }
 
 export type Choice = { answer: Entry[]; react?: Message; drop: Entry[] };
@@ -108,9 +139,10 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
     burst.push(entry);
   }
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
-  if (ids.length === 0) return { answer: [first], drop: [] };
+  // The simulator is answered directly, as before decide.
+  if (ids.length === 0 || first[1].message.channel === "simulator") return { answer: fallbackTurn(burst), drop: [] };
   const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
-  if (!decision.ok) return { answer: [first], drop: [] };
+  if (!decision.ok) return { answer: fallbackTurn(burst), drop: [] };
   // Code's rule over the model's: only a pure acknowledgement may go unanswered here.
   const must = burst.filter(([, item]) => item.force || !pureAck(item.message));
   if (decision.act !== "answer") {

@@ -20,6 +20,13 @@
  *     runs…" fails.
  *  8. `steerInto` / `restartTurn` without their asker check → "steer and
  *     restart refuse anyone but the running turn's asker…" fails.
+ * 10. `restartTurn` marking the turn cancelled whatever `/agent/cancel` said
+ *     (2026-10-27) → "a restart the gateway could not do…" and "a cancel that
+ *     fails outright…" fail.
+ * 11. `cancelTurn` reading only the status, not `cancelled: false` → "a
+ *     restart the gateway could not do…" fails.
+ * 12. `answering` not posting `/agent/stale` for a cancelled turn's askIds →
+ *     "an answer that comes back for a turn cancelled here…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,6 +35,7 @@ import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { keptEvents, logAsk } from "./events";
+import { sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 
 const msg = (eventId: string, text: string, extra: Partial<Message> = {}): Message => ({
@@ -48,7 +56,7 @@ type MidTurn = "fold" | "queue" | "restart" | "down";
  * answers a running decision with `midTurn`, and an idle one by covering
  * every candidate.
  */
-function world(opts: { midTurn?: MidTurn; stale?: string[] } = {}) {
+function world(opts: { midTurn?: MidTurn; stale?: string[]; cancelled?: boolean; askIds?: string[] } = {}) {
   const asks: { question: string; turn?: string; covers?: string[] }[] = [];
   const steers: { turn: string; id: string; text: string; token: string }[] = [];
   const decided: { running: boolean; candidates: string[]; style: string; sender?: string }[] = [];
@@ -78,7 +86,7 @@ function world(opts: { midTurn?: MidTurn; stale?: string[] } = {}) {
     if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent/cancel") {
       cancels.push({ ...body, token });
-      return Response.json({ cancelled: true });
+      return Response.json({ cancelled: opts.cancelled ?? true });
     }
     if (path === "/agent/stale") {
       stale.push(body);
@@ -98,6 +106,7 @@ function world(opts: { midTurn?: MidTurn; stale?: string[] } = {}) {
       return Response.json({
         answer: `answer to ${[body.question, ...took.map((steer) => steer.text)].join(" + ")}`,
         ...(took.length > 0 ? { steered: took.map((steer) => steer.id) } : {}),
+        ...(opts.askIds && asks.length === 1 ? { askIds: opts.askIds } : {}),
       });
     }
     if (path.endsWith("/messages")) {
@@ -187,6 +196,32 @@ describe("a text while a turn runs", () => {
     expect(pendingKeys(storage)).toEqual([]);
   });
 
+  it("a restart the gateway could not do (cancelled: false) is a queue: the turn's answer goes, and the new text is answered after", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ midTurn: "restart", cancelled: false });
+    await during(w, storage, msg("e1", "book a table for 4"), msg("e2", "no wait, for 6"));
+    expect(w.cancels).toHaveLength(1);
+    expect(w.sent).toEqual(["answer to book a table for 4", "answer to no wait, for 6"]);
+    expect(pendingKeys(storage)).toEqual([]);
+  });
+
+  it("a cancel that fails outright is a queue too", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ midTurn: "restart" });
+    const failing = (async (url: string, init: RequestInit) =>
+      new URL(url).pathname === "/agent/cancel" ? new Response("{}", { status: 502 }) : w.deps.fetch(url, init)) as unknown as Fetch;
+    await during({ ...w, deps: { ...w.deps, fetch: failing } }, storage, msg("e1", "book a table for 4"), msg("e2", "no wait, for 6"));
+    expect(w.sent).toEqual(["answer to book a table for 4", "answer to no wait, for 6"]);
+  });
+
+  it("an answer that comes back for a turn cancelled here has its asks disarmed, never left armed and unseen", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ midTurn: "restart", askIds: ["aaaaaaaa-0000-4000-8000-000000000001"] });
+    await during(w, storage, msg("e1", "email the venue"), msg("e2", "no, email the caterer"));
+    expect(w.stale).toEqual([{ asks: ["aaaaaaaa-0000-4000-8000-000000000001"] }]);
+    expect(w.sent).toEqual(["answer to email the venue\nno, email the caterer"]);
+  });
+
   it("three people's repeats while a turn runs, folded, get one answer, not three", async () => {
     const storage = new MemoryStorage();
     const w = world({ midTurn: "fold" });
@@ -251,7 +286,7 @@ describe("a text while a turn runs", () => {
 
   it("stale asks are disarmed at the gateway with the chat's own session, and never sent twice", async () => {
     const storage = new MemoryStorage();
-    await logAsk(storage, { at: 500, chat: "chat_1", from: { kind: "tex" }, turn: "turn_before" }, "approval_1");
+    await logAsk(storage, { at: 500, chat: "chat_1", from: { kind: "tex" }, turn: "turn_before" }, "approval_1", await sha256Hex("+15555550100"));
     const ask = "0000000000500-000001";
     const w = world({ stale: [ask, "0000000000600-000099"] });
     w.release();

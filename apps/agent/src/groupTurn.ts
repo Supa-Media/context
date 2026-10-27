@@ -11,7 +11,7 @@
 
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
-import { decide, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
+import { decide, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { peopleKey, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
@@ -81,7 +81,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       transcript: renderTranscript(await keptEvents(storage, newest.groupId), { people: await peopleKey(newest) }),
       candidates,
       running,
-      waitingAsks: await waitingAsks(storage, deps.now()),
+      // Only the sender's own asks: nobody else's "nah forget it" can end somebody's ask.
+      waitingAsks: await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
     },
     running ? RUNNING_DECIDE_MS : undefined,
@@ -209,5 +210,6 @@ export async function ownTurn(storage: InboxStorage, covered: GroupEntry[]): Pro
   return own.map(([key, item], index) => (index === own.length - 1 ? [key, { ...item, contextUntil: until }] : [key, item]));
 }
 
-export const coversOf = (entries: GroupEntry[]): string[] => [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))];
+export const coversOf = (entries: GroupEntry[]): string[] =>
+  [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))].slice(-MAX_CANDIDATES);
 

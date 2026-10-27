@@ -106,10 +106,16 @@ export async function steerInto(running: Live, message: { eventId: string; from:
   }
 }
 
-/** Cancel the running turn (restart): whatever it says after is never sent. Never for an SMS, whose sender can be faked. Whether it was cancelled. */
+/**
+ * Cancel the running turn (restart): whatever it says after is never sent.
+ * Never for an SMS, whose sender can be faked. Whether it was cancelled: only
+ * once the gateway says so is the turn marked, so a turn the gateway could
+ * not stop (it already wrote or sent) still sends its answer, and the new
+ * message is queued behind it.
+ */
 export async function restartTurn(running: Live, message: { from: string; sms?: true }): Promise<boolean> {
-  if (message.sms || message.from !== running.asker) return false;
+  if (message.sms || message.from !== running.asker || running.accessToken === undefined) return false;
+  if (!(await cancelTurn(running.deps, running.accessToken, running.turn))) return false;
   running.cancelled = true;
-  if (running.accessToken !== undefined) await cancelTurn(running.deps, running.accessToken, running.turn);
   return true;
 }

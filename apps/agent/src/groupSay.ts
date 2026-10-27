@@ -4,6 +4,7 @@
  */
 
 import { ServiceError } from "./clients";
+import { MAX_CANDIDATES } from "./decide";
 import { addEvent, kindOf, type EventReason, type TexEvent } from "./events";
 import { groupLineFor, type GroupLineDeps, type GroupPlace } from "./groupLine";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
@@ -48,7 +49,7 @@ export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: st
     from: { kind: turn ? "tex" : "system" },
     ...part,
     ...(turn ? { turn } : {}),
-    ...(turn && meta.covers?.length ? { covers: meta.covers } : {}),
+    ...(turn && meta.covers?.length ? { covers: meta.covers.slice(-MAX_CANDIDATES) } : {}),
     ...(meta.people ? { people: meta.people } : {}),
     ...(meta.reason ? { reason: meta.reason } : {}),
   });

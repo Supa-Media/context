@@ -65,8 +65,17 @@ export type ReplyDeps = {
   images?: ImagesLike;
   /** Told when setup started a bucket, so the ready text is owed (`ready.ts`); absent, none is. */
   onSetUp?: () => Promise<void>;
-  /** Notes a fixed text sent outside a turn, a setup that finished, for the chat's event log (`told.ts`). */
+  /**
+   * The fixed texts sent outside a turn that the next turn's history is owed
+   * (`told.ts`): named to the gateway with the next text, beside the events
+   * that carry them, and `onToldDelivered` once a turn answered with them.
+   * `onTold` notes a fixed text that went (a setup that finished).
+   */
+  told?: Told[];
+  onToldDelivered?: () => Promise<void>;
   onTold?: (told: Told) => Promise<void>;
+  /** Told when the reply is the model's answer, not one of the Worker's own fixed texts. */
+  onAnswered?: () => void;
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
@@ -227,11 +236,13 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told },
     );
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
+      deps.onAnswered?.();
+      await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds);
       if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
