@@ -1,10 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useQueries, type RequestForQueries } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
+import type { PaletteItem } from "../files/palette";
 import type { PaletteSearch } from "../../design/components/Palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "../search/useBlendedSearch";
 import type { SearchableContext } from "../search/results";
 import { workspaceFilters } from "./searchFilters";
 import type { PaletteFilters } from "../../design/components/PaletteFilterTokens";
 import {
+  itemsFromNames,
   itemsFromBlended,
   paletteStateOf,
   sourcesNotice,
@@ -41,6 +46,12 @@ export interface EverywhereSearch {
   timing: TimingBreakdown | null;
   /** Whether the pill belongs to the words on screen, rather than a search still running. */
   settled: boolean;
+  /**
+   * Notes whose names hold what was typed, from the tree, in every workspace
+   * (or the one narrowed to), from the first letter (board M1). Ranked with
+   * the loaded names, so a note in a folder nobody opened is offered at once.
+   */
+  names: PaletteItem[];
 }
 
 export function useEverywhereSearch({
@@ -62,6 +73,32 @@ export function useEverywhereSearch({
     slugs: narrowed === null ? [] : [narrowed],
     device,
   });
+
+  /*
+    Live, and asked from the first letter: a query rather than the search's
+    action, so it is one cheap read of the tree per keystroke, never a fan-out
+    across buckets. The last answer stays drawn while the next one loads, so
+    the names do not blink between letters.
+  */
+  const narrowedId = blended.contexts.find((context) => context.slug === narrowed)?.workspaceId ?? null;
+  const asked = enabled ? query.trim() : "";
+  const nameSpec = useMemo<RequestForQueries>(() => {
+    const spec: RequestForQueries = {};
+    if (asked === "") return spec;
+    spec.names = {
+      query: api.functions.nameSearch.searchNames,
+      args: { query: asked, ...(narrowedId === null ? {} : { contexts: [narrowedId as Id<"workspaces">] }) },
+    };
+    return spec;
+  }, [asked, narrowedId]);
+  const nameAnswer = useQueries(nameSpec).names as unknown;
+  const lastNames = useRef<PaletteItem[]>([]);
+  const names = useMemo(() => {
+    if (asked === "") return (lastNames.current = []);
+    // A thrown query is an `Error` here (`useQueries`), and is no names.
+    if (!Array.isArray(nameAnswer)) return nameAnswer === undefined ? lastNames.current : [];
+    return (lastNames.current = itemsFromNames(nameAnswer, currentSlug));
+  }, [asked, nameAnswer, currentSlug]);
 
   const items = useMemo(
     () => itemsFromBlended(blended.results, query, currentSlug),
@@ -94,5 +131,6 @@ export function useEverywhereSearch({
     filters: useMemo(() => workspaceFilters(blended.contexts, narrowed, narrow), [blended.contexts, narrowed]),
     timing: useMemo(() => timingBreakdown(blended.answer, blended.took), [blended.answer, blended.took]),
     settled: blended.state !== "searching" && blended.state !== "idle",
+    names,
   };
 }

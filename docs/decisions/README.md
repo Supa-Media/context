@@ -351,6 +351,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
 - A note's passages are filed under its note id, and a move only re-points them
 - Fast search renames a moved note's rows, and reads it only for a new name
+- ⌘K draws names from the tree first, and nothing it drew moves
 
 ## [The mobile app and the console](./app-and-console.md)
 

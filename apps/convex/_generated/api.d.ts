@@ -118,6 +118,7 @@ import type * as functions_googleReconnect from "../functions/googleReconnect.js
 import type * as functions_googleSync from "../functions/googleSync.js";
 import type * as functions_meetings_demoTranscribe from "../functions/meetings/demoTranscribe.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
+import type * as functions_nameSearch from "../functions/nameSearch.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_nodes from "../functions/nodes.js";
 import type * as functions_nodesGateway from "../functions/nodesGateway.js";
@@ -331,6 +332,7 @@ declare const fullApi: ApiFromModules<{
   "functions/googleSync": typeof functions_googleSync;
   "functions/meetings/demoTranscribe": typeof functions_meetings_demoTranscribe;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
+  "functions/nameSearch": typeof functions_nameSearch;
   "functions/names": typeof functions_names;
   "functions/nodes": typeof functions_nodes;
   "functions/nodesGateway": typeof functions_nodesGateway;

@@ -135,7 +135,9 @@ export const nodeTables = {
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"])
     /** The rows that carry an access setting of their own: the access scan reads these, never the whole tree (`accessRows.ts`). */
-    .index("by_workspace_access", ["workspaceId", "access.base"]),
+    .index("by_workspace_access", ["workspaceId", "access.base"])
+    // Names as you type, every workspace (`functions/nameSearch.ts`, the search tune-up, 2026-10-27).
+    .searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "kind"] }),
 
   /**
    * One workspace's tree bookkeeping: how far a sweep has got, and whether the

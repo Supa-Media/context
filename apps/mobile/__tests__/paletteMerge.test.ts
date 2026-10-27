@@ -6,10 +6,17 @@
  * same way `palette.test.ts` pins its ordering contract.
  *
  * Fixtures are obviously-fake notes and slugs; this repository is public.
+ *
+ * Sabotage record for the search tune-up's order (temporary local edits,
+ * reverted, as measured):
+ *   the answer put above the names again   → "a server row that is also a name match…",
+ *                                             "names drawn before the answer stay on top…" and two
+ *                                             command orderings fail
+ *   meaning folded even with nothing else  → "with nothing else, they are the answer…" fails
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { mergeRanked } from "../features/design/components/paletteMerge";
+import { SAME_TOPIC_ID, foldSameTopic, holdsName, mergeRanked } from "../features/design/components/paletteMerge";
 import type { Match, PaletteItem } from "../features/console/files/palette";
 
 /* -------------------------------------------------------------------------- */
@@ -39,28 +46,40 @@ function ids(list: readonly Match[]): string[] {
 describe("mergeRanked", () => {
   test("server rows come out in server order", () => {
     const server = [note("c.md", "C"), note("a.md", "A"), note("b.md", "B")];
-    expect(ids(mergeRanked([], server))).toEqual(["c.md", "a.md", "b.md"]);
+    expect(ids(mergeRanked([], server, "x"))).toEqual(["c.md", "a.md", "b.md"]);
   });
 
-  test("a server row that is also a loaded match keeps the local label and ranges", () => {
+  test("a server row that is also a name match keeps the local label and ranges, and its place", () => {
     const localItem = note("rent-plan.md", "Rent plan");
     const local = [match(localItem, 120, [[0, 4]])];
-    const server = [note("rent-plan.md", "rent-plan.md (server title)", { snippet: "the rent" })];
+    const server = [note("other.md", "Other"), note("rent-plan.md", "rent-plan.md (server title)", { snippet: "the rent" })];
 
-    const merged = mergeRanked(local, server);
+    const merged = mergeRanked(local, server, "rent");
 
-    expect(merged).toHaveLength(1);
+    expect(ids(merged)).toEqual(["rent-plan.md", "other.md"]);
     expect(merged[0].item.label).toBe("Rent plan");
     expect(merged[0].ranges).toEqual([[0, 4]]);
     expect(merged[0].score).toBe(120);
     expect(merged[0].item.snippet).toBe("the rent");
   });
 
-  test("a loaded name match the server did not return comes after the server rows, tagged 'name'", () => {
-    const local = [match(note("loaded-only.md", "Loaded only"), 90, [[0, 6]])];
+  /*
+   * The search tune-up (Dev2's pick, 2026-10-27; boards M1, M2): what was
+   * drawn while the search ran is the top of the list it settles into.
+   */
+  test("names drawn before the answer stay on top once it lands; the answer arrives below", () => {
+    const local = [match(note("one-search-bar.md", "One search bar and better results"), 100, [[0, 3]])];
+    const before = mergeRanked(local, [], "one s");
+    const after = mergeRanked(local, [note("tex.md", "Tex chat"), note("one-search-bar.md", "x")], "one s");
+    expect(ids(before)).toEqual(["one-search-bar.md"]);
+    expect(ids(after)).toEqual(["one-search-bar.md", "tex.md"]);
+  });
+
+  test("a name matched only by letters in order, not by words, comes after the answer, tagged 'name'", () => {
+    const local = [match(note("loaded-only.md", "Ordinary storage bin"), 90, [[0, 1]])];
     const server = [note("from-server.md", "From server")];
 
-    const merged = mergeRanked(local, server);
+    const merged = mergeRanked(local, server, "osb");
 
     expect(ids(merged)).toEqual(["from-server.md", "loaded-only.md"]);
     expect(merged[1].item.why).toBe("name");
@@ -73,7 +92,7 @@ describe("mergeRanked", () => {
     ];
     const server = [note("s.md", "Server row")];
 
-    expect(ids(mergeRanked(local, server))).toEqual(["new-note", "s.md", "a.md"]);
+    expect(ids(mergeRanked(local, server, "note"))).toEqual(["new-note", "a.md", "s.md"]);
   });
 
   test("a command scoring below the best note goes after the server rows", () => {
@@ -83,24 +102,57 @@ describe("mergeRanked", () => {
     ];
     const server = [note("s.md", "Server row")];
 
-    expect(ids(mergeRanked(local, server))).toEqual(["s.md", "best.md", "new-note"]);
+    expect(ids(mergeRanked(local, server, "note"))).toEqual(["best.md", "s.md", "new-note"]);
   });
 
   test("a server item in another workspace with the same path as a local note is a different row", () => {
     const local = [match(note("rent.md", "Rent"), 100, [[0, 4]])];
     const server = [note("rent.md", "Rent", { workspace: { slug: "supa", current: false } })];
 
-    const merged = mergeRanked(local, server);
+    const merged = mergeRanked(local, server, "rent");
 
     expect(merged).toHaveLength(2);
     expect(merged.map((entry) => entry.item.workspace)).toEqual([
-      { slug: "supa", current: false },
       undefined,
+      { slug: "supa", current: false },
     ]);
   });
 
   test("the same key returned twice by the server appears once", () => {
     const server = [note("dup.md", "Dup"), note("dup.md", "Dup")];
-    expect(ids(mergeRanked([], server))).toEqual(["dup.md"]);
+    expect(ids(mergeRanked([], server, "dup"))).toEqual(["dup.md"]);
+  });
+});
+
+describe("holdsName", () => {
+  test("every word, the last as the start of a word", () => {
+    expect(holdsName("one s", note("a", "One search bar"))).toBe(true);
+    expect(holdsName("search one", note("a", "One search bar"))).toBe(true);
+    expect(holdsName("osb", note("a", "One search bar"))).toBe(false);
+    expect(holdsName("bar one x", note("a", "One search bar"))).toBe(false);
+    expect(holdsName("pricing", note("a", "free, you cheapo", { name: "pricing" }))).toBe(true);
+  });
+});
+
+describe("foldSameTopic", () => {
+  const rows = [
+    match(note("a.md", "A"), 0),
+    match(note("m1.md", "Meaning one", { meaningOnly: true }), 0),
+    match(note("m2.md", "Meaning two", { meaningOnly: true }), 0),
+  ];
+
+  test("notes found only by meaning fold into one line under the rest", () => {
+    const folded = foldSameTopic(rows, false);
+    expect(ids(folded)).toEqual(["a.md", SAME_TOPIC_ID]);
+    expect(folded[1].item.label).toBe("2 more about the same topic");
+    expect(folded[1].item.detail).toBe("Meaning one, Meaning two");
+  });
+
+  test("opened, they are rows again", () => {
+    expect(ids(foldSameTopic(rows, true))).toEqual(["a.md", "m1.md", "m2.md"]);
+  });
+
+  test("with nothing else, they are the answer and stay open", () => {
+    expect(ids(foldSameTopic(rows.slice(1), false))).toEqual(["m1.md", "m2.md"]);
   });
 });
