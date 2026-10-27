@@ -69,6 +69,8 @@ export const routineTables = {
      * `docs/decisions/texting-assistant/chat-routines.md`).
      */
     chat: v.optional(v.string()),
+    /** `wake: new mail`: also due soon after new mail in a mailbox shared with its chat. */
+    wake: v.optional(v.literal("mail")),
     /** Null when paused, when its writer is gone, or when it never runs. */
     nextRunAt: v.union(v.number(), v.null()),
     lastRunAt: v.optional(v.number()),

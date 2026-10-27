@@ -48,6 +48,10 @@ export function chatRoutinePrompt(group) {
     `with chat: ${id} in its front matter (between --- lines) so it answers here; the other lines are a routine's usual ones. ` +
     "When it is due it runs as the person who asked for it, on this workspace's team notes, and you answer it here for everyone, " +
     "never in anyone's own texts; it stays quiet when it has nothing to say. Anyone here can see and change it in the app. " +
-    "When someone asks to stop one, archive it yourself at once. "
+    "When someone asks to stop one, archive it yourself at once. " +
+    (Array.isArray(group?.mail) && group.mail.length > 0
+      ? "A routine with wake: new mail in its front matter also runs a minute or two after new mail reaches a mailbox shared here; " +
+        "use it when they want new mail watched, telling the chat only what needs someone and saying SKIP otherwise. "
+      : "")
   );
 }

@@ -35,6 +35,7 @@ of the owner's defaults on 2026-10-27.
   threaded, never acknowledged with a tapback, and a lone `SKIP` says nothing.
   Whatever stops it is reported as an outcome code and the chat hears nothing.
 - `send:` and `to:` are ignored: a chat routine answers in its chat.
+- `wake: new mail` also runs one soon after new mail reaches a mailbox shared with its chat ([chat-mail](./chat-mail.md)).
 
 **What a simplification would cost:** running a shared workspace's routine
 that names no chat, or texting a phone instead of the chat, puts back the

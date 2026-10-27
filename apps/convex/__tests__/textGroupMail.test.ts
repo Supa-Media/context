@@ -15,15 +15,18 @@
  *  - drop `withinShare` from the search: "every search is narrowed" fails;
  *  - keep the query's brackets in `withinShare`: "a search is narrowed" fails;
  *  - drop `insideShare` from the read: "a message outside the share" fails;
- *  - drop the `writingRole` check in `liveMailShares`: "losing edit ends it" fails.
+ *  - drop the `writingRole` check in `liveMailShares`: "losing edit ends it" fails;
+ *  - drop the `wake` or `chat` match in `wakeMailRoutines`: "new mail brings
+ *    forward only" fails; drop the gap: "never sooner than" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogleConnection, setupTest } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { withinShare } from "../functions/lib/gatewayRoutes/personMail";
+import { MAIL_WAKE_DELAY_MS, MAIL_WAKE_GAP_MS } from "../functions/lib/routines/wake";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
 const LINE = "+15555550001";
@@ -209,5 +212,65 @@ describe("sharing a mailbox with the chat", () => {
     );
     await t.run((ctx) => ctx.db.patch(membership!._id, { role: "member" }));
     expect(await search(t, await chatToken(t, DAD), care)).toMatchObject({ ok: false, refused: "not_allowed" });
+  });
+});
+
+describe("new mail wakes the chat's mail routine", () => {
+  async function routine(t: T, care: Id<"workspaces">, writer: Id<"users">, extra: Record<string, unknown>) {
+    const groupKey = (await t.run(async (ctx) => await ctx.db.query("textGroups").first()))!.groupKey;
+    return await t.run(
+      async (ctx) =>
+        await ctx.db.insert("routines", {
+          workspaceId: care,
+          path: `tex/routines/daily/${String(extra.name ?? "mail")}.md`,
+          writerUserId: writer,
+          writerSource: "signal",
+          cadence: { unit: "day", every: 1 },
+          paused: false,
+          send: "text",
+          to: [],
+          chat: groupKey.slice(0, 16),
+          nextRunAt: Date.now() + 12 * HOUR,
+          updatedAt: Date.now(),
+          ...(extra.wake === false ? {} : { wake: "mail" as const }),
+          ...(extra.chat !== undefined ? { chat: extra.chat as string } : {}),
+          ...(extra.lastRunAt !== undefined ? { lastRunAt: extra.lastRunAt as number } : {}),
+        }),
+    );
+  }
+
+  test("new mail brings forward only a waking routine of a chat it is shared with", async () => {
+    gmail();
+    const t = setupTest();
+    const { care, seyi, connectionId } = await family(t);
+    await t.run((ctx) => ctx.db.patch(connectionId, { push: { gmail: { address: WORK } } }));
+    await turn(t, SEYI, share(WORK));
+    const waking = await routine(t, care, seyi.userId, {});
+    const plain = await routine(t, care, seyi.userId, { name: "plain", wake: false });
+    const elsewhere = await routine(t, care, seyi.userId, { name: "elsewhere", chat: "0123456789abcdef" });
+    const before = Date.now();
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    const rows = await t.run(async (ctx) => await Promise.all([waking, plain, elsewhere].map((id) => ctx.db.get(id))));
+    expect(rows[0]!.nextRunAt).toBeGreaterThanOrEqual(before + MAIL_WAKE_DELAY_MS);
+    expect(rows[0]!.nextRunAt).toBeLessThan(before + MAIL_WAKE_DELAY_MS + HOUR / 60);
+    expect(rows[1]!.nextRunAt).toBeGreaterThan(before + 11 * HOUR);
+    expect(rows[2]!.nextRunAt).toBeGreaterThan(before + 11 * HOUR);
+  });
+
+  test("never sooner than the gap after its last look, and not at all once unshared", async () => {
+    gmail();
+    const t = setupTest();
+    const { care, seyi, connectionId } = await family(t);
+    await t.run((ctx) => ctx.db.patch(connectionId, { push: { gmail: { address: WORK } } }));
+    await turn(t, SEYI, share(WORK));
+    const lastRunAt = Date.now();
+    const id = await routine(t, care, seyi.userId, { lastRunAt });
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    expect((await t.run((ctx) => ctx.db.get(id)))!.nextRunAt).toBe(lastRunAt + MAIL_WAKE_GAP_MS);
+
+    await t.run((ctx) => ctx.db.patch(id, { nextRunAt: Date.now() + 12 * HOUR }));
+    await turn(t, SEYI, { command: { kind: "unshare_mail" } });
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    expect((await t.run((ctx) => ctx.db.get(id)))!.nextRunAt).toBeGreaterThan(Date.now() + 11 * HOUR);
   });
 });

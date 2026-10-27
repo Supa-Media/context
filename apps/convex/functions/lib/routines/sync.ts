@@ -254,7 +254,7 @@ export async function commitRoutinesHandler(
   // A shared workspace's routine without a chat never runs; a personal one's `chat:` means nothing.
   const schedules = args.schedules
     .filter((schedule) => runsRoutine(workspace, schedule))
-    .map((schedule) => (workspace.kind === "personal" ? { ...schedule, chat: undefined } : schedule));
+    .map((schedule) => (workspace.kind === "personal" ? { ...schedule, chat: undefined, wake: undefined } : schedule));
   const now = Date.now();
   const existing = await ctx.db
     .query("routines")
@@ -390,6 +390,7 @@ function scheduleFields(schedule: RoutineSchedule): Omit<
     send: schedule.send,
     to: schedule.to,
     chat: schedule.chat,
+    wake: schedule.wake,
   };
 }
 

@@ -49,6 +49,8 @@ export type ClaimedRun = {
   send: "text" | "note" | "both";
   phones: string[];
   chat?: string;
+  /** A chat routine's last run, so its turn can say what is new since (`wake: new mail`). */
+  since?: number;
 };
 
 function leaseIsLive(row: Doc<"routines">, now: number): boolean {
@@ -119,6 +121,7 @@ export async function claimDueRoutinesHandler(
         continue;
       }
       const runId = args.runIds[runs.length]!;
+      const since = row.lastRunAt;
       await ctx.db.patch(row._id, { claimedAt: now, runId, lastRunAt: now, nextRunAt: nextRunFor(row, zone, now), updatedAt: now });
       await recordAudit(ctx, {
         workspaceId: row.workspaceId,
@@ -128,7 +131,7 @@ export async function claimDueRoutinesHandler(
         paths: [row.path],
         details: { path: row.path, chat: true },
       });
-      runs.push({ runId, path: row.path, timeZone: zone, send: row.send, phones, chat: chat.groupKey });
+      runs.push({ runId, path: row.path, timeZone: zone, send: row.send, phones, chat: chat.groupKey, ...(since !== undefined ? { since } : {}) });
       continue;
     }
     const scopes = clampScopes(ROUTINE_SCOPES, role);
