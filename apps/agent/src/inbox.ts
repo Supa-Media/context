@@ -51,6 +51,7 @@ import { textsFromAnswer } from "./format";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
+import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
@@ -182,7 +183,7 @@ export async function accept(
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
-  if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
+  if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
   }
   await storage.put<RememberedChat>(CHAT_KEY, {
@@ -351,6 +352,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   if (movedTo !== undefined && movedTo === message.chatId) {
     reply = [NEW_LINE_TEXT, ...reply];
     await storage.delete(NEW_LINE_KEY);
+    await storage.put(NEW_LINE_TOLD_KEY, deps.now());
   }
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
   // One of the Worker's own texts (a failure, a limit, setup) is the system's: no turn the gateway recorded wrote it.
