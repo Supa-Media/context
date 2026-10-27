@@ -38,7 +38,10 @@ import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
-import { acceptGroup, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
+import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
+import { sha256Hex } from "./groupChat";
+import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -204,6 +207,7 @@ export default {
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
         textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        runInChat: (run) => runInChat(env, run),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -406,6 +410,21 @@ async function textPhone(env: Env, phone: string, text: string, idempotencyKey: 
   return status === "texted" || status === "no_chat" ? status : "failed";
 }
 
+/** A chat routine's run, into its chat's own queue, found by the chat's key (`groupRoutines.ts`). */
+async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
+  const phone = run.phones[0];
+  if (run.chat === undefined || phone === undefined) return "no_chat";
+  const directory = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(chatDirectoryName(run.chat)));
+  const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
+  const where = found.ok ? chatWhereOf(await found.json()) : null;
+  if (where === null) return "no_chat";
+  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(where.groupId)));
+  const body = { ...where, runId: run.runId, path: run.path, phone };
+  const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
+  if (!response.ok) return "failed";
+  return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";
+}
+
 /** The inbox's internal route for a routine's text. Only this Worker reaches it. */
 const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
@@ -459,8 +478,23 @@ export class SenderInbox implements DurableObject {
     }
     if (path === "/group-accept") {
       await this.keepOrigin(request);
-      const message = (await request.json()) as GroupMessage;
+      // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
+      const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
+      await this.keepWhere(message);
       return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
+    }
+    if (path === "/group-routine") {
+      const run = chatRoutineRunOf(await request.json());
+      if (run === null) return new Response(null, { status: 400 });
+      return Response.json({ outcome: await acceptGroupRoutine(this.state.storage, run, Date.now()) });
+    }
+    // A chat's directory entry (`groupRoutines.ts`): where the chat with this object's key is.
+    if (path === "/chat-where") {
+      if (request.method === "GET") return Response.json((await this.state.storage.get(CHAT_WHERE_KEY)) ?? null);
+      const where = chatWhereOf(await request.json());
+      if (where === null) return new Response(null, { status: 400 });
+      await this.state.storage.put(CHAT_WHERE_KEY, where);
+      return Response.json({ ok: true });
     }
     // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
     if (path === "/job-start") {
@@ -516,6 +550,16 @@ export class SenderInbox implements DurableObject {
     const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(inbox));
     const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
     return response.ok;
+  }
+
+  /** Tell the chat's directory entry where this chat is, once, so its routines can find it (`groupRoutines.ts`). */
+  private async keepWhere(message: GroupMessage): Promise<void> {
+    if (message.sms || (await this.state.storage.get(WHERE_KEPT_KEY)) !== undefined) return;
+    const key = await sha256Hex(`${message.line}:${message.groupId}`);
+    const directory = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(chatDirectoryName(key)));
+    const where = { line: message.line, groupId: message.groupId };
+    const response = await directory.fetch("https://inbox/chat-where", { method: "POST", body: JSON.stringify(where) });
+    if (response.ok) await this.state.storage.put(WHERE_KEPT_KEY, true);
   }
 
   /** The Worker's own address, kept for pictures served back to Sendblue (`media.ts`). */

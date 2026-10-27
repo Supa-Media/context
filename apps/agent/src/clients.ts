@@ -517,11 +517,14 @@ export type RoutineSend = "text" | "note" | "both";
 
 export type DueRoutine = {
   runId: string;
+  /** "" for a chat routine's run: the chat's own turn mints its grant (`groupRoutines.ts`). */
   accessToken: string;
   path: string;
   timeZone: string;
   send: RoutineSend;
   phones: string[];
+  /** A chat routine's chat, by its key: answered into that group, never a phone. */
+  chat?: string;
 };
 
 /** Most runs one tick takes on; the rest are still due on the next. */
@@ -540,7 +543,8 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
   const due: DueRoutine[] = [];
   for (const value of runs.slice(0, MAX_DUE_RUNS)) {
     const run = record(value);
-    if (!nonEmpty(run.runId) || !nonEmpty(run.accessToken) || !nonEmpty(run.path) ||
+    const chat = typeof run.chat === "string" && /^[0-9a-f]{64}$/.test(run.chat) ? run.chat : undefined;
+    if (!nonEmpty(run.runId) || (chat === undefined && !nonEmpty(run.accessToken)) || !nonEmpty(run.path) ||
         typeof run.timeZone !== "string" || !isSend(run.send) || !Array.isArray(run.phones)) {
       continue;
     }
@@ -548,11 +552,12 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
     const phones = [...new Set(run.phones.filter((phone): phone is string => typeof phone === "string" && E164.test(phone)))];
     due.push({
       runId: run.runId,
-      accessToken: run.accessToken,
+      accessToken: chat === undefined ? (run.accessToken as string) : "",
       path: run.path,
       timeZone: run.timeZone,
       send: run.send,
       phones,
+      ...(chat === undefined ? {} : { chat }),
     });
   }
   return due;

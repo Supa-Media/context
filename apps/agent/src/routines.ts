@@ -46,6 +46,11 @@ export type RoutineDeps = {
   gatewayOrigin: string | undefined;
   /** Text one phone the answer, through that phone's own inbox. */
   textPhone: (phone: string, text: string, idempotencyKey: string) => Promise<PhoneTexted>;
+  /**
+   * Hand a chat routine's run to its chat's own queue (`groupRoutines.ts`),
+   * which reports how it went; `no_chat` when this Worker doesn't know the chat.
+   */
+  runInChat?: (run: DueRoutine) => Promise<"queued" | "no_chat" | "failed">;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -107,6 +112,14 @@ export function byPerson(due: DueRoutine[]): DueRoutine[][] {
 
 async function runOne(run: DueRoutine, deps: RoutineDeps, origin: string, secret: string, gateway: string) {
   const started = Date.now();
+  if (run.chat !== undefined) {
+    // A chat routine answers in its chat, through the chat's own turn; never through the gateway's routine runner.
+    const handed = deps.runInChat ? await deps.runInChat(run) : "no_chat";
+    deps.log({ event: "routine_run", run: run.runId, chat: handed, ms: Date.now() - started });
+    if (handed === "queued") return;
+    await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: handed, texted: 0 }).catch(() => undefined);
+    return;
+  }
   const ran = await runRoutine(deps.fetch, gateway, run.accessToken, { path: run.path, timeZone: run.timeZone });
 
   // The gateway read the note just now; its `send:` is the current one.

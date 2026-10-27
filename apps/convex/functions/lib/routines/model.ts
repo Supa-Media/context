@@ -138,6 +138,8 @@ export interface RoutineSchedule {
   paused: boolean;
   send: "text" | "note" | "both";
   to: string[];
+  /** A shared workspace's routine: the group chat it answers into (`chat:`, 16 hex). */
+  chat?: string;
 }
 
 /**
@@ -160,6 +162,7 @@ export function scheduleFromNote(path: string, text: string): RoutineSchedule | 
     paused: settings.paused,
     send: settings.send,
     to: settings.to.slice(0, 20),
+    ...(settings.chat === null ? {} : { chat: settings.chat }),
   };
 }
 

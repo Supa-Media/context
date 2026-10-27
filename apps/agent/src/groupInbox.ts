@@ -36,7 +36,8 @@
  *   only while it is bound (`groupChat.ts`).
  */
 
-import { askAgentStream, post, record, ServiceError, type Fetch } from "./clients";
+import { askAgentStream, post, record, reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
+import { chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
@@ -52,6 +53,7 @@ import { groupLineFor, type GroupPlace } from "./groupLine";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
+import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
@@ -78,12 +80,6 @@ export function groupInboxName(groupId: string): string {
   return `sendblue-group:${groupId}`;
 }
 
-type Command =
-  | { kind: "stop" }
-  | { kind: "start" }
-  | { kind: "use"; slug: string }
-  | { kind: "invite"; slug: string; role?: "editor" | "member" }
-  | { kind: "status" };
 /** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
 type Pending = { message: GroupMessage; attempts: number; at?: number };
 
@@ -170,94 +166,8 @@ export const GROUP_LINES = {
   failed: "I couldn't answer that one. Try again in a bit.",
 } as const;
 
-const NAME = "(?:tex|context)";
-/** The name, not "Tex-Mex" or "Texas". */
-const WORD = `@?${NAME}(?![\\w-])`;
-/** Words a message to Tex starts with after its name, unpunctuated ("Tex what's on"), where "Tex got that wrong" is about it. */
-const ASKING =
-  "(?:what|what's|whats|who|who's|when|when's|where|where's|why|how|which|can|could|would|will|is|are|do|does|did|should|please|pls|" +
-  "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read)\\b";
-/** "Tex ^ do this", "Tex ↑": the message above is the ask. */
-const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
-/*
-  Any other word after the name is an ask too ("Tex turn this guy into a cat",
-  2026-10-23, went unanswered because "turn" was not on the list above),
-  unless it reads as talking about Tex: a past or third-person verb, or a word
-  people use about it ("Tex got that wrong lol", "Tex was down", "Tex sucks").
-*/
-const ABOUT = "(?:was|were|got|gets|has|had|have|said|says|just|keeps|kept|always|never|really|seems|thinks|lol|lmao|haha|too|again|isn't|wasn't|can't|won't|didn't|doesn't|[a-z]+ed|[a-z]+s)\\b";
-const OPENS = new RegExp(
-  `^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING}|\\s+(?!${ABOUT})[a-z])))`,
-  "i",
-);
-const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
-const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
-/** A reply to Tex that needs no answer. */
-const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
-const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
-/** A workspace slug on its own, with or without its `@`. */
-const BARE_NAME = /^@?([a-z0-9][a-z0-9-]{0,63})$/;
 
-/**
- * Whether a group message is meant for Tex. Read from the words alone, with
- * no model: its name opening or closing it, its name in a question, or an
- * inline reply to Tex that says more than thanks.
- */
-export function addressesTex(text: string, repliesToTex: boolean): boolean {
-  const words = unquoted(text);
-  if (words === "") return false;
-  if (OPENS.test(words) || CLOSES.test(words)) return true;
-  if (NAMED.test(words) && /\?\s*$/.test(words)) return true;
-  return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
-}
-
-/** The words without the quotes a person may type around them ("“Tex use @supa”"). */
-function unquoted(text: string): string {
-  return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
-}
-
-/**
- * The words after Tex's name, when they are one of the group commands. While
- * the chat is picking a workspace (`choices`), one of the names it was offered
- * on its own ("supa", "@supa", "Tex supa") picks it.
- *
- * Tex's name is optional here because the caller has already decided the
- * message is for Tex (`acceptGroup`). An unaddressed message reaches this
- * only through `offeredName` below, which is narrower on purpose.
- */
-export function groupCommand(text: string, choices: readonly string[] = []): Command | null {
-  const rest = unquoted(text)
-    .replace(new RegExp(`^(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}[\\s,:!.-]*`, "i"), "")
-    .trim()
-    .replace(/[.!]+$/, "")
-    .toLowerCase();
-  if (/^(?:stop|be quiet|mute|shush|shh+)$/.test(rest)) return { kind: "stop" };
-  if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
-  if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
-  const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
-  if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
-  const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
-  if (use) return { kind: "use", slug: use[1] };
-  const named = BARE_NAME.exec(rest);
-  return named && choices.includes(named[1]) ? { kind: "use", slug: named[1] } : null;
-}
-
-/**
- * One of the names Tex just offered, said on its own — the only words it
- * answers without being addressed, and only while that question is open.
- *
- * `groupCommand` takes Tex's name as optional, which is right once a message
- * is known to be for Tex and wrong as the way in: it would make a bare "stop"
- * or "start" from a conversation between two other people mute or unmute Tex.
- * Those words are chat, and chat is what `keepChatLine` is for.
- */
-export function offeredName(text: string, choices: readonly string[]): string | null {
-  if (choices.length === 0) return null;
-  const named = BARE_NAME.exec(unquoted(text).replace(/[.!]+$/, "").trim().toLowerCase());
-  return named !== null && choices.includes(named[1]) ? named[1] : null;
-}
-
-export { peopleOf };
+export { addressesTex, groupCommand, offeredName, peopleOf };
 
 /**
  * Accept a group message: answered later by the alarm when it is meant for
@@ -297,6 +207,24 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   // Words alone wait a moment for a picture to follow them; a tag that brought one goes now.
   await storage.setAlarm(message.attachments?.length ? now : now + GROUP_TEXT_WAIT_MS);
   return "queued";
+}
+
+/** A chat routine's run (`groupRoutines.ts`): queued as its writer's tag, answered now. */
+export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutineRun, now: number): Promise<"queued" | "full"> {
+  const pending = await storage.list<Pending>({ prefix: "gpending:" });
+  if (pending.size >= MAX_PENDING) return "full";
+  const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
+  await storage.put("gseq", seq);
+  await storage.put<Pending>(pendingKey(seq), { message: chatRoutineMessage(run), attempts: 0, at: now });
+  await storage.setAlarm(now);
+  return "queued";
+}
+
+/** How a chat routine's run went, to the control plane: a code, never its words. */
+async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
+  if (message.routine === undefined) return;
+  log(`routine_${outcome}`);
+  await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 
 /**
@@ -385,7 +313,9 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
         return;
       }
       await storage.delete(key);
-      await say(storage, deps, item.message, GROUP_LINES.failed).catch(() => {});
+      // A routine nobody asked for just now fails quietly: the chat didn't ask, so it is told nothing.
+      if (item.message.routine !== undefined) await routineDone(deps, item.message, "failed");
+      else await say(storage, deps, item.message, GROUP_LINES.failed).catch(() => {});
     }
   }
   await pruneSeen(storage, deps.now());
@@ -396,19 +326,24 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms));
   const chat = { line: message.line, groupId: message.groupId };
-  const command = groupCommand(message.text, await openChoice(storage, deps.now()));
+  const routine = message.routine !== undefined;
+  const command = routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
 
   // The app's own list too: more people only ever narrows what Tex may use.
   const members = await app.readMembers(chat);
   if (members === null) log("members_unread");
+  // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
+  if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
   const asked = await askControlPlane(deps, message, people, command);
   const status = asked.status;
+  // A chat that can't run it now is told nothing: nobody in it asked just now.
+  if (routine && status !== "ready") return void (await routineDone(deps, message, "no_chat"));
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !routine) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
@@ -486,6 +421,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     },
     progress,
   );
+  if (routine && answer.kind !== "answer") return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : answer.kind === "no_model" ? "no_provider" : "failed"));
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow."));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet."));
   if (answer.kind !== "answer") throw new ServiceError("gateway", null);
@@ -508,16 +444,20 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const now = await app.readMembers(chat);
   if (now === null) {
     log("members_unread_after");
+    if (routine) return void (await routineDone(deps, message, "failed"));
     return void (await say(storage, deps, message, GROUP_LINES.failed));
   }
   const joined = now.some((phone) => phone !== message.line && !people.includes(phone));
+  if (joined && routine) return void (await routineDone(deps, message, "no_chat"));
   if (joined) return void (await say(storage, deps, message, GROUP_LINES.joined));
+  if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const texts = textsWithExact(answer.text, answer.verbatim);
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   for (const text of texts) await say(storage, deps, message, text);
   // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
   for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture);
   log("answered");
+  await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());
   // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.

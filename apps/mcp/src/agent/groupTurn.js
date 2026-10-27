@@ -36,7 +36,7 @@ import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.j
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, writeGroupNote } from "./groupMemoryNote.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
-import { routineRootOf } from "../../../../packages/shared/src/routines.cjs";
+import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { toolError } from "../tools/results.js";
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
@@ -332,7 +332,8 @@ export function groupPrompt(group, workspace) {
     "A password comes only from a login saved in this workspace for the whole workspace, never anyone's own, and never typed in the chat; " +
     "when a site needs a password and there is none saved, say someone can save one in the workspace's vault and share it with everyone there. " +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
-    "You can't set reminders or routines from a group yet, or text anyone outside it. " +
+    chatRoutinePrompt(group) +
+    "You can't text anyone outside the chat. " +
     "When someone asks for a note's link here, send its link: line; it opens in the Context app for everyone in this chat, because they are all members. " +
     "A share link for people outside the workspace is the owner's to make by texting you on their own. " +
     "You see what the chat said before the tag, so \"write this up\" or \"what did we decide\" means that conversation; " +
@@ -397,16 +398,12 @@ const SOMEBODYS_ALONE = new Set([
 /** Every tool that changes something, by the registry's own word. */
 const WRITE_TOOL_NAMES = new Set(toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name));
 
-/** Every path-like argument a routine could be named by. */
-const routinePaths = (args) =>
-  [args?.path, args?.note, args?.destination].filter((value) => typeof value === "string" && routineRootOf(value) !== null);
-
 /**
  * The dispatcher a group turn calls through: a person's own text's
- * (`textingAwareCallTool`), with one thing it can't do here. A routine runs
- * only in its writer's personal workspace and texts only them, so one written
- * in the chat's shared workspace would never run; it is refused with that
- * reason rather than saved to sit there.
+ * (`textingAwareCallTool`), with one thing narrower here. A routine in the
+ * chat's shared workspace runs only when it names this chat, and answers into
+ * it (`groupRoutines.js`); one that wouldn't run is refused with the reason
+ * rather than saved to sit there.
  */
 export function groupAwareCallTool(callTool, writeTools, { store = null, group = null, question = "" } = {}) {
   const texting = textingAwareCallTool(callTool, writeTools.filter((tool) => !GROUP_OWN_ACCOUNT_TOOLS.includes(tool.name)));
@@ -414,9 +411,8 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
   const grouped = async (name, args) => {
     // A write tool this turn wasn't given is the turn's allowlist's to refuse; never passed on wider.
     if (!writes.has(name) && WRITE_TOOL_NAMES.has(name)) return toolError(`${name} isn't available in this group chat.`);
-    if (writes.has(name) && routinePaths(args).length > 0) {
-      return toolError("Reminders and routines can't be set from a group chat yet: they run in one person's own workspace. Text me on your own for one.");
-    }
+    const refused = writes.has(name) ? chatRoutineRefusal(group, name, args) : null;
+    if (refused !== null) return toolError(refused);
     return texting(name, args);
   };
   // A guest chat's narrower writes go first (`groupGuests.js`).

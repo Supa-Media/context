@@ -324,7 +324,7 @@ test("a stale etag changes nothing, and routines and hidden paths are refused in
   const [stale, replaced, routine, hidden] = toolResults(world.model.requests[1]);
   assert.match(stale, /conflict|changed|etag|precondition/i, stale);
   assert.doesNotMatch(replaced, /can't be passed|isn't available/, replaced);
-  assert.match(routine, /can't be set from a group chat/);
+  assert.match(routine, /Put chat: a{16}/);
   assert.match(hidden, /can't be used/);
   assert.match(bodyAt(world.team, "1-projects/setlist.md"), /Closer is Hey Jude/);
   assert.deepEqual(live(world.team, "tex/").filter((key) => !key.startsWith("tex/groups/chat-")), [], "no routine was written");
