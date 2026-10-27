@@ -677,7 +677,7 @@ export async function runTurn(options) {
         isError: failedCall(result),
       });
     }
-    if (steer !== null && typeof steer.cancelled === "function" && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
+    if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
     const steered = steer === null ? null : await steer.next();
     if (steered !== null) {
       messages.push({ role: "user", text: steered });

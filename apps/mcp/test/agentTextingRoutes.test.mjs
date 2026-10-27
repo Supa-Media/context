@@ -36,7 +36,7 @@
  *     after the turn returned.
  * 11. `route.js` not asking `steer.endCancelled()` after the turn → "a cancel
  *     after the last round still withdraws the turn's asks".
- * 12. `steer.js` `track` not marking a write (drop `await committed(...)`) →
+ * 12. `steer.js` `track` not marking a write (drop `await (marked ??= mark(true))`) →
  *     "no cancel once the turn has changed something".
  * 13. `cancelTurn` not checking the running state (drop the `before?.user`
  *     test) together with its re-check after marking (always `return true`)
@@ -52,6 +52,12 @@
  * 16. `route.js` recording any named turn, not only steer's (set
  *     `outcome.turn = body.turn` unconditionally) → "only a texted turn the
  *     Worker named is recorded".
+ * 17. `turn.js` asking `steer.cancelled()` after a write started (drop
+ *     `steer.wrote !== true &&`), or `endCancelled` reading the mark after
+ *     one (drop `open === 0 &&`) → "a cancel mark set after a write started
+ *     is ignored by the turn" (each run 2026-10-27, each failed it).
+ * 18. `track` not taking back the mark of a held call → "a cancel after the
+ *     last round still withdraws the turn's asks" (run 2026-10-27).
  *
  * Changed behaviour (2026-10-27, not a sabotage): `/agent/cancel` answers
  * `{ cancelled: false }` and marks nothing unless the named turn is running
@@ -310,6 +316,22 @@ test("no cancel once the turn has changed something", async () => {
   assert.equal(response.body.cancelled, undefined);
   assert.equal(response.body.answer, "Wrote it.");
   assert.deepEqual(liveKeys(CANCEL_PREFIX), []);
+});
+
+test("a cancel mark set after a write started is ignored by the turn", async () => {
+  for (const [script_, at] of [
+    [[{ calls: [["write_note", { path: "1-projects/a.md", content: "# A\n" }]] }, { calls: [["fetch", { id: "1-projects/plan.md" }]] }, { text: "Wrote it." }], 2], // seen after a round (`turn.js`)
+    [[{ calls: [["write_note", { path: "1-projects/b.md", content: "# B\n" }]] }, { text: "Wrote it." }], 2], // seen at the end (`endCancelled`)
+  ]) {
+    script = script_;
+    requests.length = 0;
+    during = async (n) => {
+      if (n === at) bucket.set(`${CANCEL_PREFIX}${TURN}.json`, { body: "{}", etag: "cx" }); // the mark a racing cancel leaves before it takes it back
+    };
+    const response = await call("/agent", { question: "write a note", timeZone: "UTC", conversation: "texts", turn: TURN });
+    assert.equal(response.body.cancelled, undefined);
+    assert.equal(response.body.answer, "Wrote it.");
+  }
 });
 
 test("a cancel after the last round still withdraws the turn's asks", async () => {
