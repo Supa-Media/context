@@ -103,6 +103,7 @@ export type FileOperation =
       prefix?: string;
       limit?: number;
       refreshOnMiss?: boolean;
+      half?: "words" | "meaning";
     }
   | { kind: "notePaths" }
   | { kind: "workspaceGraph"; compact?: boolean }

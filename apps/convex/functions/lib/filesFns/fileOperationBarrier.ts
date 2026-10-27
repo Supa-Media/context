@@ -179,7 +179,8 @@ export async function runFileOperationHandler(
     // (`searchNotes`), so a filling one is read too and says it is behind.
     const [target, meaningTarget] = await Promise.all([
       ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId }),
-      meaningSearchDescriptor(ctx, args.workspaceId),
+      // The words half asks no meaning index, so it reads no credential for one.
+      args.operation.half === "words" ? Promise.resolve(null) : meaningSearchDescriptor(ctx, args.workspaceId),
     ]);
     if (target !== null && (target.state === "ready" || target.state === "backfilling")) {
       const client = await clientFor(target);

@@ -260,6 +260,7 @@ export async function executeOperation(
             clearance,
             limit: operation.limit,
             refreshOnMiss: operation.refreshOnMiss,
+            half: operation.half,
           },
           projection,
         );

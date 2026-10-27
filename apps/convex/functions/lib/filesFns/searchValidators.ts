@@ -18,6 +18,8 @@ export const searchResultsValidator = v.object({
       meaningOnly: v.optional(v.boolean()),
       /** Has some of the words typed, not all of them (the relaxed any-word pass). */
       loose: v.optional(v.boolean()),
+      /** How close a meaning half's match is, 0 to 1. See `SearchHit.closeness`. */
+      closeness: v.optional(v.number()),
     }),
   ),
   matchCount: v.number(),
@@ -111,6 +113,12 @@ export const blendedResultsValidator = v.object({
       meaningOnly: v.optional(v.boolean()),
       /** Has some of the words typed, not all of them: the row says how many. */
       loose: v.optional(v.boolean()),
+      /**
+       * A meaning half's row close enough to show beside notes that had every
+       * word (`MEANING_EXTRA_FLOOR_WITH_WORDS`). The app drops the rest when
+       * the words found something.
+       */
+      close: v.optional(v.boolean()),
       /** When the note was last written (ms), from the tree; absent where the tree has no row. */
       edited: v.optional(v.number()),
     }),
