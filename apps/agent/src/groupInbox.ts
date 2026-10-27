@@ -284,6 +284,11 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
       return "queued";
     }
     if (how === "after") return await enqueue(storage, message, { ...extra, force: true }, repliesToTex, seen, now);
+    if (how === "redecide") {
+      // Not addressed: chat, as any untagged line is, and put to decide once more after the turn.
+      if (!tagged && !(await keepChatLine(storage, message, now))) return "ignored";
+      return await enqueue(storage, message, { ...extra, ...(tagged ? {} : { soft: true as const }) }, repliesToTex, seen, now);
+    }
     if (!(await keepChatLine(storage, message, now))) return "ignored";
     await storage.put(seen, now);
     return "kept";
@@ -409,7 +414,7 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
       if (choice.react) {
         await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
       }
-      entries = choice.answer;
+      entries = await ownTurn(storage, choice.answer);
       if (entries.length === 0) continue;
     }
     const [key, item] = entries.at(-1)!;
@@ -434,6 +439,30 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
     }
   }
   await pruneSeen(storage, deps.now());
+}
+
+/**
+ * A group turn runs on one person's grant: the control plane resolves it for
+ * whoever the message is from. So one turn answers one sender's messages. Of
+ * what decide covered, the first message's sender is the asker; somebody
+ * else's untagged line is only what the chat said around it (it is one of
+ * the chat's lines already), and somebody else's request waits to be
+ * answered as their own turn, on their own grant.
+ */
+async function ownTurn(storage: InboxStorage, covered: GroupEntry[]): Promise<GroupEntry[]> {
+  const asker = covered[0]?.[1].message.from;
+  const own: GroupEntry[] = [];
+  let until = 0;
+  for (const entry of covered) {
+    const [key, item] = entry;
+    if (item.message.from === asker) own.push(entry);
+    else if (item.soft && !item.force) {
+      // Somebody else's line decide covered is context: the turn reads the chat up to it.
+      until = Math.max(until, item.at ?? 0);
+      await storage.delete(key);
+    } else await storage.put<Pending>(key, { ...item, force: true });
+  }
+  return own.map(([key, item], index) => (index === own.length - 1 ? [key, { ...item, contextUntil: until }] : [key, item]));
 }
 
 const coversOf = (entries: GroupEntry[]): string[] => [...new Set(entries.flatMap(([, item]) => [...(item.covers ?? []), ...(item.ev ? [item.ev] : [])]))];
@@ -507,7 +536,8 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   }
   if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
   const covered = entries.map(([, entry]) => entry.message);
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt, covers, people, asked, accessToken: asked.accessToken });
+  const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId);
   return outcome;
 }
@@ -562,8 +592,8 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
     ...(guest ? { guest } : {}),
   };
   // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
-  const { steer, end, live } = startTurn(storage, message.groupId, deps, covers, (ids) => dropSteered(storage, ids, covers));
-  steer.onSession(accessToken);
+  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
+  await steer.onSession(accessToken);
   const meta: SayMeta = { turn: steer.turn, covers, people: await sha256Hex(people.join(",")) };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:

@@ -185,6 +185,7 @@ export async function decideWhileRunning(
   };
   const decision = await ask(storage, { ...running.deps, now }, item.message, [item.ev], true);
   if (!decision.ok) return void (await keep({ force: true }));
+  // One sender per chat here; `steerInto` and `restartTurn` still refuse anyone but the turn's asker.
   const how = decision.midTurn ?? (decision.act === "answer" ? "queue" : undefined);
   if (how === "fold") {
     if (!(await steerInto(running, item.message, steerWords(item.message)))) await keep({ force: true });

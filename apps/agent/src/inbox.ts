@@ -499,6 +499,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   const { steer, end, live } = startTurn(
     storage,
     message.chatId,
+    message.from,
     deps,
     covers,
     (ids) => dropSteered(storage, ids, covers),

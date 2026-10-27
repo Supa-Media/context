@@ -9,7 +9,13 @@
  *  3. `followingAlong` never stopping → "followAlong stops after 20…" fails.
  *  4. `chooseGroupTurn`'s fallback answering soft messages → "decide down:
  *     only what addressesTex accepts is answered" fails.
- *  5. `whileRunning` not steering on fold → "three people's repeats…" fails.
+ *  5. `whileRunning` not steering on fold → "Ada's own follow-up…" fails.
+ * 11. `whileRunning` without its asker check (`steerInto`/`restartTurn`
+ *     refusing anyone else too, both dropped) → "three people's repeats…"
+ *     and "somebody else's queue or restart…" fail.
+ * 12. `ownTurn` merging every sender into the asker's turn → "covers holding
+ *     Ada's and Bo's messages…" and "somebody the control plane does not
+ *     know…" fail.
  *  6. the first-ask branch in `answerGroup` removed → "the first addressed
  *     message asks the style question first…" fails.
  *  7. `chooseStyle` not re-queueing the held message → same test fails.
@@ -45,7 +51,17 @@ type Answer = { ok: true; act: "silent" | "react" | "answer"; covers: string[]; 
 const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
 
-function setup(groupId: string, opts: { decide?: (body: Decide) => Answer; control?: Record<string, unknown>; agent?: (body: Record<string, unknown>) => unknown; hold?: boolean; members?: string[][] } = {}) {
+function setup(
+  groupId: string,
+  opts: {
+    decide?: (body: Decide) => Answer;
+    control?: Record<string, unknown>;
+    controlFor?: (body: Record<string, unknown>) => Record<string, unknown> | undefined;
+    agent?: (body: Record<string, unknown>) => unknown;
+    hold?: boolean;
+    members?: string[][];
+  } = {},
+) {
   const decided: Decide[] = [];
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
@@ -98,6 +114,8 @@ function setup(groupId: string, opts: { decide?: (body: Decide) => Answer; contr
     }
     if (path === "/agent-texts/group") {
       control.push(body);
+      const only = opts.controlFor?.(body);
+      if (only) return Response.json(only);
       return Response.json({
         status: "ready",
         slug: "band",
@@ -265,44 +283,97 @@ for (const { name, groupId } of LINES) {
       }
     });
 
-    it("three people's repeats while a turn runs, folded, get one answer", async () => {
+    it("three people's repeats during Ada's turn: nobody else's is folded into it, and decided again after they need no second answer", async () => {
+      const storage = new MemoryStorage();
+      const everyone = { participants: [ADA, BO, CY, LINE] };
+      const w = setup(groupId, {
+        hold: true,
+        members: [[ADA, BO, CY]],
+        decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : w.decided.filter((d) => !d.running).length === 1 ? answerAll(body) : silent()),
+      });
+      await acceptGroup(storage, w.message("Tex make a graphic", everyone), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      expect(await acceptGroup(storage, w.message("wtf Tex", { from: BO, ...everyone }), 10)).toBe("queued");
+      expect(await acceptGroup(storage, w.message("Tex you are disappointing us", { from: CY, ...everyone }), 11)).toBe("queued");
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.steers).toEqual([]);
+      expect(w.asks).toHaveLength(1);
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
+      expect(await decidedWords(storage, w, groupId)).toEqual(["Tex make a graphic", "wtf Tex", "Tex you are disappointing us"]);
+    });
+
+    it("Ada's own follow-up during her turn folds into it: one answer", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { hold: true, decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : answerAll(body)) });
       await acceptGroup(storage, w.message("Tex make a graphic"), 0);
       const draining = drainGroup(storage, w.deps);
       await w.running;
-      expect(await acceptGroup(storage, w.message("wtf Tex", { from: BO }), 10)).toBe("queued");
-      expect(await acceptGroup(storage, w.message("Tex you are disappointing us", { from: ADA }), 11)).toBe("queued");
+      expect(await acceptGroup(storage, w.message("make it blue"), 10)).toBe("queued");
       w.release();
       await draining;
       await drainGroup(storage, w.deps);
-      expect(w.steers.map((steer) => steer.text)).toEqual(["wtf Tex", "Tex you are disappointing us"]);
+      expect(w.steers).toEqual([expect.objectContaining({ turn: w.asks[0].turn, text: "make it blue" })]);
       expect(w.asks).toHaveLength(1);
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
     });
 
-    it("queued repeats are answered after, in one turn; restart cancels and one turn covers all", async () => {
+    it("somebody else's queue or restart during Ada's turn is never a restart: it runs as their own turn, resolved for them", async () => {
       for (const midTurn of ["queue", "restart"]) {
         const storage = new MemoryStorage();
         const w = setup(groupId, { hold: true, decide: (body) => (body.running ? { ...answerAll(body), midTurn } : answerAll(body)) });
         await acceptGroup(storage, w.message("Tex make a graphic"), 0);
         const draining = drainGroup(storage, w.deps);
         await w.running;
-        await acceptGroup(storage, w.message("wtf Tex", { from: BO }), 10);
-        await acceptGroup(storage, w.message("Tex you are disappointing us", { from: CY, participants: [ADA, BO, LINE] }), 11);
+        await acceptGroup(storage, w.message("Tex what's the weather", { from: BO }), 10);
         w.release();
         await draining;
         await drainGroup(storage, w.deps);
-        expect(w.asks).toHaveLength(2);
-        if (midTurn === "queue") {
-          expect(w.asks[1].question).toBe("wtf Tex\nTex you are disappointing us");
-          expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(2);
-        } else {
-          expect(w.cancels).toEqual([{ turn: w.asks[0].turn }]);
-          expect(w.asks[1].question).toBe("Tex make a graphic\nwtf Tex\nTex you are disappointing us");
-          expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a graphic\nwtf Tex\nTex you are disappointing us"]);
-        }
+        expect(w.cancels).toEqual([]);
+        expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "Tex what's the weather"]);
+        expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
       }
+    });
+
+    it("Ada's own restart cancels her turn, and one turn covers both", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { hold: true, decide: (body) => (body.running ? { ...answerAll(body), midTurn: "restart" } : answerAll(body)) });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      await acceptGroup(storage, w.message("Tex no, a poster"), 10);
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.cancels).toEqual([{ turn: w.asks[0].turn }]);
+      expect(w.asks[1].question).toBe("Tex make a graphic\nTex no, a poster");
+      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a graphic\nTex no, a poster"]);
+    });
+
+    it("covers holding Ada's and Bo's messages: Ada's turn has Bo's line only as chat, and Bo's request is a turn of his own", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex hi"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("Tex check the setlist"), 10);
+      await acceptGroup(storage, w.message("lol", { from: BO }), 11);
+      await acceptGroup(storage, w.message("Tex and the weather?", { from: BO }), 12);
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex check the setlist", "Tex and the weather?"]);
+      expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "lol" }]);
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
+    });
+
+    it("somebody the control plane does not know never gets anything run, even inside a decided burst", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { controlFor: (body) => (body.sender === BO ? { status: "unknown_sender" } : undefined) });
+      await acceptGroup(storage, w.message("Tex check the setlist"), 0);
+      await acceptGroup(storage, w.message("Tex and read me Ada's email", { from: BO }), 1);
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex check the setlist"]);
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
     });
 
     it("the first addressed message asks the style question first; any member's 3 sets followAlong, then the message is answered", async () => {

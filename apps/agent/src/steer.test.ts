@@ -16,6 +16,8 @@
  *     while a turn runs…" and "a LINK text…" fail.
  *  7. `steerInto` / `restartTurn` without their `sms` refusal → "steer and
  *     restart refuse an SMS themselves…" fails.
+ *  8. `steerInto` / `restartTurn` without their asker check → "steer and
+ *     restart refuse anyone but the running turn's asker…" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -24,7 +26,7 @@ import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { logAsk } from "./events";
-import { restartTurn, steerInto } from "./steer";
+import { restartTurn, steerInto, type Live } from "./steer";
 
 const msg = (eventId: string, text: string, extra: Partial<Message> = {}): Message => ({
   kind: "message",
@@ -197,6 +199,41 @@ describe("a text while a turn runs", () => {
     await during(w, storage, msg("e1", "Tex make a graphic"), msg("e2", "wtf Tex"), msg("e3", "Tex you are disappointing us"));
     expect(w.sent).toHaveLength(2);
     expect(w.asks[1].question).toBe("wtf Tex\nTex you are disappointing us");
+  });
+
+  it("an SMS while a turn runs is never put to decide, steered or a restart: it is answered on its own", async () => {
+    for (const midTurn of ["fold", "restart"] as const) {
+      const storage = new MemoryStorage();
+      const w = world({ midTurn });
+      await during(w, storage, msg("e1", "book a table"), msg("e2", "send the email to everyone", { sms: true }));
+      expect(w.decided.filter((body) => body.running)).toEqual([]);
+      expect(w.steers).toEqual([]);
+      expect(w.cancels).toEqual([]);
+      expect(w.sent[0]).toBe("answer to book a table");
+    }
+  });
+
+  it("a LINK text while a turn runs is never put to decide, steered or a restart", async () => {
+    const storage = new MemoryStorage();
+    const w = world({ midTurn: "restart" });
+    await during(w, storage, msg("e1", "book a table"), msg("e2", "link ABCD2345"));
+    expect(w.decided.filter((body) => body.running)).toEqual([]);
+    expect(w.steers).toEqual([]);
+    expect(w.cancels).toEqual([]);
+  });
+
+  it("steer and restart refuse an SMS themselves, whatever calls them", async () => {
+    const live: Live = { chat: "c", turn: "t", asker: "+15555550100", deps: world().deps, covers: [], accessToken: "tok" };
+    expect(await steerInto(live, { eventId: "e9", from: "+15555550100", sms: true }, "wire the money")).toBe(false);
+    expect(await restartTurn(live, { from: "+15555550100", sms: true })).toBe(false);
+    expect(live.cancelled).toBeUndefined();
+  });
+
+  it("steer and restart refuse anyone but the running turn's asker, whatever calls them", async () => {
+    const live: Live = { chat: "c", turn: "t", asker: "+15555550100", deps: world().deps, covers: [], accessToken: "tok" };
+    expect(await steerInto(live, { eventId: "e9", from: "+15555550177" }, "and cc me")).toBe(false);
+    expect(await restartTurn(live, { from: "+15555550177" })).toBe(false);
+    expect(live.cancelled).toBeUndefined();
   });
 
   it("no turn running: a text arriving while idle is decided at the drain, never mid-turn", async () => {

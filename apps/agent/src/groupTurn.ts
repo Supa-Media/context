@@ -39,6 +39,8 @@ export type GroupPending = {
   covers?: string[];
   /** The message the style question held: never asked about again. */
   styleAsked?: true;
+  /** What the chat said up to here is the turn's context (somebody else's lines decide covered with it). */
+  contextUntil?: number;
 };
 export type GroupEntry = [string, GroupPending];
 
@@ -132,7 +134,8 @@ export function mergedGroup(messages: GroupMessage[]): GroupMessage {
   };
 }
 
-export type WhileRunning = "folded" | "after" | "chat";
+/** `redecide`: waits, and is decided again once the running turn answered (somebody else's words a fold would have joined to it). */
+export type WhileRunning = "folded" | "after" | "redecide" | "chat";
 
 /**
  * A message in a group while a turn runs there: decided with `running: true`.
@@ -153,6 +156,14 @@ export async function whileRunning(
   const decision = await ask(storage, { ...running.deps, now }, message, [ev], true);
   if (!decision.ok) return tagged ? "after" : "chat";
   const how = decision.midTurn ?? (decision.act === "answer" ? "queue" : undefined);
+  // The running turn runs on its asker's grant: nobody else's message is folded into it or restarts it.
+  // Somebody else's is decided again after it (a repeat of the same ask may then need nothing), or answered as their own turn.
+  if (message.from !== running.asker) {
+    if (how === "fold") return "redecide";
+    if (how === "restart" || how === "queue") return "after";
+    if (decision.act === "react") await react();
+    return "chat";
+  }
   if (how === "fold") {
     if (await steerInto(running, message, message.text.trim() || PICTURE_LINE)) {
       // Taken into the running turn: its answer covers this one too.

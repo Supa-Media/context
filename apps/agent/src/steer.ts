@@ -30,6 +30,12 @@ export type TurnDeps = { fetch: Fetch; gatewayOrigin: string; controlPlaneOrigin
 export type Live = {
   chat: string;
   turn: string;
+  /**
+   * Who the turn answers, as the line names them: its session is theirs (a
+   * group's grant is resolved for the tagger), so only their own messages
+   * may be folded into it or restart it.
+   */
+  asker: string;
   deps: TurnDeps;
   /** The event ids this turn answers. */
   covers: string[];
@@ -46,12 +52,13 @@ const live = new WeakMap<InboxStorage, Live>();
 export function startTurn(
   storage: InboxStorage,
   chat: string,
+  asker: string,
   deps: TurnDeps,
   covers: string[],
   onSteered: (ids: string[]) => Promise<void>,
   onSession: (accessToken: string) => Promise<void> = async () => {},
 ): { steer: Steer; live: Live; end: () => void } {
-  const entry: Live = { chat, turn: crypto.randomUUID(), deps, covers };
+  const entry: Live = { chat, turn: crypto.randomUUID(), asker, deps, covers };
   live.set(storage, entry);
   return {
     live: entry,
@@ -80,9 +87,10 @@ export function runningTurn(storage: InboxStorage, chat: string): Live | undefin
  * it; untaken, it is answered after. Never an SMS: its sender can be faked,
  * so it never reaches a turn that runs with somebody's own session.
  */
-export async function steerInto(running: Live, message: { eventId: string; sms?: true }, text: string): Promise<boolean> {
+export async function steerInto(running: Live, message: { eventId: string; from: string; sms?: true }, text: string): Promise<boolean> {
   const words = text.trim().slice(0, MAX_STEER_TEXT);
-  if (message.sms || running.accessToken === undefined || words === "") return false;
+  // Never somebody else's words into a turn that runs on the asker's grant.
+  if (message.sms || message.from !== running.asker || running.accessToken === undefined || words === "") return false;
   try {
     const { status } = await post(
       running.deps.fetch,
@@ -99,8 +107,8 @@ export async function steerInto(running: Live, message: { eventId: string; sms?:
 }
 
 /** Cancel the running turn (restart): whatever it says after is never sent. Never for an SMS, whose sender can be faked. Whether it was cancelled. */
-export async function restartTurn(running: Live, message: { sms?: true }): Promise<boolean> {
-  if (message.sms) return false;
+export async function restartTurn(running: Live, message: { from: string; sms?: true }): Promise<boolean> {
+  if (message.sms || message.from !== running.asker) return false;
   running.cancelled = true;
   if (running.accessToken !== undefined) await cancelTurn(running.deps, running.accessToken, running.turn);
   return true;
