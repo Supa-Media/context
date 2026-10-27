@@ -256,3 +256,4 @@ test/pages.test.mjs
 test/pagesFormat.test.mjs
 test/agentConfession.test.mjs
 test/pagesDesign.test.mjs
+test/agentPhotoHunt.test.mjs

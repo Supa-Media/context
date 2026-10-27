@@ -378,3 +378,38 @@ Reverting the spelling map or the whole-word match fails "an address the
 turn read is found however its street words are spelled" in
 `agentDistance.test.mjs`; dropping `fit` fails the places checks in
 `agentVisuals.test.mjs` and the `render fit` checks in site-shots.
+
+## A comparison shows each thing, and the gateway goes and gets it (2026-10-27, night)
+
+The owner, 21:49: "it's super important that when Tex is showing comparisons,
+for food, locations, countries etc, that we are visual, we need to show
+screenshots of the things PLEASE, Tex needs to stop quitting so soon, it has
+a whole computer."
+
+Two causes, both fixed:
+
+- **The web tools were never read.** A turn's web tools (`turnWeb.js`) run
+  beside the dispatcher, not through it, and `outgoingPictures` watched only
+  the dispatcher. So no page or picture search a texted turn read ever counted
+  as read: every web photo the model put on a card was dropped as unread, and
+  `fillPictures` had nothing to match names in. `outgoing.wrapWeb` now reads
+  them like any tool result; `route.js` passes the turn's web through it.
+- **Missing pictures were the model's to go and find, and it didn't.** A note
+  in the draw result saying "search and draw again" was ignored. Now, before
+  an `option`, `gallery`, `versus`, `places` or `compare` card is drawn, every
+  thing still without a photo is hunted for side by side
+  (`agent/visuals/hunt.js`): a picture search for its name through the turn's
+  own `search_web` (so counted against its searches, and read like any
+  result), the first picture that downloads, described by the name first; and
+  if none comes, a screenshot of its own page (a search result titled with
+  it, else one more web search) by the screenshot Worker at desktop width.
+  At most six things, 24 seconds each; `draw_visual`'s limit went from 40 s to
+  75 s. What is still missing is named in the result.
+
+`VISUALS_LINE` and the page design skill now say a compared option always
+shows a real picture, and that one failed try is not a reason to answer in
+words. A wrong photo is still worse than none, which the card self-check
+(`cardCheck.js`) is there to catch.
+
+**Reversing it costs** the blank comparisons the owner asked to end. Tests:
+`apps/mcp/test/agentPhotoHunt.test.mjs`.
