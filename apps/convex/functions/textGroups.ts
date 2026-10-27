@@ -321,6 +321,39 @@ export const applyGroupTurn = internalMutation({
   },
 });
 
+/**
+ * Anyone's message in a guest chat, tagged or not, whose people changed since the last one: who is in the chat now,
+ * in its group and on its folder (`lib/textGroupGuestSync.ts`), with no turn and no grant. A muted chat is kept in
+ * step too, since leaving the chat should end what it gave. Answers nothing about who is linked or a member.
+ */
+export const syncGuestPeople = internalMutation({
+  args: { line: v.string(), groupKey: v.string(), participants: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!isPhoneNumber(args.line) || !/^[0-9a-f]{64}$/.test(args.groupKey)) return null;
+    if (args.participants.length === 0 || args.participants.length > MAX_GROUP_PARTICIPANTS) return null;
+    const chat = await ctx.db
+      .query("textGroups")
+      .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
+      .unique();
+    if (chat === null || chat.guestGroupId === undefined || chat.workspaceId === undefined) return null;
+    // A binder who may no longer: the next tag turns guest mode off, and takes back what the chat added.
+    const binder = await guestBinder(ctx, chat);
+    if (binder === null) return null;
+    await ensureChatFolderGrant(ctx, chat, binder);
+    const people = { members: [] as Id<"users">[], outsiders: [] as Id<"users">[] };
+    for (const phone of new Set(args.participants.filter((entry) => entry !== args.line))) {
+      const userId = await linkedUser(ctx, phone);
+      if (userId === null) continue;
+      if ((await getMembership(ctx, chat.workspaceId, userId)) !== null) people.members.push(userId);
+      else people.outsiders.push(userId);
+    }
+    const current = await ctx.db.get(chat._id);
+    if (current !== null) await syncChatPeople(ctx, current, binder, people);
+    return null;
+  },
+});
+
 type TurnArgs = {
   groupKey: string;
   sender: string;

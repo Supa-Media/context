@@ -82,3 +82,19 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);
 }
+
+/**
+ * `POST /agent-texts/group/people` `{ line, groupId, participants }` → `{ ok: true }`, always: a guest chat's people
+ * changed, so its group and folder follow them (`syncGuestPeople`). Sent for any message, tagged or not, so people
+ * who join or leave are added or removed without anyone tagging Tex. The answer is the same for every chat.
+ */
+export async function agentTextsGroupPeopleHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const line = stringField(body, "line");
+  const groupId = stringField(body, "groupId");
+  const participants = body.participants;
+  if (line === null || groupId === null || groupId.length > MAX_GROUP_ID) return badRequest();
+  if (!Array.isArray(participants) || participants.length > MAX_GROUP_PARTICIPANTS * 2) return badRequest();
+  const listed = participants.map((entry) => (typeof entry === "string" ? entry.slice(0, 320) : "?"));
+  await ctx.runMutation(internal.functions.textGroups.syncGuestPeople, { line, groupKey: await groupKeyOf(line, groupId), participants: listed });
+  return json({ ok: true });
+}

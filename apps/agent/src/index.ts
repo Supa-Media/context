@@ -41,6 +41,7 @@ import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
+import { syncGuestPeople } from "./groupGuestPeople";
 import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
@@ -481,7 +482,10 @@ export class SenderInbox implements DurableObject {
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
-      return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
+      const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      // People who joined or left a guest chat are added or removed without anyone tagging Tex.
+      await syncGuestPeople(this.state.storage, this.deps(), message);
+      return Response.json({ outcome });
     }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());
