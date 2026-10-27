@@ -48,6 +48,7 @@
  */
 
 import { textsFromAnswer } from "./format";
+import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
@@ -474,7 +475,8 @@ function threadFor(message: Message, overtaken = false): string | undefined {
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
-  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard };
+  const fetch = deps.fetch as LineDeps["fetch"];
+  return { fetch, linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard, noteCardPicture: noteCardDrawer(fetch, deps.controlPlaneOrigin, deps.workerSecret) };
 }
 
 export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
