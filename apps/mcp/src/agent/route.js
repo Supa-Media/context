@@ -121,7 +121,6 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
   }
 
-  outcome.turn = body.turn;
   /*
     A routine's connection runs routines and nothing else, and nothing else runs
     one: both decided by the grant's client, never by the body. A routine grant
@@ -196,6 +195,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID || group !== null ? body : null);
   const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
   const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
+  if (steer !== null) outcome.turn = body.turn; // only a texted turn the Worker named is recorded (`loggedTurn.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   let setAside = [], dropped = []; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
@@ -227,7 +227,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   try {
     await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
-    outcome.clean = true; // no model ran: the reply is the gateway's
+    outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
     if (error instanceof AgentRefusal && error.code === "daily_limit") {
       return json(

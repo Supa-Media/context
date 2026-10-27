@@ -42,6 +42,16 @@
  *     test) together with its re-check after marking (always `return true`)
  *     → "no cancel for a turn that is not running, or not this person's".
  *     Either alone fails nothing: each is a layer behind the other.
+ * 14. `recordTurn` writing `clean: true` over a record (drop its `store.get`
+ *     check and the `onlyIf`) → "a reused tainted turn id stays tainted,
+ *     whatever exit it takes". `recordTurn` writing `clean: false` only
+ *     where no record exists → "a reused clean turn id is tainted by a
+ *     tainted turn".
+ * 15. `route.js` recording the refusal exit (drop `outcome.turn = undefined`
+ *     in the `openProvider` catch) → "a refused turn writes no record".
+ * 16. `route.js` recording any named turn, not only steer's (set
+ *     `outcome.turn = body.turn` unconditionally) → "only a texted turn the
+ *     Worker named is recorded".
  *
  * Changed behaviour (2026-10-27, not a sabotage): `/agent/cancel` answers
  * `{ cancelled: false }` and marks nothing unless the named turn is running
@@ -454,4 +464,42 @@ test("a turn that fails is recorded not clean", async () => {
   assert.equal(response.status, 502);
   assert.deepEqual(JSON.parse(bucket.get(`${TURNS_PREFIX}${TURN}.json`).body), { clean: false });
   assert.deepEqual(liveKeys(RUNNING_PREFIX), [], "not left running");
+});
+
+test("a reused tainted turn id stays tainted, whatever exit it takes", async () => {
+  const key = `${TURNS_PREFIX}${TURN}.json`;
+  bucket.set(key, { body: JSON.stringify({ clean: false }), etag: "t0" });
+  const scratch = memoryStore();
+  await createPending(scratch, { name: "send_email", args: { to: "a@example.com" }, actor: { clientId: "context_texts", userId: "user_troutes" }, texting: true });
+  for (const [k, body] of scratch.data) bucket.set(k, { body, etag: `e-${k.length}` });
+  assert.match((await call("/agent", { question: "no", timeZone: "UTC", conversation: "texts", turn: TURN })).body.answer, /dropped/);
+  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false }, "a texted answer does not launder it");
+  script = [{ text: "Hi." }];
+  await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
+  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false }, "nor a clean model turn");
+});
+
+test("a reused clean turn id is tainted by a tainted turn", async () => {
+  const key = `${TURNS_PREFIX}${TURN}.json`;
+  bucket.set(key, { body: JSON.stringify({ clean: true }), etag: "t0" });
+  script = [{ fail: true }];
+  await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
+  assert.deepEqual(JSON.parse(bucket.get(key).body), { clean: false });
+});
+
+test("a refused turn writes no record", async () => {
+  controlPlane.setBuiltinVerdict("ws_troutes", { allowed: false, reason: "daily_cap" });
+  try {
+    const refused = await call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: TURN });
+    assert.equal(refused.status, 429);
+    assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false);
+  } finally {
+    controlPlane.setBuiltinVerdict("ws_troutes", BUILTIN_ALLOWED);
+  }
+});
+
+test("only a texted turn the Worker named is recorded", async () => {
+  script = [{ text: "Hi." }];
+  await call("/agent", { question: "hi", timeZone: "UTC", turn: TURN }, TOKEN_OTHER);
+  assert.equal(bucket.has(`${TURNS_PREFIX}${TURN}.json`), false, "another client's turn id is not one");
 });

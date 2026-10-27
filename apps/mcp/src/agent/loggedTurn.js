@@ -34,17 +34,30 @@ const MAX_COVERS = 32;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 export const TURNS_PREFIX = ".context/agent/turns/";
 
-/** Record whether a named turn stayed inside the workspace. Throws when it cannot: no record is untrusted. */
+/**
+ * Record whether a named turn stayed inside the workspace. Throws when it
+ * cannot: no record is untrusted. A record only ever moves toward not clean:
+ * `clean: true` is written only where none exists (create-only, and read
+ * first for a store that ignores the condition), and `clean: false` always
+ * wins. So a caller that reuses a tainted turn's id on a clean exit never
+ * launders it, and one that reuses a clean id on a tainted turn taints it.
+ */
 export async function recordTurn(store, turn, clean) {
   if (typeof turn !== "string" || !TURN.test(turn)) return;
-  await store.put(`${TURNS_PREFIX}${turn}.json`, JSON.stringify({ clean: clean === true }));
+  const key = `${TURNS_PREFIX}${turn}.json`;
+  if (clean !== true) return void (await store.put(key, JSON.stringify({ clean: false })));
+  if ((await store.get(key)) !== null) return;
+  await store.put(key, JSON.stringify({ clean: true }), { onlyIf: { absent: true } });
 }
 
 /**
  * Run a turn and record it on every exit (`recordTurn`), before its answer:
  * `run(outcome)` names the turn (`outcome.turn`) and says whether it stayed
- * clean (`outcome.clean`). A gateway reply with no model (a texted yes, a
- * refusal) is clean; a turn that threw, or whose `clean` was never set, is not.
+ * clean (`outcome.clean`). Only a texted turn the Worker named, as steer
+ * takes it (`steer.js` `steerFor`), sets `turn`. A texted yes or no answered
+ * with no model is clean; a refusal before any model writes no record (its
+ * fixed words are the Worker's `system` event); a turn that threw, or whose
+ * `clean` was never set, is not clean.
  */
 export async function recordedTurn(store, run) {
   const outcome = { turn: undefined, clean: false };
