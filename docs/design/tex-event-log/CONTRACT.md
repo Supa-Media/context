@@ -99,6 +99,11 @@ workspace per day). Typed questions only. Returns:
   both. The gateway's cancel withdraws that turn's held asks.
 - `stale` ask ids → those asks are disarmed (gateway `disarmRecords`); never
   extended.
+- `/agent/cancel` answers `{ cancelled: false }`, marking nothing, when no
+  turn of this person runs under that id or the running one already made a
+  call that changed something or went out; the Worker then treats the text as
+  `queue`. The turn's own `/agent` answer is `{ cancelled: true }` whenever it
+  saw the mark, including a cancel that landed after its last round.
 - Every outbound part → an `Event` with `delivered`/`reason`.
 - First addressed message in a group whose style was never chosen: Tex asks
   before answering, with the approved wording; any member's "1"–"4" or a name
