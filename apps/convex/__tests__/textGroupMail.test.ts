@@ -13,6 +13,7 @@
  *    `sharingWorkspace` refusing a guest chat, "never into a guest chat" fails
  *    when both are dropped;
  *  - drop `withinShare` from the search: "every search is narrowed" fails;
+ *  - keep the query's brackets in `withinShare`: "a search is narrowed" fails;
  *  - drop `insideShare` from the read: "a message outside the share" fails;
  *  - drop the `writingRole` check in `liveMailShares`: "losing edit ends it" fails.
  */
@@ -123,6 +124,8 @@ describe("sharing a mailbox with the chat", () => {
   test("a search is narrowed by the share's own search", () => {
     expect(withinShare("intake", { filter: "to:clients@work.example" })).toBe("(to:clients@work.example) (intake)");
     expect(withinShare("intake", {})).toBe("intake");
+    // A query can't close the share's brackets and widen it.
+    expect(withinShare("x) OR (in:anywhere", { filter: "to:clients@work.example" })).toBe("(to:clients@work.example) (x  OR  in:anywhere)");
   });
 
   test("before any share, the chat reads no mail", async () => {

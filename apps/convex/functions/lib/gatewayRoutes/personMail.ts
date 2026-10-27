@@ -73,9 +73,13 @@ type Mailbox = {
   shared?: true;
 };
 
-/** A query narrowed by a shared mailbox's search: Gmail reads the two side by side as both. */
+/**
+ * A query narrowed by a shared mailbox's search: Gmail reads the two side by
+ * side as both. The query's own brackets go, so it can't close the share's
+ * group and open one of its own beside it.
+ */
 export function withinShare(query: string, mailbox: Pick<Mailbox, "filter">): string {
-  return mailbox.filter === undefined ? query : `(${mailbox.filter}) (${query})`;
+  return mailbox.filter === undefined ? query : `(${mailbox.filter}) (${query.replace(/[(){}]/g, " ").trim()})`;
 }
 
 function log(fields: Record<string, string | number | boolean>): void {
