@@ -27,7 +27,7 @@ import { ServiceError } from "./clients";
 import { answerGroup, answerInline, turnFailed, type GroupDeps } from "./groupInbox";
 
 export const TURN_KEY = "gturn";
-export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; reason?: string };
+export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; reason?: string; tries?: number };
 /** Failed starts before the turn is answered here instead. */
 export const MAX_STARTS = 3;
 export const START_RETRY_MS = 20_000;
@@ -74,6 +74,7 @@ async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   try {
     await deps.startTurn!(turn.id);
     await storage.put<HandedTurn>(TURN_KEY, { ...turn, started: true });
+    log("workflow_started");
     return true;
   } catch {
     const starts = turn.starts + 1;
@@ -106,6 +107,9 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
   if (turn?.id !== id) return "gone";
   const entries = await entriesOf(storage, turn);
   if (entries.length === 0) return await finish(storage, deps, id);
+  // Which attempt of the workflow's answer step this is, so a retry shows in the logs.
+  const tries = (turn.tries ?? 0) + 1;
+  await storage.put<HandedTurn>(TURN_KEY, { ...turn, tries });
   sendingFor(storage, id);
   try {
     const outcome = await answerGroup(storage, entries, deps);
@@ -113,12 +117,13 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
     if (outcome !== "cancelled") for (const [key] of entries) await storage.delete(key);
   } catch (error) {
     const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
-    log("failed", reason);
-    await storage.put<HandedTurn>(TURN_KEY, { ...turn, reason });
+    log("failed", reason, tries);
+    await storage.put<HandedTurn>(TURN_KEY, { ...turn, tries, reason });
     return "failed";
   } finally {
     sendingFor(storage, null);
   }
+  log("workflow_answered", undefined, tries);
   return await finish(storage, deps, id);
 }
 
@@ -128,6 +133,7 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
   if (turn?.id !== id) return "gone";
   const entries = await entriesOf(storage, turn);
   for (const [key] of entries) await storage.delete(key);
+  log("workflow_gave_up", turn.reason, turn.tries);
   const last = entries.at(-1)?.[1];
   if (last !== undefined) await turnFailed(storage, deps, last.message, turn.reason?.endsWith(":504") === true);
   return await finish(storage, deps, id);
@@ -150,6 +156,6 @@ async function entriesOf(storage: InboxStorage, turn: HandedTurn): Promise<Group
   return entries;
 }
 
-function log(outcome: string, reason?: string): void {
-  console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}) }));
+function log(outcome: string, reason?: string, attempts?: number): void {
+  console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}), ...(attempts ? { attempts } : {}) }));
 }

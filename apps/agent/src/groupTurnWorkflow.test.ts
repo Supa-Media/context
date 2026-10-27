@@ -114,6 +114,28 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
+    it("the logs say a turn ran through the workflow, and on which attempt it answered or gave up", async () => {
+      const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+      const outcomes = () => logs.mock.calls.flat().map((line) => JSON.parse(String(line))).filter((l) => l.event === "group_turn");
+      const ok = handedWorld(groupId);
+      await acceptGroup(ok.storage, ok.w.message("Tex what's on tonight"), 0);
+      await drainGroup(ok.storage, ok.deps);
+      await ok.run();
+      expect(outcomes().filter((l) => l.outcome.startsWith("workflow_") || l.outcome === "inline")).toEqual([
+        { event: "group_turn", outcome: "workflow_started" },
+        { event: "group_turn", outcome: "workflow_answered", attempts: 1 },
+      ]);
+      logs.mockClear();
+      const bad = handedWorld(groupId);
+      bad.deps.fetch = (async (url: string, init?: RequestInit) =>
+        new URL(url).pathname === "/agent" ? new Response("down", { status: 502 }) : await bad.w.deps.fetch(url, init)) as unknown as Fetch;
+      await acceptGroup(bad.storage, bad.w.message("Tex what's on tonight"), 0);
+      await drainGroup(bad.storage, bad.deps);
+      await bad.run();
+      expect(outcomes().filter((l) => l.outcome === "failed").map((l) => l.attempts)).toEqual([1, 2, 3, 4]);
+      expect(outcomes().find((l) => l.outcome === "workflow_gave_up")).toMatchObject({ attempts: 4 });
+    });
+
     it("the same turn asked twice at once is answered once, and again after it is over not at all", async () => {
       const { storage, w, deps, started } = handedWorld(groupId);
       await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
