@@ -110,6 +110,17 @@ for (const { name, groupId } of LINES) {
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight", "Tex and tomorrow?"]);
     });
 
+    it("decide down: an untagged question its style reads is answered, never dropped silently", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: () => ({ ok: false, reason: "unavailable" }), control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex what is in index.md?"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("ok cool"), 10);
+      await acceptGroup(storage, w.message("Where is it out of place?"), 11);
+      await drainGroup(storage, w.deps);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what is in index.md?", "Where is it out of place?"]);
+    });
+
     it("answer is one turn covering what decide named, logged to the group's own log", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId);
