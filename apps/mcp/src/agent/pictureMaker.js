@@ -55,6 +55,7 @@ import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js"
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhoto, downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { huntPhotos, shooterFor } from "./visuals/hunt.js";
+import { withPagePictures } from "./visuals/pagePhotos.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
@@ -368,6 +369,14 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     }
   }
 
+  /** A page write with its options' missing pictures put in first; the write's own answer, told what was added. */
+  async function pageWrite(args, callTool) {
+    const { args: pictured, found } = await withPagePictures(args, { web, download: (address) => downloadPhoto(address, fetchImpl), shoot: shooterFor(shots, { timeoutMs: 10_000 }), read: () => outgoing?.read?.() ?? "" });
+    const result = await callTool("write_note", pictured);
+    if (found.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;
+    return { ...result, content: [...result.content, { type: "text", text: `Pictures found and added to the page for: ${found.join(", ")}.` }] };
+  }
+
   let held = 0;
   /**
    * Every picture is looked at before the turn may send it (`./cardCheck.js`):
@@ -391,8 +400,9 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     tools,
     /** The turn's web tools, once open, for hunting a card's missing pictures (`./visuals/hunt.js`). */
     useWeb: (call) => void (web = typeof call === "function" ? call : null),
-    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: async (name, args, callTool) => looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args))),
+    // A page's write passes through too, so its options get the pictures a card's do (`./visuals/pagePhotos.js`).
+    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null) || (name === "write_note" && (web !== null || shots !== null)),
+    call: async (name, args, callTool) => (name === "write_note" ? pageWrite(args, callTool) : looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)))),
   };
 }
 

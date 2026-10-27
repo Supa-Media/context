@@ -413,3 +413,16 @@ words. A wrong photo is still worse than none, which the card self-check
 
 **Reversing it costs** the blank comparisons the owner asked to end. Tests:
 `apps/mcp/test/agentPhotoHunt.test.mjs`.
+
+### Pages too (2026-10-27, night)
+
+Every new note Tex makes is a page, so a comparison page gets the same hunt.
+A texted turn's `.page.md` write passes through the picture tools
+(`pictureMaker.js` `pageWrite`, `agent/visuals/pagePhotos.js`): each option in
+a `places`, `vote`, `prices` or `itinerary` block with no `photo:` or
+`photos:` field is hunted for side by side (a place searched with its
+address), at most eight, within 12 seconds so the write never looks slow
+enough to be retried. Each found picture goes in the write's `images` as
+bytes and a `photo:` field naming it is added under the option; nothing else
+in the page's words changes, and a page with nothing found is saved exactly
+as written. Tests: `apps/mcp/test/agentPagePictures.test.mjs`.

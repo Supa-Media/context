@@ -100,19 +100,17 @@ function picturesFound(text, name) {
   return [...named, ...rest].slice(0, TRIES_PER_SEARCH).map((picture) => ({ src: picture.src, spare: spares.get(picture.src) ?? null }));
 }
 
-function within(promise, ms) {
+export function within(promise, ms) {
   let timer;
   return Promise.race([promise, new Promise((resolve) => (timer = setTimeout(() => resolve(null), ms)))]).finally(() => clearTimeout(timer));
 }
 
 /**
- * One thing's picture: searched, else its page photographed. `web(name, args)`
+ * One thing's picture, by its name and the words to search: searched, else its page photographed. `web(name, args)`
  * is the turn's web tools; `download(address)` a data address or null;
  * `shoot(url)` a data address of the page or null; `read()` the turn's words.
  */
-async function huntOne(template, data, item, { web, download, shoot, read }) {
-  const name = String(item.name).trim();
-  const query = queryFor(template, data, item);
+export async function huntPicture(name, query, { web, download, shoot, read }) {
   if (typeof web === "function") {
     const searched = await Promise.resolve(web("search_web", { query, pictures: true })).catch(() => null);
     if (searched && searched.isError !== true) {
@@ -144,7 +142,7 @@ export async function huntPhotos(template, data, { shown = () => false, web = nu
   if (!HUNTED_TEMPLATES.has(template) || typeof download !== "function") return none;
   const wanted = thingsOf(template, data).filter((item) => wants(item, shown)).slice(0, MAX_HUNTED);
   if (wanted.length === 0) return none;
-  const found = await Promise.all(wanted.map((item) => within(huntOne(template, data, item, { web, download, shoot, read }).catch(() => null), timeoutMs)));
+  const found = await Promise.all(wanted.map((item) => within(huntPicture(String(item.name).trim(), queryFor(template, data, item), { web, download, shoot, read }).catch(() => null), timeoutMs)));
   const byItem = new Map();
   const pictures = new Map();
   const searched = [];
