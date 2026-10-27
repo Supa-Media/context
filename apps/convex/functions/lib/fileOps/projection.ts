@@ -22,6 +22,7 @@ import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 import type { IndexingPriorities } from "../indexingPriorities";
 import type { ProjectionClient } from "./search";
+import type { TreeNames } from "./treeChecks";
 
 /* -------------------------------------------------------------------------- */
 /*                             the D1 projection                              */
@@ -284,6 +285,15 @@ const GONE_CHECK_KEEP = 100;
  * for by name and absent: a note written after the listing has a row the
  * listing cannot know about, and deleting it would hide a fresh note from
  * search until the next sweep. A query or a read that fails deletes nothing.
+ *
+ * **Asked of the tree, not the bucket, wherever a tree is attached.** The tree
+ * is the only source of names (decided by the owner, 2026-10-14), and a read by
+ * name is not: a read of `1-projects/plan.md` opens `projects/plan.md`, because
+ * a numbered spelling of a built-in folder still finds the folder doing its job
+ * (`canonicalJobPath`). So after the built-in folders lost their numbers
+ * (2026-10-21) every row at an old name read as present, and @supa's database
+ * kept 3,362 of its 3,457 rows at names the app throws away as not existing.
+ * The tree answers 100 names to one query, too, where the bucket answered one.
  */
 export async function goneFromBucket(
   store: FileStore,
@@ -297,11 +307,17 @@ export async function goneFromBucket(
   } catch {
     return [];
   }
-  const gone: string[] = [];
-  let asked = 0;
+  const unlisted: string[] = [];
   for (const row of rows) {
     const path = row?.path;
     if (typeof path !== "string" || listed.census.has(path) || !listed.regionComplete(path)) continue;
+    unlisted.push(path);
+  }
+  const tree = (store as { treeListing?: Partial<TreeNames> }).treeListing;
+  if (typeof tree?.taken === "function") return await goneFromTree((paths) => tree.taken!(paths), budget, unlisted);
+  const gone: string[] = [];
+  let asked = 0;
+  for (const path of unlisted) {
     if (asked >= GONE_CHECK_CAP || !budget.take(GONE_CHECK_KEEP)) break;
     asked += 1;
     try {
@@ -309,6 +325,34 @@ export async function goneFromBucket(
     } catch {
       // Unreadable is not absent: the row stays for the next pass to ask again.
     }
+  }
+  return gone;
+}
+
+/** Names in one `taken` ask: `TAKEN_PATHS` (`lib/nodes/treeTaken.ts`), which refuses more. */
+const TAKEN_PATHS = 100;
+
+/** Names asked of the tree per pass: ten of its queries. */
+const GONE_TREE_CAP = 1_000;
+
+async function goneFromTree(
+  taken: TreeNames["taken"],
+  budget: ReturnType<typeof createSearchBudget>,
+  unlisted: readonly string[],
+): Promise<string[]> {
+  const gone: string[] = [];
+  for (let from = 0; from < Math.min(unlisted.length, GONE_TREE_CAP); from += TAKEN_PATHS) {
+    if (!budget.take(GONE_CHECK_KEEP)) break;
+    const asked = unlisted.slice(from, from + TAKEN_PATHS);
+    let answer: Awaited<ReturnType<TreeNames["taken"]>>;
+    try {
+      answer = await taken(asked);
+    } catch {
+      // A tree that cannot answer proves nothing absent: the rows stay.
+      break;
+    }
+    const live = new Set(answer.files);
+    for (const path of asked) if (!live.has(path)) gone.push(path);
   }
   return gone;
 }

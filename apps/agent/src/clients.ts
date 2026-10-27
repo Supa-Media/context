@@ -29,7 +29,7 @@ const AGENT_TIMEOUT_MS = 120_000;
 
 export class ServiceError extends Error {
   constructor(
-    readonly service: "linq" | "sendblue" | "control_plane" | "gateway",
+    readonly service: "linq" | "sendblue" | "whapi" | "control_plane" | "gateway",
     readonly status: number | null,
   ) {
     super(`${service} request failed${status === null ? "" : ` (${status})`}`);

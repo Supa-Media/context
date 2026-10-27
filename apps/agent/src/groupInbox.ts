@@ -1,6 +1,7 @@
 /**
- * One iMessage group chat's queue, kept in a Durable Object named after the
- * group (`sendblue-group:<group_id>`), never in any one sender's: group
+ * One group chat's queue (iMessage or WhatsApp, `groupLine.ts`), kept in a
+ * Durable Object named after the group (`sendblue-group:<group_id>`, the
+ * name kept for the iMessage groups already queued), never in any one sender's: group
  * traffic never touches a person's own 1:1 object
  * (docs/decisions/texting-assistant/groups.md).
  *
@@ -47,8 +48,10 @@ import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
+import type { WhapiKeys } from "./whapi";
+import { groupLineFor, type GroupPlace } from "./groupLine";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
-import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText, type GroupMessage } from "./sendblueGroups";
+import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -59,6 +62,8 @@ export type GroupDeps = {
   workerSecret: string;
   gatewayOrigin: string;
   sendblue?: SendblueKeys | null;
+  /** Tex's WhatsApp line (`whapi.ts`); absent, a WhatsApp group is not answered. */
+  whapi?: WhapiKeys | null;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
   /** Serves a picture Tex sends at a short-lived address Sendblue fetches (`media.ts`); absent, pictures aren't sent. */
@@ -317,15 +322,15 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
 }
 
 async function answerGroup(storage: InboxStorage, message: GroupMessage, acceptedAt: number, deps: GroupDeps): Promise<void> {
-  if (!deps.sendblue) throw new ServiceError("sendblue", null);
+  const app = groupLineFor(deps, message.groupId);
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms));
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
   const command = routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
 
-  // Sendblue's own list too: more people only ever narrows what Tex may use.
-  const members = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
+  // The app's own list too: more people only ever narrows what Tex may use.
+  const members = await app.readMembers(chat);
   if (members === null) log("members_unread");
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
@@ -338,7 +343,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !routine) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !routine) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
@@ -369,7 +374,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   if (asked.intro) await say(storage, deps, message, guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
 
-  const quoted = message.replyTo === undefined ? null : await readOwnGroupMessage(deps.fetch, deps.sendblue, message.replyTo, chat);
+  const quoted = message.replyTo === undefined ? null : await app.readOwnMessage(chat, message.replyTo);
   const said = await chatBefore(storage, message, acceptedAt, deps.now());
   const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
   // A guest is named in the chat's lines by a label from the control plane, never by number; never offered an email.
@@ -392,7 +397,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
     nobody new has joined, the same check the answer gets below.
   */
   const progress = async (text: string) => {
-    const now = await readGroupMembers(deps.fetch, deps.sendblue!, message.groupId);
+    const now = await app.readMembers(chat);
     if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) return;
     await say(storage, deps, message, text);
   };
@@ -436,7 +441,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // run the other way, and this is the only thing standing between an answer
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
-  const now = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
+  const now = await app.readMembers(chat);
   if (now === null) {
     log("members_unread_after");
     if (routine) return void (await routineDone(deps, message, "failed"));
@@ -577,20 +582,19 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex. */
 async function say(storage: InboxStorage, deps: GroupDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string): Promise<void> {
-  if (!deps.sendblue) throw new ServiceError("sendblue", null);
-  const handle = await sendGroupText(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, text, message.messageId);
+  const place: GroupPlace = { line: message.line, groupId: message.groupId };
+  const handle = await groupLineFor(deps, message.groupId).sendText(place, text, message.messageId);
   if (handle === undefined) return;
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
 }
 
-/** One picture into the chat; one Sendblue refuses becomes a line saying so, as in a 1:1 text. */
+/** One picture into the chat; one the app refuses becomes a line saying so, as in a 1:1 text. */
 async function sendPicture(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, picture: OutgoingPicture): Promise<void> {
-  if (!deps.sendblue) throw new ServiceError("sendblue", null);
   try {
     const url = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
     if (url === null) throw new ServiceError("sendblue", 400);
-    await sendGroupMedia(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, url, message.messageId);
+    await groupLineFor(deps, message.groupId).sendMedia({ line: message.line, groupId: message.groupId }, url, message.messageId);
   } catch (error) {
     // The words already went: throwing would answer the whole turn again (three "Here's the one-pager"s and
     // then "I couldn't answer that one", 2026-10-26), so a picture that won't send is said once, never retried.

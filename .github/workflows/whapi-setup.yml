@@ -1,0 +1,149 @@
+# Set up Tex's WhatsApp line: point the Whapi.Cloud channel's webhook at the
+# texting assistant Worker, so a WhatsApp message reaches Tex. Run by hand.
+#
+# Whapi webhooks are per channel. Pointing staging and production at the same
+# channel leaves one of them receiving nothing: the last apply wins. Give each
+# environment its own channel, or apply to one of them only.
+#
+# The Worker's address is read from Cloudflare, as the deploy workflows do, so
+# no hostname is written here. The webhook secret is sent by Whapi on every
+# delivery in the x-tex-webhook-secret header; the Worker refuses the rest.
+#
+# A dry run (the default) reads the channel's status and prints the settings it
+# would send, with the secret masked. Tick `apply` to send them.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which Worker the channel's webhook points at"
+        type: choice
+        options:
+          - staging
+          - production
+        default: production
+        required: true
+      apply:
+        description: "Send the settings (false = dry run, nothing is changed)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Point Whapi at the texting assistant
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 5
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      APPLY: ${{ inputs.apply }}
+      WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
+      WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the secrets are set
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in WHAPI_TOKEN WHAPI_WEBHOOK_SECRET; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::$var is not set in the $ENVIRONMENT environment. Set it in 1Password and sync, then run this again." >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" = "0" ] && [ "${#WHAPI_WEBHOOK_SECRET}" -lt 16 ]; then
+            echo "::error::WHAPI_WEBHOOK_SECRET must be at least 16 characters." >&2
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Find the texting assistant's address
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          # The same Worker names the deploy workflows use (WORKER_NAME, and staging's).
+          if [ "$ENVIRONMENT" = "staging" ]; then worker=context-agent-staging; else worker=context-agent; fi
+          echo "WORKER_URL=https://$worker.$sub.workers.dev" >> "$GITHUB_ENV"
+
+      - name: Read the channel's status
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$WHAPI_TOKEN"
+          echo "::add-mask::$WHAPI_WEBHOOK_SECRET"
+          out="$(mktemp)"
+          code="$(curl -s -o "$out" -w '%{http_code}' --max-time 20 \
+            -H "Authorization: Bearer $WHAPI_TOKEN" \
+            https://gate.whapi.cloud/health || true)"
+          if [ "$code" != "200" ]; then
+            echo "::error::Whapi's /health answered $code. Check the token." >&2
+            exit 1
+          fi
+          # Prints the channel's status text and whether the phone is linked.
+          # Never an id, a number or a name: only a short status word is shown.
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const status = d.status ?? {};
+            const raw = String(status.text ?? status.code ?? "unknown");
+            const text = /^[A-Z_ ]{1,20}$/.test(raw) ? raw : "unknown";
+            const linked = String(status.code ?? status.text ?? "") === "AUTH";
+            console.log("Channel status: " + text);
+            console.log("Phone linked: " + (linked ? "yes" : "no"));
+            if (!linked) console.log("::warning::The channel is not linked to a phone yet. Scan its QR code in Whapi before Tex can reply on WhatsApp.");
+          ' "$out"
+          rm -f "$out"
+
+      - name: Build the settings
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const body = {
+              webhooks: [{
+                url: process.env.WORKER_URL + "/whapi",
+                mode: "body",
+                headers: { "x-tex-webhook-secret": process.env.WHAPI_WEBHOOK_SECRET },
+                events: [{ type: "messages", method: "post" }],
+              }],
+              media: { auto_download: ["image", "audio", "voice", "video", "document", "sticker"] },
+              callback_persist: true,
+            };
+            fs.writeFileSync(process.env.RUNNER_TEMP + "/whapi-settings.json", JSON.stringify(body));
+            const shown = JSON.parse(JSON.stringify(body));
+            shown.webhooks[0].headers["x-tex-webhook-secret"] = "***";
+            console.log(JSON.stringify(shown, null, 2));
+          '
+          if [ "$APPLY" != "true" ]; then echo "Dry run: nothing was sent. Tick apply to send these settings."; fi
+
+      - name: Send the settings
+        if: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X PATCH \
+            -H "Authorization: Bearer $WHAPI_TOKEN" \
+            -H 'content-type: application/json' \
+            --data-binary "@$RUNNER_TEMP/whapi-settings.json" \
+            https://gate.whapi.cloud/settings || true)"
+          echo "PATCH /settings answered $status."
+          case "$status" in
+            2??) ;;
+            *) echo "::error::Whapi refused the settings ($status)." >&2; exit 1 ;;
+          esac
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### Tex's WhatsApp line ($ENVIRONMENT)"
+            echo ""
+            if [ "$APPLY" = "true" ]; then echo "Settings were sent (see the step above)."; else echo "Dry run: nothing was changed."; fi
+            echo ""
+            echo "> **Whapi webhooks are per channel.** Pointing staging and production at the same channel means the last apply wins and the other environment stops receiving WhatsApp messages. Give each environment its own channel."
+          } >> "$GITHUB_STEP_SUMMARY"

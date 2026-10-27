@@ -50,6 +50,7 @@ import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
+import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
@@ -380,7 +381,7 @@ function threadFor(message: Message, overtaken = false): string | undefined {
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
-  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, hostPicture: deps.hostPicture, appCard: deps.appCard };
+  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, whapi: deps.whapi, hostPicture: deps.hostPicture, appCard: deps.appCard };
 }
 
 /**
@@ -388,14 +389,14 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * day at most. Linq needs an outbound message in the chat first, which is why
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
- * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once
+ * per text. On Sendblue (and WhatsApp, as a contact) the card is a .vcf in the chat (`card.ts`), so once
  * a card went it never goes again in that chat, whatever `CARD_VERSION` says:
  * a new one arrived after a reply in the middle of a conversation (2026-10-19).
  * A new `CARD_VERSION` only sets the line's Name & Photo again, which is
  * shared apart from the card and is how a new photo reaches a chat.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
-  if (!isSendblueChat(chatId)) {
+  if (!isSendblueChat(chatId) && !isWhapiChat(chatId)) {
     const last = await storage.get<number>(CARD_KEY);
     if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
     await storage.put(CARD_KEY, deps.now());
@@ -596,7 +597,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   // Read first, then the bubble, as a person would: the text is seen, then
   // answered. Both are quick and never throw.
   const line = lineFor(lineDeps(deps), message.chatId);
-  await line.markRead(message.chatId);
+  await line.markRead(message.chatId, message.messageId);
   const typing = () => line.startTyping(message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();
