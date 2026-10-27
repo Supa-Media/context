@@ -6,10 +6,8 @@
  * attached one. A link Tex texts through Sendblue has none, so it arrives as
  * a grey "Click to Load Preview" box. So a text that is nothing but a link to
  * a note goes as two: the note's card, drawn by the control plane
- * (`/agent-texts/note-card`), then the link alone in its own text, with no
- * words or punctuation around it. That is what Sendblue's support named as
- * the most reliable way for Messages to load the link's own preview (to the
- * owner, 2026-10-27); a link inside a sentence never gets one.
+ * (`/agent-texts/note-card`), then the link inside a sentence, which Messages
+ * shows as a plain tappable link with no box to load.
  *
  * The card shows the note's name and workspace, both already in the link, to
  * the chat the link goes to. Anything that fails sends the link alone, as
@@ -44,6 +42,15 @@ export function noteCardDrawer(fetcher: Fetch, controlPlaneOrigin: string, worke
       return null;
     }
   };
+}
+
+/**
+ * The link sent after its card: inside a sentence, so Messages draws no preview box under the picture.
+ * A bare link in a text of its own (Sendblue support's advice) still came as "Tap to Load Preview" to a
+ * phone with Tex saved as a contact (2026-10-27, #2303), so the owner chose the sentence.
+ */
+export function linkAfterCard(link: NoteLink): string {
+  return `Open it in Context: ${link.url} (tap the link)`;
 }
 
 /**

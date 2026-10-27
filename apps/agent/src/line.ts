@@ -12,7 +12,7 @@ import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, Serv
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { noteCard, type AppCardConfig } from "./appCards";
-import { hostedNoteCard, type NoteCardDrawer } from "./noteCards";
+import { hostedNoteCard, linkAfterCard, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
   isSendblueChat,
@@ -120,12 +120,12 @@ function sendblueLine(deps: LineDeps): Line {
           if (!isRefusal(error)) throw error;
         }
       }
-      // No card: the note's picture first, then the link alone (`noteCards.ts`).
+      // No card: the note's picture first, then the link inside a sentence (`noteCards.ts`).
       const drawn = await hostedNoteCard(text, deps.noteCardPicture, deps.hostPicture);
       if (drawn) {
         try {
           await sendSendblueMedia(fetch, keys(), chatId, drawn.address, replyTo);
-          return await sendSendblueText(fetch, keys(), chatId, drawn.link.url, replyTo);
+          return await sendSendblueText(fetch, keys(), chatId, linkAfterCard(drawn.link), replyTo);
         } catch (error) {
           // A picture the line would not take: the link alone, as before.
           if (!isRefusal(error)) throw error;
