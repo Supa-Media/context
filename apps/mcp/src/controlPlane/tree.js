@@ -29,7 +29,7 @@ export function createTreeMethods({ post }) {
      *
      * @param {string} accessToken
      * @param {string} expectedWorkspaceId
-     * @param {{cursor?: string, folder?: string}} page
+     * @param {{cursor?: string, folder?: string, changedSince?: number}} page `changedSince`: only the notes written since then, whole
      * @param {{timeoutMs?: number}} [options] a longer wait, for a reader nobody is waiting on (a check-in)
      */
     async readTreeManifest(accessToken, expectedWorkspaceId, page = {}, { timeoutMs = TREE_MANIFEST_TIMEOUT_MS } = {}) {
@@ -40,6 +40,7 @@ export function createTreeMethods({ post }) {
           expectedWorkspaceId,
           ...(typeof page.cursor === "string" ? { cursor: page.cursor } : {}),
           ...(typeof page.folder === "string" ? { folder: page.folder } : {}),
+          ...(Number.isFinite(page.changedSince) ? { changedSince: page.changedSince } : {}),
         },
         { timeoutMs, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );

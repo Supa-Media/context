@@ -175,7 +175,13 @@ large workspace's tree took longer than the 6 seconds an interactive tool waits
 at most of its check-ins, and the retry never came: a failed look was tried
 again only when the one before it had not failed too.
 
-- A look gives each page of the tree 25 seconds and asks twice
+- A look asks only for the notes written since its last one
+  (`changedSince` on `/gateway/tree/manifest`, `nodes.listChangedSince`):
+  rows read by the `observedAt` index, paths built for those rows alone, the
+  same rules applied. Its cost is what changed, not the size of the workspace
+  (owner, 2026-10-28: "listing should be O(1)"). More than 1,000 rows changed,
+  or moves being drawn, answers not served, and the look walks the whole tree.
+- That walk gives each page of the tree 25 seconds and asks twice
   (`apps/mcp/src/agent/lookTree.js`); nobody is waiting on it. Tools keep 6.
 - A failed look is tried again 10 minutes later, up to three times in each
   slot, and the next slot counts afresh (`failedLooks`, `failedFor` on the
@@ -187,4 +193,5 @@ again only when the one before it had not failed too.
 **What a simplification would cost:** gating the retry on the last outcome
 again silences every slot after two failures. Tests:
 `apps/mcp/test/lookTree.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
+`apps/convex/__tests__/nodes/gatewayManifest.test.ts`,
 `apps/agent/src/heartbeats.test.ts`.

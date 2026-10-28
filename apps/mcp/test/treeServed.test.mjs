@@ -398,6 +398,23 @@ test("a tree page waits 6 seconds, or as long as a reader nobody waits on asks",
   assert.deepEqual(waits, [TREE_MANIFEST_TIMEOUT_MS, 25_000]);
 });
 
+test("a check-in's question names the time it asks from, and nothing else", async () => {
+  const { createTreeMethods } = await import("../src/controlPlane/tree.js");
+  const sent = [];
+  const methods = createTreeMethods({
+    post: async (path, body) => {
+      sent.push(body);
+      return { served: true, entries: [], cursor: null };
+    },
+  });
+  await methods.readTreeManifest("tok", "ws_1", { changedSince: 1_000 });
+  await methods.readTreeManifest("tok", "ws_1", { changedSince: "yesterday" });
+  assert.deepEqual(sent, [
+    { accessToken: "tok", expectedWorkspaceId: "ws_1", changedSince: 1_000 },
+    { accessToken: "tok", expectedWorkspaceId: "ws_1" },
+  ]);
+});
+
 test("a tree answer may be larger than the 256 KB every other control-plane answer is held to", async () => {
   const { createControlPlane } = await import("../src/controlPlane/index.js");
   const { CONTROL_PLANE_RESPONSE_BYTE_CAP } = await import("../src/controlPlane/client.js");

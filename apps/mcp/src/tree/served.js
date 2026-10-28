@@ -184,7 +184,8 @@ export function servedListingStore(store, { timeoutMs } = {}) {
   return listing;
 }
 
-function objectOf(entry) {
+/** A manifest entry as a listed object. */
+export function objectOf(entry) {
   return {
     key: entry.path,
     ...(typeof entry.etag === "string" && entry.etag !== "" ? { etag: entry.etag } : {}),

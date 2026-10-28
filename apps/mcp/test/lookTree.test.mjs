@@ -13,10 +13,12 @@
  *    is asked again" fails (the first refusal is remembered).
  * 2. `servedListingStore` dropping its `timeoutMs`: "a check-in waits longer
  *    than a tool" fails.
+ * 3. `lookChangedEntries` walking the whole tree first: "a look asks only for
+ *    what changed" fails on the requests made.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LOOK_TREE_TIMEOUT_MS, LOOK_TREE_TRIES, lookTreeEntries } from "../src/agent/lookTree.js";
+import { LOOK_TREE_TIMEOUT_MS, LOOK_TREE_TRIES, lookChangedEntries, lookTreeEntries } from "../src/agent/lookTree.js";
 import { servedListingStore, TreeUnavailable } from "../src/tree/served.js";
 import { ControlPlaneError } from "../src/controlPlane/client.js";
 
@@ -75,4 +77,25 @@ test("a tree that cannot be listed says why as a code, after every try", async (
 test("every refusal is still the one TreeUnavailable a tool tells the agent about", async () => {
   const { store } = treeStore([new ControlPlaneError("timed out")]);
   await assert.rejects(servedListingStore(store).treeEntries(), (error) => error instanceof TreeUnavailable && error.code === "timed_out");
+});
+
+test("a look asks only for what changed, and walks nothing else when the index answers", async () => {
+  const { store, asked } = treeStore([SERVED]);
+  const listed = await lookChangedEntries(store, 1_000);
+  assert.equal(listed.changedOnly, true);
+  assert.deepEqual(listed.entries.map((entry) => entry.key), ["notes/a.md"]);
+  assert.deepEqual(asked.map((request) => request.page), [{ changedSince: 1_000 }]);
+  assert.equal(asked[0].options.timeoutMs, LOOK_TREE_TIMEOUT_MS);
+});
+
+test("when the index will not answer, a look walks the whole tree as before", async () => {
+  for (const first of [{ served: false }, new ControlPlaneError("timed out"), { served: true, entries: [], cursor: "more" }]) {
+    const { store, asked } = treeStore([first, SERVED]);
+    const listed = await lookChangedEntries(store, 1_000);
+    assert.equal(listed.changedOnly, undefined);
+    assert.deepEqual(listed.entries.map((entry) => entry.key), ["notes/a.md"]);
+    assert.deepEqual(asked.map((request) => request.page), [{ changedSince: 1_000 }, {}]);
+  }
+  // A store with no control plane is still refused, never listed from the bucket.
+  assert.equal((await lookChangedEntries({ list: async () => assert.fail("listed the bucket") }, 1_000)).code, "unreachable");
 });
