@@ -340,10 +340,12 @@ is held to its own workspace (2026-10-28):
 - it never starts a Google connection;
 - it never joins another workspace, by invitation or by email domain;
 - it reads nothing through a grant or a person-addressed share in a workspace
-  it is not a member of.
+  it is not a member of;
+- it keeps the one address that names it: no address is added and the mail
+  address never moves, because every check here reads that address.
 
 `isReservedReviewer` in `functions/lib/reviewerAccount.ts` is the one test. A
 row naming the reviewer grants nothing, which is the same answer as for a
 stranger. A pending invitation to it stays unspent. Undoing this lets whoever
 holds a public code read whatever anyone shares with a public address.
-`reviewerReach.test.ts` fails if any of the five doors loses its check.
+`reviewerReach.test.ts` fails if any of the six doors loses its check.
