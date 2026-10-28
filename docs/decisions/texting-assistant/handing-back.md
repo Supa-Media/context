@@ -353,3 +353,20 @@ too, the captcha counts as stuck, the handoff goes ahead for that one press
 with the form already filled, and the reading says so. Tests:
 `apps/mcp/test/agentSilentSubmit.test.mjs` (sabotage record in its header)
 and hand-back bench case 16 (`sites/gathering.example.md`).
+
+**Looking before asking, and "fix yourself" (2026-10-28).** Three reviewed
+chats asked the person what Tex could have found: which email addresses two
+caterers use (one turned up a turn later with no word that it corrected the
+earlier "no email"), when a work block started and stopped (its log said),
+and, right after a group chat's failed page saves, "Tell me what's broken"
+in answer to "Tex please fix yourself". Every turn is now told to look first
+in the chat's earlier texts, its own earlier turns and logs, notes, email,
+calendar and the web, to say where a correction came from, and that "fix
+yourself" means naming the failure from the chat, retrying it once and
+filing it with `report_problem` (`LOOK_FIRST_LINE`). The hand-back judge
+counts the chat and Tex's own logs as places to look (H9), and a "fix
+yourself" turn answered by asking what's wrong, or with no tool run, gets
+one more round (`selfRepairNotice`, both in
+`apps/mcp/src/agent/lookFirst.js`). Removing either brings back the
+question the chat already answered. Tests:
+`apps/mcp/test/agentLookFirst.test.mjs` (sabotage record in its header).

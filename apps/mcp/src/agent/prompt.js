@@ -10,6 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
+import { LOOK_FIRST_LINE } from "./lookFirst.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -111,6 +112,8 @@ const GROUND_RULES = [
   // day before: "Tex should never suggest the user should do something
   // themselves that Tex has the access and capability to do."
   DO_IT_YOURSELF_LINE,
+  // Self-review, 2026-10-27/28: asked which caterer emails to use, when a routine started, and "what's broken" after its own failed saves (`lookFirst.js`).
+  LOOK_FIRST_LINE,
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
   // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
   PRONOUNS_LINE,

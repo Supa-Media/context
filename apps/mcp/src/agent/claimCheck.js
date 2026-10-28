@@ -55,6 +55,7 @@
 import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
+import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
 import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
@@ -469,6 +470,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let pageNoticed = false;
   const noteWrites = [];
   let bugNoticed = false;
+  let repairNoticed = false;
   // A waiting ask the answer said had changed, with nothing held again (rule 6).
   let supersedeNoticed = false;
   // A confession the turn's own record contradicts (`confession.js`).
@@ -627,6 +629,12 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {
       bugNoticed = true;
       return BUG_NOTICE;
+    }
+    // "Fix yourself" answered with "what's broken?" or nothing tried (`lookFirst.js`).
+    const repair = repairNoticed ? null : selfRepairNotice(question, answer, steps);
+    if (repair !== null) {
+      repairNoticed = true;
+      return repair;
     }
     // "The note now has a picture" with no write that carried one.
     if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
