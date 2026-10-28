@@ -47,7 +47,7 @@ function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "calendar_write", ...fields }));
 }
 
-type Found = { ok: true; event: GoogleEvent; guests: string[] } | { ok: false; refused: CalendarRefusal };
+type Found = { ok: true; event: GoogleEvent; guests: string[]; zone?: string } | { ok: false; refused: CalendarRefusal };
 
 /** The one event a change names on one calendar, or why there is not exactly one. */
 async function findEvent(accessToken: string, change: CalendarChange, check: boolean): Promise<Found> {
@@ -57,13 +57,13 @@ async function findEvent(accessToken: string, change: CalendarChange, check: boo
     log({ outcome: "http_error", stage: "find", status: response.status });
     return { ok: false, refused: "unavailable" };
   }
-  let listed = (await response.json().catch(() => null)) as { items?: unknown } | null;
+  let listed = (await response.json().catch(() => null)) as { items?: unknown; timeZone?: unknown } | null;
   let matches = matchingEvents(listed?.items, change);
   if (matches.length === 0) {
     // Google's word search misses a title written a little differently; the moment does not.
     query.delete("q");
     response = await fetch(`${EVENTS_ENDPOINT}?${query}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-    listed = response.ok ? ((await response.json().catch(() => null)) as { items?: unknown } | null) : null;
+    listed = response.ok ? ((await response.json().catch(() => null)) as { items?: unknown; timeZone?: unknown } | null) : null;
     matches = matchingEvents(listed?.items, change);
   }
   if (matches.length === 0) return { ok: false, refused: "not_found" };
@@ -72,7 +72,9 @@ async function findEvent(accessToken: string, change: CalendarChange, check: boo
   const heard = whoHears(change, event);
   if (!heard.ok) return heard;
   if (heard.guests.length > 0 && !change.notifyGuests && !check) return { ok: false, refused: "has_guests" };
-  return { ok: true, event, guests: heard.guests };
+  // The listing names the calendar's own time zone, read under the event scope
+  // already granted; Google's calendars.get would need a wider one.
+  return { ok: true, event, guests: heard.guests, ...(typeof listed?.timeZone === "string" ? { zone: listed.timeZone } : {}) };
 }
 
 const BASE32HEX = "0123456789abcdefghijklmnopqrstuv";
@@ -225,7 +227,7 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     // A change to an existing event checked: whether it would tell anybody, so the gateway knows to ask first.
     if (check) return json({ ok: true, calendar: writer.address, guests: found.guests });
     const eventId = change.action === "create" ? await createdEventId(writer.connectionId, change) : null;
-    const request = change.action === "create" ? createRequest(change, eventId) : await existingEventRequest(change, found.event, { accessToken: googleToken });
+    const request = change.action === "create" ? createRequest(change, eventId) : await existingEventRequest(change, found.event, { accessToken: googleToken, calendarZone: found.zone });
     if (request === null) {
       log({ outcome: "http_error", stage: "prepare", action: change.action });
       return json({ ok: false, refused: "unavailable" });
