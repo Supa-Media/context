@@ -28,7 +28,9 @@ const row = (state: DownloadRow["state"], done: number, total: number): Download
   total,
 });
 
-afterEach(() => jest.useRealTimers());
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 function harness(first: DownloadRow) {
   let seen: DownloadRow | undefined;

@@ -5,6 +5,7 @@
  * forgets it on sign out, and that no answer tells a guest which of the refusals it was.
  */
 
+import { afterEach, describe, expect, test } from "@jest/globals";
 import { forgetGuestPass, guestStartError, guestVerifyError, readGuestPass, saveGuestPass } from "../features/guest/guestPass";
 
 const PASS = "A".repeat(43);

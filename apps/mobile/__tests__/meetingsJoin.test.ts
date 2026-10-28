@@ -50,7 +50,7 @@ const { NextUpRow } = require("../features/meetings/components/NextUpRow") as ty
 const { OpenCallButton } = require("../features/meetings/components/OpenCallButton") as typeof import("../features/meetings/components/OpenCallButton");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-type CalendarEvent = import("../features/meetings/protocol").CalendarEvent;
+type CalendarEvent = import("../features/meetings/protocol").CalendarEvent & { account?: string };
 
 const OWN = { slug: "testagent1", kind: "personal", role: "owner" };
 

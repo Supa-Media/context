@@ -17,6 +17,7 @@
  *   `dialUrl` passing any scheme                              → "only a phone number" fails
  */
 
+import { describe, expect, test } from "@jest/globals";
 import { dialUrl, pageChange, pageFrameUrls, readPageMessage, type PageMessage } from "../features/console/files/pageView/pageHost";
 import { parsePage } from "@context/shared/src/pages/index.cjs";
 

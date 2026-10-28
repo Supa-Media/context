@@ -17,6 +17,7 @@ const member = (name: string, isAgent: boolean): PresenceMember => ({
   head: null,
   canWrite: true,
   isAgent,
+  isYou: false,
 });
 
 describe("what changed", () => {
