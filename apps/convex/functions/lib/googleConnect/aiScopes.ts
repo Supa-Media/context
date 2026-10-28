@@ -71,7 +71,7 @@ export function aiScopesOf(row: ScopedConnection, env: Env = process.env): strin
  * is connected: no Gmail, no Chat, no write.
  */
 export function standardScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
-  if (!agentClientActive(env)) return scopesForConnect(products);
+  if (!agentClientActive(env)) return scopesForConnect(products, env);
   return products.includes("calendar") ? narrowCalendarScopes([...IDENTITY_SCOPES, ...CALENDAR_SCOPES], env) : [...IDENTITY_SCOPES];
 }
 

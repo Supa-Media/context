@@ -64,6 +64,7 @@ describe("what a connect asks Google for", () => {
     expect(asked).not.toContain(CALENDAR_WRITE_SCOPE);
     expect(agentScopesFor(["calendar"], OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_SCOPE]);
     expect(standardScopesFor(["calendar"], SWITCHED_OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]);
+    expect(standardScopesFor(["calendar"], OWNED)).toEqual([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE, CALENDAR_OWNED_SCOPE]);
   });
 });
 
