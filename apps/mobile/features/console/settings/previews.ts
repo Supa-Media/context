@@ -144,7 +144,8 @@ export function settingsPreview(
       Silent, each for its own reason — see the header. Written out rather
       than swept into a `default`, so a section added to the catalogue and not
       to this switch is a compile error rather than a blank row nobody
-      notices.
+      notices. Spelling and Tex are reached from Profile's rows and by
+      search, and their panels say their own state.
     */
     case "workspace":
     case "activity":
@@ -155,7 +156,6 @@ export function settingsPreview(
     case "emoji":
     case "folders":
     case "meetings":
-    // Reached from Profile's rows and by search; their panels say their own state.
     case "spelling":
     case "tex":
       return null;
