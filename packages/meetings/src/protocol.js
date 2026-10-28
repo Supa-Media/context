@@ -828,7 +828,6 @@ export const ERRORS = Object.freeze({
  * @property {string} endsAt
  * @property {Attendee[]} attendees
  * @property {string} [conferenceUrl]
- * @property {string} [account]   The calendar account it came from, when known (`scheduled.js`).
  */
 
 /**
