@@ -216,6 +216,7 @@ import type * as functions_signupAlerts from "../functions/signupAlerts.js";
 import type * as functions_xConversions from "../functions/xConversions.js";
 import type * as functions_metaConversions from "../functions/metaConversions.js";
 import type * as functions_referrals from "../functions/referrals.js";
+import type * as functions_reviewerReachAudit from "../functions/reviewerReachAudit.js";
 import type * as functions_usage from "../functions/usage.js";
 import type * as functions_usageAnalytics from "../functions/usageAnalytics.js";
 import type * as functions_websites from "../functions/websites.js";
@@ -440,6 +441,7 @@ declare const fullApi: ApiFromModules<{
   "functions/xConversions": typeof functions_xConversions;
   "functions/metaConversions": typeof functions_metaConversions;
   "functions/referrals": typeof functions_referrals;
+  "functions/reviewerReachAudit": typeof functions_reviewerReachAudit;
   "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
   "functions/workspaceMoves": typeof functions_workspaceMoves;
