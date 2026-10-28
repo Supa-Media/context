@@ -22,9 +22,10 @@
 
 import type { InboxStorage } from "./inbox";
 import type { GroupEntry, GroupPending } from "./groupTurn";
-import { dropParts, sendingFor } from "./groupSay";
+import { dropParts, say, sendingFor } from "./groupSay";
+import { GROUP_LINES } from "./groupLines";
 import { ServiceError } from "./clients";
-import { answerGroup, answerInline, turnFailed, type GroupDeps } from "./groupInbox";
+import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 
 export const TURN_KEY = "gturn";
@@ -47,7 +48,7 @@ export type AnswerOutcome = "done" | "failed" | "gone";
 /** Turns this object is answering right now, so a workflow retry that overlaps its first attempt waits for it instead of answering twice. */
 const answering = new WeakMap<InboxStorage, Map<string, Promise<AnswerOutcome>>>();
 
-/** Hand `entries` to a new workflow. False only when no workflow could be started: the caller answers them itself. */
+/** Hand `entries` to a new workflow; a workflow that never starts ends the turn here (`start`). */
 export async function handOff(storage: InboxStorage, deps: GroupDeps, entries: GroupEntry[]): Promise<boolean> {
   // `ownTurn` marks the last one with what the chat said before it: kept, as the workflow's answer reads it from here.
   for (const [key, item] of entries) await storage.put<GroupPending>(key, item);
@@ -70,11 +71,7 @@ export async function handedTurnWaits(storage: InboxStorage, deps: GroupDeps): P
     await failHanded(storage, deps, turn.id);
     return false;
   }
-  if (await start(storage, deps, turn)) return true;
-  // No workflow after every try: answered here, as before.
-  const entries = await entriesOf(storage, turn);
-  if (entries.length > 0 && (await answerInline(storage, entries, deps))) return true;
-  return false;
+  return await start(storage, deps, turn);
 }
 
 async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<boolean> {
@@ -93,9 +90,25 @@ async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
     }
     // Loud: an error, so a broken binding or a Workflows outage is seen, never just slow.
     console.error(JSON.stringify({ event: "group_turn", outcome: "workflow_unavailable", ...(turn.kind ? { kind: turn.kind } : {}) }));
-    await storage.delete(TURN_KEY);
-    return false;
+    await stuck(storage, deps, turn);
+    return true;
   }
+}
+
+/**
+ * No workflow after every try (Dev2, 2026-10-28): never answered here instead. The chat is told
+ * once that Tex is stuck; a routine's run fails quietly, as any routine nobody asked for just now.
+ */
+async function stuck(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<void> {
+  const entries = await entriesOf(storage, turn);
+  for (const [key] of entries) await storage.delete(key);
+  await storage.delete(TURN_KEY);
+  // Whatever waited behind it is drained now, as after any turn (`finish`).
+  await storage.setAlarm(deps.now());
+  const last = entries.at(-1)?.[1].message;
+  if (last === undefined) return;
+  if (last.routine !== undefined) await turnFailed(storage, deps, last, false);
+  else await say(storage, deps, last, GROUP_LINES.stuck, { system: true, reason: "failed" }).catch(() => {});
 }
 
 /** `/group-answer`: answer the handed turn `id` here, once at a time. */

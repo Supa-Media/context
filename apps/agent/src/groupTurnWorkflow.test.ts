@@ -169,7 +169,7 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpart:" })).keys()]).toEqual([]);
     });
 
-    it("a workflow that will not start is tried again, then the turn is answered here, logged as an error", async () => {
+    it("a workflow that will not start is tried again, then the chat is told once that Tex is stuck, logged as an error", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId);
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -188,7 +188,12 @@ for (const { name, groupId } of LINES) {
       }
       await drainGroup(storage, deps);
       expect(starts).toBe(MAX_STARTS);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex what's on tonight"]);
+      // Dev2, 2026-10-28: never answered here instead; one stuck line, and nothing waits behind it.
+      expect(w.asks).toHaveLength(0);
+      expect(w.texts.filter((text) => text === GROUP_LINES.stuck)).toHaveLength(1);
+      await drainGroup(storage, deps);
+      expect(w.texts.filter((text) => text === GROUP_LINES.stuck)).toHaveLength(1);
+      expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
       expect(errors.mock.calls.flat().join(" ")).toContain('"outcome":"workflow_unavailable"');
       expect(await storage.get(TURN_KEY)).toBeUndefined();
     });
