@@ -129,7 +129,7 @@ async function writeSummary(store, scope, privacy, meeting, body, { force }) {
 /** The caller's own yes, asked of the control plane; anything else, a failure included, is no. */
 async function aiConsented(controlPlane, session) {
   if (typeof controlPlane?.transcriptionConsent !== "function") return false;
-  return (await controlPlane.transcriptionConsent(session.accessToken, session.workspaceId, "meeting").catch(() => false)) === true;
+  return (await controlPlane.transcriptionConsent(session.accessToken, session.workspaceId).catch(() => false)) === true;
 }
 
 /** The date the meeting started, which is what "Monday" in it is relative to. */

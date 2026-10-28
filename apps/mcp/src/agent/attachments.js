@@ -16,8 +16,8 @@
  * transcription service (`ingestion/transcription.js`, the one meetings use,
  * with its silence filtering), so a voice message is turned into its words
  * before the model sees the turn, `{ name, mediaType, text, heard: true }`. A
- * deployment without that service, or a transcription that fails, makes it an
- * `unread` with the reason, so the model says so rather than guessing.
+ * deployment without that service, or a transcription that fails twice, makes
+ * it an `unread` with the reason, so the model says so rather than guessing.
  *
  * This module checks each against what the model API takes (types and sizes),
  * builds the blocks, and lets the model keep a picture in a note without ever
@@ -146,41 +146,41 @@ function heardText(payload) {
     .join(" ");
 }
 
-/** Said in place of a voice message when the texter has not allowed cloud transcription. */
-export const VOICE_NOT_ALLOWED =
-  "It is a voice message, and cloud transcription is off for this account, so it was not sent to be transcribed. " +
-  "Ask them to type it, or to turn on Cloud transcription in the Context app under Settings › Meetings.";
-
 /**
  * Every voice message replaced by its words (or by why there are none). The
  * audio goes to the service and nowhere else: not logged, not kept, and the
  * caller is named to it only as `callerId`, which the forwarder hashes.
  *
- * `consented` is asked once, before any audio is forwarded: the texter's own
- * yes to cloud transcription (docs/decisions/meetings/transcription-consent.md).
- * Missing, or anything but `true`, is no, and no audio leaves.
+ * Texting Tex a voice message is the request to hear it, the same way texting
+ * words is the request to read them (owner, 2026-10-28: "make Tex understand
+ * voice messages"), so this asks no meeting-transcription question: that one
+ * covers the app recording a room, where the microphone permission was the
+ * only signal (docs/decisions/meetings/transcription-consent.md). A failed
+ * transcription is tried once more before Tex is told it could not be heard.
  */
-export async function hearVoiceMessages(attachments, transcribe, callerId, consented = null) {
+export async function hearVoiceMessages(attachments, transcribe, callerId) {
   if (!attachments.some(isAudio)) return attachments;
-  if (typeof transcribe === "function" && (typeof consented !== "function" || (await consented().catch(() => false)) !== true)) {
-    return attachments.map((attachment) =>
-      isAudio(attachment) ? { name: attachment.name, mediaType: attachment.mediaType, unread: VOICE_NOT_ALLOWED } : attachment,
-    );
-  }
   return await Promise.all(
     attachments.map(async (attachment) => {
       if (!isAudio(attachment)) return attachment;
       const { name, mediaType } = attachment;
       if (typeof transcribe !== "function") {
-        return { name, mediaType, unread: "It is a voice message, and voice messages can't be transcribed on this server. Ask them to type it." };
+        return { name, mediaType, unread: "It is a voice message, and this server has no transcription service, so nobody could hear it. Say so plainly." };
       }
+      const listen = () => transcribe({ audioBase64: attachment.data, mimeType: mediaType, callerId: String(callerId) });
+      let payload;
       try {
-        const text = heardText(await transcribe({ audioBase64: attachment.data, mimeType: mediaType, callerId: String(callerId) }));
-        if (!text) return { name, mediaType, unread: "It is a voice message with no words you could make out. Ask them to say it again or type it." };
-        return { name, mediaType, text: text.slice(0, MAX_TEXT_CHARS), heard: true };
+        payload = await listen();
       } catch {
-        return { name, mediaType, unread: "It is a voice message, and transcribing it failed. Ask them to send it again or type it." };
+        try {
+          payload = await listen();
+        } catch {
+          return { name, mediaType, unread: "It is a voice message, and transcribing it failed twice. Say you couldn't hear it this time and ask them to send it again; never ask them to type it." };
+        }
       }
+      const text = heardText(payload);
+      if (!text) return { name, mediaType, unread: "It is a voice message with no words you could make out. Ask them to say it again; never ask them to type it." };
+      return { name, mediaType, text: text.slice(0, MAX_TEXT_CHARS), heard: true };
     }),
   );
 }

@@ -24,7 +24,6 @@ import type { QueryCtx } from "../_generated/server";
 import { internalQuery, mutation, query } from "../_generated/server";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { TEXTS_CLIENT_ID } from "./textLinks";
 
 /** Generous for somebody flicking a switch, small for a client stuck in a loop. */
 const WRITES_PER_HOUR = 60;
@@ -138,24 +137,19 @@ export const hasConsent = internalQuery({
  * For the gateway: may audio arriving on this token be sent now?
  *
  * The person comes off the token's live grant, never from anything the
- * gateway names, and the grant must reach `expectedWorkspaceId`. A voice
- * message counts only on Tex's one-person texting grant. Every
- * refusal, a dead token included, is the same `false`.
+ * gateway names, and the grant must reach `expectedWorkspaceId`. Every
+ * refusal, a dead token included, is the same `false`. A voice message texted
+ * to Tex never asks: sending it is the yes (transcription-consent.md).
  */
 export const gatewayConsent = internalQuery({
   args: {
     hashedAccessToken: v.string(),
     expectedWorkspaceId: v.string(),
-    kind: v.union(v.literal("meeting"), v.literal("voiceMessage")),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const session = await resolveGrantByAccessTokenHandler(ctx, { hashedAccessToken: args.hashedAccessToken });
     if (session === null) return false;
-    // A voice message is heard only on a one-person texting grant, whose
-    // person is the one who sent it. A group chat's grant speaks for several
-    // people, and one member's yes is never anybody else's.
-    if (args.kind === "voiceMessage" && session.clientId !== TEXTS_CLIENT_ID) return false;
     if (!session.workspaces.some((entry) => entry.workspaceId === args.expectedWorkspaceId)) return false;
     return await hasCurrentTranscriptionConsent(ctx, session.actorUserId as Id<"users">);
   },

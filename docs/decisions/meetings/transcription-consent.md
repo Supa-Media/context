@@ -1,5 +1,30 @@
 # Cloud transcription consent
 
+## A voice message texted to Tex is its own yes (2026-10-28)
+
+The owner texted Tex a 44-second iMessage voice memo and got back "I couldn't
+open that voice message... type it out": the gate below had put Tex voice
+messages behind the meeting question, and the owner's account had no yes to
+the current version. The owner decided that sending Tex a voice message is
+the request to hear it, exactly as texting words is the request to read them,
+and that Tex never asks somebody to type out what it can listen to.
+The owner added: Tex's AI use is a different entry point from the app App
+Review looked at, and is not in the same category; consent questions written
+for the app do not gate what people text Tex.
+
+So `hearVoiceMessages` asks no consent and the control plane's consent route
+no longer takes a `voiceMessage` kind. The meeting question still covers what it was
+written for: the app recording a room, where the microphone permission was the
+only signal. The privacy policy's transcription section says a voice message
+sent to the assistant is transcribed without the question. A failed
+transcription is tried once more; the sentences Tex gets for an unheard
+message never ask for it typed.
+
+**Reversing it** puts every voice memo from a person who never opened the app's
+meeting screen back behind a question they were never shown.
+`apps/mcp/test/agentAttachments.test.mjs` ("a texted voice message is heard
+without the meeting-transcription question") fails.
+
 ## Name the current recipients before Allow, without a new binary (2026-10-28)
 
 The owner subsequently approved naming the current providers in the short
@@ -75,7 +100,6 @@ version/provider pair so a provider edited without a bump fails.
 | --- | --- | --- |
 | Convex `meetings/transcribe:transcribeChunk` | phone and web recorders, spool retries | the signed-in account's row |
 | Gateway `POST /meetings/sessions/:id/transcribe` | the Mac app | `/gateway/transcription/consent` for the grant's own person; fails closed |
-| Gateway Tex voice messages (`hearVoiceMessages`) | the texting assistant | the same route, kind `voiceMessage`, only on Tex's own one-person grant; otherwise the audio is replaced by a sentence saying it was not heard |
 | Convex `demoTranscribe:transcribeDemoChunk` | the signed-out homepage demo | the press of *Allow transcription* in that tab sends the current version; any other value is refused |
 
 **In the app.** `capture/transcriber.ts` holds this device's view of the
