@@ -15,12 +15,12 @@
  *    corrected and the change goes (`functions/googleScopeCheck.ts`).
  */
 
-import { CALENDAR_WRITE_SCOPE, CHAT_SEND_SCOPE, canSendEmail, type GoogleProduct } from "./googleOAuth";
+import { CHAT_SEND_SCOPE, canSendEmail, canWriteCalendar, type GoogleProduct } from "./googleOAuth";
 
 /** Whether a grant lets Context act through a service, not only read it. Gmail sends on compose or send. */
 function canAct(service: GoogleProduct, scopes: readonly string[]): boolean {
   if (service === "gmail") return canSendEmail(scopes);
-  return scopes.includes(service === "calendar" ? CALENDAR_WRITE_SCOPE : CHAT_SEND_SCOPE);
+  return service === "calendar" ? canWriteCalendar(scopes) : scopes.includes(CHAT_SEND_SCOPE);
 }
 
 /** The services a connection carries that its grant lets Context read but not act through, in a fixed order. */

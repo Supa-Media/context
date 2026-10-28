@@ -138,6 +138,10 @@ jobs:
           # (`docs/decisions/identity-and-access/staff-second-factor.md`).
           # Absent: enrolled staff step up, the rest are offered enrollment.
           STAFF_SECOND_FACTOR: ${{ secrets.STAFF_SECOND_FACTOR }}
+          # `owned` narrows Calendar's consent to the calendars the person owns
+          # (`docs/decisions/communications/google-clients.md`). Absent: the
+          # broader pair, as before; grants of either pair work either way.
+          GOOGLE_CALENDAR_SCOPE: ${{ secrets.GOOGLE_CALENDAR_SCOPE }}
           # The Slack connector's app (`docs/decisions/connectors.md`). Absent: off.
           SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
           SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
@@ -268,7 +272,7 @@ jobs:
             TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET LINQ_API_KEY TEX_LINE_NUMBERS \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET SLACK_CLIENT_ID SLACK_CLIENT_SECRET \
             GOOGLE_AGENT_OAUTH_CLIENT_ID GOOGLE_AGENT_OAUTH_CLIENT_SECRET GOOGLE_AGENT_CLIENT_ACTIVE \
-            STAFF_SECOND_FACTOR \
+            STAFF_SECOND_FACTOR GOOGLE_CALENDAR_SCOPE \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
             GOOGLE_PUSH_TOPIC GOOGLE_PUSH_SERVICE_ACCOUNT \
             GOOGLE_PUSH_AUDIENCE GOOGLE_PUSH \
