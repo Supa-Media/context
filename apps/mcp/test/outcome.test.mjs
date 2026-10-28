@@ -46,7 +46,8 @@ async function call(token, name, args) {
   return {
     text: content[0]?.text || "",
     isError: body?.result?.isError === true,
-    outcome: content.length > 1 && last.startsWith("outcome: ") ? JSON.parse(last.slice("outcome: ".length)) : null,
+    // On a line of its own: some clients join the blocks with no separator.
+    outcome: content.length > 1 && last.startsWith("\noutcome: ") ? JSON.parse(last.slice("\noutcome: ".length)) : null,
   };
 }
 

@@ -11,7 +11,8 @@
  *   outcome: {"applied":false,"error":"CONFLICT"}
  *
  * read off the answer the tool already gave, in one place, so no tool can
- * forget it. A second block rather than `structuredContent`: some clients
+ * forget it. It opens with a newline: Claude Code joins text blocks with no
+ * separator, which ran the line into the prose before it. A second block rather than `structuredContent`: some clients
  * show only that field when it is present, and the prose (a conflict's text
  * to merge into) must reach the model whole. Only for MCP clients: Tex and
  * the other agents of ours read the first block, and pay for every word.
@@ -71,7 +72,7 @@ export function withOutcome(name, result) {
   try {
     const outcome = outcomeOf(name, result);
     if (outcome === null || !Array.isArray(result.content)) return result;
-    return { ...result, content: [...result.content, { type: "text", text: `outcome: ${JSON.stringify(outcome)}` }] };
+    return { ...result, content: [...result.content, { type: "text", text: `\noutcome: ${JSON.stringify(outcome)}` }] };
   } catch {
     return result;
   }
