@@ -61,7 +61,8 @@ const read = async (path) => {
 let restore = [];
 
 before(async () => {
-  const s3 = createS3Backend(S3_ENDPOINT);
+  // Every write stamped with the real time, so an orient mark falls between two of them.
+  const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
   restore.push(s3.install());
   const controlPlane = createControlPlaneStub();
   restore.push(controlPlane.install());
@@ -142,4 +143,39 @@ test("a call held for the person, or refused by the judge, needs the person", ()
   assert.deepEqual(outcomeOf("write", error("Not done: this would make a.md visible to the team, and …")), { applied: false, error: "NEEDS_PERSON" });
   assert.deepEqual(outcomeOf("send", error("anything", { held: true })), { applied: false, error: "NEEDS_PERSON" });
   assert.equal(outcomeOf("search", error("not found")), null);
+});
+
+test("a remembered fact says where it went and the version it left", async () => {
+  const remembered = await call(AGENT, "remember", { fact: "Ships on Fridays", kind: "stated", note: "projects/outcome.md" });
+  assert.equal(remembered.isError, false, remembered.text);
+  assert.equal(remembered.outcome.applied, true);
+  assert.equal(remembered.outcome.path, "projects/outcome.md");
+  assert.equal(remembered.outcome.etag, (await read("projects/outcome.md")).etag);
+});
+
+/*
+ * `orient { since }` (the owner, 2026-10-28: "compact, incremental orient
+ * responses"). Sabotage: `sinceAnswer` returning the overview fails "an orient
+ * since a mark names only what changed".
+ */
+test("an orient since a mark names only what changed, and ends with a new mark", async () => {
+  const first = await call(AGENT, "orient", {});
+  const mark = /^orient_mark: (\S+)$/m.exec(first.text)?.[1];
+  assert.ok(mark, "the overview ends with a mark");
+  assert.equal(first.outcome, null, "orient changes nothing");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await write({ path: "projects/after-mark.md", content: "# After the mark\n" });
+  const since = await call(AGENT, "orient", { since: mark });
+  assert.equal(since.isError, false, since.text);
+  assert.match(since.text, /projects\/after-mark\.md/);
+  assert.doesNotMatch(since.text, /projects\/outcome\.md/, "a note from before the mark is not news");
+  assert.doesNotMatch(since.text, /## How to work here|## Workspaces/, "what the caller already holds is not said again");
+  assert.ok(since.text.length < first.text.length / 2, `${since.text.length} vs ${first.text.length}`);
+  const next = /^orient_mark: (\S+)$/m.exec(since.text)?.[1];
+  assert.ok(next && next > mark);
+  const quiet = await call(AGENT, "orient", { since: next });
+  assert.match(quiet.text, /Nothing in this workspace changed since then/);
+  const bad = await call(AGENT, "orient", { since: "yesterday-ish" });
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /^invalid: since/);
 });

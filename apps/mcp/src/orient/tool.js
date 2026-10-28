@@ -218,16 +218,66 @@ async function overview(store, scope, rules, overrides) {
     );
   }
   parts.push(say(`## How to work here\n\n${HOW_TO_WORK}`));
+  parts.push(markLine());
   return toolText(parts.join("\n\n---\n\n"));
 }
 
+/** The line that ends an overview: the mark a later `orient { since }` answers from. */
+export function markLine(now = new Date()) {
+  return (
+    `orient_mark: ${now.toISOString()}\n` +
+    "Orienting again in this session? Pass since: that mark, and orient answers with only what changed."
+  );
+}
+
 /**
- * `orient`: the overview, or one part of the manual named by `about`.
+ * `orient { since }`: what changed in the connected workspace since an earlier
+ * orient's mark, and nothing it already said (the owner, 2026-10-28: "compact,
+ * incremental orient responses"). The workspace map, the other workspaces,
+ * the front page and the rules are not read again: each of those is a bucket
+ * or control-plane round trip, and the caller already holds them.
+ */
+async function sinceAnswer(store, scope, rules, overrides, since) {
+  const at = typeof since === "string" ? new Date(since) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return toolError("invalid: since must be the orient_mark an earlier orient answer ended with");
+  }
+  const now = new Date();
+  const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
+  const [survey, pendingProposals] = await Promise.all([
+    surveyOf(store, store, scope, rules, overrides),
+    scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
+  ]);
+  const after = (date) => date instanceof Date && date > at;
+  const changed = {
+    recent: survey.recent.filter((note) => after(note.uploaded)),
+    captured: survey.captured.filter((summary) => after(summary.newest?.uploaded)),
+  };
+  const parts = [`# Context: what changed since ${at.toISOString()}`];
+  const v2 = typeof store.offeredTools === "function";
+  if (v2 && news) parts.push(`${news}\n\n${await toolsManual(store, scope)}`);
+  const recent = recentSection(changed);
+  parts.push(recent ?? "Nothing in this workspace changed since then.");
+  if (scope === "private" && pendingProposals.length) {
+    parts.push(inToolNames(`${pendingProposals.length} note proposals are waiting; fetch \`proposals:\` reads them.`, { v2 }));
+  }
+  parts.push(
+    "Everything else (the workspaces, the front page, the rules) is as your earlier orient said; call orient " +
+      "with no since for all of it again.\n\n" +
+      markLine(now)
+  );
+  return toolText(parts.join("\n\n"));
+}
+
+/**
+ * `orient`: the overview, or one part of the manual named by `about`, or what
+ * changed `since` an earlier overview.
  *
- * @param {object} options `about` (a string, see `aboutAnswer`), and the legacy `tools` flag
+ * @param {object} options `about` (a string, see `aboutAnswer`), `since`, and the legacy `tools` flag
  */
 export async function toolOrient(store, scope, rules, overrides, options = {}) {
   const about = aboutOf(options);
+  if (about === null && options.since !== undefined) return await sinceAnswer(store, scope, rules, overrides, options.since);
   if (about === null) return await overview(store, scope, rules, overrides);
   return await aboutAnswer(store, scope, rules, overrides, about);
 }

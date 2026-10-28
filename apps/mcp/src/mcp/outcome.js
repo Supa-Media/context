@@ -41,7 +41,7 @@ const ERROR_CODES = [
 ];
 
 /** The first line of the answer that names what it changed: `<verb>: <path>[ → <path>]`. */
-const CHANGED = /^(written|visibility changed|unchanged|moved|archived|encrypted|decrypted|commented|proposed): (\S+)(?: → (\S+))?/m;
+const CHANGED = /^(written|saved|visibility changed|unchanged|moved|archived|encrypted|decrypted|commented|proposed|remembered in)[: ] ?(\S+)(?: → (\S+))?/m;
 const ETAG = /\(etag ([^\s)]+)\)|^(?:new_)?etag: (\S+)$/m;
 const VISIBILITY = /^(?:visibility|to): (private|team)\b/m;
 

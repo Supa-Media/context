@@ -55,9 +55,13 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   // The user's own procedure decides where this lands. Read per call rather
   // than cached: they may have edited `index.md` in Obsidian a minute ago, and
   // a stale destination writes somewhere they have stopped using.
-  const procedure = await readSaveProcedure(store, scope, rules, overrides);
   // The fallback names the Inbox by its default name; it goes to the folder doing that job.
-  const folder = procedure?.destination || (await inboxPath(store, defaultSessionFolder(rules)));
+  // Both asked at once: each is a round trip, and a save is on the agent's way out.
+  const [procedure, fallback] = await Promise.all([
+    readSaveProcedure(store, scope, rules, overrides),
+    inboxPath(store, defaultSessionFolder(rules)),
+  ]);
+  const folder = procedure?.destination || fallback;
   const path = await uniqueSessionPath(store, platform, at, folder);
   const content = formatChatArchive({
     platform,

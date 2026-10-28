@@ -84,8 +84,11 @@ export async function toolRemember(store, scope, rules, overrides, args) {
         ? toolError("conflict: the note changed twice while remembering; nothing was written. Re-read it and try again.")
         : written;
     }
+    // The version it left, so the outcome line (`mcp/outcome.js`) can say it.
+    const etag = /\(etag ([^\s)]+)\)/.exec(textOf(written))?.[1];
     return toolText(
-      `remembered in ${opened.path} (${edit.replaced === undefined ? "added a line" : "replaced a line"})`,
+      `remembered in ${opened.path} (${edit.replaced === undefined ? "added a line" : "replaced a line"})` +
+        (etag ? `\netag: ${etag}` : ""),
     );
   }
   return toolError("conflict: the note kept changing; nothing was written");
@@ -202,7 +205,10 @@ async function rememberInInbox(store, scope, rules, overrides, fact, kind) {
         record: { action: "remember_fact", details: { fact, kind, count: 1, created: true } },
       },
     );
-    if (!written.isError) return toolText(`remembered in ${path} (new note in ${folder})`);
+    if (!written.isError) {
+      const etag = /\(etag ([^\s)]+)\)/.exec(textOf(written))?.[1];
+      return toolText(`remembered in ${path} (new note in ${folder})${etag ? `\netag: ${etag}` : ""}`);
+    }
     const text = textOf(written);
     if (!text.startsWith("that note already exists") && !text.startsWith("conflict")) return written;
   }
