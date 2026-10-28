@@ -402,7 +402,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       entries = ownTurn(choice.answer);
       if (entries.length === 0) continue;
     }
-    if (deps.startTurn !== undefined && (await handOff(storage, deps, entries))) return;
+    if (deps.startTurn !== undefined) return void (await handOff(storage, deps, entries)); // No Workflows binding: answered here.
     if (await answerInline(storage, entries, deps)) return;
   }
   await pruneSeen(storage, deps.now());
