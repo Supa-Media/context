@@ -1,5 +1,9 @@
 # The mobile app and the console
 
+### Native menu gesture containers do not group their actions
+
+See [the native menu accessibility decision](./app-and-console/native-app-shell.md#native-menu-gesture-containers-do-not-group-their-actions-2026-10-28).
+
 _Moved out of `CLAUDE.md` verbatim. See `docs/decisions/README.md` for the index._
 
 ### The note count is measured, stamped, and allowed to be a floor
