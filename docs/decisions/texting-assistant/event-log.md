@@ -58,3 +58,13 @@ newest, then decide is asked again; after three waits in a row Tex answers. A
 message addressed to Tex is never delayed by a wait. A 1:1 treats wait as an
 answer, since its texts already wait for each other. An answer keeps today's
 flow: an ack tapback at once, the reply when it is ready.
+
+Shortened by Dev2, 2026-10-28, after a single untagged text waited about 24
+seconds: a wait is believed only on a real burst (the sender sent another
+message within 20 seconds, or the newest one looks unfinished: a trailing
+comma, "and", "but", "so", "or", an ellipsis, or a fragment under four words
+with no end punctuation), so a single complete message is never held. A wait
+lasts 8 seconds, counted from when it was decided (or from the sender's
+newest message, which starts it again), and happens at most once. Counting it
+from the newest message alone let a wait decided late end before it began,
+which made three decides run within two seconds.

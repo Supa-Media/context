@@ -375,16 +375,16 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         if (entry[1].byCode) break;
         burst.push(entry);
       }
-      // A burst decide said to wait on: untagged messages are left until the wait is over (an addressed one never waits).
-      const waitUntil = (await storage.get<number>(WAIT_KEY)) ?? 0;
-      if (deps.now() < waitUntil && burst.every(([, item]) => item.soft === true && item.force !== true)) {
+      // While a burst waits, a new message to it starts the wait again: it ends WAIT_MS after the newest, if that is later.
+      const waitUntil = Math.max((await storage.get<number>(WAIT_KEY)) ?? 0, burst.some(([, item]) => item.waits) ? Math.max(...burst.map(([, item]) => item.at ?? 0)) + WAIT_MS : 0);
+      if (deps.now() < waitUntil && burst.every(([, item]) => item.soft === true && item.force !== true)) { // An addressed one never waits.
         await armBy(storage, waitUntil, deps.now());
         break;
       }
       const choice = await chooseGroupTurn(storage, deps, burst);
       if (choice.wait !== undefined && choice.wait.length > 0) {
         for (const [key, item] of choice.wait) await storage.put<Pending>(key, { ...item, waits: (item.waits ?? 0) + 1 });
-        const until = Math.max(...choice.wait.map(([, item]) => item.at ?? deps.now())) + WAIT_MS;
+        const until = Math.max(deps.now(), ...choice.wait.map(([, item]) => item.at ?? 0)) + WAIT_MS; // From now: a wait decided late still waits
         await storage.put(WAIT_KEY, until);
         await armBy(storage, until, deps.now());
         log("waiting");
