@@ -88,7 +88,7 @@ function firstResult(text, name) {
 const words = (result) => (Array.isArray(result?.content) ? result.content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "");
 
 /** The pictures a picture search found, those described by the name first, each with its smaller copy. */
-function picturesFound(text, name) {
+function picturesFound(text, name, limit = TRIES_PER_SEARCH) {
   const found = pagesIn(text).flatMap((page) => page.pictures);
   const spares = new Map();
   for (const line of String(text ?? "").split("\n")) {
@@ -97,7 +97,7 @@ function picturesFound(text, name) {
   }
   const named = found.filter((picture) => names(picture.alt, name));
   const rest = found.filter((picture) => !named.includes(picture));
-  return [...named, ...rest].slice(0, TRIES_PER_SEARCH).map((picture) => ({ src: picture.src, spare: spares.get(picture.src) ?? null }));
+  return [...named, ...rest].slice(0, limit).map((picture) => ({ src: picture.src, spare: spares.get(picture.src) ?? null }));
 }
 
 export function within(promise, ms) {
@@ -109,14 +109,21 @@ export function within(promise, ms) {
  * One thing's picture, by its name and the words to search: searched, else its page photographed. `web(name, args)`
  * is the turn's web tools; `download(address)` a data address or null;
  * `shoot(url)` a data address of the page or null; `read()` the turn's words.
+ * `want` above 1 also returns up to that many more of the same search's
+ * pictures in `more`, for a page's carousel (`./pagePhotos.js`).
  */
-export async function huntPicture(name, query, { web, download, shoot, read }) {
+export async function huntPicture(name, query, { web, download, shoot, read }, { want = 1 } = {}) {
   if (typeof web === "function") {
     const searched = await Promise.resolve(web("search_web", { query, pictures: true })).catch(() => null);
     if (searched && searched.isError !== true) {
-      for (const picture of picturesFound(words(searched), name)) {
-        const got = (await download(picture.src)) ?? (picture.spare ? await download(picture.spare) : null);
-        if (got) return { how: "searched", address: picture.src, data: got };
+      const found = picturesFound(words(searched), name, Math.max(TRIES_PER_SEARCH, want * 2));
+      const fetch = async (picture) => (await download(picture.src)) ?? (picture.spare ? await download(picture.spare) : null);
+      for (let k = 0; k < Math.min(found.length, TRIES_PER_SEARCH); k += 1) {
+        const got = await fetch(found[k]);
+        if (!got) continue;
+        const rest = want > 1 ? await Promise.all(found.slice(k + 1).map((picture) => fetch(picture).catch(() => null))) : [];
+        const more = [...new Set(rest.filter((data) => data && data !== got))].slice(0, want - 1);
+        return { how: "searched", address: found[k].src, data: got, more };
       }
     }
   }

@@ -56,6 +56,12 @@ import { huntPicture, within } from "./hunt.js";
  * `choose` block, none was hunted, and the page went out with no picture at all.
  */
 export const PICTURED_KINDS = new Set(["places", "vote", "prices", "itinerary", "choose"]);
+/**
+ * Photos hunted for each place, for its carousel (owner, 2026-10-28: "show
+ * more images of the different options"). Every option gets its first
+ * picture before any gets a second, within the write's ten.
+ */
+export const PHOTOS_PER_PLACE = 3;
 /** The most options hunted for one page write. */
 export const MAX_PAGE_HUNTS = 8;
 /**
@@ -110,7 +116,7 @@ export function unpictured(content) {
       const indent = /^[ \t]*/.exec(content.slice(lineStart))[0];
       // A place's address helps the search find this place and not another of its name; a choice's first fact likewise ("1 Penn Plaza").
       const where = block.kind === "places" ? item.parts?.[0]?.text?.trim() ?? "" : block.kind === "choose" && item.label ? whereIn(item.parts?.[0]?.text) : "";
-      wanted.push({ name, query: where ? `${name} ${where.slice(0, 60)}` : name, at: item.to, indent });
+      wanted.push({ name, query: where ? `${name} ${where.slice(0, 60)}` : name, at: item.to, indent, want: block.kind === "places" ? PHOTOS_PER_PLACE : 1 });
     }
   }
   return wanted;
@@ -134,20 +140,26 @@ export async function withPagePictures(args, deps, { timeoutMs = PAGE_HUNT_TIMEO
     const data = await deps.download(address);
     return data && storableImage(data) ? data : null;
   };
-  const got = await Promise.all(wanted.map((option) => within(huntPicture(option.name, option.query, { ...deps, download }).catch(() => null), timeoutMs)));
+  const got = await Promise.all(wanted.map((option) => within(huntPicture(option.name, option.query, { ...deps, download }, { want: option.want }).catch(() => null), timeoutMs)));
   const added = [];
-  const lines = [];
+  const names = wanted.map(() => []);
   let bytes = 0;
-  got.forEach((picture, i) => {
-    const stored = picture ? storableImage(picture.data) : null;
-    if (!stored || bytes + stored.bytes > MAX_UPLOADED_BYTES_PER_WRITE / 2) return;
+  const keep = (i, picture) => {
+    const stored = storableImage(picture);
+    if (!stored || added.length >= MAX_IMAGES_PER_WRITE - images.length || bytes + stored.bytes > MAX_UPLOADED_BYTES_PER_WRITE / 2) return;
     bytes += stored.bytes;
     // The bytes name the type, never the address's header: a shot is labelled JPEG whatever it is.
-    const data = `data:${stored.contentType};base64,${picture.data.slice(picture.data.indexOf(",") + 1)}`;
+    const data = `data:${stored.contentType};base64,${picture.slice(picture.indexOf(",") + 1)}`;
     const name = fileName(wanted[i].name, added.length + 1, stored.contentType);
     added.push({ name, data });
-    lines.push({ at: wanted[i].at, text: `\n${wanted[i].indent}  photo: ${name}`, name: wanted[i].name });
-  });
+    names[i].push(name);
+  };
+  // Every option's first picture, then the rest of each one's, so one place's carousel never costs another its photo.
+  got.forEach((picture, i) => picture && keep(i, picture.data));
+  got.forEach((picture, i) => names[i].length > 0 && (picture.more ?? []).forEach((more) => keep(i, more)));
+  const lines = wanted
+    .map((option, i) => ({ at: option.at, name: option.name, text: names[i].length === 0 ? "" : `\n${option.indent}  ${names[i].length > 1 ? "photos" : "photo"}: ${names[i].join(", ")}` }))
+    .filter((line) => line.text !== "");
   if (added.length === 0) return { args, found: [] };
   // From the end, so each offset still points where it did.
   let next = content;

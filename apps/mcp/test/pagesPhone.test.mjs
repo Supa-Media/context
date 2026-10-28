@@ -150,3 +150,49 @@ test("a cover is judged as a cover, and any other picture as an answer", async (
   assert.ok(asked[0].endsWith(COVER_RULE));
   assert.ok(!asked[1].includes(COVER_RULE));
 });
+
+/*
+ * MORE PHOTOS, AND WHERE IT CAME FROM (owner, 2026-10-28: "show more images of
+ * the different options, and have a swipable carousel go through, also there
+ * should be a link out to the website sources where we got the info").
+ *
+ * Sabotage: `want` dropped from `unpictured` → "a place gets three photos"
+ * fails; `sourceLink` returning "" → "each option links to its source" fails;
+ * a `javascript:` source drawn → "only a web address" fails.
+ */
+
+const ROOMS = [
+  "---",
+  "kind: research",
+  "skill: pages-test",
+  "---",
+  "# Rooms",
+  "",
+  "```places Rooms",
+  "- The Stand: 116 E 16th St | Own kitchen",
+  "  source: https://www.tagvenue.com/rooms/new-york/the-stand",
+  "- Loft: 2 St",
+  "```",
+  "",
+].join("\n");
+
+test("a place gets three photos to swipe through, and every place its first before any gets a third", async () => {
+  const hits = (n, tag) => Array.from({ length: n }, (_, k) => [`${tag} ${k}`, `https://cdn.example/${tag}-${k}.jpg`]);
+  const w = web({ "The Stand 116 E 16th St": hits(5, "stand"), "Loft 2 St": hits(5, "loft") });
+  const bytes = (address) => `data:image/jpeg;base64,${btoa(`\xff\xd8\xff\xe0${address}`)}`;
+  const { args } = await withPagePictures({ path: "rooms.page.md", content: ROOMS, images: Array.from({ length: 6 }, (_, k) => ({ name: `x${k}.jpg`, data: "x" })) }, { web: w.call, download: async (address) => bytes(address) });
+  // Room for four: each place's first, then the rest in order.
+  assert.match(args.content, /- The Stand: [^\n]*\n {2}source: [^\n]*\n {2}photos: the-stand-1\.jpg, the-stand-3\.jpg, the-stand-4\.jpg\n/);
+  assert.match(args.content, /- Loft: 2 St\n {2}photo: loft-2\.jpg\n/);
+  assert.equal(args.images.length, 10);
+  assert.deepEqual(parsePage(args.content).problems, []);
+});
+
+test("each option links to its source, named by its site, and only a web address", () => {
+  const drawn = html(ROOMS);
+  assert.match(drawn, /<a class="pg-src" href="https:\/\/www\.tagvenue\.com\/rooms\/new-york\/the-stand" data-href="[^"]+" title="[^"]+">tagvenue\.com ↗<\/a>/);
+  assert.doesNotMatch(drawn, /pg-facts[^]*source/, "a source is not drawn as a fact");
+  const picked = html(["# P", "", "```choose Pick", "- A: one", "  source: ravelevents.com", "- B: two", "  source: javascript:alert(1)", "```"].join("\n"));
+  assert.match(picked, /href="https:\/\/ravelevents\.com"/);
+  assert.doesNotMatch(picked, /javascript:/);
+});

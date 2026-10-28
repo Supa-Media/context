@@ -156,7 +156,10 @@ test("places: photo spreads with the seats against the need and a fact strip, a 
     "```",
     "",
   ]);
-  assert.match(html, /pg-bento n3/);
+  // Every photo, to swipe through (owner, 2026-10-28), not the first three in a grid.
+  assert.match(html, /class="pg-gal n2"><span class="pg-no">1<\/span><div class="pg-gal-track"/);
+  assert.equal((html.match(/data-src="[a-d]\.jpg"/g) ?? []).length, 5, "the four, and the first again as the cover");
+  assert.equal((html.match(/<div class="pg-gal-dots"[^>]*>(<i[^>]*><\/i>)+<\/div>/)?.[0].match(/<i[ >]/g) ?? []).length, 4);
   assert.match(html, /4 photos/);
   assert.match(html, /pg-vprice ask">Ask for price/);
   assert.match(html, /class="pg-fit short"/, "fewer seats than needed is flagged");

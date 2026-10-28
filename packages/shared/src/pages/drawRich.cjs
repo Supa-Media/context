@@ -12,10 +12,10 @@
  */
 
 const { numberIn, fieldOf, seatsIn, UNKNOWN } = require("./blocks.cjs");
-const { esc, SAFE_HREF, runsHtml, part, fieldHtml, plain, setting, itemName, sources, photo, faces, voters } = require("./html.cjs");
+const { esc, SAFE_HREF, runsHtml, part, fieldHtml, plain, setting, itemName, sources, photo, faces, voters, sourceLink, gallery } = require("./html.cjs");
 
 /** Fields a block draws in a place of its own; any other field on a place is a fact. */
-const KNOWN = new Set(["photo", "photos", "price", "seats", "votes", "address", "why", "map", "phone", "email", "text", "site", "walk", "state", "status"]);
+const KNOWN = new Set(["photo", "photos", "price", "seats", "votes", "address", "why", "map", "phone", "email", "text", "site", "walk", "state", "status", "source", "sources", "link", "url"]);
 
 const photosOf = (item) => [...sources(fieldOf(item, "photos")), ...sources(fieldOf(item, "photo"))];
 
@@ -76,7 +76,7 @@ const RICH = {
         return (
           `<div class="pg-vopt" role="radio" aria-checked="${on}" tabindex="0" data-vote="${esc(name)}">` +
           photo(photosOf(item)[0], ctx, { name }) +
-          `<div>${item.label ? part(item, -1, open, "b") : part(item, 0, open, "b")}${part(item, item.label ? 0 : 1, open, "small")}</div>` +
+          `<div>${item.label ? part(item, -1, open, "b") : part(item, 0, open, "b")}${part(item, item.label ? 0 : 1, open, "small")}${sourceLink(item)}</div>` +
           faces(voters(fieldOf(item, "votes"))) +
           `</div>`
         );
@@ -121,12 +121,7 @@ const RICH = {
     const spreads = block.items
       .map((item, i) => {
         const name = itemName(item);
-        const pics = photosOf(item);
-        const shown = pics.slice(0, 3);
-        const bento =
-          `<div class="pg-bento n${Math.max(1, shown.length)}"><span class="pg-no">${i + 1}</span>` +
-          (shown.length ? shown.map((src, k) => photo(src, ctx, { name, label: k === 0 && pics.length > 3 ? `${pics.length} photos` : "" })).join("") : photo(null, ctx, { name })) +
-          `</div>`;
+        const bento = gallery(photosOf(item), ctx, { name, no: String(i + 1) });
         const seatsField = fieldOf(item, "seats");
         const seats = seatsIn(seatsField?.value.text);
         let fit = "";
@@ -147,7 +142,7 @@ const RICH = {
               .join("")}</div>`
           : "";
         return (
-          `<article class="pg-venue">${bento}<div class="pg-venue-h"><div>${part(item, -1, open, "h4")}${part(item, 0, open, "span", "pg-where")}</div>${mapLink(item)}</div>` +
+          `<article class="pg-venue">${bento}<div class="pg-venue-h"><div>${part(item, -1, open, "h4")}${part(item, 0, open, "span", "pg-where")}${sourceLink(item)}</div>${mapLink(item)}</div>` +
           `${priceHtml(item)}${fit}${factsHtml}${part(item, 1, open, "p", "pg-why")}</article>`
         );
       })
@@ -179,7 +174,7 @@ const RICH = {
         const left = value === null ? 100 : Math.min(100, (value / top) * 100);
         const dot = `<span class="pg-dot${value === null ? " hollow" : ""}" style="left:${left.toFixed(1)}%">${part(item, 0, open, "em")}</span>`;
         const total = value === null ? `<span class="pg-tot ask">Ask</span>` : group !== null ? `<span class="pg-tot">${esc(money(sign, value * group))}</span>` : "<span></span>";
-        return `<div class="pg-prow${pick ? " pick" : ""}">${photo(photosOf(item)[0], ctx, { name })}<div>${part(item, -1, open, "b")}${part(item, 1, open, "span", "pg-what")}<div class="pg-scale">${dot}</div></div>${total}</div>`;
+        return `<div class="pg-prow${pick ? " pick" : ""}">${photo(photosOf(item)[0], ctx, { name })}<div>${part(item, -1, open, "b")}${part(item, 1, open, "span", "pg-what")}${sourceLink(item)}<div class="pg-scale">${dot}</div></div>${total}</div>`;
       })
       .join("");
     return `<div class="pg-plot">${head}${rows}</div>`;
@@ -191,7 +186,7 @@ const RICH = {
       .map((item, i) => {
         const walk = fieldOf(item, "walk");
         const leg = walk && i < block.items.length - 1 ? `<div class="pg-leg"><span>Walk</span>${fieldHtml(walk, open)}</div>` : "";
-        return `<div class="pg-stop">${part(item, -1, open, "time", "pg-tm")}${photo(photosOf(item)[0], ctx, { name: plain(item.parts[0].runs) })}<div>${part(item, 0, open, "b")}${part(item, 1, open, "span")}</div></div>${leg}`;
+        return `<div class="pg-stop">${part(item, -1, open, "time", "pg-tm")}${photo(photosOf(item)[0], ctx, { name: plain(item.parts[0].runs) })}<div>${part(item, 0, open, "b")}${part(item, 1, open, "span")}${sourceLink(item)}</div></div>${leg}`;
       })
       .join("")}</div>`;
   },

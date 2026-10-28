@@ -180,6 +180,17 @@ required when making pages".
   round ‹ and ••• alone, with no workspace notices over it. Tests:
   `apps/mcp/test/pagesPhone.test.mjs`, `apps/mobile/__tests__/pageBareChrome.test.ts`.
 
+- **Every place swipes, and every option says where it came from** (owner,
+  2026-10-28: "show more images of the different options, and have a
+  swipable carousel go through, also there should be a link out to the
+  website sources where we got the info"). A place's photos are a carousel
+  (every photo it names, the next one peeking, dots that follow); the gateway
+  hunts up to three per place, every place's first before any second, inside
+  the write's ten pictures. Any option, place, price or stop with `source:`
+  (or `link:`, `url:`, `site:`) links out to that site, named by its domain,
+  and only ever to a web address; the skill asks for one on every option.
+  Tests: `pagesPhone.test.mjs`, `pagesDesign.test.mjs` ("places").
+
 What a "simplification" would cost: dropping the stamp check lets agents write
 pages from memory of an older format, which is how the first pages came out
 as styled Markdown; letting the frame name the voter lets any page's script

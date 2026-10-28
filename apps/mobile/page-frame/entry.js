@@ -83,8 +83,25 @@ function draw() {
   reportHeight();
 }
 
-/** What only a script can add: editing, sort buttons, tabs. */
+/** A carousel's dots follow the photo in view (`gallery` in `packages/shared/src/pages/html.cjs`). */
+function followGallery(track) {
+  const dots = track.parentElement.querySelectorAll(".pg-gal-dots i");
+  if (dots.length < 2) return;
+  track.addEventListener(
+    "scroll",
+    () => {
+      const slide = track.firstElementChild;
+      const step = slide ? slide.getBoundingClientRect().width + 4 : 1;
+      const at = Math.min(dots.length - 1, Math.round(track.scrollLeft / step));
+      dots.forEach((dot, k) => dot.classList.toggle("on", k === at));
+    },
+    { passive: true },
+  );
+}
+
+/** What only a script can add: editing, sort buttons, tabs, carousel dots. */
 function decorate() {
+  for (const track of root.querySelectorAll(".pg-gal-track")) followGallery(track);
   for (const el of root.querySelectorAll("[data-edit]")) {
     const inside = el.closest(".pg-option, .pg-vopt");
     if (state.editable && !inside && el.querySelector("[data-f]")) {
@@ -225,6 +242,13 @@ root.addEventListener("click", (event) => {
     for (const button of root.querySelectorAll("[data-tab]")) button.setAttribute("aria-selected", String(button === tab));
     for (const section of root.querySelectorAll("[data-section]")) section.hidden = section.dataset.section !== tab.dataset.tab;
     reportHeight();
+    return;
+  }
+  // A source link inside an option opens its site; it never casts a vote or makes a choice.
+  const out = event.target.closest("a.pg-src");
+  if (out) {
+    event.preventDefault();
+    if (out.dataset.href) tell({ type: "open", href: out.dataset.href });
     return;
   }
   const vote = event.target.closest("[data-vote]");

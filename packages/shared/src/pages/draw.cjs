@@ -9,7 +9,7 @@
  */
 
 const { numberIn, shareIn, fieldOf } = require("./blocks.cjs");
-const { esc, part, plain, setting, itemName, faces, photo } = require("./html.cjs");
+const { esc, part, plain, setting, itemName, faces, photo, sourceLink } = require("./html.cjs");
 const { photosOf } = require("./drawRich.cjs");
 
 /** A short name ("Zay", "LK", "Sam Okafor") drawn as a face; anything longer stays words. */
@@ -82,7 +82,7 @@ const DRAW = {
         const on = chosen !== "" && name.toLowerCase() === chosen;
         // An option's photo (the gateway hunts one for each, `apps/mcp/src/agent/visuals/pagePhotos.js`) leads its row.
         const pic = photosOf(item)[0];
-        return `<div class="pg-option${on ? " on" : ""}${pic ? " pictured" : ""}" role="radio" aria-checked="${on}" tabindex="0" data-choose="${esc(name)}">${pic ? photo(pic, ctx, { name }) : ""}<div>${item.label ? part(item, -1, open, "b") : ""}${part(item, 0, open, item.label ? "span" : "b")}${part(item, 1, open, "span")}</div><span class="pg-tick">${on ? "Chosen" : "Choose"}</span></div>`;
+        return `<div class="pg-option${on ? " on" : ""}${pic ? " pictured" : ""}" role="radio" aria-checked="${on}" tabindex="0" data-choose="${esc(name)}">${pic ? photo(pic, ctx, { name }) : ""}<div>${item.label ? part(item, -1, open, "b") : ""}${part(item, 0, open, item.label ? "span" : "b")}${part(item, 1, open, "span")}${sourceLink(item)}</div><span class="pg-tick">${on ? "Chosen" : "Choose"}</span></div>`;
       })
       .join("")}</div>`;
   },
