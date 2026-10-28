@@ -26,7 +26,8 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "@convex-dev/auth": "patches/@convex-dev__auth.patch"
+      "@convex-dev/auth": "patches/@convex-dev__auth.patch",
+      "decode-uri-component@0.2.2": "patches/decode-uri-component@0.2.2.patch"
     },
     "overrides": {
       "brace-expansion@>=1.0.0 <1.1.20": "^1.1.20",

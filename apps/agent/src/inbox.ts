@@ -49,6 +49,7 @@
 
 import { sendCardPart } from "./sendParts";
 import { withPickCard, type Choice } from "./pickCard";
+import { settleCard, withAskCard, withCardsHere } from "./cardChats";
 import { textsFromAnswer } from "./format";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
@@ -173,6 +174,7 @@ export async function accept(
     return "preview";
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
+  message = await settleCard(storage, message, now);
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
@@ -286,6 +288,7 @@ export async function react(
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+  deps = await withCardsHere(storage, deps);
   // A 👍 on an ask joins the queue as the tapback it is.
   const thumb = await dueThumb<Message>(storage, deps.now());
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
@@ -573,14 +576,15 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
-  if (pictures.length === 0) return done(texts);
+  const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
+  if (pictures.length === 0) return done(withAskCard(texts, texts, cards));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(withPickCard(await partsFor(texts, pictures, upload), choices, message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard));
+  return done(withAskCard(withPickCard(await partsFor(texts, pictures, upload), choices, cards), texts, cards));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */

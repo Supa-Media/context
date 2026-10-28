@@ -11,7 +11,7 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
-import { noteCard, type AppCard, type AppCardConfig } from "./appCards";
+import { cardsOn, noteCard, type AppCard, type AppCardConfig } from "./appCards";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
@@ -114,7 +114,7 @@ function sendblueLine(deps: LineDeps): Line {
   };
   return {
     sendText: async (chatId, text, _key, replyTo) => {
-      const card = deps.appCard ? noteCard(text, deps.appCard) : null;
+      const card = cardsOn(deps.appCard) ? noteCard(text, deps.appCard) : null;
       if (card) {
         try {
           return await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
