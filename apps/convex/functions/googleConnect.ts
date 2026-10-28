@@ -74,7 +74,6 @@ import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import {
-  scopesForConnect,
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
@@ -84,6 +83,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
+import { standardScopesFor } from "./lib/googleConnect/aiScopes";
 // eslint-disable-next-line import/extensions
 import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
 import {
@@ -232,7 +232,7 @@ export const startGmailConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(["gmail"]),
+        scopes: standardScopesFor(["gmail"]),
       }),
     };
   },
@@ -311,7 +311,7 @@ export const startGoogleConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(products),
+        scopes: standardScopesFor(products),
         loginHint: validateLoginHint(args.loginHint),
       }),
     };

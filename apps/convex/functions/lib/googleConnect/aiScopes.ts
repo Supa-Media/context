@@ -10,8 +10,15 @@
  * agent grant may not hold.
  */
 
-import { CALENDAR_SCOPES, CALENDAR_WRITE_SCOPE, scopesForConnect, type GoogleProduct } from "../googleOAuth";
-import { grantFor } from "./clients";
+import {
+  CALENDAR_SCOPES,
+  CALENDAR_WRITE_SCOPE,
+  grantedScopesFor,
+  IDENTITY_SCOPES,
+  scopesForConnect,
+  type GoogleProduct,
+} from "../googleOAuth";
+import { agentClientActive, grantFor } from "./clients";
 
 type Env = Record<string, string | undefined>;
 
@@ -45,4 +52,34 @@ interface ScopedConnection {
 /** The scopes AI may act on for this connection: those of the grant AI mints from. */
 export function aiScopesOf(row: ScopedConnection, env: Env = process.env): string[] {
   return grantFor("agent", row.agentGrant !== undefined, env) === "agent" ? (row.agentGrant?.scopes ?? []) : row.scopes;
+}
+
+/**
+ * The standard client's consent. Until the switch, today's list: AI still
+ * reads every account that has not allowed AI access through it. Once
+ * switched, the person's own use is the Meetings view's calendar read and
+ * nothing else, so identity, plus `calendar.events.readonly` when Calendar
+ * is connected: no Gmail, no Chat, no write.
+ */
+export function standardScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
+  if (!agentClientActive(env)) return scopesForConnect(products);
+  return products.includes("calendar") ? [...IDENTITY_SCOPES, ...CALENDAR_SCOPES] : [...IDENTITY_SCOPES];
+}
+
+/**
+ * Whether a standard grant holds what its own role needs of a product, the
+ * rule a connect binds a product by. Until the switch, the product's read
+ * scopes, as today. Once switched, only Calendar needs anything of it (the
+ * Meetings view); Gmail and Chat are the person's choice on the row, and
+ * what AI may do with them comes from the agent grant (`agentGrantCovers`).
+ */
+export function standardGrantCovers(product: GoogleProduct, scopes: readonly string[], env: Env = process.env): boolean {
+  if (agentClientActive(env) && product !== "calendar") return true;
+  return grantedScopesFor(product, scopes).length > 0;
+}
+
+/** Whether a grant lets AI read a product: Calendar reads under either calendar scope. */
+export function canReadProduct(product: GoogleProduct, scopes: readonly string[]): boolean {
+  if (product === "calendar") return scopes.includes(CALENDAR_SCOPES[0]) || scopes.includes(CALENDAR_WRITE_SCOPE);
+  return AGENT_READ[product].every((scope) => scopes.includes(scope));
 }

@@ -15,6 +15,7 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { chatMailClearance, chatsWatching } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
+import { aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
 /** Live reads per person per hour: searches and opened messages together. */
@@ -77,11 +78,14 @@ export const claimPersonMailRead = internalMutation({
       row.gmail!.destinationFolder ?? defaultGoogleDestinationFolder("gmail", row.gmail!.mailboxSlug);
     // A mailbox whose sign-in Google stopped honouring is named, so the person
     // is told to reconnect it rather than its mail silently missing (2026-10-20).
+    // So is one whose AI grant does not read mail (a box left unticked, or AI
+    // access not yet allowed once switched on): one more consent fixes both.
+    const unreadable = (row: (typeof gmails)[number]) => !canReadProduct("gmail", aiScopesOf(row));
     const reconnect = gmails
-      .filter((row) => row.health === "reconnect_required")
+      .filter((row) => row.health === "reconnect_required" || unreadable(row))
       .map((row) => ({ address: row.address.toLowerCase(), folder: folderOf(row) }));
     const mailboxes = gmails
-      .filter((row) => row.health !== "reconnect_required")
+      .filter((row) => row.health !== "reconnect_required" && !unreadable(row))
       .map((row) => ({
         connectionId: row._id,
         address: row.address.toLowerCase(),
