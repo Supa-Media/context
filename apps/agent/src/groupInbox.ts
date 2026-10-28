@@ -470,9 +470,13 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
-  await setChatBound(storage, message);
-  // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
-  await noteGuestChat(storage, message, asked.guest !== undefined);
+  // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
+  // and every untagged text after it would be dropped as said in front of other people.
+  if (!routine) {
+    await setChatBound(storage, message);
+    // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
+    await noteGuestChat(storage, message, asked.guest !== undefined);
+  }
   await keepNames(storage, asked.names ?? []);
   if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
   const guest = asked.guest;
