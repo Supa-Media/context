@@ -47,6 +47,23 @@ export async function readForm(request) {
 }
 
 /**
+ * The first parameter sent more than once, or `null`.
+ *
+ * RFC 6749 §3.1 says a request parameter MUST NOT appear more than once. A
+ * repeat is refused rather than resolved, because which copy wins is exactly
+ * where two readers can disagree (HTTP parameter pollution): this endpoint
+ * would check one value while something downstream used the other.
+ */
+export function repeatedParameter(params) {
+  const seen = new Set();
+  for (const name of params.keys()) {
+    if (seen.has(name)) return name;
+    seen.add(name);
+  }
+  return null;
+}
+
+/**
  * Authenticate the client presenting a token request.
  *
  * Public clients (`token_endpoint_auth_method: "none"`) present only their
@@ -90,6 +107,8 @@ export async function handleToken(request, env, controlPlane, { origin, slug }) 
       "The token endpoint requires application/x-www-form-urlencoded."
     );
   }
+  const repeated = repeatedParameter(params);
+  if (repeated) return oauthError("invalid_request", `${repeated} was sent more than once.`);
 
   const clientId = params.get("client_id");
   if (!clientId) return oauthError("invalid_client", "client_id is required.", 401);

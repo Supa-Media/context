@@ -1,5 +1,5 @@
 import { oauthError } from "./responses.js";
-import { authenticateClient, readForm } from "./token.js";
+import { authenticateClient, readForm, repeatedParameter } from "./token.js";
 
 /* -------------------------------- revoke ---------------------------------- */
 
@@ -22,6 +22,8 @@ export async function handleRevoke(request, env, controlPlane) {
       "The revocation endpoint requires application/x-www-form-urlencoded."
     );
   }
+  const repeated = repeatedParameter(params);
+  if (repeated) return oauthError("invalid_request", `${repeated} was sent more than once.`);
   const clientId = params.get("client_id");
   if (!clientId) return oauthError("invalid_client", "client_id is required.", 401);
   const client = await controlPlane.getClient(clientId);
