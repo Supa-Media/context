@@ -446,7 +446,7 @@ jobs:
           set -o pipefail
           pnpm run build
           pnpm exec electron-builder --mac --config electron-builder.yml --publish never 2>&1 \
-            | bash build/redact-signing-log.sh
+            | bash build/redact-signing-log.sh && bash build/mac-update-floor.sh
 
       - name: What was produced
         working-directory: apps/desktop
