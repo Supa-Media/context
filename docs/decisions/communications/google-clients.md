@@ -76,6 +76,20 @@ no longer carries (`standardGrantCovers`); Calendar still needs the calendar
 read, which the Meetings view uses. Existing broader grants are left as they
 are and nothing is revoked. Tests: `googleConnect/standardScopes.test.ts`.
 
+**Calendar's narrower pair (2026-10-28).** Every Calendar call Context makes
+is on the person's own `primary` calendar: `events.list`, `get`, `insert`,
+`patch`, `delete`, `events.watch` and `channels.stop`, and no stored setting
+names another calendar. Google's discovery document accepts
+`calendar.events.owned` for every one of them and
+`calendar.events.owned.readonly` for the reads, so the pair in the table above
+asks for more than is used. `GOOGLE_CALENDAR_SCOPE=owned` swaps the pair in
+every consent (agent and standard); it is set once Google's Data Access list
+carries the new pair, and until then the table holds. Either pair reads and
+writes whatever the setting (`canReadCalendar`, `canWriteCalendar`), so a
+connection made before needs no reconnect. Tests:
+`googleConnect/calendarOwnedScope.test.ts`, including one that fails if a
+Calendar request reaches any calendar but `primary`.
+
 **The split, by caller**: standard is `meetingCalendar` (the Meetings view) and
 `googleReconnect`; agent is every `/gateway/*` Google route (person mail,
 calendar, chat, calendar writes, email sends), the scope check and forward

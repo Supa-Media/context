@@ -11,10 +11,13 @@
  */
 
 import {
+  CALENDAR_OWNED_READ_SCOPE,
   CALENDAR_SCOPES,
-  CALENDAR_WRITE_SCOPE,
+  canReadCalendar,
+  canWriteCalendar,
   grantedScopesFor,
   IDENTITY_SCOPES,
+  narrowCalendarScopes,
   scopesForConnect,
   type GoogleProduct,
 } from "../googleOAuth";
@@ -24,24 +27,30 @@ type Env = Record<string, string | undefined>;
 
 /**
  * The agent client's consent: every read and write scope AI uses for the
- * products, without `calendar.events.readonly`, which `calendar.events`
- * already covers.
+ * products, without Calendar's read scope, which its write scope already
+ * covers (either pair; `narrowCalendarScopes`).
  */
-export function agentScopesFor(products: readonly GoogleProduct[]): string[] {
-  const scopes = scopesForConnect(products);
-  return scopes.includes(CALENDAR_WRITE_SCOPE) ? scopes.filter((scope) => !(CALENDAR_SCOPES as readonly string[]).includes(scope)) : scopes;
+export function agentScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
+  const scopes = scopesForConnect(products, env);
+  const reads: readonly string[] = [...CALENDAR_SCOPES, CALENDAR_OWNED_READ_SCOPE];
+  return canWriteCalendar(scopes) ? scopes.filter((scope) => !reads.includes(scope)) : scopes;
 }
 
-/** The read scopes an agent grant must hold for a product to count as allowed. */
-const AGENT_READ: Record<GoogleProduct, readonly string[]> = {
+/** The read scopes an agent grant must hold for Gmail and Chat to count as allowed. */
+const AGENT_READ: Record<Exclude<GoogleProduct, "calendar">, readonly string[]> = {
   gmail: ["https://www.googleapis.com/auth/gmail.readonly"],
-  calendar: [CALENDAR_WRITE_SCOPE],
   chat: ["https://www.googleapis.com/auth/chat.messages.readonly", "https://www.googleapis.com/auth/chat.spaces.readonly"],
 };
 
-/** Whether an agent grant covers reading every product the connection has: a partial consent does not. */
+/**
+ * Whether an agent grant covers every product the connection has: a partial
+ * consent does not. Calendar's agent consent is its write scope alone, of
+ * either pair.
+ */
 export function agentGrantCovers(products: readonly GoogleProduct[], scopes: readonly string[]): boolean {
-  return products.every((product) => AGENT_READ[product].every((scope) => scopes.includes(scope)));
+  return products.every((product) =>
+    product === "calendar" ? canWriteCalendar(scopes) : AGENT_READ[product].every((scope) => scopes.includes(scope)),
+  );
 }
 
 interface ScopedConnection {
@@ -63,7 +72,7 @@ export function aiScopesOf(row: ScopedConnection, env: Env = process.env): strin
  */
 export function standardScopesFor(products: readonly GoogleProduct[], env: Env = process.env): string[] {
   if (!agentClientActive(env)) return scopesForConnect(products);
-  return products.includes("calendar") ? [...IDENTITY_SCOPES, ...CALENDAR_SCOPES] : [...IDENTITY_SCOPES];
+  return products.includes("calendar") ? narrowCalendarScopes([...IDENTITY_SCOPES, ...CALENDAR_SCOPES], env) : [...IDENTITY_SCOPES];
 }
 
 /**
@@ -78,8 +87,8 @@ export function standardGrantCovers(product: GoogleProduct, scopes: readonly str
   return grantedScopesFor(product, scopes).length > 0;
 }
 
-/** Whether a grant lets AI read a product: Calendar reads under either calendar scope. */
+/** Whether a grant lets AI read a product: Calendar reads under any of its four event scopes. */
 export function canReadProduct(product: GoogleProduct, scopes: readonly string[]): boolean {
-  if (product === "calendar") return scopes.includes(CALENDAR_SCOPES[0]) || scopes.includes(CALENDAR_WRITE_SCOPE);
+  if (product === "calendar") return canReadCalendar(scopes);
   return AGENT_READ[product].every((scope) => scopes.includes(scope));
 }

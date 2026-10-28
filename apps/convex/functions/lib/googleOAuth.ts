@@ -201,11 +201,53 @@ export const WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
   chat: [...CHAT_SEND_SCOPES],
 };
 
-/** The scopes a connect asks Google for: `scopesForProducts`, plus the write scopes of those products. */
-export function scopesForConnect(products: readonly GoogleProduct[]): string[] {
+/**
+ * The scopes a connect asks Google for: `scopesForProducts`, plus the write
+ * scopes of those products, with Calendar's pair narrowed to the calendars
+ * the person owns once `GOOGLE_CALENDAR_SCOPE=owned` (`narrowCalendarScopes`).
+ */
+export function scopesForConnect(products: readonly GoogleProduct[], env: Record<string, string | undefined> = process.env): string[] {
   const scopes = new Set(scopesForProducts(products));
   for (const product of products) for (const scope of WRITE_SCOPES[product] ?? []) scopes.add(scope);
-  return [...scopes];
+  return narrowCalendarScopes([...scopes], env);
+}
+
+/**
+ * The narrower Calendar pair (CASA least scope, 2026-10-28). Every Calendar
+ * call Context makes is on the person's own `primary` calendar: events.list,
+ * get, insert, patch and delete, events.watch and channels.stop. Google's
+ * discovery document lists `calendar.events.owned` for all of them and
+ * `calendar.events.owned.readonly` for the reads, so the broader pair names
+ * calendars Context never touches. Asked for only once
+ * `GOOGLE_CALENDAR_SCOPE=owned` (set when Google's Data Access list carries
+ * the new pair); a grant of either pair keeps working whatever the setting,
+ * so nobody connected today has to reconnect.
+ */
+export const CALENDAR_OWNED_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned";
+export const CALENDAR_OWNED_READ_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
+
+/** Whether a connect asks for the owned-calendar pair rather than the broader one. */
+export function calendarScopeOwned(env: Record<string, string | undefined> = process.env): boolean {
+  return env.GOOGLE_CALENDAR_SCOPE === "owned";
+}
+
+/** A scope list with Calendar's broader pair swapped for the owned pair, when the setting says so. */
+export function narrowCalendarScopes(scopes: readonly string[], env: Record<string, string | undefined> = process.env): string[] {
+  if (!calendarScopeOwned(env)) return [...scopes];
+  const swapped = scopes.map((scope) =>
+    scope === CALENDAR_WRITE_SCOPE ? CALENDAR_OWNED_SCOPE : scope === CALENDAR_SCOPES[0] ? CALENDAR_OWNED_READ_SCOPE : scope,
+  );
+  return [...new Set(swapped)];
+}
+
+/** Whether a grant lets Context change events: either Calendar write scope does. */
+export function canWriteCalendar(scopes: readonly string[]): boolean {
+  return scopes.includes(CALENDAR_WRITE_SCOPE) || scopes.includes(CALENDAR_OWNED_SCOPE);
+}
+
+/** Whether a grant lets Context read events: any of the four Calendar event scopes does. */
+export function canReadCalendar(scopes: readonly string[]): boolean {
+  return canWriteCalendar(scopes) || scopes.includes(CALENDAR_SCOPES[0]) || scopes.includes(CALENDAR_OWNED_READ_SCOPE);
 }
 
 /**
@@ -215,8 +257,8 @@ export function scopesForConnect(products: readonly GoogleProduct[]): string[] {
  * with it.
  */
 export function grantedScopesFor(product: GoogleProduct, grantedScopes: readonly string[]): string[] {
-  const wanted = new Set(PRODUCT_SCOPES[product]);
-  return grantedScopes.filter((scope) => wanted.has(scope as never));
+  const wanted = new Set<string>(product === "calendar" ? [...CALENDAR_SCOPES, CALENDAR_OWNED_READ_SCOPE] : PRODUCT_SCOPES[product]);
+  return grantedScopes.filter((scope) => wanted.has(scope));
 }
 
 /* -------------------------------------------------------------------------- */
