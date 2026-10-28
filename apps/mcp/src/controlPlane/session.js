@@ -9,10 +9,13 @@ export function createSessionMethods({ post, required }) {
   return {
     /**
      * @param {string} accessToken the bearer token exactly as presented
+     * @param {{kind: "path", route: string} | {kind: "header"} | null} [transport]
+     *   how it came; only the path form is sent, with its route's coarse name.
      * @returns {Promise<object|null>} the session, or null for no live grant.
      */
-    async resolveSession(accessToken) {
-      return required(await post("/gateway/session", { accessToken }), "session");
+    async resolveSession(accessToken, transport = null) {
+      const pathRoute = transport?.kind === "path" ? { transport: "path", route: transport.route } : {};
+      return required(await post("/gateway/session", { accessToken, ...pathRoute }), "session");
     },
 
     /** Re-authorize the bounded set of grants currently seated in one room. */

@@ -171,9 +171,10 @@ export function bearerToken(request) {
  *
  * Returns `{ workspaceId, scope, actorUserId, actorClientId, scopes, ... }`.
  * Throws `SessionRefusal` for everything else — there is no third outcome, and
- * in particular no "carry on with a default".
+ * in particular no "carry on with a default". `transport` says how the token
+ * came (`http/presentedToken.js`) and changes nothing about the answer.
  */
-export async function resolveSession(token, slug, controlPlane) {
+export async function resolveSession(token, slug, controlPlane, transport = null) {
   if (!token) {
     throw new SessionRefusal(401, "invalid_token", "An OAuth access token is required.");
   }
@@ -185,7 +186,7 @@ export async function resolveSession(token, slug, controlPlane) {
 
   let resolved;
   try {
-    resolved = await controlPlane.resolveSession(token);
+    resolved = await controlPlane.resolveSession(token, transport);
   } catch (error) {
     if (error instanceof ControlPlaneError) {
       // The control plane is unreachable, misconfigured, or answering something

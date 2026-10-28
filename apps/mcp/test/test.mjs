@@ -5,6 +5,7 @@ import { renderChannelDayNote } from "../../../packages/communications/src/note.
 import { runCommentFormatChecks, runCommentToolChecks } from "./comments.test.mjs";
 import { runProtocolBasicsChecks } from "./protocolBasics.test.mjs";
 import { runTransportSecurityChecks } from "./transportSecurity.test.mjs";
+import { runTokenTransportChecks } from "./tokenTransport.test.mjs";
 import { runProtocolVersioningChecks } from "./protocolVersioning.test.mjs";
 import { runOrientVisibilityChecks } from "./orientVisibility.test.mjs";
 import { runPrivacyAclChecks } from "./privacyAcl.test.mjs";
@@ -29,6 +30,7 @@ import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
  */
 await runProtocolBasicsChecks();
 await runTransportSecurityChecks();
+await runTokenTransportChecks();
 await runProtocolVersioningChecks();
 await runOrientVisibilityChecks();
 await runPrivacyAclChecks();

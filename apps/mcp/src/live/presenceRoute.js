@@ -7,10 +7,9 @@ import { ACTIVITY_KINDS, activityForCaller, agentActivityKey } from "../agentAct
 import { heartbeatPerson } from "./activityHeartbeat.js";
 import { asksForStoredReads, storedReadsAnswer } from "./storedReads.js";
 import { asksForHistory, asksForHistoryDays, historyAnswer, historyDaysAnswer } from "../history/serve.js";
+import { resolvePresentedSession, subprotocolToken, withPresenceProtocol } from "../http/presentedToken.js";
 import {
-  bearerToken,
   hasScope,
-  resolveSession,
   SCOPE_READ,
   SCOPE_WRITE,
   SessionRefusal,
@@ -90,7 +89,7 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
   const controlPlane = createControlPlane(env);
   let session;
   try {
-    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+    session = await resolvePresentedSession(request, { pathToken, path: "/presence", slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403
@@ -252,7 +251,8 @@ export async function handlePresence(request, env, { slug, pathToken, origin }) 
   const roomUrl = collaborationV2
     ? "https://presence.invalid/presence?collaboration=2"
     : "https://presence.invalid/presence";
-  return await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+  const answer = await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+  return !pathToken && subprotocolToken(request) ? withPresenceProtocol(answer) : answer;
 }
 
 /**
@@ -284,7 +284,7 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
   const controlPlane = createControlPlane(env);
   let session;
   try {
-    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+    session = await resolvePresentedSession(request, { pathToken, path: "/agent-activity", slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403

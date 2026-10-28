@@ -7,6 +7,7 @@ import {
   cursorFrame,
   liveUpdateFrame,
   decodeServerFrame,
+  presenceSocketProtocols,
   presenceSocketUrl,
 } from "../../features/console/presence/protocol";
 import {
@@ -156,14 +157,14 @@ describe("the presence wire", () => {
     expect(JSON.parse(cursorFrame(null, null))).toEqual({ t: "cursor", a: null, h: null });
   });
 
-  test("the socket url carries the token in the path, over wss", () => {
+  test("the socket url carries no token, over wss; the token rides in a subprotocol", () => {
     const url = presenceSocketUrl({
       gatewayOrigin: "https://mcp.example.test",
       notePath: "1-projects/a b.md",
-      token: "cat_example",
       colorSeed: "tab-1",
     });
-    expect(url.startsWith("wss://mcp.example.test/t/cat_example/presence")).toBe(true);
+    expect(url.startsWith("wss://mcp.example.test/presence?")).toBe(true);
+    expect(presenceSocketProtocols("cat_example")).toEqual(["context.presence", "context.token.cat_example"]);
     // The path is a query parameter and stays escaped; a space in a note name
     // is ordinary and must not split the URL.
     expect(url).toContain("note=1-projects%2Fa+b.md");
@@ -174,7 +175,6 @@ describe("the presence wire", () => {
     const url = presenceSocketUrl({
       gatewayOrigin: "http://localhost:8787",
       notePath: "a.md",
-      token: "t",
       colorSeed: "s",
     });
     expect(url.startsWith("ws://localhost:8787/")).toBe(true);
