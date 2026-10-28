@@ -28,6 +28,16 @@
  * PostHog's SDK comes through our own `/ingest` (`analyticsIngest.ts`), and
  * Stripe is a redirect, not a script on our page.
  *
+ * Quiet reports are not enough to enforce it. Two frames of ours run script
+ * this policy blocks, and only when someone uses them, so a quiet hour says
+ * nothing about them: the plugin sandbox (`packages/obsidian-runtime`) is a
+ * `srcdoc` document, which inherits this policy, and runs its bootstrap and
+ * every plugin as inline script; the drawing editor's bundle
+ * (`drawing-assets/editor/editor.js`, built from `@excalidraw/excalidraw`)
+ * carries WebAssembly glue that builds functions with `new Function`.
+ * Each has to move to a document this policy does not cover, or stop needing
+ * it, first; `cspReport.test.ts` fails if the policy enforces before then.
+ *
  * A report names URLs, and a URL can carry a note's path or a token, so the
  * log keeps origins and the directive only: never a path, a query, or the
  * sample of script text a browser may attach.
