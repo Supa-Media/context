@@ -8,6 +8,8 @@ This is how that is built, and the decisions the owner made on the way.
 
 > **Superseded in part (Dev2, 2026-10-26):** what wakes Tex in a group is now the group's chosen style and a model's decision over the chat's event log, with the addressed-only test below kept as the Quiet style and the fallback, and one answer may cover several people's messages. See [Tex reads one event log and decides when to answer](./event-log.md).
 
+> **Superseded in part (Dev2, 2026-10-27):** an inline reply to one of Tex's texts is no longer addressed by itself. Tex answered replies meant for the people in the chat ("Yea, don't use the API"), so a reply that says more than thanks now always reaches decide, whatever the style, and decide judges it; with decide down, it is answered only if it is a question. Its name opening or closing a message, or in a question, still always gets an answer.
+
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
