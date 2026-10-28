@@ -25,6 +25,7 @@ import {
 } from "../../../meetings/capture";
 import { loadedFolders } from "../../files/browser";
 import { MeetingsDestination } from "./MeetingsDestination";
+import { MeetingJoinSettings } from "./MeetingJoinSettings";
 import { PanelHead } from "./PanelHead";
 import {
   CALL_AUDIO_PICKER_SENTENCE,
@@ -99,6 +100,8 @@ export function MeetingsPanel({
         folder={current?.meetingsFolder}
         folders={loadedFolders(data.files.listings)}
       />
+
+      {personal && data.demo !== true ? <MeetingJoinSettings connections={data.googleConnections} /> : null}
 
       <AudioLine />
     </>

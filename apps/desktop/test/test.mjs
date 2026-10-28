@@ -34,6 +34,7 @@ import { runTranscribeRequestChecks } from "./transcribeRequest.test.mjs";
 import { runControllerChecks } from "./controller.test.mjs";
 import { runSessionOrderChecks } from "./sessionOrder.test.mjs";
 import { runTrayChecks } from "./tray.test.mjs";
+import { runCalendarMainShapeChecks, runCalendarUpcomingChecks } from "./calendarUpcoming.test.mjs";
 import { runPlatformChecks } from "./platform.test.mjs";
 import { runContractChecks } from "./contract.test.mjs";
 import { runShellChecks } from "./shell.test.mjs";
@@ -171,6 +172,8 @@ await suite("runTranscribeRequestChecks", () => runTranscribeRequestChecks(check
 await suite("runControllerChecks", () => runControllerChecks(check));
 await suite("runSessionOrderChecks", () => runSessionOrderChecks(check));
 await suite("runTrayChecks", () => runTrayChecks(check));
+await suite("runCalendarUpcomingChecks", () => runCalendarUpcomingChecks(check));
+await suite("runCalendarMainShapeChecks", () => runCalendarMainShapeChecks(check));
 await suite("runPlatformChecks", () => runPlatformChecks(check));
 await suite("runShellChecks", () => runShellChecks(check));
 await suite("runWindowSizeChecks", () => runWindowSizeChecks(check));

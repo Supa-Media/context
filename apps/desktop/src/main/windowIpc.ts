@@ -154,6 +154,7 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
       },
       localAgent: () => localAgent.status(),
       askLocalAgent: (request) => localAgent.ask(request),
+      setUpcoming: (upcoming) => ctx.setUpcoming(upcoming),
     });
 
     ctx.consoleWindow = createConsoleWindow(url, RENDERER_DIR, {

@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from "react";
+import { Linking } from "react-native";
 import { useRouter } from "expo-router";
 
 import { CallAudioPrimer } from "./components/CallAudioPrimer";
@@ -13,6 +14,8 @@ import { MeetingRefusal } from "./components/MeetingRefusal";
 import { callAudioGivenUp, readCallAudioMemory } from "./capture";
 import { MeetingsController, meetings } from "./controller";
 import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
+import { joinStartInput } from "./join";
+import type { CalendarEvent } from "./protocol";
 import { meetingHref } from "./route";
 import { UNTITLED_MEETING } from "./session";
 
@@ -111,6 +114,14 @@ export const NO_WORKSPACE_REFUSAL =
 export interface MeetingFlow {
   /** Start recording. Asks nothing, and files into your own inbox. */
   startMeetingFlow: () => void;
+  /**
+   * "Join and take notes" for a meeting on the calendar: the same start, named
+   * after the event with its guests, and the call opened in the same press
+   * wherever this build hears the call without a browser's share prompt (the
+   * Mac app, a phone). A browser opens its prompt first and offers the call on
+   * the live card after (docs/decisions/meetings/joining-from-the-calendar.md).
+   */
+  joinMeetingFlow: (meeting: CalendarEvent) => void;
   /** Mount this once, wherever the key is. `null` unless a press was refused. */
   sheet: ReactElement | null;
 }
@@ -126,7 +137,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     The first-time note before a browser's screen picker (`CallAudioPrimer`),
     holding the destination the press resolved so Continue records into it.
   */
-  const [primer, setPrimer] = useState<MeetingDestination | null>(null);
+  const [primer, setPrimer] = useState<{ destination: MeetingDestination; meeting?: CalendarEvent } | null>(null);
 
   /*
     Subscribed rather than read once: the controller is configured by an effect
@@ -161,7 +172,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   );
 
   const begin = useCallback(
-    (into: MeetingDestination, systemAudio?: boolean) => {
+    (into: MeetingDestination, systemAudio?: boolean, meeting?: CalendarEvent) => {
       if (starting.current) return;
       starting.current = true;
 
@@ -174,6 +185,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
           */
           const id = await controller.start({
             title,
+            ...(meeting === undefined ? {} : joinStartInput(meeting)),
             destination: into,
             ...(systemAudio === undefined ? {} : { systemAudio }),
           });
@@ -198,7 +210,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     [controller, show, title],
   );
 
-  const startMeetingFlow = useCallback(() => {
+  const flow = useCallback((meeting?: CalendarEvent) => {
     setRefusal(null);
     setClaim(false);
     setPrimer(null);
@@ -233,14 +245,26 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       its picker is about to ask, first. Once a share has worked, or once this
       browser has stopped being asked (`callAudioMemory`), Record records.
     */
+    /*
+      The call opens in this press where nothing else needs it: a window.open
+      spends the press a browser's share prompt also needs, so there the live
+      card offers the call once the prompt is answered.
+    */
+    if (meeting?.conferenceUrl !== undefined && !snapshot.capture.systemAudioNeedsPicker) {
+      void Linking.openURL(meeting.conferenceUrl).catch(() => {});
+    }
+
     const memory = readCallAudioMemory();
     if (snapshot.capture.systemAudioNeedsPicker && !memory.worked && !callAudioGivenUp(memory)) {
-      setPrimer(answer.destination);
+      setPrimer({ destination: answer.destination, ...(meeting === undefined ? {} : { meeting }) });
       return;
     }
 
-    begin(answer.destination);
+    begin(answer.destination, undefined, meeting);
   }, [begin, contexts, destination, live, show, snapshot.capture.systemAudioNeedsPicker, snapshot.status]);
+
+  const startMeetingFlow = useCallback(() => flow(), [flow]);
+  const joinMeetingFlow = useCallback((meeting: CalendarEvent) => flow(meeting), [flow]);
 
   const dismiss = useCallback(() => {
     setRefusal(null);
@@ -253,11 +277,11 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       ? createElement(CallAudioPrimer, {
           onContinue: () => {
             setPrimer(null);
-            begin(primer);
+            begin(primer.destination, undefined, primer.meeting);
           },
           onRoom: () => {
             setPrimer(null);
-            begin(primer, false);
+            begin(primer.destination, false, primer.meeting);
           },
           onClose: dismiss,
         })
@@ -275,5 +299,5 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         })
       : null;
 
-  return { startMeetingFlow, sheet };
+  return { startMeetingFlow, joinMeetingFlow, sheet };
 }

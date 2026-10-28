@@ -24,6 +24,8 @@ import type {
   OutboxStatus,
   StartCaptureRequest,
   TrayCommand,
+  UpcomingMeetingView,
+  UpcomingMeetings,
 } from "@context/desktop-bridge";
 import type { DetectionLoop, DetectionUpdate } from "../core/detection/loop.ts";
 import type { BeginResult, MeetingController, SessionView } from "../core/recording/controller.ts";
@@ -48,6 +50,7 @@ import type { ApprovalHandover } from "../core/shell/autoGrant.ts";
 import type { ConsoleBridge } from "./consoleBridge.ts";
 import type { ConsoleMirror } from "./consoleMirror.ts";
 import { DEFAULT_SETTINGS } from "../core/settings.ts";
+import { NO_UPCOMING } from "../core/calendar/upcoming.ts";
 import type { DesktopSettings } from "../core/settings.ts";
 
 export interface MainState {
@@ -140,6 +143,14 @@ export interface MainState {
    * same one.
    */
   readonly notePaths: Map<string, string>;
+  /**
+   * Today's meetings, as the console last pushed them (`calendar.setUpcoming`).
+   * In memory only, and kept when the window closes, so the menu bar still
+   * names the afternoon's meetings with no window open.
+   */
+  upcoming: UpcomingMeetings;
+  /** Meetings this launch has already asked about, answered or not. Asked once each. */
+  readonly askedMeetings: Set<string>;
 }
 
 /**
@@ -189,8 +200,15 @@ export interface MainActions {
   // meetings.ts
   onDetection(current: DetectionUpdate): Promise<void>;
   beginMeeting(episode: string, manual?: boolean, id?: string, queueWrites?: boolean): Promise<BeginResult | null>;
-  recordNow(): Promise<void>;
+  /** Record now; `meeting` names it from the calendar when a Join started it. */
+  recordNow(meeting?: UpcomingMeetingView): Promise<void>;
   endMeeting(): Promise<SessionView | null>;
+  // calendar.ts
+  setUpcoming(upcoming: UpcomingMeetings): void;
+  /** Open the call (and record it, when `record`). `id` null means the one the menu bar names. */
+  joinMeeting(id: string | null, record: boolean): Promise<void>;
+  /** Every few seconds: the menu bar's minutes, and the ask when one is due. */
+  calendarTick(): void;
   // outboxDrain.ts
   drain(): Promise<void>;
   // consoleCapture.ts
@@ -242,6 +260,8 @@ export function createMainContext(): MainContext {
     handover: createApprovalHandover(),
     connectError: null,
     notePaths: new Map<string, string>(),
+    upcoming: NO_UPCOMING,
+    askedMeetings: new Set<string>(),
   };
   return state as MainContext;
 }

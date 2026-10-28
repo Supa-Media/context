@@ -426,9 +426,8 @@ describe("no public function can reach a storage secret", () => {
         // needs a function of its own: a Google connection is read-only from the
         // gateway's side and refreshes through the control plane instead, and the
         // function is reused for every product on the grant.
-        // A CONNECTED APP'S TOKEN, opened for one API call or to revoke it
-        // after a disconnect, a reconnect or a workspace's deletion. See the
-        // `functions/connections.ts` entry in `DECRYPT_IMPORTERS`.
+        // A CONNECTED APP'S TOKEN, opened for one API call or to revoke it after a disconnect,
+        // a reconnect or a workspace's deletion. See `functions/connections.ts` in `DECRYPT_IMPORTERS`.
         "functions.connections.callProvider",
         "functions.connections.revokeToken",
         // An MCP tool call or one of our API tools, and the scheduled finish
@@ -445,6 +444,7 @@ describe("no public function can reach a storage secret", () => {
         "functions.googleConnect.mintGoogleAccessTokenOutcome",
         "functions.googleReconnect.recheckRevokedGrants",
         "functions.googleScopeCheck.recheckCalendarWrite",
+        "functions.meetingCalendar.readMeetingCalendars", // Join and take notes' calendar barrier; see CREDENTIAL_BARRIERS.
         "functions.googleConnect.revokeGoogleGrant",
         // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
         // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
