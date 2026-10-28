@@ -179,7 +179,7 @@ export const readMeetingCalendars = internalAction({
     const unanswered: string[] = [];
     const perCalendar = await Promise.all(
       claimed.calendars.map(async (calendar: Calendar): Promise<ScheduledMeeting[]> => {
-        const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+        const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "standard" as const,
           connectionId: calendar.connectionId,
         });
         if (minted === null) {

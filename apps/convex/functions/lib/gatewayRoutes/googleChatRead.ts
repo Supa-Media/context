@@ -105,7 +105,7 @@ export async function gatewayChatRecentHandler(ctx: ActionCtx, body: Record<stri
     expectedWorkspaceId: expected,
   });
   if (!room.ok) return json({ ok: false, refused: room.refused });
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId: room.connectionId });
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const, connectionId: room.connectionId });
   if (minted === null) return json({ ok: false, refused: "reconnect_required" });
   try {
     const listed = await chatGet(minted.accessToken, `spaces?${new URLSearchParams({ pageSize: "1000" })}`);

@@ -25,7 +25,7 @@
  *     all, rather than controls that are disabled.
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -53,6 +53,7 @@ const SYNCING: GoogleSyncSchedule = {
 
 const mockStartCalls: unknown[] = [];
 const mockNavigations: string[] = [];
+let mockAiAccess: Array<{ connectionId: string; address: string; aiAccess: string }> = [];
 
 jest.mock("convex/react", () => ({
   useAction: () => (args: unknown) => {
@@ -62,6 +63,7 @@ jest.mock("convex/react", () => ({
       completionSecret: "completion-secret",
     });
   },
+  useQuery: () => mockAiAccess,
 }));
 
 jest.mock("../features/console/google/leaveForGoogle", () => ({
@@ -325,6 +327,39 @@ describe("reconnect is on the broken row", () => {
     }));
     expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
     screen.unmount();
+  });
+});
+
+describe("allowing AI access", () => {
+  /*
+    Once AI reads Google through its own client, an account the person
+    connected for themselves still needs that second yes before Tex or any AI
+    can read it (functions/googleClients.ts). The row says so and carries it.
+  */
+  afterEach(() => {
+    mockAiAccess = [];
+  });
+
+  test("an account AI cannot read yet says so, and its Allow goes to the agent consent for that account", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "needed" }];
+    mockStartCalls.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).toContain("Your AI can't read it until you allow it.");
+    await screen.click("allow-ai-google-google_1");
+    expect(mockStartCalls).toEqual([
+      { workspaceId: "ws_1", connectionId: "google_1", redirectUri: "https://context.lc/connect/google" },
+    ]);
+    screen.unmount();
+  });
+
+  test("an account AI already reads, or before the split, says nothing about it", () => {
+    for (const aiAccess of ["granted", "not_needed"]) {
+      mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess }];
+      const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+      expect(screen.text()).not.toContain("allow it");
+      expect(screen.container.querySelector('[data-testid^="allow-ai-google-"]')).toBeNull();
+      screen.unmount();
+    }
   });
 });
 

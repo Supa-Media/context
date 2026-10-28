@@ -18,6 +18,7 @@ import {
   readOnlyOf,
   type GoogleService,
 } from "./googleStatus";
+import { useGoogleAiAccessNeeded } from "./useGoogleAiAccess";
 import { useGoogleStart } from "./useGoogleStart";
 
 export { accountStatus } from "./googleStatus";
@@ -189,7 +190,8 @@ function OwnerGoogleCard(props: {
   loading: boolean;
 }) {
   const google = useGoogleStart(props.actions.workspaceId);
-  return <GoogleCardBody {...props} google={google} />;
+  const aiNeeded = useGoogleAiAccessNeeded(props.actions.workspaceId);
+  return <GoogleCardBody {...props} google={google} aiNeeded={aiNeeded} />;
 }
 
 function GoogleCardBody({
@@ -197,11 +199,13 @@ function GoogleCardBody({
   actions,
   loading,
   google,
+  aiNeeded,
 }: {
   connections: GoogleConnection[];
   actions?: GoogleActions;
   loading: boolean;
   google?: StartGoogle;
+  aiNeeded?: ReadonlySet<string>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const empty = connections.length === 0;
@@ -222,6 +226,7 @@ function GoogleCardBody({
             connection={connection}
             actions={actions}
             google={google}
+            aiNeeded={aiNeeded?.has(connection.connectionId) === true}
             first={index === 0}
           />
         ))}
@@ -246,18 +251,21 @@ function GoogleCardBody({
   );
 }
 
-type RowAction = "reconnect" | "disconnect";
+type RowAction = "reconnect" | "allow-ai" | "disconnect";
 
 /** One connected account: the address, one sentence, its services, and "…". */
 function GoogleAccountRow({
   connection,
   actions,
   google,
+  aiNeeded = false,
   first,
 }: {
   connection: GoogleConnection;
   actions?: GoogleActions;
   google?: StartGoogle;
+  /** AI reads this account through its own consent, which it has not had yet. */
+  aiNeeded?: boolean;
   first: boolean;
 }) {
   const colors = useColors();
@@ -273,14 +281,20 @@ function GoogleAccountRow({
   const broken = status.tone === "crit";
   // Reconnect is offered on the row only when signing in again is what fixes it.
   const offerReconnect = (needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
+  // A broken grant is fixed by reconnecting first; AI access is the next step.
+  const offerAi = aiNeeded && canReconnect && !offerReconnect;
 
-  const sentence = status.text;
+  const sentence = offerAi ? `${status.text} Your AI can't read it until you allow it.` : status.text;
   const tint = broken ? styles.critText : null;
 
   const reconnect = () => google?.start(EVERYTHING, connection.email);
+  const allowAi = () => google?.allowAi(connection.connectionId);
   const items: MenuItem<RowAction>[] = [
     ...(canReconnect
       ? [{ id: "reconnect" as const, label: "Reconnect with Google", testID: `menu-reconnect-${connection.connectionId}` }]
+      : []),
+    ...(aiNeeded && canReconnect
+      ? [{ id: "allow-ai" as const, label: "Allow AI access", testID: `menu-allow-ai-${connection.connectionId}` }]
       : []),
     ...(actions === undefined
       ? []
@@ -295,6 +309,7 @@ function GoogleAccountRow({
   const choose = (id: RowAction) => {
     setMenu(null);
     if (id === "reconnect") reconnect();
+    if (id === "allow-ai") allowAi();
     if (id === "disconnect") setConfirming(true);
   };
   const openMenu = () => {
@@ -334,6 +349,19 @@ function GoogleAccountRow({
                 testID={`reconnect-google-${connection.connectionId}`}
               >
                 {starting ? "Opening Google…" : "Reconnect"}
+              </Text>
+            ) : null}
+            {offerAi ? " " : ""}
+            {offerAi ? (
+              <Text
+                variant="rowSub"
+                role="button"
+                onPress={starting ? undefined : allowAi}
+                style={styles.reconnect}
+                accessibilityLabel={`Allow AI access to ${connection.email}`}
+                testID={`allow-ai-google-${connection.connectionId}`}
+              >
+                {starting ? "Opening Google…" : "Allow AI access"}
               </Text>
             ) : null}
           </Text>

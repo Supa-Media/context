@@ -110,7 +110,7 @@ async function startDirectMessage(accessToken: string, to: string): Promise<{ ok
 }
 
 async function mint(ctx: ActionCtx, connectionId: Id<"googleConnections">) {
-  return await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId });
+  return await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const, connectionId });
 }
 
 export async function gatewayChatSendHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

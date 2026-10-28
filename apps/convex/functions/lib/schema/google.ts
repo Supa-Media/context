@@ -86,6 +86,22 @@ export const googleTables = {
     encryptedAccessToken: v.optional(v.string()),
     accessTokenExpiresAt: v.optional(v.number()),
     /**
+     * The same account's grant to Context's AGENT OAuth client, when the person
+     * has given one (`functions/googleClients.ts`). The fields above are the
+     * standard client's grant: a person using the app (the Meetings view).
+     * Tex, AI clients and sync for AI read through this one once the agent
+     * client is switched on, and never fall back to the standard grant.
+     */
+    agentGrant: v.optional(
+      v.object({
+        encryptedRefreshToken: v.string(),
+        encryptedAccessToken: v.optional(v.string()),
+        accessTokenExpiresAt: v.optional(v.number()),
+        scopes: v.array(v.string()),
+        grantedAt: v.number(),
+      }),
+    ),
+    /**
      * Every scope Google actually granted for this account, verbatim from the
      * token response — never assumed from what was requested. A downgraded
      * consent (the person unchecked something) is visible here rather than
@@ -513,6 +529,22 @@ export const googleTables = {
    * browser. A future Calendar-or-Chat-only connect attempt carries no Gmail
    * fields at all; they stay optional for exactly that reason.
    */
+  /**
+   * A parked consent for the agent client on one existing connection
+   * (`functions/googleClients.ts`). Its own table, so no product callback can
+   * spend one: the combined callback asks here first, by the state's hash.
+   */
+  googleAgentAttempts: defineTable({
+    hashedState: v.string(),
+    hashedCompletion: v.string(),
+    encryptedVerifier: v.string(),
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("googleConnections"),
+    startedBy: v.id("users"),
+    redirectUri: v.string(),
+    expiresAt: v.number(),
+  }).index("by_hashed_state", ["hashedState"]),
+
   googleConnectAttempts: defineTable({
     hashedState: v.string(),
     /**

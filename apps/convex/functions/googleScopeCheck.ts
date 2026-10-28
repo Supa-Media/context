@@ -65,7 +65,7 @@ export const recheckCalendarWrite = internalAction({
     const readOnly: string[] = [];
     for (const reader of readers) {
       // A fresh token, so the answer is the grant as it stands now.
-      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, {
+      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { role: "agent" as const,
         connectionId: reader.connectionId,
         forceRefresh: true,
       });

@@ -63,7 +63,7 @@ export const recheckRevokedGrants = internalAction({
         try {
           const outcome: { kind: string } = await ctx.runAction(
             internal.functions.googleConnect.mintGoogleAccessTokenOutcome,
-            { connectionId, forceRefresh: true },
+            { connectionId, forceRefresh: true, role: "standard" as const },
           );
           if (outcome.kind === "minted") recovered += 1;
         } catch {

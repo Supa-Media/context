@@ -199,7 +199,7 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     let writer: Writer | null = null;
     let googleToken: string | null = null;
     for (const candidate of writers) {
-      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId: candidate.connectionId });
+      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const, connectionId: candidate.connectionId });
       if (minted === null) {
         log({ outcome: "no_token" });
         found = found.ok === false && found.refused === "not_found" ? { ok: false, refused: "unavailable" } : found;
