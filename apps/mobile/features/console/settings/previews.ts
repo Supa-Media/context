@@ -155,6 +155,9 @@ export function settingsPreview(
     case "emoji":
     case "folders":
     case "meetings":
+    // Reached from Profile's rows and by search; their panels say their own state.
+    case "spelling":
+    case "tex":
       return null;
   }
 }

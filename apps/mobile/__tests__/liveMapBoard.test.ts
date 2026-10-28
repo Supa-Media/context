@@ -93,20 +93,20 @@ describe("the board", () => {
     expect(lum(dark.dot)).toBeGreaterThan(lum(dark.ground));
   });
 
-  test.each([
+  test.each<[string, typeof light]>([
     ["paper", light],
     ["chalk", dark],
-  ] as const)("the %s board is textured under the map", (_, palette) => {
+  ])("the %s board is textured under the map", (_, palette) => {
     const calls = render(palette);
     const rects = calls.filter((c) => c.op === "fillRect");
     expect(rects[0]!.fillStyle).toBe(palette.ground);
     expect(rects.some((c) => isPattern(c.fillStyle))).toBe(true);
   });
 
-  test.each([
+  test.each<[string, typeof light]>([
     ["paper", light],
     ["chalk", dark],
-  ] as const)("on %s, links and dots are drawn with grain", (_, palette) => {
+  ])("on %s, links and dots are drawn with grain", (_, palette) => {
     const calls = render(palette);
     const curves = calls.filter((c) => c.op === "quadraticCurveTo");
     expect(curves.length).toBeGreaterThan(10);

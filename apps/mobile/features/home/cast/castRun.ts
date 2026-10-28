@@ -281,6 +281,7 @@ export function playCast(
         head: null,
         canWrite: false,
         isAgent: actor.kind === "agent",
+        isYou: false,
       });
     }
     return id;
