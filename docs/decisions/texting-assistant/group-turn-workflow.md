@@ -52,3 +52,23 @@ Unchanged: a run answers only while its writer is in the chat, never rebinds the
 
 The turn used to be answered inside the chat's object when its workflow could not start after `MAX_STARTS` tries. That kept two paths alive for one turn. Now, after the last failed start, the turn's messages are dropped, `workflow_unavailable` is logged as an error as before, and the chat gets one fixed line, `GROUP_LINES.stuck` ("I'm having trouble answering right now. Try me again in a minute."), once per stuck turn. A routine's or check-in's run reports `failed` quietly and says nothing. A Worker with no Workflows binding at all (tests, a self-hosted deployment without Workflows) still answers in the object, since it has no other path. Test: "a workflow that will not start is tried again, then the chat is told once that Tex is stuck" (`groupTurnWorkflow.test.ts`).
 
+
+## Background jobs on Workflows (Dev2, 2026-10-28)
+
+A background job (`apps/agent/src/jobRun.ts`) is seen through by its own
+Workflow instance, `JobRunWorkflow` (`jobWorkflow.ts`, binding `JOB_RUN`),
+named `job-<job id>`, so starting the same job twice runs it once. The job's
+object keeps the job's state and runs each pass; a pass no longer sets the
+object's alarm but says what comes next (`JobNext`: done, now, or after a
+wait), and the instance does the waiting with `step.sleep`. A pass that fails
+is retried three more times from ten seconds, exponentially, as a group turn;
+a pass that keeps failing ends the job with its "couldn't finish" line. Logs
+carry `kind=job`.
+
+Without a `JOB_RUN` binding (a self-hosted Worker, most tests) the object's
+alarm drives the passes as before (`armJobNext`).
+
+For one release, a job armed by its object's alarm before this change is
+handed to its instance when that alarm fires (`handOverJob`), so no armed job
+is lost. That handover is removed in a follow-up once no such alarm can
+remain.
