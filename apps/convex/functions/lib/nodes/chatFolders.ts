@@ -10,13 +10,24 @@
  *    first note is written there. So while the folder has no row of its own,
  *    the chat's binding stands in for it here, as a row carrying only the
  *    group's grant behind a token of its own (`withChatFolders`). Every reader
- *    sees it the same way: members as a listed row (closed to them, as any
- *    row with a list and no base is), the chat as a row it holds. The first
- *    turn after the row exists gives the row that grant for real.
+ *    sees it the same way: members as a `team` row, the chat as a row it
+ *    holds. The first turn after the row exists gives the row that grant for
+ *    real.
  *  - **The chat's names** (`chatNamesFor`): `READS_AS_GUEST`, so every reader
  *    renders the rows for a guest and shuts `team`; `READS_AS_CHAT`; the
  *    group's own name, for a vault key given to it; and the tokens of the rows
  *    granted to the group. Nothing else: no member grant, no `accounts`.
+ *  - **The folder is shared both ways** (the owner, 2026-10-28, choosing
+ *    "Whole folder shared both ways"): what a member saves there the chat
+ *    reads, and what the chat saves there the members read. A row under the
+ *    folder that is open to the workspace (`team`) carries the group's grant
+ *    beside it, and a folder row with no base of its own is `team` for the
+ *    members, so the chat's notes, which inherit it, are theirs too. A note
+ *    someone made private, or a folder the owner closed, stays as they set it;
+ *    a folder the owner took from the chat's group is left alone entirely.
+ *    On 2026-10-28 a page a member saved in a WhatsApp guest chat's folder
+ *    was invisible to the chat, Tex's page under the same name was refused,
+ *    and the chat's own notes were invisible to the members' Claude.
  *  - **The rules the chat's store holds** (`chatRules`): the guest rendering,
  *    with each row the chat holds read as `team` and every other row as
  *    `private`. The gateway's tools judge by a store's rules at `team` tier
@@ -51,30 +62,36 @@ export function readsAsChat(names: Iterable<string> | undefined): boolean {
 }
 
 /**
- * The rows, with each guest chat's folder that has no row with a setting standing in as a row granted to its group
- * at edit. A folder row that already carries a setting is left as it is: the chat's turn gives it the grant.
+ * The rows, with each guest chat's folder shared both ways (see the header): a folder with no row with a setting
+ * stands in as a row granted to its group at edit and open to the members; a folder row with no base is open to the
+ * members; and every row under the folder open to the workspace carries the group's grant at edit. A folder whose
+ * row has had the grant and no longer carries it was taken from the chat by its owner, and is left as it is.
  */
 export async function withChatFolders(ctx: QueryCtx, workspaceId: Id<"workspaces">, rows: AccessRow[]): Promise<AccessRow[]> {
   const chats = await ctx.db
     .query("textGroups")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .take(MAX_CHATS);
-  const held = new Set(rows.filter((row) => row.kind === "folder").map((row) => row.path));
+  let out = rows;
   const extra: AccessRow[] = [];
   for (const chat of chats) {
     if (chat.guestGroupId === undefined || chat.guestFolder === undefined || chat.guestToken === undefined) continue;
-    // Its row has had the grant; from then on the row alone says who reads it (`ensureChatFolderGrant`).
-    if (chat.guestFolderGranted === true) continue;
-    if (held.has(chat.guestFolder)) continue;
-    held.add(chat.guestFolder);
-    extra.push({
-      path: chat.guestFolder,
-      noteId: chat.guestToken,
-      kind: "folder",
-      grantees: [{ kind: "group", id: chat.guestGroupId, role: "edit" }],
+    const groupId = chat.guestGroupId;
+    const folder = chat.guestFolder;
+    const own = out.find((row) => row.kind === "folder" && row.path === folder);
+    const holds = (row: AccessRow) => row.grantees.some((grantee) => grantee.kind === "group" && grantee.id === groupId);
+    // Its row has had the grant; from then on the row alone says whether the chat reads it (`ensureChatFolderGrant`).
+    if (chat.guestFolderGranted === true && (own === undefined || !holds(own))) continue;
+    const granted = (row: AccessRow): AccessRow => (holds(row) ? row : { ...row, grantees: [...row.grantees, { kind: "group", id: groupId, role: "edit" }] });
+    out = out.map((row) => {
+      if (row === own) return row.base === undefined ? { ...row, base: "team" } : row;
+      return row.path.startsWith(`${folder}/`) && row.base === "team" ? granted(row) : row;
     });
+    if (own === undefined && !extra.some((row) => row.path === folder)) {
+      extra.push({ path: folder, noteId: chat.guestToken, kind: "folder", base: "team", grantees: [{ kind: "group", id: groupId, role: "edit" }] });
+    }
   }
-  return extra.length === 0 ? rows : [...rows, ...extra];
+  return extra.length === 0 ? out : [...out, ...extra];
 }
 
 /** The names a guest chat's grant holds in its workspace, without `@` (see the header). */

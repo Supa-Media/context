@@ -31,7 +31,9 @@ import { THREE_WORD_LIST, threeWords } from "../functions/lib/threeWords";
  *  - drop the `viaChat` check in `syncGroupRows`: "an owner's row is never touched" fails;
  *  - drop the `shared` check in `syncFolderPeople`: "took it from the chat's people too" fails;
  *  - call `unsyncChatPeople` nowhere in `clearGuests`: "guest mode off takes back" fails;
- *  - drop the `guestBinder` check in `syncGuestPeople`: "a binder who may no longer" fails.
+ *  - drop the `guestBinder` check in `syncGuestPeople`: "a binder who may no longer" fails;
+ *  - drop either half of the both-ways sharing in `withChatFolders`, or the `team` check on rows under the folder:
+ *    "the folder is shared both ways" fails.
  */
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -231,6 +233,52 @@ describe("what a guest chat reaches", () => {
     const after = (await resolves(t, (await turn(t, FRIEND, [BO, FRIEND, LINE])).accessToken as string))!;
     const hidden = await heldRules(t, after);
     expect(new Map(hidden.folders.map((rule) => [rule.prefix, rule.visibility])).get(folder) ?? "private").toBe("private");
+  });
+
+  test("the folder is shared both ways: the chat reads members' open notes there, members read the chat's", async () => {
+    const t = setupTest();
+    const { bo, studio } = await trip(t);
+    const on = await turn(t, BO, [BO, FRIEND, LINE], use("studio"));
+    const folder = (on.guest as { folder: string }).folder;
+    const members = async () => {
+      const held = await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: studio, audience: "member" });
+      return { folders: new Map(held.folders.map((rule) => [rule.prefix, rule.visibility])), notes: new Map(held.notes.map((note) => [note.path, note.visibility])) };
+    };
+    // Before the folder has a row, the stand-in is open to the members as well as held by the chat.
+    expect((await members()).folders.get(folder)).toBe("team");
+
+    // A member's page saved open to the workspace, and one kept private, in the chat's folder; one open note outside it.
+    await seedTreeRows(t, studio, [`${folder}/research.page.md`, `${folder}/mine.md`, `${folder}/chat-notes.md`]);
+    await t.run(async (ctx) => {
+      const actor = { userId: bo.userId, role: "owner" as const };
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: `${folder}/research.page.md`, base: "team", actor });
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: `${folder}/mine.md`, base: "private", actor });
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: "budget.md", base: "team", actor });
+    });
+    const session = (await resolves(t, (await turn(t, FRIEND, [BO, FRIEND, LINE])).accessToken as string))!;
+    const held = await heldRules(t, session);
+    const notes = new Map(held.notes.map((note) => [note.path, note.visibility]));
+    expect(notes.get(`${folder}/research.page.md`)).toBe("team");
+    expect(notes.get(`${folder}/mine.md`) ?? "private").toBe("private");
+    expect(notes.get("budget.md") ?? "private").toBe("private");
+    // Held to edit: the chat may save over the member's page.
+    expect(held.readOnly).toEqual({ folders: [], notes: [] });
+    expect(new Map(held.folders.map((rule) => [rule.prefix, rule.visibility])).get(folder)).toBe("team");
+
+    // The folder's real row carries only the group's grant and no base; members still read the chat's notes,
+    // which inherit it, and the private one stays private.
+    const seen = await members();
+    expect(seen.folders.get(folder)).toBe("team");
+    expect(seen.notes.get(`${folder}/chat-notes.md`)).toBeUndefined();
+    expect(seen.notes.get(`${folder}/mine.md`)).toBe("private");
+    expect(seen.folders.get("secret")).toBe("private");
+
+    // An owner who closes the folder to the members keeps it closed to them; the chat still has it.
+    await t.run(async (ctx) => {
+      const grants = await ctx.db.query("workspaceGroups").collect();
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: folder, base: "private", grantees: [{ kind: "group", groupId: grants[0]!._id, role: "edit" }], kind: "folder", actor: { userId: bo.userId, role: "owner" } });
+    });
+    expect((await members()).folders.get(folder)).not.toBe("team");
   });
 
   test("a member of the workspace who tags acts as themselves, read-only role and all", async () => {

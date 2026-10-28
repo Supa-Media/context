@@ -122,12 +122,26 @@ pages save there like anywhere and a refused page is fixed and written again,
 never replaced by a plain note. Test: `agentGroupGuests.test.mjs` "research a
 guest chat saves as a plain note goes back to be a page".
 
-A note a member saves in the chat's folder gets a row of its own, which the
-chat's rules read as private (`chatRules`), so the chat can neither see it nor
-write that name. On 2026-10-28 Tex picked exactly such a name for a page, read
+A note a member saves in the chat's folder used to get a row of its own,
+which the chat's rules read as private (`chatRules`), so the chat could
+neither see it nor write that name. On 2026-10-28 Tex picked exactly such a name for a page, read
 the write's "permission denied", and told the chat it couldn't write pages to
 its own folder. In the chat's own folder that refusal can only mean a name it
 can't see, so `groupGuests.js` turns it into "save it under a different name",
-which says nothing about what is there. Whether a member's note in a chat's
-folder should be readable by the chat is still open. Test:
-`agentGroupGuests.test.mjs` "a page named like a note the chat can't see".
+which says nothing about what is there. Test: `agentGroupGuests.test.mjs`
+"a page named like a note the chat can't see".
+
+**The folder is shared both ways** (decided by the owner, 2026-10-28,
+choosing "Whole folder shared both ways"). What a member saves in
+`tex/chats/<words>/` open to the workspace, the chat reads and edits; what the
+chat saves there, the members read and edit. `withChatFolders` does it in the
+access rows every reader renders: a row under the folder whose base is `team`
+carries the chat group's edit grant beside its list, and the folder's own row
+(or its stand-in), when it has no base, is `team` to the members, so the
+chat's notes, which inherit the folder, are theirs too. A note someone made
+private, or a folder the owner closed, stays exactly as they set it, and a
+folder the owner took from the chat's group is left alone. The narrower
+reading (only what the chat wrote reaches members, or only what a member
+marks) would leave the same invisible-page failure in place for every note
+nobody remembered to mark. Test: `textGroupGuests.test.ts` "the folder is
+shared both ways".
