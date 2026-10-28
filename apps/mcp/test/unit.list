@@ -264,3 +264,4 @@ test/pagesPhone.test.mjs
 test/agentSilentSubmit.test.mjs
 test/staleEtagWrite.test.mjs
 test/oneVersion.test.mjs
+test/outcome.test.mjs
