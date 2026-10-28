@@ -92,7 +92,7 @@ export interface Env {
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
-  /** "on" sends a link to a note as a Context card, with the extension's bundle id and the Apple team id (`appCards.ts`). */
+  /** "on" sends Context cards to every chat, "app" only to chats that have shown the app (`appCards.ts`, `cardChats.ts`). */
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
   APPLE_TEAM_ID?: string;
