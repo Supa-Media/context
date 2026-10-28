@@ -82,6 +82,12 @@ leaves a `judge_allow` audit row; anything else (no, an error, a non-boolean,
 no words) is "not done", and the model is told to ask in the chat and call
 again. `judgedGate` in `apps/mcp/src/tools/session.js`.
 
+A website has no smaller Publish: it puts every saved change of the site live
+at once, so the judge is told that words asking to publish a page, a
+stylesheet or a change of the website ask for publishing the website. Without
+it, "yes" to "Should I publish the rolled-back stylesheet?" was refused as
+narrower (2026-10-28).
+
 **Where the words come from.** A turn this gateway runs itself (`/agent`: the
 texting thread, the app's panel, a routine) has the person's real message,
 after the last thing they were told, so a bare "yeah" reads as the answer to

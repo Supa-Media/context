@@ -341,19 +341,29 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   if (collaborationEligibleExisting) {
     try {
       const base = await readCollaborationDocument(store, path);
-      // The opaque etag is the version the caller actually read. A retained
-      // older version can be merged; deriving a fresh base here would silently
-      // turn an agent's stale full-body replacement into an overwrite of an
-      // unseen human edit.
+      // The opaque etag is the version the caller actually read, and it must
+      // still be the note's version. Merging a whole-note write from an older
+      // one kept the merge's own rules, not the person's edit: on 2026-10-28
+      // an agent's rewrite from before the owner's save took the owner's words
+      // out of the lines both had touched, and said it had succeeded.
       if (desiredVisibility === "private") {
         await persistExactVisibility(store, path, "private", rules);
       }
       collaborationResult = await replaceCollaborationText(store, path, {
         documentId: base.documentId,
         expectedEtag,
+        onlyCurrent: true,
         text: content,
       });
     } catch (error) {
+      if (error?.code === "CONFLICT") {
+        const current = await readCollaborationDocument(store, path).catch(() => null);
+        if (current === null) return toolError("conflict: note changed since you read it; re-read and try again");
+        return toolError(
+          `conflict: note changed since you read it (current etag ${current.etag}). ` +
+            `Re-read, merge your change into the current content below, and write again.\n\n${current.text}`
+        );
+      }
       // A supported ordinary note has one write authority: the collaboration
       // engine. Do not fall back to the legacy raw put after a merge failure.
       const message = (() => {

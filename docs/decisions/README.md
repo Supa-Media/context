@@ -299,6 +299,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
 - [A website's design is code notes](./websites/code-notes.md)
+- [A lagging row is read before a page is left out](./websites/lagging-facts.md)
 - [Every website is also at `<handle>.ctxlc.site`](./websites/sites-domain.md)
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows

@@ -262,3 +262,4 @@ test/agentPhotoHunt.test.mjs
 test/agentPagePictures.test.mjs
 test/pagesPhone.test.mjs
 test/agentSilentSubmit.test.mjs
+test/staleEtagWrite.test.mjs

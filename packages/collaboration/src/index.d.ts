@@ -47,6 +47,8 @@ export interface ReplaceTextInput {
   documentId?: string;
   expectedEtag: string;
   text: string;
+  /** Refuse with `CONFLICT` unless `expectedEtag` is the current version. */
+  onlyCurrent?: boolean;
 }
 
 export interface SealDocumentInput {

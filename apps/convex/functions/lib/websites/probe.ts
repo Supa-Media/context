@@ -23,7 +23,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import { PUBLICATION_CLEARANCE } from "./publication";
-import { treeRows } from "./treeFacts";
+import { currentRows } from "./treeFacts";
 
 /** The files that could hold `routePath`: `about.md` or `about/index.md`. */
 export function websiteCandidateKeys(routePath: string): string[] {
@@ -50,7 +50,7 @@ export async function probeWebsitePage(
   const keys = websiteCandidateKeys(args.routePath);
   // Which candidates exist, are sealed or are drafts is the tree's answer; the
   // file is opened only for the words of the one page that remains.
-  const rows = await treeRows(ctx, args.workspaceId, keys);
+  const rows = await currentRows(ctx, args.workspaceId, keys);
   if (rows === null) return null;
   const present = keys.filter((key) => rows.has(key));
   // Both forms present is a clash even when one of them is a draft.

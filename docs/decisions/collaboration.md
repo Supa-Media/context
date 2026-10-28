@@ -76,6 +76,18 @@ against today's live text can delete somebody else's additions. Retries must
 reuse the same operation identities. A version mismatch never authorizes a
 blind overwrite or a fresh seed of an existing document.
 
+An agent's whole-note write through `write_note` is refused when the revision
+it names is no longer the note's current one (decided by the owner,
+2026-10-28). It used to be merged from that retained base. On 2026-10-28 an
+agent wrote a website note from a version read before the owner's save; where
+both had changed the same lines the merge kept the agent's words, the owner's
+edit was gone, and the write reported success. `replaceText` takes
+`onlyCurrent`, checked on every attempt, and `write_note` passes it and answers
+the conflict with the current etag and text. The console's saves and offline
+replays do not pass it and keep the exact-base merge below.
+`packages/collaboration/test/currentBase.mjs` and
+`apps/mcp/test/staleEtagWrite.test.mjs` fail if it is reversed.
+
 The exact-base merge keeps everything the document gained since that base as a
 peer's unseen insertion, so it must not be handed the writer's *own* typing
 back. On 2026-09-30 a note typed in the browser came back as its text followed
