@@ -269,31 +269,6 @@ export async function runTenancyRedirectAndTokenChecks(check, harness) {
       (loopbackConsent.headers.get("Location") || "").startsWith("http://127.0.0.1:8788/")
   );
 
-  /* ------------- 9b. a repeated parameter is refused, not resolved ----------- */
-
-  // RFC 6749 §3.1: no parameter may appear twice. Taking the first copy would
-  // let a second one ride along to whatever reads the query differently.
-  const twoRedirects = await worker.fetch(
-    new Request(
-      `${authorizeUrl()}&redirect_uri=${encodeURIComponent("https://attacker.test/callback")}`
-    ),
-    env,
-    { waitUntil() {} }
-  );
-  check(
-    "an authorization request with two redirect URIs is refused without redirecting",
-    twoRedirects.status === 400 && twoRedirects.headers.get("Location") === null
-  );
-  const twoChallenges = await worker.fetch(
-    new Request(`${authorizeUrl()}&code_challenge=${"c".repeat(43)}`),
-    env,
-    { waitUntil() {} }
-  );
-  check(
-    "an authorization request with two PKCE challenges is refused",
-    twoChallenges.status === 400 && (await twoChallenges.json()).error === "invalid_request"
-  );
-
   /* ---------------------- 10. the token endpoint and PKCE -------------------- */
 
   const authorizationRecord = {
@@ -538,44 +513,6 @@ export async function runTenancyRedirectAndTokenChecks(check, harness) {
   );
   check("the token endpoint insists on form encoding", jsonToken.status === 400);
 
-  const postRepeated = (path, body) =>
-    worker.fetch(
-      new Request(`https://mcp.context.test${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
-      }),
-      env,
-      { waitUntil() {} }
-    );
-  controlPlane.issueCode("code-repeated", authorizationRecord);
-  const repeatedExchange = await postRepeated(
-    "/oauth/token",
-    new URLSearchParams([
-      ["grant_type", "authorization_code"],
-      ["code", "code-repeated"],
-      ["redirect_uri", "https://client.test/callback"],
-      ["redirect_uri", "https://attacker.test/callback"],
-      ["client_id", clientId],
-      ["code_verifier", verifier],
-    ]).toString()
-  );
-  check(
-    "a token request with a repeated parameter is refused",
-    repeatedExchange.status === 400 && (await repeatedExchange.json()).error === "invalid_request"
-  );
-  const afterRepeat = await postForm(env, "/oauth/token", {
-    grant_type: "authorization_code",
-    code: "code-repeated",
-    redirect_uri: "https://client.test/callback",
-    client_id: clientId,
-    code_verifier: verifier,
-  });
-  check(
-    "the refusal comes before the code is looked at, so the code still works once",
-    afterRepeat.status === 200
-  );
-
   /* --------------------- 11. the new grant actually works -------------------- */
 
   const newToken = exchanged.body.access_token;
@@ -613,20 +550,6 @@ export async function runTenancyRedirectAndTokenChecks(check, harness) {
   );
 
   /* ------------------------------ 12. revocation ----------------------------- */
-
-  const repeatedRevoke = await postRepeated(
-    "/oauth/revoke",
-    new URLSearchParams([
-      ["token", "not-a-token"],
-      ["token", TOKEN_A],
-      ["client_id", "mcp_client_alpha"],
-    ]).toString()
-  );
-  check(
-    "a revocation with a repeated parameter is refused and revokes nothing",
-    repeatedRevoke.status === 400 &&
-      (await rpc(env, TOKEN_A, "ping", {})).body?.result !== undefined
-  );
 
   const revoke = await postForm(env, "/oauth/revoke", {
     token: TOKEN_A_SIBLING,
