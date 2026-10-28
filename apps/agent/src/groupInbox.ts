@@ -251,8 +251,7 @@ async function enqueue(
 
 /** A chat routine's run (`groupRoutines.ts`): queued as its writer's tag, answered now. */
 export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutineRun, now: number): Promise<"queued" | "full"> {
-  // One run, one turn: a run handed here again (a retried hand-off) is already queued or answered.
-  const seen = seenKey(`routine:${run.runId}`, "");
+  const seen = seenKey(`routine:${run.runId}`, ""); // One run, one turn: handed here again, it is already queued or answered.
   if ((await storage.get<number>(seen)) !== undefined) return "queued";
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
