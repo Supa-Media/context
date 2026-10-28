@@ -12,7 +12,9 @@
  *    reader the grant lets in is told the workspace's first copy is still
  *    loading, and staff's Pause changes nothing;
  *  - a folder narrows the answer to its subtree, and pages carry on by the
- *    last path returned.
+ *    last path returned;
+ *  - `changedSince` answers only notes written since, under the same rules,
+ *    and refuses (so the gateway walks the tree) when too much changed.
  *
  * Sabotage (temporary local edits, reverted):
  *  - `gatewayReadClearance` reading every grant as `private`: the member and
@@ -32,6 +34,7 @@ import { modules } from "../../test.setup";
 import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { gatewayReadClearance } from "../../functions/lib/nodes/gatewayManifest";
+import { CHANGED_CAP } from "../../functions/nodes";
 import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
@@ -207,6 +210,36 @@ describe("POST /gateway/tree/manifest", () => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
     });
     expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toMatchObject({ served: true });
+  });
+
+  test("changedSince answers only the notes written since, at their paths, by the same rules", async () => {
+    const { t, ws } = await fixture();
+    // Everything old, then two notes written and one only seen again (a sweep): only the written ones are news.
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws)).collect();
+      for (const row of rows) {
+        const written = row.path === "1-projects/plan.md" || row.path === "1-projects/secret/codes.md";
+        const seen = row.path === "2-areas/mine.md";
+        await ctx.db.patch(row._id, { observedAt: written || seen ? 5_000 : 1_000, uploaded: written ? 5_000 : 1_000 });
+      }
+    });
+    const owner = await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws, changedSince: 2_000 });
+    expect(owner).toMatchObject({ served: true, cursor: null });
+    expect(paths(owner)).toEqual(["1-projects/plan.md", "1-projects/secret/codes.md"]);
+    expect(owner.entries?.[0]).toMatchObject({ updatedAt: 5_000 });
+    // A team reader is held to the rows' rules here as everywhere: the private folder's note is not news to it.
+    expect(paths(await manifest(t, { accessToken: MEMBER, expectedWorkspaceId: ws, changedSince: 2_000 }))).toEqual(["1-projects/plan.md"]);
+    // Nothing since: an empty answer, still served.
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws, changedSince: 6_000 })).toEqual({ served: true, entries: [], cursor: null });
+    // A malformed time is a refusal, never the whole tree.
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws, changedSince: "yesterday" })).toEqual({ served: false });
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws, changedSince: -1 })).toEqual({ served: false });
+  });
+
+  test("changedSince says not served when more changed than the index answers, so the gateway walks the tree", async () => {
+    const { t, ws } = await fixture();
+    await seedTreeRows(t, ws, Array.from({ length: CHANGED_CAP + 1 }, (_, index) => `3-resources/bulk/${index}.md`));
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws, changedSince: 0 })).toEqual({ served: false });
   });
 
   test("the gateway secret is still the first door", async () => {

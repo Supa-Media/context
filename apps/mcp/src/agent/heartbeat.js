@@ -58,7 +58,7 @@ import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { isPlumbing } from "../privacy/engine.js";
-import { lookTreeEntries } from "./lookTree.js";
+import { lookChangedEntries } from "./lookTree.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
@@ -494,7 +494,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     const now = Date.now();
     return logSkipped(dispatch, { path: heartbeatPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
   };
-  const listed = await lookTreeEntries(store);
+  const listed = await lookChangedEntries(store, since);
   if (!listed.entries) {
     // What changed can't be told while the tree cannot be read: tried again soon, from the same point.
     console.log(JSON.stringify({ event: "heartbeat_tree", workspace: session.workspaceId, reason: listed.code, tries: listed.tries }));
