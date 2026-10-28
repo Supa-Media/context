@@ -687,7 +687,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
         // cannot reach here: it was resolved before any of this.
         throw invalid("this session's start time is not a timestamp, so it has no note path");
       }
-      next = { ...next, notePath: await unclaimedNotePath(store, candidate) };
+      next = { ...next, notePath: await unclaimedNotePath(store, candidate, id) };
     }
     return assertSessionWithinLimits(next);
   }, session.scope);
