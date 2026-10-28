@@ -158,7 +158,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const yes = await answersOpenAsk(storage, message, now);
   // An SMS never sets the style: anyone can send one that shows a member's number.
   const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
-  const addressed = addressesTex(message.text, repliesToTex) || offeredName(message.text, choices) !== null;
+  // A reply in Tex's thread is not addressed by itself: decide judges it, as any untagged text (Dev2, 2026-10-27).
+  const addressed = addressesTex(message.text, false) || offeredName(message.text, choices) !== null;
   const tagged = addressed || yes || engagement !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
@@ -174,7 +175,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     if (!kept && !follows) return log("untagged_ignored", "unbound"), "ignored";
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
-    const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
+    // A reply to Tex that says more than thanks always reaches decide, whatever the style.
+    const reaches = follows || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     log(reaches ? "untagged_to_decide" : "untagged_kept", reaches ? undefined : "style");
     return kept ? "kept" : "queued";
