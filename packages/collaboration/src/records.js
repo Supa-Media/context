@@ -220,7 +220,19 @@ export function makeResult(state, revision) {
     text: value.text,
     etag: revisionEtag(state.documentId, state.revision),
     rawEtag: state.rawMarkdownEtag,
+    // The Markdown etag a reader was handed before this document started,
+    // while nothing has changed since: the same version, under its other name.
+    ...(state.revision === state.legacyRevision ? { unchangedMarkdownEtag: state.legacyRawEtag } : {}),
   };
+}
+
+/**
+ * Whether `etag` names `document`'s current version: the one rule every
+ * conditional write uses (`assertExpectedRevision` is it, thrown).
+ */
+export function isCurrentEtag(document, etag) {
+  if (typeof etag !== "string" || etag === "") return false;
+  return etag === document.etag || (document.unchangedMarkdownEtag !== undefined && etag === document.unchangedMarkdownEtag);
 }
 
 export async function putHead(store, path, head, expectedEtag) {

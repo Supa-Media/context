@@ -37,3 +37,4 @@ export const eraseDocument = scopedEntry(erase);
 export const noteOfDocument = scopedEntry(documentNote);
 export const fileHeadsByNote = scopedEntry(fileHeads);
 export { pathHeadLive };
+export { isCurrentEtag } from "./records.js";
