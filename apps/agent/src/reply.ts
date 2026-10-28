@@ -51,7 +51,8 @@ import type { Inbound } from "./inbound";
  * replies are written to its log instead of sent (simulator.ts); a Linq
  * delivery never carries it.
  */
-export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
+/** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;

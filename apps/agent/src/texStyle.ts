@@ -166,6 +166,13 @@ export function styleWords(text: string): TexStyle | null {
   return null;
 }
 
+/** A 1:1 text that is about the settings: the menu asked for, plain words for one, or a reply the open menu reads. */
+export async function isSettingsText(storage: InboxStorage, text: string, now: number): Promise<boolean> {
+  if (asksForSettings(text) || styleWords(text) !== null) return true;
+  const state = await menuState(storage, now);
+  return state !== undefined && menuReply(text, state, false) !== null;
+}
+
 /** "Tex, settings" on its own, with or without the name. */
 export const asksForSettings = (text: string): boolean => bare(text) === "settings" || bare(text) === "settings?";
 

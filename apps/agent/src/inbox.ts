@@ -64,7 +64,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
-import { closeMenu, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
+import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -178,6 +178,8 @@ export async function accept(
   // A plain text after a quiet spell starts a topic (`threadFor`).
   const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
+  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
+  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
