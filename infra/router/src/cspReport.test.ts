@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import { CSP_REPORT_PATH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES } from "./cspReport";
+import { SECURITY_HEADERS } from "./securityHeaders";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
 const assets = vi.fn(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
@@ -74,6 +75,23 @@ describe("the policy", () => {
     expect(inline.length).toBeGreaterThan(0);
     expect(SHELL_SCRIPT_HASHES).toEqual(inline);
     for (const hash of inline) expect(SCRIPT_POLICY).toContain(`'${hash}'`);
+  });
+
+  // Two frames run script this policy would block, and a quiet report log
+  // cannot show it: they run only when someone opens a plugin or exports a
+  // drawing. The plugin sandbox is a `srcdoc` document, which inherits the
+  // app's policy, and runs its bootstrap and each plugin as inline script; the
+  // drawing editor's bundled WebAssembly glue builds functions with
+  // `new Function`. Until each is moved or rebuilt, the policy stays report-only.
+  it("stays report-only while a frame of ours needs inline script or eval", () => {
+    const repo = join(__dirname, "..", "..", "..");
+    const sandbox = readFileSync(join(repo, "packages", "obsidian-runtime", "src", "sandbox", "lifecycle.js"), "utf8");
+    const editor = readFileSync(join(repo, "apps", "mobile", "public", "drawing-assets", "editor", "editor.js"), "utf8");
+    const needs = [
+      ...(/script\.textContent\s*=/.test(sandbox) ? ["plugin sandbox: inline script in a srcdoc frame"] : []),
+      ...(/new Function\(/.test(editor) ? ["drawing editor: new Function"] : []),
+    ];
+    if (needs.length > 0) expect(SECURITY_HEADERS["Content-Security-Policy"], needs.join("; ")).not.toContain("script-src");
   });
 });
 
