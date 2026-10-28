@@ -172,7 +172,7 @@ required when making pages".
   renderer and the gateway, never in the model's good behaviour: a `choose`
   block's options are hunted for photos like a vote's (and drawn with them,
   so they feed the cover); a hunted picture the note write would refuse
-  (AVIF) counts as not found, so the hunt tries the next; a bar chart of more
+  (AVIF) is converted (#2322) or else counts as not found, so the hunt tries the next; a bar chart of more
   than four bars or long labels lies down as rows, values as money when its
   `unit:` is a currency sign; a table of four columns or more becomes one
   card per row on a narrow page; a page's cover is checked as a cover, not as

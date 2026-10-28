@@ -55,7 +55,7 @@ import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js"
 import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
 import { downloadPhoto, downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
 import { huntPhotos, shooterFor } from "./visuals/hunt.js";
-import { PAGE_PICTURE_ACCEPT, withPagePictures } from "./visuals/pagePhotos.js";
+import { storableDownload, withPagePictures } from "./visuals/pagePhotos.js";
 import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
@@ -374,7 +374,9 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
    * Refused with them, it is written again as the writer sent it: a picture found for it never costs the save.
    */
   async function pageWrite(args, callTool) {
-    const { args: pictured, found } = await withPagePictures(args, { web, download: (address) => downloadPhoto(address, fetchImpl, { headers: { accept: PAGE_PICTURE_ACCEPT } }), shoot: shooterFor(shots, { timeoutMs: 10_000 }), read: () => outgoing?.read?.() ?? "" });
+    const shoot = shooterFor(shots, { timeoutMs: 10_000 });
+    const download = storableDownload((address, headers) => downloadPhoto(address, fetchImpl, { headers }), shoot);
+    const { args: pictured, found } = await withPagePictures(args, { web, download, shoot, read: () => outgoing?.read?.() ?? "" });
     const result = await callTool("write_note", pictured);
     if (found.length > 0 && result?.isError === true) return callTool("write_note", args);
     if (found.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;

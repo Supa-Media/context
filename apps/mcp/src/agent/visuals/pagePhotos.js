@@ -16,13 +16,35 @@
  * writer attached (`notes/uploadedImages.js` rewrites the field to the stored
  * copy). The page's words are otherwise left exactly as written.
  *
- * Only a picture the write can store goes in. A search hit or a shot can be
- * an AVIF or an SVG, which a note write refuses, and one such picture refused
- * the whole page: Tex in a WhatsApp group, 2026-10-27 23:56, "the save failed
- * four times", each retry hunting the same picture again. So each picture's
- * bytes are checked the way the write checks them, and one it would refuse,
- * or one past the write's size limit, is left out.
+ * Only a picture the write can store goes in. A search hit can be an AVIF or
+ * an SVG, which a note write refuses, and one such picture refused the whole
+ * page: Tex in a WhatsApp group, 2026-10-27 23:56, "the save failed four
+ * times", each retry hunting the same picture again. So a picture is asked
+ * for in a stored format first, and one that still comes as AVIF or SVG is
+ * opened in the browser and photographed as a JPEG (`storableDownload`); the
+ * owner, 2026-10-28: "can't we convert it? cant we screenshot it?". Each
+ * picture's bytes are still checked the way the write checks them, as the
+ * last guard.
  */
+
+/** What a page's picture is asked for as: only formats a note stores, so a site that would send AVIF sends one of these. */
+export const STORABLE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif;q=0.8";
+
+/**
+ * `download` for a page's hunt: the picture asked for in a stored format, and
+ * one that still comes in a format a note can't store photographed in the
+ * browser by `shoot(address)`, which turns whatever it draws into a JPEG.
+ * Null when neither gives a storable picture, so the hunt tries its next way.
+ */
+export function storableDownload(download, shoot) {
+  return async (address) => {
+    const data = await download(address, { accept: STORABLE_ACCEPT });
+    if (data === null || data === undefined) return null;
+    if (storableImage(data)) return data;
+    const shot = typeof shoot === "function" ? await shoot(address) : null;
+    return shot && storableImage(shot) ? shot : null;
+  };
+}
 
 import { isPagePath, parsePage } from "../../../../../packages/shared/src/pages/parse.cjs";
 import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_BYTES_PER_WRITE, storableImage } from "../../notes/uploadedImages.js";
@@ -34,12 +56,6 @@ import { huntPicture, within } from "./hunt.js";
  * `choose` block, none was hunted, and the page went out with no picture at all.
  */
 export const PICTURED_KINDS = new Set(["places", "vote", "prices", "itinerary", "choose"]);
-/**
- * What a page's picture download asks for: never AVIF, which a note write
- * refuses. Asked for AVIF first (as a card's download does), image CDNs
- * answered with it, the hunt took that as found, and the picture was dropped.
- */
-export const PAGE_PICTURE_ACCEPT = "image/webp,image/jpeg,image/png,image/gif;q=0.9";
 /** The most options hunted for one page write. */
 export const MAX_PAGE_HUNTS = 8;
 /**
@@ -47,7 +63,7 @@ export const MAX_PAGE_HUNTS = 8;
  * write's own limit (`turn.js`), so a slow site never makes a saved page
  * look like a failed write that is then retried.
  */
-export const PAGE_HUNT_TIMEOUT_MS = 12_000;
+export const PAGE_HUNT_TIMEOUT_MS = 14_000;
 
 /** Every block on the page, wherever it sits (a section, a tab). */
 function blocksIn(nodes, out = []) {

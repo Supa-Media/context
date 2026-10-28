@@ -82,3 +82,12 @@ test("the turn's watcher sends the plain plan back once", async () => {
   assert.match(String(first), /every new note you make is a designed page/);
   assert.doesNotMatch(String(await claims.check(answer)), /every new note you make is a designed page/, "asked once only");
 });
+
+test("what Tex makes for a guest chat in tex/chats/ goes back to be a page; the chat's memory note stays plain", () => {
+  // 2026-10-28: a WhatsApp guest chat's research was saved plain twice and never sent back, its folder being under tex/.
+  const research = "tex/chats/pearl-ivory-arrow/sunday-services-research.md";
+  assert.equal(wantsAPage([noteWrite("write_note", { path: research, content: PLAN })], "put all this research into a page"), research);
+  for (const path of ["tex/chats/pearl-ivory-arrow/chat-d63b31518206.md", "tex/chats/notes.md", "tex/groups/chat-d63b31518206.md"]) {
+    assert.equal(wantsAPage([noteWrite("write_note", { path, content: PLAN })], QUESTION), null, path);
+  }
+});

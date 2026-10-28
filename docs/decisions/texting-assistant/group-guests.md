@@ -109,3 +109,15 @@ binder's Gmail; turning guest mode on for anyone who asks lets a member open
 a workspace they can't share; syncing people without the `viaChat` mark
 takes away rows the owner added. `apps/convex/__tests__/textGroupGuests.test.ts`
 and `apps/mcp/test/agentGroupGuests.test.mjs` fail if any is reversed.
+
+## What a guest chat makes is a page (2026-10-28)
+
+A guest chat writes only in `tex/chats/<words>/`, and every new note Tex
+makes is a page. The plain-note check (`agent/pageNotice.js`) and the prompt
+both kept "Tex's own tex/ notes" plain, so research saved plain in a guest
+chat was never sent back, and Tex told the chat "the page format keeps
+failing from this chat". `tex/chats/<words>/` is now outside that rule (only
+the chat's `chat-<id>.md` memory note stays plain), and the guest prompt says
+pages save there like anywhere and a refused page is fixed and written again,
+never replaced by a plain note. Test: `agentGroupGuests.test.mjs` "research a
+guest chat saves as a plain note goes back to be a page".
