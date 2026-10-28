@@ -349,3 +349,13 @@ row naming the reviewer grants nothing, which is the same answer as for a
 stranger. A pending invitation to it stays unspent. Undoing this lets whoever
 holds a public code read whatever anyone shares with a public address.
 `reviewerReach.test.ts` fails if any of the six doors loses its check.
+
+Google's verification reviewer has to press Connect Google, so it gets a
+principal of its own, `google-review@supa.media`, opened by
+`GOOGLE_REVIEW_SIGNIN_CODE` (2026-10-28). That code is given only through
+Google's private review form, and a value equal to any other fixed code turns
+the sign-in off, so the public App Store code can never open an account that
+holds Google tokens. This account may connect Google (`mayHoldGoogleConnection`)
+and is held to its own workspace like the other. With the secret unset it does
+not exist. `functions/reviewerReachAudit.ts` counts, without naming anything,
+what either account already holds from before these checks.

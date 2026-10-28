@@ -19,11 +19,14 @@
  *  5. Check removed from `guestViewOf` → "reads nothing through a grant".
  *  6. Check removed from `shareStillStands` → "a share addressed to it opens nothing".
  *  7. `refuseReservedReviewer` removed from `signInEmails.ts` → "keeps the one address".
+ *  8. `GOOGLE_REVIEW_EMAIL` dropped from `isReservedReviewer` → "Google's reviewer
+ *     stays in its own workspace". `mayHoldGoogleConnection` made to refuse it →
+ *     "Google's reviewer can start a Google connection".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
+import { GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest } from "./fixtures.helpers";
 import { grantUser, noteIdOf, PLAN, PLAN_MARKER, readByNoteId, world } from "./grants/outsider.helpers";
 
@@ -151,5 +154,62 @@ describe("the reserved reviewer stays in its own workspace", () => {
     );
     expect(errorCode(swap)).toBe("RESERVED_ACCOUNT");
     expect((await t.run((ctx) => ctx.db.get(reviewer)))?.email).toBe(REVIEWER_EMAIL);
+  });
+});
+
+describe("Google's reviewer may connect Google, and is otherwise held like the other", () => {
+  test("Google's reviewer can start a Google connection; the public-code account still cannot", async () => {
+    const t = setupTest();
+    const google = await createUser(t, GOOGLE_REVIEW_EMAIL);
+    const googleOwn = await createWorkspace(t, google, "gr-desk");
+    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const reviewerOwn = await createWorkspace(t, reviewer, "rvw-desk");
+    const may = (workspaceId: typeof googleOwn, userId: typeof google) =>
+      t.query(internal.functions.googleConnect.requirePersonalOwner, { workspaceId, userId });
+    expect(await may(googleOwn, google)).toBe(true);
+    expect(await may(reviewerOwn, reviewer)).toBe(false);
+  });
+
+  test("Google's reviewer stays in its own workspace: no domain join, no invitation, no grant, one address", async () => {
+    const w = await world();
+    const google = await createUser(w.t, GOOGLE_REVIEW_EMAIL);
+    await createWorkspace(w.t, google, "gr-desk");
+
+    const staff = await createUser(w.t, "staff@supa.media");
+    const team = await createWorkspace(w.t, staff, "staffteam", { kind: "shared" });
+    await asUser(w.t, staff).mutation(api.functions.workspaceDomains.addWorkspaceDomain, { workspaceId: team, domain: "supa.media" });
+    expect(await asUser(w.t, google).query(api.functions.workspaceDomains.myDomainWorkspaces, {})).toEqual([]);
+
+    await asUser(w.t, staff).mutation(api.functions.invitations.inviteMember, { workspaceId: team, invitee: "@gr-desk", role: "member" });
+    const [invitation] = await asUser(w.t, google).query(api.functions.invitations.listMyInvitations, {});
+    const refused = await captureError(() =>
+      asUser(w.t, google).mutation(api.functions.invitations.acceptInvitation, { token: invitation!.token }),
+    );
+    expect(errorCode(refused)).toBe("INVITATION_NOT_FOUND");
+
+    await grantUser(w, PLAN, google);
+    expect(errorCode(await captureError(async () => readByNoteId(w, google, await noteIdOf(w, PLAN))))).toBe("SHARE_UNAVAILABLE");
+
+    const added = await captureError(() =>
+      asUser(w.t, google).action(api.functions.signInEmails.startAddEmail, { email: "mine@attacker.example.invalid" }),
+    );
+    expect(errorCode(added)).toBe("RESERVED_ACCOUNT");
+  });
+});
+
+describe("what the review accounts already hold, as counts", () => {
+  test("names nothing, and counts reach the checks would now refuse", async () => {
+    const w = await world();
+    const reviewer = await createUser(w.t, REVIEWER_EMAIL);
+    await createWorkspace(w.t, reviewer, "rvw-desk");
+    // Reach made before the checks existed: a grant and a membership written directly.
+    await grantUser(w, PLAN, reviewer);
+    await w.t.run((ctx) => ctx.db.insert("workspaceMembers", { workspaceId: w.ws, userId: reviewer, role: "member", joinedAt: 1 } as never));
+
+    const rows = await w.t.query(internal.functions.reviewerReachAudit.counts, {});
+    expect(rows.map((row) => row.address)).toEqual([REVIEWER_EMAIL, GOOGLE_REVIEW_EMAIL]);
+    expect(rows[0]).toMatchObject({ accounts: 1, ownedWorkspaces: 1, otherMemberships: 1, grantsByAccount: 1, googleConnections: 0 });
+    expect(rows[1]).toMatchObject({ accounts: 0, ownedWorkspaces: 0, otherMemberships: 0, grantsByAccount: 0 });
+    expect(JSON.stringify(rows)).not.toMatch(/"[a-z0-9]{20,}"/);
   });
 });
