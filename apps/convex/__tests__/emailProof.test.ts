@@ -309,6 +309,24 @@ describe("after the code", () => {
     expect(sessions.map((s) => s.current)).toEqual([true]);
   });
 
+  // CASA 2.2.2 asks for the option to end other sessions after a credential
+  // change. A factor change already needs this session's emailed code, so the
+  // same proof signs the others out with no second code, and #2374's
+  // live-session check refuses them at once.
+  test("right after changing a sign-in factor, the same proof signs every other device out", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@home.example");
+    await t.run((ctx) => ctx.db.insert("signInEmails", { userId: ada, email: "ada@work.example", addedAt: Date.now() }));
+    const thief = await asPhoneOnly(t, ada);
+    const mine = await prove(t, ada);
+    await mine.view.mutation(api.functions.signInEmails.removeEmail, { email: "ada@work.example" });
+    expect(await mine.view.mutation(api.functions.emailProof.signOutOthers, {})).toEqual({ signedOut: 1 });
+    // Its unexpired token now reads as nobody: no sessions shown, nothing done.
+    expect(await thief.view.query(api.functions.emailProof.mySessions, {})).toEqual([]);
+    expect(errorCode(await captureError(() => thief.view.mutation(api.functions.emailProof.signOutOthers, {})))).toBe("NOT_AUTHENTICATED");
+    expect((await mine.view.query(api.functions.emailProof.mySessions, {})).map((s) => s.current)).toEqual([true]);
+  });
+
   test("signing out one device leaves the others, and never someone else's", async () => {
     const t = setupTest();
     const ada = await createUser(t, "ada@home.example");
