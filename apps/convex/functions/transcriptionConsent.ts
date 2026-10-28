@@ -54,6 +54,8 @@ const answerShape = v.object({
   outdated: v.boolean(),
   grantedAt: v.union(v.number(), v.null()),
   withdrawnAt: v.union(v.number(), v.null()),
+  /** Whose answer this is: a device keeps an unconfirmed Turn off under it. */
+  account: v.string(),
 });
 
 /** The caller's answer, or null when signed out. */
@@ -71,6 +73,7 @@ export const myTranscriptionConsent = query({
       outdated: row !== null && row.withdrawnAt === undefined && row.version !== CLOUD_TRANSCRIPTION_CONSENT_VERSION,
       grantedAt: row?.grantedAt ?? null,
       withdrawnAt: row?.withdrawnAt ?? null,
+      account: userId,
     };
   },
 });

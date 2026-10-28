@@ -9,8 +9,17 @@ import {
   onTranscriptionConsentChange,
   setTranscriptionConsent,
   transcriptionWithdrawalConfirmed,
+  withdrawTranscriptionHere,
   type RecorderCapability,
 } from "./capture";
+import {
+  clearWithdrawal,
+  consentAccount,
+  knownPendingWithdrawal,
+  readPendingWithdrawal,
+  rememberWithdrawal,
+  setConsentAccount,
+} from "./transcriptionWithdrawal";
 import { TranscriptionConsent } from "./components/TranscriptionConsent";
 
 /**
@@ -41,23 +50,60 @@ export function useTranscriptionConsentAnswer(signedIn = true) {
 
 export function useTranscriptionConsentSync(signedIn = true): void {
   const answer = useTranscriptionConsentAnswer(signedIn);
+  const convex = useConvex() as ReturnType<typeof useConvex> | undefined;
+  const resent = useRef(new Set<string>());
   useEffect(() => {
     if (answer === undefined || answer === null) {
       setTranscriptionConsent(null);
       return;
     }
-    if (answer.allowed) {
-      setTranscriptionConsent(answer.currentVersion);
+    const { account } = answer;
+    setConsentAccount(account);
+    if (!answer.allowed) {
+      setTranscriptionConsent(null);
+      // The account says no, so a Turn off made here has arrived.
+      transcriptionWithdrawalConfirmed();
+      void clearWithdrawal(account);
+      // A definite no: whatever audio is still on this device waiting to be
+      // transcribed is never sent, including after a relaunch.
+      forgetSpooledAudio();
+      return;
+    }
+    // A yes counts only once this device has checked it holds no Turn off for
+    // this account that the account has not heard yet.
+    const apply = (pending: boolean) => {
+      if (!pending) {
+        setTranscriptionConsent(answer.currentVersion);
+        return;
+      }
+      withdrawTranscriptionHere();
+      if (convex !== undefined && !resent.current.has(account)) {
+        resent.current.add(account);
+        void convex.mutation(api.functions.transcriptionConsent.withdrawTranscription, {}).catch(() => {});
+      }
+    };
+    const known = knownPendingWithdrawal(account);
+    if (known !== undefined) {
+      apply(known);
       return;
     }
     setTranscriptionConsent(null);
-    transcriptionWithdrawalConfirmed();
-    // A definite no: whatever audio is still on this device waiting to be
-    // transcribed is never sent, including after a relaunch.
-    forgetSpooledAudio();
-  }, [answer]);
+    let live = true;
+    void readPendingWithdrawal(account).then((pending) => {
+      if (live) apply(pending);
+    });
+    return () => {
+      live = false;
+    };
+  }, [answer, convex]);
   // Unmounted is signed out or switched: no.
-  useEffect(() => () => setTranscriptionConsent(null), []);
+  useEffect(
+    () => () => {
+      setTranscriptionConsent(null);
+      setConsentAccount(null);
+    },
+    [],
+  );
 }
 
 /** Whether cloud transcription is allowed on this device right now, live. */
@@ -85,11 +131,13 @@ export const CONSENT_NOT_SAVED = "That did not save, so nothing was recorded. Ch
 export function useTranscriptionConsentGate(options: {
   capture: Pick<RecorderCapability, "audio" | "transcribesAt">;
   visitor?: boolean;
+  /** The signed-in account, when the caller has it; otherwise the one the layout last saw. */
+  account?: string;
 }): {
   gate: (run: () => void) => void;
   sheet: ReactElement | null;
 } {
-  const { capture, visitor = false } = options;
+  const { capture, visitor = false, account } = options;
   // `useConvex` rather than `useMutation`: the homepage visitor saves nothing,
   // and a surface with no client must still be able to say Not now.
   const convex = useConvex() as ReturnType<typeof useConvex> | undefined;
@@ -132,14 +180,22 @@ export function useTranscriptionConsentGate(options: {
         }
         // Ahead of the live query, so the recorder this press starts sees it.
         allowTranscriptionHere(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+        const whose = account ?? consentAccount();
+        if (!visitor && whose !== null) void clearWithdrawal(whose);
         finish();
       } catch {
         setBusy(false);
         setFailed(CONSENT_NOT_SAVED);
       }
     })();
-  }, [convex, finish, visitor]);
+  }, [account, convex, finish, visitor]);
 
   const sheet = asking ? createElement(TranscriptionConsent, { onAllow, onDecline: finish, busy, failed }) : null;
   return { gate, sheet };
+}
+
+/** Turn off on this device, kept under the account until the account agrees. */
+export function withdrawHereFor(account: string): void {
+  withdrawTranscriptionHere();
+  void rememberWithdrawal(account);
 }

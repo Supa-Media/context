@@ -55,7 +55,12 @@ for every account, including one that said no. *Turn off* stops this device
 first and empties its spool, then tells the account, so it holds even when the
 save fails, and a local latch keeps this device off against a later answer from
 the account that still says yes (a failed or pending save, a reconnect) until
-the account is seen saying no or Allow is pressed here again. The account's no
+the account is seen saying no or Allow is pressed here again. The Turn off is
+also kept in the device's store under the account it was for
+(`features/meetings/transcriptionWithdrawal.ts`), so a restart does not undo it:
+the account's yes is used on this device only after that store is read, a kept
+Turn off holds the device off and is sent again, and another account's answer
+never clears it. Sign-out empties the store with everything else. The account's no
 reaches other devices through the live query and every server boundary refuses
 from the moment it is saved. A chunk already in flight when Turn off is pressed
 is not recalled, and the policy says so rather than promising an instant stop

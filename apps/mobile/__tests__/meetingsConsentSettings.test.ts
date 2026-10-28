@@ -34,6 +34,14 @@ import {
  *     → `loading is no` fails.
  *  3. The sync hook stops calling `forgetSpooledAudio` on a no.
  *     → `a no from the account empties the spool` fails.
+ *  4. Turn off no longer keeps itself on the device (`rememberWithdrawal` dropped).
+ *     → the restart tests and `Allow from a New meeting clears it…` fail.
+ *  5. One key for every account instead of one per account.
+ *     → `another account's no does not clear it` fails.
+ *  6. Allow in the dialog leaves the kept Turn off in place.
+ *     → `Allow from a New meeting clears it…` fails.
+ *  7. The sync hook ignores a kept Turn off.
+ *     → the restart tests fail.
  */
 
 const mockForget = jest.fn(() => ({ left: 0 }));
@@ -67,17 +75,21 @@ jest.mock("convex/react", () => {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { CloudTranscriptionSettings } =
   require("../features/console/settings/panels/CloudTranscriptionSettings") as typeof import("../features/console/settings/panels/CloudTranscriptionSettings");
-const { useTranscriptionConsentSync } =
+const { useTranscriptionConsentSync, useTranscriptionConsentGate } =
   require("../features/meetings/useTranscriptionConsent") as typeof import("../features/meetings/useTranscriptionConsent");
+const { setWithdrawalStore } =
+  require("../features/meetings/transcriptionWithdrawal") as typeof import("../features/meetings/transcriptionWithdrawal");
+const { memoryStore } = require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { cloudTranscriptionAllowed, setTranscriptionConsent, transcriptionWithdrawalConfirmed } =
   require("../features/meetings/capture") as typeof import("../features/meetings/capture");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const V = CLOUD_TRANSCRIPTION_CONSENT_VERSION;
-const ON = { allowed: true, answeredVersion: V, currentVersion: V, outdated: false, grantedAt: 1, withdrawnAt: null };
-const OFF = { allowed: false, answeredVersion: V, currentVersion: V, outdated: false, grantedAt: 1, withdrawnAt: 2 };
-const NEVER = { allowed: false, answeredVersion: null, currentVersion: V, outdated: false, grantedAt: null, withdrawnAt: null };
-const OLD = { allowed: false, answeredVersion: V - 1, currentVersion: V, outdated: true, grantedAt: 1, withdrawnAt: null };
+const ACCOUNT = "user_one";
+const ON = { allowed: true, answeredVersion: V, currentVersion: V, outdated: false, grantedAt: 1, withdrawnAt: null, account: ACCOUNT };
+const OFF = { allowed: false, answeredVersion: V, currentVersion: V, outdated: false, grantedAt: 1, withdrawnAt: 2, account: ACCOUNT };
+const NEVER = { allowed: false, answeredVersion: null, currentVersion: V, outdated: false, grantedAt: null, withdrawnAt: null, account: ACCOUNT };
+const OLD = { allowed: false, answeredVersion: V - 1, currentVersion: V, outdated: true, grantedAt: 1, withdrawnAt: null, account: ACCOUNT };
 
 function mount(element: ReactElement): { rerender: (next: ReactElement) => void; unmount: () => void } {
   const host = document.createElement("div");
@@ -111,12 +123,24 @@ async function settle(): Promise<void> {
   });
 }
 
+/** This device's durable store, which outlives a restart. */
+let device: ReturnType<typeof memoryStore>;
+
+/** A restart: the process forgets everything, the device's store does not. */
+function restart(): void {
+  setWithdrawalStore(device);
+  transcriptionWithdrawalConfirmed();
+  setTranscriptionConsent(null);
+}
+
 beforeEach(() => {
   document.body.replaceChildren();
   mockAnswer = undefined;
   mockMutations.length = 0;
   mockMutationFails = false;
   mockForget.mockClear();
+  device = memoryStore();
+  setWithdrawalStore(device);
   transcriptionWithdrawalConfirmed();
   setTranscriptionConsent(null);
 });
@@ -210,6 +234,7 @@ describe("a Turn off the account has not heard yet", () => {
     mockAnswer = ON;
     mockMutationFails = true;
     const view = mount(createElement(SettingsWithSync));
+    await settle();
     expect(cloudTranscriptionAllowed()).toBe(true);
 
     press("cloud-transcription-turn-off");
@@ -265,9 +290,10 @@ describe("the account's answer on this device", () => {
     unmount();
   });
 
-  test("a current yes is yes, and unmounting forgets it", () => {
+  test("a current yes is yes, once this device has checked it holds no Turn off, and unmounting forgets it", async () => {
     mockAnswer = ON;
     const { unmount } = mount(createElement(Sync));
+    await settle();
     expect(cloudTranscriptionAllowed()).toBe(true);
     unmount();
     expect(cloudTranscriptionAllowed()).toBe(false);
@@ -291,5 +317,109 @@ describe("the account's answer on this device", () => {
     const { unmount } = mount(createElement(Sync));
     expect(cloudTranscriptionAllowed()).toBe(false);
     unmount();
+  });
+});
+
+describe("a Turn off the account has not heard yet, across a restart", () => {
+  async function turnOffWhileOffline(): Promise<void> {
+    mockAnswer = ON;
+    mockMutationFails = true;
+    const view = mount(createElement(SettingsWithSync));
+    await settle();
+    press("cloud-transcription-turn-off");
+    await settle();
+    view.unmount();
+  }
+
+  test("after a restart the account's yes still does not switch this device on, and the Turn off is sent again", async () => {
+    await turnOffWhileOffline();
+    restart();
+    mockMutations.length = 0;
+    mockMutationFails = false;
+
+    mockAnswer = { ...ON };
+    const view = mount(createElement(Sync));
+    await settle();
+
+    expect(cloudTranscriptionAllowed()).toBe(false);
+    expect(mockMutations).toEqual(["functions/transcriptionConsent:withdrawTranscription"]);
+    view.unmount();
+  });
+
+  test("another account's no does not clear it", async () => {
+    await turnOffWhileOffline();
+    restart();
+
+    mockAnswer = { ...OFF, account: "user_two" };
+    const other = mount(createElement(Sync));
+    await settle();
+    other.unmount();
+
+    mockAnswer = { ...ON };
+    const view = mount(createElement(Sync));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+    view.unmount();
+  });
+
+  test("once its own account says no, it is cleared, and a later yes counts", async () => {
+    await turnOffWhileOffline();
+    restart();
+
+    mockAnswer = { ...OFF };
+    const view = mount(createElement(Sync));
+    await settle();
+    expect(await device.keys()).toEqual([]);
+
+    mockAnswer = { ...ON };
+    view.rerender(createElement(Sync));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(true);
+    view.unmount();
+  });
+});
+
+function NewMeeting(): ReactElement {
+  const consent = useTranscriptionConsentGate({ capture: { audio: true, transcribesAt: "cloud" } });
+  return createElement(
+    "div",
+    null,
+    createElement("button", { "data-testid": "start", onClick: () => consent.gate(() => {}) }, "+"),
+    consent.sheet,
+  );
+}
+
+describe("Allow pressed here lifts a kept Turn off", () => {
+  test("Allow from a New meeting clears it for the signed-in account, so the account's yes counts again", async () => {
+    await (async () => {
+      mockAnswer = ON;
+      mockMutationFails = true;
+      const view = mount(createElement(SettingsWithSync));
+      await settle();
+      press("cloud-transcription-turn-off");
+      await settle();
+      view.unmount();
+    })();
+    restart();
+    mockMutationFails = false;
+
+    mockAnswer = { ...ON };
+    const view = mount(createElement("div", null, createElement(Sync), createElement(NewMeeting)));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+
+    press("start");
+    await settle();
+    press("transcription-consent-allow");
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(true);
+    expect(await device.keys()).toEqual([]);
+
+    // The account's next answer (the same yes) keeps it on.
+    mockAnswer = { ...ON };
+    view.rerender(createElement("div", null, createElement(Sync), createElement(NewMeeting)));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(true);
+    view.unmount();
   });
 });

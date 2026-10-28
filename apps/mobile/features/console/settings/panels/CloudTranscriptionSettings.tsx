@@ -9,10 +9,11 @@ import { Card, Grow, Row } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
-import { forgetSpooledAudio, withdrawTranscriptionHere } from "../../../meetings/capture";
+import { forgetSpooledAudio } from "../../../meetings/capture";
 import {
   useTranscriptionConsentAnswer,
   useTranscriptionConsentGate,
+  withdrawHereFor,
 } from "../../../meetings/useTranscriptionConsent";
 
 /** What the row says: a current yes, a no (or never asked), or a yes to an older disclosure. */
@@ -42,7 +43,7 @@ export function CloudTranscriptionSettings() {
 function CloudTranscriptionSettingsLive() {
   const answer = useTranscriptionConsentAnswer();
   const withdraw = useMutation(api.functions.transcriptionConsent.withdrawTranscription);
-  const consent = useTranscriptionConsentGate({ capture: CLOUD });
+  const consent = useTranscriptionConsentGate({ capture: CLOUD, account: answer?.account });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(false);
 
@@ -51,8 +52,9 @@ function CloudTranscriptionSettingsLive() {
 
   function turnOff() {
     // This device first, so nothing more leaves it even if the save fails,
-    // and it stays off until the account agrees or Allow is pressed here.
-    withdrawTranscriptionHere();
+    // and it stays off, across a restart too, until the account agrees or
+    // Allow is pressed here.
+    withdrawHereFor(answer!.account);
     forgetSpooledAudio();
     setBusy(true);
     setProblem(false);
