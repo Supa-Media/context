@@ -16,6 +16,7 @@ import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { workspaceArchived } from "../functions/lib/archivedWorkspaces";
 import { addMember, createUser, createWorkspace, seedStorageBinding, setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 const ADMIN = "staff@example.test";
 const deployments: TestConvex[] = [];
@@ -108,7 +109,7 @@ describe("search by meaning", () => {
 
   test("the sweep and Restart all leave an archived workspace where it stopped; the report marks it", async () => {
     const t = deployment();
-    const staff = t.withIdentity({ subject: await createUser(t, ADMIN) });
+    const staff = withSession(t, await createUser(t, ADMIN));
     process.env.MEANING_SEARCH_ROLLOUT = "disabled";
     try {
       const live = await workspace(t, "meaning-live");

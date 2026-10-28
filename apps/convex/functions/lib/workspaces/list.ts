@@ -8,7 +8,7 @@
  */
 
 import type { Infer } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import { PINNED_CONTEXT_ROLE } from "@context/shared";
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";

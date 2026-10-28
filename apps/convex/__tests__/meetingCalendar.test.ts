@@ -19,6 +19,7 @@ import { addMember, seedGoogleConnection } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { MEETING_CALENDAR_READS_PER_HOUR } from "../functions/meetingCalendar";
+import { withSession } from "./session.helpers";
 
 const realFetch = globalThis.fetch;
 const HOUR = 60 * 60 * 1000;
@@ -80,7 +81,7 @@ const FROM = Date.parse("2026-10-28T04:00:00Z");
 const TO = Date.parse("2026-10-29T04:00:00Z");
 
 function at(t: Awaited<ReturnType<typeof connected>>["t"], userId: string) {
-  return t.withIdentity({ subject: userId });
+  return withSession(t, userId);
 }
 
 describe("meetings to join, from the person's own calendars", () => {

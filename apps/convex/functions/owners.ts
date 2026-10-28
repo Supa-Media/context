@@ -41,8 +41,7 @@
  */
 
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import { action, internalQuery, query, type QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";

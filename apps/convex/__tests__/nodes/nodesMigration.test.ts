@@ -16,6 +16,7 @@ import { modules } from "../../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { PROPS_VERSION } from "../../functions/lib/nodes/facts";
 import { seedTreeRows } from "../fixtures.helpers";
+import { withSession } from "../session.helpers";
 
 const ADMIN = "staff@example.test";
 let previous: string | undefined;
@@ -72,7 +73,7 @@ async function boundWorkspace(t: T, slug: string): Promise<Id<"workspaces">> {
 describe("migration report", () => {
   test("staff see every bound workspace's counts and facts, never a path", async () => {
     const t = convexTest(schema, modules);
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    const staff = withSession(t, await user(t, ADMIN));
     const copied = await boundWorkspace(t, "copied");
     await boundWorkspace(t, "fresh");
     await seedTreeRows(t, copied, [{ path: "1-projects/secret-plan.md", etag: "e1" }]);
@@ -88,7 +89,7 @@ describe("migration report", () => {
 
   test("a signed-in stranger and a signed-out caller are refused everything", async () => {
     const t = convexTest(schema, modules);
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
+    const stranger = withSession(t, await user(t, "someone@example.com"));
     for (const caller of [t, stranger]) {
       await expect(caller.query(api.functions.nodesMigration.report, {})).rejects.toThrow();
       await expect(caller.mutation(api.functions.nodesMigration.setPaused, { paused: true })).rejects.toThrow();

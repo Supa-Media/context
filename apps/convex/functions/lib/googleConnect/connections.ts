@@ -9,7 +9,7 @@
 import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { readOnlyServices } from "../googleWriteAccess";
 
 // The scheduling half of a connection is the loop's (`googleSync.ts`), and the

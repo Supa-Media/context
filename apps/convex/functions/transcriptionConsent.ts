@@ -13,8 +13,7 @@
 
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import {
   CLOUD_TRANSCRIPTION_CONSENT_VERSION,
   CLOUD_TRANSCRIPTION_DISCLOSURE,

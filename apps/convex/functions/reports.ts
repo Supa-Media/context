@@ -31,7 +31,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import {
   CLIENT_REPORT_ID_PATTERN,
   FEEDBACK_PLATFORMS,

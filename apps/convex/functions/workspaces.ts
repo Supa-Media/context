@@ -15,7 +15,7 @@
 
 import { scheduleSignupAlert } from "./signupAlerts";
 import { v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
 import {
   action,

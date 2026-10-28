@@ -64,7 +64,7 @@ import { ConvexError } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";

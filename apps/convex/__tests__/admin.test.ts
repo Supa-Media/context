@@ -69,6 +69,7 @@ import {
   isUsageMetric,
   isUsageSurface,
 } from "../functions/lib/usage";
+import { withSession } from "./session.helpers";
 
 const KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const KEYSET: Keyset = { current: { id: "k1", material: KEY } };
@@ -155,7 +156,7 @@ describe("the admin surface refuses everyone else", () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const userId = await seedUser(t, STRANGER, true);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = withSession(t, userId);
     await expect(
       asUser.query(api.functions.admin.listSecrets, {}),
     ).rejects.toThrow();
@@ -167,7 +168,7 @@ describe("the admin surface refuses everyone else", () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const userId = await seedUser(t, ADMIN, false);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = withSession(t, userId);
     await expect(
       asUser.query(api.functions.admin.listSecrets, {}),
     ).rejects.toThrow();
@@ -178,7 +179,7 @@ describe("the admin surface refuses everyone else", () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const userId = await seedUser(t, ADMIN, true);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = withSession(t, userId);
     expect(await asUser.query(api.functions.admin.amIAdmin, {})).toBe(true);
     expect(await asUser.query(api.functions.admin.listSecrets, {})).toEqual([]);
   });
@@ -187,7 +188,7 @@ describe("the admin surface refuses everyone else", () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const userId = await seedUser(t, ADMIN, true);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = withSession(t, userId);
     expect(await asUser.query(api.functions.admin.amIAdmin, {})).toBe(true);
 
     delete process.env[ADMIN_EMAILS_ENV_VAR];
@@ -204,8 +205,7 @@ describe("the admin surface refuses everyone else", () => {
     const signedOut = await t
       .query(api.functions.admin.listSecrets, {})
       .catch((error: unknown) => error);
-    const stranger = await t
-      .withIdentity({ subject: strangerId })
+    const stranger = await withSession(t, strangerId)
       .query(api.functions.admin.listSecrets, {})
       .catch((error: unknown) => error);
 
@@ -378,7 +378,7 @@ describe("a secret goes in and does not come back", () => {
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     process.env.STORAGE_SECRET_ENCRYPTION_KEY = KEY;
     const userId = await seedUser(t, ADMIN, true);
-    return { t, userId, as: t.withIdentity({ subject: userId }) };
+    return { t, userId, as: withSession(t, userId) };
   }
 
   test("setSecret stores an envelope and listSecrets never returns it", async () => {
@@ -479,7 +479,7 @@ describe("a secret goes in and does not come back", () => {
   test("a stranger cannot set or delete a secret", async () => {
     const { t } = await adminSession();
     const strangerId = await seedUser(t, STRANGER, true);
-    const asStranger = t.withIdentity({ subject: strangerId });
+    const asStranger = withSession(t, strangerId);
 
     await expect(
       asStranger.action(api.functions.admin.setSecret, {
@@ -571,8 +571,7 @@ describe("the usage vocabulary and window", () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const userId = await seedUser(t, ADMIN, true);
-    const report = await t
-      .withIdentity({ subject: userId })
+    const report = await withSession(t, userId)
       .query(api.functions.admin.usageReport, { days: 3 });
 
     expect(report.window).toHaveLength(3);

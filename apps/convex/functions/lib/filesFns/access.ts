@@ -14,7 +14,7 @@ import { PINNED_CONTEXT_ROLE } from "@context/shared";
 import type { Scope } from "../privacy";
 import type { TreeChange } from "../treeAnnounce";
 import { type WorkspaceRole, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { grantedNamesFor } from "../grantedNames";
 import { pinReaderNames } from "../pinnedReaders";
 import type { FileOperation } from "./operationTypes";

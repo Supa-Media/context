@@ -9,7 +9,7 @@
  */
 
 import { ConvexError } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import { isSingleEmoji } from "@context/shared";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";

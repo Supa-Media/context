@@ -5,6 +5,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { admittedText } from "../functions/waitlistText";
 import { drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 /**
  * THE "YOU'RE IN" TEXT.
@@ -55,7 +56,7 @@ async function staff(t: TestConvex) {
   const id = await t.run(async (ctx) =>
     ctx.db.insert("users", { email: STAFF, emailVerificationTime: Date.now() } as never),
   );
-  return t.withIdentity({ subject: id });
+  return withSession(t, id);
 }
 
 async function phoneRow(t: TestConvex, phone = PHONE): Promise<Id<"waitlist">> {

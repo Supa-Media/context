@@ -1,4 +1,4 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { phoneSignInPaused, requireProofForPhone } from "./lib/emailProof";
 import { ConvexError, v } from "convex/values";
 import {

@@ -48,7 +48,7 @@
 
 import { requireEmailProof } from "./lib/emailProof";
 import { ConvexError, v, type ObjectType } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
