@@ -11,13 +11,14 @@ import { useRouter } from "expo-router";
 
 import { CallAudioPrimer } from "./components/CallAudioPrimer";
 import { MeetingRefusal } from "./components/MeetingRefusal";
-import { callAudioGivenUp, readCallAudioMemory } from "./capture";
+import { callAudioGivenUp, cloudTranscriptionAllowed, readCallAudioMemory } from "./capture";
 import { MeetingsController, meetings } from "./controller";
 import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
 import { joinStartInput } from "./join";
 import type { CalendarEvent } from "./protocol";
 import { meetingHref } from "./route";
 import { UNTITLED_MEETING } from "./session";
+import { useTranscriptionConsentGate } from "./useTranscriptionConsent";
 
 /**
  * The one way into a recording from outside this feature.
@@ -95,6 +96,11 @@ export interface MeetingFlowInput {
    * Absent everywhere else, where `automaticDestination` is the rule.
    */
   destination?: MeetingDestination;
+  /**
+   * A homepage visitor: the cloud transcription yes is kept for this tab only,
+   * since there is no account to keep it on.
+   */
+  visitor?: boolean;
   /** Injected by tests. Defaults to the app's one controller. */
   controller?: MeetingsController;
 }
@@ -150,6 +156,13 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   );
 
   const live = snapshot.live;
+
+  /*
+    Cloud transcription consent goes in front of every start that would send
+    audio, before the share picker and before the microphone
+    (docs/decisions/meetings/transcription-consent.md).
+  */
+  const { gate: consentGate, sheet: consentSheet } = useTranscriptionConsentGate({ capture: snapshot.capture, visitor: input.visitor === true });
 
   /*
     One press, one meeting. `start()` is async — it mints an id and opens a
@@ -254,14 +267,16 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       void Linking.openURL(meeting.conferenceUrl).catch(() => {});
     }
 
-    const memory = readCallAudioMemory();
-    if (snapshot.capture.systemAudioNeedsPicker && !memory.worked && !callAudioGivenUp(memory)) {
-      setPrimer({ destination: answer.destination, ...(meeting === undefined ? {} : { meeting }) });
-      return;
-    }
-
-    begin(answer.destination, undefined, meeting);
-  }, [begin, contexts, destination, live, show, snapshot.capture.systemAudioNeedsPicker, snapshot.status]);
+    const into = answer.destination;
+    consentGate(() => {
+      const memory = readCallAudioMemory();
+      if (cloudTranscriptionAllowed() && snapshot.capture.systemAudioNeedsPicker && !memory.worked && !callAudioGivenUp(memory)) {
+        setPrimer({ destination: into, ...(meeting === undefined ? {} : { meeting }) });
+        return;
+      }
+      begin(into, undefined, meeting);
+    });
+  }, [begin, consentGate, contexts, destination, live, show, snapshot.capture.systemAudioNeedsPicker, snapshot.status]);
 
   const startMeetingFlow = useCallback(() => flow(), [flow]);
   const joinMeetingFlow = useCallback((meeting: CalendarEvent) => flow(meeting), [flow]);
@@ -273,7 +288,9 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   }, []);
 
   const sheet =
-    primer !== null
+    consentSheet !== null
+      ? consentSheet
+      : primer !== null
       ? createElement(CallAudioPrimer, {
           onContinue: () => {
             setPrimer(null);

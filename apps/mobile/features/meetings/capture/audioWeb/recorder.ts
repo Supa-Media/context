@@ -4,7 +4,8 @@ import { meterLevel, publishRecorderLevel, publishRecorderSplit } from "../level
 import { callAudioGivenUp, noteCallAudioShare, readCallAudioMemory } from "../callAudioMemory";
 import { browserName } from "../browser";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "../segments";
-import { resolveTranscriber } from "../transcriber";
+import { NO_TRANSCRIPTION_CONSENT } from "@context/shared";
+import { blockedByConsent, resolveTranscriber } from "../transcriber";
 import { talkTimeline } from "../talkTimeline";
 import {
   type AudioGraph,
@@ -475,6 +476,8 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         if (meetingId === sessionKey) return;
         throw new Error(ALREADY_RECORDING);
       }
+      // No yes to cloud transcription: neither picker nor microphone is asked for.
+      if (blockedByConsent()) throw new Error(NO_TRANSCRIPTION_CONSENT);
 
       /*
         THE PICKER GOES FIRST, AND BEFORE THE MICROPHONE PROMPT.

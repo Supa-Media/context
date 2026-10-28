@@ -98,6 +98,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of meetingJoinPreferences) await ctx.db.delete(row._id);
 
+  // Cloud transcription consent: a version and two times.
+  const transcriptionConsents = await ctx.db
+    .query("transcriptionConsents")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of transcriptionConsents) await ctx.db.delete(row._id);
+
   // Spelling: on or off, a language, and the words they added.
   const spellingPreferences = await ctx.db
     .query("spellingPreferences")

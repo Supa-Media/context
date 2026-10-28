@@ -105,6 +105,7 @@ export function useConsoleAside({
     destination: visitorMeetings?.destination,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
     onStarted: hasAside ? showMeetings : visitorMeetings?.showOnPhone,
+    visitor: visitorMeetings !== undefined,
   });
 
   /** Recording, or `null` on a console with no controller behind one. */

@@ -353,7 +353,10 @@ export {
 } from "./callAudioMemory";
 export { MAC_APP_URL, browserName, onMac, onPhoneOrTablet, type BrowserName } from "./browser";
 export {
+  cloudTranscriptionAllowed,
+  onTranscriptionConsentChange,
   setTranscriptionClient,
+  setTranscriptionConsent,
   type ChunkTranscriber,
   type TranscribeChunkArgs,
 } from "./transcriber";
