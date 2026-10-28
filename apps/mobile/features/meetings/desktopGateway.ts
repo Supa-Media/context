@@ -1,7 +1,9 @@
 import { getDesktopBridge, type DesktopBridge, type MeetingWriteAck } from "@context/desktop-bridge";
 import { QUEUED_ON_THIS_MACHINE } from "./record";
 import { MeetingGatewayError, MeetingHeldByDevice, type MeetingAddress, type MeetingsGateway } from "./gateway";
+import type { MeetingContinuation } from "./record";
 import { ERRORS } from "./protocol";
+import { FINALIZE_TIMEOUT_MS } from "./recovery";
 import type {
   IngestAck,
   MeetingSession,
@@ -90,7 +92,22 @@ export const DESKTOP_WRITE_SENTENCES = {
     "This meeting is addressed to a context this app cannot reach, so it is being kept here.",
   /** The shell answered something this build cannot read. */
   unreadable: "The Context app on this machine could not take that meeting.",
+  /** The shell held it too long, and saving it from the window failed as well. */
+  windowFailed: "Saving it from this window did not work either:",
 } as const;
+
+/**
+ * How long after a meeting ends the shell may hold its finalize before this
+ * window saves the meeting itself.
+ *
+ * The shell answers a finalize within seconds when its queue can send; a
+ * meeting it is still holding ten minutes later is one its queue cannot send,
+ * for a reason this window cannot see (the owner's two meetings of 2026-10-27
+ * sat "queued on this machine" for hours with transcription working
+ * throughout). `checkFinalizeTimeout`'s own bound, so "stuck" means one thing
+ * on every surface.
+ */
+export const SHELL_HOLD_LIMIT_MS = FINALIZE_TIMEOUT_MS;
 
 /**
  * The four protocol codes, so a refusal from the shell is one of them.
@@ -120,7 +137,20 @@ const ROUTABLE_SLUG = /^[a-z0-9-]{2,32}$/;
 /** The shell's half of the surface this file needs. */
 export type DesktopMeetings = NonNullable<DesktopBridge["meetings"]>;
 
-export function createDesktopGateway(meetings: DesktopMeetings): MeetingsGateway {
+export interface DesktopGatewayOptions {
+  /**
+   * The page's own writer (`createConvexGateway`), for a meeting the shell has
+   * held past `SHELL_HOLD_LIMIT_MS`. Absent means the shell is the only way
+   * out, as it was before.
+   */
+  fallback?: MeetingsGateway;
+  now?: () => number;
+}
+
+export function createDesktopGateway(
+  meetings: DesktopMeetings,
+  { fallback, now = () => Date.now() }: DesktopGatewayOptions = {},
+): MeetingsGateway {
   /** Send one write, and turn the shell's three answers into the app's. */
   async function write(
     to: MeetingAddress,
@@ -182,9 +212,39 @@ export function createDesktopGateway(meetings: DesktopMeetings): MeetingsGateway
       return handover(sessionId, "recording", 0);
     },
 
-    async finalize(to, session) {
+    async finalize(to, session, continues?: MeetingContinuation | null) {
       const ack = await write(to, session.id, "finalize", finalizeBody(to));
       if (ack.notePath === null) {
+        /*
+          HELD TOO LONG: THE WINDOW SAVES IT.
+
+          The shell's queue can hold a finalize for a reason nothing here can
+          see, and until this existed nothing ever saved such a meeting: the
+          page asked again, the shell answered "queued" again, and the person
+          was left with Copy note. Past the hold limit the window files the
+          meeting itself, through the page's own writer, which is how every
+          browser saves a meeting. It writes create-only at the same path the
+          gateway composes, and the gateway answers a later finalize of the
+          same meeting with that note rather than a second one
+          (`unclaimedNotePath` in `apps/mcp/src/meetings/notes.js`), so the
+          two ways out land on one note.
+
+          A window that cannot save it either says why, beside the queued
+          sentence, and stays held: a failure here is not an attempt against
+          the meeting, because the shell is still holding it.
+        */
+        if (fallback !== undefined && heldPastLimit(session, now())) {
+          try {
+            // In the protocol's order, so the writer has the meeting before it is asked to file it. The page's
+            // own writer keeps nothing for the first three, and files from `session` itself.
+            await fallback.putSession(to, session);
+            return await fallback.finalize(to, session, continues ?? null);
+          } catch (error) {
+            throw new MeetingHeldByDevice(
+              `${DESKTOP_WRITE_SENTENCES.queued} ${DESKTOP_WRITE_SENTENCES.windowFailed} ${messageOf(error)}`,
+            );
+          }
+        }
         /*
           Queued, which is not the same as written. See the header: the note is
           not in the bucket, the page may not say it is, and `unavailable` is
@@ -212,6 +272,12 @@ export function createDesktopGateway(meetings: DesktopMeetings): MeetingsGateway
     */
     list: async (): Promise<MeetingSessionSummary[]> => [],
   };
+}
+
+/** Whether the meeting ended longer ago than the shell may hold it. A missing or unreadable end is not. */
+function heldPastLimit(session: MeetingSession, now: number): boolean {
+  const ended = typeof session.endedAt === "string" ? Date.parse(session.endedAt) : NaN;
+  return Number.isFinite(ended) && now - ended >= SHELL_HOLD_LIMIT_MS;
 }
 
 /**
@@ -252,5 +318,5 @@ export function meetingsWriterFor(
 ): MeetingsGateway {
   const meetings = bridge?.meetings;
   if (meetings === undefined || typeof meetings.write !== "function") return fallback;
-  return createDesktopGateway(meetings);
+  return createDesktopGateway(meetings, { fallback });
 }

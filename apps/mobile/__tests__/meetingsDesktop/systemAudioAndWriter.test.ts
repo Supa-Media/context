@@ -451,6 +451,91 @@ describe("the shell records it, and the shell writes it", () => {
     expect(ack.conflictSafe).toBe(false);
   });
 
+  /*
+    HELD TOO LONG, AND THE WINDOW SAVES IT.
+
+    The owner's two meetings of 2026-10-27 sat "queued on this machine" for
+    hours: the shell kept answering queued, the page kept asking, and nothing
+    else would ever have saved them. Past `SHELL_HOLD_LIMIT_MS` the window files
+    the meeting through the page's own writer.
+
+    Sabotage, run: drop the `heldPastLimit` branch in `desktopGateway.finalize`
+    and the first, third and fourth checks fail (the meeting stays held); drop
+    the `fallback` from `meetingsWriterFor` and the fourth fails.
+  */
+  const ENDED = "2026-10-27T23:14:00.000Z";
+  const held = { id: "mtg_1", state: "finalizing", transcript: [segment("seg-1", "hello")], endedAt: ENDED } as never;
+  const minutesAfterEnd = (minutes: number) => () => Date.parse(ENDED) + minutes * 60_000;
+
+  test("a finalize the shell has held past the limit is filed by the window instead", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const page = fakeGateway();
+    const gateway = createDesktopGateway(shell.bridge.meetings!, { fallback: page, now: minutesAfterEnd(11) });
+    const ack = await gateway.finalize(null, held);
+    expect(ack.state).toBe("complete");
+    expect(typeof ack.notePath).toBe("string");
+    expect(page.notesWritten()).toBe(1);
+    // The shell was asked first: if its queue gets through, it is the one that files it.
+    expect(shell.writes.map((write) => write.kind)).toEqual(["finalize"]);
+  });
+
+  test("...but not before the limit: a meeting that ended minutes ago is still the shell's", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const page = fakeGateway();
+    const gateway = createDesktopGateway(shell.bridge.meetings!, { fallback: page, now: minutesAfterEnd(2) });
+    await expect(gateway.finalize(null, held)).rejects.toMatchObject({ message: DESKTOP_WRITE_SENTENCES.queued });
+    expect(page.notesWritten()).toBe(0);
+  });
+
+  test("...and a window that cannot file it either says why, and keeps it held", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const page = {
+      ...fakeGateway(),
+      finalize: async () => {
+        throw new MeetingGatewayError("meeting_unavailable", "the bucket did not answer");
+      },
+    };
+    const gateway = createDesktopGateway(shell.bridge.meetings!, { fallback: page, now: minutesAfterEnd(30) });
+    const refused = gateway.finalize(null, held);
+    await expect(refused).rejects.toMatchObject({ name: "MeetingHeldByDevice" });
+    await expect(refused).rejects.toMatchObject({
+      message: `${DESKTOP_WRITE_SENTENCES.queued} ${DESKTOP_WRITE_SENTENCES.windowFailed} the bucket did not answer`,
+    });
+  });
+
+  test("A MEETING THE MACHINE NEVER SENDS IS SAVED: the page's writer is the shell's fallback", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    installShell(shell);
+    const recorder = await resolveRecorder("web");
+    const page = fakeGateway();
+    const controller = new MeetingsController();
+    await controller.configure({
+      workspaceId: "ws_1",
+      store: memoryStore(),
+      gateway: meetingsWriterFor(page),
+      recorder,
+      device: { platform: "web" },
+    });
+
+    const id = await controller.start({ title: "V2L Sync" });
+    shell.emitSegment(segment(`${id}-mic-0-s000`, "the weekly numbers"));
+    await controller.end();
+    const stranded = controller.getSnapshot().records.find((one) => one.session.id === id);
+    expect(stranded?.session.notePath).toBeNull();
+    expect(stranded?.handedOver).toBe(true);
+
+    const later = Date.now() + 11 * 60_000;
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => later);
+    try {
+      await controller.sync();
+    } finally {
+      clock.mockRestore();
+    }
+    const saved = controller.getSnapshot().records.find((one) => one.session.id === id);
+    expect(saved?.session.notePath).not.toBeNull();
+    expect(page.notesWritten()).toBe(1);
+  });
+
   test("a meeting the shell's queue parked is parked here too, with the shell's sentence", async () => {
     const shell = fakeDesktopBridge({
       capabilities: { mic: true },
