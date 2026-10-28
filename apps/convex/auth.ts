@@ -127,5 +127,8 @@ const supaAuth = createSupaAuth({
 
 export const { auth, signIn, signOut, isAuthenticated } = supaAuth;
 // Every new email code spends one of its address's sends, in the transaction
-// that writes it (`functions/lib/emailCodeSends.ts`).
-export const store = limitEmailCodeSends(supaAuth.store);
+// that writes it. The library's store, under a name of its own, and `auth:store` (the name the
+// library calls) spending the email code send budget first. See
+// `functions/lib/emailCodeSends.ts`.
+export const libraryStore = supaAuth.store;
+export const store = limitEmailCodeSends();

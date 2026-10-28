@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import { api, internal } from "../_generated/api";
@@ -12,9 +15,15 @@ import { EMAIL_CODE_SENDS_PER_ADDRESS, EMAIL_CODE_SEND_WINDOW_MS, TOO_MANY_CODES
  *
  * Run as temporary local edits and reverted:
  *
- *   `store` exported unwrapped from `auth.ts`                                 5
+ *   `store` exported as the library's own, unlimited                         6
  *   the key not lower-cased                                                   1
  *   every provider counted, not only `email`                                  1
+ *   a second module naming `libraryStore`                                     1
+ *
+ * And `structure/reachability.test.ts` fails 2 when the call to the library's
+ * store is not a written-out `internal.auth.libraryStore` reference (the
+ * method taken into a variable first), so the reachability graph keeps its
+ * edge through this wrapper.
  */
 
 const EMAIL = "sends@context.invalid";
@@ -163,5 +172,29 @@ describe("email code sends per address", () => {
         },
       });
     }
+  });
+
+  test("nothing but the limited store calls the library's store", () => {
+    // `auth:libraryStore` writes codes without spending the budget, so the one
+    // way to it must be `auth:store`. Every Convex source that names it:
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const naming: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name === "_generated" || entry.name === "__tests__") continue;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.(ts|js)$/.test(entry.name) && readFileSync(path, "utf8").includes("libraryStore")) {
+          naming.push(relative(root, path));
+        }
+      }
+    };
+    walk(root);
+    expect(naming.sort()).toEqual(["auth.ts", "functions/lib/emailCodeSends.ts"]);
+    const auth = readFileSync(join(root, "auth.ts"), "utf8");
+    expect(auth).toMatch(/export const libraryStore = supaAuth\.store;/);
+    expect(auth).toMatch(/export const store = limitEmailCodeSends\(\);/);
+    const limiter = readFileSync(join(root, "functions/lib/emailCodeSends.ts"), "utf8");
+    expect(limiter.match(/internal\.auth\.libraryStore/g)).toEqual(["internal.auth.libraryStore"]);
   });
 });

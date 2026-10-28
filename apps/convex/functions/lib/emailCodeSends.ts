@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "../../_generated/api";
 import { internalMutation, type MutationCtx } from "../../_generated/server";
 import { tryConsumeRateLimit, windowEndsAt, type RateLimitPolicy } from "./rateLimit";
 
@@ -67,35 +68,36 @@ export async function spendEmailCodeSend(ctx: MutationCtx, email: string): Promi
   });
 }
 
-type StoreArgs = { args: { type?: unknown; provider?: unknown; email?: unknown } };
-type StoreHandler = (ctx: MutationCtx, args: StoreArgs) => Promise<unknown>;
+type StoreArgs = { type?: unknown; provider?: unknown; email?: unknown };
 
 /**
  * `auth:store`, with the send budget spent before a new email code is written.
  *
  * `@convex-dev/auth` offers no hook between "a code was asked for" and "a code
- * was written", so this wraps its registered mutation and calls the handler
- * it registered. Every other call passes through untouched. If a library
- * upgrade stops exposing the handler, this throws at load rather than serving
- * sign-in without the limit; `emailCodeSends.test.ts` fails first.
+ * was written", and it calls its store by the fixed name `auth:store`. So
+ * `auth.ts` registers the library's own store under another internal name
+ * (`auth:libraryStore`) and exports this as `auth:store`: it spends the budget,
+ * then calls the library's store with `ctx.runMutation`. Called from a
+ * mutation, that runs inside this same transaction, so a refusal still rolls
+ * back before any code row changes, and requests still serialize. Every other
+ * call passes through untouched.
  *
  * The arguments are `v.any()` because the library does not export its
- * validator. This mutation is internal: only the library's own `signIn` and
- * `functions/invitationEmail.ts` call it, never a client.
+ * validator; the library's store validates them when it runs. Both mutations
+ * are internal: only the library's own `signIn` and
+ * `functions/invitationEmail.ts` call `auth:store`, never a client, and
+ * nothing but this calls `auth:libraryStore` (`emailCodeSends.test.ts` pins
+ * that).
  */
-export function limitEmailCodeSends(store: unknown) {
-  const inner = (store as { _handler?: StoreHandler })._handler;
-  if (typeof inner !== "function") {
-    throw new Error("auth:store has no handler to wrap; the email code send limit cannot be applied.");
-  }
+export function limitEmailCodeSends() {
   return internalMutation({
     args: { args: v.any() },
-    handler: async (ctx, args) => {
-      const call = args.args as StoreArgs["args"];
+    handler: async (ctx, { args }): Promise<unknown> => {
+      const call = args as StoreArgs;
       if (call?.type === "createVerificationCode" && call.provider === COUNTED_PROVIDER && typeof call.email === "string") {
         await spendEmailCodeSend(ctx, call.email);
       }
-      return await inner(ctx, args as StoreArgs);
+      return await ctx.runMutation(internal.auth.libraryStore, { args });
     },
   });
 }
