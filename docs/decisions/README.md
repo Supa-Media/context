@@ -840,3 +840,5 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A post waits for the person's yes; a read or a reaction does not
 - The Slack app
 - An app with an official MCP server connects through it (2026-10-21)
+
+- [Messages uses Xcode's Messages product type](./app-and-console/native-app-shell.md#messages-uses-xcodes-messages-product-type)

@@ -806,3 +806,14 @@ jobs:
             -target "arm64-apple-ios${deployment}" \
             -swift-version 5 \
             *.swift
+
+      - name: Compile the Messages icon catalog
+        if: steps.changes.outputs.extension == 'true'
+        run: |
+          output=$(mktemp -d)
+          trap 'rm -rf "$output"' EXIT
+          xcrun actool apps/mobile/targets/context-messages/Assets.xcassets \
+            --compile "$output" --platform iphoneos --minimum-deployment-target 16.1 \
+            --target-device iphone --target-device ipad --app-icon "iMessage App Icon" \
+            --product-type com.apple.product-type.app-extension.messages \
+            --output-partial-info-plist "$output/Info.plist"

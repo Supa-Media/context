@@ -16,6 +16,7 @@ const IOS_DIRECTORY = TARGET_NAME;
 const SOURCE_FILES = ["MessagesViewController.swift"];
 const RESOURCE_FILES = ["Assets.xcassets"];
 const ICON_SET = "iMessage App Icon";
+const PRODUCT_TYPE = '"com.apple.product-type.app-extension.messages"';
 
 function identifiers(config) {
   const bundleIdentifier = config.ios?.bundleIdentifier;
@@ -45,13 +46,19 @@ function addMessagesTarget(project, ids, versions = {}) {
   const existingEntry = Object.entries(targets).find(
     ([key, target]) => !key.endsWith("_comment") && String(target?.name).replaceAll('"', "") === TARGET_NAME,
   );
-  if (existingEntry) return existingEntry[0];
+  if (existingEntry) {
+    existingEntry[1].productType = PRODUCT_TYPE;
+    return existingEntry[0];
+  }
 
   // As for the widgets: node-xcode skips the dependency unless these exist.
   const objects = project.hash.project.objects;
   objects.PBXTargetDependency ??= {};
   objects.PBXContainerItemProxy ??= {};
   const target = project.addTarget(TARGET_NAME, "app_extension", TARGET_NAME, ids.extensionBundleIdentifier);
+  // node-xcode creates a generic extension. Xcode only compiles a stickers
+  // icon catalog for its Messages product type (the native template's type).
+  target.pbxNativeTarget.productType = PRODUCT_TYPE;
   project.addBuildPhase(
     SOURCE_FILES.map((file) => `${IOS_DIRECTORY}/${file}`),
     "PBXSourcesBuildPhase",
