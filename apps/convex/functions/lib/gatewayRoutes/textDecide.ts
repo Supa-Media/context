@@ -111,12 +111,16 @@ export function decideRequest(body: DecideBody): JevRequest {
         answer: "Tex replies in words",
       },
     },
-    start: {
+  };
+  // A choice needs two options or the decide Worker refuses the whole request (`infra/transcribe-worker/src/decide.ts`):
+  // with one message waiting there is nothing to choose, and the answer covers it alone.
+  if (body.candidates.length > 1) {
+    questions.start = {
       type: "choice",
       instructions: "Which message does the request Tex is answering start at?",
       criteria: Object.fromEntries(body.candidates.map((id) => [id, `the message on the line starting <${id}>`])),
-    },
-  };
+    };
+  }
   if (body.running) {
     questions.midTurn = {
       type: "choice",
