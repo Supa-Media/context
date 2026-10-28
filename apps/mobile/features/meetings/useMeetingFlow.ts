@@ -11,14 +11,14 @@ import { useRouter } from "expo-router";
 
 import { CallAudioPrimer } from "./components/CallAudioPrimer";
 import { MeetingRefusal } from "./components/MeetingRefusal";
-import { callAudioGivenUp, cloudTranscriptionAllowed, readCallAudioMemory } from "./capture";
+import { callAudioGivenUp, readCallAudioMemory } from "./capture";
 import { MeetingsController, meetings } from "./controller";
 import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
 import { joinStartInput } from "./join";
 import type { CalendarEvent } from "./protocol";
 import { meetingHref } from "./route";
 import { UNTITLED_MEETING } from "./session";
-import { useTranscriptionConsentGate } from "./useTranscriptionConsent";
+import { needsTranscriptionConsent, useTranscriptionConsentGate } from "./useTranscriptionConsent";
 
 /**
  * The one way into a recording from outside this feature.
@@ -270,13 +270,19 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     const into = answer.destination;
     consentGate(() => {
       const memory = readCallAudioMemory();
-      if (cloudTranscriptionAllowed() && snapshot.capture.systemAudioNeedsPicker && !memory.worked && !callAudioGivenUp(memory)) {
+      // After Not now nothing is recorded, so there is no call audio to ask for.
+      if (
+        !needsTranscriptionConsent(snapshot.capture) &&
+        snapshot.capture.systemAudioNeedsPicker &&
+        !memory.worked &&
+        !callAudioGivenUp(memory)
+      ) {
         setPrimer({ destination: into, ...(meeting === undefined ? {} : { meeting }) });
         return;
       }
       begin(into, undefined, meeting);
     });
-  }, [begin, consentGate, contexts, destination, live, show, snapshot.capture.systemAudioNeedsPicker, snapshot.status]);
+  }, [begin, consentGate, contexts, destination, live, show, snapshot.capture, snapshot.status]);
 
   const startMeetingFlow = useCallback(() => flow(), [flow]);
   const joinMeetingFlow = useCallback((meeting: CalendarEvent) => flow(meeting), [flow]);

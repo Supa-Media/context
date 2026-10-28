@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -13,7 +14,7 @@ import { fakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder } from "../features/meetings/capture/fake";
 import {
   resolveTranscriber,
-  setTranscriber,
+  setTranscriber, setTranscriptionConsent,
   setTranscriptionClient,
   type ActionRunner,
 } from "../features/meetings/capture/transcriber";
@@ -100,6 +101,18 @@ jest.mock("expo-router", () => {
   };
 });
 
+let mockConsentAnswer: unknown = { allowed: true, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION };
+
+function mockIsConsentQuery(query: unknown): boolean {
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { getFunctionName } = require("convex/server") as typeof import("convex/server");
+    return getFunctionName(query as never).endsWith("transcriptionConsent:myTranscriptionConsent");
+  } catch {
+    return false;
+  }
+}
+
 jest.mock("convex/react", () => {
   /* eslint-disable-next-line @typescript-eslint/no-require-imports */
   const actual = jest.requireActual("convex/react") as Record<string, unknown>;
@@ -107,7 +120,10 @@ jest.mock("convex/react", () => {
     ...actual,
     useConvex: () => mockClient,
     useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
-    useQuery: () => undefined,
+    // Every query is still loading except the account's cloud transcription
+    // answer, which is a current yes: these tests are about where the client
+    // is installed, and without a yes there is no cloud transcriber at all.
+    useQuery: (query: unknown) => (mockIsConsentQuery(query) ? mockConsentAnswer : undefined),
     useQueries: () => ({}),
     useAction: () => async () => ({}),
     useMutation: () => async () => ({}),
@@ -140,11 +156,13 @@ function mount(node: ReactElement): { unmount: () => void } {
 
 beforeEach(() => {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setTranscriptionClient(null);
 });
 
 afterEach(() => {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setTranscriptionClient(null);
 });
 
@@ -177,6 +195,21 @@ describe("the transcription client outlives the meetings section", () => {
 
     expect(resolveTranscriber()).not.toBeNull();
     app.unmount();
+  });
+
+  /**
+   * The account said no (or withdrew on another device): the client is still
+   * installed, but there is no cloud transcriber to hand a recorder.
+   */
+  test("an account without a yes gets no cloud transcriber", () => {
+    mockConsentAnswer = { allowed: false, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION };
+    try {
+      const app = mount(createElement(AppLayout));
+      expect(resolveTranscriber()).toBeNull();
+      app.unmount();
+    } finally {
+      mockConsentAnswer = { allowed: true, currentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION };
+    }
   });
 
   /** And leaving the whole signed-in area does forget it, as it must. */

@@ -1,5 +1,5 @@
 import { createElement, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import {
@@ -28,13 +28,17 @@ import { TranscriptionConsent } from "./components/TranscriptionConsent";
  *    cloud and there is no yes.
  */
 
-/** The account's answer, live. `undefined` while loading, `null` signed out. */
-export function useTranscriptionConsentAnswer() {
-  return useQuery(api.functions.transcriptionConsent.myTranscriptionConsent, {});
+/**
+ * The account's answer, live. `undefined` while loading or skipped, `null`
+ * signed out. `signedIn: false` subscribes to nothing, for the layout that
+ * mounts before it knows.
+ */
+export function useTranscriptionConsentAnswer(signedIn = true) {
+  return useQuery(api.functions.transcriptionConsent.myTranscriptionConsent, signedIn ? {} : "skip");
 }
 
-export function useTranscriptionConsentSync(): void {
-  const answer = useTranscriptionConsentAnswer();
+export function useTranscriptionConsentSync(signedIn = true): void {
+  const answer = useTranscriptionConsentAnswer(signedIn);
   useEffect(() => {
     if (answer === undefined || answer === null) {
       setTranscriptionConsent(null);
@@ -59,7 +63,7 @@ export function useCloudTranscriptionAllowed(): boolean {
 }
 
 /** Whether starting with this recorder would send audio to the cloud without a yes. */
-export function needsTranscriptionConsent(capture: RecorderCapability): boolean {
+export function needsTranscriptionConsent(capture: Pick<RecorderCapability, "audio" | "transcribesAt">): boolean {
   return capture.audio && capture.transcribesAt === "cloud" && !cloudTranscriptionAllowed();
 }
 
@@ -75,12 +79,17 @@ export const CONSENT_NOT_SAVED = "That did not save, so nothing was recorded. Ch
  * then runs; Not now runs too, and the recorder, finding no yes, opens no
  * microphone and the meeting is typed notes only.
  */
-export function useTranscriptionConsentGate(options: { capture: RecorderCapability; visitor?: boolean }): {
+export function useTranscriptionConsentGate(options: {
+  capture: Pick<RecorderCapability, "audio" | "transcribesAt">;
+  visitor?: boolean;
+}): {
   gate: (run: () => void) => void;
   sheet: ReactElement | null;
 } {
   const { capture, visitor = false } = options;
-  const allow = useMutation(api.functions.transcriptionConsent.allowTranscription);
+  // `useConvex` rather than `useMutation`: the homepage visitor saves nothing,
+  // and a surface with no client must still be able to say Not now.
+  const convex = useConvex() as ReturnType<typeof useConvex> | undefined;
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -112,7 +121,12 @@ export function useTranscriptionConsentGate(options: { capture: RecorderCapabili
     setFailed(null);
     void (async () => {
       try {
-        if (!visitor) await allow({ version: CLOUD_TRANSCRIPTION_CONSENT_VERSION });
+        if (!visitor) {
+          if (convex === undefined) throw new Error("no Convex client");
+          await convex.mutation(api.functions.transcriptionConsent.allowTranscription, {
+            version: CLOUD_TRANSCRIPTION_CONSENT_VERSION,
+          });
+        }
         // Ahead of the live query, so the recorder this press starts sees it.
         setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
         finish();
@@ -121,7 +135,7 @@ export function useTranscriptionConsentGate(options: { capture: RecorderCapabili
         setFailed(CONSENT_NOT_SAVED);
       }
     })();
-  }, [allow, finish, visitor]);
+  }, [convex, finish, visitor]);
 
   const sheet = asking ? createElement(TranscriptionConsent, { onAllow, onDecline: finish, busy, failed }) : null;
   return { gate, sheet };

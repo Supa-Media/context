@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
+import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { getFunctionName } from "convex/server";
 import type { TranscriptSegment } from "../features/meetings/protocol";
 import {
@@ -6,7 +7,9 @@ import {
   cloudTranscriber,
   fakeTranscriber,
   resolveTranscriber,
-  setTranscriber,
+  setTranscriber, setTranscriptionConsent,
+  cloudTranscriptionAllowed,
+  onTranscriptionConsentChange,
   setTranscriptionClient,
   type ActionRunner,
   type TranscribeChunkArgs,
@@ -96,6 +99,7 @@ function stubClient(
 
 afterEach(() => {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setTranscriptionClient(null);
 });
 
@@ -108,6 +112,10 @@ describe("the action reference", () => {
 });
 
 describe("the cloud transcriber", () => {
+  beforeEach(() => {
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+  });
+
   test("it says where the words are produced", () => {
     expect(cloudTranscriber(stubClient([])).transcribesAt).toBe("cloud");
   });
@@ -217,6 +225,7 @@ describe("the module seam", () => {
 
   test("an installed client becomes a cloud transcriber", () => {
     setTranscriptionClient(stubClient([]));
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
     expect(resolveTranscriber()?.transcribesAt).toBe("cloud");
   });
 
@@ -225,6 +234,7 @@ describe("the module seam", () => {
     setTranscriptionClient(client);
     const fake = fakeTranscriber();
     setTranscriber(fake);
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
 
     await resolveTranscriber()?.transcribe(CHUNK);
     expect(fake.chunks).toHaveLength(1);
@@ -240,6 +250,56 @@ describe("the module seam", () => {
     setTranscriptionClient(stubClient([]));
     setTranscriptionClient(null);
     expect(resolveTranscriber()).toBeNull();
+  });
+});
+
+/**
+ * Cloud transcription consent (`docs/decisions/meetings/transcription-consent.md`).
+ * A microphone permission is not a yes to sending audio to Cloudflare: without
+ * the account's current yes there is no cloud transcriber at all, and one
+ * already handed out refuses before the client is called.
+ */
+describe("no cloud transcription without a current yes", () => {
+  test("an installed client with no yes resolves to nothing", () => {
+    setTranscriptionClient(stubClient([]));
+    expect(resolveTranscriber()).toBeNull();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+  });
+
+  test("a yes to another disclosure is no yes", () => {
+    setTranscriptionClient(stubClient([]));
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION + 1);
+    expect(resolveTranscriber()).toBeNull();
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION - 1);
+    expect(resolveTranscriber()).toBeNull();
+  });
+
+  test("withdrawn after it was handed out, it sends nothing", async () => {
+    const client = stubClient([SEGMENT]);
+    setTranscriptionClient(client);
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    const transcriber = resolveTranscriber();
+    expect(transcriber).not.toBeNull();
+
+    setTranscriptionConsent(null);
+
+    await expect(transcriber!.transcribe(CHUNK)).rejects.toThrow();
+    expect(client.calls).toEqual([]);
+  });
+
+  test("a transcriber that works on the device needs no yes", () => {
+    setTranscriber(fakeTranscriber("device"));
+    expect(resolveTranscriber()).not.toBeNull();
+  });
+
+  test("a change of answer is announced", () => {
+    const heard: number[] = [];
+    const stop = onTranscriptionConsentChange(() => heard.push(1));
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    setTranscriptionConsent(null);
+    stop();
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    expect(heard).toHaveLength(2);
   });
 });
 

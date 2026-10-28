@@ -250,7 +250,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         microphone and rotating chunks whose bytes it dropped unread. The report
         is made true rather than repeated. See `audio.ts`, same decision.
       */
-      await abandon(NO_TRANSCRIBER);
+      await abandon(blockedByConsent() ? NO_TRANSCRIPTION_CONSENT : NO_TRANSCRIBER);
       return;
     }
 

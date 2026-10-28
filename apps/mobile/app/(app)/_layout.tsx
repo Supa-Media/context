@@ -176,7 +176,7 @@ export default function AppLayout() {
   useTranscriptionClient();
   // And the account's yes to cloud transcription beside it: without it the
   // client above is never used (docs/decisions/meetings/transcription-consent.md).
-  useTranscriptionConsentSync();
+  useTranscriptionConsentSync(authed);
   /*
     And the setup beside it, for the same reason and now one more.
 

@@ -2,10 +2,11 @@
  * @jest-environment jsdom
  */
 
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { jest } from "@jest/globals";
 import type { MeetingRecorder, RecorderError } from "../../features/meetings/capture";
 import { audioRecorder } from "../../features/meetings/capture/audio.web";
-import { fakeTranscriber, setTranscriber, type FakeTranscriber } from "../../features/meetings/capture/transcriber";
+import { fakeTranscriber, setTranscriber, setTranscriptionConsent, type FakeTranscriber } from "../../features/meetings/capture/transcriber";
 import { setCallAudioStorage } from "../../features/meetings/capture/callAudioMemory";
 
 /**
@@ -534,6 +535,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     },
   };
   setTranscriber(options.noTranscriber === true ? null : transcriber);
+  setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
   const recorder = audioRecorder("web");
   const errors: RecorderError[] = [];
   recorder.onError((error) => errors.push(error));
@@ -578,6 +580,7 @@ export function resetWebBrowser(): void {
 /** The `afterEach` every file in this folder runs. */
 export function teardownWebBrowser(): void {
   setTranscriber(null);
+  setTranscriptionConsent(null);
   jest.useRealTimers();
   removeMediaRecorder();
   removeGetUserMedia();

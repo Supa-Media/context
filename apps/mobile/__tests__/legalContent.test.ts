@@ -4,7 +4,7 @@ import { privacyContent, supportContent, termsContent } from "../features/legal/
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("October 21, 2026");
+    expect(privacyContent.updated).toBe("October 28, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -19,6 +19,37 @@ describe("the privacy policy describes connected AI assistants", () => {
       "Notes reach an assistant only when it asks for them on your behalf. What the assistant's provider does with that content is governed by its own terms and privacy policy, not this one.",
       "We do not use your notes to train AI models, and we do not sell them.",
     ]);
+  });
+});
+
+/**
+ * App Review 5.1.1(i) / 5.1.2(i): the policy names who receives recording
+ * audio, that it is asked for first, how to take it back, and only the
+ * provider claims we verified (`docs/decisions/meetings/transcription-consent.md`).
+ */
+describe("the privacy policy describes cloud transcription", () => {
+  const section = privacyContent.sections.find((entry) => entry.title === "Cloud transcription");
+  const text = section?.body.join("\n") ?? "";
+
+  test("names the provider, the model's author, and that the audio goes to Cloudflare", () => {
+    expect(text).toContain("Cloudflare Workers AI");
+    expect(text).toContain("Whisper, a speech recognition model made by OpenAI");
+    expect(text).toContain("The audio goes to Cloudflare, not to OpenAI.");
+    expect(text).toContain("other people's voices");
+  });
+
+  test("says nothing is sent before a yes, Not now records nothing, and how to withdraw", () => {
+    expect(text).toContain("Nothing is sent until you allow it.");
+    expect(text).toContain("If you choose Not now, no audio is recorded or sent");
+    expect(text).toContain("in Settings, under Meetings");
+    expect(text).toContain("including from a recording that is already running");
+    expect(text).toContain("we ask again if the provider or the purpose changes");
+  });
+
+  test("makes only the retention and training claims we verified", () => {
+    expect(text).toContain("Context.lc does not store the audio");
+    expect(text).toContain("Cloudflare states that it does not use content sent to Workers AI to train AI models.");
+    expect(text).not.toMatch(/Cloudflare (deletes|does not (keep|retain|store))/);
   });
 });
 
@@ -54,7 +85,9 @@ describe("the privacy policy matches what the phone app collects", () => {
   test("names phone numbers, profile photos and meeting audio", () => {
     expect(text).toContain("your phone number if you sign in with one");
     expect(text).toContain("the profile photo you choose");
-    expect(text).toContain("If you record a meeting, the audio is sent to Context.lc to be transcribed");
+    expect(text).toContain(
+      "If you record a meeting, and only after you allow cloud transcription, the audio is sent through Context.lc to Cloudflare Workers AI",
+    );
   });
 
   test("says app signups are never reported to an advertising network", () => {
