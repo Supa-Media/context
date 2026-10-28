@@ -122,7 +122,7 @@ export function decideRequest(body: DecideBody): JevRequest {
     };
   }
   if (body.running) {
-    questions.midTurn = {
+    questions.mid_turn = {
       type: "choice",
       instructions: "Tex is in the middle of answering. What should the newest message do to that answer?",
       criteria: {
@@ -139,7 +139,8 @@ export function decideRequest(body: DecideBody): JevRequest {
       criteria: { true: "yes, it cancels or changes the held action", false: "no, the held action still stands as asked" },
     };
   });
-  questions.movedOn = {
+  // Question names are lowercase with underscores, or the inference Worker refuses the whole request (its NAME rule).
+  questions.moved_on = {
     type: "noul",
     instructions: "Has the conversation moved on from Tex: are the people now talking among themselves about something else?",
     criteria: { true: "yes, they have moved on from Tex", false: "no, they are still talking with or about what Tex said" },
@@ -171,12 +172,12 @@ export function readDecideAnswers(body: DecideBody, answers: JevAnswers): Decide
   const covers = choice !== "answer" ? [] : from < 0 ? [body.newest] : ordered.slice(from, ordered.indexOf(body.newest) + 1);
   let midTurn: "fold" | "queue" | "restart" | undefined;
   if (body.running) {
-    const mid = answerOf(answers, "midTurn")?.choice;
+    const mid = answerOf(answers, "mid_turn")?.choice;
     if (mid !== "fold" && mid !== "queue" && mid !== "restart") return { ok: false, reason: "unavailable", cause: "bad_answer" };
     midTurn = mid;
   }
   const stale = body.waitingAsks.filter((_, index) => (noulOf(answers, `stale_${index}`) ?? 0) >= STALE_AT);
-  const movedOn = (noulOf(answers, "movedOn") ?? 0) >= 0.5;
+  const movedOn = (noulOf(answers, "moved_on") ?? 0) >= 0.5;
   return { ok: true, act: choice, covers, ...(midTurn !== undefined ? { midTurn } : {}), stale, movedOn, confidence };
 }
 

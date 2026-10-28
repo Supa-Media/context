@@ -99,7 +99,7 @@ function clef(answers: Record<string, unknown> | null) {
 const ANSWER = {
   act: { type: "choice", choice: "answer", confidence: 0.83, probabilities: { silent: 0.1, react: 0.07, answer: 0.83 } },
   start: { type: "choice", choice: id(2), confidence: 0.6, probabilities: { [id(1)]: 0.3, [id(2)]: 0.6, [NEWEST]: 0.1 } },
-  movedOn: { type: "noul", noul: 0.2 },
+  moved_on: { type: "noul", noul: 0.2 },
 };
 
 async function decide(t: T, extra: Record<string, unknown> = {}) {
@@ -159,7 +159,7 @@ describe("the decision", () => {
     expect(response.json).toEqual({ ok: true, act: "answer", covers: [id(2), NEWEST], stale: [], movedOn: false, confidence: 0.83 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.state).toContain(SECRET_WORDS);
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "movedOn"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "moved_on"]);
     expect(Object.keys(sent[0]!.questions.start!.criteria)).toEqual([id(1), id(2), NEWEST]);
     // Never the transcript in the answer or the log.
     expect(response.text).not.toContain("pineapple");
@@ -197,16 +197,16 @@ describe("the decision", () => {
     const asks = [id(20), id(21), id(22)];
     const sent = clef({
       ...ANSWER,
-      midTurn: { type: "choice", choice: "restart", confidence: 0.7 },
+      mid_turn: { type: "choice", choice: "restart", confidence: 0.7 },
       stale_0: { type: "noul", noul: 0.85 },
       stale_1: { type: "noul", noul: 0.84 },
       stale_2: { type: "noul", noul: 0.95 },
-      movedOn: { type: "noul", noul: 0.8 },
+      moved_on: { type: "noul", noul: 0.8 },
     });
     const response = await decide(t, { running: true, waitingAsks: asks });
     expect(response.json).toMatchObject({ ok: true, midTurn: "restart", stale: [id(20), id(22)], movedOn: true });
-    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "midTurn", "stale_0", "stale_1", "stale_2", "movedOn"]);
-    expect(Object.keys(sent[0]!.questions.midTurn!.criteria)).toEqual(["fold", "queue", "restart"]);
+    expect(Object.keys(sent[0]!.questions)).toEqual(["act", "start", "mid_turn", "stale_0", "stale_1", "stale_2", "moved_on"]);
+    expect(Object.keys(sent[0]!.questions.mid_turn!.criteria)).toEqual(["fold", "queue", "restart"]);
   });
 
   test("a 1:1 text is metered against the sender's personal workspace, in direct style", async () => {
@@ -300,5 +300,29 @@ test("every choice it asks offers at least two options, whatever the number of m
       if (question.type === "choice") expect(Object.keys(question.criteria).length, name).toBeGreaterThanOrEqual(2);
     }
     expect("start" in questions).toBe(candidates.length > 1);
+  }
+});
+
+// 2026-10-27: "movedOn" and "midTurn" broke the inference Worker's name rule, so it refused every request as
+// malformed and decide never once answered. These mirror its request rules (infra/transcribe-worker readQuestion).
+test("every request it builds passes the inference Worker's request rules", () => {
+  const NAME = /^[a-z][a-z0-9_]{0,39}$/;
+  const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
+  const ids = Array.from({ length: 3 }, (_, n) => `1761619442000-00000${n}`);
+  for (const running of [false, true]) {
+    for (const candidates of [ids.slice(0, 1), ids]) {
+      const { state, questions } = decideRequest({ chat: GROUP, line: LINE, style: "helpful", transcript: "x", running, waitingAsks: ids.slice(0, 2), candidates, newest: candidates.at(-1)! });
+      expect(state.length).toBeGreaterThan(0);
+      const entries = Object.entries(questions as Record<string, { type: string; instructions: string; criteria: Record<string, string> }>);
+      expect(entries.length).toBeLessThanOrEqual(16);
+      for (const [name, question] of entries) {
+        expect(name, name).toMatch(NAME);
+        expect(question.instructions.length, name).toBeLessThanOrEqual(1_000);
+        if (question.type === "choice") {
+          expect(Object.keys(question.criteria).length, name).toBeGreaterThanOrEqual(2);
+          for (const option of Object.keys(question.criteria)) expect(option, name).toMatch(OPTION);
+        }
+      }
+    }
   }
 });
