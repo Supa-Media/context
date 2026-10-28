@@ -19,6 +19,7 @@ import {
   readPendingWithdrawal,
   rememberWithdrawal,
   setConsentAccount,
+  type KeptWithdrawal,
 } from "./transcriptionWithdrawal";
 import { TranscriptionConsent } from "./components/TranscriptionConsent";
 
@@ -71,9 +72,14 @@ export function useTranscriptionConsentSync(signedIn = true): void {
     }
     // A yes counts only once this device has checked it holds no Turn off for
     // this account that the account has not heard yet.
-    const apply = (pending: boolean) => {
-      if (!pending) {
+    const apply = (kept: KeptWithdrawal) => {
+      if (kept === "clear") {
         setTranscriptionConsent(answer.currentVersion);
+        return;
+      }
+      if (kept === "unknown") {
+        // The store could not be read: no yes this time, and nothing to resend.
+        setTranscriptionConsent(null);
         return;
       }
       withdrawTranscriptionHere();
@@ -89,8 +95,8 @@ export function useTranscriptionConsentSync(signedIn = true): void {
     }
     setTranscriptionConsent(null);
     let live = true;
-    void readPendingWithdrawal(account).then((pending) => {
-      if (live) apply(pending);
+    void readPendingWithdrawal(account).then((kept) => {
+      if (live) apply(kept);
     });
     return () => {
       live = false;

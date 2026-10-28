@@ -60,7 +60,11 @@ also kept in the device's store under the account it was for
 (`features/meetings/transcriptionWithdrawal.ts`), so a restart does not undo it:
 the account's yes is used on this device only after that store is read, a kept
 Turn off holds the device off and is sent again, and another account's answer
-never clears it. Sign-out empties the store with everything else. The account's no
+never clears it. A store that cannot be read holds the device off too
+("unknown" is never "nothing kept") without resending anything, until Allow is
+pressed here. **Limit:** sign-out empties the device's store, this key with it,
+so a Turn off that never reached the account and is followed by a sign-out is
+lost; the server's answer then stands, and the Settings row shows it. The account's no
 reaches other devices through the live query and every server boundary refuses
 from the moment it is saved. A chunk already in flight when Turn off is pressed
 is not recalled, and the policy says so rather than promising an instant stop
