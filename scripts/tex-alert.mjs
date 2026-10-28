@@ -7,6 +7,8 @@
 // Usage: node scripts/tex-alert.mjs > report.md  (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID)
 // Exit 0 with an empty report: healthy. A non-empty report: open or update the alert issue.
 
+import { code } from "./log-codes.mjs";
+
 /** Decide calls in the window before the unavailable share counts. */
 export const MIN_DECIDES = 3;
 
@@ -29,12 +31,6 @@ export function problemsIn(events) {
     if (hits.length > 0) problems.push(`${hits.length} group turns: ${outcome}${outcome === "workflow_gave_up" ? ` (reasons: ${countBy(hits, (e) => e.reason ?? "unknown")})` : ""}`);
   }
   return problems;
-}
-
-/** A log code as written, or "other": anything else (a number, words) never reaches the public issue. */
-function code(value) {
-  const text = String(value);
-  return /^[a-z][a-z0-9_:-]{0,39}$/i.test(text) && !/\d{7}/.test(text) ? text : "other";
 }
 
 function countBy(items, key) {

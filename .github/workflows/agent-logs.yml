@@ -4,9 +4,13 @@
 #
 # It asks Workers Observability for the Worker's events and prints, per log
 # line, only a fixed list of keys: the event name, its outcome, reason, status
-# and service. Every one of those is a code the Worker chose, never a person's
-# words, number or chat id, so nothing anyone texted reaches this public run
-# page. A line without an `event` key is counted, not printed.
+# and service. Each value must *look like* a code the Worker chose or it is
+# printed as `other`, because this run page is public and a filter that strips
+# characters out of a value still publishes a readable phone number or name
+# (scripts/log-codes.mjs; scripts/agent-logs-filter.test.mjs runs the copies
+# below). An exception is named by its class, never by its message, which is
+# where a path, an address or a token ends up. A line without an `event` key is
+# counted, not printed.
 #
 # `tail` mode instead watches the Worker live for the given minutes (at most
 # 15) with `wrangler tail`, for when the token cannot read Observability: send
@@ -66,12 +70,20 @@ jobs:
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
               const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+              // Only a code the Worker chose is published; anything else is "other", never stripped down to a
+              // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
+              const NUMERIC = new Set(["attempts", "ms", "status"]);
+              const code = (v) => {
+                const t = String(v);
+                return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+              };
+              const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
               const prefix = process.env.EVENT_PREFIX ?? "";
               require("readline").createInterface({ input: process.stdin }).on("line", (line) => {
                 let source;
                 try { source = JSON.parse(line); } catch { return; }
                 if (typeof source?.event !== "string" || !source.event.startsWith(prefix)) return;
-                const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${String(source[k]).replace(/[^\w.:-]/g, "").slice(0, 60)}`);
+                const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${show(k, source[k])}`);
                 console.log(`${new Date().toISOString()} ${picked.join(" ")}`);
               });'
           echo "Done watching."
@@ -94,6 +106,14 @@ jobs:
           const to = Date.now();
           const from = to - minutes * 60_000;
           const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+          // Only a code the Worker chose is published; anything else is "other", never stripped down to a
+          // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
+          const NUMERIC = new Set(["attempts", "ms", "status"]);
+          const code = (v) => {
+            const t = String(v);
+            return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+          };
+          const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
           const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`;
           const lines = [];
           let skipped = 0;
@@ -126,12 +146,12 @@ jobs:
               }
               const level = e.$metadata?.level ?? "";
               if (source === null || typeof source !== "object" || typeof source.event !== "string") {
-                if (level === "error" && e.$metadata?.error) lines.push([e.timestamp, `exception ${String(e.$metadata.error).slice(0, 80).replace(/[^\w .:-]/g, "")}`]);
+                if (level === "error" && e.$metadata?.error) lines.push([e.timestamp, `exception ${(String(e.$metadata.error).match(/^(?:[A-Za-z]\w{0,29})?(?:Error|Exception)\b/) ?? ["unknown"])[0]}`]);
                 else skipped++;
                 continue;
               }
               if (!source.event.startsWith(prefix)) continue;
-              const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${String(source[k]).replace(/[^\w.:-]/g, "").slice(0, 60)}`);
+              const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${show(k, source[k])}`);
               lines.push([e.timestamp, picked.join(" ")]);
             }
             if (events.length < 500) break;
