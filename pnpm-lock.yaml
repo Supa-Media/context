@@ -30,6 +30,9 @@ patchedDependencies:
   '@convex-dev/auth':
     hash: ak7apkbrmhapkt36pcmmqydrda
     path: patches/@convex-dev__auth.patch
+  decode-uri-component@0.2.2:
+    hash: 3oaarrrxssiishdhnnigcj2qs4
+    path: patches/decode-uri-component@0.2.2.patch
 
 importers:
 
@@ -13500,7 +13503,7 @@ snapshots:
 
   decimal.js@10.6.0: {}
 
-  decode-uri-component@0.2.2: {}
+  decode-uri-component@0.2.2(patch_hash=3oaarrrxssiishdhnnigcj2qs4): {}
 
   decompress-response@6.0.0:
     dependencies:
@@ -16836,7 +16839,7 @@ snapshots:
 
   query-string@7.1.3:
     dependencies:
-      decode-uri-component: 0.2.2
+      decode-uri-component: 0.2.2(patch_hash=3oaarrrxssiishdhnnigcj2qs4)
       filter-obj: 1.1.0
       split-on-first: 1.1.0
       strict-uri-encode: 2.0.0
