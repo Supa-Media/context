@@ -24,6 +24,11 @@ on:
         description: "Only lines whose event starts with this (blank for all), e.g. group_ or whapi"
         required: false
         default: ""
+      service:
+        description: "Which Worker to read: context-agent, or context-transcribe for the decide model's route"
+        type: choice
+        options: [context-agent, context-transcribe]
+        default: context-agent
       tail:
         description: "Watch live for the given minutes (at most 15) instead of reading the past"
         type: boolean
@@ -78,6 +83,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MINUTES: ${{ inputs.minutes }}
           EVENT_PREFIX: ${{ inputs.event }}
+          SERVICE: ${{ inputs.service }}
         run: |
           set -euo pipefail
           case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
@@ -99,7 +105,7 @@ jobs:
               view: "events",
               limit: 500,
               ...(offset ? { offset } : {}),
-              parameters: { filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: "context-agent" }] },
+              parameters: { filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: process.env.SERVICE === "context-transcribe" ? "context-transcribe" : "context-agent" }] },
             };
             const response = await fetch(url, {
               method: "POST",
