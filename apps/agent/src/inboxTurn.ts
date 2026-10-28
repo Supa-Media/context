@@ -67,7 +67,7 @@ export async function logInbound(storage: InboxStorage, message: Message, now: n
 
 /** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn. */
 export function decidedByCode(message: Message): boolean {
-  return message.sms === true || message.event !== undefined || linkCode(message.text) !== null || UNLINK.test(message.text);
+  return message.sms === true || message.event !== undefined || message.setting === true || linkCode(message.text) !== null || UNLINK.test(message.text);
 }
 
 /** A tapback, "ok", "thanks": the only texts a person's own chat may leave unanswered. */

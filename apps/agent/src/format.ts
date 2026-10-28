@@ -30,7 +30,8 @@ const LINK_LINE = /^[ \t]*(?:[-*•][ \t]+)?(?:link:[ \t]*)?<?(https:\/\/[^\s/<>
 const NOTE_PATH_LINE = /^((sources?|from|see):\s*)?[\w.][\w\-./ ]*\.md$/gim;
 const LIST_ITEM = /^(- |\d+[.)] )/;
 
-export function textsFromAnswer(answer: string): string[] {
+/** `maxTexts`: 1 when the chat asked for one bubble per answer (`texStyle.ts`); links still go on their own. */
+export function textsFromAnswer(answer: string, maxTexts = MAX_TEXTS): string[] {
   const links: string[] = [];
   let text = answer.replace(/\r\n?/g, "\n");
 
@@ -67,7 +68,7 @@ export function textsFromAnswer(answer: string): string[] {
 
   const texts: string[] = [];
   for (const paragraph of paragraphs) {
-    if (texts.length > 0 && (LIST_ITEM.test(paragraph) || texts.length >= MAX_TEXTS)) {
+    if (texts.length > 0 && (LIST_ITEM.test(paragraph) || texts.length >= maxTexts)) {
       texts[texts.length - 1] += LIST_ITEM.test(paragraph) ? `\n${paragraph}` : `\n\n${paragraph}`;
     } else {
       texts.push(paragraph);
@@ -84,7 +85,7 @@ export function textsFromAnswer(answer: string): string[] {
  * links and lines, and they may allow only what they read
  * (`apps/mcp/src/tools/emailGate.js`).
  */
-export function textsWithExact(answer: string, verbatim: readonly string[] = []): string[] {
+export function textsWithExact(answer: string, verbatim: readonly string[] = [], oneBubble = false): string[] {
   let rest = answer;
   const exact: string[] = [];
   for (const part of verbatim) {
@@ -93,5 +94,5 @@ export function textsWithExact(answer: string, verbatim: readonly string[] = [])
     rest = `${rest.slice(0, at)}\n\n${rest.slice(at + part.length)}`;
     exact.push(part.trim());
   }
-  return [...(rest.trim() ? textsFromAnswer(rest) : []), ...exact];
+  return [...(rest.trim() ? textsFromAnswer(rest, oneBubble ? 1 : MAX_TEXTS) : []), ...exact];
 }

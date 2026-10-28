@@ -17,6 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
+import { readTexStyle, type TexStyle } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
@@ -169,7 +170,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 // ── Control plane ─────────────────────────────────────────────────────────
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string } | { status: "unlinked" };
+/** `texStyle`: how their own Tex talks to them (`texStyle.ts`), only what they changed. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; texStyle?: TexStyle } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -184,7 +186,8 @@ export async function openSession(
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
     const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    return { status: "linked", accessToken: body.accessToken, ...zone };
+    const texStyle = readTexStyle(body.texStyle);
+    return { status: "linked", accessToken: body.accessToken, ...zone, ...(texStyle ? { texStyle } : {}) };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -281,6 +284,7 @@ export async function askAgent(
     covers,
     chat,
     told = [],
+    texStyle,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -298,6 +302,8 @@ export async function askAgent(
     chat?: string;
     /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
     told?: readonly string[];
+    /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
+    texStyle?: TexStyle;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -317,6 +323,7 @@ export async function askAgent(
     ...(event ? { event } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
+    ...(texStyle ? { texStyle } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };

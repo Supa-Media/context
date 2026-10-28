@@ -57,6 +57,7 @@ import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { textsWithExact } from "./format";
+import { groupSettingReply, groupSettings } from "./groupSettings";
 import { tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
@@ -161,13 +162,14 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const yes = await answersOpenAsk(storage, message, now);
   // An SMS never sets the style: anyone can send one that shows a member's number.
   const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
+  const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
   // A reply in Tex's thread is not addressed by itself: decide judges it, as any untagged text (Dev2, 2026-10-27).
   const addressed = addressesTex(message.text, false) || offeredName(message.text, choices) !== null;
-  const tagged = addressed || yes || engagement !== null;
+  const tagged = addressed || yes || engagement !== null || setting !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
   // Never the model's: an SMS (anyone can fake its sender), the asker's yes, a style choice, a command.
-  const byCode = message.sms === true || yes || engagement !== null || (addressed && groupCommand(message.text, choices) !== null);
+  const byCode = message.sms === true || yes || engagement !== null || setting !== null || (addressed && groupCommand(message.text, choices) !== null);
   const running = runningTurn(storage, message.groupId);
   // Untagged and idle: kept as chat if bound, and to decide as the style says. `ev` given: it was logged already.
   const idleUntagged = async (logged?: string): Promise<"kept" | "queued" | "ignored"> => {
@@ -189,7 +191,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   if (!tagged && !(await isBound(storage, message)) && !(await followsOwnTag(storage, message, now))) return "ignored";
   // Nothing of an SMS group is logged: its sender vouches for nothing.
   const ev = message.sms ? undefined : await logGroupInbound(storage, message, now);
-  const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}) };
+  const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}), ...(setting ? { setting } : {}) };
 
   if (running !== undefined && ev !== undefined && !byCode) {
     // Seen before decide is asked: a webhook redelivered while decide is slow is a duplicate, never decided twice.
@@ -450,7 +452,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
-  const command = item.engagement || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
+  const command = item.engagement || item.setting || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
 
   // The app's own list too: more people only ever narrows what Tex may use.
   const members = await app.readMembers(chat);
@@ -467,7 +469,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !item.engagement && !routine) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_shared") return void (await fixed(GROUP_LINES.notShared(asked.slugs)));
@@ -504,11 +506,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const guest = asked.guest;
   if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
-  // "Tex, settings": the style question again (`groupStyle.ts`).
-  if (command?.kind === "settings") {
-    await openQuestion(storage, deps.now());
-    return void (await fixed(ENGAGEMENT_QUESTION));
-  }
+  // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).
+  if (command?.kind === "settings" || command?.kind === "style" || item.setting) return await groupSettings(storage, deps, message, command, item.setting, asked);
   if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
@@ -597,6 +596,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
+        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}),
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -639,7 +639,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
   if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
-  const texts = textsWithExact(answer.text, answer.verbatim);
+  const texts = textsWithExact(answer.text, answer.verbatim, asked.texStyle?.bubbles === "one");
   const now = await app.readMembers(chat);
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");

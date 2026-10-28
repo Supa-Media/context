@@ -41,6 +41,7 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
+import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import type { OutgoingPicture } from "./outgoing";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
@@ -50,7 +51,8 @@ import type { Inbound } from "./inbound";
  * replies are written to its log instead of sent (simulator.ts); a Linq
  * delivery never carries it.
  */
-export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
+/** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;
@@ -106,6 +108,13 @@ export type ReplyDeps = {
   onJobs?: (jobs: StartedJob[]) => Promise<void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  /**
+   * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
+   * the person's style each session so the quick tapback can follow it.
+   * Absent, settings texts go to the model like any other.
+   */
+  settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
+  onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -218,6 +227,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
+    await deps.onTexStyle?.(session.texStyle);
+    // "Tex, settings", a reply to its menu, or "less emoji": set by the person, never the model (`texStyle.ts`).
+    const settings = deps.settings && !message.event
+      ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
+      : null;
+    if (settings !== null) return settings;
 
     // Files are fetched only for a linked phone, and only now: an unlinked
     // stranger's photo is never downloaded.
@@ -237,7 +252,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
     );
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
@@ -254,7 +269,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return textsWithExact(answer.text, answer.verbatim);
+      return textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one");
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.

@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // How their own Tex talks: a few closed choices and a number.
+  const texStylePreferences = await ctx.db
+    .query("texStylePreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of texStylePreferences) await ctx.db.delete(row._id);
+
   // Joining from the calendar: addresses switched off and when to ask.
   const meetingJoinPreferences = await ctx.db
     .query("meetingJoinPreferences")
