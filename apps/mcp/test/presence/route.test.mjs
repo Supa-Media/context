@@ -284,6 +284,19 @@ export async function runPresenceRouteChecks(check) {
 
     const joined = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md&seed=tab-a");
     check("a team connection joins a team note's room", joined.status === 200);
+    check("a header-token join names no subprotocol", joined.protocol === null);
+    // The app's socket offers its token as a subprotocol instead of a URL path
+    // (docs/decisions/gateway-protocol/token-transport.md): it joins the same
+    // room, and the answer names `context.presence` alone, never the token.
+    const viaProtocol = await presenceRequest(env, null, "?note=1-projects/roadmap.md&seed=tab-a", {
+      headers: { "Sec-WebSocket-Protocol": `context.presence, context.token.${TEAM_TOKEN}` },
+    });
+    check("a token offered as a subprotocol joins the same room", viaProtocol.status === 200);
+    check("the answer names the presence protocol and not the token", viaProtocol.protocol === "context.presence");
+    const tokenOnly = await presenceRequest(env, null, "?note=1-projects/roadmap.md", {
+      headers: { "Sec-WebSocket-Protocol": `context.token.${TEAM_TOKEN}` },
+    });
+    check("a token subprotocol without the presence protocol is no token", tokenOnly.status === 401);
     check(
       "the room addressed is the one the session's workspace names",
       rooms.calls.at(-1)?.name === roomKey("ws_presence", "1-projects/roadmap.md"),

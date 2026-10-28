@@ -209,7 +209,7 @@ export async function presenceRequest(env, token, query, init = {}) {
   );
   const text = await response.text();
   await settle();
-  return { status: response.status, text };
+  return { status: response.status, text, protocol: response.headers.get("Sec-WebSocket-Protocol") };
 }
 
 /** A fake `WebSocket`, per the two-way surface `PresenceRoom` calls. */

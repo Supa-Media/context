@@ -19,11 +19,10 @@ import {
   publicOrigin,
   unauthorizedResponse,
 } from "../oauth.js";
+import { resolvePresentedSession } from "./presentedToken.js";
 import {
-  bearerToken,
   decodePathSegment,
   hasScope,
-  resolveSession,
   SCOPE_CAPTURE,
   SCOPE_READ,
   SCOPE_WRITE,
@@ -243,7 +242,7 @@ export async function route(request, env, ctx) {
       const controlPlane = createControlPlane(env);
       let session;
       try {
-        session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+        session = await resolvePresentedSession(request, { pathToken, path, slug, controlPlane });
       } catch (error) {
         if (!(error instanceof SessionRefusal)) throw error;
         // A 403 from workspace selection deliberately drops the slug from its

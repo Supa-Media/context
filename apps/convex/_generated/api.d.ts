@@ -172,6 +172,7 @@ import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textPhones from "../functions/textPhones.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
+import type * as functions_tokenTransport from "../functions/tokenTransport.js";
 import type * as functions_transcriptionConsent from "../functions/transcriptionConsent.js";
 import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
@@ -409,6 +410,7 @@ declare const fullApi: ApiFromModules<{
   "functions/meetingPreferences": typeof functions_meetingPreferences;
   "functions/agentTurns": typeof functions_agentTurns;
   "functions/searchTimings": typeof functions_searchTimings;
+  "functions/tokenTransport": typeof functions_tokenTransport;
   "functions/trash": typeof functions_trash;
   "functions/treeParents": typeof functions_treeParents;
   "functions/trashEmptying": typeof functions_trashEmptying;
