@@ -142,12 +142,10 @@ describe("no audio reaches Workers AI without a current yes", () => {
   });
 
   test("the disclosure the yes is kept under names its purpose, transcripts and summaries", async () => {
-    // Pinned together: change the purpose and this fails until the version
-    // moves too, which is what asks every account again. The provider is not
-    // named on the dialog (the owner's call, 2026-10-28), so it can change.
+    // A changed recipient or purpose requires a new affirmative answer.
     expect(CLOUD_TRANSCRIPTION_DISCLOSURE).toEqual({
-      version: 2,
-      provider: "AI providers named in the privacy policy",
+      version: 3,
+      provider: "Cloudflare Workers AI; Anthropic",
       purpose: "meeting transcripts and summaries",
     });
   });
