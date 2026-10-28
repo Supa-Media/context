@@ -302,7 +302,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     if (acksOnly) await line?.markRead(first.chatId, first.messageId);
-    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
+    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
     // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
     if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
