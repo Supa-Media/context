@@ -22,6 +22,9 @@
  *     else. → "a sender it cannot tell from them is left out" fails.
  *  5. Matching the address case-sensitively. → "their own words never
  *     count" fails, and so does "only what others wrote to them".
+ *  6. The 2af21b29 identity helpers, where a blank address or a malformed
+ *     id counted as someone else. → "a blank or malformed address or id is
+ *     no identity at all" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -189,6 +192,26 @@ describe("reading the Google Chat written to the person, for check-ins", () => {
     expect(writtenToThem({ sender: { type: "HUMAN" } }, "GROUP_CHAT", self)).toBe(false);
     // Someone with another address is someone else.
     expect(writtenToThem({ sender: { name: "users/444", type: "HUMAN", email: "amy@work.example" } }, "DIRECT_MESSAGE", self)).toBe(true);
+  });
+
+  test("a blank or malformed address or id is no identity at all", () => {
+    const unknown = learnSelf(ADDRESS, []);
+    const known = learnSelf(ADDRESS, [{ sender: { name: ME, email: ADDRESS } }]);
+    expect(known.name).toBe(ME);
+    for (const email of ["", "   ", 7, null]) {
+      expect(writtenToThem({ sender: { type: "HUMAN", email } }, "DIRECT_MESSAGE", unknown)).toBe(false);
+      expect(writtenToThem({ sender: { type: "HUMAN", email } }, "DIRECT_MESSAGE", known)).toBe(false);
+    }
+    for (const name of ["", " ", "users/", "users/ 1", "spaces/AAA", "users/1/x", 111]) {
+      expect(writtenToThem({ sender: { type: "HUMAN", name } }, "DIRECT_MESSAGE", known)).toBe(false);
+      expect(writtenToThem({ sender: { type: "HUMAN", name, email: "  " } }, "GROUP_CHAT", known)).toBe(false);
+    }
+    // A malformed id on their own message teaches nothing, and a blank connection address matches nobody.
+    expect(learnSelf(ADDRESS, [{ sender: { name: "users/", email: ADDRESS } }]).name).toBeNull();
+    expect(learnSelf("  ", [{ sender: { name: ME, email: "" } }])).toEqual({ address: "", name: null });
+    expect(writtenToThem({ sender: { name: "users/444", type: "HUMAN", email: "" } }, "DIRECT_MESSAGE", { address: "", name: null })).toBe(false);
+    // A well-formed other id, once theirs is known, is someone else.
+    expect(writtenToThem({ sender: { type: "HUMAN", name: "users/444" } }, "DIRECT_MESSAGE", known)).toBe(true);
   });
 
   test("a mention counts by their address too, before any message of theirs gave their id", () => {

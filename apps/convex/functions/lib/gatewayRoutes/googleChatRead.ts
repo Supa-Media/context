@@ -97,14 +97,26 @@ export interface ChatSelf {
   name: string | null;
 }
 
-const emailOf = (user: Entry): string | null => (typeof user.email === "string" ? user.email.trim().toLowerCase() : null);
+const USER_NAME = /^users\/[^/\s]+$/;
+
+/** A user's address, or null for none, blank or not a string. */
+function emailOf(user: Entry): string | null {
+  const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+  return email === "" ? null : email;
+}
+
+/** A user's canonical `users/{id}`, or null for anything else. */
+function userNameOf(user: Entry): string | null {
+  return typeof user.name === "string" && USER_NAME.test(user.name) ? user.name : null;
+}
 
 /** The person's canonical `users/{id}`, from any message they wrote, matched by address. */
 export function learnSelf(address: string, messages: readonly Entry[]): ChatSelf {
   const own = address.trim().toLowerCase();
   for (const message of messages) {
     const sender = (message.sender ?? {}) as Entry;
-    if (emailOf(sender) === own && typeof sender.name === "string" && sender.name.startsWith("users/")) return { address: own, name: sender.name };
+    const name = userNameOf(sender);
+    if (own !== "" && emailOf(sender) === own && name !== null) return { address: own, name };
   }
   return { address: own, name: null };
 }
@@ -116,8 +128,9 @@ export function learnSelf(address: string, messages: readonly Entry[]): ChatSelf
  */
 function whoIs(user: Entry, self: ChatSelf): "self" | "other" | "unknown" {
   const email = emailOf(user);
-  if (email === self.address || (self.name !== null && user.name === self.name)) return "self";
-  if (email !== null || (self.name !== null && typeof user.name === "string")) return "other";
+  const name = userNameOf(user);
+  if ((email !== null && email === self.address) || (name !== null && name === self.name)) return "self";
+  if (email !== null || (self.name !== null && name !== null)) return "other";
   return "unknown";
 }
 
