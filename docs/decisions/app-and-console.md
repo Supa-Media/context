@@ -322,6 +322,10 @@ In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-s
 
 In [spelling](./app-and-console/spelling.md).
 
+### No red line: the fixes wait for a right-click (2026-10-28)
+
+In [spelling](./app-and-console/spelling.md#no-red-line-the-fixes-wait-for-a-right-click-2026-10-28).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).

@@ -277,28 +277,15 @@ describe("spelling", () => {
     expect(got).toContain("bold");
   });
 
-  test("the click card is the spelling rows and nothing else", () => {
-    const got = ids({
-      canEdit: true,
-      hasSelection: false,
-      apple: true,
-      canDictate: true,
-      spelling: { suggestions: ["eleven", "elev"] },
-      spellingLearns: true,
-      spellingOnly: true,
-    });
-    expect(got).toEqual(["spelling:0", "spelling:1", "spellingAdd", "spellingIgnore"]);
-  });
-
-  test("a note nobody may write gets no card rows either", () => {
+  test("a note nobody may write gets no spelling rows", () => {
     const got = ids({
       canEdit: false,
       hasSelection: false,
       apple: true,
       spelling: { suggestions: ["eleven"] },
       spellingLearns: true,
-      spellingOnly: true,
     });
-    expect(got).toEqual([]);
+    expect(got).not.toContain("spelling:0");
+    expect(got).not.toContain("spellingAdd");
   });
 });

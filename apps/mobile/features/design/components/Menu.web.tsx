@@ -121,13 +121,6 @@ export interface MenuProps<Id extends string = MenuActionId> {
    * Written out identically in `Menu.tsx`.
    */
   sheet?: { items: MenuItem<Id>[]; header?: ReactNode };
-  /**
-   * The popover leaves the keyboard alone: Escape closes it, and any other
-   * key closes it *and* goes to whatever had focus. For a card opened by a
-   * plain click on a word (the note's spelling card), where the next key is
-   * usually the person carrying on typing.
-   */
-  passiveKeys?: boolean;
   onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
@@ -172,13 +165,9 @@ function Panel({
   );
 }
 
-/** Keys that start a chord rather than say anything on their own. */
-const MODIFIER_KEYS = new Set(["Shift", "Meta", "Control", "Alt", "CapsLock"]);
-
 function Popover<Id extends string = MenuActionId>({
   items,
   anchor,
-  passiveKeys,
   onSelect,
   onDismiss,
 }: MenuProps<Id>) {
@@ -259,15 +248,6 @@ function Popover<Id extends string = MenuActionId>({
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (passiveKeys === true) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onDismiss();
-        } else if (!MODIFIER_KEYS.has(event.key)) {
-          onDismiss();
-        }
-        return;
-      }
       const list = inSub ? children : items;
       const at = inSub ? subFocus : focus;
       const move = (next: number) => {
