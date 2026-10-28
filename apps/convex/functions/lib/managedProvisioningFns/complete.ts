@@ -11,6 +11,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
 import { managedBucketBound } from "../managedEncryptionFns/rollout";
+import { PARA_FOLDERS } from "../scaffold";
 
 /**
  * Bind the bucket, then let verification mark the plan ready.
@@ -43,6 +44,20 @@ export async function completeManagedProvisioningHandler(
     notes would be behind it.
   */
   if (existing === null) {
+    /*
+      A personal workspace's new bucket gets the five folders from the same
+      check that waits out the key's propagation (decided by the owner,
+      2026-10-16: a bucket we made is laid out, nobody is asked). Asking for
+      them from the browser once that check passed cost a second probe, and
+      kept the first run on "Creating your bucket" until it had — the wait
+      somebody signing up was left looking at. A shared workspace's kind is
+      still its own question, asked in the console.
+    */
+    const workspace = await ctx.db.get(args.workspaceId);
+    const laysOut = workspace?.kind === "personal";
+    if (laysOut) {
+      await ctx.db.patch(args.workspaceId, { structureTemplate: "para", updatedAt: Date.now() });
+    }
     await ctx.runMutation(internal.functions.storage.applyBinding, {
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
@@ -53,6 +68,7 @@ export async function completeManagedProvisioningHandler(
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
       verificationRetryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
+      ...(laysOut ? { firstStructure: { template: "para" as const, folders: [], kind: "personal" as const } } : {}),
     });
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
@@ -63,6 +79,15 @@ export async function completeManagedProvisioningHandler(
       // endpoint, and nothing about what is in it.
       details: { bucket: args.bucket },
     });
+    if (laysOut) {
+      // The same record `applyStructure` leaves, with the acting person.
+      await recordAudit(ctx, {
+        workspaceId: args.workspaceId,
+        actorUserId: args.actorUserId,
+        action: "workspace.structure_applied",
+        details: { template: "para", folderCount: PARA_FOLDERS.length },
+      });
+    }
     // Joins the encryption rollout when staff set it to cover every managed
     // workspace, or re-walks a re-adopted bucket that holds sealed files.
     await managedBucketBound(ctx, args.workspaceId);
