@@ -280,10 +280,23 @@ only that question (`picksBeforeAsking`). The owner set the bar the same day
 with another assistant's answer to the real chat: three named caterers, each
 with its menu link and a price for 30, and one useful question.
 
+A guest group chat (self-review 9d98ef, 2026-10-27) asked for five Manhattan
+venues for Sunday services. Guest chats already run every check above and the
+open-web search cap, but the checks missed this answer: two venues were
+churches' Sunday homes, and once the chat said so Tex answered "That leaves
+three venues ... Want me to find two more?" and later "I'd still need to look
+up the rest". Options dropped and not replaced are stopping short too, so an
+offer to find more, "I'd still need to look up", and an answer that says it is
+left with fewer than the number asked for (`fewerThanAsked`) each get the same
+one round. The prompt says to keep the number asked, check each option fits
+its use on its own page, and never set a directory's general price range
+beside a place that publishes none.
+
 **Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
-`apps/agent/src/jobs.test.ts`; hand-back bench case 9
-(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`).
+`apps/agent/src/jobs.test.ts`; hand-back bench cases 9 and 17
+(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`,
+`sites/halls.example.md`).
 Sabotage records in the tests' headers.
 
 ## Published text is Tex's to find (owner, 2026-10-27)

@@ -61,7 +61,7 @@ import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
-import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
+import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { toolDefinitions } from "../tools/registry.js";
@@ -601,7 +601,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       lookNoticed = true;
       return LOOK_ON_SITE_NOTICE;
     }
-    if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
+    if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
       return finishNotice({ job: job !== null });
     }
