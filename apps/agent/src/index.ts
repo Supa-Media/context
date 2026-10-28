@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
@@ -127,6 +128,9 @@ function health(env: Env): Record<string, unknown> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    // First, before any route reads a header, a secret or a body (httpsOnly.ts).
+    const plain = plainHttpResponse(request, url);
+    if (plain !== null) return plain;
     if (url.pathname === "/health" && request.method === "GET") return Response.json(health(env));
     if (url.pathname === SIMULATOR_PATH || url.pathname.startsWith(`${SIMULATOR_PATH}/`)) {
       if (!simulatorEnabled(env.SIMULATOR)) return new Response(null, { status: 404 });
