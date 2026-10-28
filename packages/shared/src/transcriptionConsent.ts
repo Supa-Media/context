@@ -1,26 +1,29 @@
 /**
- * Cloud transcription consent: what we tell somebody before their recording
- * leaves the device, and the version that answer is kept under.
+ * AI consent for meetings: what we ask before a recording or a meeting's notes
+ * go to an AI provider, and the version that answer is kept under.
  *
- * Decided by the owner (Dev2), 2026-10-28, after App Review rejected build 12
- * under guidelines 5.1.1(i) and 5.1.2(i): a microphone permission is not
- * permission to send a recording to a third-party AI service. So no audio is
- * sent for cloud transcription until the signed-in account has said yes to
- * this disclosure, and the yes is kept with the version it answered
- * (`docs/decisions/meetings/transcription-consent.md`).
+ * App Review rejected build 12 under guidelines 5.1.1(i) and 5.1.2(i): a
+ * microphone permission is not permission to send a recording to a
+ * third-party AI service. The owner (Dev2) decided on 2026-10-28 that one
+ * short question covers both meeting transcripts and meeting summaries, and
+ * that it names no provider, because the provider for either may change at
+ * any time; the privacy policy names who is used now. Nothing is sent until
+ * the signed-in account has said yes, and the yes is kept with the version it
+ * answered (`docs/decisions/meetings/transcription-consent.md`).
  *
- * **Change `version` whenever `provider` or `purpose` changes.** A yes given
- * to one provider is not a yes to another: every account is asked again,
- * because the control plane and the gateway only accept a yes whose version
- * is the current one. `transcriptionConsent.test.ts` pins the pair, so a
- * provider edited without a version bump fails a test.
+ * **Change `version` whenever `purpose` changes.** A yes to one purpose is not
+ * a yes to another: every account is asked again, because the control plane
+ * and the gateway only accept a yes whose version is the current one.
+ * Version 1 was transcription alone, named Cloudflare Workers AI.
+ * `transcriptionConsent.test.ts` pins the pair, so a purpose edited without a
+ * version bump fails a test.
  */
 export const CLOUD_TRANSCRIPTION_DISCLOSURE = {
-  version: 1,
-  /** Who turns the audio into words. Workers AI runs Whisper on Cloudflare's own servers. */
-  provider: "Cloudflare Workers AI",
-  /** What the audio is for, and the only thing it is used for. */
-  purpose: "speech-to-text",
+  version: 2,
+  /** Kept on the row so a yes says what it was to; the policy names the companies. */
+  provider: "AI providers named in the privacy policy",
+  /** What the audio and notes are for, and the only things they are used for. */
+  purpose: "meeting transcripts and summaries",
 } as const;
 
 export const CLOUD_TRANSCRIPTION_CONSENT_VERSION = CLOUD_TRANSCRIPTION_DISCLOSURE.version;
@@ -28,33 +31,27 @@ export const CLOUD_TRANSCRIPTION_CONSENT_VERSION = CLOUD_TRANSCRIPTION_DISCLOSUR
 /** Where the dialog's link goes. The same page the App Store listing names. */
 export const PRIVACY_POLICY_URL = "https://context.lc/privacy";
 
-/** The dialog, word for word. A test reads it without a renderer. */
+/** The dialog, word for word: one line, a link, two buttons. A test reads it without a renderer. */
 export const TRANSCRIPTION_CONSENT_COPY = {
-  title: "Allow cloud transcription?",
-  body:
-    "Context sends recording audio to Cloudflare Workers AI to turn speech into text. " +
-    "Audio may include your voice, other speakers' voices, and personal information spoken during the recording.",
-  detail:
-    "Context does not keep the audio once the words are in your note, and Cloudflare does not use it to train AI models. " +
-    "Without this, nothing is recorded: you can still type notes. You can turn it off in Settings › Meetings at any time.",
+  title: "Use AI for meeting notes?",
+  body: "Meeting audio and notes are sent to our AI providers to write transcripts and summaries.",
   privacyLink: "Privacy Policy",
   decline: "Not now",
-  allow: "Allow transcription",
+  allow: "Allow",
 } as const;
 
-/** The Settings row that withdraws it. */
+/** The Settings row that withdraws it. Each line is one line. */
 export const TRANSCRIPTION_SETTINGS_COPY = {
-  title: "Cloud transcription",
-  on: "On. Recording audio is sent to Cloudflare Workers AI to be turned into text.",
-  off: "Off. Nothing is recorded or sent; meetings are typed notes only.",
-  outdated: "Off until you allow it again: what transcription uses has changed.",
+  title: "AI transcripts and summaries",
+  on: "Audio and notes go to our AI providers.",
+  off: "Meetings are typed notes only.",
+  outdated: "Allow again to turn it back on.",
   turnOff: "Turn off",
   turnOn: "Allow",
 } as const;
 
 /** What a meeting says when it runs without transcription because there is no yes. */
-export const NO_TRANSCRIPTION_CONSENT =
-  "Cloud transcription is off, so no audio is being recorded or sent. Your typed notes still land in your note.";
+export const NO_TRANSCRIPTION_CONSENT = "AI is off, so nothing is recorded. Your typed notes are kept.";
 
 /** The refusal code every cloud transcription boundary answers without a current yes. */
 export const TRANSCRIPTION_CONSENT_REQUIRED = "TRANSCRIPTION_CONSENT_REQUIRED";

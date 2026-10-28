@@ -1,5 +1,25 @@
 # Cloud transcription consent
 
+## One short question covers transcripts and summaries, and names no provider (2026-10-28)
+
+The owner reviewed the first dialog and asked for one consent screen, far
+less wordy (no more than a line of text), because the provider for
+transcription and for summaries may change at any time. So the dialog is now
+*Use AI for meeting notes?*, one line saying meeting audio and notes go to our
+AI providers to write transcripts and summaries, the privacy policy link, and
+*Not now* / *Allow*. The privacy policy names the providers in use and is
+updated when they change. The disclosure moved to `version: 2` because its
+purpose grew (summaries); a provider change alone no longer bumps it.
+
+Meeting summaries are gated by the same yes: the gateway's
+`POST /meetings/summary` asks the control plane for the caller's own current
+yes before any model call and answers `not_allowed` without it
+(`apps/mcp/test/meetingSummary.test.mjs`), and the app does not start an
+automatic summary without it. **Trade-off, stated plainly:** a new provider is
+not asked about again, so the dialog alone does not tell somebody which
+company receives their audio; the linked policy does. If App Review asks for
+the provider on the dialog itself, that is the one line to add back.
+
 ## No audio goes to cloud transcription without the account's current yes (2026-10-28)
 
 App Review rejected the iOS build under guidelines 5.1.1(i) and 5.1.2(i): the
@@ -26,7 +46,7 @@ and it has not been withdrawn. No row is a no, so existing accounts were not
 opted in. The row is per account, never per workspace: one member's yes never
 covers another member's voice. It is deleted with the account.
 
-**Asked again.** Changing the provider or the purpose means bumping `version`.
+**Asked again.** Changing the purpose means bumping `version` (since 2026-10-28 the provider is not on the dialog, see above).
 Every boundary then refuses old yeses and the app asks again, and Settings says
 *Off until you allow it again*. `transcriptionConsent.test.ts` pins the
 version/provider pair so a provider edited without a bump fails.
@@ -50,7 +70,7 @@ chunk, so a withdrawal during a recording stops it with the next chunk and the
 chunk is deleted, not queued. A definite no also empties the on-device spool
 (`forgetSpooledAudio`), so nothing is sent after a relaunch either.
 
-**Withdrawing.** Settings › Meetings › Cloud transcription shows the answer
+**Withdrawing.** Settings › Meetings › AI transcripts and summaries shows the answer
 for every account, including one that said no. *Turn off* stops this device
 first and empties its spool, then tells the account, so it holds even when the
 save fails, and a local latch keeps this device off against a later answer from
@@ -95,11 +115,8 @@ question:
   question names those providers; texting it is the only signal, which is not
   informed consent to the provider.
 - **Meeting summaries**: a meeting note's transcript and typed notes go to
-  Anthropic's Haiku (through Cloudflare AI Gateway) automatically the first time
-  a meeting note with a transcript is opened (`apps/mcp/src/meetings/summarize.js`,
-  `apps/mobile/features/meetings/summaryRequest.ts`), on every surface that
-  opens meeting notes, iOS included. A yes to transcription does not cover it;
-  whether it gets its own question is waiting on the owner (2026-10-28).
+  Anthropic's Haiku (through Cloudflare AI Gateway). Since 2026-10-28 only
+  with the caller's yes to the same question (see the top of this file).
 - **Search by meaning**: note text is embedded with Workers AI `bge-m3`.
 - **Organizing and routing decisions**: Workers AI `clef` reads note text.
 - **Reading files**: Workers AI `toMarkdown` turns attached files into text.

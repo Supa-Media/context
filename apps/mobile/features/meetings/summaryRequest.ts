@@ -29,6 +29,7 @@ export type SummaryStatus =
   | "recording"
   | "waiting"
   | "too_short"
+  | "not_allowed"
   | "unavailable"
   | "failed"
   | "conflict";
@@ -39,6 +40,7 @@ const STATUSES: ReadonlySet<string> = new Set<SummaryStatus>([
   "recording",
   "waiting",
   "too_short",
+  "not_allowed",
   "unavailable",
   "failed",
   "conflict",
@@ -130,6 +132,8 @@ export function summaryMessage(status: SummaryStatus): string | null {
       return "Today's summaries are used up. This one will be written tomorrow.";
     case "too_short":
       return "There wasn't enough said to summarize.";
+    case "not_allowed":
+      return "AI summaries are off. Turn them on in Settings › Meetings.";
     case "unavailable":
       return "Summaries aren't available right now.";
     case "failed":
@@ -140,9 +144,11 @@ export function summaryMessage(status: SummaryStatus): string | null {
 }
 
 /**
- * Whether opening a note should start a summary by itself: the note is a
- * meeting that wants one, somebody may edit it, nothing is already being
- * written for it, and this app session has not already asked for it once.
+ * Whether opening a note should start a summary by itself: the person has
+ * said yes to AI transcripts and summaries, the note is a meeting that wants
+ * one, somebody may edit it, nothing is already being written for it, and this
+ * app session has not already asked for it once. The gateway refuses without
+ * the yes too; this only saves the request.
  *
  * `started` is the session's set of `workspaceId:path` keys that have asked
  * already. It is the caller's, and this function does not change it.
@@ -153,8 +159,10 @@ export function automaticSummaryDue(input: {
   canEdit: boolean;
   pending: boolean;
   started: ReadonlySet<string>;
+  /** The account's current yes to AI transcripts and summaries. */
+  aiAllowed: boolean;
 }): boolean {
-  return input.canEdit && !input.pending && !input.started.has(input.key) && needsAutomaticSummary(input.text);
+  return input.aiAllowed && input.canEdit && !input.pending && !input.started.has(input.key) && needsAutomaticSummary(input.text);
 }
 
 /** The session key an automatic request is remembered under. */
