@@ -128,6 +128,11 @@ const KEYWORDS = {
 /** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
 const APP_PREFIX = "apps:";
 
+/** Ids that name something other than a note, which only the table below can route. */
+function routedId(id) {
+  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, "proposals:"].some((prefix) => id.startsWith(prefix));
+}
+
 /** `fetch` in the v2 shape. */
 export function translateFetch(call, app = {}) {
   const open = openArgs(call);
@@ -135,7 +140,11 @@ export function translateFetch(call, app = {}) {
   if (typeof call.id !== "string") {
     return { error: "fetch needs an id: a note path, a search result id, or one of the keywords orient lists." };
   }
-  if (isChatGpt(app) && open.args === undefined) {
+  // Everything but an id the table routes itself: the deep-research fetch
+  // reads notes only, so an `email:` id, a keyword or a `texts:` chat its own
+  // search handed out is translated as for everybody (2026-10-28: ChatGPT's
+  // fetch of the `email:` id search returned was refused as an invalid id).
+  if (isChatGpt(app) && open.args === undefined && !routedId(call.id.trim())) {
     return { name: "fetch", arguments: { id: call.id }, action: "note" };
   }
   const a = open.args ?? {};

@@ -18,6 +18,8 @@
  *    `1-projects/a.md#abc` and the note is not found.
  * 3. **The ChatGPT branch removed** — the no-args rows fail.
  * 4. **`context` allowed inside args and passed through** — the addressing row fails.
+ * 5. **ChatGPT's no-args shortcut taken before the routed ids** — the
+ *    `email:` and keyword rows for ChatGPT, and the end-to-end `email:` row, fail.
  */
 
 import { strict as assert } from "node:assert";
@@ -328,6 +330,27 @@ describe("translateFetch: ChatGPT", () => {
     assert.deepEqual(translateFetch({ id: "1-projects/", args: {} }, GPT).arguments, { prefix: "1-projects" });
   });
 
+  // 2026-10-28: ChatGPT fetched the `email:` id its own search returned, with
+  // no args, and was told "invalid id": the deep-research fetch reads notes only.
+  it("routes an id the table names itself when ChatGPT gives no args", () => {
+    const id = "email:person@example.com/18c0ffee0000beef";
+    for (const app of [GPT, OPENAI]) {
+      assert.deepEqual(translateFetch({ id }, app), translateFetch({ id }, CLAUDE));
+      assert.equal(translateFetch({ id }, app).name, "read_email");
+      assert.equal(translateFetch({ id: "meetings:" }, app).name, "list_meetings");
+      assert.equal(translateFetch({ id: "texts:" }, app).name, "list_texts");
+      assert.equal(translateFetch({ id: "texts:chat_1" }, app).name, "read_texts");
+      assert.equal(translateFetch({ id: "apps:linear" }, app).name, "app_read");
+      assert.equal(translateFetch({ id: "proposals:p1" }, app).name, "read_proposal");
+    }
+  });
+
+  it("keeps the deep-research fetch, and its refusal, for anything else without args", () => {
+    for (const id of ["1-projects/a.md", "0-inbox/email/d.md#msg-0123456789abcdef", "1-projects/", "no-such-thing", "email"]) {
+      assert.equal(translateFetch({ id }, GPT).name, "fetch", id);
+    }
+  });
+
   it("does not treat a non-ChatGPT client as ChatGPT", () => {
     assert.equal(translateFetch({ id: "a.md" }, CLAUDE).name, "read_note");
   });
@@ -377,6 +400,7 @@ describe("translateFetch: refusals and shapes", () => {
 
 const OWNER_TOKEN = `cat_v2sf_owner_${"0".repeat(18)}`;
 const TEAM_TOKEN = `cat_v2sf_team_${"0".repeat(19)}`;
+const GPT_TOKEN = `cat_v2sf_gpt_${"0".repeat(20)}`;
 
 const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -482,6 +506,15 @@ describe("end to end through callToolForSession", { concurrency: false }, () => 
       clientId: "mcp_client_v2sf_team",
       userId: "user_seyi",
     });
+    await controlPlane.addGrant({
+      accessToken: GPT_TOKEN,
+      workspaceId: "ws_v2sf",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_v2sf_gpt",
+      clientName: "ChatGPT",
+      userId: "user_seyi",
+    });
     env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
       GATEWAY_SECRET,
@@ -517,6 +550,17 @@ describe("end to end through callToolForSession", { concurrency: false }, () => 
     assert.equal(hidden.isError, absent.isError);
     assert.equal(hidden.text, absent.text);
     assert.equal(hidden.text.includes("Private to the owner"), false);
+  });
+
+  it("ChatGPT's fetch of an email: id with no args is read_email's answer, not an invalid id", async () => {
+    const id = "email:person@example.com/18c0ffee0000beef";
+    const viaFetch = await call(env, GPT_TOKEN, "fetch", { id });
+    const direct = await call(env, GPT_TOKEN, "read_email", { id });
+    assert.doesNotMatch(viaFetch.text, /invalid id/);
+    assert.equal(viaFetch.text, direct.text);
+    // A note and an unknown id still go to the deep-research fetch.
+    assert.match((await call(env, GPT_TOKEN, "fetch", { id: PLAN })).text, /Ship the search and fetch translation\./);
+    assert.match((await call(env, GPT_TOKEN, "fetch", { id: "no-such-thing" })).text, /invalid id/);
   });
 
   it("fetch of links: from a team-tier caller is refused as list_links is", async () => {
