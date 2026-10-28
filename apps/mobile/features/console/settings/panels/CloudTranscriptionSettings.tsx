@@ -22,7 +22,7 @@ export type CloudTranscriptionState = "on" | "off" | "outdated";
 const CLOUD = { audio: true, transcribesAt: "cloud" } as const;
 
 /**
- * Settings › Meetings, Cloud transcription: the account's answer, and the one
+ * Settings › Meetings, AI transcripts and summaries: the account's answer, and the one
  * place to take it back (`docs/decisions/meetings/transcription-consent.md`).
  *
  * Turn off stops this device at once, before the account has heard: the
@@ -101,7 +101,7 @@ export function CloudTranscriptionView({
       <Card>
         <Row>
           <Grow>
-            <Text variant="rowTitle">{state === "on" ? "Allowed" : "Not allowed"}</Text>
+            <Text variant="rowTitle">{state === "on" ? "On" : "Off"}</Text>
             <Text variant="rowSub" style={styles.rowSub} testID="cloud-transcription-state">
               {copy[state]}
             </Text>
@@ -112,7 +112,7 @@ export function CloudTranscriptionView({
               variant="danger"
               disabled={busy}
               onPress={onTurnOff}
-              accessibilityLabel="Turn off cloud transcription"
+              accessibilityLabel="Turn off AI transcripts and summaries"
               testID="cloud-transcription-turn-off"
             />
           ) : (
@@ -120,7 +120,7 @@ export function CloudTranscriptionView({
               label={copy.turnOn}
               disabled={busy}
               onPress={onAllow}
-              accessibilityLabel="Allow cloud transcription"
+              accessibilityLabel="Allow AI transcripts and summaries"
               testID="cloud-transcription-allow"
             />
           )}
@@ -128,7 +128,7 @@ export function CloudTranscriptionView({
       </Card>
       {problem ? (
         <Text variant="hint" style={styles.problem} testID="cloud-transcription-unsaved">
-          This device stopped sending, but your account did not hear it. Check your connection and try again.
+          Off on this device, but not saved to your account. Try again.
         </Text>
       ) : null}
     </View>

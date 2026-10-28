@@ -27,8 +27,8 @@ describe("the privacy policy describes connected AI assistants", () => {
  * audio, that it is asked for first, how to take it back, and only the
  * provider claims we verified (`docs/decisions/meetings/transcription-consent.md`).
  */
-describe("the privacy policy describes cloud transcription", () => {
-  const section = privacyContent.sections.find((entry) => entry.title === "Cloud transcription");
+describe("the privacy policy describes meeting transcripts and summaries", () => {
+  const section = privacyContent.sections.find((entry) => entry.title === "Meeting transcripts and summaries");
   const text = section?.body.join("\n") ?? "";
 
   test("names the provider, the model's author, and that the audio goes to Cloudflare", () => {
@@ -48,7 +48,14 @@ describe("the privacy policy describes cloud transcription", () => {
     expect(text).toContain("Your other devices and our servers stop once the change reaches them");
     expect(text).toContain("cannot be called back");
     expect(text).not.toContain("From then on nothing more is sent");
-    expect(text).toContain("we ask again if the provider or the purpose changes");
+    expect(text).toContain("We ask again if what the AI is used for changes.");
+    expect(text).toContain("this section always names the ones in use");
+  });
+
+  test("names who writes summaries, and that the same yes covers them", () => {
+    expect(text).toContain("by Anthropic's Claude");
+    expect(text).toContain("which covers both transcripts and summaries");
+    expect(text).toContain("no summary is written");
   });
 
   test("makes only the retention and training claims we verified", () => {
@@ -91,7 +98,7 @@ describe("the privacy policy matches what the phone app collects", () => {
     expect(text).toContain("your phone number if you sign in with one");
     expect(text).toContain("the profile photo you choose");
     expect(text).toContain(
-      "If you record a meeting, and only after you allow cloud transcription, the audio is sent through Context.lc to Cloudflare Workers AI",
+      "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI",
     );
   });
 

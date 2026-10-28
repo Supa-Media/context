@@ -216,6 +216,18 @@ export async function runMeetingSummaryChecks(check) {
     );
     controlPlane.setMeetingSummaryVerdict("ws_summary", { allowed: true, remaining: 9, paying: false });
 
+    // One yes covers transcripts and summaries (docs/decisions/meetings/transcription-consent.md).
+    controlPlane.transcription.state.everyone = false;
+    put(meeting(), "m4b");
+    const asksBefore = controlPlane.transcription.asks.length;
+    const unconsented = await summarize(env, TOKEN, { path: PATH, force: true });
+    check(
+      "without the person's yes to AI, nothing goes to the model and the note is untouched",
+      unconsented.body?.status === "not_allowed" && gatewayCalls.length === 0 && stored() === meeting(),
+    );
+    check("...and it was the caller's own yes that was asked for", controlPlane.transcription.asks.slice(asksBefore).some((ask) => ask.accessToken === TOKEN && ask.workspaceId === "ws_summary"));
+    controlPlane.transcription.state.everyone = true;
+
     /* ---------------- a summary ---------------- */
 
     put(meeting(), "m5");
