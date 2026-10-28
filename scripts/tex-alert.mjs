@@ -28,7 +28,9 @@ export function problemsIn(events) {
   if (unbound.length > 0) problems.push(`${unbound.length} untagged group texts dropped as unbound`);
   for (const outcome of ["workflow_unavailable", "workflow_gave_up"]) {
     const hits = events.filter((e) => e.event === "group_turn" && e.outcome === outcome);
-    if (hits.length > 0) problems.push(`${hits.length} group turns: ${outcome}${outcome === "workflow_gave_up" ? ` (reasons: ${countBy(hits, (e) => e.reason ?? "unknown")})` : ""}`);
+    // kind: a chat routine's run or a check-in (Dev2, 2026-10-28); a turn people asked for has none.
+    const kinds = `kinds: ${countBy(hits, (e) => e.kind ?? "asked")}`;
+    if (hits.length > 0) problems.push(`${hits.length} group turns: ${outcome} (${outcome === "workflow_gave_up" ? `reasons: ${countBy(hits, (e) => e.reason ?? "unknown")}; ` : ""}${kinds})`);
   }
   return problems;
 }
@@ -69,7 +71,7 @@ async function readEvents(minutes) {
         try { source = JSON.parse(e.$metadata.message); } catch { source = null; }
       }
       if (source && typeof source === "object" && typeof source.event === "string") {
-        out.push({ event: source.event, outcome: source.outcome, reason: source.reason });
+        out.push({ event: source.event, outcome: source.outcome, reason: source.reason, kind: source.kind });
       }
     }
     if (events.length < 500) break;
