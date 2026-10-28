@@ -85,7 +85,9 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   const json = record(reply.json);
   if (json.ok === false) {
     const reason = json.reason === "capped" || json.reason === "off" ? json.reason : "unavailable";
-    return { ok: false, reason, cause: typeof json.reason === "string" ? json.reason.slice(0, 40) : "unknown", ms };
+    // Convex names the failed check in `cause` (no_group, unconfigured, model_failed, bad_answer, ...); older answers only had `reason`.
+    const cause = typeof json.cause === "string" ? json.cause : typeof json.reason === "string" ? json.reason : "unknown";
+    return { ok: false, reason, cause: cause.replace(/[^\w-]/g, "").slice(0, 40) || "unknown", ms };
   }
   if (json.ok !== true || (json.act !== "silent" && json.act !== "react" && json.act !== "answer")) return unavailable("bad_answer", ms);
   const ids = (value: unknown, allowed: readonly string[]) =>

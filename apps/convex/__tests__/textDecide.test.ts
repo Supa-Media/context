@@ -224,7 +224,7 @@ describe("the decision", () => {
     const { studio } = await boundGroup(t);
     const sent = clef(ANSWER);
     await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "textDecide", off: true, updatedAt: Date.now() }));
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "off" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "off", cause: "switched_off" });
     await t.run(async (ctx) => {
       for (const row of await ctx.db.query("jevSwitches").collect()) await ctx.db.delete(row._id);
       // The refusal above already wrote today's row; a day at the cap.
@@ -232,7 +232,7 @@ describe("the decision", () => {
       expect(row?.workspaceId).toBe(studio);
       await ctx.db.patch(row!._id, { calls: 2000 });
     });
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "capped" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "capped", cause: "daily_cap" });
     expect(sent).toHaveLength(0);
   });
 
@@ -240,17 +240,17 @@ describe("the decision", () => {
     const t = setupTest();
     await boundGroup(t);
     clef(null);
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "model_failed" });
     vi.unstubAllGlobals();
     clef({ ...ANSWER, act: { type: "choice", choice: "shout", confidence: 1 } });
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "bad_answer" });
   });
 
   test("a group with no bound workspace, or a stranger's 1:1, is unavailable", async () => {
     const t = setupTest();
     clef(ANSWER);
-    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable" });
-    expect((await decide(t, { chat: BO, line: undefined, sender: BO, style: "direct" })).json).toEqual({ ok: false, reason: "unavailable" });
+    expect((await decide(t)).json).toEqual({ ok: false, reason: "unavailable", cause: "no_group" });
+    expect((await decide(t, { chat: BO, line: undefined, sender: BO, style: "direct" })).json).toEqual({ ok: false, reason: "unavailable", cause: "no_group" });
   });
 });
 

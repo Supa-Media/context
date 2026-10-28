@@ -45,7 +45,11 @@ export interface DecideBody {
 
 export type DecideResult =
   | { ok: true; act: "silent" | "react" | "answer"; covers: string[]; midTurn?: "fold" | "queue" | "restart"; stale: string[]; movedOn: boolean; confidence: number }
-  | { ok: false; reason: "capped" | "off" | "unavailable" };
+  /**
+   * `cause`: which check failed, a code for the Worker's logs (2026-10-27: four different failures all read
+   * "unavailable"): no_group, unconfigured, model_failed, bad_answer, or the Jev refusal behind capped and off.
+   */
+  | { ok: false; reason: "capped" | "off" | "unavailable"; cause: string };
 
 function idList(value: unknown, max: number): string[] | null {
   if (!Array.isArray(value) || value.length > max) return null;
@@ -153,7 +157,7 @@ function noulOf(answers: JevAnswers, name: string): number | null {
 export function readDecideAnswers(body: DecideBody, answers: JevAnswers): DecideResult {
   const act = answerOf(answers, "act");
   const choice = act?.choice;
-  if (choice !== "silent" && choice !== "react" && choice !== "answer") return { ok: false, reason: "unavailable" };
+  if (choice !== "silent" && choice !== "react" && choice !== "answer") return { ok: false, reason: "unavailable", cause: "bad_answer" };
   const confidence = typeof act?.confidence === "number" && Number.isFinite(act.confidence) ? act.confidence : 0;
   // An answer covers the request from where it starts through the newest message, in id order; a start that is not
   // a candidate (or comes after newest) covers just the newest. Silent and react cover nothing.
@@ -164,7 +168,7 @@ export function readDecideAnswers(body: DecideBody, answers: JevAnswers): Decide
   let midTurn: "fold" | "queue" | "restart" | undefined;
   if (body.running) {
     const mid = answerOf(answers, "midTurn")?.choice;
-    if (mid !== "fold" && mid !== "queue" && mid !== "restart") return { ok: false, reason: "unavailable" };
+    if (mid !== "fold" && mid !== "queue" && mid !== "restart") return { ok: false, reason: "unavailable", cause: "bad_answer" };
     midTurn = mid;
   }
   const stale = body.waitingAsks.filter((_, index) => (noulOf(answers, `stale_${index}`) ?? 0) >= STALE_AT);
@@ -187,14 +191,14 @@ export async function agentTextsDecideHandler(ctx: ActionCtx, raw: Record<string
   let modelMs: number | undefined;
   const result: DecideResult =
     workspaceId === null
-      ? { ok: false, reason: "unavailable" }
+      ? { ok: false, reason: "unavailable", cause: "no_group" }
       : await withJev(ctx, { feature: "textDecide", workspaceId }, async (jev, refusal) => {
-          if (!jev) return { ok: false, reason: refusal === "daily_cap" || refusal === "not_premium" ? "capped" : refusal === "unconfigured" ? "unavailable" : "off" };
-          if (jev.remaining <= 0) return { ok: false, reason: "capped" };
+          if (!jev) return { ok: false, reason: refusal === "daily_cap" || refusal === "not_premium" ? "capped" : refusal === "unconfigured" ? "unavailable" : "off", cause: refusal ?? "refused" };
+          if (jev.remaining <= 0) return { ok: false, reason: "capped", cause: "daily_cap" };
           const asked = Date.now();
           const answers = await jev.decide(decideRequest(body));
           modelMs = Date.now() - asked;
-          return answers === null ? { ok: false, reason: "unavailable" } : readDecideAnswers(body, answers);
+          return answers === null ? { ok: false, reason: "unavailable", cause: "model_failed" } : readDecideAnswers(body, answers);
         });
   // Counts and codes only: never the transcript, a candidate's words, or a number.
   console.info(
@@ -207,7 +211,7 @@ export async function agentTextsDecideHandler(ctx: ActionCtx, raw: Record<string
       lookupMs,
       ...(modelMs !== undefined ? { modelMs } : {}),
       totalMs: Date.now() - started,
-      ...(result.ok ? { act: result.act, covers: result.covers.length, stale: result.stale.length } : { reason: result.reason }),
+      ...(result.ok ? { act: result.act, covers: result.covers.length, stale: result.stale.length } : { reason: result.reason, cause: result.cause }),
     }),
   );
   return json(result);
