@@ -12,4 +12,6 @@ export interface PageViewProps {
   onLoadImage?: (target: string) => Promise<string | null>;
   /** Scroll on its own (a pointer layout, where the region does not scroll the note). */
   scrolls?: boolean;
+  /** How far the floating chrome reaches over the page's top, so a cover with no photo keeps its words clear of it. */
+  topInset?: number;
 }

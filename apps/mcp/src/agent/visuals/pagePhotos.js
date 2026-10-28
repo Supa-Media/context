@@ -50,8 +50,12 @@ import { isPagePath, parsePage } from "../../../../../packages/shared/src/pages/
 import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_BYTES_PER_WRITE, storableImage } from "../../notes/uploadedImages.js";
 import { huntPicture, within } from "./hunt.js";
 
-/** The blocks whose options each show a photo (`packages/shared/src/pages/blocks.cjs`). */
-export const PICTURED_KINDS = new Set(["places", "vote", "prices", "itinerary"]);
+/**
+ * The blocks whose options each show a photo (`packages/shared/src/pages/blocks.cjs`).
+ * `choose` too: the birthday plan of 2026-10-28 put its three venues in a
+ * `choose` block, none was hunted, and the page went out with no picture at all.
+ */
+export const PICTURED_KINDS = new Set(["places", "vote", "prices", "itinerary", "choose"]);
 /** The most options hunted for one page write. */
 export const MAX_PAGE_HUNTS = 8;
 /**
@@ -77,6 +81,12 @@ function nameOf(kind, item) {
   return item.label?.text?.trim() || first;
 }
 
+/** The first fact of a choice's words, when it is short enough to be a place: "1 Penn Plaza" of "1 Penn Plaza · heaters". */
+function whereIn(text) {
+  const first = String(text ?? "").split(/\s[·|•;]\s|,\s/)[0].trim();
+  return first.length >= 3 && first.length <= 40 ? first : "";
+}
+
 const hasPhoto = (item) => (item.fields ?? []).some((field) => field.key === "photo" || field.key === "photos");
 
 /** A file name for an option's picture: its name in plain letters, numbered so two never clash. */
@@ -98,8 +108,8 @@ export function unpictured(content) {
       if (name.length < 2 || hasPhoto(item)) continue;
       const lineStart = content.lastIndexOf("\n", item.from - 1) + 1;
       const indent = /^[ \t]*/.exec(content.slice(lineStart))[0];
-      // A place's address helps the search find this place and not another of its name.
-      const where = block.kind === "places" ? item.parts?.[0]?.text?.trim() ?? "" : "";
+      // A place's address helps the search find this place and not another of its name; a choice's first fact likewise ("1 Penn Plaza").
+      const where = block.kind === "places" ? item.parts?.[0]?.text?.trim() ?? "" : block.kind === "choose" && item.label ? whereIn(item.parts?.[0]?.text) : "";
       wanted.push({ name, query: where ? `${name} ${where.slice(0, 60)}` : name, at: item.to, indent });
     }
   }
@@ -119,7 +129,12 @@ export async function withPagePictures(args, deps, { timeoutMs = PAGE_HUNT_TIMEO
   if (room <= 0) return { args, found: [] };
   const wanted = unpictured(content).slice(0, room);
   if (wanted.length === 0) return { args, found: [] };
-  const got = await Promise.all(wanted.map((option) => within(huntPicture(option.name, option.query, deps).catch(() => null), timeoutMs)));
+  // A picture the write would refuse counts as none, so the hunt tries the next one (a search's next hit, then a screenshot).
+  const download = async (address) => {
+    const data = await deps.download(address);
+    return data && storableImage(data) ? data : null;
+  };
+  const got = await Promise.all(wanted.map((option) => within(huntPicture(option.name, option.query, { ...deps, download }).catch(() => null), timeoutMs)));
   const added = [];
   const lines = [];
   let bytes = 0;

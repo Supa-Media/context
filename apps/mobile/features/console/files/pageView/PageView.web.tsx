@@ -25,7 +25,7 @@ export const PAGE_VIEW_AVAILABLE = true;
  *
  * The frame is as tall as its page, so the note scrolls as one document.
  */
-export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadImage, scrolls = false }: PageViewProps) {
+export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadImage, scrolls = false, topInset = 0 }: PageViewProps) {
   const scheme = useScheme();
   // The workspace in the address (`/console/<slug>/…`), read from the location rather than the router so this stays a leaf.
   const rawSlug = typeof window === "undefined" ? undefined : /^\/console\/([^/]+)/.exec(window.location.pathname)?.[1];
@@ -38,8 +38,8 @@ export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadI
   const frame = useRef<HTMLIFrameElement | null>(null);
   const ready = useRef(false);
   const shown = useRef<string | null>(null);
-  const latest = useRef({ source, editable, author, onEdit, onOpenNote, onLoadImage, dark: scheme === "dark" });
-  latest.current = { source, editable, author, onEdit, onOpenNote, onLoadImage, dark: scheme === "dark" };
+  const latest = useRef({ source, editable, author, onEdit, onOpenNote, onLoadImage, dark: scheme === "dark", topInset });
+  latest.current = { source, editable, author, onEdit, onOpenNote, onLoadImage, dark: scheme === "dark", topInset };
 
   const post = useCallback((message: Record<string, unknown>) => {
     frame.current?.contentWindow?.postMessage({ channel: PAGE_CHANNEL, ...message }, "*");
@@ -57,10 +57,11 @@ export function PageView({ source, editable, author, onEdit, onOpenNote, onLoadI
       canComment: now.editable && now.onEdit !== undefined && now.author !== null,
       // Their own name, so the vote they cast shows as theirs; votes are written by `pageChange`, never by the frame.
       me: now.author,
+      inset: Math.max(0, Math.round(now.topInset)),
     });
   }, [post]);
 
-  useEffect(render, [render, source, editable, author, scheme]);
+  useEffect(render, [render, source, editable, author, scheme, topInset]);
 
   useEffect(() => {
     ready.current = false;
