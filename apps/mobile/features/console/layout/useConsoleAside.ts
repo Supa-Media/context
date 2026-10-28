@@ -100,7 +100,7 @@ export function useConsoleAside({
     route that needs an account. See `features/home/meeting`.
   */
   const visitorMeetings = data.visitor?.meetings;
-  const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
+  const { startMeetingFlow, joinMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
     contexts: data.contexts,
     destination: visitorMeetings?.destination,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
@@ -109,6 +109,8 @@ export function useConsoleAside({
 
   /** Recording, or `null` on a console with no controller behind one. */
   const startMeeting = data.demo && visitorMeetings === undefined ? null : startMeetingFlow;
+  /** Join and take notes, for a meeting on the calendar. Never on the demo or the homepage, which have no calendar. */
+  const joinMeeting = data.demo ? null : joinMeetingFlow;
   /*
     Whether the phone's `+` has anything to offer — asked through the same
     function that decides which rows its sheet draws, so the key and its contents
@@ -263,6 +265,7 @@ export function useConsoleAside({
     startMeetingFlow,
     meetingSheet,
     startMeeting,
+    joinMeeting,
     canCreate,
     openAsideAt,
     approvals,

@@ -111,4 +111,6 @@ export type ExplorerProps = {
    * column as it was.
    */
   agents?: AgentActivityView;
+  /** Drawn at the head of the column: the next meeting on the calendar (`NextUpRow`). */
+  nextUp?: ReactNode;
 };

@@ -258,3 +258,7 @@ Words need transcription, and `transcribeChunk` refuses anybody without an accou
 ## Meeting summaries (2026-10-09)
 
 Moved to [Meeting summaries](./meetings/summaries.md): the model fills a tool and our code writes the Markdown, the same on every plan under a daily ceiling, started by opening the note.
+
+## Joining from the calendar (2026-10-27)
+
+Moved to [Joining from the calendar](./meetings/joining-from-the-calendar.md): one press opens the call and starts the notes, never none; only known call hosts open; a browser is two presses in the same spot.

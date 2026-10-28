@@ -342,7 +342,7 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
+    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting, joinMeeting,
     canCreate, openAsideAt, approvals, resumeRow, voiceHost,
   } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, meetingsAsked: params.meetingsOpen ?? null });
 
@@ -539,10 +539,10 @@ export function ConsoleFrame({
           no visible change at all.
         */
         aside={consoleAsidePanel({
-          data, meetingsAt, router, approvals,
+          data, meetingsAt, router, approvals, joinMeeting,
         })}
         {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
-          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog }),
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog, joinMeeting }),
           status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
         bottomBar={consoleBottomBar({

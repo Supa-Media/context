@@ -22,6 +22,7 @@ import { setupNeeded, type SetupAnswer } from "../../features/auth/accountSetupM
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
+import { useScheduledMeetingsSource } from "../../features/meetings/scheduled";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
@@ -191,6 +192,8 @@ export default function AppLayout() {
     must wait for a session is the *subscription*, not the hook.
   */
   useMeetingsSetup({ enabled: authed });
+  // Today's meetings from the person's own calendars, for Join and take notes.
+  useScheduledMeetingsSource({ enabled: authed });
 
   const spec = useMemo<RequestForQueries>(() => {
     if (!authed) return EMPTY_QUERY_SPEC;

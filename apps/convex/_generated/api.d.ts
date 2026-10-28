@@ -181,6 +181,7 @@ import type * as functions_mailHealth from "../functions/mailHealth.js";
 import type * as functions_housekeeping from "../functions/housekeeping.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_meetingSummary from "../functions/meetingSummary.js";
+import type * as functions_meetingCalendar from "../functions/meetingCalendar.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
 import type * as functions_searchTimings from "../functions/searchTimings.js";
 import type * as functions_trash from "../functions/trash.js";
@@ -397,6 +398,7 @@ declare const fullApi: ApiFromModules<{
   "functions/housekeeping": typeof functions_housekeeping;
   "functions/builtinModel": typeof functions_builtinModel;
   "functions/meetingSummary": typeof functions_meetingSummary;
+  "functions/meetingCalendar": typeof functions_meetingCalendar;
   "functions/agentTurns": typeof functions_agentTurns;
   "functions/searchTimings": typeof functions_searchTimings;
   "functions/trash": typeof functions_trash;
