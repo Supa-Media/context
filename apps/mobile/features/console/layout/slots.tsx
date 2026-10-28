@@ -104,6 +104,7 @@ export function consoleAccountSlot({
         goToLevel(target, data.files);
       }}
       after={switcherProps.onSignIn !== undefined ? account : undefined}
+      bare={isPagePath(data.files.selectedPath ?? "") && PAGE_VIEW_AVAILABLE && !pageAsText(data.files.selectedPath ?? "")}
     />
   );
 }

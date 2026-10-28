@@ -17,7 +17,10 @@ const BLOCKS_CSS = `
 .pg-nums{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid var(--pg-line)}
 @container pg (min-width:760px){.pg-nums{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .pg-nums>div{padding:14px 12px 14px 0;border-bottom:1px solid var(--pg-line);display:grid;gap:2px;min-width:0}
-.pg-nums b{font-weight:600;font-size:40px;line-height:1;letter-spacing:-.035em;color:var(--pg-ink);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pg-nums b{font-weight:600;font-size:40px;line-height:1;letter-spacing:-.035em;color:var(--pg-ink);font-variant-numeric:tabular-nums;overflow-wrap:break-word}
+.pg-nums>div{align-content:start}
+.pg-nums .long b{font-size:28px;letter-spacing:-.025em;line-height:1.1}
+@container pg (min-width:760px){.pg-nums .long b{font-size:34px}}
 .pg-nums>div>span{font-size:13px;color:var(--pg-muted)}
 .pg-nums small{font-size:12px;color:var(--pg-muted)}
 
@@ -35,14 +38,23 @@ const BLOCKS_CSS = `
 .pg-sort{display:block;margin:0 0 10px auto;font:600 12px/1 var(--pg-sans);color:var(--pg-accent);background:var(--pg-accent-soft);border:0;border-radius:99px;padding:7px 11px;cursor:pointer}
 
 .pg-bars{margin:0}
-.pg-bars-plot{display:grid;gap:8px;align-items:end;height:200px;position:relative}
-.pg-bars-plot>div{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;text-align:center;height:100%;min-width:0}
-.pg-bars-plot i{display:block;border-radius:8px 8px 3px 3px;background:var(--pg-accent-soft);min-height:2px}
+.pg-bars-plot{display:grid;gap:8px;align-items:start;position:relative}
+.pg-bars-plot>div{display:grid;grid-template-rows:auto auto;gap:8px;text-align:center;min-width:0}
+.pg-bar{height:186px;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;gap:6px}
+.pg-bars-plot i{display:block;border-radius:8px 8px 3px 3px;background:var(--pg-accent-soft)}
 .pg-bars-plot>div:last-child i{background:var(--pg-accent)}
-.pg-bars-plot b{font-weight:600;font-size:22px;line-height:1;letter-spacing:-.02em;color:var(--pg-ink);font-variant-numeric:tabular-nums}
-.pg-bars-plot>div>span{font:500 12px var(--pg-mono);color:var(--pg-muted);overflow-wrap:anywhere}
+.pg-bars-plot b{font-weight:600;font-size:clamp(14px,4cqi,22px);line-height:1;letter-spacing:-.02em;color:var(--pg-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pg-bars-plot>div>span{font:500 12px/1.3 var(--pg-mono);color:var(--pg-muted);overflow-wrap:normal;hyphens:auto}
 .pg-bars-goal{position:absolute;left:0;right:0;border-top:2px dashed var(--pg-good);pointer-events:none}
 .pg-bars-goal span{position:absolute;right:0;top:-18px;font:500 11px var(--pg-mono);color:var(--pg-good)}
+.pg-hbars{margin:0;display:grid;gap:14px}
+.pg-hbar{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:6px;align-items:baseline}
+.pg-hbar-name{font-size:15px;color:var(--pg-ink);min-width:0}
+.pg-hbar>b{font-weight:600;font-size:17px;color:var(--pg-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pg-hbar .pg-track{grid-column:1/-1;height:10px}
+.pg-hbar .pg-fill{background:color-mix(in srgb,var(--pg-accent) 55%,var(--pg-accent-soft))}
+.pg-hbar.top .pg-fill{background:var(--pg-accent)}
+.pg-hbar .pg-sub{grid-column:1/-1;font-size:13px;color:var(--pg-muted)}
 .pg-chart{margin:0}
 .pg-chart svg{width:100%;height:190px;display:block}
 .pg-line{fill:none;stroke:var(--pg-accent);stroke-width:3;vector-effect:non-scaling-stroke}
@@ -77,6 +89,10 @@ const BLOCKS_CSS = `
 .pg-option:hover{box-shadow:inset 0 0 0 1.5px var(--pg-accent)}
 .pg-option.on{box-shadow:inset 0 0 0 2px var(--pg-accent);background:var(--pg-accent-soft)}
 .pg-option .pg-tick{font-size:12px;font-weight:600;color:var(--pg-accent);white-space:nowrap}
+.pg-option.pictured{display:grid;grid-template-columns:76px minmax(0,1fr) auto;padding:8px 14px 8px 8px}
+.pg-option.pictured>.pg-ph{width:76px;height:76px;border-radius:11px}
+.pg-option.pictured>.pg-ph::before{font-size:22px}
+@container pg (min-width:760px){.pg-option.pictured{grid-template-columns:112px minmax(0,1fr) auto}.pg-option.pictured>.pg-ph{width:112px;height:84px}}
 
 .pg-lanes{display:grid;gap:18px}
 @container pg (min-width:760px){.pg-lanes{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}}

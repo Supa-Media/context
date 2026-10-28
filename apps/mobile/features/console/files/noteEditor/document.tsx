@@ -57,6 +57,7 @@ export function noteDocument(view: NoteView) {
     onOpenNote,
     drawing,
     pageView,
+    padding,
     canEdit,
     onChange,
     drawingCollaboration,
@@ -300,6 +301,8 @@ export function noteDocument(view: NoteView) {
             onOpenNote={onOpenLink === undefined ? undefined : (target) => onOpenLink(target, "foreground")}
             onLoadImage={onLoadImage}
             scrolls={!compact}
+            // A phone's page runs up under the floating ‹ and •••; the page keeps its words clear of them (`noteEditor/scroller.tsx`).
+            topInset={compact ? padding.content.top : 0}
           />
         ) : drawing ? (
           /*

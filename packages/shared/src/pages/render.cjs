@@ -57,10 +57,13 @@ function nodeHtml(node, ctx, boxes) {
         })
         .join("")}</${tag}>`;
     }
-    case "table":
-      return `<div class="pg-table" data-node="${node.from}"><table><thead><tr>${node.head.map((cell) => `<th data-edit>${runsHtml(cell, open)}</th>`).join("")}</tr></thead><tbody>${node.rows
-        .map((row) => `<tr>${row.map((cell) => `<td data-edit>${runsHtml(cell, open)}</td>`).join("")}</tr>`)
+    case "table": {
+      // Four columns or more, a phone draws each row as a card, every cell under its column's name (`css.cjs`).
+      const labels = node.head.map((cell) => esc(plain(cell)));
+      return `<div class="pg-table${node.head.length >= 4 ? " pg-table-cards" : ""}" data-node="${node.from}"><table><thead><tr>${node.head.map((cell) => `<th data-edit>${runsHtml(cell, open)}</th>`).join("")}</tr></thead><tbody>${node.rows
+        .map((row) => `<tr>${row.map((cell, i) => `<td data-edit data-label="${labels[i] ?? ""}">${runsHtml(cell, open)}</td>`).join("")}</tr>`)
         .join("")}</tbody></table></div>`;
+    }
     case "code":
       return `<pre class="pg-code" data-node="${node.from}"><code>${esc(node.text)}</code></pre>`;
     case "block":

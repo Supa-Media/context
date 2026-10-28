@@ -9,7 +9,8 @@
  */
 
 const { numberIn, shareIn, fieldOf } = require("./blocks.cjs");
-const { esc, part, plain, setting, itemName, faces } = require("./html.cjs");
+const { esc, part, plain, setting, itemName, faces, photo } = require("./html.cjs");
+const { photosOf } = require("./drawRich.cjs");
 
 /** A short name ("Zay", "LK", "Sam Okafor") drawn as a face; anything longer stays words. */
 const looksLikeName = (text) => /^[A-Z][\w.'-]*(?:\s[A-Z][\w.'-]*)?$/.test(text.trim()) && text.trim().length <= 24;
@@ -17,7 +18,8 @@ const looksLikeName = (text) => /^[A-Z][\w.'-]*(?:\s[A-Z][\w.'-]*)?$/.test(text.
 const DRAW = {
   stats: (block, { open }) =>
     `<div class="pg-nums">${block.items
-      .map((item) => `<div>${part(item, 0, open, "b")}${part(item, -1, open, "span")}${part(item, 1, open, "small")}</div>`)
+      // A value of words ("Sat Nov 21", "about 50") is set smaller than a figure, so it stays on one line on a phone.
+      .map((item) => `<div${item.parts[0].text.trim().length > 6 ? ' class="long"' : ""}>${part(item, 0, open, "b")}${part(item, -1, open, "span")}${part(item, 1, open, "small")}</div>`)
       .join("")}</div>`,
 
   compare: (block, { open }) => {
@@ -71,13 +73,16 @@ const DRAW = {
       .map((item, i) => `<li><span class="pg-num">${i + 1}</span><div>${item.label ? part(item, -1, open, "b") : ""}${part(item, 0, open, item.label ? "span" : "b")}${part(item, 1, open, "span")}</div></li>`)
       .join("")}</ol>`,
 
-  choose: (block, { open }) => {
+  choose: (block, ctx) => {
+    const { open } = ctx;
     const chosen = setting(block, "chosen").toLowerCase();
     return `<div class="pg-choose" data-block="${block.from}">${block.items
       .map((item) => {
         const name = itemName(item);
         const on = chosen !== "" && name.toLowerCase() === chosen;
-        return `<div class="pg-option${on ? " on" : ""}" role="radio" aria-checked="${on}" tabindex="0" data-choose="${esc(name)}"><div>${item.label ? part(item, -1, open, "b") : ""}${part(item, 0, open, item.label ? "span" : "b")}${part(item, 1, open, "span")}</div><span class="pg-tick">${on ? "Chosen" : "Choose"}</span></div>`;
+        // An option's photo (the gateway hunts one for each, `apps/mcp/src/agent/visuals/pagePhotos.js`) leads its row.
+        const pic = photosOf(item)[0];
+        return `<div class="pg-option${on ? " on" : ""}${pic ? " pictured" : ""}" role="radio" aria-checked="${on}" tabindex="0" data-choose="${esc(name)}">${pic ? photo(pic, ctx, { name }) : ""}<div>${item.label ? part(item, -1, open, "b") : ""}${part(item, 0, open, item.label ? "span" : "b")}${part(item, 1, open, "span")}</div><span class="pg-tick">${on ? "Chosen" : "Choose"}</span></div>`;
       })
       .join("")}</div>`;
   },
@@ -120,19 +125,60 @@ const DRAW = {
   },
 };
 
-/** Bars as columns, the value over each and its label under it; the last one, the latest, in the accent. */
+/** A currency sign a chart's `unit:` names, so its plain numbers are drawn as money. */
+const SIGN = /^\s*([$€£¥₦])\s*$/;
+
+/**
+ * A bar's value as it is shown: as written, unless it is a bare number on a
+ * chart whose unit is a currency sign, which reads "$2,000" and not "2000".
+ */
+function shownValue(item, value, unit, open) {
+  const sign = SIGN.exec(unit);
+  if (sign && /^\s*-?\d[\d,]*(?:\.\d+)?\s*$/.test(item.parts[0].text)) return `<b>${esc(`${value < 0 ? "-" : ""}${sign[1]}${Math.abs(value).toLocaleString("en-US")}`)}</b>`;
+  return part(item, 0, open, "b");
+}
+
+/**
+ * Bars. A few short ones stand as columns, each value over its bar and its
+ * label under it, every bar on one baseline (a fixed plot, heights in pixels
+ * from this file, so a label that wraps never lifts its bar). More than four,
+ * or a label longer than a word or two, and they lie down: one row each, the
+ * label and value on a line and the bar under them, which is how a budget or
+ * a breakdown reads on a phone (owner, 2026-10-28: the birthday budget's
+ * columns wrapped "2000" as "200 / 0" and floated off their baseline).
+ */
 function barChart(block, { open }) {
   const values = block.items.map((item) => numberIn(item.parts[0].text) ?? 0);
   const goal = numberIn(setting(block, "goal"));
   const top = Math.max(...values.map(Math.abs), goal ?? 0) || 1;
   const unit = setting(block, "unit");
+  const caption = unit && !SIGN.test(unit) ? `<figcaption class="pg-foot">${esc(unit)}</figcaption>` : "";
+  const longest = Math.max(...block.items.map((item) => (item.label ? item.label.text.trim().length : 0)));
+  const largest = values.indexOf(Math.max(...values));
+  if (block.items.length > 4 || longest > 12) {
+    return (
+      `<figure class="pg-hbars" role="img" aria-label="${esc(block.title || "chart")}">` +
+      block.items
+        .map(
+          (item, i) =>
+            `<div class="pg-hbar${i === largest ? " top" : ""}">${part(item, -1, open, "span", "pg-hbar-name")}${shownValue(item, values[i], unit, open)}` +
+            `<div class="pg-track"><div class="pg-fill" style="width:${((Math.max(0, values[i]) / top) * 100).toFixed(1)}%"></div>` +
+            (goal !== null ? `<div class="pg-limit" style="left:${((Math.max(0, goal) / top) * 100).toFixed(1)}%"></div>` : "") +
+            `</div>${part(item, 1, open, "span", "pg-sub")}</div>`,
+        )
+        .join("") +
+      (goal !== null ? `<p class="pg-foot">goal ${esc(setting(block, "goal"))}</p>` : "") +
+      `${caption}</figure>`
+    );
+  }
+  const PLOT = 150;
   return (
     `<figure class="pg-bars" role="img" aria-label="${esc(block.title || "chart")}"><div class="pg-bars-plot" style="grid-template-columns:repeat(${values.length},minmax(0,1fr))">` +
-    (goal !== null ? `<div class="pg-bars-goal" style="bottom:${((Math.max(0, goal) / top) * 100).toFixed(1)}%"><span>${esc(setting(block, "goal"))}</span></div>` : "") +
+    (goal !== null ? `<div class="pg-bars-goal" style="bottom:${Math.round((Math.max(0, goal) / top) * PLOT)}px"><span>${esc(setting(block, "goal"))}</span></div>` : "") +
     block.items
-      .map((item, i) => `<div>${part(item, 0, open, "b")}<i style="height:${((Math.max(0, values[i]) / top) * 100).toFixed(1)}%"></i>${part(item, -1, open, "span")}</div>`)
+      .map((item, i) => `<div><div class="pg-bar">${shownValue(item, values[i], unit, open)}<i style="height:${Math.max(2, Math.round((Math.max(0, values[i]) / top) * PLOT))}px"></i></div>${part(item, -1, open, "span")}</div>`)
       .join("") +
-    `</div>${unit ? `<figcaption class="pg-foot">${esc(unit)}</figcaption>` : ""}</figure>`
+    `</div>${caption}</figure>`
   );
 }
 

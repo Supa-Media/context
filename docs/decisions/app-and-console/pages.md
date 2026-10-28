@@ -164,6 +164,22 @@ required when making pages".
   and compose button is hidden. The one ••• menu holds the rest, with "Edit as
   text" / "View as page" in place of reading mode (`pageView/pageText.ts`).
 
+- **The page is drawn for a phone first, and shows its things** (owner,
+  2026-10-28, on a birthday plan with no picture, a budget chart whose
+  "2000" wrapped as "200 / 0", a table off the screen and the Notes header
+  and a workspace banner over it: "it literally still looks like a glorified
+  markdown page"; "remove this freakin header"). The fixes live in the
+  renderer and the gateway, never in the model's good behaviour: a `choose`
+  block's options are hunted for photos like a vote's (and drawn with them,
+  so they feed the cover); a hunted picture the note write would refuse
+  (AVIF) counts as not found, so the hunt tries the next; a bar chart of more
+  than four bars or long labels lies down as rows, values as money when its
+  `unit:` is a currency sign; a table of four columns or more becomes one
+  card per row on a narrow page; a page's cover is checked as a cover, not as
+  an answer; and on a phone a page runs to the top of the glass under the
+  round ‹ and ••• alone, with no workspace notices over it. Tests:
+  `apps/mcp/test/pagesPhone.test.mjs`, `apps/mobile/__tests__/pageBareChrome.test.ts`.
+
 What a "simplification" would cost: dropping the stamp check lets agents write
 pages from memory of an older format, which is how the first pages came out
 as styled Markdown; letting the frame name the voter lets any page's script

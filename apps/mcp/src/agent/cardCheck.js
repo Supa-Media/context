@@ -39,6 +39,15 @@ const SYSTEM = [
   'Answer with one line of JSON and nothing else: {"send": true} when you would be proud to text it as it is, or {"send": false, "critique": "<what is wrong and exactly how to fix it, at most 60 words>"}.',
 ].join("\n");
 
+/**
+ * A page's cover is not an answer on its own: it is the first screen of a page
+ * Tex wrote, texted beside the page's link. Judged as an answer, it was held
+ * ("a sentence would say it better") and the birthday plan of 2026-10-28 went
+ * out with no cover at all. So a cover is judged as a cover.
+ */
+export const COVER_RULE =
+  "This picture is the COVER of a page Tex wrote: its first screen, texted with the page's link, which holds the detail. Judge it as a cover: the title and what is under it can be read, nothing is cut off, broken or empty. Step 5 does not apply to a cover.";
+
 /** The verdict in a model's answer, or null when it gave none it can read. */
 export function readVerdict(text) {
   const match = typeof text === "string" ? text.match(/\{[\s\S]*\}/) : null;
@@ -70,7 +79,7 @@ export function cardCheckFor({ question, config, request = requestViaGateway, me
           messages: [
             {
               role: "user",
-              text: `THE PERSON'S TEXT\n\n${asked}\n\nTEX'S PICTURE (${tool}${template ? `, ${template} card` : ""}) is attached.`,
+              text: `THE PERSON'S TEXT\n\n${asked}\n\nTEX'S PICTURE (${tool}${template ? `, ${template} card` : ""}) is attached.${template === "page" ? `\n\n${COVER_RULE}` : ""}`,
               attachments: [{ name: "card.png", mediaType: picture.mediaType, data: picture.data }],
             },
           ],

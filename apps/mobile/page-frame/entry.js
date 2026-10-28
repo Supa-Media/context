@@ -305,6 +305,9 @@ window.addEventListener("message", (event) => {
         canComment: message.canComment === true,
         me: typeof message.me === "string" ? message.me.slice(0, 60) : null,
       };
+      // The app's floating chrome over the page's top, in pixels: a cover with no photo starts its words below it (`css.cjs`).
+      const inset = Number.isFinite(message.inset) ? Math.max(0, Math.min(200, Math.round(message.inset))) : 0;
+      document.documentElement.style.setProperty("--pg-top", `${inset}px`);
       if (editing() && state.source !== "") {
         pending = next;
         return;
