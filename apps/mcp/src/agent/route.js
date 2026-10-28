@@ -252,7 +252,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     return json({ error: "model_unavailable" }, 503);
   }
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
-  const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId, () => controlPlane.transcriptionConsent(session.accessToken, session.workspaceId, "voiceMessage")));
+  const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
   const offered = await grantedToolsFor(session, store);
 

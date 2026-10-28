@@ -43,8 +43,12 @@ meetings. The model gets the transcript as a text document titled as a voice
 message and is told to answer it as if typed. Unlike other attachments, the
 transcript (2,000 characters at most) is kept in the saved conversation: it is
 the person's own message, said instead of typed. No service configured, a
-failed transcription or a recording with no speech each become a sentence, so
-Tex asks them to type it rather than guessing. Video is still not read.
+failed transcription (after one retry) or a recording with no speech each
+become a sentence, so Tex says it couldn't hear it rather than guessing, and
+never asks for it typed. Sending the voice message is the yes to transcribe it;
+the app's meeting question does not cover it (owner, 2026-10-28; see
+[transcription consent](../meetings/transcription-consent.md)). Video is still
+not read.
 
 Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
 

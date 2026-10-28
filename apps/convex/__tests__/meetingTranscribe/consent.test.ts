@@ -7,7 +7,6 @@ import {
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { hashToken } from "../../functions/lib/crypto";
-import { TEXTS_CLIENT_ID } from "../../functions/textLinks";
 import {
   asUser,
   captureError,
@@ -196,8 +195,8 @@ describe("the gateway asks the same question", () => {
     return accessToken;
   }
 
-  async function ask(t: TestConvex, accessToken: string, expectedWorkspaceId: string, kind = "meeting") {
-    const response = await gatewayPost(t, "/gateway/transcription/consent", { accessToken, expectedWorkspaceId, kind });
+  async function ask(t: TestConvex, accessToken: string, expectedWorkspaceId: string) {
+    const response = await gatewayPost(t, "/gateway/transcription/consent", { accessToken, expectedWorkspaceId });
     expect(response.status).toBe(200);
     return ((await response.json()) as { allowed: unknown }).allowed;
   }
@@ -233,19 +232,5 @@ describe("the gateway asks the same question", () => {
       { secret: null },
     );
     expect(unauthenticated.status).not.toBe(200);
-  });
-
-  test("a voice message is heard only on the texter's own grant, never a group chat's", async () => {
-    const t = setupTest();
-    const userId = await createUser(t, "texter@example.invalid");
-    const workspaceId = await createWorkspace(t, userId, "texter", { kind: "personal" });
-    await t.run((ctx) => ctx.db.insert("phoneLinks", { userId, phone: "+15555550111", linkedAt: Date.now() }));
-    await asUser(t, userId).mutation(consent.allowTranscription, { version: CLOUD_TRANSCRIPTION_CONSENT_VERSION });
-
-    const own = await grantFor(t, userId, workspaceId, TEXTS_CLIENT_ID);
-    expect(await ask(t, own, workspaceId, "voiceMessage")).toBe(true);
-    // A desktop grant is not Tex: it may send meetings, not voice messages.
-    const desktop = await grantFor(t, userId, workspaceId);
-    expect(await ask(t, desktop, workspaceId, "voiceMessage")).toBe(false);
   });
 });

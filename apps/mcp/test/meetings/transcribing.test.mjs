@@ -109,9 +109,8 @@ export async function runMeetingTranscribingChecks(check, harness) {
   );
   check("...and the audio never reaches the service", harness.transcribeCalls.length === consentCalls);
   check(
-    "...the question was the token's own, about this workspace, for a meeting",
-    harness.controlPlane.transcription.asks.at(-1)?.workspaceId === "ws_recorder" &&
-      harness.controlPlane.transcription.asks.at(-1)?.kind === "meeting"
+    "...the question was the token's own, about this workspace",
+    harness.controlPlane.transcription.asks.at(-1)?.workspaceId === "ws_recorder"
   );
   // Another account's yes is not this one's.
   harness.controlPlane.transcription.state.allowed.add("user_meet_neighbour");

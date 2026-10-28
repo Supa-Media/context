@@ -37,7 +37,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { anthropicMessages, openAiMessages } from "../src/agent/providers.js";
-import { VOICE_NOT_ALLOWED, hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
+import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
 import { KEPT_PHOTOS_PATH } from "../src/agent/pictureMaker.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
@@ -242,17 +242,19 @@ test("a texted voice message reaches the model as what was said, and is kept as 
   }
 });
 
-test("a texted voice message from an account that has not allowed cloud transcription is never sent", async () => {
+test("a texted voice message is heard without the meeting-transcription question: texting it is the ask", async () => {
   const world = await createEgressWorld();
   try {
     const sent = installTranscriber(world);
     world.controlPlane.transcription.state.everyone = false;
-    world.model.install([{ text: "Could you type that?" }]);
+    world.model.install([{ text: "On it." }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
-    assert.equal(sent.length, 0, "the audio was never sent");
-    assert.equal(world.controlPlane.transcription.asks.at(-1)?.kind, "voiceMessage");
-    assert.match(lastUser(world.model.requests.at(-1)).content.at(-1).text, /cloud transcription is off for this account/);
+    assert.equal(sent.length, 1, "the audio was transcribed");
+    assert.equal(world.controlPlane.transcription.asks.length, 0, "the meeting question was never asked");
+    const shown = JSON.stringify(lastUser(world.model.requests.at(-1)).content);
+    assert.match(shown, /Pick up oat milk on the way home\./);
+    assert.doesNotMatch(shown, /type it/i);
   } finally {
     world.restore();
   }
@@ -261,11 +263,14 @@ test("a texted voice message from an account that has not allowed cloud transcri
 test("a voice message nobody could transcribe is named as such, and the turn still answers", async () => {
   const world = await createEgressWorld();
   try {
-    installTranscriber(world, { status: 502, answer: { error: "upstream" } });
-    world.model.install([{ text: "Could you type it?" }]);
+    const sent = installTranscriber(world, { status: 502, answer: { error: "upstream" } });
+    world.model.install([{ text: "I couldn't hear that one; send it again?" }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
-    assert.match(lastUser(world.model.requests.at(-1)).content.at(-1).text, /could not be opened\. It is a voice message, and transcribing it failed/);
+    assert.equal(sent.length, 2, "a failed transcription is tried once more");
+    const said = lastUser(world.model.requests.at(-1)).content.at(-1).text;
+    assert.match(said, /could not be opened\. It is a voice message, and transcribing it failed twice/);
+    assert.match(said, /never ask them to type it/);
   } finally {
     world.restore();
   }
@@ -286,31 +291,33 @@ test("a turn refused for the daily cap spends no transcription", async () => {
 
 test("voice messages: no service, silence, and the 8 MB ceiling", async () => {
   const [none] = await hearVoiceMessages([VOICE], null, "ws");
-  assert.match(none.unread, /can't be transcribed on this server/);
-  const yes = async () => true;
-  const [quiet] = await hearVoiceMessages([VOICE], async () => ({ text: "", segments: [], refused: 2 }), "ws", yes);
+  assert.match(none.unread, /no transcription service/);
+  const [quiet] = await hearVoiceMessages([VOICE], async () => ({ text: "", segments: [], refused: 2 }), "ws");
   assert.match(quiet.unread, /no words you could make out/);
-  const [joined] = await hearVoiceMessages([VOICE], async () => ({ segments: [{ text: " One." }, { text: "Two. " }] }), "ws", yes);
+  const [joined] = await hearVoiceMessages([VOICE], async () => ({ segments: [{ text: " One." }, { text: "Two. " }] }), "ws");
   assert.equal(joined.text, "One. Two.");
   const big = "A".repeat(Math.ceil((8.1 * 1024 * 1024) / 3) * 4);
   assert.throws(() => readAttachments([{ name: "a.caf", mediaType: "audio/x-caf", data: big }]), /8 MB/);
 });
 
-test("voice messages: without the texter's yes to cloud transcription, no audio is sent", async () => {
-  const heard = [];
-  const transcribe = async (input) => {
-    heard.push(input);
-    return { text: "should never be heard" };
+test("voice messages: one failure is retried, a second is named, and no sentence asks them to type", async () => {
+  let calls = 0;
+  const flaky = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("upstream blip");
+    return { text: "Second time lucky." };
   };
-  for (const consented of [null, async () => false, async () => "yes", async () => { throw new Error("control plane down"); }]) {
-    const [voice] = await hearVoiceMessages([VOICE], transcribe, "ws", consented);
-    assert.equal(voice.unread, VOICE_NOT_ALLOWED);
-    assert.equal(voice.data, undefined, "the audio is not carried on");
+  const [heard] = await hearVoiceMessages([VOICE], flaky, "ws");
+  assert.equal(heard.text, "Second time lucky.");
+  assert.equal(calls, 2);
+  const [failed] = await hearVoiceMessages([VOICE], async () => { throw new Error("down"); }, "ws");
+  assert.match(failed.unread, /failed twice/);
+  assert.equal(failed.data, undefined, "the audio is not carried on");
+  const none = (await hearVoiceMessages([VOICE], null, "ws"))[0];
+  const quiet = (await hearVoiceMessages([VOICE], async () => ({ text: "" }), "ws"))[0];
+  for (const voice of [failed, none, quiet]) {
+    assert.doesNotMatch(voice.unread.replace(/never ask them to type it/, ""), /type/i, "Tex is never told to ask for it typed");
   }
-  assert.equal(heard.length, 0, "the service was never asked");
-  const [allowed] = await hearVoiceMessages([VOICE], transcribe, "ws", async () => true);
-  assert.equal(allowed.text, "should never be heard");
-  assert.equal(heard.length, 1);
 });
 
 test("a picture in a tool's answer is shown to a model that sees, and named to one that does not", () => {
