@@ -145,9 +145,9 @@ export const renderCard = internalAction({
        * Google Fonts for a fallback face, jsDelivr for Twemoji. That would be a
        * hidden third-party dependency inside a *customer's* render path, note
        * titles sent to two CDNs, latency an attacker chooses (20 ms ASCII,
-       * 725 ms Japanese), and a hard crash on Arabic. It also closes an SSRF
-       * path: satori 0.29.1 hardened its remote fetcher and this is 0.29.0, so
-       * the code is simply never entered.
+       * 725 ms Japanese), and a hard crash on Arabic. It also keeps satori's
+       * remote fetcher out of the path entirely, so whatever it does with a
+       * URL is never reached.
        *
        * The cost is that an uncovered glyph draws as tofu, which is why the
        * caller checks coverage before asking for a render.

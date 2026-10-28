@@ -18,7 +18,7 @@
     "lint": "echo \"no lint configured yet\" && exit 0"
   },
   "dependencies": {
-    "diff": "^7.0.0",
+    "diff": "^8.0.3",
     "yjs": "^13.6.32"
   }
 }
