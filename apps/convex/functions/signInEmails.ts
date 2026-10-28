@@ -13,6 +13,7 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
 import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
 import { isFreshSingleEmailAccount } from "./lib/freshSignup";
+import { isReservedReviewer } from "./lib/reviewerAccount";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -411,6 +412,17 @@ export const confirmAddEmail = action({
 
 
 /**
+ * The reserved reviewer account keeps the one address that names it: every
+ * check in `lib/reviewerAccount.ts` reads that address, so adding another or
+ * swapping the mail address would be a way out of all of them.
+ */
+async function refuseReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Promise<void> {
+  if (await isReservedReviewer(ctx, userId)) {
+    throw new ConvexError({ code: "RESERVED_ACCOUNT", message: "This account's email can't be changed." });
+  }
+}
+
+/**
  * Adding an address is a big change once the account has one: the new
  * address could then confirm every other big change (`lib/emailProof.ts`).
  * The very first address, the one an account made by a phone is asked for,
@@ -418,6 +430,7 @@ export const confirmAddEmail = action({
  * every address uses the seven-day wait instead (`emailRecovery.ts`).
  */
 async function requireProofToAddEmail(ctx: QueryCtx, userId: Id<"users">): Promise<void> {
+  await refuseReservedReviewer(ctx, userId);
   const confirmed = await confirmedEmailsOf(ctx, userId);
   if (confirmed.length === 0) return;
   // Just signed up with one address: setting up a personal one needs no proof
@@ -468,6 +481,7 @@ export const setMailEmail = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
+    await refuseReservedReviewer(ctx, userId);
     await requireEmailProof(ctx, userId);
     const email = args.email.trim().toLowerCase();
     const row = await ctx.db

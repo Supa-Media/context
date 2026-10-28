@@ -18,6 +18,7 @@
  *  4. Check removed from `joinableFor` → "cannot join by its email domain".
  *  5. Check removed from `guestViewOf` → "reads nothing through a grant".
  *  6. Check removed from `shareStillStands` → "a share addressed to it opens nothing".
+ *  7. `refuseReservedReviewer` removed from `signInEmails.ts` → "keeps the one address".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -129,5 +130,26 @@ describe("the reserved reviewer stays in its own workspace", () => {
     const toReviewer = (await share("@rvw-desk")).token;
     expect(await asUser(t, lk).query(api.functions.shares.resolveShare, { token: toLk })).not.toBeNull();
     expect(await asUser(t, reviewer).query(api.functions.shares.resolveShare, { token: toReviewer })).toBeNull();
+  });
+
+  test("keeps the one address that names it, while a fresh account may add another", async () => {
+    const t = setupTest();
+    const reviewer = await createUser(t, REVIEWER_EMAIL);
+    const ada = await createUser(t, "ada@example.invalid");
+    const start = (userId: typeof ada, email: string) =>
+      asUser(t, userId).action(api.functions.signInEmails.startAddEmail, { email });
+
+    expect((await start(ada, "ada@work.example.invalid")).status).toBe("sent");
+    expect(errorCode(await captureError(() => start(reviewer, "mine@attacker.example.invalid")))).toBe("RESERVED_ACCOUNT");
+
+    // Even with a second address already on it, the mail address cannot move.
+    await t.run((ctx) =>
+      ctx.db.insert("signInEmails", { userId: reviewer, email: "mine@attacker.example.invalid", addedAt: Date.now() }),
+    );
+    const swap = await captureError(() =>
+      asUser(t, reviewer).mutation(api.functions.signInEmails.setMailEmail, { email: "mine@attacker.example.invalid" }),
+    );
+    expect(errorCode(swap)).toBe("RESERVED_ACCOUNT");
+    expect((await t.run((ctx) => ctx.db.get(reviewer)))?.email).toBe(REVIEWER_EMAIL);
   });
 });
