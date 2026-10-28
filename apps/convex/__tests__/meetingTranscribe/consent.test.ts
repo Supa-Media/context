@@ -36,12 +36,12 @@ import { CHUNK, configureWorker, workerReturning } from "./fixtures.helpers";
  *
  * Run as temporary local edits and reverted (counts measured):
  *
- *   the consent check removed from `transcribeChunk`                       5
- *   `isCurrentTranscriptionConsent` ignores `withdrawnAt`                  3
- *   `isCurrentTranscriptionConsent` ignores `version`                      2
+ *   the consent check removed from `transcribeChunk`                       6
+ *   `isCurrentTranscriptionConsent` ignores `withdrawnAt`                  2
+ *   `isCurrentTranscriptionConsent` ignores `version`                      1
  *   `allowTranscription` accepts any version                               1
  *   `gatewayConsent` skips the workspace check                             1
- *   the consent check moved after the budget                               1
+ *   `gatewayConsent` hears a voice message on any grant                    1
  */
 
 vi.setConfig({ testTimeout: 20_000 });
