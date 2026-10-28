@@ -45,7 +45,7 @@
  */
 
 import { askAgentStream, askLine, reportRoutineResult, ServiceError, type AgentAnswer, type Fetch, type RoutineOutcome } from "./clients";
-import { chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { CHAT_LOOK_PATH, chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { noteGuestChat } from "./groupGuestPeople";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
@@ -639,7 +639,8 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
   if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
-  const texts = textsWithExact(answer.text, answer.verbatim, asked.texStyle?.bubbles === "one");
+  const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
+  const texts = textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one");
   const now = await app.readMembers(chat);
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -650,8 +651,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   }
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   for (const text of texts) await say(storage, deps, message, text, meta);
-  // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
-  for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
+  for (const picture of checkIn ? [] : answer.pictures) await sendPicture(storage, deps, message, picture, meta); // After the words, as in a 1:1.
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));

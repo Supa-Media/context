@@ -72,6 +72,14 @@ async function run(w: World, answers: { control?: unknown; answer?: string } = {
 }
 
 describe("a chat routine's run", () => {
+  it("a check-in posts one bubble and no card, however long the model's answer", async () => {
+    const w = world();
+    const storage = new MemoryStorage();
+    expect(await acceptGroupRoutine(storage, { ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC" }, 1_000)).toBe("queued");
+    await drainGroup(storage, deps(w, { answer: "First part about the mail.\n\nSecond part.\n\nThird part." }));
+    expect(w.sends).toHaveLength(1);
+  });
+
   it("leaves the chat bound to its people, so untagged texts after it are still read", async () => {
     const w = world();
     const storage = new MemoryStorage();
@@ -177,10 +185,12 @@ describe("handing a chat routine out", () => {
     expect(chatRoutineMessage(RUN).text).not.toContain("last ran");
   });
 
-  it("a chat's own check-in looks at the workspace's activity and shared mail, never a note, and leaves personal mail to its owner", () => {
+  // Dev2, 2026-10-28: a check-in posted a long App Store status from the workspace's activity nobody in the chat asked about.
+  it("a chat's own check-in looks only at shared mail and its own follow-ups, never the workspace's activity, and leaves personal mail to its owner", () => {
     const text = chatRoutineMessage({ ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000 }).text;
     expect(text).toContain("after:1700000000");
-    expect(text).toContain("fetch activity:");
+    expect(text).not.toContain("fetch activity:");
+    expect(text).toContain("other agents' work");
     expect(text).toContain("concerns only the mailbox's owner personally");
     expect(text).toContain("SKIP");
     expect(text).not.toContain("routine");
