@@ -15,12 +15,18 @@
  *     → "Google not answering is never an empty day" fails
  *   the unanswered calendar left unnamed
  *     → "a calendar Google didn't answer for is named, not shown empty" fails
+ *   `account` dropped on the way to the control plane (tool or client)
+ *     → "a chosen account is the only one asked for" and
+ *       "the client sends account only when one was chosen" fail
+ *   `other_calendar` missing from the client's refusals
+ *     → "an account that isn't connected is refused, never answered from another" fails
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { toolReadCalendar } from "../src/tools/calendarRead.js";
+import { createCalendarMethods } from "../src/controlPlane/calendar.js";
 import { readCalendarDays } from "../src/communications/calendarLive.js";
 import { translateFetch } from "../src/tools/v2/searchFetch.js";
 import { recordRead, newLedger } from "../src/privacy/egress.js";
@@ -160,6 +166,60 @@ test('fetch "calendar:" is read_calendar with its date and days', () => {
     action: "calendar",
   });
   assert.ok(translateFetch({ id: "calendar:", args: { limit: 3 } }).error);
+});
+
+test("a chosen account is the only one asked for, trimmed and lowercased, and the answer says so", async () => {
+  const store = liveStore({
+    ok: true,
+    days: [{ address: "test@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "R8C3", "test@example.invalid") }],
+  });
+  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23", account: "  Test@Example.invalid " }));
+  assert.deepEqual(store.asked, [{ date: "2026-10-23", days: 1, account: "test@example.invalid" }]);
+  assert.match(out, /from test@example\.invalid only/);
+  assert.doesNotMatch(out, /one section per connected calendar/);
+});
+
+test("an account that isn't connected is refused, never answered from another", async () => {
+  const methods = createCalendarMethods({ post: async () => ({ ok: false, refused: "other_calendar" }) });
+  const answer = await methods.personCalendarDays("token", "ws", { date: "2026-10-23", days: 1, account: "nobody@example.invalid" });
+  assert.equal(answer.refused, "other_calendar");
+  const result = await toolReadCalendar(liveStore(answer), "private", [], new Map(), { date: "2026-10-23", account: "nobody@example.invalid" });
+  assert.equal(result.isError, true);
+  assert.match(text(result), /isn't one of their connected Google calendars/);
+  assert.match(text(result), /no other calendar was read instead/);
+});
+
+test("a blank, non-string or malformed account is refused before Google is asked", async () => {
+  const store = liveStore({ ok: true, days: [] });
+  for (const account of ["", "   ", 42, null, ["a@example.invalid"], "not-an-address", "a b@example.invalid", "@example.invalid"]) {
+    const result = await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23", account });
+    assert.equal(result.isError, true, JSON.stringify(account));
+    assert.match(text(result), /account has to be one connected Google address/);
+  }
+  assert.equal(store.asked.length, 0);
+});
+
+test("the client sends account only when one was chosen", async () => {
+  const bodies = [];
+  const methods = createCalendarMethods({
+    async post(path, body) {
+      bodies.push({ path, body });
+      return { ok: true, days: [] };
+    },
+  });
+  await methods.personCalendarDays("token", "ws", { date: "2026-10-23", days: 1 });
+  await methods.personCalendarDays("token", "ws", { date: "2026-10-23", days: 1, account: "test@example.invalid" });
+  assert.equal(bodies[0].path, "/gateway/calendar/days");
+  assert.ok(!("account" in bodies[0].body), "omitted stays omitted: every calendar, as before");
+  assert.equal(bodies[1].body.account, "test@example.invalid");
+});
+
+test('fetch "calendar:" carries account through to read_calendar', () => {
+  assert.deepEqual(translateFetch({ id: "calendar:", args: { date: "2026-10-23", account: "test@example.invalid" } }), {
+    name: "read_calendar",
+    arguments: { date: "2026-10-23", account: "test@example.invalid" },
+    action: "calendar",
+  });
 });
 
 test("an invite's words mark the turn as having read something from outside", () => {

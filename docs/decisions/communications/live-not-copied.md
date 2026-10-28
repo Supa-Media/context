@@ -21,6 +21,18 @@ workspaces, and because a kind may be added back on purpose.
   `/gateway/calendar/days` (`functions/lib/gatewayRoutes/personCalendar.ts`).
   It has the same clearance as a live mail read: the owner of a personal
   workspace, on a grant with `context:private`.
+  With `account` (2026-10-28) it reads only the one connected Google address
+  named; an address that is not one of the person's connected calendars is
+  refused with `other_calendar`, and no other calendar is read in its place.
+  Left out, it reads every calendar, as before, and check-ins never pass one.
+  Asked for by the owner after a controlled test: Tex was told to use only a
+  test account and its readback pulled the person's three other calendars,
+  because a read could not be pointed at one. The cost of dropping the
+  filter, or of a fallback to every calendar when the named one matches
+  nothing, is that "only this account" cannot be honoured on a read.
+  `apps/convex/__tests__/personCalendar.test.ts` ("reading one chosen
+  account's calendar") and `apps/mcp/test/calendarRead.test.mjs` fail if
+  either comes back.
 - `search_email` and `read_email` were already live (2026-10-20).
 - A check-in asks Gmail for inbox mail that arrived since it last looked
   (`apps/mcp/src/agent/newMail.js`). That mail is a stranger's words, so a

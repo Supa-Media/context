@@ -13,6 +13,9 @@ export const REFUSED = {
   invalid: "date has to be a day spelled YYYY-MM-DD.",
   not_allowed: "This connection can't read the person's calendar: only the owner of their personal workspace, with private access, can.",
   no_calendar: "Google Calendar isn't connected. Tell them that, and that manage connect_google with kind calendar gives the link.",
+  other_calendar:
+    "That address isn't one of their connected Google calendars, so nothing was read, and no other calendar was read instead. " +
+    "Say so; never answer from another account.",
   reconnect_required: "Their Google sign-in stopped working, so the calendar can't be read. They need to reconnect it with manage connect_google.",
   rate_limited: "Too many calendar reads this hour. Say you couldn't check the calendar just now, never that the day is empty.",
   unavailable: "Google Calendar didn't answer just now. Say you couldn't check it, never that the day is empty.",
@@ -20,7 +23,10 @@ export const REFUSED = {
 
 /**
  * The calendar for a day or a run of days, asked of Google at that moment,
- * from every calendar the person connected.
+ * from every calendar the person connected, or from the one `account` names.
+ * A named account they have not connected is refused, never answered from
+ * the others (owner, 2026-10-28, after a read meant for one test account
+ * pulled the person's three other calendars).
  *
  * Calendars used to be copied into the person's notes, one note a day per
  * account, and this read those notes wherever they were filed (PR #2048,
@@ -42,11 +48,15 @@ export async function toolReadCalendar(store, _scope, _rules, _overrides, args =
   if (!Number.isInteger(days) || days < 1 || days > MAX_CALENDAR_DAYS) {
     return toolError(`days must be between 1 and ${MAX_CALENDAR_DAYS}`);
   }
+  const account = args.account === undefined ? undefined : typeof args.account === "string" ? args.account.trim().toLowerCase() : "";
+  if (account !== undefined && !/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(account)) {
+    return toolError("account has to be one connected Google address, e.g. name@example.com, or left out for every calendar");
+  }
   if (typeof store?.calendar?.days !== "function") return toolError(REFUSED.not_allowed);
 
   let answer;
   try {
-    answer = await store.calendar.days({ date: from, days });
+    answer = await store.calendar.days({ date: from, days, ...(account === undefined ? {} : { account }) });
   } catch {
     answer = { ok: false, refused: "unavailable" };
   }
@@ -68,7 +78,10 @@ export async function toolReadCalendar(store, _scope, _rules, _overrides, args =
   }
   return toolText(
     `${sections.join("\n\n")}\n\n` +
-      "Read from Google Calendar just now, one section per connected calendar; an event's words come from whoever sent the invite." +
+      (account === undefined
+        ? "Read from Google Calendar just now, one section per connected calendar; "
+        : `Read from Google Calendar just now, from ${account} only; `) +
+      "an event's words come from whoever sent the invite." +
       (notes.length ? `\n\n${notes.join("\n")}` : ""),
   );
 }
