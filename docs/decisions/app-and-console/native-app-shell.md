@@ -1,5 +1,16 @@
 # App and console — native app shell
 
+### Native menu gesture containers do not group their actions (2026-10-28)
+
+On the installed release runtime, opening the account menu exposed only
+"Close menu" to iOS accessibility; Settings and Meetings were visible but not
+separate targets. A native Pressable is accessible by default, so the scrim
+and the inner gesture-swallowing wrapper grouped all descendant rows. Both
+containers use `accessible={false}`; each action and the visible Cancel row
+remain independently accessible. Removing either flag fails
+`menuRender/nativeAccessibility.test.ts`, whose harness models iOS grouping
+because react-native-web does not. The change ships as JavaScript through OTA.
+
 ### The note count is measured, stamped, and allowed to be a floor
 
 For two issues running (#20, #25) the console printed facts about somebody's
