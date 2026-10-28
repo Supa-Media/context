@@ -7,8 +7,10 @@
  * Every turn gets a fresh grant, issued the way a text's or a group's is:
  * a phone's from its link, a group's after the chat's members are read again,
  * so somebody who joined a group meanwhile never gets an answer drawn from a
- * workspace they are not in. Nothing here is retried by the platform: the
- * alarm catches everything and sets its own next try.
+ * workspace they are not in. A pass never schedules itself: it says what
+ * comes next (`JobNext`), and its driver waits. With Workflows that is the
+ * job's own instance (`jobWorkflow.ts`, Dev2, 2026-10-28); without them (a
+ * self-hosted Worker, most tests) it is the object's alarm (`armJobNext`).
  *
  * A later text the chat's turn handed to the job (`steerJob`, "never mind,
  * make it yellow not green") is kept here as the person's own words. A turn
@@ -82,11 +84,32 @@ type Outcome =
   /** Ends here, with this to say, or silently. */
   | { kind: "stop"; text?: string };
 
-/** Store a job to run and set its alarm. `POST /job-start`, from the chat's inbox. */
-export async function acceptJob(storage: InboxStorage, run: JobRun, now: number): Promise<void> {
+/** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
+export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number };
+
+/**
+ * Store a job to run. `POST /job-start`, from the chat's inbox. `start` starts
+ * its workflow, which runs every pass; without one, the object's alarm does.
+ */
+export async function acceptJob(storage: InboxStorage, run: JobRun, now: number, start?: () => Promise<void>): Promise<void> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return;
   await storage.put<Stored>(RUN_KEY, { ...run, sent: 0 });
+  if (start !== undefined) return await start();
   await storage.setAlarm(now);
+}
+
+/** The alarm as a job's driver, when no workflow runs it: the next pass when `next` says. */
+export async function armJobNext(storage: InboxStorage, next: JobNext, now: number): Promise<void> {
+  if (next.kind === "now") await storage.setAlarm(now);
+  if (next.kind === "after") await storage.setAlarm(now + next.ms);
+}
+
+/** The workflow gave up on the job's pass: it ends, and the chat is told it couldn't finish. */
+export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<JobNext> {
+  const run = await storage.get<Stored>(RUN_KEY);
+  if (run === undefined) return { kind: "done" };
+  const tell = (update: Omit<JobUpdate, "id" | "first">) => deps.report(run.inbox, { id: run.id, ...update, first: run.sent ?? 0 }).catch(() => false);
+  return await finish(storage, run, { state: "failed", texts: [JOB_LINES.failed(run.title)] }, tell);
 }
 
 /**
@@ -117,10 +140,10 @@ async function settleSteers(storage: InboxStorage, done: Set<string>): Promise<J
   return left;
 }
 
-/** Run the job's next turn. Called from the alarm; finds nothing in any other object. */
-export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void> {
+/** Run the job's next pass, and say what comes next. Finds nothing in any other object. */
+export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobNext> {
   const run = await storage.get<Stored>(RUN_KEY);
-  if (run === undefined) return;
+  if (run === undefined) return { kind: "done" };
   let sent = run.sent ?? 0;
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
     const ok = await deps.report(run.inbox, { id: run.id, ...update, first: sent }).catch(() => false);
@@ -131,9 +154,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
     }
     return ok;
   };
-  if (run.owed !== undefined) return void (await finish(storage, run, run.owed, tell, deps));
+  if (run.owed !== undefined) return await finish(storage, run, run.owed, tell);
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
-  if ((await storage.get<boolean>(STOP_KEY)) === true) return void (await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps));
+  if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell);
   const onProgress = async (text: string) => {
     // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
@@ -162,12 +185,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
       : await settleSteers(storage, new Set([...shown.map((steer) => steer.id), ...(outcome.kind === "answer" ? outcome.steered : [])]));
 
   if ((await storage.get<boolean>(STOP_KEY)) === true) {
-    return void (await finish(storage, { ...run, sent }, { state: "failed", status: "Stopped" }, tell, deps));
+    return await finish(storage, { ...run, sent }, { state: "failed", status: "Stopped" }, tell);
   }
   if (outcome.kind === "retry" && run.tries + 1 < MAX_JOB_TRIES) {
     await storage.put<Stored>(RUN_KEY, { ...run, sent, tries: run.tries + 1 });
-    await storage.setAlarm(deps.now() + RETRY_MS * 2 ** run.tries);
-    return log("retry", run.id);
+    log("retry", run.id);
+    return { kind: "after", ms: RETRY_MS * 2 ** run.tries };
   }
   // It texted a link to save a login: the chat's inbox watches for the save, to carry the task on (`vaultWatch.ts`).
   const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
@@ -190,8 +213,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
           ? "Finishing what was still missing"
           : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
-    await storage.setAlarm(deps.now());
-    return log("carry_on", run.id);
+    log("carry_on", run.id);
+    return { kind: "now" };
   }
 
   const update: Omit<JobUpdate, "id" | "first"> =
@@ -207,7 +230,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<void
       : outcome.kind === "stop"
         ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
         : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
-  await finish(storage, { ...run, sent }, update, tell, deps);
+  return await finish(storage, { ...run, sent }, update, tell);
 }
 
 /** Hand the inbox the job's last word; one it didn't take is kept and offered again, never run again. */
@@ -216,17 +239,17 @@ async function finish(
   run: Stored,
   update: Omit<JobUpdate, "id" | "first">,
   tell: (update: Omit<JobUpdate, "id" | "first">) => Promise<boolean>,
-  deps: JobDeps,
-): Promise<void> {
+): Promise<JobNext> {
   if (!(await tell(update)) && (run.owedTries ?? 0) + 1 < MAX_JOB_TRIES) {
     await storage.put<Stored>(RUN_KEY, { ...run, owed: update, owedTries: (run.owedTries ?? 0) + 1 });
-    await storage.setAlarm(deps.now() + RETRY_MS);
-    return log("report_retry", run.id);
+    log("report_retry", run.id);
+    return { kind: "after", ms: RETRY_MS };
   }
   await storage.delete(RUN_KEY);
   await storage.delete(STEERS_KEY);
   await storage.delete(STOP_KEY);
   log(update.state, run.id);
+  return { kind: "done" };
 }
 
 /** An answer's pictures as its update carries them: shrunk, then as many as fit (`jobPictures`). */

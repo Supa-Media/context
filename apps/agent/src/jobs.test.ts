@@ -191,8 +191,8 @@ describe("background jobs", () => {
     await acceptJob(storage, run(), NOW);
     const busy = { status: 503, body: { error: "model_unavailable" } };
     const { deps, reports } = jobDeps([busy, busy, busy]);
-    await runJob(storage, deps);
-    expect(storage.alarms.at(-1)).toBeGreaterThan(NOW);
+    // The pass says when to try again; its driver (workflow or alarm, `armJobNext`) waits.
+    expect(await runJob(storage, deps)).toMatchObject({ kind: "after" });
     await runJob(storage, deps);
     await runJob(storage, deps);
     expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [JOB_LINES.failed("Competitor research")] });

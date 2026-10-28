@@ -46,7 +46,8 @@ import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, runJob, steerJob } from "./jobRun";
+import { acceptJob, armJobNext, failJob, runJob, steerJob } from "./jobRun";
+import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -59,11 +60,13 @@ import { holdsAsYes, takesBackYes } from "./thumbs";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
+export { JobRunWorkflow } from "./jobWorkflow";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
   /** Sees each group turn through, with retries (`groupTurnWorkflow.ts`); absent, group turns are answered in their object. */
   GROUP_TURN?: Workflow<GroupTurnParams>;
+  JOB_RUN?: Workflow<JobRunParams>;
   /** Linq's `whsec_…` webhook signing secret. */
   LINQ_WEBHOOK_SECRET: string;
   /** Linq Partner API key, used to send replies. */
@@ -515,9 +518,14 @@ export class SenderInbox implements DurableObject {
     }
     // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
     if (path === "/job-start") {
-      await acceptJob(this.state.storage, (await request.json()) as JobRun, Date.now());
+      const run = (await request.json()) as JobRun;
+      const flow = this.env.JOB_RUN;
+      await acceptJob(this.state.storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
       return Response.json({ ok: true });
     }
+    // The job's workflow runs each pass here, and ends it here when every try failed (`jobWorkflow.ts`).
+    if (path === "/job-pass") return Response.json({ next: await runJob(this.state.storage, this.jobDeps()) });
+    if (path === "/job-failed") return Response.json({ next: await failJob(this.state.storage, this.jobDeps()) });
     if (path === "/job-steer") {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
@@ -551,8 +559,16 @@ export class SenderInbox implements DurableObject {
     await carryOnAfterSave(this.state.storage, this.deps());
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) });
-    // A job's object has only `jobrun`; every other object finds nothing to run.
-    await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
+    // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
+    // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
+    const flow = this.env.JOB_RUN;
+    if (!(flow && (await handOverJob(this.state.storage, flow)))) {
+      await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
+    }
+  }
+
+  private jobDeps() {
+    return { ...this.deps(), report: (inbox: string, update: JobUpdate) => this.reportJob(inbox, update) };
   }
 
   /** A group's token for its review, minted as a tagged turn's is; null unless the chat is ready. */
