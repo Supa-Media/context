@@ -21,10 +21,10 @@ test("names decide failing on most calls, with its causes", () => {
 });
 
 test("names texts dropped as unbound, and turns the workflow could not run", () => {
-  assert.deepEqual(problemsIn([turn("untagged_ignored", "unbound"), turn("untagged_kept", "style"), turn("workflow_unavailable"), turn("workflow_gave_up", "agent:502")]), [
+  assert.deepEqual(problemsIn([turn("untagged_ignored", "unbound"), turn("untagged_kept", "style"), turn("workflow_unavailable"), { ...turn("workflow_gave_up", "agent:502"), kind: "routine" }]), [
     "1 untagged group texts dropped as unbound",
-    "1 group turns: workflow_unavailable",
-    "1 group turns: workflow_gave_up (reasons: agent:502 1)",
+    "1 group turns: workflow_unavailable (kinds: asked 1)",
+    "1 group turns: workflow_gave_up (reasons: agent:502 1; kinds: routine 1)",
   ]);
 });
 

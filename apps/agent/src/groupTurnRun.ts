@@ -25,9 +25,12 @@ import type { GroupEntry, GroupPending } from "./groupTurn";
 import { dropParts, sendingFor } from "./groupSay";
 import { ServiceError } from "./clients";
 import { answerGroup, answerInline, turnFailed, type GroupDeps } from "./groupInbox";
+import { CHAT_LOOK_PATH } from "./groupRoutines";
 
 export const TURN_KEY = "gturn";
-export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; reason?: string; tries?: number };
+/** `kind`: a chat routine's run or a check-in (`groupRoutines.ts`), for the logs; absent for a turn people asked for. */
+export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; reason?: string; tries?: number; kind?: TurnKind };
+export type TurnKind = "routine" | "heartbeat";
 /** Failed starts before the turn is answered here instead. */
 export const MAX_STARTS = 3;
 export const START_RETRY_MS = 20_000;
@@ -48,7 +51,11 @@ const answering = new WeakMap<InboxStorage, Map<string, Promise<AnswerOutcome>>>
 export async function handOff(storage: InboxStorage, deps: GroupDeps, entries: GroupEntry[]): Promise<boolean> {
   // `ownTurn` marks the last one with what the chat said before it: kept, as the workflow's answer reads it from here.
   for (const [key, item] of entries) await storage.put<GroupPending>(key, item);
-  const turn: HandedTurn = { id: crypto.randomUUID(), keys: entries.map(([key]) => key), at: deps.now(), starts: 0 };
+  const routine = entries.at(-1)![1].message.routine;
+  // A routine's run is one instance per run id (Dev2, 2026-10-28): starting it again finds that instance, never a second run.
+  const id = routine === undefined ? crypto.randomUUID() : `routine-${routine.runId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80)}`;
+  const kind: TurnKind | undefined = routine === undefined ? undefined : routine.path === CHAT_LOOK_PATH ? "heartbeat" : "routine";
+  const turn: HandedTurn = { id, keys: entries.map(([key]) => key), at: deps.now(), starts: 0, ...(kind ? { kind } : {}) };
   await storage.put(TURN_KEY, turn);
   return await start(storage, deps, turn);
 }
@@ -74,18 +81,18 @@ async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   try {
     await deps.startTurn!(turn.id);
     await storage.put<HandedTurn>(TURN_KEY, { ...turn, started: true });
-    log("workflow_started");
+    log("workflow_started", undefined, undefined, turn.kind);
     return true;
   } catch {
     const starts = turn.starts + 1;
-    log("workflow_start_failed");
+    log("workflow_start_failed", undefined, undefined, turn.kind);
     if (starts < MAX_STARTS) {
       await storage.put<HandedTurn>(TURN_KEY, { ...turn, starts });
       await storage.setAlarm(deps.now() + START_RETRY_MS);
       return true;
     }
     // Loud: an error, so a broken binding or a Workflows outage is seen, never just slow.
-    console.error(JSON.stringify({ event: "group_turn", outcome: "workflow_unavailable" }));
+    console.error(JSON.stringify({ event: "group_turn", outcome: "workflow_unavailable", ...(turn.kind ? { kind: turn.kind } : {}) }));
     await storage.delete(TURN_KEY);
     return false;
   }
@@ -117,13 +124,13 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
     if (outcome !== "cancelled") for (const [key] of entries) await storage.delete(key);
   } catch (error) {
     const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
-    log("failed", reason, tries);
+    log("failed", reason, tries, turn.kind);
     await storage.put<HandedTurn>(TURN_KEY, { ...turn, tries, reason });
     return "failed";
   } finally {
     sendingFor(storage, null);
   }
-  log("workflow_answered", undefined, tries);
+  log("workflow_answered", undefined, tries, turn.kind);
   return await finish(storage, deps, id);
 }
 
@@ -133,7 +140,7 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
   if (turn?.id !== id) return "gone";
   const entries = await entriesOf(storage, turn);
   for (const [key] of entries) await storage.delete(key);
-  log("workflow_gave_up", turn.reason, turn.tries);
+  log("workflow_gave_up", turn.reason, turn.tries, turn.kind);
   const last = entries.at(-1)?.[1];
   if (last !== undefined) await turnFailed(storage, deps, last.message, turn.reason?.endsWith(":504") === true);
   return await finish(storage, deps, id);
@@ -156,6 +163,6 @@ async function entriesOf(storage: InboxStorage, turn: HandedTurn): Promise<Group
   return entries;
 }
 
-function log(outcome: string, reason?: string, attempts?: number): void {
-  console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}), ...(attempts ? { attempts } : {}) }));
+function log(outcome: string, reason?: string, attempts?: number, kind?: TurnKind): void {
+  console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}), ...(attempts ? { attempts } : {}), ...(kind ? { kind } : {}) }));
 }
