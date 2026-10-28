@@ -121,3 +121,13 @@ the chat's `chat-<id>.md` memory note stays plain), and the guest prompt says
 pages save there like anywhere and a refused page is fixed and written again,
 never replaced by a plain note. Test: `agentGroupGuests.test.mjs` "research a
 guest chat saves as a plain note goes back to be a page".
+
+A note a member saves in the chat's folder gets a row of its own, which the
+chat's rules read as private (`chatRules`), so the chat can neither see it nor
+write that name. On 2026-10-28 Tex picked exactly such a name for a page, read
+the write's "permission denied", and told the chat it couldn't write pages to
+its own folder. In the chat's own folder that refusal can only mean a name it
+can't see, so `groupGuests.js` turns it into "save it under a different name",
+which says nothing about what is there. Whether a member's note in a chat's
+folder should be readable by the chat is still open. Test:
+`agentGroupGuests.test.mjs` "a page named like a note the chat can't see".
