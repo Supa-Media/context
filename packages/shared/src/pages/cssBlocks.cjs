@@ -139,12 +139,18 @@ const BLOCKS_CSS = `
 .pg-venues{display:grid;gap:34px}
 @container pg (min-width:760px){.pg-venues{grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}.pg-venues.two{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pg-venue{display:grid;gap:12px;align-content:start;min-width:0}
-.pg-bento{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;gap:4px;height:230px;border-radius:18px;overflow:hidden;position:relative}
-.pg-bento .pg-ph{border-radius:0}
-.pg-bento.n3 .pg-ph:first-of-type{grid-row:1/3}
-.pg-bento.n1{grid-template-columns:1fr;grid-template-rows:1fr}
-.pg-bento.n2{grid-template-columns:1fr 1fr;grid-template-rows:1fr}
-.pg-bento .pg-no{position:absolute;top:10px;left:10px;z-index:1;box-shadow:0 0 0 3px var(--pg-bg)}
+.pg-gal{position:relative;min-width:0}
+.pg-gal-track{display:flex;gap:4px;overflow-x:auto;scroll-snap-type:x mandatory;border-radius:18px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.pg-gal-track::-webkit-scrollbar{display:none}
+.pg-gal-track>.pg-ph{flex:0 0 86%;height:250px;border-radius:0;scroll-snap-align:start}
+.pg-gal.n1 .pg-gal-track>.pg-ph{flex-basis:100%}
+@container pg (min-width:760px){.pg-gal-track>.pg-ph{flex-basis:calc(50% - 2px);height:300px}}
+.pg-gal .pg-no{position:absolute;top:10px;left:10px;z-index:1;box-shadow:0 0 0 3px var(--pg-bg)}
+.pg-gal-dots{display:flex;gap:6px;justify-content:center;padding-top:9px}
+.pg-gal-dots i{width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--pg-ink) 22%,transparent);transition:background .15s,width .15s}
+.pg-gal-dots i.on{background:var(--pg-accent);width:16px;border-radius:3px}
+.pg-src{display:inline-flex;align-items:center;gap:2px;font-size:12px;font-weight:600;color:var(--pg-muted);text-decoration:none;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-venue-h .pg-src,.pg-option .pg-src,.pg-vopt .pg-src,.pg-stop .pg-src,.pg-prow .pg-src{display:flex;margin-top:4px;width:max-content;color:var(--pg-accent);min-height:24px}
 .pg-venue-h{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .pg-venue h4{font-size:24px;line-height:1.05;letter-spacing:-.015em}
 .pg-where{display:block;font-size:14px;color:var(--pg-muted);margin-top:4px}

@@ -49,7 +49,8 @@ Order, top to bottom:
 
 - Labels short, names exact, numbers real and from what you read. A price you did not find is \`?\` (or Ask), drawn as one to ask about. Never 0, never a guess.
 - Facts as \`key: yes|no|?|word\` under a place (\`on the L: yes; kitchen: ?\`), the same keys on every place so they line up.
-- Photos make the page. For every place, dish or stop, use the real pictures you found on its own pages (or a picture search): pass each in the write's \`images\` as \`{ name: "stand-1.jpg", url: "<the picture's address>" }\` and name it in a field (\`photo: stand-1.jpg\`, \`photos: stand-1.jpg, stand-2.jpg\`, \`cover:\`). They are saved with the note and exported with it. Every option compared (a place, dish, country, hotel, product) gets a real picture: when its pages have none, search_web with pictures: true for its name, or open its page in your browser; never save a comparison page with no pictures because the first try found none. A wrong photo is worse than none, so check the name matches.
+- Photos make the page. For every place, dish or stop, use the real pictures you found on its own pages (or a picture search): pass each in the write's \`images\` as \`{ name: "stand-1.jpg", url: "<the picture's address>" }\` and name it in a field (\`photo: stand-1.jpg\`, \`photos: stand-1.jpg, stand-2.jpg\`, \`cover:\`). They are saved with the note and exported with it. Every option compared (a place, dish, country, hotel, product) gets a real picture: when its pages have none, search_web with pictures: true for its name, or open its page in your browser; never save a comparison page with no pictures because the first try found none. Give a place two to four photos (\`photos: a.jpg, b.jpg, c.jpg\`): they swipe as a carousel. A wrong photo is worse than none, so check the name matches.
+- Every option, place, price and stop gets \`source: <the page you read it on>\`, drawn as a link out to that site. Facts with no source are guesses.
 - A map: draw the places with \`draw_visual\` (template map) and keep that picture as the block's \`map: map.png\`, passing \`images: [{ name: "map.png", data: "picture:N" }]\`. Without one, each place still opens in a map app.
 - One idea per section. Five sections at most; move the rest to a linked note.
 - \`accent\` only if the subject has a color of its own; otherwise leave it.
@@ -67,7 +68,7 @@ Order, top to bottom:
 2. The decision (if any) is a vote near the top, with your pick and why.
 3. Every list of options, prices, places or times is a block, not prose or a table.
 4. No invented numbers; unknowns are \`?\`.
-5. Every place has an address; every contact has a phone, email or site.
+5. Every place has an address and a source; every contact has a phone, email or site.
 6. Section headings are answers, not topics.
 7. It reads on a phone: short labels, nothing that needs a wide screen.
 8. Your stamp is in the front matter (below).`;

@@ -88,6 +88,40 @@ function photo(src, ctx, { name = "", cls = "", label = "" } = {}) {
   return `<div class="pg-ph ${cls}" data-i="${initial}">${img}${label ? `<span class="pg-ph-label">${esc(label)}</span>` : ""}</div>`;
 }
 
+/**
+ * Where an option's facts came from: its `source:` (or `sources:`, `link:`,
+ * `url:`, `site:`) as a link out naming the site ("tagvenue.com ↗"), or "".
+ * Only a web address is ever drawn as one (owner, 2026-10-28: "there should
+ * be a link out to the website sources where we got the info").
+ */
+const SOURCE_KEYS = ["source", "sources", "link", "url", "site"];
+function sourceLink(item) {
+  const field = (item.fields ?? []).find((f) => SOURCE_KEYS.includes(f.key));
+  const raw = field ? field.value.text.split(/[\s,]+/).find((word) => word !== "") ?? "" : "";
+  const href = /^https?:\/\//i.test(raw) ? raw : /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(raw) ? `https://${raw}` : "";
+  if (!href || !SAFE_HREF.test(href)) return "";
+  const host = (/^https?:\/\/(?:www\.)?([^/?#:]+)/i.exec(href) ?? ["", "source"])[1].toLowerCase();
+  return `<a class="pg-src" href="${esc(href)}" data-href="${esc(href)}" title="${esc(href)}">${esc(host)} ↗</a>`;
+}
+
+/**
+ * Photos to swipe through: every one an option names, side by side, one
+ * slide wide with the next peeking in, a count and dots under them (the
+ * runtime moves the dots, `apps/mobile/page-frame/entry.js`). Owner,
+ * 2026-10-28: "show more images of the different options, and have a
+ * swipable carousel go through". `no` is the option's number, drawn over it.
+ */
+function gallery(pics, ctx, { name = "", no = "" } = {}) {
+  const shown = pics.length ? pics : [null];
+  const badge = no ? `<span class="pg-no">${esc(no)}</span>` : "";
+  const dots = shown.length > 1 ? `<div class="pg-gal-dots" aria-hidden="true">${shown.map((_, k) => `<i${k === 0 ? ' class="on"' : ""}></i>`).join("")}</div>` : "";
+  return (
+    `<div class="pg-gal n${Math.min(shown.length, 2)}">${badge}<div class="pg-gal-track" role="group" aria-label="${esc(`Photos of ${name}`)}">` +
+    shown.map((src, k) => photo(src, ctx, { name, label: shown.length > 1 && k === 0 ? `${shown.length} photos` : "" })).join("") +
+    `</div>${dots}</div>`
+  );
+}
+
 /** People as overlapping initials, each in one of six colors picked by their name. */
 function faces(names, cls = "") {
   if (names.length === 0) return "";
@@ -110,4 +144,4 @@ function faces(names, cls = "") {
 /** The names in a `votes:` field. */
 const voters = (field) => (field ? field.value.text.split(",").map((name) => name.trim()).filter((name) => name && !/^(none|-)$/i.test(name)).slice(0, 40) : []);
 
-module.exports = { esc, SAFE_HREF, SAFE_SRC, runsHtml, plain, part, fieldHtml, setting, itemName, sources, photo, faces, voters };
+module.exports = { esc, SAFE_HREF, SAFE_SRC, runsHtml, plain, part, fieldHtml, setting, itemName, sources, photo, faces, voters, sourceLink, gallery };
