@@ -369,10 +369,14 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     }
   }
 
-  /** A page write with its options' missing pictures put in first; the write's own answer, told what was added. */
+  /**
+   * A page write with its options' missing pictures put in first; the write's own answer, told what was added.
+   * Refused with them, it is written again as the writer sent it: a picture found for it never costs the save.
+   */
   async function pageWrite(args, callTool) {
     const { args: pictured, found } = await withPagePictures(args, { web, download: (address) => downloadPhoto(address, fetchImpl), shoot: shooterFor(shots, { timeoutMs: 10_000 }), read: () => outgoing?.read?.() ?? "" });
     const result = await callTool("write_note", pictured);
+    if (found.length > 0 && result?.isError === true) return callTool("write_note", args);
     if (found.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;
     return { ...result, content: [...result.content, { type: "text", text: `Pictures found and added to the page for: ${found.join(", ")}.` }] };
   }

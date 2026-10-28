@@ -426,3 +426,16 @@ enough to be retried. Each found picture goes in the write's `images` as
 bytes and a `photo:` field naming it is added under the option; nothing else
 in the page's words changes, and a page with nothing found is saved exactly
 as written. Tests: `apps/mcp/test/agentPagePictures.test.mjs`.
+
+A found picture never costs the save (2026-10-28). The first night, a WhatsApp
+guest chat's research page failed four times: a picture found for one venue
+was an AVIF, which a note write refuses (only PNG, JPEG, GIF, WebP and HEIC
+are stored), so the whole page was refused and every retry hunted the same
+picture again. Each found picture is now checked the way the write checks it
+(`notes/uploadedImages.js` `storableImage`) and left out if it would be
+refused or the pictures would pass half the write's size limit; its type comes
+from its bytes, never the address's header. And a page write refused with
+found pictures in it is written again exactly as the writer sent it.
+Simplifying either away brings back a page that cannot be saved for a reason
+the writer cannot see or fix. Tests: `agentPagePictures.test.mjs`, and
+`agentGroupGuests.test.mjs` "a guest chat saves its research as a page".

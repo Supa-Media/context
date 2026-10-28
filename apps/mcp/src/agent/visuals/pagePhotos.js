@@ -15,10 +15,17 @@
  * under the option, so the page and its export carry it like any picture the
  * writer attached (`notes/uploadedImages.js` rewrites the field to the stored
  * copy). The page's words are otherwise left exactly as written.
+ *
+ * Only a picture the write can store goes in. A search hit or a shot can be
+ * an AVIF or an SVG, which a note write refuses, and one such picture refused
+ * the whole page: Tex in a WhatsApp group, 2026-10-27 23:56, "the save failed
+ * four times", each retry hunting the same picture again. So each picture's
+ * bytes are checked the way the write checks them, and one it would refuse,
+ * or one past the write's size limit, is left out.
  */
 
 import { isPagePath, parsePage } from "../../../../../packages/shared/src/pages/parse.cjs";
-import { MAX_IMAGES_PER_WRITE } from "../../notes/uploadedImages.js";
+import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_BYTES_PER_WRITE, storableImage } from "../../notes/uploadedImages.js";
 import { huntPicture, within } from "./hunt.js";
 
 /** The blocks whose options each show a photo (`packages/shared/src/pages/blocks.cjs`). */
@@ -93,11 +100,15 @@ export async function withPagePictures(args, deps, { timeoutMs = PAGE_HUNT_TIMEO
   const got = await Promise.all(wanted.map((option) => within(huntPicture(option.name, option.query, deps).catch(() => null), timeoutMs)));
   const added = [];
   const lines = [];
+  let bytes = 0;
   got.forEach((picture, i) => {
-    if (!picture) return;
-    const type = /^data:([^;,]+)/.exec(picture.data)?.[1] ?? "image/jpeg";
-    const name = fileName(wanted[i].name, added.length + 1, type);
-    added.push({ name, data: picture.data });
+    const stored = picture ? storableImage(picture.data) : null;
+    if (!stored || bytes + stored.bytes > MAX_UPLOADED_BYTES_PER_WRITE / 2) return;
+    bytes += stored.bytes;
+    // The bytes name the type, never the address's header: a shot is labelled JPEG whatever it is.
+    const data = `data:${stored.contentType};base64,${picture.data.slice(picture.data.indexOf(",") + 1)}`;
+    const name = fileName(wanted[i].name, added.length + 1, stored.contentType);
+    added.push({ name, data });
     lines.push({ at: wanted[i].at, text: `\n${wanted[i].indent}  photo: ${name}`, name: wanted[i].name });
   });
   if (added.length === 0) return { args, found: [] };

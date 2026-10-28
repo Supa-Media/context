@@ -137,6 +137,20 @@ function decodeBase64(value) {
   }
 }
 
+/**
+ * The stored type of a base64 picture a write would accept, or null: what a
+ * caller attaching pictures it found itself checks first, so one it could
+ * never store (an AVIF, an SVG, an oversized photo) is left out rather than
+ * refusing the whole write (`agent/visuals/pagePhotos.js`). The same checks
+ * as `prepareNoteImages` below, which still decides.
+ */
+export function storableImage(data) {
+  const bytes = typeof data === "string" ? decodeBase64(data) : null;
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_UPLOADED_IMAGE_BYTES) return null;
+  const type = sniffImageType(bytes);
+  return type ? { contentType: type.contentType, bytes: bytes.byteLength } : null;
+}
+
 async function fetchImage(value, label) {
   const fetched = await fetchRemoteImage(value, (...request) => fetch(...request));
   if (fetched.error) return { error: `${label}: ${fetched.error}` };
