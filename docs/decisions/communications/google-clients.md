@@ -53,16 +53,30 @@ workspace only, redirect pinned to `APP_ORIGIN`. The authorize URL hints the
 connection's own address, and a consent from a different Google account binds
 nothing.
 
+**Scopes, per client.**
+
+| Client | Asks for | Used by |
+| --- | --- | --- |
+| Agent | identity; `gmail.readonly`, `gmail.compose`; `calendar.events`; `chat.messages.readonly`, `chat.spaces.readonly`, `chat.messages.create`, `chat.spaces.create` (per product connected) | Tex, AI clients, routines, sync |
+| Standard (today) | the same set plus `calendar.events.readonly` | the Meetings view's calendar read; until the switch, AI too |
+| Standard (after the switch, next step) | identity, plus `calendar.events.readonly` with Calendar | the Meetings view only |
+
+The agent consent drops `calendar.events.readonly`, which `calendar.events`
+covers. An agent grant counts as AI access only when it holds the read
+scopes of every product on the connection; a consent with boxes unticked is
+asked again. What AI may do (send mail, write the calendar, read or send
+Chat, the read-only marks in Settings) is read from the grant AI mints from
+(`aiScopesOf`), so after the switch the standard grant's scopes never vouch
+for AI. Narrowing the standard consent waits for the switch: until then AI
+reads through it, and today a connection's products are bound from it, so
+moving product binding onto the agent grant comes first. Existing broader
+grants are left as they are.
+
 **The split, by caller**: standard is `meetingCalendar` (the Meetings view) and
 `googleReconnect`; agent is every `/gateway/*` Google route (person mail,
 calendar, chat, calendar writes, email sends), the scope check and forward
 sync. Gateway approvals replayed from the console are still AI acting on the
 person's yes, so they stay agent.
-
-**Known simplification.** Capability checks after activation still read the
-connection's `scopes` (the standard grant's); the agent grant records its own
-`agentGrant.scopes`, asked for the same products. If the two ever diverge, the
-check moves to the role's grant.
 
 What reversing this costs: AI reads under the client the person consented to
 for their own use, which is the finding the CASA reviewer raised. The tests

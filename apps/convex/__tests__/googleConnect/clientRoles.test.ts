@@ -20,6 +20,8 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { drainScheduled, seedGoogleConnection } from "../fixtures.helpers";
+import { agentGrantCovers, agentScopesFor, aiScopesOf } from "../../functions/lib/googleConnect/aiScopes";
+import { CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE } from "../../functions/lib/googleOAuth";
 import { withSession } from "../session.helpers";
 import { APP, personalScenario } from "./fixtures.helpers";
 
@@ -202,6 +204,7 @@ describe("allowing AI access", () => {
     expect(url.searchParams.get("client_id")).toBe(AGENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(CALLBACK);
     expect(url.searchParams.get("login_hint")).toBe("person@example.invalid");
+    expect(url.searchParams.get("scope")?.split(" ")).toContain("https://www.googleapis.com/auth/gmail.compose");
 
     const stranger = await t.run((ctx) => ctx.db.insert("users", { email: "stranger@example.invalid", emailVerificationTime: Date.now() } as never));
     await expect(
@@ -298,10 +301,41 @@ describe("allowing AI access", () => {
     configure({ active: true });
     expect(await ask()).toBe("needed");
     await t.run(async (ctx) => {
-      const grant = { encryptedRefreshToken: "sealed", scopes: [], grantedAt: Date.now() };
+      const grant = { encryptedRefreshToken: "sealed", scopes: ["openid"], grantedAt: Date.now() };
+      await ctx.db.patch(connectionId, { agentGrant: grant });
+    });
+    // A consent with Gmail's box unticked is not AI access to Gmail: asked again.
+    expect(await ask()).toBe("needed");
+    await t.run(async (ctx) => {
+      const grant = { encryptedRefreshToken: "sealed", scopes: ["https://www.googleapis.com/auth/gmail.readonly"], grantedAt: Date.now() };
       await ctx.db.patch(connectionId, { agentGrant: grant });
     });
     expect(await ask()).toBe("granted");
   });
 });
 
+describe("what AI may act on", () => {
+  const STANDARD = { scopes: [CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE] };
+  const AGENT = { scopes: ["https://www.googleapis.com/auth/gmail.readonly"] };
+
+  test("is the standard grant's scopes before the switch, for an account that has not allowed AI access", () => {
+    configure({ active: false });
+    expect(aiScopesOf(STANDARD)).toEqual(STANDARD.scopes);
+  });
+
+  test("is the agent grant's scopes once AI reads through it, never the standard grant's", () => {
+    configure({ active: false });
+    expect(aiScopesOf({ ...STANDARD, agentGrant: AGENT })).toEqual(AGENT.scopes);
+    configure({ active: true });
+    expect(aiScopesOf({ ...STANDARD, agentGrant: AGENT })).toEqual(AGENT.scopes);
+    expect(aiScopesOf(STANDARD)).toEqual([]);
+  });
+
+  test("the agent consent asks for calendar.events and not the read-only scope it covers", () => {
+    const scopes = agentScopesFor(["gmail", "calendar", "chat"]);
+    expect(scopes).toContain(CALENDAR_WRITE_SCOPE);
+    expect(scopes).not.toContain("https://www.googleapis.com/auth/calendar.events.readonly");
+    expect(agentGrantCovers(["gmail", "calendar", "chat"], scopes)).toBe(true);
+    expect(agentGrantCovers(["gmail", "calendar"], ["https://www.googleapis.com/auth/gmail.readonly"])).toBe(false);
+  });
+});

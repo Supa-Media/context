@@ -8,6 +8,7 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { agentGrantCovers } from "./lib/googleConnect/aiScopes";
 import { agentClientActive, agentClientConfigured } from "./lib/googleConnect/clients";
 import { requirePersonalOwnerHandler } from "./lib/googleConnect/attempts";
 import { getAuthUserId } from "./lib/signedIn";
@@ -20,7 +21,8 @@ const aiAccess = v.union(v.literal("not_needed"), v.literal("available"), v.lite
  * the switch (AI still reads through the grant they gave, and allowing AI
  * access moves that account onto the agent client); `needed` after the
  * switch until they allow it, since AI then cannot read the account; then
- * `granted`.
+ * `granted`, once the agent grant holds the read scopes of every product the
+ * connection has (a consent with boxes unticked is asked again).
  */
 export const myGoogleAiAccess = query({
   args: { workspaceId: v.id("workspaces") },
@@ -41,7 +43,7 @@ export const myGoogleAiAccess = query({
         connectionId: row._id,
         address: row.address,
         aiAccess:
-          row.agentGrant !== undefined
+          row.agentGrant !== undefined && agentGrantCovers(row.products, row.agentGrant.scopes)
             ? ("granted" as const)
             : active
               ? ("needed" as const)

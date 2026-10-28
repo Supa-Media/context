@@ -22,6 +22,7 @@ import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { GMAIL_COMPOSE_SCOPE, canSendEmail, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
+import { aiScopesOf } from "./lib/googleConnect/aiScopes";
 
 const refusal = v.union(
   v.literal("not_allowed"),
@@ -80,7 +81,7 @@ export const claimPersonEmail = internalMutation({
       (row) =>
         row.disconnectedAt === undefined &&
         row.products.includes("gmail") &&
-        granted(row.scopes) &&
+        granted(aiScopesOf(row)) &&
         (args.from === null || row.address.toLowerCase() === args.from),
     );
     // A mailbox whose Google sign-in stopped working cannot send: another one

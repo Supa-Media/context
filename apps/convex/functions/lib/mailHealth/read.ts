@@ -22,6 +22,7 @@ import { personalWorkspaceOf } from "../../textLinks";
 import { HEARTBEAT_CLIENT_ID, HEARTBEAT_LEASE_MS } from "../heartbeats/model";
 import { TELLABLE, mailboxState, toldRecently, type MailboxState } from "./model";
 import { canSendEmail } from "../googleOAuth";
+import { aiScopesOf } from "../googleConnect/aiScopes";
 
 /**
  * What an agent is told about one mailbox. `tell`: a check-in should say it
@@ -66,7 +67,7 @@ async function mailboxesOf(ctx: QueryCtx, cleared: Cleared, now: number) {
     const health = mailboxState(row, now);
     if (health === null) continue;
     const tell = TELLABLE.has(health.state) && !toldRecently(notices, row._id, health.state, now);
-    found.push({ connectionId: row._id, address: row.address, ...health, tell, readOnly: !canSendEmail(row.scopes) });
+    found.push({ connectionId: row._id, address: row.address, ...health, tell, readOnly: !canSendEmail(aiScopesOf(row)) });
   }
   return found.sort((a, b) => a.address.localeCompare(b.address));
 }
