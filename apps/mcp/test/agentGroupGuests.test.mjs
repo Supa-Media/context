@@ -23,6 +23,11 @@
  *    releases nothing held for the person who turned guest mode on";
  *  - `groupOf` trusting the Worker's `guest` instead of the session's names:
  *    "a guest chat is known by its grant".
+ *
+ * Sabotage record (2026-10-28): `withPagePictures` putting in a picture
+ * without `storableImage`'s check fails "a guest chat saves its research as
+ * a page, pictures found for it included" (the AVIF shot refused the whole
+ * page, 2026-10-27 23:56).
  */
 
 import assert from "node:assert/strict";
@@ -37,6 +42,7 @@ import { actorAccessOf } from "../src/vault/access.js";
 import { guestInfoOf } from "../src/agent/groupGuests.js";
 import { recipientMaySee } from "../src/live/relayAuthorization.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
+import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 
 const TOKEN_CHAT = `cat_group_guests_chat_${"0".repeat(18)}`;
 const KEY = "c".repeat(64);
@@ -146,6 +152,49 @@ test("a note shared to view is read, never changed; the chat's folder is written
   assert.equal(bodyAt("trip/new.md"), undefined);
   assert.match(bodyAt(`${FOLDER}/plan.md`), /Lisbon/);
   assert.equal(bodyAt("notes/plan.md"), undefined);
+});
+
+test("a guest chat saves its research as a page, pictures found for it included", async () => {
+  // On 2026-10-27 at 23:56 a WhatsApp guest chat asked for its research as a page and Tex
+  // answered "the save failed four times": a picture found for one venue was an AVIF.
+  const avif = btoa("\0\0\0\x1cftypavif\0\0\0\0avifmif1");
+  const jpeg = btoa("\xff\xd8\xff\xe0\0\x10JFIF");
+  const shots = {
+    fetch: async (_, init) => {
+      const { url } = JSON.parse(init.body);
+      return Response.json({ shots: [{ jpeg: url.includes("thestand") ? avif : jpeg }] });
+    },
+  };
+  const page = [
+    "---",
+    "kind: research",
+    `skill: ${PAGE_SKILL_STAMP}`,
+    "---",
+    "# Venues for 300",
+    "",
+    "```places Two rooms",
+    "- The Stand: 116 E 16th St | 300 to 500, near Union Square",
+    "- 3 West Club: 3 W 51st St | from $2,850",
+    "```",
+    "",
+  ].join("\n");
+  world.model.install([
+    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/venues.page.md`, content: page } }] },
+    { text: "Saved the page." },
+  ]);
+  const question = [
+    "Tex put all this research into a page",
+    "1. The Stand - private events - https://thestand.example/events",
+    "2. 3 West Club - events - https://3westclub.example/",
+  ].join("\n");
+  const asked = await request({ ...world.env, SITE_SHOTS: shots }, TOKEN_CHAT, "/agent", { question, group: chat(""), timeZone: "UTC" });
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  const [written] = toolReplies(world.model.requests.at(-1));
+  assert.match(written, /written: tex\/chats\/chair-blast-tiger\/venues\.page\.md/);
+  assert.match(written, /Pictures found and added to the page for: 3 West Club/);
+  const saved = bodyAt(`${FOLDER}/venues.page.md`);
+  assert.match(saved, /# Venues for 300/);
+  assert.equal((saved.match(/photo:/g) ?? []).length, 1, "only the picture a note can hold went in");
 });
 
 test("a guest's email goes only from a member, on that member's yes", async () => {

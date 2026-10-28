@@ -13,6 +13,10 @@
  *     gets one" and "through the picture tools" fail.
  *   The `photo:` line written without the extra indent → "a place with no
  *     photo gets one" fails (the field becomes a block setting).
+ *   `storableImage`'s check skipped → "a picture the write could not store is
+ *     left out" fails (2026-10-28).
+ *   `pageWrite` not writing again as sent when refused with pictures → "a page
+ *     write refused with the pictures found is written again" fails.
  */
 
 import assert from "node:assert/strict";
@@ -85,7 +89,7 @@ test("a place with no photo gets one: a photo field under it and the picture in 
 test("a place's picture is the screenshot of its own page when no picture search finds one", async () => {
   const read = () => "1. Hav and Mar - Chelsea restaurant - https://havandmar.example/";
   const shot = [];
-  const shoot = async (url) => (shot.push(url), "data:image/jpeg;base64,c2hvdA==");
+  const shoot = async (url) => (shot.push(url), "data:image/jpeg;base64,/9j/4A==");
   const { args } = await withPagePictures({ path: "dinner.page.md", content: PAGE }, { web: web().call, download, shoot, read });
   assert.deepEqual(shot, ["https://havandmar.example/"]);
   assert.equal(fieldsOf(args.content)[0].photo, "hav-and-mar-1.jpg");
@@ -108,7 +112,7 @@ test("nothing found leaves the page's words exactly as written", async () => {
 
 test("through the picture tools, a texted turn's page write is saved with the pictures and says so", async () => {
   const outgoing = outgoingPictures({ enabled: true, question: "dinner options in chelsea, make me a page" });
-  const maker = pictureMaker({ SITE_SHOTS: { fetch: async () => Response.json({ shots: [] }) } }, { outgoing, fetchImpl: async () => new Response(new Uint8Array([0xff, 0xd8]), { headers: { "content-type": "image/jpeg" } }) });
+  const maker = pictureMaker({ SITE_SHOTS: { fetch: async () => Response.json({ shots: [] }) } }, { outgoing, fetchImpl: async () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { headers: { "content-type": "image/jpeg" } }) });
   const w = web({ "Hav and Mar 245 Eleventh Ave": [["Hav and Mar", "https://cdn.example/havmar.jpg"]] });
   maker.useWeb(w.call);
   assert.equal(maker.has("write_note"), true);
@@ -119,4 +123,46 @@ test("through the picture tools, a texted turn's page write is saved with the pi
   assert.equal(fieldsOf(saved[0].args.content)[0].photo, "hav-and-mar-1.jpg");
   assert.match(saved[0].args.images[0].data, /^data:image\/jpeg;base64,/);
   assert.match(result.content.at(-1).text, /Pictures found and added to the page for: Hav and Mar/);
+});
+
+// An AVIF's first bytes (`ftypavif`) and an SVG: both download as pictures, and a note write refuses both.
+const AVIF = `data:image/avif;base64,${btoa("\0\0\0\x1cftypavif\0\0\0\0avifmif1")}`;
+const SVG = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg"/>')}`;
+
+test("a picture the write could not store is left out, so it never refuses the page", async () => {
+  const w = web({
+    "Hav and Mar 245 Eleventh Ave": [["Hav and Mar", "https://cdn.example/havmar.avif"]],
+    "Shukette 230 9th Ave": [["Shukette", "https://cdn.example/shukette.svg"]],
+  });
+  const fetched = { "https://cdn.example/havmar.avif": AVIF, "https://cdn.example/shukette.svg": SVG };
+  const args = { path: "dinner.page.md", content: PAGE };
+  const out = await withPagePictures(args, { web: w.call, download: async (address) => fetched[address] ?? null });
+  assert.equal(out.args, args, "nothing it could not store went in");
+  assert.deepEqual(out.found, []);
+});
+
+test("a shot labelled JPEG goes in as the type its bytes are", async () => {
+  const png = `data:image/jpeg;base64,${btoa("\x89PNG\r\n\x1a\n\0\0\0\0")}`;
+  const read = () => "1. Shukette - Chelsea restaurant - https://shukette.example/";
+  const { args } = await withPagePictures({ path: "dinner.page.md", content: PAGE }, { web: web().call, download, shoot: async () => png, read });
+  assert.equal(args.images.length, 1);
+  assert.match(args.images[0].data, /^data:image\/png;base64,/);
+  assert.equal(args.images[0].name, "shukette-1.png");
+});
+
+test("a page write refused with the pictures found is written again as it was sent", async () => {
+  const outgoing = outgoingPictures({ enabled: true, question: "dinner options in chelsea, make me a page" });
+  const maker = pictureMaker({ SITE_SHOTS: { fetch: async () => Response.json({ shots: [] }) } }, { outgoing, fetchImpl: async () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { headers: { "content-type": "image/jpeg" } }) });
+  maker.useWeb(web({ "Hav and Mar 245 Eleventh Ave": [["Hav and Mar", "https://cdn.example/havmar.jpg"]] }).call);
+  const saved = [];
+  const call = withPictureMaker(maker, async (name, args) => {
+    saved.push(args);
+    return args.images?.length ? { content: [{ type: "text", text: "images[0]: not a picture" }], isError: true } : { content: [{ type: "text", text: "Saved." }] };
+  });
+  const result = await call("write_note", { path: "dinner.page.md", content: PAGE });
+  assert.equal(saved.length, 2);
+  assert.equal(saved[1].content, PAGE, "the second write is the page as written");
+  assert.equal(saved[1].images, undefined);
+  assert.notEqual(result.isError, true);
+  assert.match(result.content[0].text, /Saved/);
 });
