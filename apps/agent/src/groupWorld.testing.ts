@@ -42,6 +42,9 @@ export function setup(
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
+  /** Each `/agent-texts/group/style` set, and the group's style as the control plane keeps it (`texStyle.ts`). */
+  const styles: Record<string, unknown>[] = [];
+  let groupStyle: Record<string, unknown> = {};
   const people: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
@@ -91,6 +94,11 @@ export function setup(
       people.push(body);
       return Response.json({ ok: true });
     }
+    if (path === "/agent-texts/group/style") {
+      styles.push(body);
+      groupStyle = { ...groupStyle, ...body.style };
+      return Response.json({ ok: true, style: groupStyle });
+    }
     if (path === "/agent-texts/group/engagement") {
       engagement.push(body);
       return Response.json({ ok: true });
@@ -113,6 +121,7 @@ export function setup(
         ...(opts.control ?? {}),
         // Chosen once a member chose, as the control plane's row says.
         ...(engagement.length > 0 ? { engagementChosen: true } : {}),
+        ...(Object.keys(groupStyle).length > 0 ? { texStyle: groupStyle } : {}),
       });
     }
     if (path === "/agent/events") {
@@ -164,7 +173,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, asks, control, engagement, people, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, asks, control, engagement, styles, people, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */

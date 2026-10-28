@@ -165,6 +165,7 @@ import type * as functions_otherEmail from "../functions/otherEmail.js";
 import type * as functions_workspaceDomains from "../functions/workspaceDomains.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
+import type * as functions_texStyle from "../functions/texStyle.js";
 import type * as functions_spelling from "../functions/spelling.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textPhones from "../functions/textPhones.js";
@@ -384,6 +385,7 @@ declare const fullApi: ApiFromModules<{
   "functions/workspaceDomains": typeof functions_workspaceDomains;
   "functions/telemetry": typeof functions_telemetry;
   "functions/appearance": typeof functions_appearance;
+  "functions/texStyle": typeof functions_texStyle;
   "functions/spelling": typeof functions_spelling;
   "functions/textLinks": typeof functions_textLinks;
   "functions/textPhones": typeof functions_textPhones;

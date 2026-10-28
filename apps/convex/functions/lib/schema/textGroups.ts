@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { texStyleValidator } from "../texStyle";
 
 /**
  * The iMessage group chats Tex has been tagged in (`functions/textGroups.ts`).
@@ -51,6 +52,10 @@ export const textGroupTables = {
     /** Who chose it: their display handle or label as the Worker named them, or a `groupKey`-salted hash of a number. */
     engagementSetBy: v.optional(v.string()),
     engagementSetAt: v.optional(v.number()),
+    /** How Tex talks in this chat (`lib/texStyle.ts`, Dev2, 2026-10-28): only changed settings; who changed them last, as `engagementSetBy`. */
+    texStyle: v.optional(texStyleValidator),
+    texStyleSetBy: v.optional(v.string()),
+    texStyleSetAt: v.optional(v.number()),
     lastSeenAt: v.number(),
     /**
      * The chat's own check-in (`lib/textGroupLooks.ts`, decided by the owner, 2026-10-27): when the next look is

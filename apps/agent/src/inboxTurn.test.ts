@@ -65,6 +65,8 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
   const agentBodies: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
+  /** Each "Tex, settings" save (`texStyle.ts`). */
+  const styles: unknown[] = [];
   /** The message each tapback went on: Sendblue's handle, or Whapi's id in the path. */
   const reactedOn: string[] = [];
   /** The order of what the person can see and what was asked: read, typing, decide, agent. */
@@ -76,6 +78,7 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     if (path === "/api/mark-read" || (parsed.host === "gate.whapi.cloud" && init?.method === "PUT" && path.startsWith("/messages/") && !path.endsWith("/reaction"))) calls.push("read");
     if (/typing|presences/.test(path)) calls.push("typing");
     if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "tok" });
+    if (path === "/agent-texts/style") return (styles.push(body.style), Response.json({ ok: true, style: body.style }));
     if (path === "/agent-texts/decide") {
       calls.push("decide");
       decided.push(body);
@@ -114,7 +117,7 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     whapi: { token: "wt", line: LINE },
     now: () => 5_000,
   };
-  return { deps, decided, asks, agentBodies, texts, reactions, reactedOn, calls };
+  return { deps, decided, asks, agentBodies, texts, reactions, reactedOn, calls, styles };
 }
 
 const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
@@ -328,5 +331,24 @@ describe("decide in a person's own chat", () => {
       new URL(url).pathname === "/agent-texts/link" ? Response.json({ status: "linked", handle: "ada" }) : w.deps.fetch(url, init)) as unknown as Fetch;
     await drain(storage, { ...w.deps, fetch: linked });
     expect(w.decided).toEqual([]);
+  });
+});
+
+// Dev2, 2026-10-28: a reply to the open settings menu is answered by code, never put to decide (`texStyle.ts`).
+describe("\"Tex, settings\" in a person's own chat", () => {
+  it("a bare number, then a choice, changes the setting even when decide would say silent", async () => {
+    const storage = new MemoryStorage();
+    const w = world(act("silent"));
+    const chat = LINES[0].chatId;
+    for (const [n, text] of ["Tex, settings", "3", "1"].entries()) {
+      await accept(storage, msg(chat, `s${n}`, text), 1_000 + n);
+      await drain(storage, w.deps);
+    }
+    expect(w.decided).toEqual([]);
+    expect(w.asks).toEqual([]);
+    expect(w.texts[0]).toMatch(/^My settings here:/);
+    expect(w.texts[1]).toMatch(/^Warmth \(now Default\)/);
+    expect(w.styles).toEqual([{ warmth: "more" }]);
+    expect(w.texts[2]).toBe("Warmth set to More.");
   });
 });
