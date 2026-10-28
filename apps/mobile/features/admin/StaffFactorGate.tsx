@@ -93,7 +93,7 @@ export function StaffFactorGate({ factor, offer = false }: { factor: StaffFactor
             {factor.setupKey!.replace(/(.{4})/g, "$1 ").trim()}
           </Text>
           {factor.setupUri ? (
-            <Button label="Open in authenticator" variant="ghost" onPress={() => void Linking.openURL(factor.setupUri!)} />
+            <Button label="Open in authenticator" variant="mini" onPress={() => void Linking.openURL(factor.setupUri!)} />
           ) : null}
         </View>
       ) : null}
