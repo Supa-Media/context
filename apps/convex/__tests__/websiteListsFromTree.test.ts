@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import { api } from "../_generated/api";
 import { asUser, readIntoTree } from "./fixtures.helpers";
 import {
   bodyKeyOf,
@@ -80,7 +80,7 @@ describe("public list blocks read the tree", () => {
     expect(resolved.markdown).not.toContain("Held post");
   });
 
-  test("a listed note whose facts predate the website flags is left out until they are read", async () => {
+  test("a listed note whose facts predate the website flags is read by the list's own fill pass", async () => {
     const f = await fixture();
     f.backend.seed(
       "website/index.md",
@@ -105,19 +105,12 @@ describe("public list blocks read the tree", () => {
         .unique();
       await ctx.db.patch(state!._id, { propsVersion: undefined, upgradeAfter: undefined });
     });
-    const resolve = async () => {
-      const resolved = await f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath: "/" });
-      if (resolved.kind !== "page") throw new Error("expected a website page");
-      return resolved.markdown;
-    };
-    expect(await resolve()).not.toContain("Old facts");
-
-    // The next fill re-reads it, the fill staying ready throughout.
-    await f.t.action(internal.functions.files.runFileOperation, {
-      workspaceId: f.workspaceId,
-      scope: "private" as const,
-      operation: { kind: "nodesFactFill" as const },
-    });
+    // Facts that cannot be trusted are read again before the list is drawn
+    // (`currentRows`), rather than the note left out until the next fill
+    // (reported 2026-10-28, websiteLaggingFacts.test.ts).
+    const resolved = await f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath: "/" });
+    if (resolved.kind !== "page") throw new Error("expected a website page");
+    expect(resolved.markdown).toContain("Old facts");
     const state = await f.t.run((ctx) =>
       ctx.db
         .query("nodeFactState")
@@ -125,6 +118,5 @@ describe("public list blocks read the tree", () => {
         .unique(),
     );
     expect(state).toMatchObject({ ready: true, propsVersion: 2 });
-    expect(await resolve()).toContain("Old facts");
   });
 });
