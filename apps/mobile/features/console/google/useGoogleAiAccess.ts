@@ -3,16 +3,21 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 
 /**
- * The person's connected accounts that AI cannot read yet: empty until AI
- * access to Google runs through its own client, then each account until its
- * owner allows it (functions/googleClientsAccess.ts).
+ * Accounts the person can allow AI access for, by connection
+ * (functions/googleClientsAccess.ts): `available` once the agent client is
+ * set up and before AI is switched onto it (an optional, per-account move),
+ * `needed` after the switch, when AI cannot read the account without it.
  */
-export function useGoogleAiAccessNeeded(workspaceId: string): ReadonlySet<string> {
+export type GoogleAiAsk = "available" | "needed";
+
+export function useGoogleAiAccess(workspaceId: string): ReadonlyMap<string, GoogleAiAsk> {
   const rows = useQuery(api.functions.googleClientsAccess.myGoogleAiAccess, {
     workspaceId: workspaceId as Id<"workspaces">,
   });
-  if (!Array.isArray(rows)) return NONE;
-  return new Set(rows.filter((row) => row.aiAccess === "needed").map((row) => row.connectionId as string));
+  const asks = new Map<string, GoogleAiAsk>();
+  if (!Array.isArray(rows)) return asks;
+  for (const row of rows) {
+    if (row.aiAccess === "available" || row.aiAccess === "needed") asks.set(row.connectionId as string, row.aiAccess);
+  }
+  return asks;
 }
-
-const NONE: ReadonlySet<string> = new Set();

@@ -13,14 +13,21 @@
  *  - `agent`: Tex, AI clients through the gateway, routines, and sync whose
  *    output is written into notes for AI to read. `googleConnections.agentGrant`.
  *
- * Staged: until `GOOGLE_AGENT_CLIENT_ACTIVE` is `true` and the agent client is
- * configured, the agent role mints from the standard grant, which is today's
- * behaviour and what every existing grant was issued under. Once active, the
- * agent role mints from `agentGrant` ONLY: a connection without one answers
- * `refused` and the app asks the person to allow AI access, through a second
- * consent on the same `/connect/google` callback, bound to the connection by
- * a parked attempt (state, PKCE, completion secret) like every connect. There
- * is no fallback to the standard grant, ever, after activation.
+ * Staged. Once the agent client is configured, a person may allow AI access
+ * through a second consent on the same `/connect/google` callback, bound to
+ * the connection by a parked attempt (state, PKCE, completion secret) like
+ * every connect, and from then AI reads that account through the agent
+ * grant: a per-account rollout before anything is switched on. Everyone
+ * else's AI keeps reading through the standard grant, today's behaviour,
+ * until `GOOGLE_AGENT_CLIENT_ACTIVE` is `true`. From then the agent role
+ * mints from `agentGrant` ONLY, and fails closed without one, or without a
+ * configured agent client. There is no fallback to the standard grant after
+ * the switch.
+ *
+ * Nothing here revokes a grant at Google except an explicit disconnect.
+ * Google's revoke ends the account's grants to the whole project, every
+ * client, so revoking a replaced agent token, or a consent from the wrong
+ * account, would also end the grants it was meant to keep.
  *
  * This module opens refresh tokens (it is on the decrypt allowlist in
  * `__tests__/structure/fixtures.helpers.ts`); everything that does is
@@ -42,7 +49,7 @@ import {
   revokeGoogleToken,
   scopesForConnect,
 } from "./lib/googleOAuth";
-import { agentClientActive, googleClientFor } from "./lib/googleConnect/clients";
+import { googleClientFor } from "./lib/googleConnect/clients";
 import { ATTEMPT_TTL_MS, requireActor, STATE_BYTES } from "./lib/googleConnect/config";
 
 
@@ -77,15 +84,16 @@ export const dropAgentGrant = internalMutation({
 /**
  * Start the agent client's consent for one of the person's connections. The
  * same scopes the connection was given, the same `/connect/google` callback,
- * pinned to the app's origin; refused until the agent client is active.
+ * pinned to the app's origin; refused only while no agent client is
+ * configured, so it can be proven on real accounts before the switch.
  */
 export const startGoogleAgentConnect = action({
   args: { workspaceId: v.id("workspaces"), connectionId: v.id("googleConnections"), redirectUri: v.string() },
   returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
   handler: async (ctx, args): Promise<{ authorizeUrl: string; completionSecret: string }> => {
-    const client = agentClientActive() ? googleClientFor("agent") : null;
+    const client = googleClientFor("agent");
     if (client === null) {
-      throw new ConvexError({ code: "AGENT_CLIENT_INACTIVE", message: "AI access to Google is not switched on for this deployment." });
+      throw new ConvexError({ code: "AGENT_CLIENT_NOT_CONFIGURED", message: "AI access to Google is not set up on this deployment." });
     }
     const userId = await requireActor(ctx);
     const target: { address: string; products: Array<"gmail" | "calendar" | "chat"> } | null = await ctx.runQuery(
@@ -215,8 +223,9 @@ export const exchangeAndBindAgent = internalAction({
       accessTokenExpiresAt: tokens.expiresAt,
     });
     // A consent from a different Google account than the connection's binds
-    // nothing, and its grant is given back rather than kept.
-    if (!bound) await revokeGoogleToken({ token: tokens.refreshToken }).catch(() => {});
+    // nothing, and its tokens are discarded here. Not revoked: Google's revoke
+    // would end that account's grants to every client of this project,
+    // including any connection it already has in Context.
     console.log(JSON.stringify({ event: bound ? "google.agent_grant_bound" : "google.agent_grant_refused", connectionId: args.connectionId }));
     return null;
   },
@@ -243,7 +252,8 @@ export const applyAgentGrant = internalMutation({
     ) {
       return false;
     }
-    const previous = connection.agentGrant?.encryptedRefreshToken;
+    // A replaced agent grant is discarded, not revoked: Google's revoke would
+    // end this account's grants to the whole project, the new one included.
     await ctx.db.patch(args.connectionId, {
       agentGrant: {
         encryptedRefreshToken: args.encryptedRefreshToken,
@@ -253,17 +263,15 @@ export const applyAgentGrant = internalMutation({
         grantedAt: Date.now(),
       },
     });
-    if (previous !== undefined) {
-      await ctx.scheduler.runAfter(0, internal.functions.googleClients.revokeAgentGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: previous,
-      });
-    }
     return true;
   },
 });
 
-/** Disable an agent grant at Google: after a disconnect, or when a new one replaced it. Best effort. */
+/**
+ * Revoke an agent grant at Google, on an explicit disconnect only, beside the
+ * standard grant's own revoke: Google ends the account's grants to every
+ * client of this project, which is what disconnecting means. Best effort.
+ */
 export const revokeAgentGrant = internalAction({
   args: { workspaceId: v.id("workspaces"), encryptedRefreshToken: v.string() },
   returns: v.null(),

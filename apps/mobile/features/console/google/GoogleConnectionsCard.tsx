@@ -18,7 +18,7 @@ import {
   readOnlyOf,
   type GoogleService,
 } from "./googleStatus";
-import { useGoogleAiAccessNeeded } from "./useGoogleAiAccess";
+import { useGoogleAiAccess, type GoogleAiAsk } from "./useGoogleAiAccess";
 import { useGoogleStart } from "./useGoogleStart";
 
 export { accountStatus } from "./googleStatus";
@@ -190,8 +190,8 @@ function OwnerGoogleCard(props: {
   loading: boolean;
 }) {
   const google = useGoogleStart(props.actions.workspaceId);
-  const aiNeeded = useGoogleAiAccessNeeded(props.actions.workspaceId);
-  return <GoogleCardBody {...props} google={google} aiNeeded={aiNeeded} />;
+  const aiAsks = useGoogleAiAccess(props.actions.workspaceId);
+  return <GoogleCardBody {...props} google={google} aiAsks={aiAsks} />;
 }
 
 function GoogleCardBody({
@@ -199,13 +199,13 @@ function GoogleCardBody({
   actions,
   loading,
   google,
-  aiNeeded,
+  aiAsks,
 }: {
   connections: GoogleConnection[];
   actions?: GoogleActions;
   loading: boolean;
   google?: StartGoogle;
-  aiNeeded?: ReadonlySet<string>;
+  aiAsks?: ReadonlyMap<string, GoogleAiAsk>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const empty = connections.length === 0;
@@ -226,7 +226,7 @@ function GoogleCardBody({
             connection={connection}
             actions={actions}
             google={google}
-            aiNeeded={aiNeeded?.has(connection.connectionId) === true}
+            aiAsk={aiAsks?.get(connection.connectionId)}
             first={index === 0}
           />
         ))}
@@ -258,14 +258,18 @@ function GoogleAccountRow({
   connection,
   actions,
   google,
-  aiNeeded = false,
+  aiAsk,
   first,
 }: {
   connection: GoogleConnection;
   actions?: GoogleActions;
   google?: StartGoogle;
-  /** AI reads this account through its own consent, which it has not had yet. */
-  aiNeeded?: boolean;
+  /**
+   * AI reads this account through its own consent, which it has not had:
+   * offered in the menu while that is optional, and on the row once AI
+   * cannot read the account without it.
+   */
+  aiAsk?: GoogleAiAsk;
   first: boolean;
 }) {
   const colors = useColors();
@@ -282,7 +286,7 @@ function GoogleAccountRow({
   // Reconnect is offered on the row only when signing in again is what fixes it.
   const offerReconnect = (needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
   // A broken grant is fixed by reconnecting first; AI access is the next step.
-  const offerAi = aiNeeded && canReconnect && !offerReconnect;
+  const offerAi = aiAsk === "needed" && canReconnect && !offerReconnect;
 
   const sentence = offerAi ? `${status.text} Your AI can't read it until you allow it.` : status.text;
   const tint = broken ? styles.critText : null;
@@ -293,7 +297,7 @@ function GoogleAccountRow({
     ...(canReconnect
       ? [{ id: "reconnect" as const, label: "Reconnect with Google", testID: `menu-reconnect-${connection.connectionId}` }]
       : []),
-    ...(aiNeeded && canReconnect
+    ...(aiAsk !== undefined && canReconnect
       ? [{ id: "allow-ai" as const, label: "Allow AI access", testID: `menu-allow-ai-${connection.connectionId}` }]
       : []),
     ...(actions === undefined
@@ -407,8 +411,8 @@ function GoogleAccountRow({
         <View style={styles.confirm}>
           <Text variant="rowSub" role="status">
             {words === ""
-              ? `Context stops reading ${connection.email}. Notes already saved stay where they are, and you can connect it again.`
-              : `${words} stop for ${connection.email}. Notes already saved stay where they are, and you can connect it again.`}
+              ? `Context stops reading ${connection.email}. Google ends Context's access to this account, for you and your AI. Notes already saved stay where they are, and you can connect it again.`
+              : `${words} stop for ${connection.email}. Google ends Context's access to this account, for you and your AI. Notes already saved stay where they are, and you can connect it again.`}
           </Text>
           <View style={styles.confirmActions}>
             {/*

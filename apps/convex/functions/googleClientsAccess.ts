@@ -8,16 +8,19 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { agentClientActive } from "./lib/googleConnect/clients";
+import { agentClientActive, agentClientConfigured } from "./lib/googleConnect/clients";
 import { requirePersonalOwnerHandler } from "./lib/googleConnect/attempts";
 import { getAuthUserId } from "./lib/signedIn";
 
-const aiAccess = v.union(v.literal("not_needed"), v.literal("needed"), v.literal("granted"));
+const aiAccess = v.union(v.literal("not_needed"), v.literal("available"), v.literal("needed"), v.literal("granted"));
 
 /**
  * One row per live connection in the person's own workspace. `not_needed`
- * while the agent client is off (AI reads go through the one grant they gave),
- * then `needed` until they allow AI access for that account, then `granted`.
+ * while no agent client is configured; `available` once one is but before
+ * the switch (AI still reads through the grant they gave, and allowing AI
+ * access moves that account onto the agent client); `needed` after the
+ * switch until they allow it, since AI then cannot read the account; then
+ * `granted`.
  */
 export const myGoogleAiAccess = query({
   args: { workspaceId: v.id("workspaces") },
@@ -27,6 +30,7 @@ export const myGoogleAiAccess = query({
     if (userId === null) return [];
     if (!(await requirePersonalOwnerHandler(ctx, { workspaceId: args.workspaceId, userId }))) return [];
     const active = agentClientActive();
+    const configured = agentClientConfigured();
     const rows = await ctx.db
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -36,7 +40,14 @@ export const myGoogleAiAccess = query({
       .map((row) => ({
         connectionId: row._id,
         address: row.address,
-        aiAccess: !active ? ("not_needed" as const) : row.agentGrant !== undefined ? ("granted" as const) : ("needed" as const),
+        aiAccess:
+          row.agentGrant !== undefined
+            ? ("granted" as const)
+            : active
+              ? ("needed" as const)
+              : configured
+                ? ("available" as const)
+                : ("not_needed" as const),
       }));
   },
 });

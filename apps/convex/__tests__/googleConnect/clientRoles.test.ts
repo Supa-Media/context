@@ -6,10 +6,13 @@
  *
  * Sabotage (temporary local edits, reverted): `grantFor` answering
  * "standard" for an active agent role fails "after activation an agent call
- * never uses the standard grant"; dropping the `googleAccountId` comparison
- * in `applyAgentGrant` fails "a consent from another Google account binds
- * nothing"; refreshing the agent grant with the standard client fails "the
- * agent grant refreshes with the agent client".
+ * never uses the standard grant"; `agentClientActive` requiring the client id
+ * again fails "switched on with the agent client missing fails closed";
+ * dropping the `googleAccountId` comparison in `applyAgentGrant` fails "a
+ * consent from another Google account binds nothing"; refreshing the agent
+ * grant with the standard client fails "the agent grant refreshes with the
+ * agent client"; scheduling `revokeAgentGrant` for a replaced grant fails
+ * "allowing AI access again ... never calls Google's revoke".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -30,9 +33,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function configure({ active }: { active: boolean }) {
+function configure({ active, agentClient = true }: { active: boolean; agentClient?: boolean }) {
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", STANDARD_ID);
-  vi.stubEnv("GOOGLE_AGENT_OAUTH_CLIENT_ID", AGENT_ID);
+  vi.stubEnv("GOOGLE_AGENT_OAUTH_CLIENT_ID", agentClient ? AGENT_ID : "");
   vi.stubEnv("GOOGLE_AGENT_CLIENT_ACTIVE", active ? "true" : "");
   vi.stubEnv("APP_ORIGIN", APP);
 }
@@ -42,13 +45,17 @@ function idToken(claims: Record<string, unknown>): string {
   return `${part({ alg: "none" })}.${part(claims)}.sig`;
 }
 
-/** Google's token endpoint: records which client asked, answers as told. */
+/** Google's token endpoint: records which client asked (and every revoke), answers as told. */
 function tokenEndpoint(answer: { refused?: boolean; sub?: string } = {}) {
-  const asked: Array<{ grantType: string | null; clientId: string | null }> = [];
+  const asked: Array<{ grantType: string | null; clientId: string | null }> & { revokes?: number } = [];
+  asked.revokes = 0;
   const realFetch = globalThis.fetch;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.startsWith("https://oauth2.googleapis.com/revoke")) return new Response("{}", { status: 200 });
+    if (url.startsWith("https://oauth2.googleapis.com/revoke")) {
+      asked.revokes = (asked.revokes ?? 0) + 1;
+      return new Response("{}", { status: 200 });
+    }
     if (!url.startsWith("https://oauth2.googleapis.com/token")) return await realFetch(input, init);
     const form = new URLSearchParams(String(init?.body ?? ""));
     asked.push({ grantType: form.get("grant_type"), clientId: form.get("client_id") });
@@ -100,13 +107,38 @@ describe("which grant a call uses", () => {
     expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "minted", accessToken: "standard-access-token" });
   });
 
+  test("before activation an account whose owner allowed AI access is read through the agent grant", async () => {
+    configure({ active: false });
+    const { t, connectionId } = await connection(true);
+    expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "minted", accessToken: "agent-access-token" });
+    expect(await mint(t, connectionId, "standard")).toMatchObject({ kind: "minted", accessToken: "standard-access-token" });
+  });
+
+  test("before activation a refused agent grant is dropped and the account goes back to the standard grant", async () => {
+    configure({ active: false });
+    const asked = tokenEndpoint({ refused: true });
+    const { t, connectionId } = await connection(true);
+    expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "reconnect_required" });
+    expect(asked.map((entry) => entry.clientId)).toEqual([AGENT_ID, STANDARD_ID]);
+    expect((await t.run((ctx) => ctx.db.get(connectionId)))?.agentGrant).toBeUndefined();
+  });
+
+  test("switched on with the agent client missing fails closed, never back to the standard grant", async () => {
+    configure({ active: true, agentClient: false });
+    const asked = tokenEndpoint();
+    const { t, connectionId } = await connection();
+    expect(await mint(t, connectionId, "agent")).toEqual({ kind: "refused" });
+    expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "refused" });
+    expect(asked.length).toBe(0);
+  });
+
   test("after activation an agent call never uses the standard grant", async () => {
     configure({ active: true });
     const asked = tokenEndpoint();
     const { t, connectionId } = await connection();
     expect(await mint(t, connectionId, "agent")).toEqual({ kind: "refused" });
     expect(await mint(t, connectionId, "agent", true)).toEqual({ kind: "refused" });
-    expect(asked).toEqual([]);
+    expect(asked.length).toBe(0);
   });
 
   test("after activation the person's own use stays on the standard grant, and AI on the agent one", async () => {
@@ -137,12 +169,25 @@ describe("which grant a call uses", () => {
 });
 
 describe("allowing AI access", () => {
-  test("is refused while the agent client is off", async () => {
+  test("is refused while no agent client is configured, switched on or not", async () => {
+    for (const active of [false, true]) {
+      configure({ active, agentClient: false });
+      const { t, owner, workspaceId, connectionId } = await connection();
+      await expect(
+        withSession(t, owner).action(api.functions.googleClients.startGoogleAgentConnect, { workspaceId, connectionId, redirectUri: CALLBACK }),
+      ).rejects.toThrow(/not set up/);
+    }
+  });
+
+  test("is open before the switch once the agent client is configured, so it can be proven first", async () => {
     configure({ active: false });
     const { t, owner, workspaceId, connectionId } = await connection();
-    await expect(
-      withSession(t, owner).action(api.functions.googleClients.startGoogleAgentConnect, { workspaceId, connectionId, redirectUri: CALLBACK }),
-    ).rejects.toThrow(/not switched on/);
+    const started = await withSession(t, owner).action(api.functions.googleClients.startGoogleAgentConnect, {
+      workspaceId,
+      connectionId,
+      redirectUri: CALLBACK,
+    });
+    expect(new URL(started.authorizeUrl).searchParams.get("client_id")).toBe(AGENT_ID);
   });
 
   test("asks the agent client for the connection's own account, and only its owner may", async () => {
@@ -171,10 +216,8 @@ describe("allowing AI access", () => {
     ).rejects.toThrow(/redirect/i);
   });
 
-  async function consent(sub?: string) {
-    configure({ active: true });
-    tokenEndpoint({ sub });
-    const scenario = await connection();
+  type Scenario = Awaited<ReturnType<typeof connection>>;
+  async function allow(scenario: Scenario) {
     const { t, workspaceId, connectionId, owner } = scenario;
     const started = await withSession(t, owner).action(api.functions.googleClients.startGoogleAgentConnect, {
       workspaceId,
@@ -188,7 +231,14 @@ describe("allowing AI access", () => {
       completionSecret: started.completionSecret,
     });
     await drainScheduled(t);
-    return { ...scenario, done, state, completionSecret: started.completionSecret };
+    return { done, state, completionSecret: started.completionSecret };
+  }
+
+  async function consent(sub?: string) {
+    configure({ active: true });
+    const google = tokenEndpoint({ sub });
+    const scenario = await connection();
+    return { ...scenario, ...(await allow(scenario)), google };
   }
 
   test("the shared callback binds the agent grant to that connection, beside the standard one", async () => {
@@ -200,10 +250,23 @@ describe("allowing AI access", () => {
     expect(await mint(t, connectionId, "agent")).toMatchObject({ kind: "minted", accessToken: `access-for-${AGENT_ID}` });
   });
 
-  test("a consent from another Google account binds nothing", async () => {
-    const { t, connectionId } = await consent("some-other-google-account");
+  test("a consent from another Google account binds nothing, and is not revoked at Google", async () => {
+    // Google's revoke ends an account's grants to every client of the project,
+    // so revoking it would also end any connection that account already has.
+    const { t, connectionId, google } = await consent("some-other-google-account");
     const row = await t.run((ctx) => ctx.db.get(connectionId));
     expect(row?.agentGrant).toBeUndefined();
+    expect(google.revokes).toBe(0);
+  });
+
+  test("allowing AI access again replaces the agent grant and never calls Google's revoke", async () => {
+    const scenario = await consent();
+    const first = (await scenario.t.run((ctx) => ctx.db.get(scenario.connectionId)))?.agentGrant?.grantedAt;
+    await allow(scenario);
+    const row = await scenario.t.run((ctx) => ctx.db.get(scenario.connectionId));
+    expect(row?.agentGrant?.grantedAt).toBeGreaterThanOrEqual(first ?? 0);
+    expect(row?.encryptedRefreshToken).toBeTruthy();
+    expect(scenario.google.revokes).toBe(0);
   });
 
   test("an attempt is spent once, and a wrong completion secret spends it", async () => {
@@ -214,20 +277,31 @@ describe("allowing AI access", () => {
     expect(await t.run((ctx) => ctx.db.query("googleAgentAttempts").collect())).toEqual([]);
   });
 
-  test("disconnecting forgets both grants", async () => {
-    const { t, owner, workspaceId, connectionId } = await consent();
+  test("disconnecting forgets both grants and revokes them at Google", async () => {
+    const { t, owner, workspaceId, connectionId, google } = await consent();
     await withSession(t, owner).mutation(api.functions.googleConnect.disconnectGoogleConnection, { workspaceId, connectionId });
+    await drainScheduled(t);
     const row = await t.run((ctx) => ctx.db.get(connectionId));
     expect(row?.agentGrant).toBeUndefined();
     expect(row?.encryptedRefreshToken).toBe("");
+    expect(google.revokes).toBe(2);
   });
 
-  test("the app is told which accounts still need AI access", async () => {
+  test("the app is told which accounts can, or must, allow AI access", async () => {
+    const { t, owner, workspaceId, connectionId } = await connection();
+    const ask = async () =>
+      (await withSession(t, owner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId }))[0]?.aiAccess;
+    configure({ active: false, agentClient: false });
+    expect(await ask()).toBe("not_needed");
     configure({ active: false });
-    const { t, owner, workspaceId } = await connection();
-    expect((await withSession(t, owner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId }))[0]?.aiAccess).toBe("not_needed");
+    expect(await ask()).toBe("available");
     configure({ active: true });
-    expect((await withSession(t, owner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId }))[0]?.aiAccess).toBe("needed");
+    expect(await ask()).toBe("needed");
+    await t.run(async (ctx) => {
+      const grant = { encryptedRefreshToken: "sealed", scopes: [], grantedAt: Date.now() };
+      await ctx.db.patch(connectionId, { agentGrant: grant });
+    });
+    expect(await ask()).toBe("granted");
   });
 });
 

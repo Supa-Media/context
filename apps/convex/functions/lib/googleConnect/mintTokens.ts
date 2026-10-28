@@ -11,7 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "../crypto";
 import { GoogleOAuthError, isGoogleReconnectRequired, refreshGoogleToken } from "../googleOAuth";
-import { googleClientFor, grantFor, type GoogleClientRole } from "./clients";
+import { agentClientActive, googleClientFor, grantFor, type GoogleClientRole } from "./clients";
 import type { MintOutcome } from "./syncTokens";
 
 type ConnectionTokens = {
@@ -35,8 +35,8 @@ export async function mintAccessToken(
 ): Promise<MintOutcome> {
   const connection: ConnectionTokens | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, { connectionId });
   if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused" };
-  const grant = grantFor(role);
-  // After activation an agent call takes the agent grant or nothing.
+  const grant = grantFor(role, connection.agentGrant !== undefined);
+  // Once switched on, an agent call takes the agent grant or nothing.
   const tokens = grant === "agent" ? connection.agentGrant : connection;
   if (tokens === undefined || tokens.encryptedRefreshToken.length === 0) return { kind: "refused" };
 
@@ -65,6 +65,8 @@ export async function mintAccessToken(
     if (isGoogleReconnectRequired(error)) {
       if (grant === "agent") {
         await ctx.runMutation(internal.functions.googleClients.dropAgentGrant, { connectionId });
+        // Before the switch, the account goes back to the one grant everyone else reads through.
+        if (!agentClientActive()) return await mintAccessToken(ctx, connectionId, forceRefresh, role);
         return { kind: "refused" };
       }
       await ctx.runMutation(internal.functions.googleConnect.markReconnectRequired, { connectionId });

@@ -352,7 +352,24 @@ describe("allowing AI access", () => {
     screen.unmount();
   });
 
-  test("an account AI already reads, or before the split, says nothing about it", () => {
+  test("before the switch, allowing AI access is offered in the menu, not as a problem on the row", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "available" }];
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).not.toContain("allow it");
+    await screen.click("google-account-google_1");
+    expect(document.querySelector('[data-testid="menu-allow-ai-google_1"]')).not.toBeNull();
+    screen.unmount();
+  });
+
+  test("disconnecting says Google ends Context's access to the account", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
+    expect(screen.text()).toContain("Google ends Context's access to this account, for you and your AI.");
+    screen.unmount();
+  });
+
+  test("an account AI already reads, or with no agent client, says nothing about it", () => {
     for (const aiAccess of ["granted", "not_needed"]) {
       mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess }];
       const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
