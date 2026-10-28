@@ -22,8 +22,16 @@ import { PAGE_SKILL } from "../pageSkill.js";
 /** They asked, in so many words, for a plain note: the one case a new note is not a page. */
 const ASKS_PLAIN = /\b(?:(?:plain|regular|normal|simple|ordinary|markdown|md) (?:note|markdown|text|file)|not (?:as )?a page|no page|without a page)\b/i;
 
-/** Tex's own notes and records that stay plain: to-dos, memory, front pages, routines, chats, transcripts, the inbox. */
-const NOT_A_PAGE = /(?:^|\/)(?:todo|about-me|index|about)\.md$|^(?:@[^/]+\/)?(?:tex|inbox|\.context|routines)\//i;
+/**
+ * Tex's own notes and records that stay plain: to-dos, memory, front pages,
+ * routines, chats, transcripts, the inbox. A guest chat's folder,
+ * `tex/chats/<words>/`, is not one of them: it is the only place a group chat
+ * with guests may write, so what Tex makes for that chat lands there and is a
+ * page like any other (2026-10-28: the research for a WhatsApp guest chat was
+ * saved plain twice, and never sent back, because the folder sits under tex/).
+ * Only the chat's own memory note there, `chat-<id>.md`, stays plain.
+ */
+const NOT_A_PAGE = /(?:^|\/)(?:todo|about-me|index|about|chat-[0-9a-f]+)\.md$|^(?:@[^/]+\/)?(?:tex(?!\/chats\/[^/]+\/)|inbox|\.context|routines)\//i;
 
 /**
  * The note writes a turn made, as `{ path, content, created }`, from a call to
