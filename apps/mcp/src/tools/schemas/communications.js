@@ -45,6 +45,12 @@ export function communicationsToolDefinitions() {
         properties: {
           date: { type: "string", description: "The first day, YYYY-MM-DD" },
           days: { type: "integer", minimum: 1, maximum: 14, description: "How many days from date. Default 1" },
+          account: {
+            type: "string",
+            description:
+              "One connected Google address to read only that calendar. Left out, every connected calendar is read. " +
+              "An address that isn't connected is refused; no other calendar is read instead.",
+          },
         },
         required: ["date"],
         additionalProperties: false,

@@ -111,7 +111,7 @@ export function translateSearch(call, app = {}) {
 /** Keyword ids: exact, case-sensitive, after trimming. */
 const KEYWORDS = {
   "meetings:": { name: "list_meetings", action: "meetings", copy: ["limit"] },
-  "calendar:": { name: "read_calendar", action: "calendar", copy: ["date", "days"] },
+  "calendar:": { name: "read_calendar", action: "calendar", copy: ["date", "days", "account"] },
   "messages:": { name: "list_channel_days", action: "messages", copy: ["channel", "account", "limit"] },
   "contacts:": { name: "list_contacts", action: "contacts", copy: ["limit"] },
   "activity:": { name: "read_activity", action: "activity", copy: ["limit"] },

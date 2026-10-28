@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-28",
     text:
+      'fetch id "calendar:" (read_calendar) takes `account`: one connected Google address, and only that calendar is read. ' +
+      "An address that isn't connected is refused (other_calendar) and no other calendar is read instead; left out, every calendar is read.",
+  },
+  {
+    date: "2026-10-28",
+    text:
       "orient with `since` (the `orient_mark` an earlier orient ended with) answers with only what changed since then: much shorter " +
       "and faster than the overview, for orienting again in one session. And every change's answer now ends with an " +
       "`outcome: {applied, path, visibility, etag}` line, or `{applied: false, error}` with a code such as CONFLICT; any etag a tool " +
@@ -351,7 +357,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "7e775af4";
+export const TOOL_SHAPE = "6597959b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

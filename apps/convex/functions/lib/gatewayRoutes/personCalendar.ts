@@ -2,11 +2,16 @@
  * `POST /gateway/calendar/days`: a run of days of a person's own Google
  * calendars, read live (`functions/personCalendar.ts`).
  *
- * Body `{ accessToken, expectedWorkspaceId, date, days? }` answers
+ * Body `{ accessToken, expectedWorkspaceId, date, days?, account? }` answers
  * `{ ok: true, days: [{ address, date, timezone, events, text }], unanswered?, reconnect? }`,
  * one entry per calendar per day, where `text` is the day rendered as the
  * calendar day note used to be (events fenced as untrusted, since an event's
  * words are whoever sent the invite). Or `{ ok: false, refused }`.
+ *
+ * `account` names one of the person's connected Google addresses, and then
+ * only that calendar is read; one they have not connected is refused
+ * (`other_calendar`) and no other calendar is read in its place. Left out,
+ * every connected calendar is read, as before.
  *
  * Nothing read here is stored or logged: a log line carries an outcome and a
  * count, never a title, a guest or a time.
@@ -21,6 +26,15 @@ import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 import { MAX_LIVE_CALENDAR_DAYS, readCalendarDays } from "../../../../mcp/src/communications/calendarLive.js";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_ACCOUNT = 320;
+
+/** The chosen address, trimmed and lowercased; undefined when none was given; null when not a usable one. */
+export function chosenAccount(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return null;
+  const account = value.trim().toLowerCase();
+  return account === "" || account.length > MAX_ACCOUNT || !account.includes("@") ? null : account;
+}
 
 function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_calendar", ...fields }));
@@ -33,7 +47,9 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   const expected = stringField(body, "expectedWorkspaceId");
   const date = typeof body.date === "string" ? body.date : "";
   const days = body.days === undefined ? 1 : body.days;
+  const account = chosenAccount(body.account);
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });
+  if (account === null) return json({ ok: false, refused: "invalid" });
   if (!DATE.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return json({ ok: false, refused: "invalid" });
   if (!Number.isInteger(days) || (days as number) < 1 || (days as number) > MAX_LIVE_CALENDAR_DAYS) {
     return json({ ok: false, refused: "invalid" });
@@ -42,6 +58,7 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   const claimed = await ctx.runMutation(internal.functions.personCalendar.claimPersonCalendarRead, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,
+    ...(account === undefined ? {} : { account }),
   });
   if (!claimed.ok) {
     log({ outcome: "refused", reason: claimed.refused });

@@ -5,6 +5,11 @@
  * and adding them back as needed"), so every question about a day is asked of
  * Google at that moment. One mutation, so the clearance and the rate limit are
  * one transaction, as `personMail.ts` does for mail.
+ *
+ * `account`, when given, is one of the person's own connected addresses
+ * (already trimmed and lowercased by the route): only that calendar is read.
+ * One they have not connected answers `other_calendar`, never the others
+ * (owner, 2026-10-28, after a read meant for one account pulled the rest).
  */
 
 import { v } from "convex/values";
@@ -17,7 +22,7 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 export const PERSON_CALENDAR_READS_PER_HOUR = 300;
 
 export const claimPersonCalendarRead = internalMutation({
-  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string(), account: v.optional(v.string()) },
   returns: v.union(
     v.object({
       ok: v.literal(true),
@@ -26,7 +31,13 @@ export const claimPersonCalendarRead = internalMutation({
     }),
     v.object({
       ok: v.literal(false),
-      refused: v.union(v.literal("not_allowed"), v.literal("no_calendar"), v.literal("rate_limited"), v.literal("reconnect_required")),
+      refused: v.union(
+        v.literal("not_allowed"),
+        v.literal("no_calendar"),
+        v.literal("other_calendar"),
+        v.literal("rate_limited"),
+        v.literal("reconnect_required"),
+      ),
       reconnect: v.optional(v.array(v.string())),
     }),
   ),
@@ -37,9 +48,14 @@ export const claimPersonCalendarRead = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.workspace._id))
       .take(20);
-    const calendars = connections.filter(
+    const connected = connections.filter(
       (row) => row.disconnectedAt === undefined && row.products.includes("calendar"),
     );
+    const calendars =
+      args.account === undefined ? connected : connected.filter((row) => row.address.toLowerCase() === args.account);
+    if (args.account !== undefined && calendars.length === 0) {
+      return { ok: false as const, refused: connected.length === 0 ? ("no_calendar" as const) : ("other_calendar" as const) };
+    }
     // A calendar whose sign-in Google stopped honouring is named, so the
     // person is told to reconnect it rather than its days reading as empty.
     // So is one whose AI grant does not read the calendar (a box left

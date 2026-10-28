@@ -132,7 +132,7 @@ const GROUND_RULES = [
  */
 export const SYNCED_PLACES_LINE =
   "Once they connect Google, you read their calendar and email from Google itself when they ask; none of it is copied into their notes. " +
-  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar. ' +
+  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar, or only account: "<address>" when they ask about one. ' +
   "For their email, search with args { email: true }. " +
   "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says.";
 
