@@ -117,6 +117,17 @@ describe("the email sign-in code", () => {
     expect(await t.run((ctx) => ctx.db.query("authVerificationCodes").collect())).toHaveLength(1);
   });
 
+  test("a new code does not reset the guess limit", async () => {
+    // The limit is kept per address, not per code: asking for another code
+    // after ten wrong guesses buys no more guesses.
+    const t = setupTest();
+    const first = await requestCode(t);
+    const wrong = first === "123456" ? "654321" : "123456";
+    for (let guess = 0; guess < 10; guess++) await expect(verify(t, wrong)).rejects.toThrow(/Could not verify code/);
+    const fresh = await requestCode(t);
+    await expect(verify(t, fresh)).rejects.toThrow(/Could not verify code/);
+  });
+
   test("one address's code does not sign in another", async () => {
     const t = setupTest();
     const code = await requestCode(t, "first@context.invalid");
