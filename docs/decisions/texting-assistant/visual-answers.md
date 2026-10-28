@@ -421,7 +421,7 @@ A texted turn's `.page.md` write passes through the picture tools
 (`pictureMaker.js` `pageWrite`, `agent/visuals/pagePhotos.js`): each option in
 a `places`, `vote`, `prices` or `itinerary` block with no `photo:` or
 `photos:` field is hunted for side by side (a place searched with its
-address), at most eight, within 12 seconds so the write never looks slow
+address), at most eight, within 14 seconds so the write never looks slow
 enough to be retried. Each found picture goes in the write's `images` as
 bytes and a `photo:` field naming it is added under the option; nothing else
 in the page's words changes, and a page with nothing found is saved exactly
@@ -439,3 +439,10 @@ found pictures in it is written again exactly as the writer sent it.
 Simplifying either away brings back a page that cannot be saved for a reason
 the writer cannot see or fix. Tests: `agentPagePictures.test.mjs`, and
 `agentGroupGuests.test.mjs` "a guest chat saves its research as a page".
+
+Then converted, not dropped (owner, 2026-10-28: "can't we convert it? cant we
+screenshot it?"). A page's picture is asked for as JPEG, PNG, WebP or GIF
+only, so a site that negotiates sends one of those; one that still comes as
+AVIF or SVG is opened in the browser (site-shots) and photographed as a JPEG
+(`pagePhotos.js` `storableDownload`); only when that fails too does the hunt
+move to its next picture, then to a screenshot of the option's own page.

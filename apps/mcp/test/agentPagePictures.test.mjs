@@ -25,7 +25,7 @@ import { test } from "node:test";
 import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { unpictured, withPagePictures } from "../src/agent/visuals/pagePhotos.js";
+import { STORABLE_ACCEPT, storableDownload, unpictured, withPagePictures } from "../src/agent/visuals/pagePhotos.js";
 
 const PAGE = [
   "---",
@@ -165,4 +165,19 @@ test("a page write refused with the pictures found is written again as it was se
   assert.equal(saved[1].images, undefined);
   assert.notEqual(result.isError, true);
   assert.match(result.content[0].text, /Saved/);
+});
+
+test("a page's picture is asked for in a stored format, and one that comes as AVIF is photographed as a JPEG", async () => {
+  const asked = [];
+  const jpeg = "data:image/jpeg;base64,/9j/4A==";
+  const fetched = { "https://cdn.example/a.jpg": jpeg, "https://cdn.example/b.avif": AVIF, "https://cdn.example/c.svg": SVG };
+  const download = async (address, headers) => (asked.push([address, headers.accept]), fetched[address] ?? null);
+  const shot = [];
+  const get = storableDownload(download, async (address) => (shot.push(address), address.endsWith(".svg") ? null : jpeg));
+  assert.equal(await get("https://cdn.example/a.jpg"), jpeg);
+  assert.equal(await get("https://cdn.example/b.avif"), jpeg, "the AVIF comes back as the browser's JPEG of it");
+  assert.equal(await get("https://cdn.example/c.svg"), null, "nothing storable: the hunt tries its next way");
+  assert.equal(await get("https://cdn.example/missing.jpg"), null);
+  assert.deepEqual(shot, ["https://cdn.example/b.avif", "https://cdn.example/c.svg"], "only what a note can't store is photographed");
+  assert.ok(asked.every(([, accept]) => accept === STORABLE_ACCEPT && !/avif|svg/.test(accept)));
 });

@@ -27,7 +27,8 @@
  * Sabotage record (2026-10-28): `withPagePictures` putting in a picture
  * without `storableImage`'s check fails "a guest chat saves its research as
  * a page, pictures found for it included" (the AVIF shot refused the whole
- * page, 2026-10-27 23:56).
+ * page, 2026-10-27 23:56); `pageNotice.js`'s NOT_A_PAGE keeping all of tex/
+ * plain fails "research a guest chat saves as a plain note goes back".
  */
 
 import assert from "node:assert/strict";
@@ -138,6 +139,8 @@ test("a note shared to view is read, never changed; the chat's folder is written
       ],
     },
     { text: "Saved the hotels." },
+    // The plain hotels note goes back to be a page (`pageNotice.js`); this answer is the one after it.
+    { text: "Saved the hotels." },
   ]);
   const asked = await tagged("", "Tex save the hotels and cancel the flights");
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
@@ -195,6 +198,21 @@ test("a guest chat saves its research as a page, pictures found for it included"
   const saved = bodyAt(`${FOLDER}/venues.page.md`);
   assert.match(saved, /# Venues for 300/);
   assert.equal((saved.match(/photo:/g) ?? []).length, 1, "only the picture a note can hold went in");
+});
+
+test("research a guest chat saves as a plain note goes back to be a page, and the chat is told pages save here", async () => {
+  // 2026-10-28 00:25: asked to save the page again, Tex saved the research plain and told the chat
+  // "the page format keeps failing from this chat"; the folder being under tex/, nothing sent it back.
+  world.model.install([
+    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research.md`, content: "# Research\n\nThe Stand.\n" } }] },
+    { text: "Saved it." },
+    { text: "Saved the page." },
+  ]);
+  const asked = await tagged("", "Tex try to save the page again");
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  const system = JSON.stringify(world.model.requests[0].system);
+  assert.match(system, /as a page \(<name>\.page\.md\) like any new note: pages save here like anywhere else/);
+  assert.match(JSON.stringify(world.model.requests.at(-1)), new RegExp(`Write it again now as ${FOLDER}/research\\.page\\.md`));
 });
 
 test("a guest's email goes only from a member, on that member's yes", async () => {
