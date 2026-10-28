@@ -135,9 +135,8 @@ them fail in ways that look like bugs rather than like refusals.
    part of the signed bundle. There is no login item today; there is also no
    way to add one over the air.
 
-7. **The Electron and Chromium version.** Electron 44, pinned as
-   `electron: "^44.10.0"` in `apps/desktop/package.json` (from 33 on
-   2026-10-28, for its security fixes; macOS 12 is now the floor). Chromium
+7. **The Electron and Chromium version.** Electron 44 (`^44.10.0`, from 33 on
+   2026-10-28 for its security fixes; macOS 12 is the floor). Chromium
    security fixes arrive only in a new Electron, and a new Electron is a new
    binary. Nothing in this design changes that, and it is the reason the honest
    goal is not the one the question asked for.
