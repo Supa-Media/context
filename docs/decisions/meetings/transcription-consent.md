@@ -1,5 +1,22 @@
 # Cloud transcription consent
 
+## Name the current recipients before Allow, without a new binary (2026-10-28)
+
+The owner subsequently approved naming the current providers in the short
+question. Apple explicitly requested the recipient before sharing and said a
+privacy policy alone is insufficient. Disclosure version 3 now names Cloudflare
+for recording audio and Anthropic for transcripts and typed notes, with the
+purpose next to each. The same question still covers transcripts and summaries.
+A recipient or purpose change requires a version bump and a fresh affirmative
+answer. Earlier generic version-2 answers do not authorize this disclosure.
+
+The app and backend share the version. The existing stale-version refusal test
+and the recipient/version pin prove old answers cannot send data; the short-copy
+test checks both recipients and their data categories before the Allow button.
+This is JavaScript/backend work only. The submitted build 12, native microphone
+permission text, native dependencies and runtime stay unchanged. Historical
+choices below are superseded where they conflict with this section.
+
 ## One short question covers transcripts and summaries, and names no provider (2026-10-28)
 
 The owner reviewed the first dialog and asked for one consent screen, far

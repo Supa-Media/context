@@ -48,7 +48,7 @@ describe("the privacy policy describes meeting transcripts and summaries", () =>
     expect(text).toContain("Your other devices and our servers stop once the change reaches them");
     expect(text).toContain("cannot be called back");
     expect(text).not.toContain("From then on nothing more is sent");
-    expect(text).toContain("We ask again if what the AI is used for changes.");
+    expect(text).toContain("We ask again if the provider or what the AI is used for changes.");
     expect(text).toContain("this section always names the ones in use");
   });
 

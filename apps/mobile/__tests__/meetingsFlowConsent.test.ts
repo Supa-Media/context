@@ -154,14 +154,12 @@ afterEach(() => {
 });
 
 describe("the question is short", () => {
-  // The owner's call, 2026-10-28: one line of text, a link, two buttons, and
-  // no provider named, so the provider can change without new words.
-  test("one line, no provider, and the Settings lines are one line each", () => {
+  // The owner approved naming the current recipients while keeping one short sentence.
+  test("the short question names who receives each kind of meeting data", () => {
     expect(TRANSCRIPTION_CONSENT_COPY.body.length).toBeLessThanOrEqual(100);
     expect(Object.keys(TRANSCRIPTION_CONSENT_COPY).sort()).toEqual(["allow", "body", "decline", "privacyLink", "title"]);
-    for (const line of [TRANSCRIPTION_CONSENT_COPY.title, TRANSCRIPTION_CONSENT_COPY.body]) {
-      expect(line).not.toMatch(/Cloudflare|Workers AI|Anthropic|OpenAI|Whisper/);
-    }
+    expect(TRANSCRIPTION_CONSENT_COPY.body).toContain("Cloudflare gets meeting audio for transcripts");
+    expect(TRANSCRIPTION_CONSENT_COPY.body).toContain("Anthropic gets transcripts and notes for summaries");
     for (const line of [TRANSCRIPTION_SETTINGS_COPY.on, TRANSCRIPTION_SETTINGS_COPY.off, TRANSCRIPTION_SETTINGS_COPY.outdated]) {
       expect(line.length).toBeLessThanOrEqual(60);
     }
