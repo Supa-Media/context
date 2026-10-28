@@ -167,14 +167,17 @@ describe("one look", () => {
   it("reads the gateway's answers and refusals as codes, and anything else as failed", async () => {
     const look = (response: Response | Error) => runHeartbeat(fetchAnswering(response), "https://gw", beat("a"));
     expect(await look(Response.json({ outcome: "speak", answer: "x" }))).toEqual({ outcome: "speak", answer: "x" });
-    expect(await look(Response.json({ outcome: "speak", answer: "  " }))).toEqual({ outcome: "failed" });
+    expect(await look(Response.json({ outcome: "speak", answer: "  " }))).toEqual({ outcome: "failed", reason: "unreadable" });
     expect(await look(Response.json({ outcome: "nothing_new" }))).toEqual({ outcome: "nothing_new" });
     expect(await look(Response.json({ outcome: "busy" }))).toEqual({ outcome: "busy" });
     expect(await look(Response.json({ outcome: "paused" }))).toEqual({ outcome: "paused" });
-    expect(await look(Response.json({ outcome: "texted" }))).toEqual({ outcome: "failed" });
+    expect(await look(Response.json({ outcome: "texted" }))).toEqual({ outcome: "failed", reason: "unreadable" });
     expect(await look(Response.json({}, { status: 409 }))).toEqual({ outcome: "no_provider" });
     expect(await look(Response.json({}, { status: 429 }))).toEqual({ outcome: "daily_limit" });
-    expect(await look(Response.json({}, { status: 503 }))).toEqual({ outcome: "failed" });
-    expect(await look(new Error("down"))).toEqual({ outcome: "failed" });
+    expect(await look(Response.json({}, { status: 503 }))).toEqual({ outcome: "failed", reason: "status_503" });
+    // Why the tree could not be listed reaches the log as the gateway's code, never as free text.
+    expect(await look(Response.json({ error: "tree_unavailable", reason: "timed_out" }, { status: 503 }))).toEqual({ outcome: "failed", reason: "timed_out" });
+    expect(await look(Response.json({ error: "tree_unavailable", reason: "a sentence, not a code" }, { status: 503 }))).toEqual({ outcome: "failed", reason: "tree_unavailable" });
+    expect(await look(new Error("down"))).toEqual({ outcome: "failed", reason: "unreachable" });
   });
 });

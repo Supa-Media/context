@@ -267,3 +267,4 @@ test/oneVersion.test.mjs
 test/outcome.test.mjs
 test/agentTexStyle.test.mjs
 test/agentChatVoice.test.mjs
+test/lookTree.test.mjs
