@@ -12,7 +12,7 @@
 
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
-import { decide, IDLE_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
+import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
@@ -88,10 +88,18 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       waitingAsks: await waitingAsks(storage, deps.now(), await sha256Hex(newest.from)),
       newest: candidates.at(-1) ?? "",
     },
-    running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
+    running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );
   // Codes only: the act, or why decide could not answer.
-  console.log(JSON.stringify({ event: "group_decide", outcome: decision.ok ? decision.act : decision.reason, ...(running ? { kind: "running" } : {}) }));
+  console.log(
+    JSON.stringify({
+      event: "group_decide",
+      outcome: decision.ok ? decision.act : decision.reason,
+      ...(!decision.ok && decision.cause ? { reason: decision.cause } : {}),
+      ...(decision.ms !== undefined ? { ms: decision.ms } : {}),
+      ...(running ? { kind: "running" } : {}),
+    }),
+  );
   if (decision.ok) {
     await markStale(storage, decision.stale);
     if (decision.movedOn) await movedOn(storage);

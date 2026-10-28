@@ -26,8 +26,11 @@ export type Decision =
       stale: string[];
       movedOn: boolean;
       confidence: number;
+      /** How long decide took, for the logs. */
+      ms?: number;
     }
-  | { ok: false; reason: "capped" | "off" | "unavailable" };
+  /** `cause`: why it was unavailable, a code for the logs (timeout, unreachable, http_<status>, bad_answer, or Convex's reason). */
+  | { ok: false; reason: "capped" | "off" | "unavailable"; cause?: string; ms?: number };
 
 export type DecideAsk = {
   chat: string;
@@ -45,7 +48,7 @@ export type DecideAsk = {
 
 export type ControlDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string };
 
-const UNAVAILABLE = { ok: false, reason: "unavailable" } as const;
+const unavailable = (cause: string, ms: number) => ({ ok: false, reason: "unavailable", cause, ms }) as const;
 export const MAX_CANDIDATES = 32;
 export const MAX_WAITING_ASKS = 8;
 export const MAX_TRANSCRIPT = 24_000;
@@ -53,6 +56,15 @@ export const MAX_TRANSCRIPT = 24_000;
 export const RUNNING_DECIDE_MS = 5_000;
 /** Decide on what is waiting, with the person watching the typing bubble: slower than this, the fallback answers. */
 export const IDLE_DECIDE_MS = 4_000;
+/**
+ * Decide on a group's waiting messages: nobody watches a typing bubble for an
+ * untagged text, so it waits longer than a 1:1 does. Raised from 4s on
+ * 2026-10-27, when every group decide hit the 4s limit; the `ms` logged on
+ * each `group_decide` sets the final number.
+ */
+export const GROUP_DECIDE_MS = 15_000;
+/** A caller that names no limit. */
+const DEFAULT_DECIDE_MS = IDLE_DECIDE_MS;
 
 /** Ask decide. The answer is checked like any other trust boundary: ids it names must be ones it was given. */
 export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: number): Promise<Decision> {
@@ -60,17 +72,22 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   const waitingAsks = ask.waitingAsks.slice(-MAX_WAITING_ASKS);
   const body = { ...ask, candidates, waitingAsks, transcript: ask.transcript.slice(-MAX_TRANSCRIPT) };
   let reply: { status: number; json: unknown };
+  const started = Date.now();
+  const limit = timeoutMs ?? DEFAULT_DECIDE_MS;
   try {
-    reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/decide`, deps.workerSecret, body, timeoutMs);
+    reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/decide`, deps.workerSecret, body, limit);
   } catch {
-    return UNAVAILABLE;
+    const ms = Date.now() - started;
+    return unavailable(ms >= limit - 50 ? "timeout" : "unreachable", ms);
   }
-  if (reply.status !== 200) return UNAVAILABLE;
+  const ms = Date.now() - started;
+  if (reply.status !== 200) return unavailable(`http_${reply.status}`, ms);
   const json = record(reply.json);
   if (json.ok === false) {
-    return { ok: false, reason: json.reason === "capped" || json.reason === "off" ? json.reason : "unavailable" };
+    const reason = json.reason === "capped" || json.reason === "off" ? json.reason : "unavailable";
+    return { ok: false, reason, cause: typeof json.reason === "string" ? json.reason.slice(0, 40) : "unknown", ms };
   }
-  if (json.ok !== true || (json.act !== "silent" && json.act !== "react" && json.act !== "answer")) return UNAVAILABLE;
+  if (json.ok !== true || (json.act !== "silent" && json.act !== "react" && json.act !== "answer")) return unavailable("bad_answer", ms);
   const ids = (value: unknown, allowed: readonly string[]) =>
     Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string" && allowed.includes(id)))] : [];
   const midTurn = json.midTurn === "fold" || json.midTurn === "queue" || json.midTurn === "restart" ? json.midTurn : undefined;
@@ -82,6 +99,7 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     stale: ids(json.stale, waitingAsks),
     movedOn: json.movedOn === true,
     confidence: typeof json.confidence === "number" && Number.isFinite(json.confidence) ? Math.min(1, Math.max(0, json.confidence)) : 0,
+    ms,
   };
 }
 

@@ -60,7 +60,7 @@ jobs:
           timeout "$seconds" npx --yes wrangler@4 tail context-agent --format pretty 2>/dev/null \
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
-              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts"];
+              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
               const prefix = process.env.EVENT_PREFIX ?? "";
               require("readline").createInterface({ input: process.stdin }).on("line", (line) => {
                 let source;
@@ -87,7 +87,7 @@ jobs:
           const prefix = process.env.EVENT_PREFIX ?? "";
           const to = Date.now();
           const from = to - minutes * 60_000;
-          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts"];
+          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
           const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`;
           const lines = [];
           let skipped = 0;
