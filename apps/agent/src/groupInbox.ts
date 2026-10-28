@@ -128,9 +128,9 @@ type Recent = { h: string; at: number };
 /**
  * How long a tag waits before it is answered, so a picture sent just after it
  * ("Tex, file this screenshot", then the screenshot) is read with it, as a
- * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`).
+ * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`). 2s since Dev2, 2026-10-28 (was 4s): Tex felt slow.
  */
-export const GROUP_TEXT_WAIT_MS = 4_000;
+export const GROUP_TEXT_WAIT_MS = 2_000;
 /** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
