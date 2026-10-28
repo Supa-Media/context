@@ -19,7 +19,7 @@ import { internalMutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
-import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
+import { GMAIL_COMPOSE_SCOPE, canSendEmail, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -67,9 +67,10 @@ export const claimPersonEmail = internalMutation({
       expectedWorkspaceId: args.expectedWorkspaceId,
     });
     if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
-    // Only a connection whose consent granted sending may send (composing, for a draft).
+    // Only a connection whose consent granted sending may send (either Gmail
+    // write scope), and only one that granted composing may save a draft.
     const draft = args.draft === true;
-    const scope = draft ? GMAIL_COMPOSE_SCOPE : GMAIL_SEND_SCOPE;
+    const granted = (scopes: readonly string[]) => (draft ? scopes.includes(GMAIL_COMPOSE_SCOPE) : canSendEmail(scopes));
     const personal = cleared.personal;
     const connections = await ctx.db
       .query("googleConnections")
@@ -79,7 +80,7 @@ export const claimPersonEmail = internalMutation({
       (row) =>
         row.disconnectedAt === undefined &&
         row.products.includes("gmail") &&
-        row.scopes.includes(scope) &&
+        granted(row.scopes) &&
         (args.from === null || row.address.toLowerCase() === args.from),
     );
     // A mailbox whose Google sign-in stopped working cannot send: another one

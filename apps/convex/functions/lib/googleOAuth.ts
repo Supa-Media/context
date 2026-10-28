@@ -134,15 +134,26 @@ export function scopesForProducts(products: readonly GoogleProduct[]): string[] 
   return [...scopes];
 }
 
-/** Sending one email the person approved (`docs/decisions/communications/sending-email.md`). Sensitive. */
+/**
+ * Sending one email the person approved (`docs/decisions/communications/sending-email.md`).
+ * Sensitive. No longer asked for (2026-10-28): `GMAIL_COMPOSE_SCOPE` sends as
+ * well, so asking for both was a redundant scope in Google's review. A
+ * connection that granted it before still sends with it.
+ */
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 /**
- * Saving a draft in the person's own Gmail (`sending-email.md`). Restricted,
- * and broader than it needs to be (Google has no drafts-only scope: compose
- * also sends), so Context's own code sends only on `GMAIL_SEND_SCOPE` and uses
- * this one for drafts alone.
+ * Saving a draft in the person's own Gmail, and sending the email the person
+ * approved (`sending-email.md`). Restricted. Google's `users.messages.send`
+ * accepts it as well as `gmail.send`, so it is the one Gmail write a connect
+ * asks for. What may be sent is decided by the person's yes to the exact
+ * copy, checked on the send path, never by which of the two was granted.
  */
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+
+/** Whether a grant lets Context send email: either Gmail write scope does. */
+export function canSendEmail(scopes: readonly string[]): boolean {
+  return scopes.includes(GMAIL_COMPOSE_SCOPE) || scopes.includes(GMAIL_SEND_SCOPE);
+}
 /** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
 export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 /**
@@ -185,7 +196,7 @@ export const CHAT_READ_SCOPES = [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE] as con
  * its check-ins (2026-10-23). They work only on a Google Workspace account.
  */
 export const WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
+  gmail: [GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
   calendar: [CALENDAR_WRITE_SCOPE],
   chat: [...CHAT_SEND_SCOPES],
 };

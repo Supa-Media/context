@@ -13,7 +13,16 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
 import { asUser } from "../fixtures.helpers";
-import { CALENDAR_WRITE_SCOPE, CHAT_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, scopesForConnect } from "../../functions/lib/googleOAuth";
+import {
+  CALENDAR_WRITE_SCOPE,
+  CHAT_SEND_SCOPE,
+  GMAIL_COMPOSE_SCOPE,
+  GMAIL_SCOPES,
+  GMAIL_SEND_SCOPE,
+  canSendEmail,
+  scopesForConnect,
+} from "../../functions/lib/googleOAuth";
+import { readOnlyServices } from "../../functions/lib/googleWriteAccess";
 import { REDIRECT, enableAllGoogleConnect, personalScenario } from "./fixtures.helpers";
 
 async function askedScopes(): Promise<Set<string>> {
@@ -30,7 +39,6 @@ async function askedScopes(): Promise<Set<string>> {
 describe("Google write scopes", () => {
   test("a person who is not staff is asked for every write scope of what they connect", async () => {
     const scopes = await askedScopes();
-    expect(scopes).toContain(GMAIL_SEND_SCOPE);
     expect(scopes).toContain(GMAIL_COMPOSE_SCOPE);
     expect(scopes).toContain(CHAT_SEND_SCOPE);
     expect(scopes).toContain(CALENDAR_WRITE_SCOPE);
@@ -42,5 +50,22 @@ describe("Google write scopes", () => {
     expect(scopesForConnect(["calendar"])).not.toContain(GMAIL_COMPOSE_SCOPE);
     expect(scopesForConnect(["gmail"])).not.toContain(CALENDAR_WRITE_SCOPE);
     expect(scopesForConnect(["chat"]).some((scope) => scope === GMAIL_SEND_SCOPE || scope === CALENDAR_WRITE_SCOPE)).toBe(false);
+  });
+
+  // gmail.compose authorizes users.messages.send as well as drafts, so asking
+  // for gmail.send too was a redundant scope in Google's review (2026-10-28).
+  test("a connect asks for one Gmail write scope, compose, and never gmail.send", async () => {
+    expect(await askedScopes()).not.toContain(GMAIL_SEND_SCOPE);
+    expect(scopesForConnect(["gmail"])).not.toContain(GMAIL_SEND_SCOPE);
+  });
+
+  test("either Gmail write scope sends, so older send-only grants keep working; read alone never does", () => {
+    expect(canSendEmail([...GMAIL_SCOPES, GMAIL_COMPOSE_SCOPE])).toBe(true);
+    expect(canSendEmail([...GMAIL_SCOPES, GMAIL_SEND_SCOPE])).toBe(true);
+    expect(canSendEmail([...GMAIL_SCOPES, GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE])).toBe(true);
+    expect(canSendEmail([...GMAIL_SCOPES])).toBe(false);
+    const services = { gmail: true, calendar: false, chat: false };
+    expect(readOnlyServices(services, [...GMAIL_SCOPES, GMAIL_COMPOSE_SCOPE])).toEqual([]);
+    expect(readOnlyServices(services, [...GMAIL_SCOPES])).toEqual(["gmail"]);
   });
 });

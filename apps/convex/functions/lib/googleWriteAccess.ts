@@ -15,18 +15,17 @@
  *    corrected and the change goes (`functions/googleScopeCheck.ts`).
  */
 
-import { CALENDAR_WRITE_SCOPE, CHAT_SEND_SCOPE, GMAIL_SEND_SCOPE, type GoogleProduct } from "./googleOAuth";
+import { CALENDAR_WRITE_SCOPE, CHAT_SEND_SCOPE, canSendEmail, type GoogleProduct } from "./googleOAuth";
 
-/** The scope each service needs before Context can act through it, not only read. */
-export const ACTING_SCOPE: Record<GoogleProduct, string> = {
-  gmail: GMAIL_SEND_SCOPE,
-  calendar: CALENDAR_WRITE_SCOPE,
-  chat: CHAT_SEND_SCOPE,
-};
+/** Whether a grant lets Context act through a service, not only read it. Gmail sends on compose or send. */
+function canAct(service: GoogleProduct, scopes: readonly string[]): boolean {
+  if (service === "gmail") return canSendEmail(scopes);
+  return scopes.includes(service === "calendar" ? CALENDAR_WRITE_SCOPE : CHAT_SEND_SCOPE);
+}
 
 /** The services a connection carries that its grant lets Context read but not act through, in a fixed order. */
 export function readOnlyServices(services: Record<GoogleProduct, boolean>, scopes: readonly string[]): GoogleProduct[] {
-  return (["gmail", "calendar", "chat"] as const).filter((service) => services[service] && !scopes.includes(ACTING_SCOPE[service]));
+  return (["gmail", "calendar", "chat"] as const).filter((service) => services[service] && !canAct(service, scopes));
 }
 
 const TOKENINFO_ENDPOINT = "https://oauth2.googleapis.com/tokeninfo";
