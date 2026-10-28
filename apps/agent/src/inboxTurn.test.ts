@@ -59,7 +59,7 @@ const msg = (chatId: string, eventId: string, text: string, extra: Partial<Messa
 
 type Decided = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; sender?: string };
 
-function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean; agentTakes?: number } = {}) {
+function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean; agentTakes?: number; decideTakes?: number } = {}) {
   const decided: Decided[] = [];
   const asks: { question: string; covers?: string[]; chat?: string }[] = [];
   const agentBodies: Record<string, unknown>[] = [];
@@ -83,6 +83,7 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
       calls.push("decide");
       decided.push(body);
       // A decide that never answers: only the caller's timeout ends the wait.
+      if (opts.decideTakes) await new Promise((resolve) => setTimeout(resolve, opts.decideTakes));
       if (opts.decideNeverAnswers) {
         await new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
       }
@@ -252,6 +253,22 @@ describe("decide in a person's own chat", () => {
     try {
       const storage = new MemoryStorage();
       const w = world(act("react"), { agentTakes: 12_000 });
+      await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
+      await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
+      await drainedUnderFakeTimers(drain(storage, w.deps));
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
+      expect(w.reactedOn).toEqual(["m_e2"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("decide slower than the tapback timer: the one tapback still lands on the text being answered, never the first waiting", async () => {
+    // CI 2026-10-28: on a slow runner the 10s timer fired before decide aimed it, and tapped "thanks" (m_e1).
+    vi.useFakeTimers();
+    try {
+      const storage = new MemoryStorage();
+      const w = world(act("react"), { decideTakes: ACKNOWLEDGE_AFTER_MS + 2_000, agentTakes: 1_000 });
       await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
       await drainedUnderFakeTimers(drain(storage, w.deps));
