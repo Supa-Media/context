@@ -3,9 +3,13 @@
  * come back to a log that keeps origins only: never a note's path, a token in
  * a query, or the script text a browser may attach.
  */
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { CSP_REPORT_PATH, parseCspReport, SCRIPT_POLICY } from "./cspReport";
+import { CSP_REPORT_PATH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES } from "./cspReport";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
 const assets = vi.fn(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
@@ -51,8 +55,25 @@ describe("the policy", () => {
 
   it("allows no host it does not need", () => {
     const hosts = SCRIPT_POLICY.match(/https:\/\/[^\s;]+/g) ?? [];
-    expect(hosts).toEqual(["https://challenges.cloudflare.com"]);
+    expect(hosts).toEqual([
+      "https://challenges.cloudflare.com",
+      "https://static.cloudflareinsights.com",
+      "https://static.ads-twitter.com",
+      "https://connect.facebook.net",
+    ]);
     expect(SCRIPT_POLICY).not.toMatch(/'unsafe-inline'|'unsafe-eval'|\*/);
+  });
+
+  // The shell's inline scripts run by hash. One edited without its hash here
+  // would be blocked once the policy enforces, so the two are pinned together.
+  it("names every inline script in the web shell by its hash, and no other", () => {
+    const shell = readFileSync(join(__dirname, "..", "..", "..", "apps", "mobile", "public", "index.html"), "utf8");
+    const inline = [...shell.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)]
+      .filter(([, attrs]) => !/\bsrc=|\btype="application\/(?:ld\+)?json"/.test(attrs))
+      .map(([, , body]) => `sha256-${createHash("sha256").update(body, "utf8").digest("base64")}`);
+    expect(inline.length).toBeGreaterThan(0);
+    expect(SHELL_SCRIPT_HASHES).toEqual(inline);
+    for (const hash of inline) expect(SCRIPT_POLICY).toContain(`'${hash}'`);
   });
 });
 
