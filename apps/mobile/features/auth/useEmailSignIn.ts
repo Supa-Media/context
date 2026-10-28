@@ -37,6 +37,24 @@ export const SEND_FAILED = "Couldn't send your code. Check the address and try a
 export const CODE_FAILED = "That code didn't work. Codes last ten minutes, so ask for a new one if it's been a while.";
 export const BUSY = "Lots of people are joining right now. Try again in a minute.";
 
+/**
+ * Said when an address has been sent as many codes as it may be for now
+ * (`apps/convex/functions/lib/emailCodeSends.ts`). The newest code already
+ * sent still works, so that is the first thing to try.
+ */
+export function tooManyCodes(retryAfterMs: number | undefined): string {
+  const minutes = Math.max(1, Math.ceil((retryAfterMs ?? 15 * 60 * 1000) / 60_000));
+  return `We've sent several codes already. Use the newest one in your inbox, or ask for another in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+}
+
+/** The message for a failed send: too many codes, too busy, or anything else. */
+export function sendError(caught: unknown): string {
+  const data = caught instanceof ConvexError ? (caught.data as { code?: string; retryAfterMs?: number } | undefined) : undefined;
+  if (data?.code === "TOO_MANY_CODES") return tooManyCodes(data.retryAfterMs);
+  if (data?.code === "RATE_LIMITED") return BUSY;
+  return SEND_FAILED;
+}
+
 export function useEmailSignIn(options: { source: "homepage" | "login"; onSignedIn: () => void }) {
   const { signIn } = useAuthActions();
   const enter = useMutation(api.functions.waitlist.enter);
@@ -92,9 +110,9 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
         setStep(status);
       }
     } catch (caught) {
-      const code = caught instanceof ConvexError ? (caught.data as { code?: string } | undefined)?.code : undefined;
-      trackEvent("signup_result", { method: "email", source: options.source, result: code === "RATE_LIMITED" ? "limited" : "failed" });
-      setError(code === "RATE_LIMITED" ? BUSY : SEND_FAILED);
+      const message = sendError(caught);
+      trackEvent("signup_result", { method: "email", source: options.source, result: message === SEND_FAILED ? "failed" : "limited" });
+      setError(message);
     } finally {
       setSubmitting(false);
     }
@@ -106,9 +124,10 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     try {
       trackEvent("signup_submitted", { method: "email", source: options.source, resend: true });
       await sendCode(normalizeSignInEmail(email), true);
-    } catch {
-      trackEvent("signup_result", { method: "email", source: options.source, result: "failed", resend: true });
-      setError(SEND_FAILED);
+    } catch (caught) {
+      const message = sendError(caught);
+      trackEvent("signup_result", { method: "email", source: options.source, result: message === SEND_FAILED ? "failed" : "limited", resend: true });
+      setError(message);
     } finally {
       setSubmitting(false);
     }

@@ -138,7 +138,8 @@ describe("the email sign-in code", () => {
   test("codes are drawn from the whole six-digit space, not a pattern", async () => {
     const t = setupTest();
     const codes: string[] = [];
-    for (let i = 0; i < 200; i++) codes.push(await requestCode(t));
+    // One address each: an address may only be sent a few codes in a row (`lib/emailCodeSends.ts`).
+    for (let i = 0; i < 200; i++) codes.push(await requestCode(t, `draw-${i}@context.invalid`));
     // 200 draws from 900,000 values: a repeat has ~2% odds, more than three is a broken generator.
     expect(200 - new Set(codes).size).toBeLessThanOrEqual(3);
     const leading = new Set(codes.map((code) => code[0]));

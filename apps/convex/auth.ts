@@ -3,6 +3,7 @@ import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass"
 import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
+import { limitEmailCodeSends } from "./functions/lib/emailCodeSends";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -25,7 +26,7 @@ sealDevOtpBypass();
  * methods and their transports (Resend for email, Twilio Verify for phone)
  * are configured here. See @supa-media/convex/auth for all options.
  */
-export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth({
+const supaAuth = createSupaAuth({
   appName: "Context",
   methods: ["email"],
   // Invite-only (Dev2, 2026-09-28). A stranger is not mailed a code and not
@@ -123,3 +124,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // the bypass is for.
   productionIdentifier: productionOtpGuard(),
 });
+
+export const { auth, signIn, signOut, isAuthenticated } = supaAuth;
+// Every new email code spends one of its address's sends, in the transaction
+// that writes it (`functions/lib/emailCodeSends.ts`).
+export const store = limitEmailCodeSends(supaAuth.store);
