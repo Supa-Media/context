@@ -6,7 +6,13 @@
  * second later) are joined by decide's `covers` into one turn, which is what
  * `fold`/`sameBurst` in `inbox.ts` did by rule. In a person's own chat Tex
  * stays silent only on a pure acknowledgement (a tapback, "ok", "thanks"),
- * whatever decide says: anything else is answered. Decide unreachable or slower
+ * whatever decide says: anything else is answered. A like or love held as
+ * the yes to an ask (`askYes`, `thumbs.ts`) is never put to decide at all:
+ * it is answered on its own, intact, and the gateway checks it against what
+ * is armed (`thumbsUpIsYes`). Decide used to see it as a tapback that asks
+ * nothing and could leave it silent, so the yes reached nothing (2026-10-28,
+ * a controlled test's 👍 on an email ask), as a group's never could
+ * (`groupInbox.ts` queues it `byCode`). Decide unreachable or slower
  * than `IDLE_DECIDE_MS`, and in the simulator, the texts are joined as they
  * were before decide (`fallbackTurn`).
  *
@@ -65,9 +71,16 @@ export async function logInbound(storage: InboxStorage, message: Message, now: n
   });
 }
 
-/** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn. */
+/** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn, a 👍 held as an ask's yes. */
 export function decidedByCode(message: Message): boolean {
-  return message.sms === true || message.event !== undefined || message.setting === true || linkCode(message.text) !== null || UNLINK.test(message.text);
+  return (
+    message.sms === true ||
+    message.event !== undefined ||
+    message.setting === true ||
+    message.askYes === true ||
+    linkCode(message.text) !== null ||
+    UNLINK.test(message.text)
+  );
 }
 
 /** A tapback, "ok", "thanks": the only texts a person's own chat may leave unanswered. */

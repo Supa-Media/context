@@ -271,7 +271,8 @@ export async function react(
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
   if (holdsAsYes(onAsk)) {
-    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how };
+    // Marked so decide can never silence, fold, drop or stale it: the gateway alone says whether it is the yes (`inboxTurn.ts` `decidedByCode`).
+    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how, askYes: true };
     await holdThumb(storage, asked, reaction.words, now);
     logTapback(reaction, "held", onAsk !== reaction);
     return "held";

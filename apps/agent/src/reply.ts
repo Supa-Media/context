@@ -53,7 +53,8 @@ import type { Inbound } from "./inbound";
  * delivery never carries it.
  */
 /** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
-export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true };
+/** `askYes`: a like or love held as the yes to an ask (`thumbs.ts`), set only by `react`; answered by code, never put to decide. */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;
