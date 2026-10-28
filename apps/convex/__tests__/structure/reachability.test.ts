@@ -446,11 +446,11 @@ describe("no public function can reach a storage secret", () => {
         "functions.googleScopeCheck.recheckCalendarWrite",
         "functions.meetingCalendar.readMeetingCalendars", // Join and take notes' calendar barrier; see CREDENTIAL_BARRIERS.
         "functions.googleConnect.revokeGoogleGrant",
-        // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
-        // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
-        // file. Disconnect and access-token minting are reused verbatim from
-        // `googleConnect.ts` (they are already product-agnostic), so Chat adds
-        // exactly one barrier function, not three.
+        "functions.googleClients.exchangeAndBindAgent", // agent grant (googleClients.ts), on the schedule edge
+        "functions.googleClients.revokeAgentGrant",
+        // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt `googleConnect.ts`'s `exchangeAndBind`
+        // needs, on its own sibling file. Disconnect and access-token minting are reused verbatim from
+        // `googleConnect.ts` (they are already product-agnostic), so Chat adds exactly one barrier function, not three.
         "functions.chatProduct.exchangeAndBindChat",
         // CALENDAR'S OWN VERIFIER-OPENING STEP — see the
         // `functions/calendarConnect.ts` entry in `DECRYPT_IMPORTERS` for why

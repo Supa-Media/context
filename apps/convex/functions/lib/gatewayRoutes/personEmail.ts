@@ -82,7 +82,7 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
 
   // Spent before it is sent: a send that fails after Google accepted it still
   // counted, which is the safe direction for a limit against spam.
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
     connectionId: claimed.connectionId,
   });
   if (minted === null) {

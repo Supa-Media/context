@@ -97,7 +97,7 @@ async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: s
 }
 
 async function tokenFor(ctx: ActionCtx, mailbox: Mailbox): Promise<string | null> {
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
     connectionId: mailbox.connectionId,
   });
   return minted?.accessToken ?? null;

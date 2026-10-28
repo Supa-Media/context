@@ -152,6 +152,10 @@ describe("every third-party connect carries the browser binding", () => {
       // A standard connector's PKCE verifier, sealed onto the parked attempt
       // only by the browser that parked it (`hashedCompletion` must match).
       "connections.sealAttemptVerifier",
+      // The agent client's second consent, completed through
+      // `completeGoogleConnect` (`googleConnect/clientRoles.test.ts`).
+      "googleClients.consumeAgentAttempt",
+      "googleClients.parkAgentAttempt",
       "googleConnect.consumeAttemptAndExchange",
       "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",
@@ -203,6 +207,7 @@ describe("every third-party connect carries the browser binding", () => {
     ][];
     const attemptTables = tables.filter(([, t]) => "hashedState" in (t.validator?.fields ?? {}));
     expect(attemptTables.map(([name]) => name).sort()).toEqual([
+      "googleAgentAttempts",
       "googleConnectAttempts",
       "providerConnectAttempts",
     ]);
