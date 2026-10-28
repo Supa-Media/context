@@ -108,6 +108,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain
+- [Signing out ends a token at once: the session is checked on every call](./identity-and-access/session-checked-every-call.md)
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 

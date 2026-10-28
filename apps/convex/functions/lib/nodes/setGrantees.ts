@@ -21,7 +21,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { parseInvitee } from "../invitees";

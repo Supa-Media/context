@@ -1,4 +1,4 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, mutation, query } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";

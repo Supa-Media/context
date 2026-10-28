@@ -1,4 +1,4 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";

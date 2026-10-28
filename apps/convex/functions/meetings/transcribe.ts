@@ -161,7 +161,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../lib/signedIn";
 import { TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import { internal } from "../../_generated/api";
 import { action, internalMutation } from "../../_generated/server";

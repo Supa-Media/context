@@ -27,6 +27,7 @@ import { modules } from "../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { utcDay } from "../functions/lib/jev/meter";
 import { aiSpendByWorkspace } from "../functions/lib/jev/spend";
+import { withSession } from "./session.helpers";
 
 const ADMIN = "staff@example.test";
 const DAY = 86_400_000;
@@ -102,7 +103,7 @@ describe("the roster's AI spend is staff-only", () => {
 
     await expect(t.query(api.functions.admin.censusReport, {})).rejects.toThrow();
     await expect(
-      t.withIdentity({ subject: stranger }).query(api.functions.admin.censusReport, {}),
+      withSession(t, stranger).query(api.functions.admin.censusReport, {}),
     ).rejects.toThrow();
   });
 });
@@ -128,8 +129,7 @@ describe("the roster's AI spend", () => {
     await spend(t, aliceTwo, "ownerSuggest", 5_000_000, 30);
     await spend(t, bobs, "ownerSuggest", 7_000);
 
-    const report = await t
-      .withIdentity({ subject: staffId })
+    const report = await withSession(t, staffId)
       .query(api.functions.admin.censusReport, { days: 30 });
     const byEmail = new Map(report.roster.map((row) => [row.email, row]));
 
@@ -139,8 +139,7 @@ describe("the roster's AI spend", () => {
     expect(byEmail.get(ADMIN)).toMatchObject({ aiSpendMicroUsd: 0 });
 
     // A wider window takes in the older day.
-    const wide = await t
-      .withIdentity({ subject: staffId })
+    const wide = await withSession(t, staffId)
       .query(api.functions.admin.censusReport, { days: 90 });
     const aliceWide = wide.roster.find((row) => row.email === "alice@example.test");
     expect(aliceWide?.aiSpendMicroUsd).toBe(5_420_000);

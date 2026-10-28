@@ -15,7 +15,7 @@
  */
 
 import { ConvexError } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import {
   action,

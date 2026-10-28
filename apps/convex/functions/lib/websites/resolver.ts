@@ -1,6 +1,6 @@
 /** Public website route resolution and final bucket-source verification. */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { ConvexError } from "convex/values";
 import {
   buildWebsiteRouteStatuses,

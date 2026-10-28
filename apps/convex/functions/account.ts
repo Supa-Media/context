@@ -47,7 +47,7 @@
 
 import { v } from "convex/values";
 import { releaseWorkspaceDomains } from "./lib/customDomains/handlers";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
 import { requireEmailProof } from "./lib/emailProof";

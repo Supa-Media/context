@@ -45,6 +45,7 @@ import {
 } from "./fixtures.helpers";
 import { MAX_BATCH_EVENTS, MAX_EVENT_COUNT } from "../functions/usage";
 import { dayKey } from "../functions/lib/usage";
+import { withSession } from "./session.helpers";
 
 async function counters(t: TestConvex) {
   return await t.run(async (ctx) => await ctx.db.query("usageDaily").collect());
@@ -233,8 +234,7 @@ describe("active contexts are a cardinality, not a log", () => {
       surface: "mcp",
     });
 
-    const report = await t
-      .withIdentity({ subject: admin })
+    const report = await withSession(t, admin)
       .query(api.functions.admin.usageReport, { days: 1 });
 
     const toolCalls = report.series.find((s) => s.metric === "mcp.tool_call");
@@ -274,8 +274,7 @@ describe("the console's own report", () => {
     const outsider = await createUser(t, "outsider@example.com");
     const ws = await newWorkspace(t, "not-theirs");
 
-    await t
-      .withIdentity({ subject: outsider })
+    await withSession(t, outsider)
       .mutation(api.functions.usage.reportAppSession, { workspaceId: ws });
 
     // The session still counts — somebody did open the app — but it is not

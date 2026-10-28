@@ -23,7 +23,7 @@
  * shape, and there is no field a query could be put in.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";

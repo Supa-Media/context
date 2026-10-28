@@ -44,6 +44,7 @@ import {
   type T,
 } from "../noteIds/noteIds.helpers";
 import { parentRows } from "../nodes/treeRows.helpers";
+import { withSession } from "../session.helpers";
 
 let previous: string | undefined;
 beforeEach(() => {
@@ -209,7 +210,7 @@ async function keyedWorkspace(t: T, slug: string, keyedDaysAgo: number, countedA
 }
 
 async function staffOf(t: T) {
-  return t.withIdentity({ subject: await user(t, ADMIN) });
+  return withSession(t, await user(t, ADMIN));
 }
 
 describe("Delete is refused by name, and nothing starts", () => {
@@ -277,7 +278,7 @@ describe("Delete is refused by name, and nothing starts", () => {
   test("a stranger and nobody are refused, and nothing is counted or deleted", async () => {
     const t = tester();
     const ws = await keyedWorkspace(t, "strangers", 8, 1000);
-    const stranger = t.withIdentity({ subject: await user(t, "someone@example.com") });
+    const stranger = withSession(t, await user(t, "someone@example.com"));
     for (const caller of [t, stranger]) {
       expect(await caller.mutation(api.functions.noteIdsCleanup.deleteOld, { workspaceId: ws }).catch((caught) => caught)).toBeInstanceOf(Error);
       expect(await caller.mutation(api.functions.noteIdsCleanup.countOld, { workspaceId: ws }).catch((caught) => caught)).toBeInstanceOf(Error);

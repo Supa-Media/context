@@ -40,7 +40,7 @@ import {
   mutation,
   type MutationCtx,
 } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import { premiumFeaturesOn } from "./lib/premium";
 import {

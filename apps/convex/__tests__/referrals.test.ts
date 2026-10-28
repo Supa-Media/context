@@ -29,6 +29,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { allowanceFor, FRIEND_WAIT_MS, INVITE_TTL_MS, SENDS_PER_DAY } from "../functions/lib/referrals";
 import { isAdmitted, OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 const STAFF = "staff@context.invalid";
 const ENV_KEYS = [ADMIN_EMAILS_ENV_VAR, OPEN_SIGNUP_ENV_VAR, "RESEND_API_KEY"] as const;
@@ -83,7 +84,7 @@ async function setUpUser(t: TestConvex, email: string): Promise<Id<"users">> {
   return userId;
 }
 
-const as = (t: TestConvex, userId: Id<"users">) => t.withIdentity({ subject: userId });
+const as = (t: TestConvex, userId: Id<"users">) => withSession(t, userId);
 const admitted = (t: TestConvex, email: string, now = Date.now()) =>
   t.run(async (ctx) => isAdmitted(ctx.db, email, process.env, now));
 const invites = (t: TestConvex) => t.run(async (ctx) => ctx.db.query("referralInvites").collect());
