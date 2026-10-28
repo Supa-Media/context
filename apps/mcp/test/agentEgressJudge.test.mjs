@@ -290,6 +290,14 @@ export async function runAgentEgressJudgeChecks(check) {
       "only a boolean true is a yes, and the words cannot close their own fence",
       loose.allow === false && (judgeText(seen[0]).match(/<\/person_said>/g) ?? []).length === 1,
     );
+    // "yes" to "Should I publish the rolled-back stylesheet?" was refused as
+    // narrower than publishing the website (2026-10-28): the judge is told a
+    // website has no smaller Publish.
+    const system = JSON.stringify(seen[0]?.system ?? "");
+    check(
+      "the judge is told that publishing part of a website is publishing the website",
+      /Publishing a website has no smaller form/.test(system) && /a stylesheet/.test(system),
+    );
   } finally {
     world.restore();
   }
