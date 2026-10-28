@@ -94,6 +94,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
     running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
   );
   if (decision.ok) await markStale(storage, decision.stale);
+  // A 1:1 never waits on a burst: the texts already wait for each other (`sameBurst`), so wait is an answer to the newest.
+  if (decision.ok && decision.act === "wait") return { ...decision, act: "answer", covers: candidates.slice(-1) };
   return decision;
 }
 
@@ -124,7 +126,8 @@ export function fallbackTurn(burst: Entry[]): Entry[] {
   return turn;
 }
 
-export type Choice = { answer: Entry[]; react?: Message; drop: Entry[] };
+/** `emoji`: decide's choice for `react` (`reactionFor` checks it). */
+export type Choice = { answer: Entry[]; react?: Message; emoji?: string; drop: Entry[] };
 
 /**
  * What the next turn answers, from the waiting texts in the first one's chat,
@@ -150,7 +153,7 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   if (decision.act !== "answer") {
     if (must.length > 0) return { answer: must, drop: burst.filter((entry) => !must.includes(entry)) };
     const newest = burst.at(-1)![1].message;
-    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest } : {}) };
+    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   // An older text it left out that still needs an answer goes first, on its own, so answers keep the order texts came in.
@@ -208,7 +211,7 @@ export async function decideWhileRunning(
   key: string,
   item: Pending,
   now: () => number,
-  acknowledge: (message: Message) => Promise<void>,
+  acknowledge: (message: Message, emoji?: string) => Promise<void>,
 ): Promise<void> {
   const running = runningTurn(storage, item.message.chatId);
   // An SMS (its sender can be faked), LINK, UNLINK or a saved login's turn is never put into a running turn: it waits and is answered on its own.
@@ -235,5 +238,5 @@ export async function decideWhileRunning(
   }
   if (how === "queue" || !pureAck(item.message)) return void (await keep({ force: true }));
   await storage.delete(key);
-  if (decision.act === "react") await acknowledge(item.message);
+  if (decision.act === "react") await acknowledge(item.message, decision.emoji);
 }

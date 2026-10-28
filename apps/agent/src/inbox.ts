@@ -63,6 +63,7 @@ import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
+import { reactionFor } from "./reactEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -198,10 +199,10 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
+    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));
+        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
       }
     });
   } catch {
@@ -305,7 +306,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       if (choice.answer.length === 0) await presence?.stop();
       // One tapback per text: decide's, or else presence's on the text being answered.
       if (choice.react !== undefined) {
-        await acknowledgeText(deps, choice.react);
+        await acknowledgeText(deps, choice.react, choice.emoji);
         presence?.dropTapback();
       }
       if (choice.answer.length > 0) presence?.aim(choice.answer.at(-1)![1].message);
@@ -319,10 +320,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   await pruneEvents(storage, deps.now());
 }
 
-/** A tapback on the person's text, picked from its words (`ackEmoji.ts`): decide's `react`. */
-async function acknowledgeText(deps: InboxDeps, message: Message): Promise<void> {
+/** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
+async function acknowledgeText(deps: InboxDeps, message: Message, emoji?: string): Promise<void> {
   if (message.channel === "simulator" || !message.messageId || message.tapback) return;
-  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, ackEmoji(message.text));
+  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, reactionFor(emoji, ackEmoji(message.text)));
 }
 
 /**

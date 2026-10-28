@@ -20,7 +20,8 @@ export const GROUP_STYLES: readonly GroupStyle[] = ["quiet", "attentive", "follo
 export type Decision =
   | {
       ok: true;
-      act: "silent" | "react" | "answer";
+      /** `wait`: a burst still being typed; decided again once it ends (`groupTurn.ts`). */
+      act: "silent" | "react" | "answer" | "wait";
       covers: string[];
       midTurn?: "fold" | "queue" | "restart";
       stale: string[];
@@ -28,6 +29,8 @@ export type Decision =
       confidence: number;
       /** How long decide took, for the logs. */
       ms?: number;
+      /** With `react`: decide's emoji, sent only if it is one of `REACT_EMOJI` (`reactionFor`). */
+      emoji?: string;
     }
   /** `cause`: why it was unavailable, a code for the logs (timeout, unreachable, http_<status>, bad_answer, or Convex's reason). */
   | { ok: false; reason: "capped" | "off" | "unavailable"; cause?: string; ms?: number };
@@ -89,7 +92,7 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     const cause = typeof json.cause === "string" ? json.cause : typeof json.reason === "string" ? json.reason : "unknown";
     return { ok: false, reason, cause: cause.replace(/[^\w-]/g, "").slice(0, 40) || "unknown", ms };
   }
-  if (json.ok !== true || (json.act !== "silent" && json.act !== "react" && json.act !== "answer")) return unavailable("bad_answer", ms);
+  if (json.ok !== true || (json.act !== "silent" && json.act !== "react" && json.act !== "answer" && json.act !== "wait")) return unavailable("bad_answer", ms);
   const ids = (value: unknown, allowed: readonly string[]) =>
     Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string" && allowed.includes(id)))] : [];
   const midTurn = json.midTurn === "fold" || json.midTurn === "queue" || json.midTurn === "restart" ? json.midTurn : undefined;
@@ -102,6 +105,8 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     movedOn: json.movedOn === true,
     confidence: typeof json.confidence === "number" && Number.isFinite(json.confidence) ? Math.min(1, Math.max(0, json.confidence)) : 0,
     ms,
+    // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
+    ...(json.act === "react" && typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
   };
 }
 

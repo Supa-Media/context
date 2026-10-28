@@ -15,6 +15,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { ENGAGEMENT_STYLES, groupKeyOf, type Engagement } from "../../textGroups";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { withJev, type JevAnswers, type JevRequest } from "../jev/client";
+import { REACT_EMOJI } from "../reactEmoji";
 
 export const STYLES = [...ENGAGEMENT_STYLES, "direct"] as const;
 export type Style = (typeof STYLES)[number];
@@ -44,7 +45,18 @@ export interface DecideBody {
 }
 
 export type DecideResult =
-  | { ok: true; act: "silent" | "react" | "answer"; covers: string[]; midTurn?: "fold" | "queue" | "restart"; stale: string[]; movedOn: boolean; confidence: number }
+  | {
+      ok: true;
+      /** `wait`: the newest message is part of a burst still being typed; the Worker decides again once it ends. */
+      act: "silent" | "react" | "answer" | "wait";
+      covers: string[];
+      midTurn?: "fold" | "queue" | "restart";
+      stale: string[];
+      movedOn: boolean;
+      confidence: number;
+      /** With `react` only: the emoji the model chose from `REACT_EMOJI`. */
+      emoji?: string;
+    }
   /**
    * `cause`: which check failed, a code for the Worker's logs (2026-10-27: four different failures all read
    * "unavailable"): no_group, unconfigured, model_failed, bad_answer, or the Jev refusal behind capped and off.
@@ -99,7 +111,7 @@ const STYLE_RULES: Record<Style, string> = {
     "This is a one-to-one chat with Tex: every message is to Tex. Answer, unless the newest message is a pure acknowledgement (a tapback, \"ok\", \"thanks\") that asks nothing: only then silent, or a react.",
 };
 
-/** The typed questions, at most 16: act, start, midTurn when a turn runs, one per waiting ask, movedOn. */
+/** The typed questions, at most 16: act, start (2+ messages), midTurn when a turn runs, one per waiting ask (8 at most), movedOn, emoji. */
 export function decideRequest(body: DecideBody): JevRequest {
   const questions: Record<string, unknown> = {
     act: {
@@ -109,6 +121,7 @@ export function decideRequest(body: DecideBody): JevRequest {
         silent: "Tex says nothing",
         react: "Tex only reacts with a tapback: the message acknowledges or thanks Tex and needs no words",
         answer: "Tex replies in words",
+        wait: "the newest message is part of a burst its sender is still typing; Tex answers once the burst ends",
       },
     },
   };
@@ -145,6 +158,11 @@ export function decideRequest(body: DecideBody): JevRequest {
     instructions: "Has the conversation moved on from Tex: are the people now talking among themselves about something else?",
     criteria: { true: "yes, they have moved on from Tex", false: "no, they are still talking with or about what Tex said" },
   };
+  questions.emoji = {
+    type: "choice",
+    instructions: "If Tex reacts to the newest message with one emoji, which fits it best, the way a friend would react?",
+    criteria: Object.fromEntries(Object.entries(REACT_EMOJI).map(([name, { emoji, when }]) => [name, `${emoji} ${when}`])),
+  };
   return { state: body.transcript, questions };
 }
 
@@ -162,7 +180,7 @@ function noulOf(answers: JevAnswers, name: string): number | null {
 export function readDecideAnswers(body: DecideBody, answers: JevAnswers): DecideResult {
   const act = answerOf(answers, "act");
   const choice = act?.choice;
-  if (choice !== "silent" && choice !== "react" && choice !== "answer") return { ok: false, reason: "unavailable", cause: "bad_answer" };
+  if (choice !== "silent" && choice !== "react" && choice !== "answer" && choice !== "wait") return { ok: false, reason: "unavailable", cause: "bad_answer" };
   const confidence = typeof act?.confidence === "number" && Number.isFinite(act.confidence) ? act.confidence : 0;
   // An answer covers the request from where it starts through the newest message, in id order; a start that is not
   // a candidate (or comes after newest) covers just the newest. Silent and react cover nothing.
@@ -178,7 +196,10 @@ export function readDecideAnswers(body: DecideBody, answers: JevAnswers): Decide
   }
   const stale = body.waitingAsks.filter((_, index) => (noulOf(answers, `stale_${index}`) ?? 0) >= STALE_AT);
   const movedOn = (noulOf(answers, "moved_on") ?? 0) >= 0.5;
-  return { ok: true, act: choice, covers, ...(midTurn !== undefined ? { midTurn } : {}), stale, movedOn, confidence };
+  // The emoji only with a react, and only one of the 64: anything else leaves the Worker's own choice.
+  const named = answerOf(answers, "emoji")?.choice;
+  const emoji = choice === "react" && typeof named === "string" && Object.hasOwn(REACT_EMOJI, named) ? REACT_EMOJI[named].emoji : undefined;
+  return { ok: true, act: choice, covers, ...(midTurn !== undefined ? { midTurn } : {}), stale, movedOn, confidence, ...(emoji ? { emoji } : {}) };
 }
 
 async function workspaceFor(ctx: ActionCtx, body: DecideBody): Promise<Id<"workspaces"> | null> {
