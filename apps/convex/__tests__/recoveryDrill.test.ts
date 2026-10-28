@@ -22,10 +22,10 @@
  * nothing away, and that each missing link fails closed rather than serving
  * the wrong bytes.
  *
- * It is not proof that production can be restored: that needs the real
- * backups, the real key copy and a disposable deployment, which is an
- * infrastructure step (see `docs/recovery-drill.md`). It proves the chain
- * those steps rely on.
+ * It is not proof that a real backup restores: that is part 2 of
+ * `docs/recovery-drill.md`, a synthetic-only source deployment backed up and
+ * imported into an isolated target, opened by `recoveryDrillArtifacts.test.ts`.
+ * It never uses a production backup. This proves the chain part 2 relies on.
  *
  * Set `RECOVERY_DRILL_OUT` to a directory to keep the backup and a report
  * there for inspection; by default a temporary directory is used and removed.
