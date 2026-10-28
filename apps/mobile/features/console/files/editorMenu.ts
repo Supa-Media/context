@@ -120,12 +120,6 @@ export interface EditorMenuContext {
    */
   spellingLearns?: boolean;
   /**
-   * The click card (board 1): only the spelling rows. A plain click on an
-   * underlined word is a question about the word, not a request for the
-   * formatting menu.
-   */
-  spellingOnly?: boolean;
-  /**
    * Say where the browser keeps its suggestions. True where no checker can be
    * asked — a browser, or a desktop app from before version 8.
    */
@@ -161,7 +155,7 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
     SPELLING FIRST, WHERE EVERY BROWSER PUTS IT.
 
     A misspelled word is the most specific thing a right-click can be about,
-    and somebody who clicked a red underline came for the fix. Only on a note
+    and somebody who right-clicked one came for the fix. Only on a note
     they can write: a suggestion is an edit.
   */
   if (canEdit && context.spelling != null) {
@@ -170,7 +164,7 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
       /*
         Disabled, which this menu otherwise never uses (see `MenuItem`), for
         the tab menu's reason rather than a permission's: the row is an answer
-        to "why is this underlined and what should it be", and an absent row
+        to "what should this word be", and an absent row
         would read as the menu not having looked.
       */
       items.push({ id: "noSuggestions", label: "No spelling suggestions", disabled: true });
@@ -187,8 +181,6 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
       );
     }
   }
-  if (context.spellingOnly === true) return items;
-
   if (hasSelection) {
     if (canEdit) items.push({ id: "cut", label: "Cut" });
     items.push({ id: "copy", label: "Copy" });

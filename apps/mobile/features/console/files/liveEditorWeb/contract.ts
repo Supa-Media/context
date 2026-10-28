@@ -344,6 +344,4 @@ export type MenuOpen = MenuPoint & {
   spellingHint?: boolean;
   /** The fix came from Context's own checker, which can learn and ignore words. */
   spellingLearns?: boolean;
-  /** Opened by a plain click on an underlined word: the card, not the menu. */
-  spellingOnly?: boolean;
 };

@@ -17,8 +17,8 @@ import {
 import { settingsSectionLabel } from "../sections";
 
 /**
- * Settings › Spelling (Dev2, 2026-10-27, board 4): one switch for the red
- * underlines, the dictionary's language, and the words the person added with
+ * Settings › Spelling (Dev2, 2026-10-27, board 4): one switch for spelling
+ * fixes, the dictionary's language, and the words the person added with
  * a way to take each back.
  *
  * Reads and writes `spelling/store.ts`, which shows a change at once and saves
@@ -36,8 +36,8 @@ export function SpellingSettings() {
         {settingsSectionLabel("spelling")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>
-        Red underlines while you write, on every device you sign in on. Click or tap an
-        underlined word for suggestions.
+        Fixes for misspelled words, on every device you sign in on. Right-click a word to
+        see them. Nothing is underlined.
       </Text>
 
       <Card>
@@ -45,7 +45,7 @@ export function SpellingSettings() {
           <Grow>
             <Text variant="rowTitle">Check spelling</Text>
             <Text variant="rowSub" style={styles.rowSub}>
-              Turn off to stop the red underlines everywhere.
+              Turn off to stop spelling fixes everywhere.
             </Text>
           </Grow>
           <Switch
@@ -85,8 +85,8 @@ export function SpellingSettings() {
             <Text variant="rowTitle">Your dictionary</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {words.length === 0
-                ? "Words you add from an underlined word's card show up here. Nothing yet."
-                : "Words you added. They are never underlined, in any workspace."}
+                ? "Words you add from a word's right-click menu show up here. Nothing yet."
+                : "Words you added. They are never offered a fix, in any workspace."}
             </Text>
             {words.length === 0 ? null : (
               <View style={styles.words} testID="spelling-words">
@@ -114,7 +114,7 @@ export function SpellingSettings() {
       </Card>
       {spelling.status === "failed" ? (
         <Text variant="hint" style={styles.problem} testID="spelling-offline">
-          The dictionary couldn't load, so your browser's own checker is underlining for now.
+          The dictionary couldn't load, so your browser's own checker is on for now.
         </Text>
       ) : null}
     </View>
