@@ -49,7 +49,7 @@ import {
 import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
 import { browserbaseUploads } from "./upload";
-import { touchIdle } from "./idle";
+import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
 import { invisibleCaptcha, settleCaptcha } from "./captcha";
@@ -75,6 +75,14 @@ export async function browseOnBrowserbase(
     if (running) await releaseSession(env, running.id, fetcher).catch(() => undefined);
     return json({ closed: true });
   }
+  if (path === "/browse/hold") {
+    // Tex is waiting on the person: their running browser, if any, stays up
+    // fifteen minutes so their reply lands on the same page (./idle.ts).
+    const running = await findSession(env, owner, fetcher).catch(() => null);
+    if (running === null) return json({ held: false });
+    await touchIdle(env.BROWSER_IDLE, owner, HOLD_MS);
+    return json({ held: true });
+  }
   const parsed = parseBrowseRequest({ steps: (body as { steps?: unknown })?.steps });
   if (parsed === null) return json({ error: "those steps could not be read" }, 400);
   const keep = (body as { keep?: unknown })?.keep === true;
@@ -85,10 +93,11 @@ export async function browseOnBrowserbase(
   const steps = parsed.steps.map((s) => s.do);
   const failed = (session: string, stage: FailedRun["stage"], ran?: FailedRun["ran"]) =>
     later(reportFailedRun(env, { session, stage, steps, ...(ran ? { ran } : {}), ms: Date.now() - started }, fetcher).catch(() => undefined));
-  // In use: it lives five more minutes from now. Before the lookup, so a
-  // release already under way finishes first and this finds no browser,
-  // rather than one being released under it (./idle.ts).
-  await touchIdle(env.BROWSER_IDLE, owner);
+  // In use: it lives five more minutes from now, or fifteen when it is being
+  // handed to the person. Before the lookup, so a release already under way
+  // finishes first and this finds no browser, rather than one being released
+  // under it (./idle.ts).
+  await touchIdle(env.BROWSER_IDLE, owner, handingOver ? HOLD_MS : IDLE_MS);
   let session;
   let fresh = false;
   try {

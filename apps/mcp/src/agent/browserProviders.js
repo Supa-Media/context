@@ -149,10 +149,12 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     canHandOff: () => browserbaseWanted() && typeof viewer === "string" && viewer.length > 0,
     /**
      * Cloudflare's browser closes with the question. Browserbase's stays for
-     * the next one, ending itself, so a sign-in can be carried on from.
+     * the next one, ending itself, so a sign-in can be carried on from, and
+     * is held longer when the question ends waiting on the person.
      */
-    async closeBrowser(session) {
-      if (onBrowserbase) return;
+    async closeBrowser(session, { waiting = false } = {}) {
+      // Waiting on the person: held fifteen minutes rather than five (`browserHold.js`).
+      if (onBrowserbase) return waiting ? void (await post(binding, "/browse/hold", { provider: "browserbase", owner })) : undefined;
       await post(binding, "/browse/close", { session });
     },
   };

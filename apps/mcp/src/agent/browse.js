@@ -48,6 +48,7 @@ import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
 import { NOT_THEIRS, handoffIsTheirs } from "./handoffGate.js";
 import { silentSubmits } from "./silentSubmit.js";
+import { waitsOnThem } from "./browserHold.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -683,11 +684,12 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       return step?.ok ? { ok: true } : { ok: false, reason: step?.reason ?? "the browser could not do that" };
     },
 
-    async close() {
+    /** With the turn's `answer`: one that waits on the person holds a browser that outlives it (`browserHold.js`). */
+    async close({ answer = "", vaultLink = false } = {}) {
       if (session === null) return;
       const ending = session;
       session = null;
-      await computer.closeBrowser?.(ending).catch(() => undefined);
+      await computer.closeBrowser?.(ending, { waiting: waitsOnThem(answer, { vaultLink }) }).catch(() => undefined);
     },
   };
 }
