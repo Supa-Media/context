@@ -7,7 +7,7 @@
 
 export const HOW_TO_WORK = [
   "- Call orient first in a session, and search before you ask the person something their notes may already answer.",
-  "- To work on a note, fetch its path and keep the etag it returns. Pass that etag back as expected_etag when you write, so a concurrent edit is caught rather than overwritten.",
+  "- To work on a note, fetch its path and keep the etag it returns. Pass that etag back as expected_etag when you write, so a concurrent edit is caught rather than overwritten. Any etag a tool hands out works with every other tool. A change's answer ends with an outcome line (applied, path, visibility, etag, or an error code such as CONFLICT): read it rather than retrying.",
   "- Write back what you learn: write with action remember for a durable fact about the person, as you learn it, and write with action save_session before you end a session.",
   "- Pass context: \"@name\" on any call to work in another workspace. A path never names a workspace other than the one the call addresses.",
   "- Update the note that already covers a topic. Never start a near-duplicate of it.",
