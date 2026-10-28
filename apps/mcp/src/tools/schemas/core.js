@@ -31,6 +31,12 @@ export function coreToolDefinitions() {
               "with its arguments, an action's name (e.g. \"move\") for that action in full, \"access\" for " +
               "what you may write where, \"website\" for building the site, \"pages\" for the .page.md format, \"health\" for how tidy it is.",
           },
+          since: {
+            type: "string",
+            description:
+              "Optional. The orient_mark an earlier orient ended with: answers with only what changed since then, " +
+              "much shorter and faster than the overview. Use it to orient again in the same session.",
+          },
         },
         additionalProperties: false,
       },

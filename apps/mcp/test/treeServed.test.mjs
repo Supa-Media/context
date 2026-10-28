@@ -201,7 +201,9 @@ for (const scope of ["private", "team"]) {
       const bucket = bucketOf(NOTES);
       const tree = treeOf(bucket, { see: scope === "private" ? () => true : teamSees });
       const actual = await callTool(name, args, served(bucket, tree), scope);
-      assert.deepEqual(actual, expected, `${name} ${JSON.stringify(args)}`);
+      // The two answers were made a moment apart, and orient's mark is the moment.
+      const unmarked = (result) => JSON.parse(JSON.stringify(result).replace(/orient_mark: [0-9TZ:.-]+/g, "orient_mark: <now>"));
+      assert.deepEqual(unmarked(actual), unmarked(expected), `${name} ${JSON.stringify(args)}`);
       assert.ok(tree.requests.length > 0, `${name} asked the tree`);
       const noteListings = bucket.listings.filter((prefix) => !prefix.startsWith("."));
       assert.deepEqual(noteListings, [], `${name} listed the bucket at ${noteListings.join(", ")}`);

@@ -40,6 +40,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-28",
+    text:
+      "orient with `since` (the `orient_mark` an earlier orient ended with) answers with only what changed since then: much shorter " +
+      "and faster than the overview, for orienting again in one session. And every change's answer now ends with an " +
+      "`outcome: {applied, path, visibility, etag}` line, or `{applied: false, error}` with a code such as CONFLICT; any etag a tool " +
+      "hands out works with every other tool.",
+  },
+  {
     date: "2026-10-26",
     text:
       "search with `args: { texts: true, with?, since? }` searches the person's own texts (iMessage and SMS), from the backup their Mac keeps " +
@@ -343,7 +351,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "27fc8e9e";
+export const TOOL_SHAPE = "7e775af4";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
