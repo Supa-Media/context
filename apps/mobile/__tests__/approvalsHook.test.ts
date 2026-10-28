@@ -38,6 +38,16 @@
  *     → **fails**: `approvals held in any of the person's workspaces are listed`.
  *  7. A decision sent with the shown workspace's grant.
  *     → **fails**: `a decision goes back to the workspace that holds the approval`.
+ *  8. No listening for a return to the app.
+ *     → **fails**: `an approval raised after the console opened is listed when somebody comes back to it`.
+ *  9. The minute's re-list stretched a hundredfold.
+ *     → **fails**: `and within a minute while it stays open`.
+ * 10. A quiet re-list that got no answer treated as a failed listing.
+ *     → **fails**: `a re-list that gets no answer leaves what is shown`.
+ * 11. The return listener left behind when the console stops asking.
+ *     → **fails**: `a console that is gone, or has nothing to ask about, asks nothing more`.
+ * 12. An empty list beside an unreadable workspace treated as listed.
+ *     → **fails**: `nothing listed while one workspace could not be read is a failure, not an empty list`.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -61,7 +71,7 @@ jest.mock("convex/react", () => ({
 }));
 jest.mock("@convex-dev/auth/react", () => ({ useAuthToken: () => "session-alpha" }));
 
-import { useApprovals, type ApprovalsView } from "../features/approvals/useApprovals";
+import { RELIST_MS, useApprovals, type ApprovalsView } from "../features/approvals/useApprovals";
 import { GONE_SENTENCE, UNREACHABLE_SENTENCE } from "../features/approvals/gateway";
 
 const MCP = "https://mcp.context.test/@seyi/mcp";
@@ -370,6 +380,14 @@ describe("every workspace", () => {
     expect(h.view().items.map((item) => item.id)).toEqual(["a"]);
   });
 
+  test("nothing listed while one workspace could not be read is a failure, not an empty list", async () => {
+    mockAnswers = [{ status: 200, body: { approvals: [] } }, { status: 500, body: null }];
+    const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true, workspaceIds: ["ws_1", "ws_2"] });
+    await flush();
+    expect(h.view().phase).toBe("failed");
+    expect(h.view().error).not.toBeNull();
+  });
+
   test("a decision goes back to the workspace that holds the approval", async () => {
     mockAnswers = [
       { status: 200, body: { approvals: [] } },
@@ -388,5 +406,59 @@ describe("every workspace", () => {
     expect(post.auth).toBe(personalGrant);
     expect(mockFetchCalls.filter((call) => call.auth === personalGrant)).toHaveLength(2);
     expect(h.view().items).toEqual([]);
+  });
+});
+
+/**
+ * The tab is drawn only while something is waiting, so the list has to find
+ * what arrives after the console opened without anybody pressing anything
+ * (2026-10-28: a connected AI's held calendar change never showed).
+ */
+describe("asking again", () => {
+  const LIST = (...ids: string[]) => ({ status: 200, body: { approvals: ids.map(RECORD) } });
+
+  test("an approval raised after the console opened is listed when somebody comes back to it", async () => {
+    mockAnswers = [LIST(), LIST("late")];
+    const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true });
+    await flush();
+    expect(h.view().items).toEqual([]);
+    act(() => void window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(h.view().items.map((item) => item.id)).toEqual(["late"]);
+  });
+
+  test("and within a minute while it stays open", async () => {
+    jest.useFakeTimers({ doNotFake: ["setTimeout", "clearTimeout", "setImmediate", "queueMicrotask", "nextTick"] });
+    try {
+      mockAnswers = [LIST(), LIST("late")];
+      const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true });
+      await flush();
+      act(() => void jest.advanceTimersByTime(RELIST_MS));
+      await flush();
+      expect(h.view().items.map((item) => item.id)).toEqual(["late"]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a re-list that gets no answer leaves what is shown", async () => {
+    mockAnswers = [LIST("a"), "throw"];
+    const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true });
+    await flush();
+    act(() => void window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(mockFetchCalls).toHaveLength(2);
+    expect(h.view().phase).toBe("listed");
+    expect(h.view().items.map((item) => item.id)).toEqual(["a"]);
+  });
+
+  test("a console that is gone, or has nothing to ask about, asks nothing more", async () => {
+    mockAnswers = [LIST()];
+    const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true });
+    await flush();
+    h.rerender({ workspaceId: "ws_1", endpoint: MCP, enabled: false });
+    act(() => void window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(mockFetchCalls).toHaveLength(1);
   });
 });
