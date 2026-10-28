@@ -29,7 +29,7 @@ import { TEXTS_CLIENT_ID } from "./textLinks";
 
 /** Generous for somebody flicking a switch, small for a client stuck in a loop. */
 const WRITES_PER_HOUR = 60;
-const WINDOW_MS = 60 * 60 * 1000;
+const CONSENT_WINDOW_MS = 60 * 60 * 1000;
 
 async function rowFor(ctx: QueryCtx, userId: Id<"users">) {
   return await ctx.db
@@ -93,7 +93,7 @@ export const allowTranscription = mutation({
         message: "What cloud transcription uses has changed. Update the app and read the new disclosure first.",
       });
     }
-    await consumeRateLimit(ctx, { key: `transcription.consent:${userId}`, limit: WRITES_PER_HOUR, windowMs: WINDOW_MS });
+    await consumeRateLimit(ctx, { key: `transcription.consent:${userId}`, limit: WRITES_PER_HOUR, windowMs: CONSENT_WINDOW_MS });
     const now = Date.now();
     const row = await rowFor(ctx, userId);
     const fields = {
@@ -115,7 +115,7 @@ export const withdrawTranscription = mutation({
   returns: v.null(),
   handler: async (ctx) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await consumeRateLimit(ctx, { key: `transcription.consent:${userId}`, limit: WRITES_PER_HOUR, windowMs: WINDOW_MS });
+    await consumeRateLimit(ctx, { key: `transcription.consent:${userId}`, limit: WRITES_PER_HOUR, windowMs: CONSENT_WINDOW_MS });
     const row = await rowFor(ctx, userId);
     // Nothing to withdraw is not an error: the answer is already no.
     if (row === null || row.withdrawnAt !== undefined) return null;
