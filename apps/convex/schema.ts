@@ -47,6 +47,7 @@ import { vaultTables } from "./functions/lib/schema/vault";
 import { connectionTables } from "./functions/lib/schema/connections";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { emailProofTables } from "./functions/lib/schema/emailProof";
+import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFactor";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
@@ -143,6 +144,7 @@ const schema = defineSchema({
   ...connectionTables,
   ...signInEmailTables,
   ...emailProofTables,
+  ...staffSecondFactorTables,
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,

@@ -215,6 +215,7 @@ import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
 import type * as functions_waitlistTex from "../functions/waitlistTex.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
+import type * as functions_staffSecondFactor from "../functions/staffSecondFactor.js";
 import type * as functions_xConversions from "../functions/xConversions.js";
 import type * as functions_metaConversions from "../functions/metaConversions.js";
 import type * as functions_referrals from "../functions/referrals.js";
@@ -442,6 +443,7 @@ declare const fullApi: ApiFromModules<{
   "functions/waitlistText": typeof functions_waitlistText;
   "functions/waitlistTex": typeof functions_waitlistTex;
   "functions/signupAlerts": typeof functions_signupAlerts;
+  "functions/staffSecondFactor": typeof functions_staffSecondFactor;
   "functions/xConversions": typeof functions_xConversions;
   "functions/metaConversions": typeof functions_metaConversions;
   "functions/referrals": typeof functions_referrals;
