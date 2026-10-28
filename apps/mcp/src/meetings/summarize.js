@@ -13,8 +13,10 @@
  *    while the model was writing is read again and only the summary section is
  *    replaced, so somebody typing in `## My notes` loses nothing.
  *  - **The control plane decides whether a summary may run, before any model
- *    call**, and counts it (`apps/convex/functions/meetingSummary.ts`). It is
- *    told token counts afterwards and never a word of the meeting.
+ *    call**: first the caller's own yes to AI transcription and summaries
+ *    (`not_allowed` without it), then the allowance, which it counts
+ *    (`apps/convex/functions/meetingSummary.ts`). It is told token counts
+ *    afterwards and never a word of the meeting.
  *  - **A summary a person typed is never replaced on its own.** Only an empty,
  *    waiting or failed section is filled without `force`, and `force` is the
  *    Redo button, which a person pressed.
@@ -124,6 +126,12 @@ async function writeSummary(store, scope, privacy, meeting, body, { force }) {
   return "conflict";
 }
 
+/** The caller's own yes, asked of the control plane; anything else, a failure included, is no. */
+async function aiConsented(controlPlane, session) {
+  if (typeof controlPlane?.transcriptionConsent !== "function") return false;
+  return (await controlPlane.transcriptionConsent(session.accessToken, session.workspaceId, "meeting").catch(() => false)) === true;
+}
+
 /** The date the meeting started, which is what "Monday" in it is relative to. */
 function meetingDay(markdown, now) {
   const started = /^started:\s*"?(\d{4}-\d{2}-\d{2})/m.exec(String(markdown).split("\n---")[0] ?? "");
@@ -200,7 +208,7 @@ export async function draftSummary(markdown, { instruction, today, names }, conf
  * @param {object} session the resolved session
  * @param {{path: string, instruction?: string, force?: boolean}} request
  * @param {{controlPlane: object, env: object, fetchImpl?: Function, now?: () => number, readSetup?: () => Promise<object|null>}} deps
- * @returns {Promise<"written"|"skipped"|"recording"|"waiting"|"too_short"|"unavailable"|"failed"|"conflict">}
+ * @returns {Promise<"written"|"skipped"|"recording"|"waiting"|"too_short"|"not_allowed"|"unavailable"|"failed"|"conflict">}
  */
 export async function summarizeMeetingNote(store, session, request, deps) {
   const now = deps.now || Date.now;
@@ -226,6 +234,9 @@ export async function summarizeMeetingNote(store, session, request, deps) {
     return done === "written" ? "too_short" : done;
   }
 
+  // The person's one yes to AI covers transcripts and summaries; without it
+  // nothing of the meeting reaches a model (docs/decisions/meetings/transcription-consent.md).
+  if (!(await aiConsented(deps.controlPlane, session))) return "not_allowed";
   const config = aiGatewayConfig(deps.env);
   if (!config) return "unavailable";
   const verdict = await deps.controlPlane.startMeetingSummary(session.accessToken, session.workspaceId);

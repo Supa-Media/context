@@ -81,7 +81,7 @@ function world(storage: MemoryStorage, w: World) {
 }
 
 const fresh = (): World => ({ sends: [], results: [], agentStatus: 200, members: [ADA, BO] });
-const turnLogs = (spy: ReturnType<typeof vi.spyOn>) =>
+const turnLogs = (spy: { mock: { calls: unknown[][] } }) =>
   spy.mock.calls.flat().flatMap((line) => {
     try {
       const parsed = JSON.parse(String(line));

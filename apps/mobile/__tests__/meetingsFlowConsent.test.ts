@@ -9,6 +9,7 @@ import {
   CLOUD_TRANSCRIPTION_CONSENT_VERSION,
   NO_TRANSCRIPTION_CONSENT,
   TRANSCRIPTION_CONSENT_COPY,
+  TRANSCRIPTION_SETTINGS_COPY,
 } from "@context/shared";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -18,7 +19,7 @@ import {
  * audio (`docs/decisions/meetings/transcription-consent.md`).
  *
  * App Review rejected the build under 5.1.1(i) and 5.1.2(i): a microphone
- * permission is not permission to send a recording to Cloudflare Workers AI.
+ * permission is not permission to send a recording to an AI provider.
  * So a New meeting whose recorder transcribes in the cloud, pressed by an
  * account with no current yes, shows the dialog first and starts nothing until
  * it is answered. Allow saves the yes on the account before anything starts;
@@ -150,6 +151,21 @@ beforeEach(() => {
 
 afterEach(() => {
   setTranscriptionConsent(null);
+});
+
+describe("the question is short", () => {
+  // The owner's call, 2026-10-28: one line of text, a link, two buttons, and
+  // no provider named, so the provider can change without new words.
+  test("one line, no provider, and the Settings lines are one line each", () => {
+    expect(TRANSCRIPTION_CONSENT_COPY.body.length).toBeLessThanOrEqual(100);
+    expect(Object.keys(TRANSCRIPTION_CONSENT_COPY).sort()).toEqual(["allow", "body", "decline", "privacyLink", "title"]);
+    for (const line of [TRANSCRIPTION_CONSENT_COPY.title, TRANSCRIPTION_CONSENT_COPY.body]) {
+      expect(line).not.toMatch(/Cloudflare|Workers AI|Anthropic|OpenAI|Whisper/);
+    }
+    for (const line of [TRANSCRIPTION_SETTINGS_COPY.on, TRANSCRIPTION_SETTINGS_COPY.off, TRANSCRIPTION_SETTINGS_COPY.outdated]) {
+      expect(line.length).toBeLessThanOrEqual(60);
+    }
+  });
 });
 
 describe("the question comes first", () => {
