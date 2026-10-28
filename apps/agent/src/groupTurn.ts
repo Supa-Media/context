@@ -44,6 +44,8 @@ export type GroupPending = {
   contextUntil?: number;
   /** Sent by the tagger a moment after their own waiting tag (`followsOwnTag`): it goes with that tag. */
   joins?: true;
+  /** How many times in a row decide said `wait` on it: a burst still being typed (`WAIT_MS`, `MAX_WAITS`). */
+  waits?: number;
 };
 export type GroupEntry = [string, GroupPending];
 export const groupPendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
@@ -107,7 +109,16 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
   return decision;
 }
 
-export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupMessage };
+/**
+ * `emoji`: decide's choice for `react` (`reactionFor` checks it). `wait`: untagged messages kept waiting for the
+ * burst to end, decided again `WAIT_MS` after the newest (Dev2, 2026-10-27).
+ */
+export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupMessage; emoji?: string; wait?: GroupEntry[] };
+
+/** How long after the newest message a waiting burst is decided again. */
+export const WAIT_MS = 20_000;
+/** Waits in a row before Tex answers anyway. */
+export const MAX_WAITS = 3;
 
 const soft = (entry: GroupEntry) => entry[1].soft === true && entry[1].force !== true;
 
@@ -143,9 +154,13 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
     return first === -1 ? { answer: [], chat: burst, drop: [] } : { answer: withJoins(burst, burst[first]), chat: burst.slice(0, first), drop: [] };
   }
   const floor = new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)));
+  // Wait never delays an addressed message (the floor is answered now); after MAX_WAITS in a row it is an answer.
+  const waited = Math.max(0, ...burst.filter((entry) => !floor.has(entry)).map((entry) => entry[1].waits ?? 0));
+  const act = decision.act === "wait" && waited >= MAX_WAITS ? "answer" : decision.act;
+  if (act === "wait") return { answer: burst.filter((entry) => floor.has(entry)), chat: [], drop: [], wait: burst.filter((entry) => !floor.has(entry)) };
   // No tapback on a message about to be answered: its answer gets one of its own (`answerGroup`).
-  const react = decision.act === "react" && !floor.has(burst.at(-1)!) ? { react: burst.at(-1)![1].message } : {};
-  if (decision.act !== "answer") {
+  const react = act === "react" && !floor.has(burst.at(-1)!) ? { react: burst.at(-1)![1].message, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  if (act !== "answer") {
     return { answer: burst.filter((entry) => floor.has(entry)), chat: burst.filter((entry) => !floor.has(entry)), drop: [], ...react };
   }
   const covered = (entry: GroupEntry) => floor.has(entry) || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
@@ -188,17 +203,17 @@ export async function whileRunning(
   running: Live,
   tagged: boolean,
   now: () => number,
-  react: () => Promise<void>,
+  react: (emoji?: string) => Promise<void>,
 ): Promise<WhileRunning> {
   const decision = await ask(storage, { ...running.deps, now }, message, [ev], true);
   if (!decision.ok) return tagged ? "after" : "chat";
-  const how = decision.midTurn ?? (decision.act === "answer" ? "queue" : undefined);
+  const how = decision.midTurn ?? (decision.act === "answer" || decision.act === "wait" ? "queue" : undefined);
   // The running turn runs on its asker's grant: nobody else's message is folded into it or restarts it.
   // Somebody else's is decided again after it (a repeat of the same ask may then need nothing), or answered as their own turn.
   // Never forced into a turn of their own: they get their own decide once the running turn is done (addressed, code's floor answers them).
   if (message.from !== running.asker) {
     if (how === "fold" || how === "restart" || how === "queue" || tagged) return "redecide";
-    if (decision.act === "react") await react();
+    if (decision.act === "react") await react(decision.emoji);
     return "chat";
   }
   if (how === "fold") {
@@ -219,7 +234,7 @@ export async function whileRunning(
   }
   // Addressed to Tex: answered after, whatever decide said (code's floor).
   if (how === "queue" || tagged) return "after";
-  if (decision.act === "react") await react();
+  if (decision.act === "react") await react(decision.emoji);
   return "chat";
 }
 
