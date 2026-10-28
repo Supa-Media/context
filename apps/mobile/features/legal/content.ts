@@ -19,7 +19,9 @@ export const privacyContent: LegalPageContent = {
     {
       title: "How we use Google data",
       body: [
-        "We use Google data only to provide the integration you requested: connecting your Google accounts to your personal Context.lc workspace and syncing selected communications or calendar information into your context.",
+        "When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read and sync Gmail messages, Calendar events and Google Chat spaces and messages into your personal workspace, and to answer your requests using that information.",
+        "Where you turn the matching features on, we also use those permissions to act for you: to create Gmail drafts, to send email you approve, to create or change events on your calendar (asking you first when a change would notify a guest), and to create Google Chat spaces or send Chat messages you approve. Read-only permissions cannot do any of these.",
+        "Google data in your workspace may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops further access and sync; notes already copied into your workspace stay until you delete them. Revoking Google access and deleting copied notes are separate controls.",
         "Email and chat sync are forward-only unless the product explicitly offers a user-initiated import. Calendar sync is used to keep current and upcoming calendar context available to you.",
         "We do not sell Google user data, use it for advertising, or use it to train third-party AI models.",
       ],
@@ -64,14 +66,14 @@ export const privacyContent: LegalPageContent = {
       title: "AI built into Context.lc",
       body: [
         "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.",
-        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it.",
+        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it. Tex makes pictures with Google's Gemini image model, which receives the description of the picture.",
       ],
     },
     {
       title: "Sharing",
       body: [
         "Your private context is not shared with other users unless you explicitly share it, invite someone, publish a note, or move information into a workspace with broader access.",
-        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic (AI), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
+        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic and Google (AI), Browserbase (the web browser Tex uses when you ask it to visit a site), Brave Search (Tex's web searches), Sendblue, Linq and Whapi (carrying your texts with Tex over iMessage, SMS and WhatsApp), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
       ],
     },
     {
@@ -107,7 +109,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "October 15, 2026",
+  updated: "October 28, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -128,7 +130,7 @@ export const termsContent: LegalPageContent = {
     {
       title: "Google integrations",
       body: [
-        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the approved scopes only to sync the information you enabled into your personal context.",
+        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the scopes you approve to sync the information you enabled into your personal context and, where you turn those features on, to create drafts, send the email and Chat messages you approve, and create or change your calendar events at your request.",
         "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any synced content you later share is appropriate to share.",
       ],
     },
