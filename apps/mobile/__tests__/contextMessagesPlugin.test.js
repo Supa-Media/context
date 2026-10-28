@@ -15,6 +15,24 @@ describe("Context Messages extension config plugin", () => {
     expect(wrangler).toContain('"APP_CARD_EXTENSION_ID": "lc.context.staging.messages"');
   });
 
+  test("Xcode receives a Messages target, including when repairing an existing generic extension", () => {
+    for (const existing of [false, true]) {
+      const targets = existing ? { messages: { name: "ContextMessages", productType: '"com.apple.product-type.app-extension"' } } : {};
+      const project = {
+        hash: { project: { objects: {} } },
+        pbxNativeTargetSection: () => targets,
+        addTarget: () => {
+          targets.messages = { name: "ContextMessages", productType: '"com.apple.product-type.app-extension"' };
+          return { uuid: "messages", pbxNativeTarget: targets.messages };
+        },
+        addBuildPhase: jest.fn(),
+        pbxXCBuildConfigurationSection: () => ({}),
+      };
+      expect(plugin.addMessagesTarget(project, { extensionBundleIdentifier: "example.messages" })).toBe("messages");
+      expect(targets.messages.productType).toBe('"com.apple.product-type.app-extension.messages"');
+    }
+  });
+
   test("extension declaration is deterministic and keeps the widgets", () => {
     const config = {
       ios: { bundleIdentifier: "lc.context.mobile" },
@@ -40,6 +58,7 @@ describe("Context Messages extension config plugin", () => {
     const set = target("Assets.xcassets", "iMessage App Icon.stickersiconset");
     const { images } = JSON.parse(fs.readFileSync(path.join(set, "Contents.json"), "utf8"));
     expect(images.some((image) => image.idiom === "ios-marketing" && image.size === "1024x768")).toBe(true);
+    expect(images.find((image) => image.idiom === "ios-marketing").platform).toBe("ios");
     for (const image of images) expect(fs.existsSync(path.join(set, image.filename))).toBe(true);
     const source = fs.readFileSync(path.join(__dirname, "..", "plugins", "with-context-messages.js"), "utf8");
     expect(source).toContain('const ICON_SET = "iMessage App Icon"');

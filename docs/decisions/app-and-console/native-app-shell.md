@@ -350,3 +350,19 @@ and Android. Removing the native plan guard makes both rendering cases fail.
 Apple guideline 3.1.3(f) is the intended free-companion route; this is not an
 approval guarantee. The full audit and the separate notification-registration
 limits are in [App Store readiness](../../app-store-readiness.md).
+
+
+### Messages uses Xcode's Messages product type
+
+The Context Messages target must use `com.apple.product-type.app-extension.messages`,
+as Apple's native Messages extension template does. Creating it through
+node-xcode's generic `app_extension` helper still handles embedding, but the
+plugin then sets the Messages product type, including when repairing an
+already generated target. A generic extension makes actool reject the
+`.stickersiconset` as having no applicable content, even though Swift compiles.
+The marketing icon also declares `platform: ios`, matching Apple's catalog
+slot; otherwise the 1024 × 768 image is unassigned.
+
+The plugin regression exercises both a new target and an existing generic
+target. CI compiles the icon catalog as well as type-checking Swift, so a
+catalog failure is caught before the separate production native build.

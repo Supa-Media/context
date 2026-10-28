@@ -365,6 +365,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build
+- [Messages uses Xcode's Messages product type](./app-and-console/native-app-shell.md#messages-uses-xcodes-messages-product-type)
 - The iOS editor is the web editor, in a WebView, from a committed bundle
 - Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
