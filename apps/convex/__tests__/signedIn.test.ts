@@ -133,16 +133,19 @@ describe("every function takes the person from signedIn", () => {
     /import[^;]*\b(requireAuthId|getAuthUserId|getCurrentUser)\b[^;]*from\s+["']@supa-media\/convex(\/auth)?["']/s,
   ];
 
+  /** Generated code, the suite itself, and installed packages are not ours to check. */
+  const SKIP = new Set(["_generated", "__tests__", "node_modules", "dist"]);
+
   function sources(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {
       const path = join(dir, name);
-      if (statSync(path).isDirectory()) return sources(path);
+      if (statSync(path).isDirectory()) return SKIP.has(name) ? [] : sources(path);
       return /\.tsx?$/.test(name) ? [path] : [];
     });
   }
 
   test("no other module imports an unchecked getAuthUserId or requireAuthId", () => {
-    const offenders = sources(join(root, "functions"))
+    const offenders = sources(root)
       .map((path) => relative(root, path))
       .filter((path) => !ALLOWED.has(path))
       .filter((path) => UNCHECKED.some((pattern) => pattern.test(readFileSync(join(root, path), "utf8"))));
@@ -153,6 +156,11 @@ describe("every function takes the person from signedIn", () => {
     expect(UNCHECKED[0].test(`import { getAuthUserId } from "@convex-dev/auth/server";`)).toBe(true);
     expect(UNCHECKED[1].test(`import {\n  MAGIC_LINK_PROVIDER_ID,\n  requireAuthId,\n} from "@supa-media/convex/auth";`)).toBe(true);
     expect(UNCHECKED[1].test(`import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";`)).toBe(false);
-    expect(sources(join(root, "functions")).length).toBeGreaterThan(100);
+    expect(sources(root).length).toBeGreaterThan(100);
+    // The deployment's own root modules are Convex functions too: `http.ts`
+    // defines HTTP actions, and `auth.ts` configures the providers.
+    const scanned = sources(root).map((path) => relative(root, path));
+    expect(scanned).toEqual(expect.arrayContaining(["http.ts", "auth.ts", "crons.ts"]));
+    expect(scanned.some((path) => path.includes("_generated"))).toBe(false);
   });
 });
