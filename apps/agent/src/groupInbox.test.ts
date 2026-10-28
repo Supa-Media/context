@@ -468,13 +468,10 @@ describe("a group's queue", () => {
     const w = world();
     await acceptGroup(storage, message("Tex, when's the gig?"), 0);
     await drainGroup(storage, deps(w));
-    // A reply to Tex is a chat line put to decide (Dev2, 2026-10-27); with decide down, a question is answered.
     expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("kept");
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
-    // A reply that is not a question, meant for the people here, is not forced on Tex.
-    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0);
-    await drainGroup(storage, deps(w));
+    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w)));
     expect(w.asks).toHaveLength(2);
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
