@@ -308,3 +308,13 @@ export {
   type UsageButton,
 } from "./usageButtons";
 export * from "./usageJourneys";
+export {
+  CLOUD_TRANSCRIPTION_CONSENT_VERSION,
+  CLOUD_TRANSCRIPTION_DISCLOSURE,
+  NO_TRANSCRIPTION_CONSENT,
+  PRIVACY_POLICY_URL,
+  TRANSCRIPTION_CONSENT_COPY,
+  TRANSCRIPTION_CONSENT_REQUIRED,
+  TRANSCRIPTION_SETTINGS_COPY,
+  isCurrentTranscriptionConsent,
+} from "./transcriptionConsent";

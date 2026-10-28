@@ -22,6 +22,7 @@ import { setupNeeded, type SetupAnswer } from "../../features/auth/accountSetupM
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
+import { useTranscriptionConsentSync } from "../../features/meetings/useTranscriptionConsent";
 import { useScheduledMeetingsSource } from "../../features/meetings/scheduled";
 import { useMeetingJoinPreferencesSource } from "../../features/meetings/joinPreferences";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
@@ -173,6 +174,9 @@ export default function AppLayout() {
   // job is to gate, and a hook that ran only on the happy path would install
   // transcription a render late on a cold start into a running meeting.
   useTranscriptionClient();
+  // And the account's yes to cloud transcription beside it: without it the
+  // client above is never used (docs/decisions/meetings/transcription-consent.md).
+  useTranscriptionConsentSync(authed);
   /*
     And the setup beside it, for the same reason and now one more.
 

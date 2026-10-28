@@ -90,6 +90,42 @@ export async function runMeetingTranscribingChecks(check, harness) {
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
 
+  /*
+    CONSENT (docs/decisions/meetings/transcription-consent.md): an account
+    with no current yes to cloud transcription sends nothing, spends nothing,
+    and is told "forbidden", which the Mac app treats as final for the meeting.
+  */
+  const consentCalls = harness.transcribeCalls.length;
+  harness.controlPlane.transcription.state.everyone = false;
+  const withoutConsent = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "without a yes to cloud transcription, a chunk is refused as forbidden",
+    withoutConsent.status === 403 && withoutConsent.body?.error === "meeting_forbidden"
+  );
+  check("...and the audio never reaches the service", harness.transcribeCalls.length === consentCalls);
+  check(
+    "...the question was the token's own, about this workspace, for a meeting",
+    harness.controlPlane.transcription.asks.at(-1)?.workspaceId === "ws_recorder" &&
+      harness.controlPlane.transcription.asks.at(-1)?.kind === "meeting"
+  );
+  // Another account's yes is not this one's.
+  harness.controlPlane.transcription.state.allowed.add("user_meet_neighbour");
+  const neighboursYes = await meetingRequest(
+    transcribing,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check("a neighbour's yes does not let this account's audio through", neighboursYes.status === 403);
+  check("...still nothing forwarded", harness.transcribeCalls.length === consentCalls);
+  harness.controlPlane.transcription.state.allowed.clear();
+  harness.controlPlane.transcription.state.everyone = true;
+
   const transcribed = await meetingRequest(
     transcribing,
     TOKEN_OWNER,
@@ -129,7 +165,7 @@ export async function runMeetingTranscribingChecks(check, harness) {
 
   const audioKey = `${MEETING_PREFIX}${SESSION_TRANSCRIBE}.json`;
   const audioRecord = JSON.parse(recorder.get(audioKey)?.body ?? "{}");
-  check("the chunk was charged against the meeting's own budget", audioRecord.transcribedChunks === 1);
+  check("the chunk was charged against the meeting's own budget, and the refused ones were not", audioRecord.transcribedChunks === 1);
 
   /*
     The counter has to survive the *other* writes to a session, and that is not

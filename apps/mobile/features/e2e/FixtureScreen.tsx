@@ -19,6 +19,7 @@ import { PaletteFilterFixture } from "./PaletteFilterFixture";
 import { PaletteResultsFixture } from "./PaletteResultsFixture";
 import { MeetingCardFixture } from "./MeetingCardFixture";
 import { MeetingJoinFixture } from "./MeetingJoinFixture";
+import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
 
 /**
@@ -97,6 +98,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // The notice band's lines for a move into another workspace. See its own header.
   if (first(params.screen) === "move-notice") return <MoveNoticeFixture at={first(params.at)} />;
   if (first(params.screen) === "meeting-join") return <MeetingJoinFixture view={first(params.at)} />;
+  if (first(params.screen) === "transcription-consent") return <TranscriptionConsentFixture view={first(params.at)} />;
   if (first(params.screen) === "meeting-card") return <MeetingCardFixture warn={first(params.warn)} at={first(params.at)} />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.

@@ -159,7 +159,7 @@ const BEFORE_ANDROID_PREP = {
       "expo-audio",
       {
         microphonePermission:
-          "Context uses the microphone to record your meetings. Audio is transcribed and then discarded — only the text is saved, into storage you own.",
+          "Context uses the microphone to record your meetings. If you allow cloud transcription, the audio is sent to Cloudflare Workers AI to be turned into text and then discarded — only the text is saved, into storage you own.",
       },
     ],
     "expo-video",
@@ -229,7 +229,7 @@ describe("app.config.js: Android is prepared for a backgrounded recording", () =
     );
     expect(audioPlugin[1]).toEqual({
       microphonePermission:
-        "Context uses the microphone to record your meetings. Audio is transcribed and then discarded — only the text is saved, into storage you own.",
+        "Context uses the microphone to record your meetings. If you allow cloud transcription, the audio is sent to Cloudflare Workers AI to be turned into text and then discarded — only the text is saved, into storage you own.",
     });
   });
 

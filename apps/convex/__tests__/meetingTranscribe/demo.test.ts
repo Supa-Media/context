@@ -12,6 +12,7 @@ import {
   DEMO_MEETING_MS,
   consumeDemoBudget,
 } from "../../functions/meetings/demoTranscribe";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION, TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import { callerHash } from "../../functions/meetings/transcribe";
 import { captureError, errorCode, setupTest, type TestConvex } from "../fixtures.helpers";
 import { AUDIO, WORKER_SECRET, configureWorker, workerReturning } from "./fixtures.helpers";
@@ -22,6 +23,7 @@ let n = 0;
 function chunk(overrides: Record<string, unknown> = {}) {
   return {
     visitorId: VISITOR,
+    consentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION,
     audioBase64: AUDIO,
     mimeType: "audio/webm",
     chunkId: `mtg_demo0000000000000000-${(n += 1)}`,
@@ -53,6 +55,21 @@ describe("the homepage demo's transcription", () => {
     expect(requests[0].headers["x-caller-hash"]).toBe(await callerHash(`demo:${VISITOR}`, WORKER_SECRET));
     // Nothing but the audio travels.
     expect(Object.keys(requests[0].body as object).sort()).toEqual(["audioBase64", "durationMs", "mimeType"]);
+  });
+
+  test.each([
+    ["no consent version at all", { consentVersion: undefined }],
+    ["a consent version from an older disclosure", { consentVersion: CLOUD_TRANSCRIPTION_CONSENT_VERSION - 1 }],
+  ])("refuses %s, before the worker is asked or a budget is spent", async (_name, overrides) => {
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "never heard" }]);
+    const error = await captureError(() =>
+      t.action(api.functions.meetings.demoTranscribe.transcribeDemoChunk, chunk(overrides)),
+    );
+    expect(errorCode(error)).toBe(TRANSCRIPTION_CONSENT_REQUIRED);
+    expect(requests).toHaveLength(0);
+    expect(await tables(t)).toEqual({ rateLimits: 0 });
   });
 
   test.each([
@@ -121,7 +138,7 @@ describe("the homepage demo's transcription", () => {
     const t = setupTest();
     configureWorker();
     workerReturning([{ startMs: 0, endMs: 10, text: "no" }]);
-    const { visitorId: _unused, ...plain } = chunk();
+    const { visitorId: _unused, consentVersion: _consent, ...plain } = chunk();
     const error = await captureError(() =>
       t.action(api.functions.meetings.transcribe.transcribeChunk, plain),
     );

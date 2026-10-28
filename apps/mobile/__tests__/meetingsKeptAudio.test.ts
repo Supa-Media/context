@@ -1,3 +1,4 @@
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { MeetingsController } from "../features/meetings/controller";
@@ -7,7 +8,7 @@ import { memorySpool, setAudioSpool } from "../features/meetings/capture/spool";
 import { resetSpoolDrain } from "../features/meetings/capture/spoolDrain";
 import { setCaptureOffline } from "../features/meetings/capture/connectivity";
 import { chunkIdFor } from "../features/meetings/capture/segments";
-import { setTranscriber, fakeTranscriber } from "../features/meetings/capture/transcriber";
+import { setTranscriber, setTranscriptionConsent, fakeTranscriber } from "../features/meetings/capture/transcriber";
 import type { TranscribeChunkArgs } from "../features/meetings/capture/transcriber";
 import { FINALIZE_TIMEOUT_MS } from "../features/meetings/recovery";
 import { forgetLocalCopies } from "../features/offline/forget";
@@ -87,6 +88,7 @@ async function harness(
   const recorder = options.recorder ?? fakeRecorder();
   const sent: TranscribeChunkArgs[] = [];
   const base = fakeTranscriber();
+  setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
   setTranscriber({
     ...base,
     async transcribe(input) {
@@ -143,6 +145,7 @@ beforeEach(() => {
 afterEach(() => {
   setAudioSpool(null);
   setTranscriber(null);
+  setTranscriptionConsent(null);
   setCaptureOffline(false);
 });
 

@@ -1,6 +1,8 @@
 import { nextRecorderState } from "@context/meetings/recorder";
+import { NO_TRANSCRIPTION_CONSENT } from "@context/shared";
 import type { DesktopBridge, DesktopCapabilities } from "@context/desktop-bridge";
 import type { TranscriptSegment } from "../protocol";
+import { cloudTranscriptionAllowed } from "./transcriber";
 import type {
   CaptureOptions,
   MeetingRecorder,
@@ -210,6 +212,9 @@ export function desktopRecorder(
         state = nextRecorderState(state, "start");
         return;
       }
+      // The shell sends its chunks to the gateway, which asks the same
+      // question; without a yes here the shell is not even started.
+      if (!cloudTranscriptionAllowed()) throw new Error(NO_TRANSCRIPTION_CONSENT);
 
       ending = false;
       attach();

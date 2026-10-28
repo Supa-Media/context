@@ -531,6 +531,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Same for all plans, under a daily ceiling
 - A summary is started by opening the note, never by a timer
 - Join and take notes is one press, never none ([joining-from-the-calendar](./meetings/joining-from-the-calendar.md))
+- No audio goes to cloud transcription without the account's current yes ([transcription-consent](./meetings/transcription-consent.md))
 
 ## [Communications](./communications.md)
 

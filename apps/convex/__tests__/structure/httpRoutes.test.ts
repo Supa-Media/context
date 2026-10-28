@@ -145,6 +145,7 @@ describe("the gateway's HTTP routes", () => {
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/agent/identity": "gatewayAgentIdentity",
+    "/gateway/transcription/consent": "gatewayTranscriptionConsent",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
     "/gateway/privacy": "gatewayPrivacy",

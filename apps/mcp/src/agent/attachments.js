@@ -146,13 +146,27 @@ function heardText(payload) {
     .join(" ");
 }
 
+/** Said in place of a voice message when the texter has not allowed cloud transcription. */
+export const VOICE_NOT_ALLOWED =
+  "It is a voice message, and cloud transcription is off for this account, so it was not sent to be transcribed. " +
+  "Ask them to type it, or to turn on Cloud transcription in the Context app under Settings › Meetings.";
+
 /**
  * Every voice message replaced by its words (or by why there are none). The
  * audio goes to the service and nowhere else: not logged, not kept, and the
  * caller is named to it only as `callerId`, which the forwarder hashes.
+ *
+ * `consented` is asked once, before any audio is forwarded: the texter's own
+ * yes to cloud transcription (docs/decisions/meetings/transcription-consent.md).
+ * Missing, or anything but `true`, is no, and no audio leaves.
  */
-export async function hearVoiceMessages(attachments, transcribe, callerId) {
+export async function hearVoiceMessages(attachments, transcribe, callerId, consented = null) {
   if (!attachments.some(isAudio)) return attachments;
+  if (typeof transcribe === "function" && (typeof consented !== "function" || (await consented().catch(() => false)) !== true)) {
+    return attachments.map((attachment) =>
+      isAudio(attachment) ? { name: attachment.name, mediaType: attachment.mediaType, unread: VOICE_NOT_ALLOWED } : attachment,
+    );
+  }
   return await Promise.all(
     attachments.map(async (attachment) => {
       if (!isAudio(attachment)) return attachment;

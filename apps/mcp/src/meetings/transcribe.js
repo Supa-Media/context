@@ -107,7 +107,7 @@ export function acceptableMimeType(value) {
  *   has no transcription configured. It answers with the service's whole
  *   payload — `{ segments, refused }` — rather than with the segments alone.
  */
-export async function transcribeChunk(request, store, session, id, transcribe) {
+export async function transcribeChunk(request, store, session, id, transcribe, consented = null) {
   if (typeof transcribe !== "function") {
     // 501, not 503: "this gateway does not do that" rather than "not right
     // now". A client that read it as temporary would ask again every twenty
@@ -116,6 +116,27 @@ export async function transcribeChunk(request, store, session, id, transcribe) {
       501,
       "unavailable",
       "this gateway has no transcription service configured; record with an on-device engine or type your notes"
+    );
+  }
+
+  /*
+    CONSENT, BEFORE THE BUDGET AND BEFORE A BYTE IS FORWARDED.
+
+    A microphone permission is not permission to send a recording to
+    Cloudflare Workers AI (App Review 5.1.1(i)/5.1.2(i);
+    docs/decisions/meetings/transcription-consent.md). Asked of the control
+    plane on every chunk, so a withdrawal on any device stops the next one.
+    No asker at all is a no: a wiring that forgot it must not send.
+
+    `forbidden`, so the Mac app (`apps/desktop/src/main/transcribe.ts`
+    `permanent`) stops sending this meeting's audio at once and drops what it
+    had queued, instead of retrying every twenty seconds.
+  */
+  if (typeof consented !== "function" || !(await consented())) {
+    throw new MeetingRefusal(
+      403,
+      "forbidden",
+      "cloud transcription is off for this account, so no audio was sent; allow it in Context, Settings › Meetings"
     );
   }
 

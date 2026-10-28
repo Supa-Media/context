@@ -12,6 +12,7 @@ import { RecordButton } from "./components/RecordButton";
 import { meetings } from "./controller";
 import { groupMeetings, type MeetingListSection } from "./format";
 import { ScheduledRow } from "./components/ScheduledRow";
+import { useTranscriptionConsentGate } from "./useTranscriptionConsent";
 import { joinStartInput } from "./join";
 import { useScheduledMeetings } from "./scheduled";
 import { nextMeeting } from "@context/meetings/scheduled";
@@ -112,12 +113,27 @@ export function MeetingsListScreen({
     [snapshot.records, upcoming, now, locale],
   );
 
+  /*
+    Cloud transcription consent, in front of both starts below
+    (docs/decisions/meetings/transcription-consent.md). Not now still starts
+    the meeting: it runs as typed notes, with no microphone opened.
+  */
+  const consent = useTranscriptionConsentGate({ capture: snapshot.capture });
+  const consentGate = consent.gate;
+
   const start = useCallback(
-    async (title: string) => {
-      const id = await meetings.start({ title });
-      router.push(meetingHref(id));
-    },
-    [router],
+    (title: string) =>
+      new Promise<void>((resolve, reject) => {
+        consentGate(() => {
+          void meetings
+            .start({ title })
+            .then((id) => {
+              router.push(meetingHref(id));
+              resolve();
+            }, reject);
+        });
+      }),
+    [consentGate, router],
   );
 
   /*
@@ -131,10 +147,11 @@ export function MeetingsListScreen({
       if (meeting.conferenceUrl !== undefined && !snapshot.capture.systemAudioNeedsPicker) {
         void Linking.openURL(meeting.conferenceUrl).catch(() => {});
       }
-      const id = await meetings.start(joinStartInput(meeting));
-      router.push(meetingHref(id));
+      consentGate(() => {
+        void meetings.start(joinStartInput(meeting)).then((id) => router.push(meetingHref(id)), () => {});
+      });
     },
-    [router, snapshot.capture.systemAudioNeedsPicker],
+    [consentGate, router, snapshot.capture.systemAudioNeedsPicker],
   );
 
   useEffect(() => {
@@ -226,6 +243,7 @@ export function MeetingsListScreen({
           testID="meetings-record"
         />
       ) : null}
+      {consent.sheet}
     </>
   );
 }
