@@ -10,6 +10,7 @@
  * transcript starts where they joined (`renderTranscript` with `people`).
  */
 
+import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
@@ -36,6 +37,8 @@ export type GroupPending = {
   force?: true;
   byCode?: true;
   engagement?: GroupStyle;
+  /** A reply to the open "Tex, settings" menu (`texStyle.ts`), answered by code. */
+  setting?: SettingReply;
   /** On a turn kept for a retry: the events it answers besides its own. */
   covers?: string[];
   /** The message the style question held: never asked about again. */

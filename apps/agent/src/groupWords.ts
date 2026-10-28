@@ -4,6 +4,8 @@
  * ("Tex use @name", "Tex, stop"). Answered in `groupInbox.ts`.
  */
 
+import { styleWords, type TexStyle } from "./texStyle";
+
 export type Command =
   | { kind: "stop" }
   | { kind: "start" }
@@ -12,7 +14,9 @@ export type Command =
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
   | { kind: "status" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  /** Plain words for one of Tex's settings ("Tex, less emoji", "Tex, humor 60%"; `texStyle.ts`). */
+  | { kind: "style"; patch: TexStyle };
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -87,6 +91,8 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
   if (/^settings\??$/.test(rest)) return { kind: "settings" };
+  const patch = styleWords(rest);
+  if (patch) return { kind: "style", patch };
   const shared = SHARE_MAIL.exec(rest);
   if (shared) return { kind: "share_mail", address: shared[1]!, ...(shared[2] ? { query: shared[2] } : {}) };
   const unshared = UNSHARE_MAIL.exec(rest);

@@ -64,6 +64,7 @@ import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
+import { closeMenu, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -300,6 +301,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     if (acksOnly) await line?.markRead(first.chatId, first.messageId);
     const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
+    // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
+    if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
@@ -543,6 +546,9 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
       onPictures: (sent) => void (pictures = sent),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
+      // "Tex, settings" and the style it keeps (`texStyle.ts`).
+      settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
+      onTexStyle: (style) => keepTexStyle(storage, style),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
