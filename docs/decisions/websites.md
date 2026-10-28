@@ -93,15 +93,8 @@ outside the app writing into the bucket is picked up, and it is why the
 five-minute bound on a served copy (see "Edits wait for Publish") is the only
 thing that limits such a page's visibility between sweeps.
 
-A row whose facts lag its note (the note changed and the facts fill has not
-read it yet, which for a write through the gateway can be the quarter-hour
-sweep) is not evidence the page stopped publishing. The public list, the
-design, the client snapshot and the route probe ask `currentRows`
-(`lib/websites/treeFacts.ts`), which runs one fill pass for such rows and asks
-the tree again; a row still lagging after it is left out as before. Until
-2026-10-28 they left it out at once, and an edited page fell off its lists and
-an edited stylesheet took the whole design off every page until the sweep
-(`websiteLaggingFacts.test.ts`).
+A row whose facts lag its note is not evidence the page stopped publishing:
+[websites/lagging-facts.md](./websites/lagging-facts.md).
 
 The serving side does **not** fall back to a moved page's old key. A page a
 queued move carries away is off its old address at once, as it is after a move
