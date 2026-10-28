@@ -79,16 +79,62 @@ export function activeSpaces(items: unknown, since: number): Array<{ name: strin
     }));
 }
 
-/** Whether a message is to the person: anything someone else wrote in a DM or group chat, or a mention of them in a space. */
-export function writtenToThem(message: Entry, spaceType: string, me: string | null): boolean {
+/**
+ * Who the person is in Chat. Chat names people by a numeric `users/{id}`, and
+ * the only call that turns an address into one, `spaces.members.get`, needs a
+ * memberships scope the connect does not ask for (Google's discovery
+ * document), so Google would refuse it and every look would find nothing.
+ * Chat's `User` resource fills `email` for a message's `sender` and for
+ * users in its `annotations` under user authentication, for members of the
+ * space, which the person always is of their own spaces. So the person is matched by the
+ * address Google's id token gave the connection, and their canonical id is
+ * learned from any message of theirs in the same look. Google account `sub`
+ * is never taken for a Chat id: nothing in Google's documentation says the
+ * two are the same number.
+ */
+export interface ChatSelf {
+  address: string;
+  name: string | null;
+}
+
+const emailOf = (user: Entry): string | null => (typeof user.email === "string" ? user.email.trim().toLowerCase() : null);
+
+/** The person's canonical `users/{id}`, from any message they wrote, matched by address. */
+export function learnSelf(address: string, messages: readonly Entry[]): ChatSelf {
+  const own = address.trim().toLowerCase();
+  for (const message of messages) {
+    const sender = (message.sender ?? {}) as Entry;
+    if (emailOf(sender) === own && typeof sender.name === "string" && sender.name.startsWith("users/")) return { address: own, name: sender.name };
+  }
+  return { address: own, name: null };
+}
+
+/**
+ * Whether a user is the person, someone else, or cannot be told apart: a
+ * user with neither a matching id nor any address may be the person
+ * themselves, so it never counts as someone else.
+ */
+function whoIs(user: Entry, self: ChatSelf): "self" | "other" | "unknown" {
+  const email = emailOf(user);
+  if (email === self.address || (self.name !== null && user.name === self.name)) return "self";
+  if (email !== null || (self.name !== null && typeof user.name === "string")) return "other";
+  return "unknown";
+}
+
+/**
+ * Whether a message is to the person: anything someone else wrote in a DM or
+ * group chat, or a mention of them in a space. Never their own words, so a
+ * check-in can't read back what Tex sent as them; a sender it cannot tell
+ * from the person is left out.
+ */
+export function writtenToThem(message: Entry, spaceType: string, self: ChatSelf): boolean {
   const sender = (message.sender ?? {}) as Entry;
   if (sender.type === "BOT") return false;
-  if (me !== null && sender.name === me) return false;
-  if (spaceType === "DIRECT_MESSAGE" || spaceType === "GROUP_CHAT") return me !== null;
+  if (whoIs(sender, self) !== "other") return false;
+  if (spaceType === "DIRECT_MESSAGE" || spaceType === "GROUP_CHAT") return true;
   const annotations = Array.isArray(message.annotations) ? (message.annotations as Entry[]) : [];
-  return (
-    me !== null &&
-    annotations.some((note) => note.type === "USER_MENTION" && ((note.userMention as Entry | undefined)?.user as Entry | undefined)?.name === me)
+  return annotations.some(
+    (note) => note.type === "USER_MENTION" && whoIs(((note.userMention as Entry | undefined)?.user ?? {}) as Entry, self) === "self",
   );
 }
 
@@ -115,14 +161,8 @@ export async function gatewayChatRecentHandler(ctx: ActionCtx, body: Record<stri
     }
     const spaces = activeSpaces(listed.body?.spaces, since);
     if (spaces.length === 0) return json({ ok: true, from: room.address, messages: [] });
-    // Their own Chat id, from their membership of a space they are in: Chat names people only by id.
-    const membership = await chatGet(minted.accessToken, `${spaces[0]!.name}/members/${encodeURIComponent(room.address)}`);
-    const member = ((membership.body?.member ?? {}) as Entry).name;
-    const me = membership.ok && typeof member === "string" && member.startsWith("users/") ? member : null;
-    if (me === null) log({ outcome: "no_self", status: membership.status });
-
     const filter = `createTime > "${new Date(since).toISOString()}"`;
-    const found: RecentChatMessage[] = [];
+    const read: Array<{ space: (typeof spaces)[number]; messages: Entry[] }> = [];
     for (const space of spaces) {
       const query = new URLSearchParams({ pageSize: String(PER_SPACE), orderBy: "createTime desc", filter });
       const answer = await chatGet(minted.accessToken, `${space.name}/messages?${query}`);
@@ -130,8 +170,15 @@ export async function gatewayChatRecentHandler(ctx: ActionCtx, body: Record<stri
         log({ outcome: "http_error", stage: "messages", status: answer.status });
         continue;
       }
-      for (const message of Array.isArray(answer.body?.messages) ? (answer.body.messages as Entry[]) : []) {
-        if (!writtenToThem(message, space.type, me)) continue;
+      read.push({ space, messages: Array.isArray(answer.body?.messages) ? (answer.body.messages as Entry[]) : [] });
+    }
+    const self = learnSelf(room.address, read.flatMap(({ messages }) => messages));
+    if (self.name === null) log({ outcome: "self_by_address" });
+
+    const found: RecentChatMessage[] = [];
+    for (const { space, messages } of read) {
+      for (const message of messages) {
+        if (!writtenToThem(message, space.type, self)) continue;
         const text = clean(message.argumentText ?? message.text, MAX_TEXT);
         if (text === "" || typeof message.name !== "string" || typeof message.createTime !== "string") continue;
         found.push({

@@ -58,8 +58,25 @@ and as the person, the few spaces most recently active since the last look
 (at most eight, never further back than three days), and answers at most ten
 messages: everything someone else wrote in a direct message or group chat,
 and in a named space only a message that mentions them. Bots are left out.
-Their own Chat id comes from their membership of a space, looked up by their
-address, since Chat names people only by id.
+Their own words never count, so a look cannot read back what Tex sent as
+them.
+
+**Who "them" is (2026-10-28).** The first version looked their Chat id up
+with `spaces.members.get`, which Google's discovery document allows only
+with a `chat.memberships` scope the connect never asks for, so Google would
+refuse it and every look would find nothing (found by reading the code
+against the discovery document, not measured in production). Now the person is matched by the address
+Google's id token gave the connection: Chat's `User` fills `email` for a
+message's sender and for mentioned users under user authentication, for
+members of the space, and their canonical `users/{id}` is learned from any
+message of theirs in the same look. A sender with neither a known id nor
+an address could be them, so it is left out, never counted as someone else.
+The Google account `sub` is not used as a Chat id: Chat documents its id as
+the People API person id and the Directory user id, and says nothing of
+`sub`. Adding the memberships scope instead was turned down: no new grant
+for a lookup the messages already answer. The test that fails if a Chat
+call needs a scope the connect does not ask for checks each one against a
+copy of the discovery document's scopes.
 
 - `chat.messages.readonly` is restricted, and rides on the Gmail connect
   like the send scopes: one reconnect grants both.
