@@ -54,6 +54,8 @@ export type {
   OutboxStatus,
   PendingMachineApproval,
   SpellingCheck,
+  UpcomingMeetings,
+  UpcomingMeetingView,
   StartCaptureRequest,
   TranscribesAt,
   TranscriptSegment,

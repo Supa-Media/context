@@ -255,3 +255,65 @@ describe("the sidebar's next-up row", () => {
     unmount();
   });
 });
+
+describe("the Mac app's menu bar is handed the same meetings", () => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { fakeDesktopBridge } = require("@context/desktop-bridge/fake") as typeof import("@context/desktop-bridge/fake");
+  const { setScheduledMeetings, clearScheduledMeetings } =
+    require("../features/meetings/scheduled") as typeof import("../features/meetings/scheduled");
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  const scope = globalThis as { desktop?: unknown };
+  afterEach(() => {
+    delete scope.desktop;
+    clearScheduledMeetings();
+  });
+
+  const weekly = {
+    id: "work@example.test:evt1",
+    title: "Leadership Weekly",
+    startsAt: "2026-10-28T16:00:00.000Z",
+    endsAt: "2026-10-28T17:00:00.000Z",
+    conferenceUrl: "https://meet.google.com/abc-defg-hij",
+    attendees: [
+      { name: "Me", email: "me@example.test", self: true, via: "calendar" as const },
+      { name: "Ruth", email: "ruth@example.test", via: "calendar" as const },
+    ],
+  };
+
+  test("a Mac app that can take them gets today's meetings, without the person as a guest", () => {
+    const fake = fakeDesktopBridge();
+    scope.desktop = fake.bridge;
+    setScheduledMeetings({ status: "ready", meetings: [weekly], reconnect: [] });
+    expect(fake.upcomingPushes).toHaveLength(1);
+    expect(fake.upcomingPushes[0]).toEqual({
+      meetings: [
+        {
+          id: weekly.id,
+          title: "Leadership Weekly",
+          startsAt: weekly.startsAt,
+          endsAt: weekly.endsAt,
+          conferenceUrl: weekly.conferenceUrl,
+          attendees: [{ name: "Ruth", email: "ruth@example.test" }],
+        },
+      ],
+      askBeforeMs: 60_000,
+    });
+  });
+
+  test("an older Mac app, or a browser, is handed nothing and nothing throws", () => {
+    const fake = fakeDesktopBridge({ noCalendar: true });
+    scope.desktop = fake.bridge;
+    expect(() => setScheduledMeetings({ status: "ready", meetings: [weekly], reconnect: [] })).not.toThrow();
+    expect(fake.calls).not.toContain("calendar.setUpcoming");
+    delete scope.desktop;
+    expect(() => setScheduledMeetings({ status: "ready", meetings: [weekly], reconnect: [] })).not.toThrow();
+  });
+
+  test("signing out empties the menu bar too", () => {
+    const fake = fakeDesktopBridge();
+    scope.desktop = fake.bridge;
+    setScheduledMeetings({ status: "ready", meetings: [weekly], reconnect: [] });
+    clearScheduledMeetings();
+    expect(fake.upcomingPushes.at(-1)?.meetings).toEqual([]);
+  });
+});

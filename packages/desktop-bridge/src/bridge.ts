@@ -181,6 +181,8 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
   7: VERSION_1_MEMBERS,
   /** Version 8 adds `spelling`, a sub-object again. */
   8: VERSION_1_MEMBERS,
+  /** Version 9 adds `calendar`, a sub-object again. */
+  9: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -270,6 +272,17 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
     agent: Object.freeze(["status", "ask"]),
     spelling: Object.freeze(["check"]),
+  }),
+  /*
+    Version 9 adds `calendar`. Rows 1-8 are untouched: an older shell names no
+    meeting in the menu bar, and the console offers Join in its own window.
+  */
+  9: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+    agent: Object.freeze(["status", "ask"]),
+    spelling: Object.freeze(["check"]),
+    calendar: Object.freeze(["setUpcoming"]),
   }),
 });
 

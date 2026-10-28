@@ -16,7 +16,7 @@
  *   `nextMeeting` ignoring the lead                                 1
  */
 
-import { callKindOf, joinUrlOf, mergeScheduled, nextMeeting, safeJoinUrl, scheduledMeetingOf } from "../src/scheduled.js";
+import { callKindOf, callNameOf, joinUrlOf, mergeScheduled, nextMeeting, safeJoinUrl, scheduledMeetingOf } from "../src/scheduled.js";
 
 const ME = { email: "seyi@example.test", self: true, responseStatus: "accepted" };
 const ZAY = { email: "zay@example.test", name: "Zay" };
@@ -64,6 +64,8 @@ export function runScheduledChecks(check) {
 
   check("a Meet link is a meet call", callKindOf("https://meet.google.com/abc") === "meet");
   check("a Zoom subdomain is a zoom call", callKindOf("https://acme.zoom.us/j/1") === "zoom");
+  check("a Meet link is named Google Meet", callNameOf("https://meet.google.com/abc") === "Google Meet");
+  check("...and a link off the allowlist is only ever 'the call'", callNameOf("https://meet.google.com.evil.example/x") === "the call");
   check("a link that is not a call is unknown", callKindOf("https://evil.example/zoom.us") === "unknown");
 
   /* ---------------------------- which events ---------------------------- */

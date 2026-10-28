@@ -5,6 +5,7 @@ import { api } from "@context/convex/_generated/api";
 import { nextMeeting, NEXT_MEETING_LEAD_MS } from "@context/meetings/scheduled";
 
 import type { CalendarEvent } from "./protocol";
+import { tellShellUpcoming } from "./shellCalendar";
 
 /**
  * The meetings on the person's own calendars today, for "Join and take notes"
@@ -48,6 +49,8 @@ function getSnapshot(): ScheduledMeetings {
 export function setScheduledMeetings(next: ScheduledMeetings): void {
   state = next;
   for (const listener of listeners) listener();
+  // The Mac app's menu bar names the same meetings (boards j1-j3).
+  tellShellUpcoming(next.meetings);
 }
 
 /** Back to nothing known, on sign-out. */

@@ -76,6 +76,18 @@ export const CREDENTIAL_BARRIERS = new Set([
    * against the link or the membership first.
    */
   "functions.vault.runVaultOperation",
+  /*
+   * The live calendar read behind "Join and take notes"
+   * (`functions/meetingCalendar.ts`, built on the owner's 2026-10-28 go for
+   * joining scheduled meetings from the app, with calendars read live and
+   * never copied since 2026-10-21). It mints a Google access token for each of
+   * the person's own calendar connections, reads the day, and returns meetings
+   * and addresses only. Its caller, `upcomingMeetings`, takes the user from
+   * the session; the claim inside refuses anyone but the owner of the personal
+   * workspace the calendars belong to. It reaches no storage credential: it is
+   * here because the Google refresh token is sealed with the same decrypt.
+   */
+  "functions.meetingCalendar.readMeetingCalendars",
 ]);
 
 /**

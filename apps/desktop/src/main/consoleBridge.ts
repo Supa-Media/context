@@ -55,6 +55,7 @@
  */
 
 import { isMeetingId } from "@context/meetings/protocol";
+import { upcomingFrom } from "../core/calendar/upcoming.ts";
 import {
   BRIDGE_CHANNELS,
   MEETING_WRITE_KINDS,
@@ -82,6 +83,7 @@ import {
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
+  type UpcomingMeetings,
 } from "@context/desktop-bridge";
 import { originOfUrl } from "../core/shell/mirror.ts";
 import { downloadFrom, filesChoiceFrom } from "../core/shell/imessageStatus.ts";
@@ -203,6 +205,11 @@ export interface ConsoleBridgeDeps {
    */
   localAgent: () => LocalAgentStatus;
   askLocalAgent: (request: LocalAgentAsk) => Promise<LocalAgentReply>;
+  /**
+   * Today's meetings, for the menu bar. The version-9 addition. Already
+   * rebuilt by `upcomingFrom`, so every link in it is on the allowlist.
+   */
+  setUpcoming: (upcoming: UpcomingMeetings) => void;
 }
 
 export interface ConsoleBridge {
@@ -612,6 +619,11 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     });
   });
 
+  handle(BRIDGE_CHANNELS.calendarSetUpcoming, (payload) => {
+    deps.setUpcoming(upcomingFrom(payload));
+    return null;
+  });
+
   function send(channel: string, payload: unknown): void {
     /*
       A window that went away between the check and the send throws, and one
@@ -690,6 +702,7 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.imessageForget,
         BRIDGE_CHANNELS.agentStatus,
         BRIDGE_CHANNELS.agentAsk,
+        BRIDGE_CHANNELS.calendarSetUpcoming,
       ]) {
         deps.ipc.removeHandler(channel);
       }

@@ -18,6 +18,7 @@
 
 /** @typedef {import("./protocol.js").CalendarEvent} CalendarEvent */
 /** @typedef {import("./protocol.js").Attendee} Attendee */
+/** @typedef {CalendarEvent & {account?: string}} ScheduledMeeting  With the connected calendar it came from, by address. */
 
 /** Hosts a Join button may open, with their subdomains. */
 export const JOIN_HOSTS = Object.freeze([
@@ -81,6 +82,25 @@ export function callKindOf(url) {
   return "unknown";
 }
 
+const CALL_NAMES = Object.freeze({
+  meet: "Google Meet",
+  zoom: "Zoom",
+  teams: "Teams",
+  webex: "Webex",
+  facetime: "FaceTime",
+  unknown: "the call",
+});
+
+/**
+ * The call's own name, for "Open Google Meet" and the line under a meeting.
+ *
+ * @param {string|undefined|null} url
+ * @returns {string}
+ */
+export function callNameOf(url) {
+  return CALL_NAMES[callKindOf(url ?? undefined)];
+}
+
 const URL_IN_TEXT = /https:\/\/[^\s<>"')\]]+/gi;
 
 /**
@@ -110,7 +130,7 @@ export function joinUrlOf(event) {
  * not one.
  *
  * @param {object} event  A `CalendarEventInstance` from `normalizeGoogleEvent`.
- * @returns {CalendarEvent|null}
+ * @returns {ScheduledMeeting|null}
  */
 export function scheduledMeetingOf(event) {
   if (!event || event.status === "cancelled") return null;

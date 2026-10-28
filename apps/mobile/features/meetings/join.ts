@@ -1,4 +1,4 @@
-import { callKindOf } from "@context/meetings/scheduled";
+import { callKindOf, callNameOf } from "@context/meetings/scheduled";
 
 import type { CalendarEvent, MeetingSource } from "./protocol";
 import type { StartInput } from "./controller/types";
@@ -24,21 +24,7 @@ export function joinStartInput(meeting: CalendarEvent): Pick<StartInput, "title"
 
 /** The call's own name, for "Open Google Meet" and the row under a meeting. */
 export function callName(url: string | undefined): string | null {
-  if (url === undefined) return null;
-  switch (callKindOf(url)) {
-    case "meet":
-      return "Google Meet";
-    case "zoom":
-      return "Zoom";
-    case "teams":
-      return "Teams";
-    case "webex":
-      return "Webex";
-    case "facetime":
-      return "FaceTime";
-    default:
-      return "the call";
-  }
+  return url === undefined ? null : callNameOf(url);
 }
 
 /** The label on the button that opens the call: "Open Google Meet". */

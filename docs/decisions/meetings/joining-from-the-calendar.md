@@ -59,3 +59,31 @@ owner, not a default.
 workspace the Google accounts are connected to. An editor of somebody's
 personal workspace never sees their meetings
 (`apps/convex/__tests__/meetingCalendar.test.ts`).
+
+**The read is a credential barrier.** Reading a calendar mints a Google access
+token, and no public Convex function may reach that decrypt. So the public
+`upcomingMeetings` checks the window and the session and calls one internal
+action, `readMeetingCalendars`, pinned in `CREDENTIAL_BARRIERS` beside the file
+and vault barriers. It answers meetings and addresses, never a token. The
+structure suite (`__tests__/structure/`) fails if the public action reaches the
+mint any other way.
+
+**The Mac app's menu bar is handed the list, and asks once.** The shell holds
+no control-plane session, so the console pushes today's meetings over the
+desktop bridge (version 9, `calendar.setUpcoming`). The shell keeps them in
+memory only. It rebuilds every field and checks every link against the
+allowlist again, because the list crosses from a page served from the network.
+
+What the person sees:
+
+- From fifteen minutes before a meeting, the menu bar shows "Leadership Weekly
+  · 4 min". A detected meeting or a recording's timer always wins that spot.
+- The menu offers **Join and take notes** and **Join only**.
+- A minute before the meeting, one notification asks with the same two
+  buttons. Its close button is **Not now**, a click on the notification itself
+  only opens Context, and it asks once per meeting.
+
+Nothing the shell is handed starts a recording. Only a press does, and it
+takes the same path as Record a meeting. `apps/desktop/test/calendarUpcoming.test.mjs`
+reads `main/calendar.ts` and fails if a tick, an arriving list or a shown
+nudge could reach `recordNow`.
