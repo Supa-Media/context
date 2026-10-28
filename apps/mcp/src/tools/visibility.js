@@ -57,7 +57,9 @@ ${named.content[0].text}`);
   try {
     version = await currentVersion(store, path, obj, await obj.text());
   } catch {
-    return toolError("this note cannot be checked safely right now; re-read and retry");
+    // Only a caller that named a version needs it checked.
+    if (args.expected_etag) return toolError("this note cannot be checked safely right now; re-read and retry");
+    version = { etag: obj.etag, document: null };
   }
   const currentEtag = version.etag;
   if (args.expected_etag && !versionMatches(args.expected_etag, { document: version.document, rawEtag: obj.etag })) {
