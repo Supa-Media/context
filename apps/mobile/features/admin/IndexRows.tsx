@@ -1,8 +1,7 @@
 /**
  * The Indexes view's table (`./IndexesView`): one row per workspace, a column
  * per index, and a row that opens to show the T0/T1/T2 split, what went wrong,
- * that workspace's Restart, and its file tree box (`./FileTreeDetail`) with
- * Repair, Check and any folder move still copying. On a phone a row is the
+ * that workspace's Restart, and its file tree box (`./FileTreeDetail`). On a phone a row is the
  * workspace, three dots (file tree, fast, meaning) and the reason under it; a
  * tap opens the same detail.
  */
@@ -22,11 +21,6 @@ export type IndexActions = {
   restart: (workspaceId: string) => void;
   /** Start the fast search copy again now, rather than on the sweep. */
   restartFast: (workspaceId: string) => void;
-  /** Copying is paused by staff (readers still read the tree), so a copy cannot start. */
-  migrationPaused: boolean;
-  /** Copy the workspace again; its facts follow the copy. */
-  repair: (workspaceId: string) => void;
-  check: (workspaceId: string) => void;
   /** Walk a sealed bucket again, for notes saved unsealed after its walk. */
   reseal: (workspaceId: string) => void;
 };

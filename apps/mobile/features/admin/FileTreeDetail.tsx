@@ -1,10 +1,9 @@
 /**
- * The file tree's box in an Indexes row's detail (`./IndexRows`): the Convex
- * copy (what the app and AI clients list notes from), its facts behind Lists,
- * Boards, the map and the chaos score, each with its buttons. The facts fill
- * follows the copy, so Repair copies
- * again and the facts catch up after it; the D1 tables and their Fill left
- * in phase 7 of the tree migration.
+ * The file tree's box in an Indexes row's detail (`./IndexRows`): its facts
+ * behind Lists, Boards, the map and the chaos score. Repair and Check went
+ * with the copy they acted on (#2116): notes are kept by id, so there is no
+ * copy of the bucket to make again or compare, and the 15-minute round starts
+ * a facts fill that is due.
  *
  * Seal again shows only while notes were saved unsealed into the sealed
  * bucket (`unreadableOf`): it walks the bucket once more, which seals them.
@@ -15,16 +14,13 @@
 
 import { StyleSheet, View } from "react-native";
 import { Button, Dot, Text, space, useThemedStyles, type Colors } from "../design";
-import { relativeTime } from "./report";
-import { healthTone, parityWords, type IndexHealth, type MigrationRow, type WorkspaceIndexes } from "./searchIndexes";
+import { healthTone, type IndexHealth, type MigrationRow, type WorkspaceIndexes } from "./searchIndexes";
 import type { IndexActions } from "./IndexRows";
 
 export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
   const styles = useThemedStyles(makeStyles);
   const id = row.slug ?? row.workspaceId;
-  const now = Date.now();
   const copy = row.migrationRow;
-  const canCopy = copy !== null && !actions.migrationPaused;
   const button = (key: string, label: string, busyLabel: string, onPress: () => void, testID: string, disabled = false) => (
     <Button
       label={actions.busy === key ? busyLabel : label}
@@ -40,28 +36,15 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
         <Text variant="rowTitle" style={styles.grow}>
           File tree
         </Text>
-        {canCopy
-          ? button(
-              `repair:${row.workspaceId}`,
-              "Repair",
-              "Starting…",
-              () => actions.repair(row.workspaceId),
-              `admin-files-repair-${id}`,
-            )
-          : null}
-        {copy === null
-          ? null
-          : button(`check:${row.workspaceId}`, "Check", "Checking…", () => actions.check(row.workspaceId), `admin-files-check-${id}`)}
         {row.unreadable?.kind === "unsealed"
           ? button(`reseal:${row.workspaceId}`, "Seal again", "Starting…", () => actions.reseal(row.workspaceId), `admin-files-reseal-${id}`)
           : null}
       </View>
-      <Line tone={row.convex.health} label={row.convex.label} text={copyNote(copy, now)} problem={row.convex.problem} />
       <Line
-        tone={row.details.health}
-        label={row.details.label}
+        tone={row.files.health}
+        label={row.files.label}
         text={`Lists, Boards and map details. ${factsNote(copy)}`}
-        problem={row.details.problem}
+        problem={row.files.problem}
       />
     </View>
   );
@@ -91,19 +74,10 @@ function Line({ tone, label, text, problem }: { tone: IndexHealth; label: string
   );
 }
 
-/** One sentence for the Convex copy: the file count, when it was last copied, and what the check said. */
-export function copyNote(copy: MigrationRow | null, now: number): string {
-  if (copy === null) return "No file tree. This workspace has no storage to copy.";
-  const files = `${copy.files.toLocaleString("en-US")} ${copy.files === 1 ? "file" : "files"}`;
-  const copied = copy.sweptAt === null ? "Never copied" : `Last copied ${relativeTime(copy.sweptAt, now)}`;
-  const dirty = copy.dirty ? " A change is waiting for the next copy." : "";
-  return `${files}. ${copied}. ${parityWords(copy.parity)}.${dirty}`;
-}
-
 /** One sentence for the copy's facts: whether they have read every note. */
 export function factsNote(copy: MigrationRow | null): string {
   const facts = copy?.facts ?? null;
-  if (copy === null) return "None without a file tree.";
+  if (copy === null) return "None: this workspace has no storage.";
   if (facts === null) return "Not read yet.";
   if (!facts.ready) return facts.running ? "Reading every note once." : "Part way through reading every note once.";
   if (facts.retrying > 0) {
