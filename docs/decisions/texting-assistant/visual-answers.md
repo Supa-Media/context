@@ -170,6 +170,30 @@ and the carousel and numbered replies stay. A CI job (`messages-extension`)
 type-checks the extension against the iOS SDK on every pull request that
 touches it, because otherwise only the hand-run native release compiles it.
 
+### Cards where the app is, and Yes with a tap (2026-10-28)
+
+The owner, opening the Context app in the Messages drawer and finding only
+"Tap a Context card to open it.": "can we send more interactive cards when
+people have the app?" Nothing on our side records who installed the app, so
+the chat says so: any card from our own extension that reaches Tex marks that
+inbox (`apps/agent/src/cardChats.ts`). Opened from the drawer with no card
+selected, the extension offers "Turn on cards with Tex", which puts a hello
+card in the text field for them to send; a pick chosen or an ask answered
+marks it too. `APP_CARDS` "app" sends cards only to a marked chat, "on" to
+every chat; without the app a card is a bubble that only offers the App
+Store, which is why production runs "app".
+
+Under a reply that carries one of the gateway's asks (the same words a 👍
+is held for, `thumbs.ts`), an ask card follows: "Go ahead?", with Yes, go
+ahead and Not now in the extension. Sent back, they are the words "yes" and
+"no", and the gateway checks them exactly as typed ones, so the card can
+never approve anything a typed yes could not. The card carries a short key
+of the ask's words; a Yes tapped after a newer reply (a different ask, or
+none) reaches Tex as "I tapped Yes on an older card, not on your last ask.",
+which no approval reads as a yes. Not now is always a no. Reverting the key
+check lets a Yes tapped on yesterday's card approve today's ask. Test:
+`apps/agent/src/cardChats.test.ts`.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

@@ -79,6 +79,8 @@ export type Inbound =
       tapback?: Tapback;
       /** Tapbacks noted since their last text, told to this one's turn (`reactions.ts`). */
       reacted?: Reaction[];
+      /** Sendblue: it came as a card from our own Messages extension, and `ask` keys the ask it answers (`cardChats.ts`). */
+      viaCard?: { ask?: string };
     }
   /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
   /** `on`: Sendblue named the message it was on rather than quoting it; its words are read before queueing (`sendblueTapbacks.ts`). */

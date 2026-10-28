@@ -19,7 +19,7 @@
  * on (`appCards.ts`), a Sendblue one-to-one chat; a refusal sends nothing.
  */
 
-import type { AppCard, AppCardConfig } from "./appCards";
+import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import { PICTURE_FAILED, type SendPart } from "./outgoing";
 
 /** One option of a set, as the gateway read it from an option card (`apps/mcp/src/agent/outgoingPictures.js`). */
@@ -73,7 +73,7 @@ export function pickUrl(choices: Choice[]): string {
  * went by an address Sendblue can fetch.
  */
 export function pickCard(choices: Choice[], pictures: SendPart[], config: AppCardConfig | null | undefined): AppCard | null {
-  if (!config || choices.length < 2) return null;
+  if (!cardsOn(config) || choices.length < 2) return null;
   const media = pictures.flatMap((part) => (typeof part !== "string" && "media" in part && "url" in part.media ? [part.media.url] : []));
   const picked = choices.find((choice) => choice.pick === true);
   // A picture that failed to upload shifts the rest, so then no picture rather than the wrong one.
@@ -108,12 +108,12 @@ export function withPickCard(parts: SendPart[], choices: Choice[], config: AppCa
 const OUR_EXTENSION = /^lc\.context\.[a-z]+(?:\.[a-z]+)*\.messages$/;
 
 /**
- * What a pick card sent back from their phone says, in their words: "I pick
- * 2: Lugo's". Null for any other card, a card from another app's extension,
- * or a pick that names no option. The card is untrusted input (Sendblue's
- * docs say so), but it is only ever as much as the person could have typed.
+ * The address of a card sent back from their phone by our own extension, or
+ * null: a card from another app's extension, or an address that is not
+ * `https://context.lc/...`. The card is untrusted input (Sendblue's docs say
+ * so); what it says is only ever as much as the person could have typed.
  */
-export function pickedText(appCard: unknown): string | null {
+export function ourCardUrl(appCard: unknown): URL | null {
   if (!isRecord(appCard)) return null;
   if (typeof appCard.extensionBundleId !== "string" || !OUR_EXTENSION.test(appCard.extensionBundleId)) return null;
   if (typeof appCard.url !== "string" || appCard.url.length > MAX_URL) return null;
@@ -123,9 +123,19 @@ export function pickedText(appCard: unknown): string | null {
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== PICK_PATH) return null;
+  if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
-  if (host !== "context.lc" && !host.endsWith(".context.lc")) return null;
+  return host === "context.lc" || host.endsWith(".context.lc") ? url : null;
+}
+
+/**
+ * What a pick card sent back from their phone says, in their words: "I pick
+ * 2: Lugo's". Null for any other card, a card from another app's extension,
+ * or a pick that names no option.
+ */
+export function pickedText(appCard: unknown): string | null {
+  const url = ourCardUrl(appCard);
+  if (url === null || url.pathname !== PICK_PATH) return null;
   const options = url.searchParams.getAll("o").slice(0, MAX_CHOICES).map((name) => clean(name, MAX_NAME));
   const chose = Number(url.searchParams.get("c"));
   if (!Number.isInteger(chose) || chose < 1 || chose > options.length || !options[chose - 1]) return null;

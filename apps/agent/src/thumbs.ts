@@ -37,6 +37,11 @@ export const GROUP_THUMB_KEY = "gthumb";
  */
 const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
 
+/** Whether a text of Tex's is one of the gateway's asks. */
+export function isAsk(text: string): boolean {
+  return ASK.test(text);
+}
+
 /** Whether a tapback is a yes to hold: a like or a love on an ask. */
 export function holdsAsYes(reaction: Reaction): boolean {
   return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && ASK.test(reaction.words);
@@ -126,6 +131,12 @@ export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: n
   // On a message whose words Sendblue could not give (`sendblueTapbacks.ts`): the ask is the one waiting; the gateway still checks it is armed.
   if (reaction.words === "") return { ...reaction, words: kept.ask };
   return kept.texts.some((text) => quotesText(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
+}
+
+/** The ask of the last reply, while it can still be answered; undefined when that reply carried none. */
+export async function keptAsk(storage: InboxStorage, now: number): Promise<string | undefined> {
+  const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
+  return kept === undefined || now - kept.at > ASK_REPLY_FOR_MS ? undefined : kept.ask;
 }
 
 /** Hand a tapback to the next alarm, `THUMB_HOLD_MS` from now; a newer one replaces it. */

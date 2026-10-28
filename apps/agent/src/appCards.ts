@@ -9,13 +9,23 @@
  * extension ships; the extension's bundle id names it, and the card carries
  * the note's link as its URL.
  *
- * Off unless `APP_CARDS` is "on" and both the extension's bundle id and the
- * Apple team id are set. A line that refuses a card (no V2, no plan, a group)
- * gets the plain link, so a card is never the only way to the note.
+ * Off unless `APP_CARDS` is "on" (every chat) or "app" (only chats that have
+ * shown they have the app, `cardChats.ts`) and both the extension's bundle id
+ * and the Apple team id are set. A line that refuses a card (no V2, no plan,
+ * a group) gets the plain link, so a card is never the only way to the note.
  */
 
-/** Who the card says it is from: the extension that would open it. */
-export type AppCardConfig = { extensionBundleId: string; teamId: string; appStoreId?: number };
+/**
+ * Who the card says it is from: the extension that would open it.
+ * `onlyWhereApp`: cards go only to a chat that has shown it has the app,
+ * which `here` marks once the inbox has checked (`cardChats.ts`).
+ */
+export type AppCardConfig = { extensionBundleId: string; teamId: string; appStoreId?: number; onlyWhereApp?: true; here?: true };
+
+/** Whether cards go to this chat: on for everyone, or on where the app is and this chat has it. */
+export function cardsOn(config: AppCardConfig | null | undefined): config is AppCardConfig {
+  return config !== null && config !== undefined && (config.onlyWhereApp !== true || config.here === true);
+}
 
 export type AppCard = {
   appName: string;
@@ -36,12 +46,17 @@ const MAX_CAPTION = 100;
 
 /** The card settings from the Worker's environment, or null while cards are off. */
 export function appCardConfig(env: { APP_CARDS?: string; APP_CARD_EXTENSION_ID?: string; APPLE_TEAM_ID?: string; APP_STORE_ID?: string }): AppCardConfig | null {
-  if (env.APP_CARDS !== "on") return null;
+  if (env.APP_CARDS !== "on" && env.APP_CARDS !== "app") return null;
   const extensionBundleId = env.APP_CARD_EXTENSION_ID?.trim() ?? "";
   const teamId = env.APPLE_TEAM_ID?.trim() ?? "";
   if (!BUNDLE_ID.test(extensionBundleId) || !TEAM_ID.test(teamId)) return null;
   const store = Number(env.APP_STORE_ID);
-  return { extensionBundleId, teamId, ...(Number.isInteger(store) && store > 0 ? { appStoreId: store } : {}) };
+  return {
+    extensionBundleId,
+    teamId,
+    ...(Number.isInteger(store) && store > 0 ? { appStoreId: store } : {}),
+    ...(env.APP_CARDS === "app" ? { onlyWhereApp: true as const } : {}),
+  };
 }
 
 function decoded(segment: string): string | null {
