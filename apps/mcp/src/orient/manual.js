@@ -128,7 +128,7 @@ const FETCH_IDS = [
   "- `meetings:`, `messages:`, `contacts:`, `activity:`, `changes:`, `proposals:` (and `proposals:<id>`), `links:`, `vault:`, `plugins:`, `access:`: each kind, listed or read by id",
   "- `apps:`: the apps the person connects through Context (and which need the browser instead); `apps:<app>` lists one's tools, and with args `{ tool, arguments }` runs a read",
   "- `texts:`: their text conversations (iMessage and SMS), when their Mac backs them up; `texts:<id>`, from it or from `search` with args `{ texts: true, with, since }`, reads one, with args `{ since, before, limit }`",
-  "- `email:<address>/<id>`, from `search` with args `{ email: true }`: one email read from their Gmail, for mail not synced into their notes; args `{ attachment }` reads one of its files (with `from` and `summary` as for a file)",
+  "- `email:<address>/<id>`, from `search` with args `{ email: true }`: one email read live from their Gmail; args `{ attachment }` reads one of its files (with `from` and `summary` as for a file)",
 ].join("\n");
 
 /** The whole manual: the six tools, every action, and the fetch ids. */

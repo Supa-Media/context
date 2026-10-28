@@ -55,8 +55,7 @@ export function coreToolDefinitions() {
         "preferences and past work. The first place to look for any question about the user — " +
         "the answer is usually already written down here. Returns results whose id can be " +
         "passed to fetch for the full note. For their email, pass args { email: true }: it searches " +
-        "the mail synced into their notes first, then their Gmail for mail from before it was " +
-        "connected or not synced yet, with Gmail search syntax in query.",
+        "their Gmail live, with Gmail search syntax in query; no mail is copied into their notes.",
       inputSchema: {
         type: "object",
         properties: {

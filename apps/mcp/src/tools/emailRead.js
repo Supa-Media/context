@@ -2,11 +2,10 @@
  * `search_email` and `read_email`: the person's mail, read live from Gmail
  * (`docs/decisions/communications/reading-mail.md`).
  *
- * Each connected mailbox still keeps the person's notes current (the sync,
- * pushed by Google), but a search asks Gmail first, over all of the mail: the
- * synced day notes are too long for note search to find a message in them
- * (2026-10-20, reversing "synced first" of 2026-10-18). The notes answer only
- * for a mailbox Gmail could not: one whose sign-in stopped working, one that
+ * A search asks Gmail, over all of the mail, at the moment of the call. No
+ * mailbox is copied into the person's notes any more (owner, 2026-10-21,
+ * `docs/decisions/communications/live-not-copied.md`); mail notes left under
+ * the Inbox from before then answer only for a mailbox Gmail could not: one whose sign-in stopped working, one that
  * did not answer, or every one once the hour's reads are spent. A mailbox
  * whose sign-in stopped working is named, so the person is told to reconnect
  * it. Opening a result reads that one message from Gmail. Nothing read from
