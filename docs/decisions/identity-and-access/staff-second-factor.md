@@ -49,6 +49,14 @@ code, so a stolen email code cannot replace the key with the thief's. The
 current key stays in force until the replacement is confirmed by a code from
 it, typed in the session that started it, so a swap never leaves a gap.
 
+A swap does not end other sessions' standing: a session that already typed a
+code keeps staff access until its twelve hours run out. That is deliberate,
+not an oversight: those sessions proved the old key, which was valid when
+they did. Somebody who swaps because a device was lost ends it with "Sign
+out every other device" (Settings, one emailed code), which deletes the
+session row; a code's standing is read through the live session, so it ends
+with it.
+
 **A lost authenticator** is a deploy-time act, like `ADMIN_EMAILS` itself:
 `npx convex run functions/staffSecondFactor:resetForEmail '{"email": "..."}'`
 by somebody holding the deploy key. Nothing the console runs can remove a
