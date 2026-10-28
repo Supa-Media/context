@@ -13,6 +13,8 @@
  * new one is confirmed".
  */
 
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../_generated/api";
@@ -219,5 +221,52 @@ describe("guessing", () => {
     expect(await t.mutation(internal.functions.staffSecondFactor.resetForEmail, { email: ADMIN })).toBe(1);
     const fresh = withSession(t, userId);
     expect(await fresh.query(api.functions.staffSecondFactor.myStaffFactor, {})).toMatchObject({ enrolled: false, standing: "enroll" });
+  });
+});
+
+/**
+ * `requireAdmin` is the first factor and the second together. #2384 split the
+ * first out as `requireStaffIdentity`, which the second factor's own
+ * endpoints need — they are the way in, so they cannot demand a code — and
+ * `lib/admin.ts` says in words that nothing else may use it.
+ *
+ * Nothing enforced that. `adminSurface.test.ts` walks `functions/admin.ts`
+ * alone, and staff endpoints live in twenty-one modules, so a second importer
+ * would be a staff page that asks for the allowlisted address and no code.
+ *
+ * Sabotage: importing `requireStaffIdentity` in `functions/texDashboard.ts`
+ * fails the first test; the second fails if the pattern stops matching.
+ */
+describe("only the second factor's own endpoints take the first factor alone", () => {
+  /** They cannot demand a code: typing one is what they are for. */
+  const ALLOWED = new Set(["functions/staffSecondFactor.ts"]);
+  /** Generated code, the suite itself, and installed packages are not ours to check. */
+  const SKIP = new Set(["_generated", "__tests__", "node_modules", "dist"]);
+  const FIRST_FACTOR_ALONE = /import[^;]*\brequireStaffIdentity\b[^;]*from\s+["'][^"']*admin["']/s;
+  const root = join(__dirname, "..");
+
+  function sources(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return SKIP.has(name) ? [] : sources(path);
+      return /\.tsx?$/.test(name) ? [path] : [];
+    });
+  }
+
+  test("no other module imports requireStaffIdentity", () => {
+    const offenders = sources(root)
+      .map((path) => relative(root, path))
+      .filter((path) => !ALLOWED.has(path))
+      .filter((path) => FIRST_FACTOR_ALONE.test(readFileSync(join(root, path), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+
+  test("the guard sees an import when there is one, across the whole deployment", () => {
+    expect(FIRST_FACTOR_ALONE.test('import { requireStaffIdentity } from "./lib/admin";')).toBe(true);
+    expect(FIRST_FACTOR_ALONE.test('import {\n  isAdminEmail,\n  requireStaffIdentity,\n} from "../lib/admin";')).toBe(true);
+    expect(FIRST_FACTOR_ALONE.test('import { requireAdmin } from "./lib/admin";')).toBe(false);
+    const scanned = sources(root).map((path) => relative(root, path));
+    expect(scanned).toEqual(expect.arrayContaining(["functions/admin.ts", "functions/staffSecondFactor.ts", "http.ts"]));
+    expect(scanned.some((path) => path.includes("_generated"))).toBe(false);
   });
 });
