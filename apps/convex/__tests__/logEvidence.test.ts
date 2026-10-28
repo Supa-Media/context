@@ -19,11 +19,13 @@ import { FAKE_PRICE_ID, SIGNING_SECRET, chooseBoth, context, postWebhook } from 
  * one this test checked.
  *
  * What this cannot show, and does not claim to: the deployment's settings.
- * Two framework branches print a code or an address if a setting is wrong, and
- * the tests below drive both to say so plainly rather than leave them out:
- *  - with no RESEND_API_KEY the email code is printed instead of mailed;
- *  - a Resend refusal prints Resend's own response body, whose wording is
- *    Resend's to choose.
+ * One framework branch prints a code and an address if a setting is wrong,
+ * and a test below drives it to say so plainly rather than leave it out: with
+ * no RESEND_API_KEY the email code is printed instead of mailed. A Resend
+ * refusal used to print Resend's own response body; since
+ * `@supa-media/convex` 1.11.2 it is a status and a known error name only, and
+ * the test below feeds it a body that echoes the address, the code and the
+ * key.
  *
  * ## Sabotage record
  *
@@ -149,15 +151,20 @@ describe("sign-in log lines carry no code, token, key or address", () => {
     ]);
   });
 
-  test("Resend refusing a send: its body is printed as Resend wrote it, without our key or the code", async () => {
+  test("Resend refusing a send with a body that echoes the address, code and key: only a status and an error name are logged", async () => {
     const t = setupTest();
-    resendAnswer = () =>
-      new Response(JSON.stringify({ statusCode: 429, name: "rate_limit_exceeded", message: "Too many requests." }), { status: 429 });
+    resendAnswer = () => {
+      const code = mailed[mailed.length - 1]!;
+      return new Response(
+        JSON.stringify({ statusCode: 429, name: "rate_limit_exceeded", message: `Too many requests for ${EMAIL} (${code}) with ${RESEND_KEY}.` }),
+        { status: 429 },
+      );
+    };
     await expect(t.action(api.auth.signIn, { provider: "email", params: { email: EMAIL } })).rejects.toThrow();
-    keep("email code: Resend refuses the send");
+    keep("email code: Resend refuses the send, its body echoing the address, code and key");
     const code = mailed[mailed.length - 1]!;
-    expect(lines.some((line) => line.text.startsWith("Resend email send error:") && line.text.includes("rate_limit_exceeded"))).toBe(true);
-    expectNoneOf([code, RESEND_KEY]);
+    expect(lines.some((line) => line.text === 'Resend email send failed {"status":429,"category":"rate_limit_exceeded"}')).toBe(true);
+    expectNoneOf([code, RESEND_KEY, EMAIL]);
   });
 
   test("with no RESEND_API_KEY the framework prints the address and the code: a setting, not a log format", async () => {
