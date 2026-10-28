@@ -92,7 +92,9 @@ test("an agent's write from before the owner's edit is a conflict, and the owner
   const created = await write({ path: PATH, content: POEM });
   assert.equal(created.isError, false, created.text);
   const agentRead = await read();
-  assert.match(agentRead.etag, /^c2\./, "the note is live-edited, so a read hands out its collaboration etag");
+  // Nothing has edited it together yet, so a read hands out the Markdown's etag, and the
+  // owner's save below starts its document from that version (`notes/version.js`).
+  assert.equal(agentRead.etag, etagOf(created.text));
 
   // The owner's save lands after the agent read the note.
   const owner = await write({ path: PATH, content: OWNER_EDIT, expected_etag: agentRead.etag });

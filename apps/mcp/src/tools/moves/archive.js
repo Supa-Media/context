@@ -6,6 +6,7 @@
  * same (`lib/fileOps/archiving.ts`).
  */
 
+import { versionMatches } from "../../notes/version.js";
 import { factJobs } from "../../tree/facts.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
@@ -110,7 +111,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
   }
   const currentEtag = collaborationBase?.etag ?? obj.etag;
-  if (expectedEtag && currentEtag !== expectedEtag) {
+  if (expectedEtag && !versionMatches(expectedEtag, { document: collaborationBase, rawEtag: obj.etag })) {
     return toolError(
       `conflict: note changed since you read it (current etag ${currentEtag}); re-read and retry`
     );

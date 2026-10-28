@@ -1,9 +1,8 @@
 /** `set_visibility` and `set_folder_visibility` — the tools that write a note's or a folder's access row, and name people on a note. */
 
-import { eligible as collaborationEligible, supported as collaborationSupported, readDocument as readCollaborationDocument } from "@context/collaboration";
 import { effectiveVisibility, isPlumbing, visibilityOf } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { isEncryptedNote } from "../encryption.js";
+import { currentVersion, versionMatches } from "../notes/version.js";
 import { listAllKeys } from "../notes/storage.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
 import {
@@ -54,18 +53,14 @@ ${named.content[0].text}`);
   }
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
-  let currentEtag = obj.etag;
-  if (args.expected_etag && collaborationSupported(store)) {
-    const stored = await obj.text();
-    if (!isEncryptedNote(stored) && collaborationEligible(path, stored)) {
-      try {
-        currentEtag = (await readCollaborationDocument(store, path)).etag;
-      } catch {
-        return toolError("this note cannot be checked safely right now; re-read and retry");
-      }
-    }
+  let version;
+  try {
+    version = await currentVersion(store, path, obj, await obj.text());
+  } catch {
+    return toolError("this note cannot be checked safely right now; re-read and retry");
   }
-  if (args.expected_etag && currentEtag !== args.expected_etag) {
+  const currentEtag = version.etag;
+  if (args.expected_etag && !versionMatches(args.expected_etag, { document: version.document, rawEtag: obj.etag })) {
     return toolError(
       `conflict: note changed since you read it (current etag ${currentEtag}); re-read and retry`
     );

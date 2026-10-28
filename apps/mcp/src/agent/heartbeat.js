@@ -458,11 +458,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  // It only reads, so a note it opens is not made a collaboration document
-  // (`tools/notes/read.js`): that was ~15 of a first read's ~24 subrequests,
-  // and a look reading thirty changed inbox notes ran out of its invocation's
-  // subrequests before its log was written (production, 2026-10-19).
-  store.readsStartNoDocument = true;
   // It reads only its own workspace, and what it says goes to the person's own phone.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
