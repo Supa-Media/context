@@ -24,7 +24,7 @@ import { parseSendblueInbound, sendblueChatId } from "./sendblue";
 const LINE = "+15555550199";
 const PHONE = "+15555550100";
 const KEYS = { keyId: "kid", secret: "ksecret" };
-const CONFIG = { extensionBundleId: "lc.context.mobile.messages", teamId: "ABCDE12345" };
+const CONFIG = { extensionBundleId: "lc.context.mobile.messages", teamId: "T".repeat(10) };
 const CHOICES: Choice[] = [
   { name: "Blend LIC", price: "$225", pick: true, picture: 0 },
   { name: "Lugo's", price: "$230", picture: 1 },
