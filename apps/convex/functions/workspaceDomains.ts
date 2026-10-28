@@ -9,6 +9,7 @@ import { clearGroupNames } from "./lib/workspaces/groupNames";
 import { domainOf, isPersonalMailDomain, normalizeDomain } from "./lib/emailDomains";
 import { myDomains } from "./lib/domainMembership";
 import { getMembership, requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
+import { isReservedReviewer } from "./lib/reviewerAccount";
 
 /**
  * A shared workspace opened to everyone at an email domain (Dev2, 2026-10-09,
@@ -191,6 +192,8 @@ async function joinableFor(
   userId: Id<"users">,
 ): Promise<Array<{ row: Doc<"workspaceDomains">; workspace: Doc<"workspaces"> }>> {
   const found: Array<{ row: Doc<"workspaceDomains">; workspace: Doc<"workspaces"> }> = [];
+  // The reserved reviewer joins nobody's workspace (`reviewerAccount.ts`).
+  if (await isReservedReviewer(ctx, userId)) return found;
   const seen = new Set<string>();
   for (const domain of (await myDomains(ctx, userId)).keys()) {
     if (isPersonalMailDomain(domain)) continue;

@@ -1,3 +1,4 @@
+import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 
 /**
@@ -74,4 +75,23 @@ export async function appReviewUser(ctx: QueryCtx) {
   // Fail closed if the reserved alias was assigned elsewhere, including an unverified claim.
   if (phones.some(user => user._id !== users[0]!._id) || (link && link.userId !== users[0]!._id)) return null;
   return users[0]!._id;
+}
+
+/**
+ * Is this account the reserved reviewer — the one the directory code and the
+ * App Store review phone open?
+ *
+ * Those sign-ins are fixed codes held by people outside the company, and the
+ * phone's code was public in this repository's history (kept on purpose by the
+ * owner, 2026-10-25). So the account they open is held to its own workspace:
+ * it never starts a Google connection (`googleConnect/attempts.ts`), never
+ * joins another workspace by invitation or email domain
+ * (`invitations/join.ts`, `workspaceDomains.ts`), and reads nothing through a
+ * grant in a workspace it is not a member of (`grants/outsider.ts`). A row
+ * naming it grants nothing rather than erroring, the same answer as for a
+ * stranger.
+ */
+export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  const user = await ctx.db.get(userId);
+  return user?.email?.trim().toLowerCase() === REVIEWER_EMAIL;
 }

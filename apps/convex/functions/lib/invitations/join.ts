@@ -14,6 +14,7 @@ import { hasBlocked } from "../blocks";
 import { clearGroupNames } from "../workspaces/groupNames";
 import { getMembership } from "../workspaceAuth";
 import { isPending } from "./forCaller";
+import { isReservedReviewer } from "../reviewerAccount";
 
 /** The most phone invitations one sign-in accepts; nobody is invited to this many workspaces by one number. */
 const MAX_PHONE_INVITATIONS = 50;
@@ -31,6 +32,9 @@ export async function joinByInvitation(
 ): Promise<{ workspace: Doc<"workspaces">; role: string } | null> {
   const workspace = await ctx.db.get(invitation.workspaceId);
   if (workspace === null) return null;
+  // The reserved reviewer joins nobody's workspace (`reviewerAccount.ts`); the
+  // invitation stays unspent, the same answer as one that is not there.
+  if (await isReservedReviewer(ctx, userId)) return null;
 
   // Spend it first. Everything after this is idempotent, so a retry that
   // races itself joins once.

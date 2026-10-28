@@ -330,3 +330,20 @@ credentials. No phone ownership row is written, and neither sends nor checks
 contact Twilio for this reserved number. Normal sign-in rate limits still apply.
 `phoneSignIn.test.ts` proves the wrong code, another phone, a conflicting holder,
 a missing reviewer and disabled configuration cannot obtain a review session.
+
+### The reviewer account reaches nothing beyond its own workspace
+
+The phone alias's code was public in this repository's history, and the owner
+kept it (2026-10-25). Instead of changing the credential, the account it opens
+is held to its own workspace (2026-10-28):
+
+- it never starts a Google connection;
+- it never joins another workspace, by invitation or by email domain;
+- it reads nothing through a grant or a person-addressed share in a workspace
+  it is not a member of.
+
+`isReservedReviewer` in `functions/lib/reviewerAccount.ts` is the one test. A
+row naming the reviewer grants nothing, which is the same answer as for a
+stranger. A pending invitation to it stays unspent. Undoing this lets whoever
+holds a public code read whatever anyone shares with a public address.
+`reviewerReach.test.ts` fails if any of the five doors loses its check.
