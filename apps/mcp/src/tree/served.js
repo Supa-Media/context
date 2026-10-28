@@ -33,11 +33,19 @@
 
 /** Why a listing could not be answered: the control plane could not be asked for the tree. */
 export class TreeUnavailable extends Error {
-  constructor() {
+  /** @param {string} [code] why, for logs: `not_served`, `timed_out`, `failed`, `malformed` or `endless` */
+  constructor(code = "unreachable") {
     super(TREE_UNREACHABLE);
     this.name = "TreeUnavailable";
     this.reason = "unreachable";
+    this.code = code;
   }
+}
+
+/** A failed manifest request as a log code: the control plane's own words never leave here. */
+function failureCode(error) {
+  if (error instanceof TreeUnavailable) return error.code;
+  return /timed out/.test(String(error?.message)) ? "timed_out" : "failed";
 }
 
 /** What an agent is told when the control plane could not be asked for the list. */
@@ -80,8 +88,9 @@ function covers(folder, wanted) {
  * at all.
  *
  * @param {object} store a session-bound store
+ * @param {{timeoutMs?: number}} [options] how long each page may take, where nobody waits on it (a check-in)
  */
-export function servedListingStore(store) {
+export function servedListingStore(store, { timeoutMs } = {}) {
   if (typeof store?.treeManifest !== "function") return store?.treeListing ? barrierListing(store) : refusedListing(store);
   /** Folder → its keys, sorted (a promise of them), for each subtree read so far in this call. */
   const subtrees = new Map();
@@ -92,12 +101,15 @@ export function servedListingStore(store) {
     const entries = [];
     let cursor;
     for (let page = 0; page < MANIFEST_PAGES; page += 1) {
-      const answer = await store.treeManifest({
-        ...(folder === "" ? {} : { folder }),
-        ...(cursor === undefined ? {} : { cursor }),
-      });
-      if (!answer || answer.served !== true) throw new TreeUnavailable();
-      if (!Array.isArray(answer.entries)) throw new TreeUnavailable();
+      const answer = await store.treeManifest(
+        {
+          ...(folder === "" ? {} : { folder }),
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        ...(timeoutMs === undefined ? [] : [{ timeoutMs }])
+      );
+      if (!answer || answer.served !== true) throw new TreeUnavailable("not_served");
+      if (!Array.isArray(answer.entries)) throw new TreeUnavailable("malformed");
       for (const entry of answer.entries) {
         if (entry && typeof entry.path === "string" && entry.path !== "") entries.push(entry);
       }
@@ -105,11 +117,11 @@ export function servedListingStore(store) {
         entries.sort((a, b) => compareKeys(a.path, b.path));
         return entries;
       }
-      if (answer.cursor === cursor) throw new TreeUnavailable();
+      if (answer.cursor === cursor) throw new TreeUnavailable("endless");
       cursor = answer.cursor;
     }
     // More pages than any workspace holds is a walk that is not ending.
-    throw new TreeUnavailable();
+    throw new TreeUnavailable("endless");
   }
 
   /** The keys under `prefix`, or null for plumbing, which the bucket lists. */
@@ -126,7 +138,7 @@ export function servedListingStore(store) {
       try {
         return await read(folder);
       } catch (error) {
-        refused = error instanceof TreeUnavailable ? error : new TreeUnavailable();
+        refused = error instanceof TreeUnavailable ? error : new TreeUnavailable(failureCode(error));
         throw refused;
       }
     })();

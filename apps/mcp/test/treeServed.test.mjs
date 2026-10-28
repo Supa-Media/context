@@ -384,6 +384,20 @@ test("the control-plane call spends the person's token and names no scope", asyn
   await assert.rejects(methods.readTreeManifest("tok", "ws_1"), /malformed tree manifest/);
 });
 
+test("a tree page waits 6 seconds, or as long as a reader nobody waits on asks", async () => {
+  const { createTreeMethods, TREE_MANIFEST_TIMEOUT_MS } = await import("../src/controlPlane/tree.js");
+  const waits = [];
+  const methods = createTreeMethods({
+    post: async (path, body, options) => {
+      waits.push(options.timeoutMs);
+      return { served: true, entries: [], cursor: null };
+    },
+  });
+  await methods.readTreeManifest("tok", "ws_1");
+  await methods.readTreeManifest("tok", "ws_1", {}, { timeoutMs: 25_000 });
+  assert.deepEqual(waits, [TREE_MANIFEST_TIMEOUT_MS, 25_000]);
+});
+
 test("a tree answer may be larger than the 256 KB every other control-plane answer is held to", async () => {
   const { createControlPlane } = await import("../src/controlPlane/index.js");
   const { CONTROL_PLANE_RESPONSE_BYTE_CAP } = await import("../src/controlPlane/client.js");

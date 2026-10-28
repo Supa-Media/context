@@ -166,3 +166,25 @@ model turn per slot on an unchanged calendar; giving the look `slack_api`
 hands an unattended, inbox-steered turn a method that can post. Tests:
 `apps/mcp/test/agentHeartbeat.test.mjs` (today's calendar),
 `apps/mcp/test/checkInSources.test.mjs`.
+
+## When the tree is slow (2026-10-28)
+
+A look that cannot list the workspace's tree reads nothing, because what
+changed cannot be told. From 2026-10-25, when trees were read from parents, a
+large workspace's tree took longer than the 6 seconds an interactive tool waits
+at most of its check-ins, and the retry never came: a failed look was tried
+again only when the one before it had not failed too.
+
+- A look gives each page of the tree 25 seconds and asks twice
+  (`apps/mcp/src/agent/lookTree.js`); nobody is waiting on it. Tools keep 6.
+- A failed look is tried again 10 minutes later, up to three times in each
+  slot, and the next slot counts afresh (`failedLooks`, `failedFor` on the
+  row, `lib/heartbeats/runs.ts`).
+- Why it failed reaches the texting Worker's log as a code (`reason` on
+  `heartbeat_run`: `timed_out`, `not_served`, `failed`, `endless`), never the
+  control plane's words.
+
+**What a simplification would cost:** gating the retry on the last outcome
+again silences every slot after two failures. Tests:
+`apps/mcp/test/lookTree.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
+`apps/agent/src/heartbeats.test.ts`.

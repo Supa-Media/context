@@ -30,8 +30,9 @@ export function createTreeMethods({ post }) {
      * @param {string} accessToken
      * @param {string} expectedWorkspaceId
      * @param {{cursor?: string, folder?: string}} page
+     * @param {{timeoutMs?: number}} [options] a longer wait, for a reader nobody is waiting on (a check-in)
      */
-    async readTreeManifest(accessToken, expectedWorkspaceId, page = {}) {
+    async readTreeManifest(accessToken, expectedWorkspaceId, page = {}, { timeoutMs = TREE_MANIFEST_TIMEOUT_MS } = {}) {
       const parsed = await post(
         "/gateway/tree/manifest",
         {
@@ -40,7 +41,7 @@ export function createTreeMethods({ post }) {
           ...(typeof page.cursor === "string" ? { cursor: page.cursor } : {}),
           ...(typeof page.folder === "string" ? { folder: page.folder } : {}),
         },
-        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
+        { timeoutMs, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
       if (!parsed || parsed.served !== true) return { served: false };
       if (!Array.isArray(parsed.entries) || !(parsed.cursor === null || typeof parsed.cursor === "string")) {
