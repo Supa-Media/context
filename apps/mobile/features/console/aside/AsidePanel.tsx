@@ -87,6 +87,7 @@ export function AsidePanel({
     approvals: approvalsAvailable,
     waiting,
     answered: wanted === "approvals" && approvals?.notice != null,
+    failed: approvals?.phase === "failed",
   });
   const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
 
