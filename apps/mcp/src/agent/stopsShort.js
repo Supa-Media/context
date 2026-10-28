@@ -94,7 +94,7 @@ const COUNT = String.raw`(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|t
 const THINGS = String.raw`(?:options?|venues?|places?|spots?|spaces?|halls?|rooms?|caterers?|restaurants?|hotels?|vendors?|ideas?|choices|picks|candidates|churches|schools|shops?|stores?)`;
 const ASKED_COUNT = new RegExp(String.raw`\b${COUNT}\s+(?:[\w'-]+\s+){0,3}?${THINGS}\b`, "i");
 const HAS_COUNT = new RegExp(
-  String.raw`\b(?:(?:that|which|this) )?leaves? (?:me |us |you )?(?:with )?(?:only |just )?${COUNT}\b|\b(?:I )?(?:only |just )?found (?:only |just )?${COUNT} ${THINGS}|\bonly ${COUNT} (?:[\w'-]+\s+){0,2}?${THINGS}\b`,
+  String.raw`\b(?:(?:that|which|this) )?leaves? (?:me |us |you )?(?:with )?(?:only |just )?${COUNT} (?:[\w'-]+\s+){0,2}?${THINGS}\b|\b(?:I )?(?:only |just )?found (?:only |just )?${COUNT} ${THINGS}|\bonly ${COUNT} (?:[\w'-]+\s+){0,2}?${THINGS}\b`,
   "i",
 );
 const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15, twenty: 20 };

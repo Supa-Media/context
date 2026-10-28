@@ -215,6 +215,7 @@ test("an answer left with fewer options than they asked for goes back once", () 
   assert.ok(fewerThanAsked("Only four places are open tonight.", "give me ten dinner spots"));
   assert.equal(fewerThanAsked("That leaves five venues, each free on Sundays.", asked), false, "as many as asked");
   assert.equal(fewerThanAsked("That leaves three venues.", "which venues do churches use?"), false, "no number asked");
+  assert.equal(fewerThanAsked("That leaves 2 hours before they close.", "find 3 restaurants open late"), false, "not options left");
   assert.equal(fewerThanAsked("Five venues: The Stand, Guastavino's, 3 West Club, Hudson Hall and Pier Loft.", asked), false);
   const chat = claimCheck({ question: asked });
   assert.match(chat.check("That leaves three venues, and none of them lists a kids' room."), /as many options as they asked for/);
