@@ -43,7 +43,7 @@ export const TRANSCRIPTION_CONSENT_COPY = {
 /** The Settings row that withdraws it. Each line is one line. */
 export const TRANSCRIPTION_SETTINGS_COPY = {
   title: "AI transcripts and summaries",
-  on: "Meeting audio and notes go to our AI providers.",
+  on: "Audio and notes go to our AI providers.",
   off: "Meetings are typed notes only.",
   outdated: "Allow again to turn it back on.",
   turnOff: "Turn off",
