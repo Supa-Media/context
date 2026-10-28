@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 21, 2026",
+  updated: "October 28, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -11,7 +11,7 @@ export const privacyContent: LegalPageContent = {
       title: "Information we collect",
       body: [
         "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
-        "If you record a meeting, the audio is sent to Context.lc to be transcribed and is not kept once the words are written into your note. The transcript and its summary are saved in your workspace like any other note.",
+        "If you record a meeting, and only after you allow cloud transcription, the audio is sent through Context.lc to Cloudflare Workers AI to be turned into text. The transcript and its summary are saved in your workspace like any other note. See \"Cloud transcription\" below.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
         "When you connect Google, Context.lc may receive your Google account identity, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve and the sync features you enable.",
       ],
@@ -49,6 +49,15 @@ export const privacyContent: LegalPageContent = {
         "A connected assistant can read and search only the notes you can already see, in the workspaces you belong to, filtered by each workspace's privacy settings. It can write, move, or comment only where your role allows, and every change it makes is recorded in that workspace's activity under the assistant's name.",
         "Notes reach an assistant only when it asks for them on your behalf. What the assistant's provider does with that content is governed by its own terms and privacy policy, not this one.",
         "We do not use your notes to train AI models, and we do not sell them.",
+      ],
+    },
+    {
+      title: "Cloud transcription",
+      body: [
+        "Recording a meeting or sending a voice message to the assistant you text turns speech into text with Whisper, a speech recognition model made by OpenAI that runs on Cloudflare Workers AI. The audio goes to Cloudflare, not to OpenAI. The recording can include your voice, other people's voices, and anything personal said during it.",
+        "Nothing is sent until you allow it. The first time you start a recording, Context.lc asks whether to allow cloud transcription. If you choose Not now, no audio is recorded or sent, and you can still type notes. Your answer is kept on your account, so another person's answer never covers you, and we ask again if the provider or the purpose changes.",
+        "You can turn cloud transcription off at any time in Settings, under Meetings. The device you turn it off on stops sending straight away, including from a recording that is already running, and audio still waiting on it to be sent is deleted. Your other devices and our servers stop once the change reaches them, which takes moments when they are online. A piece of audio that was already on its way when you turned it off cannot be called back.",
+        "Context.lc does not store the audio: it is passed to Cloudflare for transcription and discarded once the words are in your note. Audio recorded without a connection waits on your device until it can be sent, or until you turn transcription off. Cloudflare states that it does not use content sent to Workers AI to train AI models.",
       ],
     },
     {

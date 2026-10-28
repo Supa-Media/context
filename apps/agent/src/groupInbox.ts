@@ -70,10 +70,11 @@ import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import { reactionFor } from "./reactEmoji";
 import { staleAsks } from "./decide";
 import { runningTurn, startTurn } from "./steer";
-import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseGroupTurn, WAIT_MS, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
 import { handedTurnWaits, handOff } from "./groupTurnRun";
 import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
@@ -114,6 +115,8 @@ const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
 /** The workspace names Tex last asked this chat to pick from, never text: a bare "supa" then answers it. */
 const CHOICE_KEY = "gchoice";
+/** Until when decide said to wait on a burst still being typed (`WAIT_MS`). */
+const WAIT_KEY = "gwaituntil";
 const CHOICE_FOR_MS = 24 * 60 * 60 * 1000;
 type Choice = { slugs: string[]; at: number };
 const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
@@ -193,8 +196,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
-      how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
-        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
+      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
+        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(emoji, ackEmoji(message.text))),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -367,7 +370,21 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         if (entry[1].byCode) break;
         burst.push(entry);
       }
+      // A burst decide said to wait on: untagged messages are left until the wait is over (an addressed one never waits).
+      const waitUntil = (await storage.get<number>(WAIT_KEY)) ?? 0;
+      if (deps.now() < waitUntil && burst.every(([, item]) => item.soft === true && item.force !== true)) {
+        await armBy(storage, waitUntil, deps.now());
+        break;
+      }
       const choice = await chooseGroupTurn(storage, deps, burst);
+      if (choice.wait !== undefined && choice.wait.length > 0) {
+        for (const [key, item] of choice.wait) await storage.put<Pending>(key, { ...item, waits: (item.waits ?? 0) + 1 });
+        const until = Math.max(...choice.wait.map(([, item]) => item.at ?? deps.now())) + WAIT_MS;
+        await storage.put(WAIT_KEY, until);
+        await armBy(storage, until, deps.now());
+        log("waiting");
+        if (choice.answer.length === 0) break;
+      }
       // Left as chat: an untagged one is already one of the chat's lines (`acceptGroup`); an addressed one becomes one.
       for (const [key, item] of choice.chat) {
         if (!item.soft) await keepChatLine(storage, item.message, item.at ?? deps.now());
@@ -375,7 +392,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       }
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.react) {
-        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
+        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, reactionFor(choice.emoji, ackEmoji(choice.react.text)));
       }
       entries = ownTurn(choice.answer);
       if (entries.length === 0) continue;

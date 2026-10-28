@@ -193,6 +193,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
+- [A note has one version tag, and every tool accepts it](./gateway-protocol/one-version-tag.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
@@ -531,6 +532,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Same for all plans, under a daily ceiling
 - A summary is started by opening the note, never by a timer
 - Join and take notes is one press, never none ([joining-from-the-calendar](./meetings/joining-from-the-calendar.md))
+- No audio goes to cloud transcription without the account's current yes ([transcription-consent](./meetings/transcription-consent.md))
 
 ## [Communications](./communications.md)
 

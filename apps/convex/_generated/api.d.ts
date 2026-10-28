@@ -170,6 +170,7 @@ import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textPhones from "../functions/textPhones.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
+import type * as functions_transcriptionConsent from "../functions/transcriptionConsent.js";
 import type * as functions_texHome from "../functions/texHome.js";
 import type * as functions_texDashboard from "../functions/texDashboard.js";
 import type * as functions_texSpend from "../functions/texSpend.js";
@@ -388,6 +389,7 @@ declare const fullApi: ApiFromModules<{
   "functions/textPhones": typeof functions_textPhones;
   "functions/textSetup": typeof functions_textSetup;
   "functions/textSignIn": typeof functions_textSignIn;
+  "functions/transcriptionConsent": typeof functions_transcriptionConsent;
   "functions/texHome": typeof functions_texHome;
   "functions/texDashboard": typeof functions_texDashboard;
   "functions/texSpend": typeof functions_texSpend;

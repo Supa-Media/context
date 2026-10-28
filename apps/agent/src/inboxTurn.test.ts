@@ -149,6 +149,19 @@ describe("decide in a person's own chat", () => {
       expect(w.texts).toEqual([]);
     });
 
+    it(`react sends decide's emoji when it is one of the 64; wait is answered at once (${line.name})`, async () => {
+      const storage = new MemoryStorage();
+      const w = world(() => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.9, emoji: "🙏" }));
+      await accept(storage, msg(line.chatId, "e1", "thanks"), 1_000);
+      await drain(storage, w.deps);
+      expect(w.reactions).toEqual(["🙏"]);
+      const waited = new MemoryStorage();
+      const v = world(() => ({ ok: true, act: "wait", covers: [], stale: [], movedOn: false, confidence: 0.9 }));
+      await accept(waited, msg(line.chatId, "e1", "what's on today"), 1_000);
+      await drain(waited, v.deps);
+      expect(v.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
+    });
+
     it(`silent on "ok" sends nothing at all (${line.name})`, async () => {
       const storage = new MemoryStorage();
       const w = world(act("silent"));

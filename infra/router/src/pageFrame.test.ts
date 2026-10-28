@@ -78,6 +78,7 @@ describe("the deployment's own copy", () => {
     const box = await get("https://context.lc/drawing-assets/page/box");
     expect(box.headers.get("X-Frame-Options")).toBeNull();
     expect(box.headers.get("Content-Security-Policy")).toBeNull();
+    expect(box.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
     expect(box.headers.get("Strict-Transport-Security")).not.toBeNull();
   });
 });

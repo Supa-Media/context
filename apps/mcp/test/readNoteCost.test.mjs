@@ -9,23 +9,24 @@
  * note nobody was editing; a look reading 35 changed inbox notes spent ~950
  * before its log was written.
  *
- * A check-in only reads, so its reads start no document
- * (`store.readsStartNoDocument`, `readDocumentIfStarted`): a note without
+ * A read starts no document (`readDocumentIfStarted`): a note without
  * collaboration state is served as its Markdown, with the Markdown's etag,
- * and its own log is still appended to through `write_note` from that etag.
- * Every other caller's read still starts one.
+ * and is still written through `write_note` from that etag. Since
+ * 2026-10-28 that holds for every caller, not only check-ins: every tool
+ * names a note's version the same way (`notes/version.js`), so nothing needs
+ * a read to have started the document.
  *
  * ## Sabotage record
  *
  * Applied, test run, named test observed failing, reverted (2026-10-19).
  *
- *  1. `handleHeartbeat` not setting `readsStartNoDocument`.
+ *  1. `toolReadNote` using `readDocument` again (2026-10-28).
  *     → "a check-in that reads five notes starts no document for them…" fails.
  *  2. `readDocumentIfStarted` returning null whatever the head says.
  *     → "a note that already has a document is read through it, by a check-in too"
  *       fails (and the first, as the log's own append then conflicts).
- *  3. `toolReadNote` using `readDocumentIfStarted` for every caller.
- *     → "an app's read still starts the note's document…" fails.
+ *  3. `isCurrentEtag` accepting only the document's etag (2026-10-28).
+ *     → "an app's read starts no document either…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -171,20 +172,25 @@ test("a check-in that reads five notes starts no document for them, and each rea
   assert.match(log(), new RegExp(`read_note\` \`\\{"path":"${mailPath(4)}"\\}\` → ok`));
 });
 
-test("an app's read still starts the note's document, and its etag is the document's", async () => {
-  const { body } = await post(TOKEN_APP, "/mcp", {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: { name: "read_note", arguments: { path: mailPath(5) } },
-  });
-  const text = body?.result?.content?.[0]?.text ?? "";
-  assert.match(text, /^document_id: doc-/m);
-  assert.match(text, /^etag: c2\./m);
+test("an app's read starts no document either, and writing from the Markdown's etag starts it", async () => {
+  const call = async (name, args) => {
+    const { body } = await post(TOKEN_APP, "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+    return body?.result;
+  };
+  const heads = headsIn();
+  const text = (await call("read_note", { path: mailPath(5) }))?.content?.[0]?.text ?? "";
+  assert.doesNotMatch(text, /^document_id:/m);
+  assert.match(text, /^etag: mail-5$/m);
+  assert.equal(headsIn(), heads, "an app's read wrote nothing for the note");
+  // Every tool names the version the same way (`notes/version.js`), so that etag is enough to edit.
+  const written = await call("write_note", { path: mailPath(5), content: "# Mail 5\n\nPlease reply by Friday. Done.\n", expected_etag: "mail-5" });
+  assert.notEqual(written?.isError, true, written?.content?.[0]?.text);
+  assert.match(written.content[0].text, /etag c2\./);
+  assert.equal(headsIn(), heads + 1, "the write started the note's document");
 });
 
 test("a note that already has a document is read through it, by a check-in too", async () => {
-  // mail-5 has a document since the app read it above.
+  // mail-5 has a document since the app wrote it above.
   const before = headsIn();
   const reading = await look([mailPath(5)]);
   assert.equal(reading.body?.outcome, "speak");

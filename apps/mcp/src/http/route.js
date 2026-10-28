@@ -565,6 +565,7 @@ export async function route(request, env, ctx) {
           // the ordinary state of a self-hosted install and answers 501 rather
           // than pretending. See `meetings/transcribe.js`.
           transcribe: transcriptionForwarder(env),
+          transcriptionConsent: () => controlPlane.transcriptionConsent(session.accessToken, session.workspaceId, "meeting"), // transcription-consent.md
           // M1: resolve a session's note by id when its stored path has moved.
           // See `resolveMeetingNotePath`'s own header for why this lives here
           // rather than in `meetings/ingest.js`.
