@@ -44,6 +44,7 @@ import { likedPreviewAllows } from "./likedPreview.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
+import { judgeSubject } from "../privacy/judgeSubject.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
@@ -214,6 +215,7 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
     words,
     action: widening.summary,
     workspace: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : undefined,
+    subject: await judgeSubject(targetStore, args),
   });
   if (verdict.allow === true) {
     // Their yes, found in their words, is what the tools' own publish flag asks for.
