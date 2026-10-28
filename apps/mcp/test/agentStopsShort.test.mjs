@@ -29,7 +29,7 @@ import { test } from "node:test";
 import { MAX_JOB_ATTEMPTS, jobOf, jobPrompt } from "../src/agent/background.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { mayAsk } from "../src/agent/handbackJudge.js";
-import { ASK_FIRST_NOTICE, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
+import { ASK_FIRST_NOTICE, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
 
 const DINNER_JOB =
   "I wrote up three options in the chat's notes. The three mains come to about $1 to $2 per person, but the sides, dessert and drinks are not priced yet, so the full $10 isn't confirmed.\n\n" +
@@ -180,4 +180,50 @@ test("a pick made before the one question that changes the search goes back once
   assert.equal(chat.check(cooked), ASK_FIRST_NOTICE);
   assert.equal(chat.check(cooked), null, "only once a turn");
   assert.equal(claimCheck({ question: "x", job: { attempt: 1 } }).check(cooked), null, "a job never stops to ask");
+});
+
+// Self-review 9d98ef (a guest group chat, 2026-10-27): five Manhattan venues for Sunday services, two dropped
+// because churches meet there, then "That leaves three venues ... Want me to find two more?".
+// Sabotage record (2026-10-28): the new OFFERS_MORE line removed → "find two more" passes; `fewerThanAsked`
+// always false → the count case and the claimCheck round fail; RESEARCH_LINE's count line removed → the prompt test fails.
+test("options dropped and not replaced are read as stopping short", () => {
+  const venues =
+    "You were right about two of them, so I've dropped them. I didn't find any church meeting at the other three. " +
+    "That leaves three venues, and none of them lists a kids' room. Want me to find two more that no church uses on Sundays, to make five again?";
+  for (const said of [
+    venues,
+    "Want me to find two more that no church uses on Sundays, to make five again?",
+    "I can look for others nearby.",
+    "Should I find another one on the L?",
+    "I'd still need to look up the rest: two more Manhattan venues no church uses on Sundays.",
+  ]) {
+    assert.ok(stopsShort(said), said);
+  }
+  for (const fine of [
+    "Those are quote requests if you want me to email them, and I'd need your yes first.",
+    "I'd need your yes before I email them.",
+    "Five venues, all free on Sundays: The Stand, Guastavino's, 3 West Club, Hudson Hall and Pier Loft.",
+  ]) {
+    assert.equal(stopsShort(fine), false, fine);
+  }
+});
+
+test("an answer left with fewer options than they asked for goes back once", () => {
+  const asked = "Tex, redo and reshare the page, compare 5 different venue options in manhattan";
+  assert.ok(fewerThanAsked("That leaves three venues, and none of them lists a kids' room.", asked));
+  assert.ok(fewerThanAsked("I only found 2 caterers that deliver there.", "find me 3 caterers in riverside"));
+  assert.ok(fewerThanAsked("Only four places are open tonight.", "give me ten dinner spots"));
+  assert.equal(fewerThanAsked("That leaves five venues, each free on Sundays.", asked), false, "as many as asked");
+  assert.equal(fewerThanAsked("That leaves three venues.", "which venues do churches use?"), false, "no number asked");
+  assert.equal(fewerThanAsked("Five venues: The Stand, Guastavino's, 3 West Club, Hudson Hall and Pier Loft.", asked), false);
+  const chat = claimCheck({ question: asked });
+  assert.match(chat.check("That leaves three venues, and none of them lists a kids' room."), /as many options as they asked for/);
+  assert.equal(chat.check("That leaves three venues."), null, "only once a turn");
+});
+
+test("venue research checks each fits its use, keeps the number asked, and never borrows a directory's price", async () => {
+  const { RESEARCH_LINE } = await import("../src/agent/prompt.js");
+  assert.match(RESEARCH_LINE, /Asked for a number, give that many: replace any you drop, never offer to find more/);
+  assert.match(RESEARCH_LINE, /a Sunday-service venue isn't where a church already meets on Sundays/);
+  assert.match(RESEARCH_LINE, /never a directory's general range: else say it isn't published/);
 });

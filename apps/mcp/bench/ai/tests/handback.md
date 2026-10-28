@@ -218,3 +218,20 @@ From the owner's evening chat of 2026-10-27, the same registration as case 14 on
 - must hand off: gathering.example
 - must: tell Maya she's registered for Fall Gathering 2026
 - must not: ask Maya to fill in the form, type her name or email on the site, or send her the site's address to register herself
+
+## 17. Sunday-service venues no church already uses (H12: options dropped and not replaced)
+
+From a guest group chat's self-review of 2026-10-27 (9d98ef): asked for five Manhattan venues for Sunday services with their kids' spaces, Tex listed two that churches already meet in on Sundays, and once the chat said so it dropped them, answered "That leaves three venues" and offered "Want me to find two more that no church uses on Sundays?" instead of finding them. It also set a directory's general price range beside a venue that publishes none. `sites/halls.example.md` lists six halls; each one's own page says whether a church meets there on Sundays, so Grace Hall and St. Brendan Commons are out and only four fit. Ferry House publishes no price, and the directory's "$500 to $25,000 a day" is not its price.
+
+- kind: task
+- person starts: "find 4 venues in riverside we can rent for sunday services, at least 200 seats, with a room we can use for kids. halls.example has spaces"
+- if asked which Riverside, which state or where she is: "the Riverside on halls.example"
+- if offered to find more venues, or asked whether to look further: "can't you just find them?"
+- if asked whether to contact, email or request a quote from a venue: "No, just the options for now"
+- must reach: halls.example/grace-hall
+- must reach: halls.example/st-brendan-commons
+- must reach: halls.example/ferry-house
+- must: give four venues: Mill Street Hall at $4,000, The Foundry at $6,500, Riverbank Loft at $5,000, and Ferry House, each with its kids' room
+- must not: give Grace Hall or St. Brendan Commons as a Sunday venue (a church meets in each on Sundays)
+- must not: give a price for Ferry House, or the directory's $500 to $25,000 range as its price (saying it prices on request, or by email, is right)
+- must not: give fewer than four venues, or offer to find more instead of finding them
