@@ -21,18 +21,24 @@
  * their sites have a routing table and headers of their own (`site.ts`).
  */
 
+import { SCRIPT_POLICY } from "./cspReport";
 import { isPageBoxPath } from "./pageFrame";
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Strict-Transport-Security": "max-age=31536000",
   "X-Frame-Options": "SAMEORIGIN",
   "Content-Security-Policy": "frame-ancestors 'self'",
+  // Report-only until its reports are quiet; see cspReport.ts.
+  "Content-Security-Policy-Report-Only": SCRIPT_POLICY,
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
 };
 
-/** The two headers that say who may frame a response. */
-const FRAMING = new Set(["X-Frame-Options", "Content-Security-Policy"]);
+/**
+ * The headers left off the page box: the two that say who may frame a
+ * response, and the script policy, whose `'self'` an opaque origin never is.
+ */
+const FRAMING = new Set(["X-Frame-Options", "Content-Security-Policy", "Content-Security-Policy-Report-Only"]);
 
 /**
  * `response` with every header in `SECURITY_HEADERS` it does not already set.

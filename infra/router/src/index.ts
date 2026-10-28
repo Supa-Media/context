@@ -33,6 +33,7 @@ import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 import { withSecurityHeaders } from "./securityHeaders";
+import { CSP_REPORT_PATH, cspReportResponse } from "./cspReport";
 import { coverOf, noteTitle, SHARE_TITLE_TIMEOUT_MS } from "./previewTitles";
 
 export type { Env } from "./env";
@@ -53,6 +54,7 @@ export default {
 
 /** Everything a platform host answers; `fetch` hardens it (`securityHeaders.ts`). */
 async function platformResponse(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (url.pathname === CSP_REPORT_PATH) return await cspReportResponse(request);
     const simulator = textsSimulatorResponse(request, url, env);
     if (simulator !== null) return await simulator;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
