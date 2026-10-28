@@ -86,6 +86,7 @@ export function Explorer({
   agents,
   personal,
   onStartBusiness,
+  nextUp,
 }: ExplorerProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -157,6 +158,9 @@ export function Explorer({
     <View style={styles.explorer} testID="explorer">
       {/* In the column only when the title bar has no row over it. */}
       {frame.columnTools === null ? toolbar : null}
+
+      {/* The next meeting on the calendar, from ten minutes before it (board w1). */}
+      {nextUp}
 
       <ExplorerTree
         files={files}

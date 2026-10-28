@@ -5,6 +5,9 @@ import { noteQuickActions, type NoteQuickId } from "../NoteQuickBar";
 import type { FileEntry } from "../files/types";
 import { noteActionItems } from "./noteActions";
 import { runNoteAction } from "./NoteActionsSheet";
+import { isPagePath } from "@context/shared/src/pages/index.cjs";
+import { PAGE_VIEW_AVAILABLE } from "../files/pageView/PageView";
+import { pageAsText } from "../files/pageView/pageText";
 import { Explorer, type Dialog } from "../files/Explorer";
 import type { TreePick } from "../files/selection";
 import { saveChip } from "../files/status";
@@ -17,6 +20,7 @@ import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import { selectedContext, type ConsoleData } from "../types";
 import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
+import { NextUpRow } from "../../meetings/components/NextUpRow";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 
@@ -101,6 +105,7 @@ export function consoleAccountSlot({
         goToLevel(target, data.files);
       }}
       after={switcherProps.onSignIn !== undefined ? account : undefined}
+      bare={isPagePath(data.files.selectedPath ?? "") && PAGE_VIEW_AVAILABLE && !pageAsText(data.files.selectedPath ?? "")}
     />
   );
 }
@@ -110,11 +115,14 @@ export function consoleAsidePanel({
   meetingsAt,
   router,
   approvals,
+  joinMeeting = null,
 }: {
   data: ConsoleData;
   meetingsAt: number | null;
   router: ConsoleRouter;
   approvals: ConsoleAside["approvals"];
+  /** Join and take notes, for a meeting on the calendar; `null` where there is no calendar. */
+  joinMeeting?: ConsoleAside["joinMeeting"];
 }) {
   /*
     The right panel's contents. Supplied here rather than by the pane for
@@ -136,6 +144,7 @@ export function consoleAsidePanel({
           their demo meeting runs here, and no AI client acts for them.
         */
         approvals={data.demo ? undefined : approvals}
+        onJoin={joinMeeting}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the
@@ -165,6 +174,7 @@ export function consoleExplorer({
   switcherProps,
   router,
   setBarDialog,
+  joinMeeting = null,
 }: {
   browsing: boolean;
   data: ConsoleData;
@@ -177,10 +187,13 @@ export function consoleExplorer({
   router: ConsoleRouter;
   /** The console's dialogs, where right-click Share goes: one share sheet for the tree, the toolbar and the keys. */
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
+  /** Join and take notes: the next meeting at the head of the column (board w1). */
+  joinMeeting?: ConsoleAside["joinMeeting"];
 }) {
   return (
     browsing ? (
       <Explorer
+        nextUp={joinMeeting === null ? undefined : <NextUpRow onJoin={joinMeeting} />}
         files={data.files}
         contextLabel={contextLabel}
         pick={treePick}
@@ -280,8 +293,11 @@ export function consoleBottomBar({
           onAction: (id: NoteQuickId) =>
             runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog }),
         };
+  // A page opens as nothing but the page: no bar of note actions or compose button under it (owner, 2026-10-27);
+  // its ••• sheet has them. Shown as text ("Edit as text"), it is a note being edited and gets the bar back.
+  const page = note !== null && PAGE_VIEW_AVAILABLE && isPagePath(note.entry.path) && !pageAsText(note.entry.path);
   return (
-    browsing && !mapOpen ? (
+    browsing && !mapOpen && !page ? (
       <ConsoleBottomBar
         data={data}
         note={quick}

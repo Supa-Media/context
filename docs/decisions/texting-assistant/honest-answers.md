@@ -95,3 +95,46 @@ it is texted as a fixed line saying the answer got lost, never as nothing.
 `otherRoutes.js` counts "I'll … within N minutes" as a promise to keep, like
 "I'll text you". A background job's follow-ups that say stop are a rule for
 the rest of the job, retries included. Tests: `agentReplyChecks.test.mjs`.
+
+### A correction never leaves the ask it corrects waiting for a yes (2026-10-26)
+
+> **Superseded in part (Dev2, 2026-10-26):** the decide step now judges whether a message makes a waiting ask stale; the rule below stays as a code rail that can only end an ask sooner. See [Tex reads one event log and decides when to answer](./event-log.md).
+
+Agreed with Dev2. An ask stays armed through the person's side texts ("one
+sec", 2026-10-22), and the model is told to draft again only if their text
+changes it. When their text was a correction ("actually send it to Bo
+instead") and the model answered as if it had changed without drafting
+again, the old ask still stood, and their next yes or 👍 sent the email they
+had just corrected.
+
+`claimCheck.js` rule 6 is judged on the person's own words, never the
+model's (`correctsTheAsk`): "actually", "instead", "send it to", "make it",
+"cc", "wrong", or an address the waiting draft does not have. A side text
+("one sec", "add milk to my list", "not now") carries none, so whatever the
+model answers it never touches the ask. A correction with nothing held gets
+one more round telling Tex to make the call with the change; a turn that
+still holds nothing drops exactly the asks that text corrected, never another
+of theirs and never another person's in a group, and the gateway says so in
+its own words in place of the model's line ("I haven't sent the earlier
+one…"). When an ask cannot be withdrawn the text says so and asks for a "no",
+rather than claiming it is gone. An earlier version read the model's answer
+for "changed" or "I'll send"; review found it dropped asks over unrelated
+words ("Updated your list") and missed "Sure, Bo it is".
+Reverse it and "a correction the model does not
+act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
+fails.
+
+### A check-in promised for a set time is set in the same turn, or not promised (2026-10-27)
+
+Two self-reviews in 18 hours (@context-lc
+`areas/tex-reviews/themes/promised-checkin-not-set.md`): "I'll check with you
+tonight" and "I'll check the log at 4:30 and text you", each with only
+`read_note` and `write_note` in the turn. The first never says "text you"; in
+the second, "4:30" was not a word to `PROMISE`, so neither reached
+`LATER_NOTICE`. `otherRoutes.js` now lets a promise's words carry a clock
+time, and `checksInAt` counts a check-in, follow-up or reminder ("I'll check
+with you", "I'll remind you", "I'll look") with a set time ("tonight", "at
+4:30", "tomorrow", "after lunch") as a promise. Its notice, `CHECK_IN_NOTICE`,
+asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
+promise taken out; an untimed later keeps the hourly routine. A routine
+written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.

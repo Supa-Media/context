@@ -23,6 +23,8 @@
  *     "a card's photo loads only if the turn read its address" fails.
  *   `names` matching inside a word (`visuals/photos.js`) → "a card's photo is
  *     found only by a whole name" fails.
+ *   `captionOf` back to the title alone (`outgoingPictures.js`) → "the saved
+ *     conversation keeps what a card showed" fails.
  */
 
 import assert from "node:assert/strict";
@@ -72,6 +74,7 @@ const EXAMPLES = {
   gallery: { style: "editorial", title: "Three that fit the brief", items: [{ name: "Wrap midi", price: "$128", pick: true }, { name: "Slip dress", price: "$98" }] },
   versus: { title: "B wins 4 of 6", items: [{ name: "Bed-Stuy" }, { name: "Crown Heights" }], rows: [{ label: "Rent", a: "$2,650", b: "$2,800", better: "a" }] },
   places: { title: "3 within 10 minutes", items: [{ name: "Casa Enrique", distance: "4 min" }] },
+  map: { title: "Saturday errands", near: "Brooklyn, NY", route: true, stops: [{ name: "Dry cleaner", address: "12 Smith St", time: "10:00" }, { name: "Florist", note: "Pick up the tulips" }] },
   tickets: { title: "The 6pm gets you home sooner", items: [{ name: "Delta 1421", depart: "6:00", arrive: "8:25", price: "$189", pick: true }] },
   trip: { title: "Your weekend", days: [{ name: "Saturday", stops: [{ time: "9:40 AM", what: "Land YUL" }] }] },
   day: { title: "Free 1–3", events: [{ start: "9:00", end: "10:00", title: "Standup" }, { start: "1 PM", end: "3 PM", title: "Free", kind: "free" }] },
@@ -87,7 +90,8 @@ const EXAMPLES = {
 
 test("a card that won't draw leaves the whole answer in words", () => {
   // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list.
-  assert.match(VISUALS_LINE, /If draw_visual fails, text it all in words, no word of the card/);
+  assert.match(VISUALS_LINE, /If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card/);
+  assert.match(VISUALS_LINE, /COMPARISONS ARE SEEN/);
 });
 
 test("every template draws from its example, at 1200x1500, with its words on the card", () => {
@@ -96,7 +100,9 @@ test("every template draws from its example, at 1200x1500, with its words on the
     const built = buildVisual({ template, data: EXAMPLES[template] });
     assert.equal(built.error, undefined, template);
     assert.equal(built.width, 1200);
-    assert.equal(built.height, 1500);
+    // A list of places or stops is as tall as it is (`fit`), so a short one has no empty band under it.
+    if (built.fit) assert.ok(["places", "map"].includes(template) && built.height <= 2400 && built.html.includes("max-height: 1200px"), template);
+    else assert.equal(built.height, 1500, template);
     assert.ok(built.html.includes(esc(EXAMPLES[template].title ?? EXAMPLES[template].total ?? EXAMPLES[template].name)), `${template} shows its title`);
     assert.doesNotMatch(built.html, /undefined|NaN|\[object Object\]/, `${template} has no holes`);
   }
@@ -175,7 +181,8 @@ test("a card's photo loads only if the turn read its address; fonts are never co
   assert.equal(sent.height, 1500);
   assert.match(sent.html, /fonts\.googleapis\.com/);
   assert.equal(result.content[0].type, "image");
-  assert.match(result.content[1].text, /^Drawn at 1200x1500\. 1 photo\(s\) left off the card/, "the made-up address, never the fonts");
+  // The made-up one is hunted for (`visuals/hunt.js`); with no web this turn, it is named as still missing.
+  assert.match(result.content[1].text, /^Drawn at 1200x1500\. No picture found yet for: Made up\./, "the made-up address, never the fonts");
   assert.doesNotMatch(result.content[1].text, /did not load/, "the fonts are never counted");
   assert.match(result.content.at(-1).text, /This is picture 1/);
 });
@@ -186,6 +193,11 @@ test("a photo they sent or a picture shown this turn goes into the card as data"
   const maker = pictureMaker(shots, { outgoing, attachments: [{ name: "me.jpg", mediaType: "image/jpeg", data: "TUU=" }] });
   await maker.call(VISUAL_TOOL, { template: "versus", data: { title: "x", items: [{ name: "A", photo: "attachment:1" }, { name: "B" }] } });
   assert.match(shots.calls[0].body.html, /url\('data:image\/jpeg;base64,TUU='\)/);
+  assert.equal(shots.calls[0].body.fit, undefined, "a fixed card is taken at its size");
+  await maker.call(VISUAL_TOOL, { template: "places", data: { title: "x", items: [{ name: "A" }] } });
+  assert.equal(shots.calls[1].body.fit, true, "a places card is cut to its rows");
+  await maker.call(DRAW_TOOL, { html: "<p>x</p>", width: 1080, height: 1080, fit: true });
+  assert.equal(shots.calls[2].body.fit, undefined, "a page the model wrote is never cut");
 });
 
 test("only a picture this turn drew or made is kept in a note by its number", async () => {
@@ -248,7 +260,7 @@ test("a texted turn draws a card, texts one line, and keeps the card in the note
       { toolCalls: [{ name: "write", args: { action: "save", path: "catering-options.md", content: "# Catering options\n\n![[card.png]]\n\nBlend LIC is cheapest at $225.", args: { images: [{ name: "card.png", data: "picture:1" }] } } }] },
       { text: "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?\n\n[picture 1]" },
     ]);
-    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head", conversation: "texts" });
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head, in a plain note", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
     assert.equal(asked.body.answer, "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?");
     assert.deepEqual(asked.body.pictures, [{ name: "picture-1.png", mediaType: "image/png", data: CARD_PNG }]);
@@ -345,7 +357,15 @@ test("a places card shows cuisine, price and hours in full, and no empty photo s
   for (const text of ["Ethiopian and Nordic", "$60 three-course prix fixe", "Mon to Wed 5 to 10 pm, Thu to Sat to 10:30", "Marcus Samuelsson&#39;s place, takes bookings"]) assert.ok(built.html.includes(text), text);
   assert.doesNotMatch(built.html, />away</, "no distance, no distance column");
   assert.equal((built.html.match(/background-image: url\(/g) ?? []).length, 1, "one photo slot, for the one photo it has");
-  assert.ok(built.height > 1500, "four places get a taller card instead of cut lines");
+  assert.ok(built.fit && built.html.includes("width: 600px; max-height: 1200px; overflow: hidden"), "the card grows with its rows instead of cutting lines");
+  // Dev2's "top 5 ice cream shops in manhattan" (2026-10-27) came back as four, with an empty band under them.
+  const shops = Array.from({ length: 7 }, (_, i) => ({ name: `Shop ${i + 1}`, cuisine: "Ice cream", address: `${i + 1}0 E 7th St` }));
+  const five = buildVisual({ template: "places", data: { title: "Top 5", items: shops.slice(0, 5) } });
+  for (const n of [1, 2, 3, 4, 5]) assert.ok(five.html.includes(`Shop ${n}<`), `shop ${n} of five is on the card`);
+  const seven = buildVisual({ template: "places", data: { title: "Lots", items: shops } });
+  assert.ok(seven.html.includes("Shop 6<") && !seven.html.includes("Shop 7<"), "six at most");
+  const two = buildVisual({ template: "places", data: { title: "Two", items: shops.slice(0, 2) } });
+  assert.ok(two.height < 1500 && two.height < five.height, "a short list is drawn short");
   const unread = buildVisual({ template: "places", data: { title: "x", items: [{ name: "A", photo: "https://never.example/a.jpg" }] } }, { canLoad: () => false });
   assert.doesNotMatch(unread.html, /never\.example|background-image/, "a photo it can't load is left off");
   assert.equal(unread.dropped, 1);
@@ -407,7 +427,7 @@ test("a places card fills each place's photo and logo from the pages read, downl
   assert.doesNotMatch(html, /https:\/\/media\.timeout|markette\.example/, "no web address left for the browser to fail on");
   assert.deepEqual(shots.calls[0].body.allow, []);
   assert.match(result.content[1].text, /added from the pages you read for: Hav & Mar, Markette, Shukette/);
-  assert.match(result.content[1].text, /1 photo\(s\) left off the card/, "Shukette's photo refused to download, so its slot is gone, not empty");
+  assert.match(result.content[1].text, /No picture found yet for: Shukette, Konban\./, "Shukette's photo refused to download, so it is hunted for (`visuals/hunt.js`) and named, its slot gone, not empty");
 });
 
 test("a card's photo is found only by a whole name, and never from a page that does not name it", () => {
@@ -434,4 +454,30 @@ test("a photo that is not a picture, too big, or answered from plain http is not
   assert.equal(await downloadPhoto("https://a.example/x", answer(new Uint8Array(4), { "content-type": "image/jpeg", "content-length": String(MAX_PHOTO_BYTES + 1) })), null);
   assert.equal(await downloadPhoto("https://a.example/x", async () => { throw new Error("timed out"); }), null);
   assert.match(await downloadPhoto("https://a.example/x", answer(new Uint8Array([1, 2, 3]), { "content-type": "image/png; charset=binary" })), /^data:image\/png;base64,AQID$/);
+});
+
+// Triage, 2026-10-26: the self-review judge read "[Sent a picture]" and marked a card of four
+// restaurants down as an answer that hid the options. The saved line now says what the card showed.
+test("the saved conversation keeps what a card showed: each option with its facts", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const call = outgoing.wrap(async () => ({ content: [{ type: "image", mimeType: "image/png", data: CARD_PNG }] }));
+  await call(VISUAL_TOOL, {
+    template: "places",
+    data: {
+      title: "Dinner options in Chelsea",
+      items: [
+        { name: "Hav & Mar", cuisine: "Ethiopian and Nordic", price: "$$$", hours: "Daily 5 to 10 pm", pick: true, photo: "https://a.example/x.jpg" },
+        { name: "Markette", cuisine: "Modern European", price: "$60 prix fixe" },
+      ],
+    },
+  });
+  await call(VISUAL_TOOL, { template: "option", data: { index: 1, of: 2, name: "Lugo's", price: "$230", price_note: "$7.67 a person", facts: [{ label: "Serves", value: "30" }] } });
+  const { pictures, captions } = outgoing.take("Hav & Mar is my pick.\n[picture 1]\n[picture 2]");
+  const line = sentPicturesLine(pictures, captions);
+  assert.match(line, /1\. Dinner options in Chelsea — 1\. Hav & Mar \(Ethiopian and Nordic · \$\$\$ · Daily 5 to 10 pm · Tex's pick\); 2\. Markette \(Modern European · \$60 prix fixe\)/);
+  assert.match(line, /2\. Lugo's \(\$230 · \$7\.67 a person\) — Serves: 30/);
+  assert.doesNotMatch(line, /a\.example/, "a photo's address is not a fact");
+  const long = { title: "x", items: Array.from({ length: 40 }, (_, i) => ({ name: `Place ${i}`, note: "y".repeat(50) })) };
+  await call(VISUAL_TOOL, { template: "places", data: long });
+  assert.ok(outgoing.take("[picture 3]").captions[0].length <= 500, "one card's words are bounded");
 });

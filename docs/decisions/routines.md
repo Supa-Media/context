@@ -211,10 +211,17 @@ code is kept, and never any text".
 
 ### Routines run only in a personal workspace, and text only their writer
 
+**Amended by the owner, 2026-10-27:** a shared workspace now runs one kind of
+routine, a chat routine, which names the group chat bound to it and answers
+there, never in anyone's own texts
+([chat-routines](./texting-assistant/chat-routines.md)). `runsRoutine`
+(`functions/lib/routines/access.ts`) asks it per routine. Everything below
+still holds for every other routine in a shared workspace.
+
 Decided by the owner, 2026-10-18, after someone's Tex texted them updates on
 another person's work, from a routine they never wrote. A shared workspace runs
 no routines: each person keeps theirs in their own personal workspace, where
-everything a routine texts is theirs to read. `runsRoutines`
+everything a routine texts is theirs to read. `runsRoutine`
 (`functions/lib/routines/access.ts`) is the one place this is asked, at every
 step a row could come into being or run: a signal from a shared workspace makes
 no row, a scan there deletes its rows instead of writing them, and a row left

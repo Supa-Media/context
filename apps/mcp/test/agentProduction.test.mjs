@@ -241,7 +241,9 @@ before(async () => {
   // Tex in a group chat bound to a shared workspace (`groupTurn.js`).
   await controlPlane.addGrant({
     workspaceId: "ws_mine", role: "editor", userId: "user_prod_texts", accessToken: TOKEN_GROUP,
-    scopes: ["context:read", "context:write"], clientId: "context_texts_group", alsoMemberOf: member,
+    // The pin as the control plane really sends it to a group (`liveGrants.ts`): setup-only, never addressable.
+    scopes: ["context:read", "context:write"], clientId: "context_texts_group",
+    alsoMemberOf: member.map((entry) => ({ ...entry, setupOnly: true })),
   });
   await controlPlane.addGrant({
     workspaceId: "ws_pinned", role: "owner", userId: "user_prod_staff", accessToken: TOKEN_STAFF,

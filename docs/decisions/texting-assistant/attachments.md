@@ -43,8 +43,12 @@ meetings. The model gets the transcript as a text document titled as a voice
 message and is told to answer it as if typed. Unlike other attachments, the
 transcript (2,000 characters at most) is kept in the saved conversation: it is
 the person's own message, said instead of typed. No service configured, a
-failed transcription or a recording with no speech each become a sentence, so
-Tex asks them to type it rather than guessing. Video is still not read.
+failed transcription (after one retry) or a recording with no speech each
+become a sentence, so Tex says it couldn't hear it rather than guessing, and
+never asks for it typed. Sending the voice message is the yes to transcribe it;
+the app's meeting question does not cover it (owner, 2026-10-28; see
+[transcription consent](../meetings/transcription-consent.md)). Video is still
+not read.
 
 Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
 
@@ -132,4 +136,67 @@ is not saved while a steer waits unread (`steer.pending()` in
 next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
 it and keep its figures unless the new text changes them; its answer replaces
 the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
+fails.
+
+## A kept file is shown again on the next texts (owner's review, 2026-10-26)
+
+A resume PDF came with a text and Tex wrote a pitch from it. On the next
+text, on the small model, it looked for the file with
+`list_notes { prefix: "download:…" }` and `fetch { id: "download:…", args:
+{ mail: false } }`; the first lists notes and the second was refused as a
+mail read, so neither reached the kept file. Tex said the PDF "won't load",
+took back what it had read, and asked them to paste the text. The id in the
+saved conversation was not enough: a model had to choose the one call that
+reads it.
+
+So the files the last four texts kept ride along again as attachments marked
+`carried` (`carryKeptFiles`, `apps/mcp/src/agent/keptFiles.js`): the newest
+two, a PDF only up to 3 MB, a text file's first 30,000 characters with where
+the rest starts. They are told as files from earlier in the chat, never saved
+as sent with this text, never sent to the planner as a data file, and they
+mark the turn untrusted as the file did on its own turn, since its words are
+in front of the model again. A PDF turn falls back only to a model that can
+read it, as a picture turn does. `fetch` with a `download:` id reads it
+whatever other arguments come along, and a `list_notes` of one reads it too.
+An answer that still says a file won't open, or asks them to paste or resend
+it, with a kept file in reach and no read of it this turn, gets one more
+round naming the id (`keptClaims.js`). Undo: drop `carryKeptFiles` from the
+route; `agentKeptCarry.test.mjs` fails.
+
+The same chat: told "make sure this never happens again", Tex wrote the
+lesson into `tex/about-me.md` ("that's common sense, not about me info"). A
+lesson about how Tex works is filed with `report_problem`, a write to
+about-me in a turn that asks for one is refused with that reason
+(`lessonInAboutMe`, `bugCheck.js`), and the memory nudge leaves lessons out.
+And because a search for one first name found two people, the referral used
+the other person's work: every turn is told a fact is someone's only when
+what was read ties it to that person, never a shared first name
+(`SAME_NAME_LINE`, `prompt.js`).
+
+## A texted picture goes on an email through Gmail, and "attached" is Gmail's word (review, 2026-10-27)
+
+Asked for a draft to a support team "with the example image attached", Tex
+had no way to name a texted picture in `attach` (it took only `download:`
+ids), so it opened Gmail in its browser and used the web uploader: the draft
+got the wrong screenshot, then an empty file, and Tex told the person to tap
+the paperclip themselves.
+
+- **`attach` takes what Tex was shown, in the words it was shown it**
+  (`apps/mcp/src/agent/emailFiles.js`): `attachment:N` for a file sent with
+  this text, `<image> in <note>` for a picture an earlier text sent (as the
+  saved conversation names it), or a file in their notes by path. Each is read
+  through the turn's own `callTool` (so the privacy engine and a group chat's
+  limits decide), kept as a download, and handed on as its `download:` id, so
+  the email gate, a held email and a 👍 work as for any downloaded file. An
+  email's own attachments are not named here; they go on with `forward`.
+- **After an email with files is saved or sent, the control plane reads it
+  back from Gmail** (`apps/convex/functions/lib/personEmailCheck.ts`) and
+  answers each file as Gmail holds it. The tool says "attached" only when
+  Gmail shows every file with bytes; fewer or an empty one is said plainly,
+  with "try again", never "attach it yourself".
+- "Tap the paperclip" and "I couldn't attach it" are hand-backs
+  (`claimCheck.js` `FILE_HANDBACK`).
+
+Reversing it: drop `withEmailFiles` and `agentEmailFiles.test.mjs` and bench
+hand-back case 15 fail; drop the read-back and `personEmailAttached.test.ts`
 fails.

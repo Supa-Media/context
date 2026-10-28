@@ -27,6 +27,9 @@ import { announceMovedToPresence } from "../live/presence.js";
  */
 export const ANNOUNCE_MOVES_MAX = 50;
 
+/** How many rooms are told at once. */
+const ANNOUNCE_LANES = 10;
+
 /**
  * Tell each moved note's room where it went.
  *
@@ -38,13 +41,17 @@ export const ANNOUNCE_MOVES_MAX = 50;
 export async function announceMoves(store, moved, privacy) {
   const answer = { announced: 0 };
   if (!collaborationSupported(store) || !Array.isArray(moved) || moved.length > ANNOUNCE_MOVES_MAX) return answer;
-  for (const pair of moved) {
-    if (typeof pair?.from !== "string" || typeof pair?.to !== "string") continue;
-    if (!pair.from.endsWith(".md") || !pair.to.endsWith(".md")) continue;
-    // Shown to the room only where every team member may see the new name; otherwise members are told it moved, not where.
-    const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides) ? pair.to : null;
-    await announceMovedToPresence(store, pair.from, shownTo).catch(() => {});
-    answer.announced += 1;
+  const notes = moved.filter(
+    (pair) => typeof pair?.from === "string" && typeof pair?.to === "string" && pair.from.endsWith(".md") && pair.to.endsWith(".md"),
+  );
+  // A room each, several at a time: one after another, a batch of 20 waited on 20 requests in turn.
+  for (let start = 0; start < notes.length; start += ANNOUNCE_LANES) {
+    await Promise.all(notes.slice(start, start + ANNOUNCE_LANES).map(async (pair) => {
+      // Shown to the room only where every team member may see the new name; otherwise members are told it moved, not where.
+      const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides) ? pair.to : null;
+      await announceMovedToPresence(store, pair.from, shownTo).catch(() => {});
+      answer.announced += 1;
+    }));
   }
   return answer;
 }

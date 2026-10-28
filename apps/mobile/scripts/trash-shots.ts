@@ -97,7 +97,6 @@ const { StyleSheet, View } = require("react-native") as {
 };
 const { ThemeProvider } = require("../features/design/theme") as typeof import("../features/design/theme");
 const { TrashPage } = require("../features/console/trash/TrashPage") as typeof import("../features/console/trash/TrashPage");
-const { TrashTreeLine } = require("../features/console/trash/TrashEntry") as typeof import("../features/console/trash/TrashEntry");
 const { TrashRouteProvider } = require("../features/console/trash/TrashRouteContext") as typeof import("../features/console/trash/TrashRouteContext");
 const { TrashedByline, InTrashPill } = require("../features/console/files/noteEditor/trashed") as typeof import("../features/console/files/noteEditor/trashed");
 const { DocumentPage } = require("../features/console/panes/browsePane/DocumentPage") as typeof import("../features/console/panes/browsePane/DocumentPage");
@@ -211,13 +210,8 @@ async function board(
 
 const ROUTE = { open: true, workspaceId: "ws-test", openTrash: () => {}, closeTrash: () => {} };
 
-/** The tree's foot as the sidebar draws it: the Trash row, selected while the page is open. */
-const sidebar = () =>
-  createElement(
-    View as never,
-    { style: { flex: 1, justifyContent: "flex-end", padding: 8 } },
-    createElement(TrashTreeLine),
-  );
+/** The tree's foot. Its Trash row went with the pointer layout's tree (2026-10-18), so it is empty. */
+const sidebar = () => createElement(View as never, { style: { flex: 1, justifyContent: "flex-end", padding: 8 } });
 
 const trashPage = (viewport: Viewport) =>
   createElement(

@@ -46,6 +46,18 @@ export async function gatewaySessionHandler(
     // Deliberately swallowed. A failed bookkeeping write must not log someone
     // out of their AI client.
   }
+  // The token came in the URL (`/t/<token>/...`): counted, so the URL form
+  // can be retired once nobody depends on it (`functions/tokenTransport.ts`).
+  if (body.transport === "path") {
+    try {
+      await ctx.runMutation(internal.functions.tokenTransport.notePathToken, {
+        grantId: session.grantId,
+        route: typeof body.route === "string" ? body.route.slice(0, 32) : "other",
+      });
+    } catch {
+      // Bookkeeping, as above.
+    }
+  }
 
   return json({
     session: {

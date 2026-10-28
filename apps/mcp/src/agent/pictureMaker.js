@@ -52,7 +52,14 @@ import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
 import { IMAGE_TYPES } from "./attachments.js";
 import { outgoingPictures } from "./outgoingPictures.js";
 import { VISUAL_DEFINITION, VISUAL_TOOL, buildVisual } from "./visuals/index.js";
-import { downloadPhotos, fillPictures, pictureAddresses } from "./visuals/photos.js";
+import { MAP_HEIGHT, STRIP_HEIGHT, drawMap } from "./visuals/map.js";
+import { downloadPhoto, downloadPhotos, fillPictures, pictureAddresses, sparesIn } from "./visuals/photos.js";
+import { huntPhotos, shooterFor } from "./visuals/hunt.js";
+import { storableDownload, withPagePictures } from "./visuals/pagePhotos.js";
+import { fillDistances, geocoderFor } from "./visuals/distance.js";
+import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
+import { readTexNote } from "./aboutMe.js";
+import { MAX_HELD, cardCheckFor } from "./cardCheck.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -193,10 +200,11 @@ export async function keepPhotos(store, attachments) {
  * this turn may write the kept picture (a texted turn that keeps its
  * conversation); `meter` reports the image model's tokens.
  */
-export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch } = {}) {
+export function pictureMaker(env, { gateway = null, attachments = [], outgoing, store, keep = false, meter = null, metadata = {}, fetchImpl = fetch, mapGeocode = null, keepCover = null, check = null } = {}) {
   const shots = typeof env?.SITE_SHOTS?.fetch === "function" ? env.SITE_SHOTS : null;
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
+  let web = null; // the turn's search_web, set by `useWeb`
   let kept; // undefined until read
   let earlier; // likewise
 
@@ -249,7 +257,8 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const response = await shots.fetch("https://site-shots/render", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ html: page, width: args.width, height: args.height, allow }),
+      // A card may be cut to what it holds (`./visuals/kit.js` `fit`); a page the model wrote keeps the size it asked for.
+      body: JSON.stringify({ html: page, width: args.width, height: args.height, allow, ...(card && args.fit === true ? { fit: true } : {}) }),
     });
     const body = await response.json().catch(() => null);
     if (response.status === 400) return say("That size or page could not be drawn: keep width 200-2000 and height 200-2400.", true);
@@ -262,20 +271,55 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   }
 
   /** A designed card (`./visuals/index.js`): the page is built here from the model's data, then drawn like any other. */
-  async function visual(args) {
+  async function visual(args, callTool) {
+    // A page's cover is drawn from the note, read as this turn may read it (`./visuals/page.js`).
+    if (args?.template === PAGE_TEMPLATE) {
+      const path = typeof args?.data?.path === "string" ? args.data.path.trim() : "";
+      const text = path && typeof callTool === "function" ? await readTexNote(callTool, path) : "";
+      // Its photos, each read through the page's own note as this turn may read it, and drawn in as bytes.
+      const images = new Map();
+      for (const src of coverPictures(text)) {
+        const read = await Promise.resolve(callTool("read_image", { note: path, image: src })).catch(() => null);
+        const part = read?.isError ? null : read?.content?.find((item) => item.type === "image");
+        if (part?.data) images.set(src, `data:${part.mimeType};base64,${part.data}`);
+      }
+      const cover = pageCover(path, text, args?.theme, images);
+      if (cover.error) return say(cover.error, true);
+      const drawn = await draw(cover, { card: true });
+      // Kept for the page's link card (`/gateway/page-cover`); a page in another context is not this turn's to keep.
+      const png = drawn.isError ? null : drawn.content?.find((part) => part.type === "image")?.data;
+      if (png && typeof keepCover === "function" && !path.startsWith("@")) await keepCover(path, png).catch(() => false);
+      return drawn;
+    }
     // Photos and logos the model left out, from the pages this turn read; then every one downloaded here (`./visuals/photos.js`).
-    const { data, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    const { data: pictured, filled } = fillPictures(args?.template, args?.data, outgoing?.read?.() ?? "");
+    // And how far each place is from where they start, measured here, never guessed (`./visuals/distance.js`).
+    const find = mapGeocode ?? geocoderFor(fetchImpl, { key: env?.GOOGLE_MAPS_KEY });
+    const { data, note: measured } = await fillDistances(args?.template, pictured, (address) => outgoing?.locates?.(address) === true, fetchImpl, { find });
     const read = pictureAddresses(data).filter((address) => outgoing?.vouches(address) === true);
-    const photos = [...(await downloadPhotos(read, fetchImpl))];
+    const photos = [...(await downloadPhotos(read, fetchImpl, sparesIn(outgoing?.read?.() ?? "")))];
+    const got = new Set(photos.map(([address]) => address));
+    // Every option still without a picture is searched for, else its page photographed (`./visuals/hunt.js`).
+    const hunt = await huntPhotos(args?.template, data, { shown: (address) => got.has(address), web, download: (address) => downloadPhoto(address, fetchImpl), shoot: shooterFor(shots), read: () => outgoing?.read?.() ?? "" });
+    photos.push(...hunt.pictures);
     const tokens = new Map(photos.map(([address], i) => [address, `card-photo:${i + 1}`]));
-    const built = buildVisual({ ...args, data }, { canLoad: (address) => tokens.has(address), photos: tokens });
+    // The map is drawn from the card's addresses after its photos, its pictures numbered after theirs (`./visuals/map.js`).
+    const drawnMap = await drawMap(args?.template, data, { key: env?.GOOGLE_MAPS_KEY, geocode: find, locates: (address) => outgoing?.locates?.(address) === true, fetchImpl, offset: photos.length, height: args?.template === "places" ? STRIP_HEIGHT : MAP_HEIGHT });
+    if (drawnMap.refuse) return say(drawnMap.reason, true);
+    photos.push(...(drawnMap.pictures ?? []));
+    const built = buildVisual({ ...args, data: hunt.data }, { canLoad: (address) => tokens.has(address), photos: tokens, map: drawnMap.map });
     if (built.error) return say(built.error, true);
     const html = built.html.replace(CARD_PHOTO, (whole, n) => photos[Number(n) - 1]?.[1] ?? whole);
     const drawn = await draw({ ...built, html }, { card: true });
     if (drawn.isError) return drawn;
     const notes = [];
     if (filled.length > 0) notes.push(`Photos or logos added from the pages you read for: ${filled.join(", ")}.`);
-    if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo) and draw again.`);
+    if (measured) notes.push(measured);
+    if (drawnMap.reason) notes.push(drawnMap.reason);
+    if (hunt.searched.length > 0) notes.push(`Photos found by a picture search for: ${hunt.searched.join(", ")}.`);
+    if (hunt.screenshots.length > 0) notes.push(`Screenshots of their own pages for: ${hunt.screenshots.join(", ")}.`);
+    if (hunt.missing.length > 0) notes.push(`No picture found yet for: ${hunt.missing.join(", ")}. Open each one's own page or a review with photos in your browser, pass a photo you read, and draw again: a comparison shows every thing.`);
+    else if (built.dropped) notes.push(`${built.dropped} photo(s) left off the card: only pictures read this turn that download go on it, so open each place's own page (its read lists photos and a logo), or search_web with pictures: true for its name, and draw again.`);
     if (notes.length === 0) return drawn;
     return { ...drawn, content: drawn.content.map((part) => (part.type === "text" ? { ...part, text: `${part.text} ${notes.join(" ")}` } : part)) };
   }
@@ -325,10 +369,46 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     }
   }
 
+  /**
+   * A page write with its options' missing pictures put in first; the write's own answer, told what was added.
+   * Refused with them, it is written again as the writer sent it: a picture found for it never costs the save.
+   */
+  async function pageWrite(args, callTool) {
+    const shoot = shooterFor(shots, { timeoutMs: 10_000 });
+    const download = storableDownload((address, headers) => downloadPhoto(address, fetchImpl, { headers }), shoot);
+    const { args: pictured, found } = await withPagePictures(args, { web, download, shoot, read: () => outgoing?.read?.() ?? "" });
+    const result = await callTool("write_note", pictured);
+    if (found.length > 0 && result?.isError === true) return callTool("write_note", args);
+    if (found.length === 0 || result?.isError || !Array.isArray(result?.content)) return result;
+    return { ...result, content: [...result.content, { type: "text", text: `Pictures found and added to the page for: ${found.join(", ")}.` }] };
+  }
+
+  let held = 0;
+  /**
+   * Every picture is looked at before the turn may send it (`./cardCheck.js`):
+   * one the check would not send comes back as its critique, without the
+   * picture, so it is redrawn or answered in words. After `MAX_HELD` the
+   * critique rides along with the picture instead, so a turn always ends.
+   */
+  async function looked(name, args, result) {
+    const image = Array.isArray(result?.content) ? result.content.find((part) => part?.type === "image") : null;
+    if (typeof check !== "function" || result?.isError || !image) return result;
+    const verdict = await check({ tool: name, template: typeof args?.template === "string" ? args.template : "", picture: { data: image.data, mediaType: image.mimeType } });
+    if (verdict === null || verdict.send) return result;
+    if (held < MAX_HELD) {
+      held += 1;
+      return say(`Not sent: you looked at this picture before sending it and it doesn't pass: ${verdict.critique} Fix that and draw it again, or answer in words without a picture.`, true);
+    }
+    return { ...result, content: [...result.content, { type: "text", text: `Looked at before sending: ${verdict.critique} If you send it, say what it lacks in a few words.` }] };
+  }
+
   return {
     tools,
-    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null),
-    call: (name, args) => (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args) : make(args)),
+    /** The turn's web tools, once open, for hunting a card's missing pictures (`./visuals/hunt.js`). */
+    useWeb: (call) => void (web = typeof call === "function" ? call : null),
+    // A page's write passes through too, so its options get the pictures a card's do (`./visuals/pagePhotos.js`).
+    has: (name) => ((name === DRAW_TOOL || name === VISUAL_TOOL) && shots !== null) || (name === MAKE_TOOL && gateway !== null) || (name === "write_note" && (web !== null || shots !== null)),
+    call: async (name, args, callTool) => (name === "write_note" ? pageWrite(args, callTool) : looked(name, args, await (name === DRAW_TOOL ? draw(args) : name === VISUAL_TOOL ? visual(args, callTool) : make(args)))),
   };
 }
 
@@ -338,7 +418,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
  * them. `meter` is the turn's own; the image model's spend is reported as a
  * part of the turn, not a turn of its own.
  */
-export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId }) {
+export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId, keepCover = null }) {
   const outgoing = outgoingPictures({ enabled: texted, question });
   const maker = texted
     ? pictureMaker(env, {
@@ -349,6 +429,9 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         keep,
         meter: (usage, failed, model) => meter(usage, failed, model, false),
         metadata: { workspace: String(workspaceId), client: "texts" },
+        keepCover,
+        // Every picture is looked at before it may go (owner, 2026-10-27: "always look at a card before sending it").
+        check: env?.CARD_CHECK === "off" ? null : cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } }),
       })
     : null;
   // Kept before the turn runs, so a later "try again" has them whatever this turn does.
@@ -386,7 +469,7 @@ export function withDrawnImages(outgoing, callTool) {
 
 export function withPictureMaker(maker, callTool) {
   if (maker === null) return callTool;
-  return (name, args) => (maker.has(name) ? maker.call(name, args) : callTool(name, args));
+  return (name, args) => (maker.has(name) ? maker.call(name, args, callTool) : callTool(name, args));
 }
 
 /**

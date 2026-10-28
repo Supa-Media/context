@@ -208,15 +208,15 @@ const OPEN_THEME = "areas/tex-reviews/themes/retries-on-errands.md";
 const BUG = "areas/tex-bugs/user/2026-10-24 2100 reminder never came abc123.md";
 
 function triage() {
-  const theme = { signals: [] as string[], tasks: [] as string[], prs: [] as number[], merged: null, firstSeen: null, fixThread: null };
+  const theme = { signals: [] as string[], tasks: [] as string[], prs: [] as number[], merged: null, firstSeen: null, fixThread: null, retest: null };
   return {
     available: true,
     slug: "context-lc",
     bugs: [
-      { path: BUG, filed: Date.parse("2026-10-24T21:00:00Z"), status: "open", reporter: "user", textsShared: true, title: "Reminder never came", theme: null },
-      { path: "areas/tex-bugs/team/2026-10-24 1000 old one def456.md", filed: Date.parse("2026-10-24T10:00:00Z"), status: "retired", reporter: "team", textsShared: false, title: "Old one", theme: null },
+      { path: BUG, filed: Date.parse("2026-10-24T21:00:00Z"), status: "open", reporter: "user", textsShared: true, title: "Reminder never came", theme: null, themes: [] },
+      { path: "areas/tex-bugs/team/2026-10-24 1000 old one def456.md", filed: Date.parse("2026-10-24T10:00:00Z"), status: "retired", reporter: "team", textsShared: false, title: "Old one", theme: null, themes: [] },
     ],
-    reviews: [{ path: "areas/tex-reviews/2026-10-24 2000 calm 2 aaaaaa.md", reviewed: SCORED, status: "new", theme: "retries-on-errands", task: "web_errand", signals: ["try_again"], average: 4 }],
+    reviews: [{ path: "areas/tex-reviews/2026-10-24 2000 calm 2 aaaaaa.md", reviewed: SCORED, status: "new", theme: "retries-on-errands", themes: ["retries-on-errands"], task: "web_errand", signals: ["try_again"], average: 4 }],
     themes: [
       { ...theme, path: "areas/tex-reviews/themes/note-saves.md", slug: "note-saves", name: "Note saves time out", status: "shipped", signals: ["repeated"], tasks: ["notes"], prs: [2154], merged: Date.parse("2026-10-24T00:00:00Z") },
       { ...theme, path: OPEN_THEME, slug: "retries-on-errands", name: "Errands need a retry", status: "open", signals: ["try_again"], tasks: ["web_errand"] },
@@ -296,6 +296,8 @@ describe("tex.lc/admin", () => {
     expect(rows).toEqual(["tex-dashboard-pain-retries-on-errands", "tex-dashboard-pain-note-saves"]);
     expect(find("tex-dashboard-pain-retries-on-errands")?.textContent).toContain("No fix yet");
     expect(find("tex-dashboard-pain-note-saves")?.textContent).toContain("Shipped Oct 24");
+    // Merged is not fixed: the row says nobody has rerun the original ask yet.
+    expect(find("tex-dashboard-pain-note-saves")?.textContent).toContain("Not retested yet");
     expect(find("tex-dashboard-pain-note-saves")?.textContent).toContain("#2154");
   });
 

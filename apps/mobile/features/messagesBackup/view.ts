@@ -9,7 +9,7 @@
  * `docs/decisions/communications/messages-backup.md` carries the argument.
  */
 
-import type { ImessageStatus, MessagesBackupFiles, MessagesBackupView } from "@context/desktop-bridge";
+import type { ImessageStatus, MessagesBackupDownload, MessagesBackupFiles, MessagesBackupView } from "@context/desktop-bridge";
 
 /** The backup on this Mac, or why there is nothing to say about it. */
 export type BackupOnThisMac =
@@ -124,4 +124,45 @@ export function whatsCopiedLines(files: MessagesBackupFiles): { pictures: string
     pictures: files.pictures ? `Up to 25 MB each${space}` : files.bytes > 0 ? `Off. The ${spaceLabel(files.bytes)} already copied stays.` : "Off",
     videos: files.videos ? "Up to 25 MB each" : "Off. Videos take most of the space.",
   };
+}
+
+const DOWNLOAD_PROBLEMS: Record<string, string> = {
+  not_connected: "Connect this Mac to Context first, then download.",
+  reconnect: "Connect this Mac to Context again, then download.",
+  not_allowed: "This Mac's connection can't read your backup. Connect it again, then download.",
+  not_available: "This Mac's connection can't read your backup. Connect it again, then download.",
+  offline: "Couldn't reach Context. Check your connection and try again.",
+  busy: "Already downloading.",
+  write_failed: "Couldn't save to Downloads. Check there's room on this Mac, then try again.",
+  cancelled: "Stopped.",
+  too_long: "The backup is too long to download in one go.",
+};
+
+/** What "Download messages" did, in one sentence (board 2, "Your copy"). */
+export function downloadLine(result: MessagesBackupDownload): string {
+  if (!result.ok) return DOWNLOAD_PROBLEMS[result.problem] ?? "Something went wrong. Try again.";
+  if (result.transcripts === 0) return "Nothing is backed up yet.";
+  const plural = (n: number, one: string, many: string) => `${count(n)} ${n === 1 ? one : many}`;
+  const saved = `Saved ${plural(result.conversations, "conversation", "conversations")}${result.pictures > 0 ? ` and ${plural(result.pictures, "picture", "pictures")}` : ""} to Downloads.`;
+  if (result.notCopied === 0) return saved;
+  return `${saved} ${plural(result.notCopied, "file was", "files were")} never copied, so ${result.notCopied === 1 ? "it isn't" : "they aren't"} in it.`;
+}
+
+/** One read in the read history (board 2, "Who reads them"), finished from the closed set of kinds. */
+export interface BackupRead {
+  at: number;
+  who: string;
+  how: string;
+}
+
+const READ_PHRASES: Record<string, string> = {
+  searched: "searched your texts",
+  listed: "looked through your conversations",
+  read: "read a conversation",
+  downloaded: "downloaded the backup",
+};
+
+/** "Claude searched your texts · 2 hours ago": who, what kind of read, and when, never what was read. */
+export function readLine(read: BackupRead, now: number): string {
+  return `${read.who} ${READ_PHRASES[read.how] ?? "read your texts"} · ${ago(read.at, now)}`;
 }

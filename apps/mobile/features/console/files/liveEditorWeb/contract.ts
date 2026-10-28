@@ -342,4 +342,6 @@ export type MenuOpen = MenuPoint & {
   spelling?: SpellingFix | null;
   /** No checker to ask here: point at Shift-right-click instead. */
   spellingHint?: boolean;
+  /** The fix came from Context's own checker, which can learn and ignore words. */
+  spellingLearns?: boolean;
 };

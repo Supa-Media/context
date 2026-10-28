@@ -50,6 +50,20 @@ export const applyBindingArgs = {
   /** Keep a newly minted managed credential amber while IAM propagates. */
   verificationRetryUntil: v.optional(v.number()),
   /**
+   * A layout the first check writes once the bucket answers. Only a bucket we
+   * just made for a personal workspace is given one
+   * (`managedProvisioningFns/complete.ts`): the binding says a layout is on
+   * its way from the moment it exists, so the console can show the folders
+   * arriving rather than the first run holding somebody on a wait screen.
+   */
+  firstStructure: v.optional(
+    v.object({
+      template: v.literal("para"),
+      folders: v.array(v.object({ folder: v.string(), description: v.string() })),
+      kind: v.literal("personal"),
+    }),
+  ),
+  /**
    * The storage-move engine's own switch-over. Every other caller is refused
    * while a move is copying, because a binding changed under a move is a
    * move that pauses with `SOURCE_CHANGED` (`docs/design/own-storage-moves`).

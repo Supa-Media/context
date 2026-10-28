@@ -48,6 +48,7 @@ import { titleLock } from "./titleLock";
 import { emojiHost, type EmojiHostRef } from "./emoji/host";
 import { emojiInline } from "./emoji/emojiInline";
 import { emojiTyping } from "./emoji/emojiComplete";
+import { wrapOnType } from "./wrapOnType";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 import { applyLink, cancelLink, requestLink } from "./linkSelection";
@@ -711,6 +712,8 @@ export function editorExtensions(options: {
     ...(emoji === undefined ? [] : [emojiHost.of(emoji)]),
     emojiInline(),
     emojiTyping(),
+    // A mark typed over selected words wraps them: `[` twice links them. See `wrapOnType.ts`.
+    wrapOnType(),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -724,6 +727,10 @@ export function editorExtensions(options: {
       leaves every misspelling silent until Save. Nobody asked for the
       opposite (squiggles under a code span or an identifier), and that cost
       is accepted rather than hidden.
+
+      On the web this is now the fallback: `spelling/extension.ts` runs
+      Context's own checker and turns this off while it does (2026-10-27).
+      The iOS guest still uses it, and the system's checker with it.
     */
     EditorView.contentAttributes.of({ spellcheck: "true" }),
     editableCompartment.of(editability(editable)),

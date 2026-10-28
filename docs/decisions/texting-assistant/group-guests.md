@@ -28,9 +28,17 @@ blocker. They proposed guest mode, and chose every default below on
   and nothing else of the workspace (a group row would reach nothing for
   them, and membership is an invitation, which is the owner's). Someone with
   no account is named at the first tag after they link a phone. Only account
-  ids are written, never a number, and an owner who takes the folder from the
+  ids are written on rows, never a number (a guest's number is kept only as a
+  keyed hash, so they can open the chat's notes with a texted code:
+  [guest-phone-pass](./guest-phone-pass.md)), and an owner who takes the folder from the
   group takes it from the chat's people too. Guest mode off takes back what
-  the chat added.
+  the chat added. Since 2026-10-27 this doesn't wait for a tag (the owner:
+  "automatically added/removed when they join or leave a chat"): any message
+  in a guest chat whose list of people changed since the control plane last
+  heard it sends the new list (`/agent-texts/group/people`,
+  `apps/agent/src/groupGuestPeople.ts`), with no turn, no grant and nothing
+  said in the chat. Someone who leaves is removed at the next message
+  anyone sends.
 - **Tex reads and writes only what is shared with the chat's group.** The
   chat's grant reads that workspace as a guest (`READS_AS_GUEST`): it holds
   the names of the rows granted to the group and nothing else, so `team`
@@ -101,3 +109,39 @@ binder's Gmail; turning guest mode on for anyone who asks lets a member open
 a workspace they can't share; syncing people without the `viaChat` mark
 takes away rows the owner added. `apps/convex/__tests__/textGroupGuests.test.ts`
 and `apps/mcp/test/agentGroupGuests.test.mjs` fail if any is reversed.
+
+## What a guest chat makes is a page (2026-10-28)
+
+A guest chat writes only in `tex/chats/<words>/`, and every new note Tex
+makes is a page. The plain-note check (`agent/pageNotice.js`) and the prompt
+both kept "Tex's own tex/ notes" plain, so research saved plain in a guest
+chat was never sent back, and Tex told the chat "the page format keeps
+failing from this chat". `tex/chats/<words>/` is now outside that rule (only
+the chat's `chat-<id>.md` memory note stays plain), and the guest prompt says
+pages save there like anywhere and a refused page is fixed and written again,
+never replaced by a plain note. Test: `agentGroupGuests.test.mjs` "research a
+guest chat saves as a plain note goes back to be a page".
+
+A note a member saves in the chat's folder used to get a row of its own,
+which the chat's rules read as private (`chatRules`), so the chat could
+neither see it nor write that name. On 2026-10-28 Tex picked exactly such a name for a page, read
+the write's "permission denied", and told the chat it couldn't write pages to
+its own folder. In the chat's own folder that refusal can only mean a name it
+can't see, so `groupGuests.js` turns it into "save it under a different name",
+which says nothing about what is there. Test: `agentGroupGuests.test.mjs`
+"a page named like a note the chat can't see".
+
+**The folder is shared both ways** (decided by the owner, 2026-10-28,
+choosing "Whole folder shared both ways"). What a member saves in
+`tex/chats/<words>/` open to the workspace, the chat reads and edits; what the
+chat saves there, the members read and edit. `withChatFolders` does it in the
+access rows every reader renders: a row under the folder whose base is `team`
+carries the chat group's edit grant beside its list, and the folder's own row
+(or its stand-in), when it has no base, is `team` to the members, so the
+chat's notes, which inherit the folder, are theirs too. A note someone made
+private, or a folder the owner closed, stays exactly as they set it, and a
+folder the owner took from the chat's group is left alone. The narrower
+reading (only what the chat wrote reaches members, or only what a member
+marks) would leave the same invisible-page failure in place for every note
+nobody remembered to mark. Test: `textGroupGuests.test.ts` "the folder is
+shared both ways".

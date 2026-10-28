@@ -5,7 +5,7 @@
  * ever fetches a workspace.
  */
 
-import { GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
+import { COVER_SIZE, GENERIC_PREVIEW, ORIGIN, normalisePath, type PreviewMeta } from "./meta";
 import { decodeSafely, boundTitle } from "./textBounds";
 
 /**
@@ -96,6 +96,8 @@ export function previewForShortLink(
   handle?: string | null,
   slug?: string | null,
   cardVersion?: string | null,
+  /** The card is a linked page's cover: the same address, drawn portrait. */
+  cover = false,
 ): PreviewMeta {
   const bounded = boundTitle(title);
   if (bounded === null) return GENERIC_PREVIEW;
@@ -112,7 +114,7 @@ export function previewForShortLink(
     description:
       "Shared with you on Context — plain markdown in a bucket its owner controls.",
     ...(named
-      ? { imageUrl: `${ORIGIN}${shortLinkCardPath(handle as string, slug as string, cardVersion as string)}` }
+      ? { imageUrl: `${ORIGIN}${shortLinkCardPath(handle as string, slug as string, cardVersion as string)}`, ...(cover ? { imageSize: COVER_SIZE } : {}) }
       : {}),
   };
 }

@@ -6,6 +6,7 @@ import { LINQ_ZERO_SERVICE, SHARED_LINE_CAP } from "../functions/lib/adminFns/te
 import { OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { admittedText } from "../functions/waitlistText";
 import { asUser, createUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
+import { withSession } from "./session.helpers";
 
 /**
  * LETTING SOMEBODY IN PUTS THEM ON TEX'S LIST.
@@ -85,7 +86,7 @@ afterEach(() => {
 
 async function staff(t: TestConvex) {
   const id = await t.run((ctx) => ctx.db.insert("users", { email: STAFF, emailVerificationTime: 1 } as never));
-  return t.withIdentity({ subject: id });
+  return withSession(t, id);
 }
 
 async function row(t: TestConvex, fields: { phone: string } | { email: string }): Promise<Id<"waitlist">> {

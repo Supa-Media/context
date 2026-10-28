@@ -4,7 +4,7 @@ import { privacyContent, supportContent, termsContent } from "../features/legal/
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("October 21, 2026");
+    expect(privacyContent.updated).toBe("October 28, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -19,6 +19,49 @@ describe("the privacy policy describes connected AI assistants", () => {
       "Notes reach an assistant only when it asks for them on your behalf. What the assistant's provider does with that content is governed by its own terms and privacy policy, not this one.",
       "We do not use your notes to train AI models, and we do not sell them.",
     ]);
+  });
+});
+
+/**
+ * App Review 5.1.1(i) / 5.1.2(i): the policy names who receives recording
+ * audio, that it is asked for first, how to take it back, and only the
+ * provider claims we verified (`docs/decisions/meetings/transcription-consent.md`).
+ */
+describe("the privacy policy describes meeting transcripts and summaries", () => {
+  const section = privacyContent.sections.find((entry) => entry.title === "Meeting transcripts and summaries");
+  const text = section?.body.join("\n") ?? "";
+
+  test("names the provider, the model's author, and that the audio goes to Cloudflare", () => {
+    expect(text).toContain("Cloudflare Workers AI");
+    expect(text).toContain("Whisper, a speech recognition model made by OpenAI");
+    expect(text).toContain("The audio goes to Cloudflare, not to OpenAI.");
+    expect(text).toContain("other people's voices");
+  });
+
+  test("says nothing is sent before a yes, Not now records nothing, and how to withdraw", () => {
+    expect(text).toContain("Nothing is sent until you allow it.");
+    expect(text).toContain("If you choose Not now, no audio is recorded or sent");
+    expect(text).toContain("in Settings, under Meetings");
+    expect(text).toContain("including from a recording that is already running");
+    // Withdrawal reaches other devices and the servers when it arrives, and a
+    // request already sent cannot be recalled: said, not promised away.
+    expect(text).toContain("Your other devices and our servers stop once the change reaches them");
+    expect(text).toContain("cannot be called back");
+    expect(text).not.toContain("From then on nothing more is sent");
+    expect(text).toContain("We ask again if the provider or what the AI is used for changes.");
+    expect(text).toContain("this section always names the ones in use");
+  });
+
+  test("names who writes summaries, and that the same yes covers them", () => {
+    expect(text).toContain("by Anthropic's Claude");
+    expect(text).toContain("which covers both transcripts and summaries");
+    expect(text).toContain("no summary is written");
+  });
+
+  test("makes only the retention and training claims we verified", () => {
+    expect(text).toContain("Context.lc does not store the audio");
+    expect(text).toContain("Cloudflare states that it does not use content sent to Workers AI to train AI models.");
+    expect(text).not.toMatch(/Cloudflare (deletes|does not (keep|retain|store))/);
   });
 });
 
@@ -54,7 +97,9 @@ describe("the privacy policy matches what the phone app collects", () => {
   test("names phone numbers, profile photos and meeting audio", () => {
     expect(text).toContain("your phone number if you sign in with one");
     expect(text).toContain("the profile photo you choose");
-    expect(text).toContain("If you record a meeting, the audio is sent to Context.lc to be transcribed");
+    expect(text).toContain(
+      "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI",
+    );
   });
 
   test("says app signups are never reported to an advertising network", () => {
@@ -79,7 +124,7 @@ describe("the privacy policy matches what the phone app collects", () => {
 
 describe("the terms and support page cover objectionable content (App Store guideline 1.2)", () => {
   test("the terms say there is no tolerance, how to report, and what happens within 24 hours", () => {
-    expect(termsContent.updated).toBe("October 15, 2026");
+    expect(termsContent.updated).toBe("October 28, 2026");
     const section = termsContent.sections.find((entry) => entry.title === "Objectionable content and abuse");
     const text = section?.body.join(" ") ?? "";
     expect(text).toContain("no tolerance for objectionable or abusive content or behaviour");
@@ -96,5 +141,49 @@ describe("the terms and support page cover objectionable content (App Store guid
     expect(text).toContain("context@supa.media");
     expect(text).toContain("unblock people in Settings, under Profile");
     expect(text).toContain("within 24 hours");
+  });
+});
+
+/**
+ * Google verification and CASA: the policy must describe what the requested
+ * scopes actually do, writes included (`WRITE_SCOPES` in
+ * `apps/convex/functions/lib/googleOAuth.ts`), and name every processor the
+ * code sends content to. A policy that says "sync only" while the app asks
+ * for gmail.send is the mismatch a reviewer rejects.
+ */
+describe("the policy describes Google data as the code uses it", () => {
+  const privacy = privacyContent.sections.map((section) => section.body.join("\n")).join("\n");
+  const googleUse = privacyContent.sections.find((section) => section.title === "How we use Google data")?.body.join("\n") ?? "";
+  const termsGoogle = termsContent.sections.find((section) => section.title === "Google integrations")?.body.join("\n") ?? "";
+
+  test("names every write the scopes allow, and that sends wait for a yes", () => {
+    expect(googleUse).toContain("create Gmail drafts");
+    expect(googleUse).toContain("send email you approve");
+    expect(googleUse).toContain("create or change events on your calendar");
+    expect(googleUse).toContain("asking you first when a change would notify a guest");
+    expect(googleUse).toContain("send Chat messages you approve");
+    expect(googleUse).not.toMatch(/only to provide the integration you requested/);
+    expect(termsGoogle).not.toMatch(/only to sync/);
+    expect(termsGoogle).toContain("send the email and Chat messages you approve");
+  });
+
+  test("says disconnecting and deleting copied notes are separate", () => {
+    expect(googleUse).toContain("Revoking Google access and deleting copied notes are separate controls.");
+  });
+
+  test("keeps the Limited Use, no-sale and no-training commitments", () => {
+    expect(googleUse).toContain("We do not sell Google user data, use it for advertising, or use it to train third-party AI models.");
+    expect(privacy).toContain("Limited Use requirements");
+  });
+
+  test("names the processors the assistant sends content to", () => {
+    for (const name of ["Browserbase", "Brave Search", "Sendblue", "Linq", "Whapi", "Gemini", "Anthropic", "Cloudflare Workers AI"]) {
+      expect(privacy).toContain(name);
+    }
+  });
+
+  test("both pages carry the date of this change", () => {
+    expect(privacyContent.updated).toBe("October 28, 2026");
+    expect(termsContent.updated).toBe("October 28, 2026");
   });
 });

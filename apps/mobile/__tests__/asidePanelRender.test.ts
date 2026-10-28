@@ -104,6 +104,7 @@ import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
 import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
+import type { ApprovalsView } from "../features/approvals/useApprovals";
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {

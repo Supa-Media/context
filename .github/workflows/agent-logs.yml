@@ -1,0 +1,164 @@
+# Read back what the texting assistant (context-agent) logged in production
+# over the last few minutes, so a turn that went quiet can be taken apart
+# without a dashboard (Tex on WhatsApp, 2026-10-27). Manual only.
+#
+# It asks Workers Observability for the Worker's events and prints, per log
+# line, only a fixed list of keys: the event name, its outcome, reason, status
+# and service. Each value must *look like* a code the Worker chose or it is
+# printed as `other`, because this run page is public and a filter that strips
+# characters out of a value still publishes a readable phone number or name
+# (scripts/log-codes.mjs; scripts/agent-logs-filter.test.mjs runs the copies
+# below). An exception is named by its class, never by its message, which is
+# where a path, an address or a token ends up. A line without an `event` key is
+# counted, not printed.
+#
+# `tail` mode instead watches the Worker live for the given minutes (at most
+# 15) with `wrangler tail`, for when the token cannot read Observability: send
+# the text again while it runs. The same keys are printed, nothing else.
+name: Texting assistant logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How far back to read, in minutes (1 to 120)."
+        required: true
+        default: "30"
+      event:
+        description: "Only lines whose event starts with this (blank for all), e.g. group_ or whapi"
+        required: false
+        default: ""
+      service:
+        description: "Which Worker to read: context-agent, or context-transcribe for the decide model's route"
+        type: choice
+        options: [context-agent, context-transcribe]
+        default: context-agent
+      tail:
+        description: "Watch live for the given minutes (at most 15) instead of reading the past"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    name: Read the texting assistant's recent log codes
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        if: ${{ inputs.tail }}
+
+      - name: Watch the Worker live
+        if: ${{ inputs.tail }}
+        working-directory: apps/agent
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.minutes }}
+          EVENT_PREFIX: ${{ inputs.event }}
+        run: |
+          set -uo pipefail
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
+          case "$EVENT_PREFIX" in *[!a-z0-9_]*) echo "event must be lowercase letters, digits and underscores" >&2; exit 1 ;; esac
+          seconds=$(( (MINUTES > 15 ? 15 : (MINUTES < 1 ? 1 : MINUTES)) * 60 ))
+          echo "Watching context-agent for $seconds seconds."
+          # Only lines carrying a JSON log with an event code reach the filter; it prints the same fixed keys.
+          timeout "$seconds" npx --yes wrangler@4 tail context-agent --format pretty 2>/dev/null \
+            | grep --line-buffered -o '{"event":.*}' \
+            | node -e '
+              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+              // Only a code the Worker chose is published; anything else is "other", never stripped down to a
+              // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
+              const NUMERIC = new Set(["attempts", "ms", "status"]);
+              const code = (v) => {
+                const t = String(v);
+                return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+              };
+              const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
+              const prefix = process.env.EVENT_PREFIX ?? "";
+              require("readline").createInterface({ input: process.stdin }).on("line", (line) => {
+                let source;
+                try { source = JSON.parse(line); } catch { return; }
+                if (typeof source?.event !== "string" || !source.event.startsWith(prefix)) return;
+                const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${show(k, source[k])}`);
+                console.log(`${new Date().toISOString()} ${picked.join(" ")}`);
+              });'
+          echo "Done watching."
+
+      - name: Query Workers Observability
+        if: ${{ !inputs.tail }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.minutes }}
+          EVENT_PREFIX: ${{ inputs.event }}
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
+          case "$EVENT_PREFIX" in *[!a-z0-9_]*) echo "event must be lowercase letters, digits and underscores" >&2; exit 1 ;; esac
+          node - <<'EOF'
+          const minutes = Math.min(120, Math.max(1, Number(process.env.MINUTES)));
+          const prefix = process.env.EVENT_PREFIX ?? "";
+          const to = Date.now();
+          const from = to - minutes * 60_000;
+          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+          // Only a code the Worker chose is published; anything else is "other", never stripped down to a
+          // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
+          const NUMERIC = new Set(["attempts", "ms", "status"]);
+          const code = (v) => {
+            const t = String(v);
+            return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+          };
+          const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
+          const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`;
+          const lines = [];
+          let skipped = 0;
+          let offset;
+          for (let page = 0; page < 10; page++) {
+            const body = {
+              queryId: "agent-logs",
+              timeframe: { from, to },
+              view: "events",
+              limit: 500,
+              ...(offset ? { offset } : {}),
+              parameters: { filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: process.env.SERVICE === "context-transcribe" ? "context-transcribe" : "context-agent" }] },
+            };
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, "content-type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.success === false) {
+              console.error(`Observability refused the query (${response.status}): ${JSON.stringify(data.errors ?? [])}`);
+              process.exit(1);
+            }
+            const events = data.result?.events?.events ?? [];
+            for (const e of events) {
+              let source = e.source;
+              if (typeof source === "string") { try { source = JSON.parse(source); } catch { source = null; } }
+              if ((source === null || typeof source !== "object") && typeof e.$metadata?.message === "string") {
+                try { source = JSON.parse(e.$metadata.message); } catch { source = null; }
+              }
+              const level = e.$metadata?.level ?? "";
+              if (source === null || typeof source !== "object" || typeof source.event !== "string") {
+                if (level === "error" && e.$metadata?.error) lines.push([e.timestamp, `exception ${(String(e.$metadata.error).match(/^(?:[A-Za-z]\w{0,29})?(?:Error|Exception)\b/) ?? ["unknown"])[0]}`]);
+                else skipped++;
+                continue;
+              }
+              if (!source.event.startsWith(prefix)) continue;
+              const picked = keep.filter((k) => source[k] !== undefined).map((k) => `${k}=${show(k, source[k])}`);
+              lines.push([e.timestamp, picked.join(" ")]);
+            }
+            if (events.length < 500) break;
+            offset = events.at(-1)?.$metadata?.id;
+            if (!offset) break;
+          }
+          lines.sort((a, b) => a[0] - b[0]);
+          for (const [at, text] of lines) console.log(`${new Date(at).toISOString()} ${text}`);
+          console.log(`${lines.length} lines printed, ${skipped} without an event code not printed.`);
+          EOF

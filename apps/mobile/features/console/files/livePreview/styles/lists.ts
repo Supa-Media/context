@@ -373,7 +373,7 @@ export const listStyles = `/*
   ships in the native editor bundle, which cannot import the design tokens;
   listBlock.test.ts holds the two together.
 */
-@media (max-width: 879.98px) {
+@media (max-width: 879.98px) and (pointer: coarse) {
   .cm-lp-list-row { padding: 12px 0; }
   .cm-lp-list-panel { max-width: none; }
   .cm-lp-list-panel-section { grid-template-columns: minmax(0, 1fr); }

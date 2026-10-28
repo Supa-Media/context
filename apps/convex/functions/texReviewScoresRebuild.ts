@@ -39,7 +39,7 @@ export const dayScores = internalQuery({
       },
       rows: rows
         .sort((a, b) => a.at - b.at)
-        .map(({ at, kind, reason, goal, independence, turns, friendly, calm }) => ({ at, kind, reason, goal, independence, turns, friendly, calm })),
+        .map(({ at, kind, reason, goal, independence, turns, friendly, calm, task, signals }) => ({ at, kind, reason, goal, independence, turns, friendly, calm, task: task ?? null, signals: signals ?? [] })),
     };
   },
 });

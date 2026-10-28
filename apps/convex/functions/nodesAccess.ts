@@ -22,7 +22,7 @@ import { refreshSnapshot, resolveHandle } from "./lib/nodes/accessBackfill";
 import { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
-import { narrowRowForMove, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
+import { narrowRowForMove, narrowRowsForMoves, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
 import { listForTier, type BuiltIn } from "./lib/nodes/membersPosition";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { pinReadersAreGuests } from "./lib/pinnedReaders";
@@ -302,6 +302,16 @@ export const narrowMove = internalMutation({
   returns: v.null(),
   handler: async (ctx, { workspaceId, from, to }): Promise<null> => {
     await narrowRowForMove(ctx, workspaceId, from, to);
+    return null;
+  },
+});
+
+/** `narrowMove` for every move of a batch in one transaction (`lib/nodes/rowMoveBatch.ts`). */
+export const narrowMoves = internalMutation({
+  args: { workspaceId: v.id("workspaces"), moves: v.array(v.object({ from: v.string(), to: v.string() })) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, moves }): Promise<null> => {
+    await narrowRowsForMoves(ctx, workspaceId, moves);
     return null;
   },
 });

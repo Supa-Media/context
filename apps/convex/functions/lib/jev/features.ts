@@ -86,6 +86,21 @@ export const JEV_FEATURES = {
     dailyCallsFree: 200,
     plan: "everyone",
   },
+  /**
+   * Tex deciding when to answer in a texted chat: silent, a tapback, or an
+   * answer, which messages an answer covers, and what a text sent mid-turn
+   * does (`functions/lib/gatewayRoutes/textDecide.ts`). Every plan (Dev2,
+   * 2026-10-26, `docs/design/tex-event-log/CONTRACT.md`); one call per
+   * inbound text that reaches the decision.
+   */
+  textDecide: {
+    label: "Tex decides when to answer",
+    onByDefault: true,
+    // A busy group's day of texts; past it the Worker falls back to answering only when addressed.
+    dailyCallsPerWorkspace: 2000,
+    dailyCallsFree: 2000,
+    plan: "everyone",
+  },
 } as const satisfies Record<string, JevFeature>;
 
 export type JevFeatureName = keyof typeof JEV_FEATURES;

@@ -1,5 +1,7 @@
 # The texting assistant — a conversation's history
 
+> **Superseded in part (Dev2, 2026-10-26):** the model now reads the chat's event log rendered with times, delivery results and unanswered messages; the history below keeps being written beside it. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 _Part of [the texting assistant](../texting-assistant.md)._
 
 ## Earlier turns are words only, and the model is told so (2026-10-09)

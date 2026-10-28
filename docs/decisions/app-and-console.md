@@ -1,5 +1,9 @@
 # The mobile app and the console
 
+### Native menu gesture containers do not group their actions
+
+See [the native menu accessibility decision](./app-and-console/native-app-shell.md#native-menu-gesture-containers-do-not-group-their-actions-2026-10-28).
+
 _Moved out of `CLAUDE.md` verbatim. See `docs/decisions/README.md` for the index._
 
 ### The note count is measured, stamped, and allowed to be a floor
@@ -317,6 +321,14 @@ Moved to [Properties are edited in the panel, one line at a time](./app-and-cons
 ### On a touch screen, a tap on a heading does not reveal its `#` (2026-09-27)
 
 In [note-editing-surface](./app-and-console/note-editing-surface.md#on-a-touch-screen-a-tap-on-a-heading-does-not-reveal-its--2026-09-27).
+
+### Spelling is Context's own checker, and the fix is under the word (2026-10-27)
+
+In [spelling](./app-and-console/spelling.md).
+
+### No red line: the fixes wait for a right-click (2026-10-28)
+
+In [spelling](./app-and-console/spelling.md#no-red-line-the-fixes-wait-for-a-right-click-2026-10-28).
 
 ### The staff console is shaped for ten customers, and its figures count rows
 

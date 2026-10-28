@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneCodeMatches, googleReviewTestEmail, reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
@@ -109,11 +109,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // Dedicated production CUJ identity. The framework registers a separate
   // provider that refuses every other address; this is not the global dev
   // bypass and cannot change the ordinary customer email provider. The
-  // connector-directory reviewer gets a provider of its own the same way.
-  // Both codes live only in the deployment's environment
-  // (`TEST_ACCOUNT_SIGNIN_CODE`, `REVIEWER_SIGNIN_CODE`); unset, neither
-  // provider exists.
-  testEmail: [...testAccountEmail(), ...reviewerTestEmail()],
+  // connector-directory reviewer gets a provider of its own the same way, and
+  // so does Google's verification reviewer. Every code lives only in the
+  // deployment's environment (`TEST_ACCOUNT_SIGNIN_CODE`,
+  // `REVIEWER_SIGNIN_CODE`, `GOOGLE_REVIEW_SIGNIN_CODE`); unset, that provider
+  // does not exist.
+  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is

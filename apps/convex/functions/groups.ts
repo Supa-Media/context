@@ -36,7 +36,7 @@ import { v } from "convex/values";
 import { internalQuery, mutation, query } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { buildGroupName, describeRejection, groupLabelOf } from "./lib/names";
 

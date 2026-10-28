@@ -93,4 +93,9 @@ describe("production CUJ provider routing", () => {
     expect(signInProviderForEmail(normalizeSignInEmail(" Connector-Review@Supa.Media "))).toBe("test-email-reviewer");
     expect(signInProviderForEmail(normalizeSignInEmail("connector-review@supa.media.evil.test"))).toBe("email");
   });
+
+  test("only Google's reviewer's address uses its own provider", () => {
+    expect(signInProviderForEmail(normalizeSignInEmail(" Google-Review@Supa.Media "))).toBe("test-email-google-review");
+    expect(signInProviderForEmail(normalizeSignInEmail("google-review@supa.media.evil.test"))).toBe("email");
+  });
 });

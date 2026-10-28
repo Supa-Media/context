@@ -5,15 +5,24 @@
  *
  * Sabotage, each confirmed to fail a case here (2026-10-26):
  *  - drop the owner check in `readLogForExport`: a member reads the texts;
+ *  - drop the owner check in `deleteBackup`: a member deletes the backup;
+ *  - stop erasing after the first page: texts are left behind;
+ *  - erase the whole `.context/` prefix: other plumbing goes too;
+ *  - leave `texts_fts` out of the erase: the index still finds the words;
  *  - drop the prefix check on `after`: a page reads notes after a chosen key;
- *  - answer `next: null` after the first page: the second page is never read.
+ *  - answer `next: null` after the first page: the second page is never read;
+ *  - record every page of a download as a read: the history shows two;
+ *  - drop the owner check in `recentReads`: a member reads who read the texts.
  */
 
+import { createRequire } from "node:module";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { LOG_PAGE_OBJECTS, MESSAGES_LOG_PREFIX } from "../../functions/lib/messagesBackup/exportLog";
-import { FAKE_STORAGE, addMember, asUser, createUser, createWorkspace, seedStorageBinding, setupTest, type TestConvex } from "../fixtures.helpers";
+import { CONSOLE_DOWNLOAD_READER, ERASE_PAGE_KEYS, LOG_PAGE_OBJECTS, MESSAGES_BACKUP_PREFIX, MESSAGES_LOG_PREFIX } from "../../functions/lib/messagesBackup/exportLog";
+import { TEXTS_ERASE_STATEMENTS } from "../../functions/messagesExport";
+import { TEXTS_STATEMENTS } from "../../../mcp/src/communications/textsIndex.js";
+import { FAKE_STORAGE, addMember, asUser, createUser, createWorkspace, drainScheduled, seedStorageBinding, setupTest, type TestConvex } from "../fixtures.helpers";
 import { memoryS3 } from "../storeStub.helpers";
 import { renderPrivacyManifest } from "../seededRules.helpers";
 
@@ -76,4 +85,91 @@ test("a page never starts outside the log, wherever it is asked to", async () =>
     expect(page.objects.every((object) => object.key.startsWith(MESSAGES_LOG_PREFIX))).toBe(true);
     expect(page.objects.some((object) => object.text.includes("Not a text"))).toBe(false);
   }
+});
+
+async function withBackup() {
+  const t = setupTest();
+  deployments.push(t);
+  const ownerId = await createUser(t, "owner@example.invalid");
+  const memberId = await createUser(t, "member@example.invalid");
+  const workspaceId = await createWorkspace(t, ownerId, "texts-delete");
+  await addMember(t, workspaceId, memberId, "member");
+  const bucket = memoryS3(FAKE_STORAGE.bucket);
+  bucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+  bucket.seed("notes/kept.md", "# Mine\n");
+  bucket.seed(".context/other/kept.json", "{}");
+  for (let n = 0; n < ERASE_PAGE_KEYS + 20; n += 1) bucket.seed(`${MESSAGES_LOG_PREFIX}2026/10/${String(n).padStart(13, "0")}-aa.jsonl`, `${line(`m-${n}`)}\n`);
+  bucket.seed(`${MESSAGES_BACKUP_PREFIX}files/${"a".repeat(32)}/${"b".repeat(32)}`, "picture bytes");
+  bucket.seed(`${MESSAGES_BACKUP_PREFIX}pending/2026/10/x.json`, "{}");
+  vi.stubGlobal("fetch", bucket.fetchImpl);
+  await seedStorageBinding(t, { workspaceId, boundBy: ownerId });
+  return { t, bucket, workspaceId, owner: asUser(t, ownerId), member: asUser(t, memberId) };
+}
+
+/** What a reader of the bucket gets back under the backup: bytes that are still a text or a picture. */
+function backupLeft(bucket: ReturnType<typeof memoryS3>): string[] {
+  return Object.entries(bucket.snapshot())
+    .filter(([key, body]) => key.startsWith(MESSAGES_BACKUP_PREFIX) && (body.includes("words of") || body.includes("picture") || body === "{}"))
+    .map(([key]) => key);
+}
+
+test("Delete the backup erases every key under it, page after page, and nothing else", async () => {
+  const f = await withBackup();
+  await f.owner.action(api.functions.messagesExport.deleteBackup, { workspaceId: f.workspaceId });
+  await drainScheduled(f.t);
+  expect(backupLeft(f.bucket)).toEqual([]);
+  expect(f.bucket.snapshot()["notes/kept.md"]).toBe("# Mine\n");
+  expect(f.bucket.snapshot()[".context/other/kept.json"]).toBe("{}");
+  const audit = await f.t.run(async (ctx) => await ctx.db.query("auditEvents").collect());
+  expect(audit.some((event) => event.action === "file.delete" && event.details?.messagesBackup === true)).toBe(true);
+});
+
+test("anyone but the owner is refused, and nothing goes", async () => {
+  const f = await withBackup();
+  await expect(f.member.action(api.functions.messagesExport.deleteBackup, { workspaceId: f.workspaceId })).rejects.toThrow();
+  await drainScheduled(f.t);
+  expect(backupLeft(f.bucket).length).toBe(ERASE_PAGE_KEYS + 22);
+});
+
+test("the index is emptied by statements that run on a database that never had it", async () => {
+  // Through `require`: Vite does not resolve `node:sqlite` as a builtin.
+  const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
+  for (const filled of [true, false]) {
+    const db = new DatabaseSync(":memory:");
+    if (filled) {
+      for (const sql of TEXTS_STATEMENTS) db.exec(sql);
+      db.prepare("INSERT INTO texts_records (key, kind, seq, words, body) VALUES (?, ?, ?, ?, ?)").run("message:m-1", "message", "1", "hello", "{}");
+      db.prepare("INSERT INTO texts_fts (key, words) VALUES (?, ?)").run("message:m-1", "hello");
+      db.prepare("INSERT INTO index_state (key, value) VALUES (?, ?), (?, ?)").run("texts_ready", "1", "search_other", "kept");
+    }
+    for (const { sql, params } of TEXTS_ERASE_STATEMENTS) db.prepare(sql).run(...((params ?? []) as string[]));
+    expect(db.prepare("SELECT COUNT(*) AS n FROM texts_records").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM texts_fts").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT key FROM index_state").all()).toEqual(filled ? [{ key: "search_other" }] : []);
+  }
+});
+
+test("Who reads them: the owner's download is written down once, and only the owner reads the history", async () => {
+  const f = await backedUp(LOG_PAGE_OBJECTS + 3);
+  const first = await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId, after: first.next ?? undefined });
+  await f.member.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  const reads = await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId });
+  expect(reads.map(({ who, how }) => ({ who, how }))).toEqual([{ who: CONSOLE_DOWNLOAD_READER, how: "downloaded" }]);
+  expect(await f.member.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
+});
+
+test("Who reads them: a download with no backup to read is not a read", async () => {
+  const f = await backedUp(0);
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
+});
+
+test("Delete the backup takes its read history with it", async () => {
+  const f = await withBackup();
+  await f.owner.action(api.functions.messagesExport.readLogForExport, { workspaceId: f.workspaceId });
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toHaveLength(1);
+  await f.owner.action(api.functions.messagesExport.deleteBackup, { workspaceId: f.workspaceId });
+  await drainScheduled(f.t);
+  expect(await f.owner.action(api.functions.messagesExport.recentReads, { workspaceId: f.workspaceId })).toEqual([]);
 });

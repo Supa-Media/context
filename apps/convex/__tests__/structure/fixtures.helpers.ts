@@ -198,6 +198,19 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // folding a second provider's connect flow into either would put two
   // unrelated handshakes behind one module.
   "functions/googleConnect.ts",
+  // THE SAME GOOGLE ACCOUNT'S SECOND GRANT, TO THE AGENT CLIENT (CASA round 2,
+  // 2026-10-28). `googleClients.ts` opens a connection's refresh token to mint
+  // an access token in the role the caller names (`mintAccessToken` in
+  // `lib/googleConnect/mintTokens.ts`, listed below, called only from
+  // `googleConnect.ts`'s internal mint actions), the PKCE verifier
+  // of an "allow AI access" consent (`exchangeAndBindAgent`, scheduled by the
+  // callback, never called by it), and a replaced or disconnected agent grant
+  // to give it back to Google (`revokeAgentGrant`). All internal; its one
+  // public action encrypts a verifier and returns an authorize URL. Its own
+  // module because `googleConnect.ts` is at its size limit, and because which
+  // client a grant belongs to is one decision that should live in one place.
+  "functions/googleClients.ts",
+  "functions/lib/googleConnect/mintTokens.ts",
   // THE EIGHTH, AND TEMPORARY BY DESIGN.
   //
   // A paid move keeps the customer's current binding live while it copies to

@@ -28,6 +28,7 @@
 
 import {
   askAgent,
+  askLine,
   linkPhone,
   openSession,
   requestLinkInvite,
@@ -38,7 +39,9 @@ import {
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
+import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
+import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
@@ -49,7 +52,8 @@ import type { Inbound } from "./inbound";
  * replies are written to its log instead of sent (simulator.ts); a Linq
  * delivery never carries it.
  */
-export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
+/** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;
@@ -67,12 +71,15 @@ export type ReplyDeps = {
   onSetUp?: () => Promise<void>;
   /**
    * The fixed texts sent outside a turn that the next turn's history is owed
-   * (`told.ts`): named to the gateway with the next text, and `onToldDelivered`
-   * once a turn answered with them. `onTold` notes a setup that finished.
+   * (`told.ts`): named to the gateway with the next text, beside the events
+   * that carry them, and `onToldDelivered` once a turn answered with them.
+   * `onTold` notes a fixed text that went (a setup that finished).
    */
   told?: Told[];
-  onTold?: (told: Told) => Promise<void>;
   onToldDelivered?: () => Promise<void>;
+  onTold?: (told: Told) => Promise<void>;
+  /** Told when the reply is the model's answer, not one of the Worker's own fixed texts. */
+  onAnswered?: () => void;
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
@@ -89,7 +96,11 @@ export type ReplyDeps = {
    * `onSession` is handed the session the turn runs as, and `onSteered` the
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
-  steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
+  steer?: Steer;
+  /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
+  covers?: string[];
+  /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
+  onAsks?: (askIds: string[], askText: string) => void;
   /**
    * The chat's background jobs, shown to the turn, and handed the ones it
    * started (`jobs.ts`). Absent, the turn is offered none.
@@ -98,6 +109,13 @@ export type ReplyDeps = {
   onJobs?: (jobs: StartedJob[]) => Promise<void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  /**
+   * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
+   * the person's style each session so the quick tapback can follow it.
+   * Absent, settings texts go to the model like any other.
+   */
+  settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
+  onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -210,13 +228,20 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
+    await deps.onTexStyle?.(session.texStyle);
+    // "Tex, settings", a reply to its menu, or "less emoji": set by the person, never the model (`texStyle.ts`).
+    const settings = deps.settings && !message.event
+      ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
+      : null;
+    if (settings !== null) return settings;
 
     // Files are fetched only for a linked phone, and only now: an unlinked
     // stranger's photo is never downloaded.
     const attachments = message.attachments?.length
       ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
       : [];
-    deps.steer?.onSession(session.accessToken);
+    // The session is the chat's: its buffered events are written before the turn reads the log (`events.ts`).
+    await deps.steer?.onSession(session.accessToken);
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -227,12 +252,15 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       attachments,
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
-      deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
     );
+    // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
+    if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
+      deps.onAnswered?.();
       await deps.onToldDelivered?.();
+      if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);
@@ -242,7 +270,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return textsWithExact(answer.text, answer.verbatim);
+      return textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one");
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.

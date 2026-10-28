@@ -103,7 +103,7 @@ test("a picture read from their notes is texted back", async () => {
       },
       { text: "Saved." },
     ]);
-    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save a frog", conversation: "texts" });
+    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save a frog as a plain note", conversation: "texts" });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const leaf = world.objectsUnder(".context/assets/images/")[0].split("/").at(-1);
 

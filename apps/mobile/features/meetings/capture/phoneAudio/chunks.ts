@@ -1,7 +1,8 @@
 import { File } from "expo-file-system";
 import type { RecorderError } from "../index";
 import { MAX_INFLIGHT_CHUNKS, chunkIdFor } from "../segments";
-import { resolveTranscriber } from "../transcriber";
+import { NO_TRANSCRIPTION_CONSENT } from "@context/shared";
+import { blockedByConsent, resolveTranscriber } from "../transcriber";
 import {
   WAV_HEADER_SCAN_BYTES,
   WAV_MIME,
@@ -228,7 +229,7 @@ export function createChunks(
    */
   async function abandonIfNowhereToSend(): Promise<boolean> {
     if (resolveTranscriber() !== null) return false;
-    await abandon(NO_TRANSCRIBER);
+    await abandon(blockedByConsent() ? NO_TRANSCRIPTION_CONSENT : NO_TRANSCRIBER);
     return true;
   }
 
@@ -332,7 +333,7 @@ export function createChunks(
         made true rather than repeated.
       */
       discard(file.uri);
-      await abandon(NO_TRANSCRIBER);
+      await abandon(blockedByConsent() ? NO_TRANSCRIPTION_CONSENT : NO_TRANSCRIBER);
       return;
     }
 

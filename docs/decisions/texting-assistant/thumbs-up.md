@@ -1,5 +1,7 @@
 # A thumbs up on an ask is the yes (2026-10-21)
 
+> **Superseded in part (Dev2, 2026-10-26):** a model's decision may now end a waiting ask sooner (never later) than the rules below. Only the asker's yes still releases it. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 Dev2, 2026-10-21: "instead of asking users to say yes, ask them to react like
 with a thumbs up ... once they have a thumbs up for like 10 seconds, then
 you're good to go", then "Same for like emails and sending messages and all

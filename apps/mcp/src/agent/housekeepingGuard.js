@@ -30,7 +30,8 @@
  *     the run names a pattern and the gateway lists and moves the notes, a
  *     hundred a batch, each batch through every check above. Writing out
  *     ~360 moves by hand spent a run's whole budget on one timed-out call
- *     (@seyi, 2026-10-26).
+ *     (@seyi, 2026-10-26). A pattern whose notes are all one family (the
+ *     500s, one month) takes the whole family (`widened`).
  */
 
 import { mightWiden } from "../privacy/egress.js";
@@ -150,13 +151,26 @@ function archivedTo(result) {
 }
 
 /**
- * A matched move goes in batches this size, well under a batch move's own
- * cap (`moves/limits.js`, 100). Each note's move carries its editing history
- * and every link to it, so in a real workspace a batch of 100 ran past
- * move_notes' 60 s and moved nothing (2026-10-26), while moves of 9 and 11
- * landed; twenty at a time keeps each batch inside the call's 35 s.
+ * A matched move goes in batches this size, under a batch move's own cap
+ * (`moves/limits.js`, 100). In a real workspace a batch of 100 once ran past
+ * move_notes' 60 s and moved nothing (2026-10-26). Since the control plane
+ * judges a batch's access rules once (#2243) a batch of 20 took about 3 s
+ * there, and a run still topped out near 80 notes because each call fit only
+ * four batches, so fifty at a time.
  */
-const MATCH_BATCH = 20;
+const MATCH_BATCH = 50;
+
+/** How many notes one dry run plans: a batch move's own cap (`moves/limits.js`). */
+const PLAN_BATCH = 100;
+
+/**
+ * A batch the control plane could not start, said in no more words than that,
+ * is sent again in halves down to this size: on 2026-10-26 a batch of 20 in a
+ * big workspace failed that way every time while batches of 10 and 15 moved,
+ * and a call that stopped at the first failure moved nothing.
+ */
+const MATCH_BATCH_MIN = 5;
+const UNSTARTED = /could not start the moves right now/;
 
 /**
  * How long a move by name may run, inside move_notes' own limit
@@ -207,21 +221,88 @@ export function namePattern(match) {
   return new RegExp(`^${body}$`, "i");
 }
 
-/** The notes directly in `folder` whose names match, each with where it lands in `into`. */
+/**
+ * The notes directly in `folder` whose names match, each with where it lands
+ * in `into`, and the names of the ones that stay.
+ */
 async function matchedMoves(dispatch, folder, pattern, into) {
   const listed = await dispatch("list_notes", { prefix: `${folder}/` });
-  if (listed?.isError === true) return [];
+  if (listed?.isError === true) return { moves: [], left: [] };
   const moves = [];
+  const left = [];
   for (const line of textOf(listed).split("\n")) {
     const found = /^(.+?) \(\d[\d,]* bytes\)\s*$/.exec(line.trim());
     if (!found) continue;
     const path = plain(found[1]);
     const cut = path.lastIndexOf("/");
     const name = path.slice(cut + 1);
-    if (path.slice(0, cut) !== folder || name === "about.md" || !pattern.test(name)) continue;
-    moves.push({ source: path, destination: `${into}/${name}` });
+    if (path.slice(0, cut) !== folder || name === "about.md") continue;
+    if (pattern.test(name)) moves.push({ source: path, destination: `${into}/${name}` });
+    else left.push(name);
   }
-  return moves;
+  return { moves, left };
+}
+
+/**
+ * A note name's family: up to its first digit and that digit, so `log-581.md`
+ * and `log-613.md` are `log-5` and `log-6` (the 500s and the 600s go to
+ * different folders), and a dated name up to its month, so
+ * `coverage-2026-09-18b.md` is `coverage-2026-09` (a month is one folder).
+ */
+export function familyOf(name) {
+  const cut = name.search(/\d/);
+  if (cut <= 0) return null;
+  const month = /^\d{4}-\d{2}(?!\d)/.exec(name.slice(cut));
+  return name.slice(0, cut) + (month ? month[0] : name[cut]);
+}
+
+/** Families this size or bigger still in a folder are named back to the run. */
+const FAMILY_MIN = 3;
+
+/**
+ * What is still loose in the folder, as whole families with the one pattern
+ * that takes each (`passes-*`, 19 notes). A run that names small slices
+ * (`log-56*`, then `log-57*`) spends a round and a model turn on each ten; on
+ * 2026-10-26 a real run moved 50 to 80 notes of a crowded folder while one
+ * pattern could move hundreds. Naming the families lets the next call take a
+ * whole one. Nothing unasked is moved: which folder a family belongs in is
+ * still the run's to say.
+ */
+export function leftHint(folder, left) {
+  if (left.length === 0) return `${folder}/ has no other notes directly in it.`;
+  const families = new Map();
+  for (const name of left) {
+    const stem = familyOf(name);
+    if (stem !== null) families.set(stem, (families.get(stem) ?? 0) + 1);
+  }
+  const big = [...families].filter(([, count]) => count >= FAMILY_MIN).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const head = `${left.length} other notes are still directly in ${folder}/`;
+  if (big.length === 0) return `${head}.`;
+  const named = big.map(([stem, count]) => `${stem}* (${count})`).join(", ");
+  return `${head}. Whole families, one call each (match the pattern, into where they belong): ${named}.`;
+}
+
+/**
+ * A move by name whose notes are all one family takes the rest of that family
+ * too. A run that names a slice (`log-56*`, `coverage-2026-09-1*`) means the
+ * family: on 2026-10-26 a real run spent a round and a model turn on each ten
+ * notes of a crowded folder and moved 50 to 80 a run. A pattern that spans
+ * families, or a family split by something other than its name, is taken as
+ * written.
+ */
+function widened({ moves, left }, into) {
+  const families = new Set(moves.map((move) => familyOf(move.source.slice(move.source.lastIndexOf("/") + 1))));
+  const [family] = families;
+  if (families.size !== 1 || family === null) return { moves, left, family: null };
+  const joining = left.filter((name) => familyOf(name) === family);
+  if (joining.length === 0) return { moves, left, family: null };
+  const folder = moves[0].source.slice(0, moves[0].source.lastIndexOf("/"));
+  return {
+    moves: [...moves, ...joining.map((name) => ({ source: `${folder}/${name}`, destination: `${into}/${name}` }))],
+    left: left.filter((name) => familyOf(name) !== family),
+    family,
+    joined: joining.length,
+  };
 }
 
 /** The etags a dry run's plan names, by source (`- a.md (etag X) → b.md`). */
@@ -319,9 +400,10 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
   /**
    * `move_notes { folder, match, into }`: every note directly in `folder`
    * whose name matches, moved into `into` keeping its name, in batches that
-   * each pass `callTool` as a written-out batch would. An applied batch with
-   * no versions (a workspace that is not keyed asks for them) is planned
-   * first and sent again with the versions its plan names.
+   * each pass `callTool` as a written-out batch would. Where an applied batch
+   * with no versions is refused for want of them (a keyed workspace), the
+   * notes are planned a hundred at a time and every batch carries the
+   * versions its plan names.
    */
   async function moveMatching(given) {
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS.matching.has(key));
@@ -335,17 +417,26 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
       return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
     }
     if (into === folder) return refuse("into must be a different folder from folder.");
-    const moves = await matchedMoves(dispatch, folder, pattern, into);
-    if (moves.length === 0) return refused(`No note directly in ${folder}/ has a name matching ${given.match}. Nothing moved.`);
+    const matched = await matchedMoves(dispatch, folder, pattern, into);
+    const { moves, left, family, joined } = widened(matched, into);
+    const taken = family === null ? "" : `, and the ${joined} other ${family}* notes with them`;
+    if (moves.length === 0) {
+      return refused(`No note directly in ${folder}/ has a name matching ${given.match}. Nothing moved. ${leftHint(folder, left)}`);
+    }
     if (given.dry_run === true) {
       const shown = moves.slice(0, 10).map((move) => `- ${move.source}`);
       const more = moves.length > shown.length ? [`- and ${moves.length - shown.length} more`] : [];
-      return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match and would go into ${into}/\n${[...shown, ...more].join("\n")}` }] };
+      return { content: [{ type: "text", text: `dry run, nothing moved: ${moves.length} notes match${taken} and would go into ${into}/\n${[...shown, ...more].join("\n")}\n${leftHint(folder, left)}` }] };
     }
     let moved = 0;
     let slowest = 0;
+    let size = MATCH_BATCH;
+    // A keyed workspace asks for every note's version. Once it has asked, the notes are planned a hundred at
+    // a time and each batch carries its versions: before, every batch was sent bare, planned, then sent again,
+    // three calls where one does, and a call fit four batches (2026-10-26).
+    let versions = null;
     const began = now();
-    for (let start = 0; start < moves.length; start += MATCH_BATCH) {
+    for (let start = 0; start < moves.length; ) {
       if (start > 0 && now() - began + slowest > matchBudgetMs) {
         return {
           content: [{
@@ -355,24 +446,40 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
           }],
         };
       }
-      const batch = moves.slice(start, start + MATCH_BATCH);
+      const batch = moves.slice(start, start + size);
       const sent = now();
-      let result = await callTool("move_notes", { moves: batch });
-      if (result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
-        const plan = await callTool("move_notes", { moves: batch, dry_run: true });
-        const etags = plannedEtags(plan);
-        result = plan?.isError === true
-          ? plan
-          : await callTool("move_notes", { moves: batch.map((move) => ({ ...move, expected_source_etag: etags.get(move.source) })) });
+      let result = null;
+      if (versions !== null && batch.some((move) => !versions.has(move.source))) {
+        const plan = await callTool("move_notes", { moves: moves.slice(start, start + PLAN_BATCH), dry_run: true });
+        if (plan?.isError === true) result = plan;
+        else for (const [source, etag] of plannedEtags(plan)) versions.set(source, etag);
+      }
+      result ??= await callTool("move_notes", {
+        moves: versions === null ? batch : batch.map((move) => ({ ...move, expected_source_etag: versions.get(move.source) })),
+      });
+      if (versions === null && result?.isError === true && /expected_source_etag is required/.test(textOf(result))) {
+        versions = new Map();
+        continue;
+      }
+      if (result?.isError === true && size > MATCH_BATCH_MIN && UNSTARTED.test(textOf(result))) {
+        // Nothing in the batch moved: the same notes go again, half as many at a time, and so do the rest.
+        size = Math.max(MATCH_BATCH_MIN, Math.ceil(size / 2));
+        continue;
       }
       if (result?.isError === true) {
         const said = textOf(result).split("\n")[0];
         return { isError: true, content: [{ type: "text", text: `moved ${moved} of ${moves.length} notes into ${into}/, then stopped: ${said}` }] };
       }
       moved += batch.length;
+      start += batch.length;
       slowest = Math.max(slowest, now() - sent);
     }
-    return { content: [{ type: "text", text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}); links follow them` }] };
+    return {
+      content: [{
+        type: "text",
+        text: `moved ${moved} notes from ${folder}/ into ${into}/ (every note there named ${given.match}${taken}); links follow them. ${leftHint(folder, left)}`,
+      }],
+    };
   }
 
   return {

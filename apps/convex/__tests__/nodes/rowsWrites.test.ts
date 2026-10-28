@@ -80,6 +80,26 @@ describe("B: a move in rows mode carries its rows, not the file's rules", () => 
   });
 });
 
+describe("B2: a batch's narrowing is one call, and every move in it narrows", () => {
+  test("two notes private by their folder, moved into a team folder together, both stay private", async () => {
+    const f = await keyedFixture();
+    await setRowsMode(f);
+    await setBase(f, "1-projects", "private");
+    await setBase(f, "3-resources", "team");
+
+    await batch(f, [
+      { from: "1-projects/keep.md", to: "3-resources/keep.md" },
+      { from: "1-projects/launch/brief.md", to: "3-resources/brief.md" },
+    ]);
+
+    expect((await nodeAt(f, "3-resources/keep.md"))?.access).toEqual({ base: "private" });
+    expect((await nodeAt(f, "3-resources/brief.md"))?.access).toEqual({ base: "private" });
+    const seen = await listed(f.member, f.ws, "3-resources");
+    expect(seen).not.toContain("3-resources/keep.md");
+    expect(seen).not.toContain("3-resources/brief.md");
+  });
+});
+
 describe("D: a website's folder in rows mode", () => {
   test("takes team where the row has no base of its own, and keeps a base it already has", async () => {
     const f = await fixture();

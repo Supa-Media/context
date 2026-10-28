@@ -15,7 +15,9 @@ import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import { websiteTextRestricts } from "./changes";
 import { websiteHrefFor, type WebsiteLinkCatalogEntry } from "./links";
-import { treeRows, type RowFacts, type TreeRow } from "./treeFacts";
+import { currentRows, type RowFacts, type TreeRow } from "./treeFacts";
+
+export { readBatches } from "./treeFacts";
 
 type ViewerAudience = "public" | "members";
 type ListConfig = {
@@ -33,12 +35,6 @@ type SelectedRow = {
   path: string;
   href?: string | null;
   children?: SelectedRow[];
-};
-type ReadNote = {
-  path: string;
-  text: string;
-  etag: string;
-  updatedAt?: number;
 };
 
 const MAX_PUBLIC_LIST_CANDIDATES = 500;
@@ -74,50 +70,6 @@ function canonicalEntries(
     if (!byPath.has(entry.objectKey)) byPath.set(entry.objectKey, entry);
   }
   return byPath;
-}
-
-export async function readBatches(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  scope: "private" | "team",
-  paths: readonly string[],
-): Promise<Map<string, ReadNote>> {
-  const pending = [...new Set(paths)];
-  const notes = new Map<string, ReadNote>();
-  let passes = 0;
-  while (pending.length > 0) {
-    // `readMany` guarantees its first path makes progress even at the byte cap.
-    if (passes++ > paths.length + 1)
-      throw new Error("folder list read did not progress");
-    const batch = pending.splice(0, 50);
-    const result = await ctx.runAction(
-      internal.functions.files.runFileOperation,
-      {
-        workspaceId,
-        scope,
-        grantedNames: [],
-        operation: { kind: "readMany" as const, paths: batch },
-      },
-    );
-    if (result.kind !== "notes") throw new Error("folder list read failed");
-    const deferred: string[] = [];
-    for (const item of result.results) {
-      if (item.outcome === "deferred") {
-        deferred.push(item.path);
-      } else if (item.outcome === "read") {
-        notes.set(item.path, {
-          path: item.path,
-          text: item.note.text,
-          etag: item.note.etag,
-          ...(item.note.updatedAt === undefined
-            ? {}
-            : { updatedAt: item.note.updatedAt }),
-        });
-      }
-    }
-    pending.unshift(...deferred);
-  }
-  return notes;
 }
 
 /** A page as Publish kept it: where its copy lives, by file. */
@@ -210,7 +162,7 @@ export async function renderPublicWebsiteLists(
       const missing = entries
         .map((entry) => entry.objectKey)
         .filter((path) => !cache.has(path));
-      const rows = await treeRows(ctx, args.workspaceId, missing);
+      const rows = await currentRows(ctx, args.workspaceId, missing);
       if (rows === null) throw new Error("folder list tree not served");
       for (const path of missing) cache.set(path, rows.get(path) ?? null);
 

@@ -200,6 +200,37 @@ export async function servedNodesStore(
   return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror, moves);
 }
 
+/**
+ * Like `servedNodesStore`, over only the live notes written after `since`: a check-in's "what changed",
+ * read from the change index (`nodes.listChangedSince`) and judged by the same rules. `null` where the
+ * tree does not serve, too much changed to list that way, or moves are being drawn over the rows: the
+ * caller walks the whole tree, as before.
+ */
+export async function changedNodesStore(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  since: number,
+  audience: Audience = "member",
+): Promise<FileStore | null> {
+  const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId, audience });
+  if (served === null) return null;
+  const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
+  if (moves.length > 0) return null;
+  const changed = await ctx.runQuery(internal.functions.nodes.listChangedSince, { workspaceId, since });
+  if (!changed.complete) return null;
+  return nodesPagedStore(NO_BUCKET, pagesOf(changed.rows), served.mirror);
+}
+
+/** `rows`, already in key order, as pages. */
+function pagesOf(rows: readonly NodeRow[]): NodePage {
+  return async (after, limit) => {
+    const from = after === undefined ? 0 : rows.findIndex((row) => row.path > after);
+    const start = from === -1 ? rows.length : from;
+    const page = rows.slice(start, start + limit);
+    return { rows: page, cursor: start + limit < rows.length ? page[page.length - 1]!.path : null };
+  };
+}
+
 /** Rows one read of the whole tree takes per page while moves are pending. */
 const FOLD_PAGE = 2_000;
 

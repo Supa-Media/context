@@ -22,6 +22,9 @@ import { setupNeeded, type SetupAnswer } from "../../features/auth/accountSetupM
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
+import { useTranscriptionConsentSync } from "../../features/meetings/useTranscriptionConsent";
+import { useScheduledMeetingsSource } from "../../features/meetings/scheduled";
+import { useMeetingJoinPreferencesSource } from "../../features/meetings/joinPreferences";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
@@ -171,6 +174,9 @@ export default function AppLayout() {
   // job is to gate, and a hook that ran only on the happy path would install
   // transcription a render late on a cold start into a running meeting.
   useTranscriptionClient();
+  // And the account's yes to cloud transcription beside it: without it the
+  // client above is never used (docs/decisions/meetings/transcription-consent.md).
+  useTranscriptionConsentSync(authed);
   /*
     And the setup beside it, for the same reason and now one more.
 
@@ -191,6 +197,9 @@ export default function AppLayout() {
     must wait for a session is the *subscription*, not the hook.
   */
   useMeetingsSetup({ enabled: authed });
+  // Today's meetings from the person's own calendars, for Join and take notes.
+  useScheduledMeetingsSource({ enabled: authed });
+  useMeetingJoinPreferencesSource({ enabled: authed });
 
   const spec = useMemo<RequestForQueries>(() => {
     if (!authed) return EMPTY_QUERY_SPEC;

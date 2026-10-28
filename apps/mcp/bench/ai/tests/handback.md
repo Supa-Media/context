@@ -163,3 +163,75 @@ From the owner's 1:1 of 2026-10-26 ("I literally will not use Tex if it's this u
 - must reach: orders.example/seoul-box
 - must: give a lunch price for each of the three: Bento Bay about $12 to $14, Pho Corner about $13 to $15, and Seoul Box about $14 to $15
 - must not: say it can't give a price for a place, or offer to try another site or look further instead of doing it
+
+## 13. Verses from a named translation (H2: a reading page that won't load, other sites untried)
+
+From the owner's 1:1 of 2026-10-27: asked to fill in a Bible study note's verse analysis, Tex texted "I couldn't open the LSB text for chapter 32 from here, so I haven't quoted any verses. Paste them in and I'll quote them from your text." The same happened for chapters 28 and 29 on 2026-10-22 (golden task 11). Here scripture.example's Deuteronomy 32 link goes nowhere, and the chapter is on `sites/versereader.example.md`, found by searching for it.
+
+- kind: task
+- person starts: "what do verses 1 to 4 of deuteronomy 32 say in the LSB? scripture.example is where i usually read it"
+- if asked to paste or send the verses, or which site to use: "can't you find it yourself?"
+- must reach: versereader.example/lsb/deuteronomy/32
+- must: quote verses 1 to 4 as the page gives them (verse 4 begins "The Rock, whose work is whole")
+- must: name where it read them (the address, or the site and chapter)
+- must not: ask her to paste, send or type the verses, or say it couldn't open the text without trying another site
+
+## 14. Register me for the retreat (H4: a form Tex fills and sends itself; F1 is fair)
+
+From the owner's 1:1 of 2026-10-27 ("why is my tex asking me to complete a regular form myself?"): asked to register them for a church conference, Tex asked the four questions the form needed (fair, F1), got every answer, filled the form, and when its Register click ran out of time it texted "Open this to take over the browser" instead of reading the page and pressing Register again. Since PR #2291 the gateway refuses a handoff on a page with no sign-in, code, captcha or card box (`apps/mcp/src/agent/handoffGate.js`). `sites/retreat.example.md` is a free registration form with four required choices.
+
+- kind: task
+- person starts: "can you register me for the harvest retreat? retreat.example"
+- if asked whether it's her first Harvest Retreat, about baptism, transportation or childcare, or school: "not my first one, no baptism, i don't need transport or childcare. and i already graduated, i work now"
+- if asked her full name or last name: "Maya Reyes"
+- if asked to take over the browser, open a link, or finish the form herself: "why can't you do it? it's just a form"
+- must reach: retreat.example/registered
+- must set: registered
+- must not hand off: retreat.example
+- must: tell Maya she's registered for Harvest Retreat 2026
+- must not: ask Maya to open a link to Tex's browser, fill in the form, or press Register herself
+
+## 15. A support email with her screenshot attached (H4: a file Tex attaches itself)
+
+From a review of a 1:1 of 2026-10-27: the person texted a screenshot of a link that showed "Tap to Load Preview" and asked for a draft to their texting provider's help team with it attached as the example. Tex used Gmail's web uploader in its browser, said the draft had "the screenshot attached" when it held the wrong one, then said every upload came through empty and told them to tap the paperclip themselves. A texted picture goes on an email through Gmail itself: `attach` takes `attachment:N` for one sent with this text, or `<image> in <note>` for one an earlier text sent (`apps/mcp/src/agent/emailFiles.js`), and the draft's answer says what Gmail holds. `pictures/link-preview.png` is the screenshot; the opening text carries it.
+
+- kind: task
+- person starts: "can you draft an email to textline's help team about link previews not loading? this is the example, attach it"
+- person sends picture: link-preview.png
+- if asked for the help team's address: "help@textline.example"
+- if asked whether to send it: "no, just the draft"
+- must attach: link-preview.png
+- must: say the draft is saved in Maya's Gmail with the screenshot attached
+- must not: ask Maya to attach the screenshot, tap the paperclip, or add the file herself
+
+## 16. Register me behind a hidden captcha (H4 and H5; K3 for the one press only)
+
+From the owner's evening chat of 2026-10-27, the same registration as case 14 on its real form: Tex filled every box and pressed Register twice, and an invisible captcha turned both presses away without a word. Nothing looked like a captcha, so the gateway's tries never ran and its handoff was refused, and Tex texted the whole form for the person to fill in themselves. Since PR #2317 a send button that does nothing twice on a page with a hidden captcha is tried again in a fresh browser filled the same way (`apps/mcp/src/agent/silentSubmit.js`), and if that is turned away too, the browser is handed over for that one press. `sites/gathering.example.md` turns Register away in every browser until the person passes the captcha through a handoff.
+
+- kind: task
+- person starts: "register me for fall gathering on gathering.example. not my first one and i don't need transportation"
+- if asked her full name or last name: "Maya Reyes"
+- if asked to press Register, tick a check, solve a captcha, or take over the browser: "Done"
+- if asked to fill in the form, or sent the site to register herself: "why can't you do it?"
+- must reach: gathering.example/registered
+- must set: registered
+- must hand off: gathering.example
+- must: tell Maya she's registered for Fall Gathering 2026
+- must not: ask Maya to fill in the form, type her name or email on the site, or send her the site's address to register herself
+
+## 17. Sunday-service venues no church already uses (H12: options dropped and not replaced)
+
+From a guest group chat's self-review of 2026-10-27 (9d98ef): asked for five Manhattan venues for Sunday services with their kids' spaces, Tex listed two that churches already meet in on Sundays, and once the chat said so it dropped them, answered "That leaves three venues" and offered "Want me to find two more that no church uses on Sundays?" instead of finding them. It also set a directory's general price range beside a venue that publishes none. `sites/halls.example.md` lists six halls; each one's own page says whether a church meets there on Sundays, so Grace Hall and St. Brendan Commons are out and only four fit. Ferry House publishes no price, and the directory's "$500 to $25,000 a day" is not its price.
+
+- kind: task
+- person starts: "find 4 venues in riverside we can rent for sunday services, at least 200 seats, with a room we can use for kids. halls.example has spaces"
+- if asked which Riverside, which state or where she is: "the Riverside on halls.example"
+- if offered to find more venues, or asked whether to look further: "can't you just find them?"
+- if asked whether to contact, email or request a quote from a venue: "No, just the options for now"
+- must reach: halls.example/grace-hall
+- must reach: halls.example/st-brendan-commons
+- must reach: halls.example/ferry-house
+- must: give four venues: Mill Street Hall at $4,000, The Foundry at $6,500, Riverbank Loft at $5,000, and Ferry House, each with its kids' room
+- must not: give Grace Hall or St. Brendan Commons as a Sunday venue (a church meets in each on Sundays)
+- must not: give a price for Ferry House, or the directory's $500 to $25,000 range as its price (saying it prices on request, or by email, is right)
+- must not: give fewer than four venues, or offer to find more instead of finding them

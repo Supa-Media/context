@@ -30,7 +30,10 @@ import { THREE_WORD_LIST, threeWords } from "../functions/lib/threeWords";
  *  - drop the once-only check in `ensureChatFolderGrant` and `withChatFolders`: "carries the group's grant for real, once" fails;
  *  - drop the `viaChat` check in `syncGroupRows`: "an owner's row is never touched" fails;
  *  - drop the `shared` check in `syncFolderPeople`: "took it from the chat's people too" fails;
- *  - call `unsyncChatPeople` nowhere in `clearGuests`: "guest mode off takes back" fails.
+ *  - call `unsyncChatPeople` nowhere in `clearGuests`: "guest mode off takes back" fails;
+ *  - drop the `guestBinder` check in `syncGuestPeople`: "a binder who may no longer" fails;
+ *  - drop either half of the both-ways sharing in `withChatFolders`, or the `team` check on rows under the folder:
+ *    "the folder is shared both ways" fails.
  */
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -232,6 +235,52 @@ describe("what a guest chat reaches", () => {
     expect(new Map(hidden.folders.map((rule) => [rule.prefix, rule.visibility])).get(folder) ?? "private").toBe("private");
   });
 
+  test("the folder is shared both ways: the chat reads members' open notes there, members read the chat's", async () => {
+    const t = setupTest();
+    const { bo, studio } = await trip(t);
+    const on = await turn(t, BO, [BO, FRIEND, LINE], use("studio"));
+    const folder = (on.guest as { folder: string }).folder;
+    const members = async () => {
+      const held = await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: studio, audience: "member" });
+      return { folders: new Map(held.folders.map((rule) => [rule.prefix, rule.visibility])), notes: new Map(held.notes.map((note) => [note.path, note.visibility])) };
+    };
+    // Before the folder has a row, the stand-in is open to the members as well as held by the chat.
+    expect((await members()).folders.get(folder)).toBe("team");
+
+    // A member's page saved open to the workspace, and one kept private, in the chat's folder; one open note outside it.
+    await seedTreeRows(t, studio, [`${folder}/research.page.md`, `${folder}/mine.md`, `${folder}/chat-notes.md`]);
+    await t.run(async (ctx) => {
+      const actor = { userId: bo.userId, role: "owner" as const };
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: `${folder}/research.page.md`, base: "team", actor });
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: `${folder}/mine.md`, base: "private", actor });
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: "budget.md", base: "team", actor });
+    });
+    const session = (await resolves(t, (await turn(t, FRIEND, [BO, FRIEND, LINE])).accessToken as string))!;
+    const held = await heldRules(t, session);
+    const notes = new Map(held.notes.map((note) => [note.path, note.visibility]));
+    expect(notes.get(`${folder}/research.page.md`)).toBe("team");
+    expect(notes.get(`${folder}/mine.md`) ?? "private").toBe("private");
+    expect(notes.get("budget.md") ?? "private").toBe("private");
+    // Held to edit: the chat may save over the member's page.
+    expect(held.readOnly).toEqual({ folders: [], notes: [] });
+    expect(new Map(held.folders.map((rule) => [rule.prefix, rule.visibility])).get(folder)).toBe("team");
+
+    // The folder's real row carries only the group's grant and no base; members still read the chat's notes,
+    // which inherit it, and the private one stays private.
+    const seen = await members();
+    expect(seen.folders.get(folder)).toBe("team");
+    expect(seen.notes.get(`${folder}/chat-notes.md`)).toBeUndefined();
+    expect(seen.notes.get(`${folder}/mine.md`)).toBe("private");
+    expect(seen.folders.get("secret")).toBe("private");
+
+    // An owner who closes the folder to the members keeps it closed to them; the chat still has it.
+    await t.run(async (ctx) => {
+      const grants = await ctx.db.query("workspaceGroups").collect();
+      await setAccessRow(ctx as MutationCtx, { workspaceId: studio, path: folder, base: "private", grantees: [{ kind: "group", groupId: grants[0]!._id, role: "edit" }], kind: "folder", actor: { userId: bo.userId, role: "owner" } });
+    });
+    expect((await members()).folders.get(folder)).not.toBe("team");
+  });
+
   test("a member of the workspace who tags acts as themselves, read-only role and all", async () => {
     const t = setupTest();
     const { ada } = await trip(t);
@@ -334,6 +383,10 @@ describe("a guest grant lives only as long as the chat may", () => {
 
 describe("people joining and leaving are kept in the group and on the folder", () => {
   const CAROL = "+15555550122";
+
+  async function people(t: T, participants: string[], groupId = GROUP) {
+    return await agentPost(t, "/agent-texts/group/people", { line: LINE, groupId, participants });
+  }
 
   async function groupRows(t: T) {
     return await t.run(async (ctx) => await ctx.db.query("workspaceGroupMembers").collect());
@@ -440,6 +493,53 @@ describe("people joining and leaving are kept in the group and on the folder", (
     await turn(t, BO, [BO, LINE]);
     expect(await folderGrants(t, studio, folder)).toEqual(expect.arrayContaining([["group", groupId, "edit"], ["user", ada.userId, "view"]]));
     expect((await folderGrants(t, studio, folder)).some((grant) => grant[1] === carol.userId)).toBe(false);
+  });
+
+  test("anyone's message, tagged or not, adds and removes people with no turn", async () => {
+    const t = setupTest();
+    const carol = await texter(t, "carol", CAROL);
+    const { ada, studio, folder, groupId } = await tripWithFolder(t, [BO, FRIEND, LINE]);
+    await turn(t, FRIEND, [BO, FRIEND, LINE]);
+    const grantsBefore = await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).length);
+    expect(await people(t, [ADA, BO, CAROL, FRIEND, LINE])).toEqual({ ok: true });
+    expect((await groupRows(t)).map((row) => row.userId)).toContain(ada.userId);
+    expect(await folderGrants(t, studio, folder)).toContainEqual(["user", carol.userId, "edit"]);
+    // Nothing was minted: it is bookkeeping, not a turn.
+    expect(await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).length)).toBe(grantsBefore);
+    expect(await people(t, [BO, FRIEND, LINE])).toEqual({ ok: true });
+    expect((await groupRows(t)).map((row) => row.userId)).not.toContain(ada.userId);
+    expect(await folderGrants(t, studio, folder)).toEqual([["group", groupId, "edit"]]);
+  });
+
+  test("a chat that isn't a guest chat, or one nobody knows, gets the same answer and nothing is written", async () => {
+    const t = setupTest();
+    const { ada } = await trip(t);
+    await turn(t, BO, [ADA, BO, LINE], use("studio"));
+    const before = await t.run(async (ctx) => JSON.stringify(await ctx.db.query("textGroups").collect()));
+    expect(await people(t, [ADA, BO, LINE])).toEqual({ ok: true });
+    expect(await people(t, [ADA, BO, LINE], "0F2C3D1A-A5B7-4E9F-8C1D-2A3B4C5D6E70")).toEqual({ ok: true });
+    expect(await t.run(async (ctx) => JSON.stringify(await ctx.db.query("textGroups").collect()))).toBe(before);
+    expect(await groupRows(t)).toEqual([]);
+    expect(ada.userId).toBeDefined();
+  });
+
+  test("a binder who may no longer open the workspace adds nobody", async () => {
+    const t = setupTest();
+    const { studio } = await trip(t);
+    // Ada and Bo are members of @studio, so a sync would put them in the chat's group.
+    const ed = await texter(t, "ed", OTHER_FRIEND);
+    await addMember(t, studio, ed.userId, "editor");
+    await turn(t, OTHER_FRIEND, [OTHER_FRIEND, FRIEND, LINE], use("studio"));
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", studio).eq("userId", ed.userId))
+        .unique();
+      await ctx.db.patch(row!._id, { role: "member" });
+    });
+    const before = await groupRows(t);
+    expect(await people(t, [ADA, BO, OTHER_FRIEND, FRIEND, LINE])).toEqual({ ok: true });
+    expect(await groupRows(t)).toEqual(before);
   });
 
   test("guest mode off takes back what the chat added", async () => {

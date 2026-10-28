@@ -18,6 +18,7 @@ import { createConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror } from "./consoleMirror.ts";
 import { COMMANDS } from "./ipc.ts";
 import { backupBridgeStatus, machineLabel } from "./messagesBackup.ts";
+import { createMessagesDownloader } from "./messagesDownload.ts";
 import { CONSOLE_UI, RENDERER_DIR } from "./launchFlags.ts";
 import type { MainActions, MainContext } from "./context.ts";
 
@@ -138,12 +139,22 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
           ...(choice.pictures === undefined ? {} : { messagesBackupPictures: choice.pictures }),
           ...(choice.videos === undefined ? {} : { messagesBackupVideos: choice.videos }),
         }),
+      forgetImessage: async () => {
+        await update({ messagesBackup: false });
+        await messagesBackup.forget();
+      },
+      downloadImessage: createMessagesDownloader({
+        connection: ctx.connection,
+        downloadsDir: () => app.getPath("downloads"),
+        reveal: (folder) => void shell.openPath(folder),
+      }),
       // The card in the console already says what to do there, so the button goes straight to the pane.
       requestImessageFullDiskAccess: async () => {
         await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
       },
       localAgent: () => localAgent.status(),
       askLocalAgent: (request) => localAgent.ask(request),
+      setUpcoming: (upcoming) => ctx.setUpcoming(upcoming),
     });
 
     ctx.consoleWindow = createConsoleWindow(url, RENDERER_DIR, {

@@ -38,6 +38,12 @@
  *   5. A call failed and the answer gives up with other roads to the same
  *      answer untried, or it promises to text them later with nothing in
  *      the turn to keep it (`otherRoutes.js`, 2026-10-23).
+ *   6. Their text corrects an ask waiting for their yes ("actually send it
+ *      to Bo instead") and nothing new is held. The old ask still stood, so
+ *      the next yes sent the email they had just corrected (Dev2,
+ *      2026-10-26). One more round says to make the call with the change;
+ *      a turn that ends with nothing held drops the asks it corrected
+ *      (`stale`, `textedAsk`). Judged on their words, not the model's.
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -46,11 +52,17 @@
  * written by a call the person's dispatcher allowed.
  */
 
-import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, owesAPicture, wantsACard } from "./visuals/notice.js";
+import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
+import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
+import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
+import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
+import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
-import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
-import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
+import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
+import { confessionNotice, contradictedConfession } from "./confession.js";
+import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
+import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -196,6 +208,9 @@ const FILE_HANDBACK = [
   /\b(?:can't|cannot|can not)\s+(?:put|attach|add|include)\b[^.?!\n]{0,80}?\b(?:into|in|to|on)\s+(?:an?|the|your|that)\s+(?:email|draft|message|reply)\b/i,
   /\b(?:tap|click|press|hit)\s+(?:the|its|that)\s+(?:\w+\s+)?download\b/i,
   /(?:^|,\s*|\b(?:and|then|please|just)\s+)attach (?:it|them|the \w+|that \w+|this \w+)\s+(?:to|in|on)\s+(?:the|your|that|a)\s+(?:\w+\s+)?(?:email|draft|message|reply)\b/i,
+  // A texted screenshot handed back (2026-10-27): "Open the draft, tap the paperclip, and add that screenshot".
+  /\b(?:tap|click|press|hit|use)\s+(?:the|its|gmail's)\s+(?:paper ?clip|attach(?:ment)?\s+(?:button|icon))\b/i,
+  /\b(?:couldn't|could not|wasn't able to|was unable to)\s+(?:attach|add|include|upload)\b[^.?!\n]{0,60}?\b(?:it|them|files?|pdfs?|screenshots?|photos?|pictures?|images?|attachments?)\b/i,
 ];
 /*
   A CHANGE TEX CAN MAKE, HANDED BACK (2026-10-22 and 23): "Move it to 9:00 pm
@@ -325,6 +340,30 @@ export function givesUpOnTheBrowser(answer) {
   return BROWSER_GAVE_UP.test(String(answer ?? "").replace(/[‘’]/g, "'"));
 }
 
+/*
+  A WAITING ASK THEIR TEXT CORRECTS (rule 6). Judged on the person's own words,
+  never the model's: "actually", "instead", "send it to", "cc", an address the
+  waiting draft doesn't have. A side text ("one sec", "add milk to my list")
+  carries none of them, so it never touches the ask (Dev2, 2026-10-22).
+*/
+const CORRECTION =
+  /\b(?:actually|instead|rather|wrong|change|changed|switch|swap|correction|make it|send it to|send that to|send to|email it to|forward it to|to \w+ not|cc|bcc|move it to|reschedule)\b/i;
+const ADDRESS = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+
+/** Whether their text corrects one of the asks waiting for their yes (`setAside` from `textedSettle.js`). */
+export function correctsTheAsk(question, waiting) {
+  if (!Array.isArray(waiting) || waiting.length === 0) return false;
+  const said = String(question ?? "").replace(/[\u2018\u2019]/g, "'");
+  if (CORRECTION.test(said)) return true;
+  const known = waiting.map((entry) => JSON.stringify(entry?.args ?? {}).toLowerCase()).join(" ");
+  return (said.match(ADDRESS) ?? []).some((address) => !known.includes(address.toLowerCase()));
+}
+
+export const SUPERSEDE_NOTICE =
+  "Before this goes: their text corrects what was waiting for their yes, and nothing new is held. " +
+  "Make the call again now with their change: they are shown the new one, and the old one is dropped. " +
+  "If you need something to make it, ask only for that. If nothing new is held when this answer goes, the old one is dropped and they are told.";
+
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
   "If they asked for it, make the change now with your tools and then answer. If you can't, answer again saying plainly that it is not done, " +
@@ -390,7 +429,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, pictures = false, job = null, visuals = () => false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [] }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyChecks({ question, waiting, pictures });
   let wrote = false;
@@ -417,6 +456,8 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
   let routesNoticed = false;
   let laterNoticed = false;
+  // Published text (verses, lyrics) asked of them, or a failed page read never tried in the browser (`publishedText.js`).
+  let pasteNoticed = false;
   // An answer that stops at a next step or an offer to keep looking (`stopsShort.js`).
   let shortNoticed = false;
   let askFirstNoticed = false;
@@ -424,6 +465,19 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   // A list texted as words that a card should have carried (`visuals/notice.js`).
   let cardNoticed = false;
   let owedNoticed = false;
+  let notePictureNoticed = false;
+  // A plan or research saved as a plain note instead of a page (`pageNotice.js`), and the turn's note writes.
+  let pageNoticed = false;
+  const noteWrites = [];
+  let bugNoticed = false;
+  let repairNoticed = false;
+  // A waiting ask the answer said had changed, with nothing held again (rule 6).
+  let supersedeNoticed = false;
+  // A confession the turn's own record contradicts (`confession.js`).
+  let confessNoticed = false;
+  // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
+  let keptRead = false;
+  let keptNoticed = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -451,13 +505,20 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     },
     wrap(callTool) {
       return async (name, args) => {
-        const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true });
+        // "File this as a bug": a note write waits for the report (`bugCheck.js`).
+        const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
+        if (readsAKeptFile(name, args)) keptRead = true;
+        const result = refused ?? (await callTool(name, args));
+        const images = args?.images ?? args?.args?.images;
+        // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
+          const written = noteWrite(name, args, result);
+          if (written !== null) noteWrites.push(written);
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;
           if (/^(?:tex\/)?routines\//.test(path)) keptPromise = true;
@@ -465,6 +526,12 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
         return result;
       };
     },
+    /**
+     * Whether the waiting asks must not stand after this turn: their text
+     * corrected them and the turn held nothing new (rule 6), whether or not
+     * a round was left for the notice. `textedAsk` drops them and says so.
+     */
+    stale: () => corrects && !held,
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
     check(answer) {
@@ -482,6 +549,17 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // "I hadn't checked your calendar" when it had: check the reads before agreeing.
+    const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
+    if (confessed !== null) {
+      confessNoticed = true;
+      return confessionNotice(confessed);
+    }
+    // "The PDF won't load" or "paste its text" with the file kept and unread this turn: read it.
+    if (!keptNoticed && kept.length > 0 && !keptRead && givesUpOnAFile(answer)) {
+      keptNoticed = true;
+      return keptFileNotice(kept, { shown: keptShown });
+    }
     // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
     if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
       retryNoticed = true;
@@ -491,6 +569,16 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
     if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
       retryNoticed = true;
       return BROWSER_UNTRIED_NOTICE;
+    }
+    // A page read failed and the answer gives up on it, with the browser on offer and never tried.
+    if (!retryNoticed && !browserTried && canBrowse() && aPageReadFailed(steps) && saysItCouldNot(answer)) {
+      retryNoticed = true;
+      return READ_FAILED_NOTICE;
+    }
+    // "Paste them in": published text asked of them, which is Tex's to find, tried or not.
+    if (!pasteNoticed && hadWeb && asksForPublishedText(answer)) {
+      pasteNoticed = true;
+      return publishedTextNotice({ canBrowse: canBrowse() });
     }
     // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
     // more exact notice, since an answer that gives up also tends to hand the looking back.
@@ -513,7 +601,7 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       lookNoticed = true;
       return LOOK_ON_SITE_NOTICE;
     }
-    if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
+    if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
       return finishNotice({ job: job !== null });
     }
@@ -525,9 +613,40 @@ export function claimCheck({ question, judge = null, waiting = false, pictures =
       captchaNoticed = true;
       return CAPTCHA_NOTICE;
     }
-    if (!laterNoticed && !keptPromise && promisesLater(answer)) {
+    // A promise to text later, or to check in at a set time, that nothing in the turn keeps.
+    const later = !laterNoticed && !keptPromise ? laterNotice(answer) : null;
+    if (later !== null) {
       laterNoticed = true;
-      return LATER_NOTICE;
+      return later;
+    }
+    // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
+    // An answer asking them something ("Who should it go to?") waits on them instead.
+    if (!supersedeNoticed && corrects && !held && !/\?/.test(String(answer ?? ""))) {
+      supersedeNoticed = true;
+      return SUPERSEDE_NOTICE;
+    }
+    // "File this as a bug" answered with a note, not a report (`bugCheck.js`).
+    if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {
+      bugNoticed = true;
+      return BUG_NOTICE;
+    }
+    // "Fix yourself" answered with "what's broken?" or nothing tried (`lookFirst.js`).
+    const repair = repairNoticed ? null : selfRepairNotice(question, answer, steps);
+    if (repair !== null) {
+      repairNoticed = true;
+      return repair;
+    }
+    // "The note now has a picture" with no write that carried one.
+    if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
+      notePictureNoticed = true;
+      return NOTE_PICTURE_NOTICE;
+    }
+    // A plan, research or itinerary saved as a plain note: write it as a page.
+    const plain = pageNoticed || held ? null : wantsAPage(noteWrites, question);
+    if (plain !== null) {
+      pageNoticed = true;
+      cardNoticed = true;
+      return pageNotice(plain);
     }
     // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
     if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {

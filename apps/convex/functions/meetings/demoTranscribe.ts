@@ -36,6 +36,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION, TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import { internal } from "../../_generated/api";
 import { action, internalMutation } from "../../_generated/server";
 import { tryConsumeRateLimit } from "../lib/rateLimit";
@@ -104,6 +105,13 @@ export const consumeDemoBudget = internalMutation({
 export const transcribeDemoChunk = action({
   args: {
     visitorId: v.string(),
+    /**
+     * The cloud transcription disclosure version the visitor said yes to on
+     * the dialog, this tab only (there is no account to keep it on). Anything
+     * but the current version is refused before a byte is forwarded
+     * (docs/decisions/meetings/transcription-consent.md).
+     */
+    consentVersion: v.optional(v.number()),
     audioBase64: v.string(),
     mimeType: v.string(),
     chunkId: v.string(),
@@ -116,8 +124,15 @@ export const transcribeDemoChunk = action({
   }),
   handler: async (
     ctx,
-    { visitorId, ...chunk },
+    { visitorId, consentVersion, ...chunk },
   ): Promise<{ segments: TranscriptSegment[]; refusedSegments: number }> => {
+    // Consent first: without the visitor's own yes, nothing else is looked at.
+    if (consentVersion !== CLOUD_TRANSCRIPTION_CONSENT_VERSION) {
+      throw demoRefused(
+        TRANSCRIPTION_CONSENT_REQUIRED,
+        "Cloud transcription was not allowed, so no audio was sent.",
+      );
+    }
     // Shape first: every check here is free, and none of them spends budget.
     if (!VISITOR_ID_PATTERN.test(visitorId)) {
       throw demoRefused("INVALID_ARGUMENT", "This demo recording has no visitor id.");

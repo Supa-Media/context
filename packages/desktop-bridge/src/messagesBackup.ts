@@ -95,3 +95,15 @@ export interface MessagesBackupFilesChoice {
   pictures?: boolean;
   videos?: boolean;
 }
+
+/**
+ * What "Download messages" did: the backup read back from the bucket into a
+ * folder in Downloads on this Mac, which the Mac then shows in Finder. Counts
+ * only, never a path, a name or a word; a closed set of `problem` codes.
+ * `transcripts` counts the files of texts written (the log's objects since
+ * 2026-10-27, when the copy became the backup as kept); the name stays so an
+ * older console reads a newer Mac app.
+ */
+export type MessagesBackupDownload =
+  | { ok: true; conversations: number; transcripts: number; pictures: number; notCopied: number }
+  | { ok: false; problem: string };

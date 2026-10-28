@@ -105,3 +105,29 @@ export const OWED_PICTURE_NOTICE =
   "That answer has no picture with it: nothing was drawn this turn, so nothing would be sent, yet they asked for one or your words say one is there. " +
   "Draw it now: call send with action draw_visual and the template that fits (board, plan, steps, system or compare for an idea or a project; " +
   "places or option for places and choices), then reply with ONE line and [picture N] on its own line. If drawing fails, say so in a few words and give the answer in words.";
+
+/*
+  A PICTURE SAID TO BE IN A NOTE (Tex Devs group, 2026-10-26): "The known-limit
+  note now has a picture" after a write that carried none. Only a write with
+  `images` puts a picture in a note (`pictureMaker.js` `withNotePictures`).
+*/
+const PICTURE_WORD = String.raw`(?:graphic|picture|visual|chart|diagram|infographic|image|card|one[- ]pager)`;
+const NOTE_WORD = String.raw`(?:note|backlog|doc|document|page|write-?up)`;
+const SAYS_NOTE_PICTURE = [
+  new RegExp(String.raw`\b${NOTE_WORD}\b[^.\n]{0,40}\b(?:now\s+)?(?:has|have|includes?|carries|shows)\b[^.\n]{0,20}\b${PICTURE_WORD}`, "i"),
+  new RegExp(String.raw`\b(?:added|put|saved|attached|embedded|dropped|included)\b[^.\n]{0,30}\b${PICTURE_WORD}s?\b[^.\n]{0,30}\b(?:to|in|into|on)\b[^.\n]{0,20}\b${NOTE_WORD}\b`, "i"),
+  new RegExp(String.raw`\b${PICTURE_WORD}s?\b[^.\n]{0,20}\b(?:is|are)\s+(?:now\s+)?(?:in|on)\s+(?:the|that|your)\b[^.\n]{0,20}\b${NOTE_WORD}\b`, "i"),
+];
+
+/** Whether the answer says a note now holds a picture, and no write this turn carried one. */
+export function claimsNotePicture(answer, steps = []) {
+  if (typeof answer !== "string") return false;
+  if (steps.some((step) => step.ok && step.images === true)) return false;
+  const said = answer.replace(/[‘’]/g, "'");
+  return SAYS_NOTE_PICTURE.some((pattern) => pattern.test(said));
+}
+
+export const NOTE_PICTURE_NOTICE =
+  "Before this goes: your answer says a note now has a picture, but no write this turn put one in it. " +
+  "Put it there now: draw it if it isn't drawn (send action draw_visual), then write_note that note with images [{ data: \"picture:N\" }] and its text kept. " +
+  "If you can't, say plainly the note has no picture yet. Never say a picture is in a note without that write.";

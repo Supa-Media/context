@@ -17,7 +17,20 @@ export class MemoryStorage implements InboxStorage {
     const keys = [...this.data.keys()].filter((k) => k.startsWith(prefix)).sort();
     return new Map(keys.map((k) => [k, this.data.get(k) as T]));
   }
+  /** The one alarm set, as a Durable Object has one: each `setAlarm` replaces it. */
+  alarm: number | null = null;
   async setAlarm(at: number) {
     this.alarms.push(at);
+    this.alarm = at;
+  }
+}
+
+/** A storage that also answers `getAlarm`, for tests of which alarm is kept; the alarm "fires" when `fire` is called. */
+export class AlarmStorage extends MemoryStorage {
+  async getAlarm() {
+    return this.alarm;
+  }
+  fire() {
+    this.alarm = null;
   }
 }

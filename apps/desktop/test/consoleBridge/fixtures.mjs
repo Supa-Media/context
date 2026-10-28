@@ -174,6 +174,7 @@ export function mainBridge(overrides = {}) {
   const requested = [];
   /** Every `setImessageEnabled` value the page asked for. */
   const enabledCalls = [];
+  const upcomings = [];
   /** Every local-agent request the bridge passed through, for the checks below. */
   const asked = [];
   const window = overrides.window ?? fakeWindow();
@@ -241,6 +242,11 @@ export function mainBridge(overrides = {}) {
       enabledCalls.push(enabled);
     },
     setImessageFiles: (choice) => void calls.push(`setImessageFiles:${JSON.stringify(choice)}`),
+    forgetImessage: async () => void calls.push("forgetImessage"),
+    downloadImessage: async () => {
+      calls.push("downloadImessage");
+      return overrides.download ?? { ok: true, conversations: 1, transcripts: 2, pictures: 3, notCopied: 0 };
+    },
     requestImessageFullDiskAccess: async () => void calls.push("requestImessageFullDiskAccess"),
     localAgent: () => {
       calls.push("localAgent");
@@ -250,6 +256,10 @@ export function mainBridge(overrides = {}) {
       calls.push("askLocalAgent");
       asked.push(request);
       return overrides.localAnswer ?? { ok: true, answer: "from the CLI", provider: "claude-code", steps: [] };
+    },
+    setUpcoming: (upcoming) => {
+      calls.push("setUpcoming");
+      upcomings.push(upcoming);
     },
     ...overrides.deps,
   });
@@ -266,6 +276,7 @@ export function mainBridge(overrides = {}) {
     answered,
     requested,
     enabledCalls,
+    upcomings,
     movePin: (next) => {
       pinned = next;
     },
@@ -291,8 +302,11 @@ export const HANDLED = [
   BRIDGE_CHANNELS.imessageSetEnabled,
   BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
   BRIDGE_CHANNELS.imessageSetFiles,
+  BRIDGE_CHANNELS.imessageDownload,
+  BRIDGE_CHANNELS.imessageForget,
   BRIDGE_CHANNELS.agentStatus,
   BRIDGE_CHANNELS.agentAsk,
+  BRIDGE_CHANNELS.calendarSetUpcoming,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */

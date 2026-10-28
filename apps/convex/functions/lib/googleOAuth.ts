@@ -134,15 +134,26 @@ export function scopesForProducts(products: readonly GoogleProduct[]): string[] 
   return [...scopes];
 }
 
-/** Sending one email the person approved (`docs/decisions/communications/sending-email.md`). Sensitive. */
+/**
+ * Sending one email the person approved (`docs/decisions/communications/sending-email.md`).
+ * Sensitive. No longer asked for (2026-10-28): `GMAIL_COMPOSE_SCOPE` sends as
+ * well, so asking for both was a redundant scope in Google's review. A
+ * connection that granted it before still sends with it.
+ */
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 /**
- * Saving a draft in the person's own Gmail (`sending-email.md`). Restricted,
- * and broader than it needs to be (Google has no drafts-only scope: compose
- * also sends), so Context's own code sends only on `GMAIL_SEND_SCOPE` and uses
- * this one for drafts alone.
+ * Saving a draft in the person's own Gmail, and sending the email the person
+ * approved (`sending-email.md`). Restricted. Google's `users.messages.send`
+ * accepts it as well as `gmail.send`, so it is the one Gmail write a connect
+ * asks for. What may be sent is decided by the person's yes to the exact
+ * copy, checked on the send path, never by which of the two was granted.
  */
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+
+/** Whether a grant lets Context send email: either Gmail write scope does. */
+export function canSendEmail(scopes: readonly string[]): boolean {
+  return scopes.includes(GMAIL_COMPOSE_SCOPE) || scopes.includes(GMAIL_SEND_SCOPE);
+}
 /** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
 export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 /**
@@ -185,16 +196,61 @@ export const CHAT_READ_SCOPES = [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE] as con
  * its check-ins (2026-10-23). They work only on a Google Workspace account.
  */
 export const WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
+  gmail: [GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
   calendar: [CALENDAR_WRITE_SCOPE],
   chat: [...CHAT_SEND_SCOPES],
 };
 
-/** The scopes a connect asks Google for: `scopesForProducts`, plus the write scopes of those products. */
-export function scopesForConnect(products: readonly GoogleProduct[]): string[] {
+/**
+ * The scopes a connect asks Google for: `scopesForProducts`, plus the write
+ * scopes of those products, with Calendar's pair narrowed to the calendars
+ * the person owns once `GOOGLE_CALENDAR_SCOPE=owned` (`narrowCalendarScopes`).
+ */
+export function scopesForConnect(products: readonly GoogleProduct[], env: Record<string, string | undefined> = process.env): string[] {
   const scopes = new Set(scopesForProducts(products));
   for (const product of products) for (const scope of WRITE_SCOPES[product] ?? []) scopes.add(scope);
-  return [...scopes];
+  return narrowCalendarScopes([...scopes], env);
+}
+
+/**
+ * The narrower Calendar pair (CASA least scope, 2026-10-28). Every Calendar
+ * call Context makes is on the person's own `primary` calendar: events.list,
+ * get, insert, patch and delete, events.watch and channels.stop. Google's
+ * discovery document lists `calendar.events.owned` for all of them and
+ * `calendar.events.owned.readonly` for the reads, so the broader pair names
+ * calendars Context never touches. Asked for only once
+ * `GOOGLE_CALENDAR_SCOPE=owned` (set when Google's Data Access list carries
+ * the new pair); a grant of either pair keeps working whatever the setting,
+ * so nobody connected today has to reconnect.
+ */
+export const CALENDAR_OWNED_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned";
+export const CALENDAR_OWNED_READ_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
+
+/** Whether a connect asks for the owned-calendar pair rather than the broader one. */
+export function calendarScopeOwned(env: Record<string, string | undefined> = process.env): boolean {
+  return env.GOOGLE_CALENDAR_SCOPE === "owned";
+}
+
+/** A scope list with Calendar's broader pair swapped for the owned pair, when the setting says so. */
+export function narrowCalendarScopes(scopes: readonly string[], env: Record<string, string | undefined> = process.env): string[] {
+  if (!calendarScopeOwned(env)) return [...scopes];
+  const swapped = scopes.map((scope) =>
+    scope === CALENDAR_WRITE_SCOPE ? CALENDAR_OWNED_SCOPE : scope === CALENDAR_SCOPES[0] ? CALENDAR_OWNED_READ_SCOPE : scope,
+  );
+  return [...new Set(swapped)];
+}
+
+/** Whether a grant lets Context change events: either Calendar write scope does. */
+export function canWriteCalendar(scopes: readonly string[]): boolean {
+  return scopes.includes(CALENDAR_WRITE_SCOPE) || scopes.includes(CALENDAR_OWNED_SCOPE);
+}
+
+/** The four Calendar event scopes, both pairs; any one of them reads. */
+export const CALENDAR_EVENT_SCOPES: readonly string[] = [CALENDAR_SCOPES[0], CALENDAR_WRITE_SCOPE, CALENDAR_OWNED_READ_SCOPE, CALENDAR_OWNED_SCOPE];
+
+/** Whether a grant lets Context read events: any of the four Calendar event scopes does. */
+export function canReadCalendar(scopes: readonly string[]): boolean {
+  return CALENDAR_EVENT_SCOPES.some((scope) => scopes.includes(scope));
 }
 
 /**
@@ -204,8 +260,10 @@ export function scopesForConnect(products: readonly GoogleProduct[]): string[] {
  * with it.
  */
 export function grantedScopesFor(product: GoogleProduct, grantedScopes: readonly string[]): string[] {
-  const wanted = new Set(PRODUCT_SCOPES[product]);
-  return grantedScopes.filter((scope) => wanted.has(scope as never));
+  // Calendar's slice is every event scope granted, either pair, read or
+  // write: each of them reads (`canReadCalendar`).
+  const wanted = new Set<string>(product === "calendar" ? CALENDAR_EVENT_SCOPES : PRODUCT_SCOPES[product]);
+  return grantedScopes.filter((scope) => wanted.has(scope));
 }
 
 /* -------------------------------------------------------------------------- */

@@ -48,7 +48,12 @@ export function fakeModel() {
       script = [...replies];
     },
     async handle(url, init) {
-      requests.push(JSON.parse(init.body));
+      const body = JSON.parse(init.body);
+      // Tex looking at a picture before it goes (`cardCheck.js`) passes it, off the script and off the record.
+      if (JSON.stringify(body.system ?? "").includes("You are the eye of Tex")) {
+        return new Response(JSON.stringify({ content: [{ type: "text", text: '{"send": true}' }], stop_reason: "end_turn" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      requests.push(body);
       const step = script.shift();
       if (!step) throw new Error("fake model: the script ran out");
       // A step may be a function of the request it answers, to reply with what an earlier tool returned.

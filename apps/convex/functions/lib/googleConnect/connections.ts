@@ -9,7 +9,7 @@
 import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { readOnlyServices } from "../googleWriteAccess";
 
 // The scheduling half of a connection is the loop's (`googleSync.ts`), and the
@@ -20,6 +20,7 @@ import { readOnlyServices } from "../googleWriteAccess";
 import { syncStatusOf } from "../googleSchedule";
 import { destinationPattern } from "../../../../../packages/communications/src/destination.js";
 import { defaultGoogleDestinationFolder } from "./validation";
+import { aiScopesOf } from "./aiScopes";
 
 export const listMailboxSlugsArgs = { workspaceId: v.id("workspaces") };
 
@@ -196,7 +197,7 @@ export async function listGoogleConnectionsHandler(
         calendar: calendar !== undefined,
         chat: chat !== undefined,
       },
-      readOnly: readOnlyServices({ gmail: gmail !== undefined, calendar: calendar !== undefined, chat: chat !== undefined }, row.scopes),
+      readOnly: readOnlyServices({ gmail: gmail !== undefined, calendar: calendar !== undefined, chat: chat !== undefined }, aiScopesOf(row)),
       syncStatus:
         row.disconnectedAt !== undefined
           ? "disconnected"

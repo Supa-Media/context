@@ -31,7 +31,8 @@ import { runEstimateChecks } from "./estimate.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
 import { runBackupChecks } from "./backup.test.mjs";
-import { runBackupTranscriptChecks } from "./backupTranscript.test.mjs";
+import { runBackupReadsChecks } from "./backupReads.test.mjs";
+import { runBackupCopyChecks } from "./backupCopy.test.mjs";
 
 import * as index from "../src/index.js";
 import {
@@ -251,7 +252,8 @@ check(
 // -- the modules, in dependency order
 runPathChecks(check);
 await runBackupChecks(check);
-runBackupTranscriptChecks(check);
+await runBackupReadsChecks(check);
+runBackupCopyChecks(check);
 runAnchorChecks(check);
 runNoteChecks(check);
 runChatChecks(check);

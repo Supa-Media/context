@@ -55,7 +55,7 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   const unanswered: string[] = [];
   const perCalendar = await Promise.all(
     claimed.calendars.map(async (calendar: Calendar) => {
-      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
         connectionId: calendar.connectionId,
       });
       if (minted === null) {

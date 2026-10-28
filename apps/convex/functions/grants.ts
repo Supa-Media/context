@@ -17,7 +17,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import {
   internalMutation,
   internalQuery,

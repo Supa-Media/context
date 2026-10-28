@@ -19,15 +19,15 @@ import {
   publicOrigin,
   unauthorizedResponse,
 } from "../oauth.js";
+import { resolvePresentedSession } from "./presentedToken.js";
 import {
-  bearerToken,
   decodePathSegment,
   hasScope,
-  resolveSession,
   SCOPE_CAPTURE,
   SCOPE_READ,
   SCOPE_WRITE,
   sessionForContext,
+  sessionForSetup,
   SessionRefusal,
   splitWorkspacePath,
   StorageUnavailable,
@@ -70,7 +70,7 @@ import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
-import { handleSteer } from "../agent/steer.js";
+import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
@@ -230,7 +230,7 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
-      path === "/agent/steer" ||
+      TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
       approvalsRoute ||
@@ -242,7 +242,7 @@ export async function route(request, env, ctx) {
       const controlPlane = createControlPlane(env);
       let session;
       try {
-        session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+        session = await resolvePresentedSession(request, { pathToken, path, slug, controlPlane });
       } catch (error) {
         if (!(error instanceof SessionRefusal)) throw error;
         // A 403 from workspace selection deliberately drops the slug from its
@@ -337,7 +337,7 @@ export async function route(request, env, ctx) {
       attachLinkCalls(store, session, controlPlane, env);
       attachImageUploads(store, session, controlPlane, origin);
       // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.
-      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true }) });
+      if (textsCleared(session)) Object.defineProperty(store, "texts", { value: Object.freeze({ cleared: true, reader: session.actorClientName ?? null }) });
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -564,6 +564,7 @@ export async function route(request, env, ctx) {
           // the ordinary state of a self-hosted install and answers 501 rather
           // than pretending. See `meetings/transcribe.js`.
           transcribe: transcriptionForwarder(env),
+          transcriptionConsent: () => controlPlane.transcriptionConsent(session.accessToken, session.workspaceId), // transcription-consent.md
           // M1: resolve a session's note by id when its stored path has moved.
           // See `resolveMeetingNotePath`'s own header for why this lives here
           // rather than in `meetings/ingest.js`.
@@ -647,6 +648,11 @@ export async function route(request, env, ctx) {
         return { session: target, store: targetStore };
       };
       store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
+      // A group chat's turn reads Tex's setup in the pin it may not otherwise address (`session.js`).
+      const setupSession = sessionForSetup(session);
+      if (setupSession !== null) {
+        store.openPinnedSetup = async () => ({ session: setupSession, store: await storeForSession(setupSession, env, controlPlane) });
+      }
 
       store.suggestDestination = (args) =>
         toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));
@@ -673,15 +679,15 @@ export async function route(request, env, ctx) {
       }
       // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
       // setup an @context-lc editor picked, then a judge turn on its rules.
-      // A text sent while a texted turn runs, for that turn to take in (`agent/steer.js`).
-      if (path === "/agent/steer") return await handleSteer(request, store, session);
+      // The texting Worker's steer, events, cancel and stale asks (`agent/textingRoutes.js`).
+      if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
-        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store) : json({ ok: false, error: "not_found" }, 404);
+        if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store, session) : json({ ok: false, error: "not_found" }, 404);
         if (file) return await handleMessagesBackupFile(request, store, file);
         return path === MESSAGES_BACKUP_ROUTE ? await handleMessagesBackup(request, store) : json({ ok: false, error: "not_found" }, 404);
       }

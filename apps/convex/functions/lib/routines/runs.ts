@@ -12,7 +12,9 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
-import { accountTimeZone, routineRecipients, runsRoutines, writingRole } from "./access";
+import { accountTimeZone, routineRecipients, runsRoutine, writingRole } from "./access";
+import { routineChat } from "./chats";
+import { claimChatLooks, finishChatLook } from "../textGroupLooks";
 import {
   MAX_DUE_RUNS,
   ONE_OFF_RETRY_EVERY_MS,
@@ -35,14 +37,21 @@ const ROUTINE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 /** A token pair minted by the calling action: hashes only, never the plaintext. */
 export type MintedToken = { hashedAccessToken: string; hashedRefreshToken: string };
 
-/** One claimed run. `token` indexes the calling action's plaintext list. */
+/**
+ * One claimed run. `token` indexes the calling action's plaintext list. A chat
+ * routine's has none and names its chat's key instead: it runs as the chat's
+ * own turn, which mints its own grant (`chats.ts`).
+ */
 export type ClaimedRun = {
   runId: string;
-  token: number;
+  token?: number;
   path: string;
   timeZone: string;
   send: "text" | "note" | "both";
   phones: string[];
+  chat?: string;
+  /** A chat routine's last run, so its turn can say what is new since (`wake: new mail`). */
+  since?: number;
 };
 
 function leaseIsLive(row: Doc<"routines">, now: number): boolean {
@@ -82,7 +91,7 @@ export async function claimDueRoutinesHandler(
     if (leaseIsLive(row, now)) continue;
 
     const workspace = await ctx.db.get(row.workspaceId);
-    if (workspace === null || !runsRoutines(workspace)) {
+    if (workspace === null || !runsRoutine(workspace, row)) {
       // Asked when a run is handed out, so a shared workspace's row left from
       // before routines were personal-only goes now, not at the next scan.
       await ctx.db.delete(row._id);
@@ -102,6 +111,29 @@ export async function claimDueRoutinesHandler(
         await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_UNKNOWN, updatedAt: now });
         continue;
       }
+    }
+    if (workspace.kind !== "personal") {
+      // A chat routine: into its chat, as its writer's tag there, or nowhere.
+      const chat = await routineChat(ctx, row.workspaceId, row.chat ?? "");
+      const phones = chat === null ? [] : await routineRecipients(ctx, { ...row, send: "text" });
+      const zone = effectiveTimeZone(row.timeZone, await accountTimeZone(ctx, row.writerUserId));
+      if (chat === null || phones.length === 0) {
+        await ctx.db.patch(row._id, { lastOutcome: "no_chat", lastRunAt: now, nextRunAt: nextRunFor(row, zone, now), updatedAt: now });
+        continue;
+      }
+      const runId = args.runIds[runs.length]!;
+      const since = row.lastRunAt;
+      await ctx.db.patch(row._id, { claimedAt: now, runId, lastRunAt: now, nextRunAt: nextRunFor(row, zone, now), updatedAt: now });
+      await recordAudit(ctx, {
+        workspaceId: row.workspaceId,
+        actorUserId: row.writerUserId,
+        actorClientId: ROUTINES_CLIENT_ID,
+        action: "routine.run",
+        paths: [row.path],
+        details: { path: row.path, chat: true },
+      });
+      runs.push({ runId, path: row.path, timeZone: zone, send: row.send, phones, chat: chat.groupKey, ...(since !== undefined ? { since } : {}) });
+      continue;
     }
     const scopes = clampScopes(ROUTINE_SCOPES, role);
     if (!hasOperationScope(scopes)) continue;
@@ -146,6 +178,8 @@ export async function claimDueRoutinesHandler(
       phones: await routineRecipients(ctx, row),
     });
   }
+  // A chat's own look at the mail shared with it is a chat run with no note behind it.
+  runs.push(...(await claimChatLooks(ctx, args.runIds.slice(runs.length, limit), now)));
   return runs;
 }
 
@@ -228,7 +262,7 @@ export async function recordRoutineResultHandler(
     .query("routines")
     .withIndex("by_run_id", (q) => q.eq("runId", args.runId))
     .unique();
-  if (row === null) return "unknown";
+  if (row === null) return (await finishChatLook(ctx, args.runId)) ? "recorded" : "unknown";
   const now = Date.now();
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,

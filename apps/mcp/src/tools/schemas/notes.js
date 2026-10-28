@@ -82,6 +82,7 @@ export function noteWriteToolDefinitions() {
         "or a fact emerges that the user should never have to repeat to the next agent; prefer " +
         "improving the note that already covers the topic over adding a near-duplicate. " +
         "Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true. " +
+        "A page (a note named <name>.page.md) is saved only with the page design skill's stamp in its front matter: read the skill (orient about: \"pages\") before you write one. " +
         "\n\nTHIS TOOL ALSO MAKES FORMS AND PUBLISHES NOTES, so you never need a separate tool for either. " +
         "A form is a fenced ```form block in the content; writing the note validates it and creates the answers note in the same call, and a block that does not parse is refused with the line that is wrong. The block is:\n" +
         "```form\nid: intake\nresponses: projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
@@ -204,7 +205,7 @@ export function noteWriteToolDefinitions() {
             type: "array",
             maxItems: 10,
             description:
-              "Images to store in this workspace and embed in the note. Each name is the placeholder the content embeds (![[chart.png]]); it is replaced by the stored image.",
+              "Images to store in this workspace and embed in the note. Each name is the placeholder the content embeds (![[chart.png]]), or names in a page's photo:, photos:, cover: or map: field; it is replaced by the stored image.",
             items: {
               type: "object",
               properties: {

@@ -272,8 +272,8 @@ export function painRowsOf(desk: TriageDesk | null, rows: readonly TexReview[], 
     if (status === "retired") continue;
     const hitRows = rows.filter((row) => isCoded(row) && inSpan(recent)(row) && hitsTheme(theme, row));
     const reports = [
-      ...desk.reviews.filter((review) => review.theme === theme.slug).map((review) => ({ path: review.path, at: review.reviewed, kind: "review" as const })),
-      ...desk.bugs.filter((bug) => bug.theme === theme.slug).map((bug) => ({ path: bug.path, at: bug.filed, kind: "bug" as const })),
+      ...desk.reviews.filter((review) => review.themes.includes(theme.slug)).map((review) => ({ path: review.path, at: review.reviewed, kind: "review" as const })),
+      ...desk.bugs.filter((bug) => bug.themes.includes(theme.slug)).map((bug) => ({ path: bug.path, at: bug.filed, kind: "bug" as const })),
     ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
     const strip = Array.from({ length: PAIN_DAYS }, () => 0);
     for (const row of hitRows) {

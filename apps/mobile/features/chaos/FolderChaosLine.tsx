@@ -2,12 +2,12 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../design/components/Text";
-import { layout } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
 import { askYourAi, folderAdvice, folderLine, folderLineShows, type ChaosFolder } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 import { cachedFolderLine, folderLinesVersion, readFolderLine, subscribeFolderLines } from "./folderLineCache";
+import { densityFor } from "../app/frame";
 
 /**
  * A crowded or thin folder's one quiet line, beside its title: "14 things in
@@ -94,7 +94,7 @@ function FolderAdvice({
   const styles = useThemedStyles(makeChaosStyles);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const wide = width >= layout.narrowBreakpoint;
+  const wide = densityFor(width) !== "compact";
   const advice = folderAdvice(folder);
   return (
     <Modal transparent animationType={wide ? "fade" : "slide"} visible onRequestClose={onClose}>

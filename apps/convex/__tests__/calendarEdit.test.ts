@@ -18,6 +18,9 @@
  *     `all_events`. → "all_events moves the whole series by as much" fails.
  *  4. `matchingEvents` without the loose match. → "a title written a little
  *     differently still finds the one event at that moment" fails.
+ *  5. `existingEventRequest` asking calendars.get for the zone again (which
+ *     needs calendar.readonly, never granted). → "making a one-off event
+ *     repeat names the calendar's time zone, as Google needs" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -48,12 +51,14 @@ function calendar({ lists, masters = {}, zone = "America/New_York", status = 200
     const method = init?.method ?? "GET";
     const token = (new Headers(init?.headers).get("Authorization") ?? "").replace("Bearer ", "");
     calls.push({ method, url, token, body: init?.body ? JSON.parse(String(init.body)) : null });
-    if (method === "GET" && url.startsWith(`${EVENTS}?`)) return new Response(JSON.stringify({ items: lists[token] ?? [] }));
+    if (method === "GET" && url.startsWith(`${EVENTS}?`)) return new Response(JSON.stringify({ timeZone: zone, items: lists[token] ?? [] }));
     if (method === "GET" && url.startsWith(`${EVENTS}/`)) {
       const id = decodeURIComponent(url.slice(EVENTS.length + 1).split("?")[0]!);
       return masters[id] ? new Response(JSON.stringify(masters[id])) : new Response("{}", { status: 404 });
     }
-    if (method === "GET") return new Response(JSON.stringify({ timeZone: zone }));
+    // calendars.get takes calendar.readonly or wider, never the event scopes a
+    // connection grants, so Google refuses it as it would for real.
+    if (method === "GET") return new Response(JSON.stringify({ error: { code: 403, errors: [{ reason: "insufficientPermissions" }] } }), { status: 403 });
     return new Response(JSON.stringify({ id: "evt_fake", hangoutLink: "https://meet.google.com/abc-defg-hij" }), { status });
   });
   return calls;
@@ -234,14 +239,17 @@ describe("repeating events", () => {
   });
 
   test("making a one-off event repeat names the calendar's time zone, as Google needs", async () => {
-    const calls = calendar({ lists: { "ya29.alice": [PARTY] } });
+    const calls = calendar({ lists: { "ya29.alice": [PARTY] }, zone: "America/Chicago" });
     const { t, aliceWs } = await connected();
     expect((await change(t, aliceWs, { action: "edit", title: "Lau's Birthday", start: START, recurrence: ["RRULE:FREQ=YEARLY"] })).ok).toBe(true);
     expect(calls.find((call) => call.method === "PATCH")!.body).toEqual({
       recurrence: ["RRULE:FREQ=YEARLY"],
-      start: { dateTime: START, timeZone: "America/New_York" },
-      end: { dateTime: "2026-10-24T23:00:00-04:00", timeZone: "America/New_York" },
+      start: { dateTime: START, timeZone: "America/Chicago" },
+      end: { dateTime: "2026-10-24T23:00:00-04:00", timeZone: "America/Chicago" },
     });
+    // The zone comes from the events listing, read under the event scope; the
+    // calendar itself (calendars.get) is never asked.
+    expect(calls.filter((call) => call.method === "GET" && !call.url.startsWith(EVENTS))).toEqual([]);
   });
 });
 

@@ -31,6 +31,8 @@
  *     second review reads the teapot again.
  *  9. Filing on the default 8 s control-plane timeout. → "filing a review
  *     waits longer than a lookup" fails.
+ * 10. Dropping "Judge Tex's answers themselves" from `SCORING` (2026-10-26).
+ *     → "answers are judged themselves, not only the person's mood" fails.
  */
 
 import assert from "node:assert/strict";
@@ -112,6 +114,20 @@ test("task and signals are codes from closed sets: anything else is dropped and 
   const loose = readReview(JSON.stringify({ scores: SCORES, task: "she wanted her avocado order", signals: ["angry about the avocado", "swore", 7] }), { words: false });
   assert.deepEqual(loose, { scores: SCORES, task: null, signals: ["swore"] });
   assert.deepEqual(readReview(JSON.stringify({ scores: SCORES, signals: "swore" }), { words: false }).signals, []);
+});
+
+test("answers are judged themselves, not only the person's mood: quality and feature-ask codes are kept on every tier", async () => {
+  const coded = readReview(JSON.stringify({ scores: SCORES, task: "research", signals: ["filler", "wrong", "incomplete", "feature_ask"] }), { words: false });
+  assert.deepEqual(coded.signals, ["filler", "wrong", "incomplete", "feature_ask"]);
+  for (const tier of ["scores", "full"]) {
+    const store = memoryStore();
+    const history = await texted(store, ["Tex what time does the teapot shop close", "Great question! I can't set routines from here. It closes at 9."]);
+    const model = road(tier === "full" ? FULL_ANSWER : JSON.stringify({ scores: SCORES }));
+    await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: plane(tier), history, key: "texts", reason: "ended", request: model.request, log: () => {} });
+    assert.match(model.asked[0].system, /not only how the person reacted/);
+    assert.match(model.asked[0].system, /filler .*wrong .*incomplete .*feature_ask/s);
+    if (tier === "full") assert.match(model.asked[0].system, /one numbered line per problem, every one of them/);
+  }
 });
 
 test("on the scores tier the model is asked for numbers alone, and only numbers leave", async () => {

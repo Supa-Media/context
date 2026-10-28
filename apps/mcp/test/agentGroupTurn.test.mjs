@@ -154,7 +154,8 @@ test("a group turn must name its chat, and a chat names only hashes", async () =
   assert.equal(refused.status, 400);
   assert.equal(groupOf({ group: { key: KEY, members: "+15555550100", from: "ada" } }), null, "a phone number is not a participant hash");
   assert.equal(groupOf({ group: { key: "short", members: MEMBERS } }), null);
-  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", people: [], chat: [] });
+  // No handle is nobody's own account (an invited person's tag, 2026-10-27): marked so it releases and sends nothing as anyone.
+  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", people: [], chat: [], guestTagger: true });
   // A chat line names a handle or nobody, never a number, and a line that isn't one is left out.
   const said = groupOf({ group: chat({ chat: [{ from: "+15555550100", text: "hi" }, { text: 7 }, { from: "bo", text: "  friday?  " }] }) });
   assert.deepEqual(said.chat, [{ from: "", text: "hi" }, { from: "bo", text: "friday?" }]);
@@ -209,7 +210,7 @@ test("a group turn changes notes as a text does: edit by etag, make, move and ar
     },
     { text: "Done." },
   ]);
-  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in, add a closer, and file friday under gigs", group: chat() });
+  const { status, body } = await ask(TOKEN_GROUP, { question: "save friday's load-in as a plain note, add a closer, and file friday under gigs", group: chat() });
   assert.equal(status, 200, JSON.stringify(body));
   const [changed, moved] = toolResults(world.model.requests[2]).slice(-2);
   assert.match(changed, /written: 1-projects\/setlist\.md/, changed);
@@ -225,7 +226,7 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
     { text: "Saved it in 1-projects." },
     { text: "It's there." },
   ]);
-  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures", group: people });
+  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures as a plain note", group: people });
   await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
   const system = JSON.stringify(world.model.requests.at(-1).system);
   assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);
@@ -323,7 +324,7 @@ test("a stale etag changes nothing, and routines and hidden paths are refused in
   const [stale, replaced, routine, hidden] = toolResults(world.model.requests[1]);
   assert.match(stale, /conflict|changed|etag|precondition/i, stale);
   assert.doesNotMatch(replaced, /can't be passed|isn't available/, replaced);
-  assert.match(routine, /can't be set from a group chat/);
+  assert.match(routine, /Put chat: a{16}/);
   assert.match(hidden, /can't be used/);
   assert.match(bodyAt(world.team, "1-projects/setlist.md"), /Closer is Hey Jude/);
   assert.deepEqual(live(world.team, "tex/").filter((key) => !key.startsWith("tex/groups/chat-")), [], "no routine was written");
@@ -475,4 +476,26 @@ test("a note already filed in tex/groups/ stops Tex sharing the folder", async (
   delete unreachable.treeManifest;
   assert.equal(await shareGroupNotesFolder(unreachable), false, "a tree that cannot answer shares nothing");
   assert.deepEqual(unreachable.shared, []);
+});
+
+// Tex Devs, 2026-10-26: "redo the diagram" got "the only graphic I made was the Reason Network one".
+// The chat's memory kept the words and never the card, so the next turn could not see it.
+test("a card sent in a group is kept in the chat's memory with what it showed", async () => {
+  const CARD = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
+  const SITE_SHOTS = { async fetch(url, init) { const body = JSON.parse(init.body); return new Response(JSON.stringify({ png: CARD, width: body.width, height: body.height, blocked: [] })); } };
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "draw_visual", args: { template: "places", data: { title: "Budget picks", items: [{ name: "The Eleanor", cuisine: "Bowling bar" }] } } } }] },
+    { text: "Here's the night out." },
+  ]);
+  const env = world.env;
+  world.env = { ...env, SITE_SHOTS };
+  try {
+    const { status, body } = await ask(TOKEN_GROUP, { question: "plan a night out", group: chat() });
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.pictures?.length, 1, "the card goes");
+  } finally {
+    world.env = env;
+  }
+  const memory = [...world.team.keys()].filter((key) => key.includes("groups")).map((key) => bodyAt(world.team, key) ?? "").join("\n");
+  assert.match(memory, /Sent a picture with this answer: 1\. Budget picks — 1\. The Eleanor \(Bowling bar\)/);
 });

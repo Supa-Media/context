@@ -280,8 +280,106 @@ only that question (`picksBeforeAsking`). The owner set the bar the same day
 with another assistant's answer to the real chat: three named caterers, each
 with its menu link and a price for 30, and one useful question.
 
+A guest group chat (self-review 9d98ef, 2026-10-27) asked for five Manhattan
+venues for Sunday services. Guest chats already run every check above and the
+open-web search cap, but the checks missed this answer: two venues were
+churches' Sunday homes, and once the chat said so Tex answered "That leaves
+three venues ... Want me to find two more?" and later "I'd still need to look
+up the rest". Options dropped and not replaced are stopping short too, so an
+offer to find more, "I'd still need to look up", and an answer that says it is
+left with fewer than the number asked for (`fewerThanAsked`) each get the same
+one round. The prompt says to keep the number asked, check each option fits
+its use on its own page, and never set a directory's general price range
+beside a place that publishes none.
+
 **Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
-`apps/agent/src/jobs.test.ts`; hand-back bench case 9
-(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`).
+`apps/agent/src/jobs.test.ts`; hand-back bench cases 9 and 17
+(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`,
+`sites/halls.example.md`).
 Sabotage records in the tests' headers.
+
+## Published text is Tex's to find (owner, 2026-10-27)
+
+Asked to fill in a Bible study note's verse analysis, Tex texted "I couldn't
+open the LSB text for chapter 32 from here, so I haven't quoted any verses.
+Paste them in and I'll quote them from your text." The owner: "why is this a
+problem for tex?" It was the second time (chapters 28 and 29 on 2026-10-22).
+None of the checks caught it: `TRY_NOTICE` only fires when nothing on the web
+was tried, the browser checks wanted the answer to name a page or a failed
+browse step, and nothing treated "paste them in" as handing work back. The
+hand-back judge never saw it either, because the answer had no question mark.
+
+So a passage, lyrics or an article asked of the person goes back once, told
+to search with the translation's name, open a refused or empty page with
+browse, and try the next site that carries it (`publishedText.js`); a failed
+page read given up on with the browser untried goes back once to browse it; a
+page read that comes back nearly empty says it may need a browser; and the
+web prompt says published text is never theirs to paste. Removing the paste
+check lets "Paste them in" go out again after any failed read.
+
+**Tests.** `apps/mcp/test/agentPublishedText.test.mjs`; hand-back bench case
+13 (`sites/scripture.example.md`, `sites/versereader.example.md`). Sabotage
+record in the test's header.
+
+## The browser is handed over only for what the page shows is theirs (2026-10-27)
+
+The owner asked Tex to register them for a church conference. Tex asked the
+four questions the form needed, got every answer, typed their name and
+email, chose the answers and pressed Register. That click ran out of time,
+and after two looks Tex added a handoff step. The gateway texts "Open this to
+take over the browser" the moment the link exists, mid-turn, so the
+hand-back judge, which reads only the finished answer, never saw it. The
+owner: "why is my tex asking me to complete a regular form myself?"
+
+So the handoff step itself is checked (`apps/mcp/src/agent/handoffGate.js`),
+against the reading the steps before it left, before any link is made. It
+goes ahead only for a fair ask a page can show: a sign-in (a password box,
+or a page whose title or address says it is a sign-in or consent screen,
+K1), a code or an approval on their phone (K2), a captcha that outlasted
+every try or a page that still says it is one (K3), card boxes (Y1), or the
+person's own words this question asking to do it themselves. Anything else
+is refused, and the model is told to finish the page itself and to ask, in
+its reply, for the one fact only they know if one is missing.
+
+**What a simplification would cost.** Without the check, any page the model
+gives up on (a form, a picker, a slow button) becomes the person's, and the
+link goes out before any check on the answer runs.
+
+**Tests.** `apps/mcp/test/agentHandoffGate.test.mjs` (a registration form is
+never handed over and no link is texted; zip and promo codes are not sign-in
+codes; each fair ask still is; sabotage record in its header) and hand-back
+bench case 14 (`bench/ai/tests/handback.md`, `sites/retreat.example.md`,
+`bench/test/handback.test.mjs`).
+
+**A hidden captcha (2026-10-27, the evening try).** On the real form, Tex
+filled every box and pressed Register twice, and an invisible captcha turned
+both presses away with nothing on the page. Nothing looked like a captcha,
+so the tries never ran and the check above refused the handoff, and Tex
+texted the person the whole form to fill in. The screenshot Worker now
+reports a captcha that shows nothing until a form is sent
+(`invisibleCaptcha`, `infra/site-shots/src/captcha.ts`), and a send button
+that leaves such a page exactly as it was twice running is that captcha
+saying no (`apps/mcp/src/agent/silentSubmit.js`). The gateway then fills the
+same form in a fresh browser and presses once more. If that is turned away
+too, the captcha counts as stuck, the handoff goes ahead for that one press
+with the form already filled, and the reading says so. Tests:
+`apps/mcp/test/agentSilentSubmit.test.mjs` (sabotage record in its header)
+and hand-back bench case 16 (`sites/gathering.example.md`).
+
+**Looking before asking, and "fix yourself" (2026-10-28).** Three reviewed
+chats asked the person what Tex could have found: which email addresses two
+caterers use (one turned up a turn later with no word that it corrected the
+earlier "no email"), when a work block started and stopped (its log said),
+and, right after a group chat's failed page saves, "Tell me what's broken"
+in answer to "Tex please fix yourself". Every turn is now told to look first
+in the chat's earlier texts, its own earlier turns and logs, notes, email,
+calendar and the web, to say where a correction came from, and that "fix
+yourself" means naming the failure from the chat, retrying it once and
+filing it with `report_problem` (`LOOK_FIRST_LINE`). The hand-back judge
+counts the chat and Tex's own logs as places to look (H9), and a "fix
+yourself" turn answered by asking what's wrong, or with no tool run, gets
+one more round (`selfRepairNotice`, both in
+`apps/mcp/src/agent/lookFirst.js`). Removing either brings back the
+question the chat already answered. Tests:
+`apps/mcp/test/agentLookFirst.test.mjs` (sabotage record in its header).

@@ -61,7 +61,8 @@ import { setTopChromeHoldsLights } from "../features/app/topChrome";
 
 /** Stands in for a mounted frame — see `topChrome.ts` on why claims are keyed. */
 const CLAIM = "shell-title-band-test";
-import { densityFor } from "../features/app/frame";
+import { densityFor, pageInDesktopShell } from "../features/app/frame";
+import { paletteFor } from "../features/design/theme";
 import { layout } from "../features/design/tokens";
 import { viewportHeight } from "../features/design/css";
 // `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
@@ -444,7 +445,55 @@ describe("the shell's narrowest page is the first width that is not compact", ()
     // narrows straight into the phone layout again, which is what Dev reported.
     expect(SHELL_MIN_PAGE_WIDTH_PX).toBe(layout.narrowBreakpoint);
     expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX)).not.toBe("compact");
-    expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX - 1)).toBe("compact");
+    expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX - 1, false)).toBe("compact");
+  });
+});
+
+/*
+  The page's half of the same promise. The floor above ships inside the Mac app
+  and installs only when the app quits, so a build from before it narrows to
+  any width; Dev2 saw the phone layout again on 2026-10-21 for that reason. The
+  page is served live, so it refuses `compact` itself whenever a real shell is
+  present, and every reader of the breakpoint goes through `densityFor`.
+
+  Sabotage record: `densityFor` ignoring `inDesktopShell` fails 3 below;
+  `pageInDesktopShell` answering true for any `desktop` global fails 1.
+*/
+describe("inside the Mac app the page never takes the phone layout", () => {
+  afterEach(removeShell);
+
+  test("a narrow window in the shell is medium, the explorer folded, not compact", () => {
+    installShell(fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge);
+    expect(pageInDesktopShell()).toBe(true);
+    expect(densityFor(390)).toBe("medium");
+    expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX - 1)).toBe("medium");
+    expect(densityFor(layout.wideBreakpoint)).toBe("wide");
+  });
+
+  test("so the phone palette is not drawn there either", () => {
+    installShell(fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge);
+    expect(paletteFor("light", 600)).toBe("light");
+    expect(paletteFor("dark", 600)).toBe("dark");
+  });
+
+  test("a browser or a phone at the same width still gets the phone layout", () => {
+    expect(pageInDesktopShell()).toBe(false);
+    expect(densityFor(390)).toBe("compact");
+    expect(paletteFor("light", 600)).toBe("lightPhone");
+  });
+
+  test("a `desktop` global the bridge check refuses is not a shell", () => {
+    // Not frozen, no version: what a page script could plant to look like one.
+    installShell({ shell: { platform: "macos" } });
+    expect(pageInDesktopShell()).toBe(false);
+    expect(densityFor(390)).toBe("compact");
+  });
+
+  test("the answer follows the bridge that is there now, not the first one seen", () => {
+    installShell(fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge);
+    expect(densityFor(390)).toBe("medium");
+    removeShell();
+    expect(densityFor(390)).toBe("compact");
   });
 });
 

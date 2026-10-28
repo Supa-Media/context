@@ -88,6 +88,9 @@ const KIND_LABEL: Record<CardKind, string> = {
 export const CARD_SUBTITLE = "Shared with you — sign in to read it";
 export const CARD_SUBTITLE_FORM = "Open to fill in. No account needed.";
 
+/** What a note card Tex texts says: the person can already open it. */
+export const CARD_SUBTITLE_TEXTED = "Open it in Context";
+
 export function subtitleFor(kind: CardKind): string {
   return kind === "form" ? CARD_SUBTITLE_FORM : CARD_SUBTITLE;
 }
@@ -132,6 +135,11 @@ export interface CardFacts {
    * card never says "this is a folder, and there is nothing in it for you".
    */
   children: readonly string[];
+  /**
+   * The line under the title, when not the share's (`subtitleFor`): a card
+   * Tex texts goes to somebody who can already open the note.
+   */
+  subtitle?: string;
 }
 
 /**
@@ -376,7 +384,7 @@ function foot(facts: CardFacts): unknown {
           letterSpacing: "-0.01em",
           maxWidth: 1072,
         },
-        children: subtitleFor(facts.kind),
+        children: facts.subtitle ?? subtitleFor(facts.kind),
       },
     },
   );

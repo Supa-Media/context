@@ -20,7 +20,6 @@ import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
 import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, drawnMoves, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
-import { privacyEtagOf } from "./lib/nodes/readerRules";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
 import { liveNodeAt, nodeAt, nodePaths, pathsBuilt } from "./lib/nodes/paths";
 import { HIDDEN_ASKED } from "./lib/nodes/builtJudge";
@@ -183,15 +182,16 @@ export const rowMoveBatch = internalMutation({
   handler: async (ctx, { workspaceId, moves, privacyEtag: handed, now }) => {
     const moved = [];
     let total = 0;
-    // The first move is held to the version the caller was handed. Each move re-renders the rules from the rows it
-    // moved, so the next is held to the version that move left, which is this batch's own change, not someone else's.
-    let privacyEtag = handed;
+    // The first move is held to the version the caller was handed. What changes the rules after it is this batch's
+    // own moves, not someone else's, so the rest are not held again: rendering the rules twice a move was what
+    // stopped a batch of 20 on a big workspace (2026-10-26).
     for (const [index, move] of moves.entries()) {
       const answer = await applyRowMove(ctx, {
         workspaceId,
         from: move.from,
         to: move.to,
-        privacyEtag,
+        privacyEtag: handed,
+        privacyChecked: index > 0,
         ...(move.expectedEtag === undefined ? {} : { expectedEtag: move.expectedEtag }),
         ...(move.plannedFiles === undefined ? {} : { plannedFiles: move.plannedFiles }),
         now,
@@ -200,7 +200,6 @@ export const rowMoveBatch = internalMutation({
       total += answer.rows;
       if (total > ROW_MOVE_MAX) throw new ConvexError({ batchRefusal: true, index, reason: "too_large" });
       moved.push({ from: move.from, to: move.to, rows: answer.rows, ...(answer.etag === undefined ? {} : { etag: answer.etag }) });
-      privacyEtag = await privacyEtagOf(ctx, workspaceId);
     }
     return moved;
   },

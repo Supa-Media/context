@@ -127,16 +127,26 @@ month's log objects that arrived from an hour before it was sent onwards,
 dropping its earlier lines and keeping every other line. Both finish before
 the batch is answered `ok`, so a failure is a refusal the Mac sends again.
 
+**A copy is the backup as it is kept, not a rendering of it** (owner,
+2026-10-27, replacing the Markdown transcripts of 2026-10-26: "we don't need
+to save as markdown, can we just save it as the native format it saves in?").
+Both downloads write the log's JSON-lines objects and the files at the paths
+they have under `.context/messages/imessage/`: `log/<yyyy>/<mm>/…jsonl`,
+`log/chats/…`, `log/people/…` and `files/<folder>/<id>`
+(`copyPathOf` in `packages/communications/src/backupLog.js`, which copies
+only keys inside the log made of plain segments). What the person takes home
+reads the same as what the bucket holds, so the record contract
+(`backup.js`) documents both, and a later record with the same key wins in
+either. A transcript would be a second format to keep in step and a lossy
+one.
+
 **The texts leave with Download as folders.** The owner's whole-workspace
-download carries the backup as one Markdown file per conversation per month
-under `Messages/` (`Messages (backup)/` when they already have a folder of that
-name), rendered in the console from the log by the same fold and transcript
-code the Mac uses (`packages/communications/src/backupTranscript.js`). The
-log is read a page at a time by key (`messagesExport.readLogForExport`, owner
-only, an empty page for anyone else), and a log that cannot be read to the
-end puts nothing in and says so. Pictures are named where they were sent but
-not carried: an archive the browser holds in memory, read through action
-answers capped well under their size, cannot take them.
+download carries the log under `Messages/log/` (`Messages (backup)/` when
+they already have a folder of that name). The log is read a page at a time by
+key (`messagesExport.readLogForExport`, owner only, an empty page for anyone
+else), and a log that cannot be read to the end puts nothing in and says so.
+Pictures are not carried: an archive the browser holds in memory, read
+through action answers capped well under their size, cannot take them.
 
 **Download messages, with the pictures, is the Mac app's.** It reads the
 backup back through the gateway, on exactly the terms that let it write
@@ -146,7 +156,43 @@ page of the log by the same pager the console uses
 `GET /messages/imessage/file/<folder>/<id>` one file's bytes, as an
 attachment of no type a browser runs, or 404 once an unsend took it back.
 Only those two are GETs; every other path under the backup still wants a
-POST.
+POST. Settings › Messages › Your copy asks the Mac app over the bridge's
+optional `imessage.download` (`apps/desktop/src/main/messagesDownload.ts`):
+it reads the whole log before writing anything, fetches every file a live
+message holds (the fold decides, so an unsent message's are not asked for),
+and writes into a new folder in Downloads (`Messages backup <date>`, never
+one that exists), checking every path stays inside it, then shows it in
+Finder. A file the bucket does not hold is counted, not written. The console is told
+counts and a closed code only, never where the folder is. Off the Mac app the
+row says the texts are in Download as folders.
+
+**Delete the backup is the owner's, asked twice, and goes in full.** A bold
+red line on Settings › Messages, pressed twice, records the ask in the audit
+trail under the owner's name (`messagesExport.deleteBackup`) and erases every
+key under `.context/messages/imessage/` (the log, the files, the index's
+markers) a page at a time by key, so a store that keeps a deleted key as a
+marker is passed over rather than looped on; a page that fails is tried again
+later, never left half done in silence. The texts index in the context's
+search database goes last, because it is rebuilt from those keys. On the Mac
+app, this Mac's backup is turned off and its cursor started over first
+(`imessage.forget`), so turning it on again copies everything again rather
+than only what came after; anywhere else, the second ask says a Mac still
+backing up goes on copying new texts. Nothing else under `.context/` is
+touched.
+
+**Who reads them is a history kept beside the backup, of who and what kind,
+never what.** Each search, list or read of the texts by an AI client, and the
+first page of each download (the Mac app's, or the owner's Download as
+folders, shown as "You"), writes one small record under
+`.context/messages/imessage/reads/<yyyy>/<mm>/` (`backupReads.js`): the
+client's name as it registered, cleaned to one plain line, a kind from a
+closed set (searched, listed, read, downloaded) and when. No query, no
+conversation, no person texted. It lives in the person's own bucket rather
+than the control plane, for the reason usage counters carry no query: what a
+person's AIs read is theirs. It sits under the backup, so Delete the backup
+takes it too. A read that cannot be written down is still answered; a
+refused read writes nothing. Settings › Messages lists the newest five from
+the last two months, for the owner only (`messagesExport.recentReads`).
 
 **What a simplification would cost.** Writing the backup as notes puts years
 of texts into note search and the tree, which is what live-not-copied removed.
@@ -167,5 +213,11 @@ Attachments, waiting only for new files, the byte budget);
 `apps/mcp/test/messagesBackupRead.test.mjs` (reads refused as writes are,
 the whole log, a taken-back file not found);
 `apps/convex/__tests__/messagesBackup/messagesExport.test.ts` (owner only, every
-page, never outside the log), `apps/mobile/__tests__/messagesDownload.test.ts`
-(a short log puts nothing in unsaid) and `backupTranscript.test.mjs`.
+page, never outside the log; Delete the backup erases every page and nothing
+else, and empties the index), `apps/mobile/__tests__/messagesDownload.test.ts`
+(a short log puts nothing in unsaid, only log keys copied), `backupCopy.test.mjs`,
+`backupReads.test.mjs` and the read test in `apps/mcp/test/texts.test.mjs`
+(who and what kind, never what; one read per download; none for a refusal),
+and
+`apps/desktop/test/messagesDownload.test.mjs` (nothing written before the
+log is read, objects as kept, no unsent files, a new folder, no path outside it).

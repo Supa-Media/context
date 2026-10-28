@@ -186,3 +186,7 @@ In [A broken mailbox is said only when the person must act, and a long silence o
 ### A mailbox recovers by itself unless the person has to give a permission
 
 In [A mailbox recovers by itself unless the person has to give a permission](./communications/sync-recovery.md#a-mailbox-recovers-by-itself-unless-the-person-has-to-give-a-permission).
+
+### AI reads Google through its own OAuth client, and never falls back to the person's
+
+In [AI reads Google through its own OAuth client, and never falls back to the person's](./communications/google-clients.md#ai-reads-google-through-its-own-oauth-client-and-never-falls-back-to-the-persons).

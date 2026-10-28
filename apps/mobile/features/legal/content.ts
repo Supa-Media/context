@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 21, 2026",
+  updated: "October 28, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -11,7 +11,7 @@ export const privacyContent: LegalPageContent = {
       title: "Information we collect",
       body: [
         "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
-        "If you record a meeting, the audio is sent to Context.lc to be transcribed and is not kept once the words are written into your note. The transcript and its summary are saved in your workspace like any other note.",
+        "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI, to be turned into text, and the transcript and your typed notes are sent to Anthropic to write a summary. The transcript and its summary are saved in your workspace like any other note. See \"Meeting transcripts and summaries\" below.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
         "When you connect Google, Context.lc may receive your Google account identity, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve and the sync features you enable.",
       ],
@@ -19,7 +19,9 @@ export const privacyContent: LegalPageContent = {
     {
       title: "How we use Google data",
       body: [
-        "We use Google data only to provide the integration you requested: connecting your Google accounts to your personal Context.lc workspace and syncing selected communications or calendar information into your context.",
+        "When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read and sync Gmail messages, Calendar events and Google Chat spaces and messages into your personal workspace, and to answer your requests using that information.",
+        "Where you turn the matching features on, we also use those permissions to act for you: to create Gmail drafts, to send email you approve, to create or change events on your calendar (asking you first when a change would notify a guest), and to create Google Chat spaces or send Chat messages you approve. Read-only permissions cannot do any of these.",
+        "Google data in your workspace may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops further access and sync; notes already copied into your workspace stay until you delete them. Revoking Google access and deleting copied notes are separate controls.",
         "Email and chat sync are forward-only unless the product explicitly offers a user-initiated import. Calendar sync is used to keep current and upcoming calendar context available to you.",
         "We do not sell Google user data, use it for advertising, or use it to train third-party AI models.",
       ],
@@ -52,17 +54,26 @@ export const privacyContent: LegalPageContent = {
       ],
     },
     {
+      title: "Meeting transcripts and summaries",
+      body: [
+        "Recording a meeting or sending a voice message to the assistant you text turns speech into text with an AI provider. Today that is Whisper, a speech recognition model made by OpenAI that runs on Cloudflare Workers AI. The audio goes to Cloudflare, not to OpenAI. A meeting's summary is written from its transcript and your typed notes by Anthropic's Claude, reached through Cloudflare. The recording can include your voice, other people's voices, and anything personal said during it.",
+        "Nothing is sent until you allow it. The first time you start a meeting, Context.lc asks once whether to use AI for meeting notes, which covers both transcripts and summaries. The question names Cloudflare for transcripts and Anthropic for summaries before you choose. If you choose Not now, no audio is recorded or sent, no summary is written, and you can still type notes. Your answer is kept on your account, so another person's answer never covers you. We ask again if the provider or what the AI is used for changes. The providers can change; this section always names the ones in use. A voice message you send to the assistant you text is different: sending it is asking the assistant to listen, so it is transcribed without this question, the same way a typed message is read without one.",
+        "You can turn it off at any time in Settings, under Meetings. The device you turn it off on stops sending straight away, including from a recording that is already running, and audio still waiting on it to be sent is deleted. No new summaries are written once it is off. Your other devices and our servers stop once the change reaches them, which takes moments when they are online. A piece of audio that was already on its way when you turned it off cannot be called back.",
+        "Context.lc does not store the audio: it is passed to Cloudflare for transcription and discarded once the words are in your note. Audio recorded without a connection waits on your device until it can be sent, or until you turn transcription off. Cloudflare states that it does not use content sent to Workers AI to train AI models.",
+      ],
+    },
+    {
       title: "AI built into Context.lc",
       body: [
         "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.",
-        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it.",
+        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it. Tex makes pictures with Google's Gemini image model, which receives the description of the picture.",
       ],
     },
     {
       title: "Sharing",
       body: [
         "Your private context is not shared with other users unless you explicitly share it, invite someone, publish a note, or move information into a workspace with broader access.",
-        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic (AI), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
+        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic and Google (AI), Browserbase (the web browser Tex uses when you ask it to visit a site), Brave Search (Tex's web searches), Sendblue, Linq and Whapi (carrying your texts with Tex over iMessage, SMS and WhatsApp), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
       ],
     },
     {
@@ -98,7 +109,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "October 15, 2026",
+  updated: "October 28, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -119,7 +130,7 @@ export const termsContent: LegalPageContent = {
     {
       title: "Google integrations",
       body: [
-        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the approved scopes only to sync the information you enabled into your personal context.",
+        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the scopes you approve to sync the information you enabled into your personal context and, where you turn those features on, to create drafts, send the email and Chat messages you approve, and create or change your calendar events at your request.",
         "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any synced content you later share is appropriate to share.",
       ],
     },

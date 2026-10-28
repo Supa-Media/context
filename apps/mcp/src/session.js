@@ -60,6 +60,8 @@ export { storeForOpenedBinding, storeForSession } from "./sessionStore.js";
 
 /** Read every visible note. */
 export const SCOPE_READ = "context:read";
+/** The group chat's client (`agent/groupTurn.js`); the one a setup-only pin is honoured for. */
+const TEXTS_GROUP_CLIENT = "context_texts_group";
 /** Create, update, move, and archive notes. Implies capture. */
 export const SCOPE_WRITE = "context:write";
 /** Drop a raw capture into inbox and nothing else. */
@@ -169,9 +171,10 @@ export function bearerToken(request) {
  *
  * Returns `{ workspaceId, scope, actorUserId, actorClientId, scopes, ... }`.
  * Throws `SessionRefusal` for everything else — there is no third outcome, and
- * in particular no "carry on with a default".
+ * in particular no "carry on with a default". `transport` says how the token
+ * came (`http/presentedToken.js`) and changes nothing about the answer.
  */
-export async function resolveSession(token, slug, controlPlane) {
+export async function resolveSession(token, slug, controlPlane, transport = null) {
   if (!token) {
     throw new SessionRefusal(401, "invalid_token", "An OAuth access token is required.");
   }
@@ -183,7 +186,7 @@ export async function resolveSession(token, slug, controlPlane) {
 
   let resolved;
   try {
-    resolved = await controlPlane.resolveSession(token);
+    resolved = await controlPlane.resolveSession(token, transport);
   } catch (error) {
     if (error instanceof ControlPlaneError) {
       // The control plane is unreachable, misconfigured, or answering something
@@ -247,6 +250,8 @@ export async function resolveSession(token, slug, controlPlane) {
      */
     grantScopes: session.scopes,
     workspaces: session.workspaces,
+    // Where Tex's setup is read on a group chat's turn, and nothing else (`sessionForSetup`).
+    setupReach: session.setupReach,
     expiresAt: session.expiresAt,
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.
@@ -329,6 +334,34 @@ export function sessionForContext(session, name) {
 }
 
 /**
+ * A group chat's session, addressed at the pin only to read Tex's setup
+ * (`agent/production.js`), or `null` when the grant carries none.
+ *
+ * Read-only whatever the grant holds, at the pin's own role and names, and
+ * never reached through `sessionForContext`: the pin is not in `workspaces`,
+ * so no tool argument and no URL can name it.
+ */
+export function sessionForSetup(session) {
+  const setup = session?.setupReach;
+  if (!setup || typeof setup.workspaceId !== "string") return null;
+  const scopes = effectiveScopes(session.grantScopes, setup.role).filter((scope) => scope === SCOPE_READ);
+  if (scopes.length === 0) return null;
+  const sibling = {
+    ...session,
+    workspaceId: setup.workspaceId,
+    workspaceSlug: setup.slug,
+    workspaceKind: setup.kind,
+    role: setup.role,
+    scope: visibilityTierForGrant(scopes, setup.role),
+    scopes,
+    grantedGroups: grantedGroupsOf(setup.grantedNames),
+    setupReach: null,
+  };
+  Object.defineProperty(sibling, "accessToken", { value: session.accessToken, enumerable: false, writable: false });
+  return sibling;
+}
+
+/**
  * `@seyi`, `seyi` and `Seyi` are one name; anything the gateway would not read
  * out of a URL is not a name at all.
  *
@@ -384,15 +417,22 @@ function normalizeSession(raw) {
       if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName) && !ROW_NAME_PATTERN.test(normalizedName)) throw fail();
       return normalizedName;
     });
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames };
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
+  // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):
+  // kept apart from the set a tool or a URL may address, and honoured for no
+  // other client. Only `sessionForSetup` opens it.
+  const reach = normalized.filter((entry) => !entry.setupOnly).map(({ setupOnly, ...entry }) => entry);
+  const setup = clientId === TEXTS_GROUP_CLIENT ? normalized.find((entry) => entry.setupOnly) : undefined;
+  if (reach.length === 0) throw fail();
   return {
     grantId,
     clientId,
     actorUserId,
     scopes,
-    workspaces: normalized,
+    workspaces: reach,
+    setupReach: setup === undefined ? null : (({ setupOnly, ...entry }) => entry)(setup),
     defaultWorkspaceId,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
     // Optional for the reason `clientName` is: it decides nothing, it only

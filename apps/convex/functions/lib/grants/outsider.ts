@@ -60,6 +60,7 @@ import { accessNamesFor, editNameFor, renderAccess, viewNameFor, type AccessRow 
 import { canSee, type PrivacyOverrides, type PrivacyRule } from "../privacy";
 import { ownedConfirmedEmailsOf } from "../signInEmails";
 import { getMembership } from "../workspaceAuth";
+import { isReservedReviewer } from "../reviewerAccount";
 import { located, nodeAt } from "../nodes/paths";
 
 /**
@@ -148,6 +149,8 @@ export async function guestViewOf(
 ): Promise<GuestView | null> {
   if ((await ctx.db.get(workspaceId)) === null) return null;
   if ((await getMembership(ctx, workspaceId, userId)) !== null) return null;
+  // A grant naming the reserved reviewer reaches nothing (`reviewerAccount.ts`).
+  if (await isReservedReviewer(ctx, userId)) return null;
   const rows = await accessRowsOf(ctx, workspaceId);
   const held = emails ?? (await ownedConfirmedEmailsOf(ctx, userId));
   const names = withoutBlockedGrants(accessNamesFor({ userId, emails: held }, rows), await blockedGrantNames(ctx, userId, workspaceId, held));

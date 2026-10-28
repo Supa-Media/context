@@ -111,8 +111,8 @@ export async function readKeptFile(store, ai, ref, { now } = {}) {
   return toolText(`${head.join("\n")}\n\n${QUOTATION}\n\n${words.text}`);
 }
 
-/** Which argument of which tool can name a kept file. */
-const READERS = { read_file: "path", read_note: "path", fetch: "id" };
+/** Which argument of which tool can name a kept file: a listing of one is a read of it (Tex, 2026-10-26, `list_notes { prefix: "download:…" }`). */
+const READERS = { read_file: "path", read_note: "path", fetch: "id", list_notes: "prefix" };
 
 /**
  * `read_file` (or `read_note`, or `fetch`) with a `download:` id reads that
@@ -133,4 +133,82 @@ export function withKeptFiles(store, onRead, callTool) {
     onRead?.();
     return await readKeptFile(store, store?.ai, ref);
   };
+}
+
+/*
+  A KEPT FILE IS SHOWN AGAIN ON THE TEXTS THAT FOLLOW IT (the owner's review
+  of a chat, 2026-10-26: "WHY TF CANT YOU SEE A PDF I PASTE INSIDE THE CHAT").
+
+  A resume PDF came with a text, Tex wrote a pitch from it, and on the next
+  text, asked about something else, it went looking for the file with
+  `list_notes { prefix: "download:…" }` and a `fetch` carrying a stray
+  argument, neither of which reaches a kept file, then said the PDF "won't
+  load", took back what it had read, and asked them to paste the text. The id
+  was in the saved conversation the whole time; a model had to choose to read
+  it, and a small one chose wrong.
+
+  So the files the last few texts kept ride along again as attachments, marked
+  `carried`, read from the bucket like `read_file` reads them: the model sees
+  the PDF itself, as on the turn it came, and there is nothing to choose.
+  Bounded, so a long chat after one book-sized PDF does not pay for it every
+  text: the newest two files of the last four texts, a PDF only while small,
+  a text file's first part only.
+*/
+
+/** How far back, in their texts, a kept file still rides along. */
+export const CARRY_TEXTS = 4;
+/** How many kept files one turn carries, newest first. */
+export const CARRY_FILES = 2;
+/** A PDF carried again, at most: a resume or a lease, never a book. */
+export const CARRY_PDF_BYTES = 3 * 1024 * 1024;
+/** A text file carried again: its first part; the rest by `read_file` with `@`. */
+export const CARRY_TEXT_CHARS = 30_000;
+
+const KEPT_IN_LINE = /\(kept as (download:\d{13}-[sl]-[a-f0-9]{32})\)/g;
+
+/** The `download:` ids the saved conversation's last `texts` texts kept, newest first, each once. */
+export function keptInHistory(history, { texts = CARRY_TEXTS } = {}) {
+  const theirs = (Array.isArray(history) ? history : []).filter((turn) => turn?.role === "user" && typeof turn.text === "string");
+  const ids = [];
+  for (const turn of theirs.slice(-texts).reverse()) {
+    // Only the line the gateway writes (`attachmentsLine`), never an id typed into a message's own words.
+    const lines = turn.text.split("\n").filter((line) => line.startsWith("[Sent with this text: "));
+    const found = lines.flatMap((line) => [...line.matchAll(KEPT_IN_LINE)].map((match) => match[1])).reverse();
+    for (const id of found) if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * The kept files to show this turn again, as attachments marked `carried`
+ * (`attachments.js` says so to the model, and never saves them as sent with
+ * this text). Best effort: a file that is gone, too big or unreadable is
+ * left to `read_file`, which says why.
+ */
+export async function carryKeptFiles(store, history, fresh = [], { now } = {}) {
+  const sentNow = new Set(fresh.map((attachment) => attachment?.kept?.id).filter(Boolean));
+  const ids = keptInHistory(history).filter((id) => !sentNow.has(id)).slice(0, CARRY_FILES);
+  const carried = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const read = await readDownload(store, id, now === undefined ? {} : { now });
+        if (read.error) return null;
+        const { name, type, size, data } = read.file;
+        const kept = { id, keptFor: null };
+        if (type === PDF) return size <= CARRY_PDF_BYTES ? { name, mediaType: PDF, data, kept, carried: true } : null;
+        if (!TEXT_TYPE.test(type)) return null;
+        const text = new TextDecoder().decode(fromBase64(data));
+        return { name, mediaType: type, text: text.slice(0, CARRY_TEXT_CHARS), ...(text.length > CARRY_TEXT_CHARS ? { length: text.length } : {}), kept, carried: true };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return carried.filter(Boolean);
+}
+
+/** The ids of the kept files this turn can reach: sent with it or shown again, then named in earlier texts. */
+export function keptIdsOf(attachments, earlier = []) {
+  const now = (Array.isArray(attachments) ? attachments : []).map((attachment) => attachment?.kept?.id).filter(Boolean);
+  return [...new Set([...now, ...earlier])];
 }

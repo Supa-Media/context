@@ -15,9 +15,11 @@ import { internalMutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
-import { CALENDAR_WRITE_SCOPE, calendarWritePolicies } from "./lib/calendarWrite";
+import { calendarWritePolicies } from "./lib/calendarWrite";
+import { canWriteCalendar } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
+import { aiScopesOf } from "./lib/googleConnect/aiScopes";
 
 const refusal = v.union(
   v.literal("not_allowed"),
@@ -69,7 +71,7 @@ export const claimCalendarWrite = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
       .take(20);
     const writers = connections.filter(
-      (row) => row.disconnectedAt === undefined && row.products.includes("calendar") && row.scopes.includes(CALENDAR_WRITE_SCOPE),
+      (row) => row.disconnectedAt === undefined && row.products.includes("calendar") && canWriteCalendar(aiScopesOf(row)),
     );
     const writer = writers[0];
     if (writer === undefined) {

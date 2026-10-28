@@ -11,9 +11,19 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
 }));
 
+// Every action the page runs, by the arguments it was given (Delete the backup's is the one that matters).
+const actionCalls: unknown[] = [];
+let mockReads: { at: number; who: string; how: string }[] = [];
+
 jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
-  useAction: () => async () => undefined,
+  useConvex: () => ({}),
+  // The read history answers from `mockReads`; every other action is recorded.
+  useAction: (ref: unknown) => async (args: unknown) =>
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require("convex/server") as typeof import("convex/server")).getFunctionName(ref as never).endsWith("recentReads")
+      ? mockReads
+      : void actionCalls.push(args),
   useQuery: () => undefined,
   useMutation: () => async () => undefined,
 }));
@@ -36,6 +46,11 @@ import { has, installShell, mount, resetDesktop, teardownDesktop } from "./fixtu
  *   the switch calling setEnabled with the value it already has           1
  *   the card's Turn off doing nothing                                       1
  *   the videos switch sending the pictures switch                           1
+ *   Download offered off the Mac app                                        1
+ *   Download not saying what it saved                                       1
+ *   Delete the backup deleting on the first press                           1
+ *   Delete the backup not turning this Mac's backup off first               1
+ *   the read history not drawn in Who reads them                            1
  *   (the phase and outdated rows are in `messagesBackupView.test.ts`)
  */
 
@@ -176,7 +191,81 @@ describe("Settings › Messages", () => {
     await settle();
 
     expect(has(mounted.container, "messages-not-on-mac")).toBe(true);
+    // Your copy: the folder with the pictures is the Mac app's to write; here, the way to the texts.
+    expect(has(mounted.container, "messages-download")).toBe(false);
+    expect(mounted.container.textContent).toContain("Download as folders on your workspace has the texts");
     mounted.unmount();
+  });
+
+  test("your copy: Download messages saves into Downloads on the Mac, and says what it saved", async () => {
+    const shell = shellWith({});
+    installShell(shell);
+    const mounted = mount(createElement(MessagesPanel, { owned: true }));
+    await settle();
+
+    expect(mounted.container.textContent).toContain("Your copy");
+    expect(mounted.container.textContent).toContain("Your texts as they're kept, in JSON lines, with the pictures");
+    press(mounted.container, "messages-download");
+    await settle();
+    expect(shell.calls).toContain("imessage.download");
+    expect(mounted.container.textContent).toContain("Saved 2 conversations and 3 pictures to Downloads.");
+    mounted.unmount();
+  });
+
+  test("Delete the backup asks twice, turns this Mac's backup off first, then deletes", async () => {
+    actionCalls.length = 0;
+    const shell = shellWith({});
+    installShell(shell);
+    const mounted = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+
+    press(mounted.container, "messages-delete");
+    await settle();
+    expect(actionCalls).toEqual([]);
+    expect(mounted.container.textContent).toContain("this Mac stops backing up. Press again to delete.");
+    press(mounted.container, "messages-delete-keep");
+    await settle();
+    expect(has(mounted.container, "messages-delete-confirm")).toBe(false);
+
+    press(mounted.container, "messages-delete");
+    await settle();
+    press(mounted.container, "messages-delete-confirm");
+    await settle();
+    expect(shell.calls).toContain("imessage.forget");
+    expect(actionCalls).toEqual([{ workspaceId: "ws_mine" }]);
+    expect(mounted.container.textContent).toContain("Deleted. What was copied is being erased now.");
+    mounted.unmount();
+  });
+
+  test("off the Mac app, the second ask says a Mac still backing up goes on copying", async () => {
+    actionCalls.length = 0;
+    const mounted = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+
+    press(mounted.container, "messages-delete");
+    await settle();
+    expect(mounted.container.textContent).toContain("turn it off there first");
+    press(mounted.container, "messages-delete-confirm");
+    await settle();
+    expect(actionCalls).toEqual([{ workspaceId: "ws_mine" }]);
+    mounted.unmount();
+  });
+
+  test("who reads them: the newest reads, by name and kind, never what was read", async () => {
+    mockReads = [
+      { at: Date.now() - 2 * 3_600_000, who: "Claude", how: "searched" },
+      { at: Date.now() - 3 * 86_400_000, who: "You", how: "downloaded" },
+    ];
+    const mounted = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+    const lines = [...mounted.container.querySelectorAll('[data-testid="messages-read"]')].map((line) => line.textContent);
+    expect(lines).toEqual(["Claude searched your texts \u00b7 2 hours ago", "You downloaded the backup \u00b7 3 days ago"]);
+    mounted.unmount();
+    mockReads = [];
+    const none = mount(createElement(MessagesPanel, { owned: true, workspaceId: "ws_mine" }));
+    await settle();
+    expect(has(none.container, "messages-reads-none")).toBe(true);
+    none.unmount();
   });
 
   test("an account with no workspace of its own has nowhere to keep texts", async () => {

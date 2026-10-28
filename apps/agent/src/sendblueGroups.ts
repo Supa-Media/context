@@ -42,11 +42,19 @@ export type GroupMessage = {
   /** A like on one of Tex's asks, or one taken back (`thumbs.ts`); `text` is then the tapback's own words. */
   reaction?: Reaction;
   /**
+   * WhatsApp names the message a reaction is on rather than quoting it: its
+   * words are read before the reaction is queued, and only when Tex sent it in
+   * this same group (`index.ts`, `groupLine.ts` `readOwnMessage`). Dropped then.
+   */
+  reactionOn?: string;
+  /**
    * A picture or file sent in the chat, by Sendblue's address only, never its
    * bytes: fetched when a turn reads it, as a 1:1 text's are (`attachments.ts`).
    * A link's preview card is not one (`isLinkPreview`).
    */
   attachments?: InboundAttachment[];
+  /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
+  routine?: { runId: string; path: string };
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

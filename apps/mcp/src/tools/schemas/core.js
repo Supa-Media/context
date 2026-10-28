@@ -29,7 +29,13 @@ export function coreToolDefinitions() {
             description:
               "Optional. One part of the manual instead of the overview: \"tools\" for every tool and action " +
               "with its arguments, an action's name (e.g. \"move\") for that action in full, \"access\" for " +
-              "what you may write where, \"website\" for building the site, \"health\" for how tidy it is.",
+              "what you may write where, \"website\" for building the site, \"pages\" for the .page.md format, \"health\" for how tidy it is.",
+          },
+          since: {
+            type: "string",
+            description:
+              "Optional. The orient_mark an earlier orient ended with: answers with only what changed since then, " +
+              "much shorter and faster than the overview. Use it to orient again in the same session.",
           },
         },
         additionalProperties: false,
@@ -49,8 +55,7 @@ export function coreToolDefinitions() {
         "preferences and past work. The first place to look for any question about the user — " +
         "the answer is usually already written down here. Returns results whose id can be " +
         "passed to fetch for the full note. For their email, pass args { email: true }: it searches " +
-        "the mail synced into their notes first, then their Gmail for mail from before it was " +
-        "connected or not synced yet, with Gmail search syntax in query.",
+        "their Gmail live, with Gmail search syntax in query; no mail is automatically copied into their notes.",
       inputSchema: {
         type: "object",
         properties: {

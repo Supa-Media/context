@@ -64,6 +64,7 @@ import {
   type DesktopShell,
   type DetectionView,
   type ImessageStatus,
+  type MessagesBackupDownload,
   type MessagesBackupFilesChoice,
   type MachineApprovalResult,
   type MeetingWrite,
@@ -74,10 +75,11 @@ import {
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
+  type UpcomingMeetings,
   type Unsubscribe,
 } from "@context/desktop-bridge";
 import { shouldExposeBridge } from "./console.ts";
-import { filesChoiceFrom, imessageStatusFrom } from "./imessageStatus.ts";
+import { downloadFrom, filesChoiceFrom, imessageStatusFrom } from "./imessageStatus.ts";
 
 /**
  * What the main process answers on a channel it handles.
@@ -622,6 +624,8 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
         ask(ipc, BRIDGE_CHANNELS.imessageRequestFullDiskAccess, undefined, () => undefined),
       setFiles: (choice: MessagesBackupFilesChoice): Promise<void> =>
         ask(ipc, BRIDGE_CHANNELS.imessageSetFiles, filesChoiceFrom(choice), () => undefined),
+      download: (): Promise<MessagesBackupDownload> => ask(ipc, BRIDGE_CHANNELS.imessageDownload, undefined, downloadFrom),
+      forget: (): Promise<void> => ask(ipc, BRIDGE_CHANNELS.imessageForget, undefined, () => undefined),
       onChange: (handler: (status: ImessageStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.imessageChange, imessageStatusFrom, handler),
     }),
@@ -644,6 +648,18 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
     */
     spelling: Object.freeze({
       check: async (word: string): Promise<SpellingCheck> => checkSpelling(speller, word),
+    }),
+    /*
+      Version 9. Sent as it was given: the main process rebuilds it field by
+      field (`core/calendar/upcoming.ts`), and a field repaired here, in the
+      renderer, is one the guard over there never gets to refuse.
+    */
+    calendar: Object.freeze({
+      setUpcoming: (upcoming: UpcomingMeetings): void => {
+        void ipc.invoke(BRIDGE_CHANNELS.calendarSetUpcoming, upcoming).catch(() => {
+          // Fire and forget, like `tell`: the menu bar is where the answer shows.
+        });
+      },
     }),
   });
 }

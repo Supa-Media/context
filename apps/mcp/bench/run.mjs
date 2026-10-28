@@ -123,7 +123,9 @@ async function readSetups(dir, job, only) {
  * change included, because production asks on exactly these turns and the
  * round measures what the person gets: the extra text, its time, its words.
  */
-export function personAnswers(turn) {
+export function personAnswers(turn, question = null) {
+  // Unless the case plays the asks too (`- person answers asks`, tests/corrections.md).
+  if (question?.answersAsks === true) return null;
   return turn.asked > 0 ? "YES" : null;
 }
 
@@ -153,6 +155,12 @@ export function handOffAnswer(turn, question, events) {
   return null;
 }
 
+/** A picture a test sends with its opening text (`- person sends picture:`), from the repository's `ai/pictures/`. */
+async function benchPicture(name) {
+  const data = await readFile(fileURLToPath(new URL(`./ai/pictures/${name}`, import.meta.url)));
+  return { name, mediaType: /\.png$/i.test(name) ? "image/png" : "image/jpeg", data: data.toString("base64") };
+}
+
 /** One conversation: the person's opening text, then as many turns as they take. */
 export async function converse(world, question, person, mode = null) {
   if (mode === "housekeeping") return await keepHouse(world, question);
@@ -161,9 +169,10 @@ export async function converse(world, question, person, mode = null) {
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
-    conversation.push({ from: "person", text: message });
+    const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
+    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
     const seen = world.browser().length;
-    const turn = await world.text(message);
+    const turn = await world.text(message, pictures);
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
@@ -186,7 +195,7 @@ export async function converse(world, question, person, mode = null) {
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
     message =
-      personAnswers(turn) ??
+      personAnswers(turn, question) ??
       handOffAnswer(turn, question, world.browser().slice(seen)) ??
       (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;

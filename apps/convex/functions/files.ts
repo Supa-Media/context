@@ -420,6 +420,8 @@ export const searchContexts = action({
     contexts: v.optional(v.array(v.id("workspaces"))),
     /** A cursor from a previous page of this same query, or nothing. */
     cursor: v.optional(v.string()),
+    /** The words or the meaning alone; absent is both. See `searchContextsHandler`. */
+    half: v.optional(v.union(v.literal("words"), v.literal("meaning"))),
   },
   returns: blendedResultsValidator,
   handler: async (ctx, args): Promise<BlendedAnswer> => await searchContextsHandler(ctx, args),

@@ -161,7 +161,8 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../lib/signedIn";
+import { TRANSCRIPTION_CONSENT_REQUIRED } from "@context/shared";
 import { internal } from "../../_generated/api";
 import { action, internalMutation } from "../../_generated/server";
 import type { Id } from "../../_generated/dataModel";
@@ -345,6 +346,14 @@ export interface TranscriptSegment {
   speaker: null;
   channel: "mic";
   confidence: number | null;
+}
+
+/** No current yes to the cloud transcription disclosure: nothing is sent. */
+function consentRequired(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: TRANSCRIPTION_CONSENT_REQUIRED,
+    message: "Cloud transcription is off for this account, so no audio was sent. Allow it in Settings › Meetings.",
+  });
 }
 
 function notAuthenticated(): ConvexError<{ code: string; message: string }> {
@@ -691,6 +700,15 @@ export const transcribeChunk = action({
     // owns, so there is nothing here to be a member of.
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw notAuthenticated();
+
+    // Consent, before the budget and before a byte is forwarded: a microphone
+    // permission is not permission to send a recording to Cloudflare Workers
+    // AI (App Review 5.1.1(i)/5.1.2(i);
+    // docs/decisions/meetings/transcription-consent.md). Read fresh on every
+    // chunk, retries from the spool included, so a withdrawal stops the next
+    // one whatever the app still believes.
+    const consented = await ctx.runQuery(internal.functions.transcriptionConsent.hasConsent, { userId });
+    if (!consented) throw consentRequired();
 
     // The ceiling, and the one database write this action is allowed. It goes
     // second on purpose: after authentication, because an anonymous caller must

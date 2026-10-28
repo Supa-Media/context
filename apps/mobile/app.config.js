@@ -256,7 +256,7 @@ module.exports = ({ config }) => {
           are the control.
         */
           microphonePermission:
-            "Context uses the microphone to record your meetings. Audio is transcribed and then discarded — only the text is saved, into storage you own.",
+            "Context uses the microphone to record your meetings. If you allow AI for meeting notes, the audio is sent to our AI provider to be turned into text and then discarded — only the text is saved, into storage you own.",
           /*
           Deliberately **not** `enableBackgroundRecording: true` here, even
           though that option exists and would add

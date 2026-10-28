@@ -300,6 +300,7 @@ jobs:
           TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
           BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_KEY }}
           AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
           AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
@@ -338,6 +339,15 @@ jobs:
             echo "OK — web search is configured for this gateway."
           else
             echo "OK — no web search key; the texting assistant searches nothing."
+          fi
+
+          # Maps on Tex's cards (src/agent/visuals/map.js): optional. With the
+          # key the map is Google's; without it, OpenStreetMap's tiles.
+          if [ -n "${GOOGLE_MAPS_KEY:-}" ]; then
+            printf '%s' "$GOOGLE_MAPS_KEY" | pnpm exec wrangler secret put GOOGLE_MAPS_KEY --config "$MCP_WRANGLER_CONFIG"
+            echo "OK — Google Maps draws Tex's card maps."
+          else
+            echo "OK — no Google Maps key; Tex's card maps use OpenStreetMap."
           fi
 
           # Model routing through Cloudflare AI Gateway (src/agent/aiGateway.js):

@@ -63,7 +63,9 @@ export async function agentTextsSessionHandler(
   if (status !== "linked") return json({ status });
   // Their clock, so a texted turn knows the time where they are (`localNow.js`).
   const timeZone: string = await ctx.runQuery(internal.functions.textLinks.textsTimeZone, { phone });
-  return json({ status, accessToken, timeZone });
+  // How their own Tex talks (`functions/texStyle.ts`): only what they changed, so `{}` is left out.
+  const texStyle = await ctx.runQuery(internal.functions.texStyle.textsStyle, { phone });
+  return json({ status, accessToken, timeZone, ...(Object.keys(texStyle).length > 0 ? { texStyle } : {}) });
 }
 
 /**

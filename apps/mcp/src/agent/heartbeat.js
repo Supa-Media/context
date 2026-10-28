@@ -58,7 +58,7 @@ import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { isPlumbing } from "../privacy/engine.js";
-import { servedListingStore } from "../tree/served.js";
+import { lookChangedEntries } from "./lookTree.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
@@ -458,11 +458,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  // It only reads, so a note it opens is not made a collaboration document
-  // (`tools/notes/read.js`): that was ~15 of a first read's ~24 subrequests,
-  // and a look reading thirty changed inbox notes ran out of its invocation's
-  // subrequests before its log was written (production, 2026-10-19).
-  store.readsStartNoDocument = true;
   // It reads only its own workspace, and what it says goes to the person's own phone.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
@@ -499,14 +494,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     const now = Date.now();
     return logSkipped(dispatch, { path: heartbeatPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
   };
-  let entries;
-  try {
-    entries = await servedListingStore(store).treeEntries();
-  } catch {
+  const listed = await lookChangedEntries(store, since);
+  if (!listed.entries) {
     // What changed can't be told while the tree cannot be read: tried again soon, from the same point.
+    console.log(JSON.stringify({ event: "heartbeat_tree", workspace: session.workspaceId, reason: listed.code, tries: listed.tries }));
     await skipped(TREE_UNAVAILABLE_WORDS);
-    return json({ error: "tree_unavailable" }, 503);
+    return json({ error: "tree_unavailable", reason: listed.code }, 503);
   }
+  const entries = listed.entries;
   const changed = newsFirst(changedSince(entries, since), Date.now());
   // New mail is asked of Gmail: nothing of a mailbox is copied into notes (2026-10-21).
   const mail = await newMailSince(store, since);

@@ -118,6 +118,8 @@ account, and nothing here forecloses it.
 
 ## A text sent while Tex works joins that job
 
+> **Superseded in part (Dev2, 2026-10-26):** any message that arrives while Tex works, a reply, tapback or photo included, is now seen by the decide step, which folds it in, queues it or restarts the turn. See [Tex reads one event log and decides when to answer](./event-log.md).
+
 Decided by Dev, 2026-10-19, picking Hermes's "steer" mode over its default
 of stopping and starting again: "oh and make it Friday", sent while Tex is
 booking, belongs to the booking. The texting Worker names each turn it asks
@@ -137,6 +139,8 @@ is held in memory for the turn only, never in Durable Object storage.
 Tests: `apps/agent/src/steer.test.ts` and `apps/mcp/test/agentSteer.test.mjs`.
 
 ## Texts sent back to back get one answer (2026-10-21)
+
+> **Superseded in part (Dev2, 2026-10-26):** which texts one answer covers is now the decide step's choice over the event log, not this rule. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 Dev2's report of 2026-10-21: a burst of inline replies got an answer each.
 A reply or a tapback is never steered (above), so texts that arrive while a

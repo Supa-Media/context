@@ -162,7 +162,7 @@ describe("an answer with option cards", () => {
     await accept(storage, message("sendblue:mh_o1"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fake(calls)));
-    const order = calls.filter((call) => !String(call.body.media_url ?? "").endsWith(".vcf") && !call.path.includes("contact-sharing") && !call.path.includes("typing") && !call.path.includes("mark-read"));
+    const order = calls.filter((call) => call.path.startsWith("/api/") && !String(call.body.media_url ?? "").endsWith(".vcf") && !call.path.includes("contact-sharing") && !call.path.includes("typing") && !call.path.includes("mark-read"));
     expect(order.map((call) => (call.body.app_card ? "card" : call.path === "/api/send-carousel" ? "carousel" : "text"))).toEqual(["text", "carousel", "card"]);
     expect(cards(calls)[0].body).toMatchObject({
       number: PHONE,

@@ -113,11 +113,15 @@ import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as googleChat from "./functions/lib/gatewayRoutes/googleChat";
 import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
+import { gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES } from "./functions/lib/gatewayRoutes/pageCover";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
+import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
+import * as texStyleRoutes from "./functions/lib/gatewayRoutes/texStyle";
+import * as noteCard from "./functions/lib/gatewayRoutes/noteCard";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
@@ -125,6 +129,7 @@ import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
 import * as texIdentity from "./functions/lib/gatewayRoutes/texIdentity";
+import { gatewayTranscriptionConsentHandler } from "./functions/lib/gatewayRoutes/transcriptionConsent";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
 import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import * as mailHealth from "./functions/lib/gatewayRoutes/mailHealth";
@@ -341,6 +346,7 @@ export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler)
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+export const gatewayPageCover = gatewayRoute(gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES); // a page's cover, for its link's card
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
@@ -806,6 +812,7 @@ http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
+http.route({ path: "/gateway/page-cover", method: "POST", handler: gatewayPageCover });
 http.route({ path: "/gateway/note-ids/lookup", method: "POST", handler: gatewayNoteIdsLookup });
 http.route({ path: "/gateway/note-ids/wrote", method: "POST", handler: gatewayNoteIdsWrote });
 http.route({ path: "/gateway/note-ids/resolve", method: "POST", handler: gatewayNoteIdsResolve });
@@ -929,6 +936,8 @@ http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDrea
 /* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
 export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
+export const gatewayTranscriptionConsent = gatewayRoute(gatewayTranscriptionConsentHandler);
+http.route({ path: "/gateway/transcription/consent", method: "POST", handler: gatewayTranscriptionConsent });
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
 export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
 http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
@@ -954,12 +963,20 @@ http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnl
 /* A tagged message or a command in a group chat Tex is in (`functions/textGroups.ts`). */
 export const agentTextsGroup = agentWorkerRoute(agentTextGroups.agentTextsGroupHandler);
 http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGroup });
+http.route({ path: "/agent-texts/group/people", method: "POST", handler: agentWorkerRoute(agentTextGroups.agentTextsGroupPeopleHandler) });
+/* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
+http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
+http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
+http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
+http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });
 http.route({ path: "/agent-texts/gmail", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsGmailHandler) });
 http.route({ path: "/agent-texts/vault-saved", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsVaultSavedHandler) });
 http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
+// The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
+http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);

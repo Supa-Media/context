@@ -60,6 +60,11 @@
  *   (`fresh: true`) the third (`apps/mcp/src/agent/captchaLadder.js`), so
  *   `captcha: 1` clears on the reload, `2` on the fresh browser, and
  *   `always` only when the person solves it through a handoff.
+ * - `invisible captcha`: a captcha that shows nothing (invisible reCAPTCHA,
+ *   the owner's registration form of 2026-10-27). The run answers
+ *   `invisibleCaptcha: true` as the screenshot Worker does, and a press of a
+ *   button that would go somewhere does nothing at all, no words and no
+ *   move, in any browser, until the person passed it through a handoff.
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
@@ -162,7 +167,7 @@ export function parseSite(raw, label = "site") {
     const t = line.trim();
     const heading = line.match(/^## (https:\/\/\S+)\s*$/);
     if (heading) {
-      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null };
+      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0, popup: null, invisible: false };
       site.pages.set(placeOf(heading[1]), page);
       return;
     }
@@ -170,6 +175,7 @@ export function parseSite(raw, label = "site") {
     let m;
     if ((m = t.match(/^title:\s*(.*)$/))) page.title = m[1];
     else if (t === "signed in only") page.signedInOnly = true;
+    else if (t === "invisible captcha") page.invisible = true;
     else if ((m = t.match(/^captcha:\s*(\d+|always)$/))) page.captcha = m[1] === "always" ? Infinity : Number(m[1]);
     else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
     else if ((m = t.match(/^popup\s+\(([^)]+)\):\s*(.*)$/))) page.popup = { when: readFlags(m[1], where), line: m[2] };
@@ -334,6 +340,11 @@ export function createWeb(sites) {
         }
         const short = missing(browser, page, el);
         if (short.length > 0) return { ok: true, note: `Fill in: ${short.join(", ")}.` };
+        // A hidden captcha turns the press away and says nothing.
+        if (page.invisible && (el.href || el.sets.length > 0) && !solved.has(placeOf(browser.url))) {
+          events.push(`turned away ${placeOf(browser.url)} "${el.label}"`);
+          return { ok: true };
+        }
         for (const flag of el.sets) {
           flags.add(flag);
           events.push(`set ${flag}`);
@@ -420,6 +431,8 @@ export function createWeb(sites) {
     // The screenshot Worker's answer once Browserbase's solver has had its wait; never on a handoff, which skips it.
     const captcha = body.handoff !== true && walled(browser) ? "unsolved" : null;
     if (captcha) events.push(`captcha ${placeOf(browser.url)}`);
+    const shownPage = browser.url === null ? null : pageFor(browser.url);
+    const invisibleCaptcha = body.handoff !== true && shownPage?.invisible === true && !solved.has(placeOf(browser.url));
     return {
       session: browser.session,
       ran,
@@ -427,6 +440,7 @@ export function createWeb(sites) {
       ...(liveUrl ? { liveUrl } : {}),
       ...(file ? { file } : {}),
       ...(captcha ? { captcha } : {}),
+      ...(invisibleCaptcha ? { invisibleCaptcha } : {}),
     };
   }
 
@@ -455,6 +469,7 @@ export function createWeb(sites) {
         }
         if (path === "/browse") return json(200, browse(body));
         if (path === "/browse/close") return json(200, { ok: true });
+        if (path === "/browse/hold") return json(200, { held: true });
         // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
         // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
         if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
@@ -484,7 +499,7 @@ export function createWeb(sites) {
       handedOff = null;
       const site = siteFor(browser.url ?? "");
       if (!site) return;
-      if (walled(browser)) {
+      if (walled(browser) || pageFor(browser.url ?? "")?.invisible === true) {
         solved.add(placeOf(browser.url));
         events.push(`solved captcha ${placeOf(browser.url)}`);
       }

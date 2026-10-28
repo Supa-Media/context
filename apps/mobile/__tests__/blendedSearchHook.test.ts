@@ -226,3 +226,35 @@ describe("an answer the question outlived during the debounce", () => {
     app.unmount();
   });
 });
+
+/*
+ * The search tune-up (Dev2's pick, 2026-10-27): the words are drawn without
+ * waiting for meaning, and meaning joins below them. Sabotage, as measured:
+ * awaiting the meaning half before drawing the words reddens the first
+ * expectation; prepending its rows reddens the last.
+ */
+describe("the words first, the meaning after", () => {
+  test("words are drawn while meaning is still out, and meaning joins below them", async () => {
+    const meaning = deferred();
+    mockClient.action.mockImplementation(async (_fn: unknown, args: unknown) =>
+      (args as { half?: string }).half === "meaning" ? await meaning.promise : page(null, "alice"),
+    );
+    const app = mount("review cycle");
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(app.view().results.map((row) => row.slug)).toEqual(["alice"]);
+    expect(app.view().state).not.toBe("searching");
+
+    const joined = page(null, "team");
+    await act(async () => {
+      meaning.resolve({ ...joined, results: joined.results.map((row) => ({ ...row, meaningOnly: true, close: true })) });
+      await Promise.resolve();
+    });
+    expect(app.view().results.map((row) => [row.slug, row.meaningOnly === true])).toEqual([
+      ["alice", false],
+      ["team", true],
+    ]);
+    app.unmount();
+  });
+});

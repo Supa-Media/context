@@ -33,15 +33,21 @@ import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { texReviewTables } from "./functions/lib/schema/texReviews";
 import { appearanceTables } from "./functions/lib/schema/appearance";
+import { texStyleTables } from "./functions/lib/schema/texStyle";
+import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
+import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
+import { spellingTables } from "./functions/lib/schema/spelling";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { textGroupTables } from "./functions/lib/schema/textGroups";
+import { guestPassTables } from "./functions/lib/schema/guestPasses";
 import { vaultTables } from "./functions/lib/schema/vault";
 import { connectionTables } from "./functions/lib/schema/connections";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { emailProofTables } from "./functions/lib/schema/emailProof";
+import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFactor";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
@@ -123,16 +129,22 @@ const schema = defineSchema({
   ...sharedInboxTables,
   ...telemetryTables,
   ...appearanceTables,
+  ...texStyleTables,
+  ...meetingJoinTables,
+  ...transcriptionConsentTables,
+  ...spellingTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
   ...textLinkTables,
   ...textGroupTables,
+  ...guestPassTables,
   ...texReviewTables,
   ...vaultTables,
   ...connectionTables,
   ...signInEmailTables,
   ...emailProofTables,
+  ...staffSecondFactorTables,
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,

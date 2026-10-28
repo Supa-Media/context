@@ -6,6 +6,10 @@ This is how that is built, and the decisions the owner made on the way.
 
 ## Who Tex answers, and from where
 
+> **Superseded in part (Dev2, 2026-10-26):** what wakes Tex in a group is now the group's chosen style and a model's decision over the chat's event log, with the addressed-only test below kept as the Quiet style and the fallback, and one answer may cover several people's messages. See [Tex reads one event log and decides when to answer](./event-log.md).
+
+> **Superseded in part (Dev2, 2026-10-27):** an inline reply to one of Tex's texts is no longer addressed by itself. Tex answered replies meant for the people in the chat ("Yea, don't use the API"), so a reply that says more than thanks now always reaches decide, whatever the style, and decide judges it; with decide down, it is answered only if it is a question. Its name opening or closing a message, or in a question, still always gets an answer.
+
 Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
@@ -128,8 +132,10 @@ other people's words are in its history.
   once from their own account (`likedPreview.js`), replacing anything held for
   them before. Anybody else's 👍 on it is no yes. `apps/mcp/test/agentGroupOffer.test.mjs`
   and `apps/agent/src/groupInbox.test.ts` fail if either rule is dropped.
-- **Never read mail.** `claimPersonMailRead` needs an owner of the personal
-  workspace with `context:private`; a group grant is neither.
+- **Never read mail, unless its own person shares it here.** `claimPersonMailRead`
+  needs an owner of the personal workspace with `context:private`; a group
+  grant is neither. Since 2026-10-27 a mailbox's own person may share it with
+  one chat, narrowed by a search ([chat-mail](./chat-mail.md)).
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
 - **Use the web with the chat's own browser, never the tagger's**
@@ -166,7 +172,7 @@ other people's words are in its history.
   login of its own, such as a shared email, saved in the workspace for
   everyone. A card is an entry like any other and follows the same rule;
   each payment is still the tagger's own yes, replied to Tex's ask
-  ([vault](./vault.md), "A card pays only on the person's yes, each time").
+  ([vault](./vault.md), "A card pays only on the person's yes, once a purchase").
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and
@@ -303,6 +309,44 @@ brings back "I can't edit that from this chat"; re-showing a shown ask buries
 every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
 `apps/mcp/test/agentGroupActions.test.mjs`,
 `apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+
+### The setup never loaded until 2026-10-26
+
+The setup lives in the pin (`@context-lc`), and a group grant reaches its one
+workspace and not the pin (`contextsForGrant`), so `readPinnedNote` found no
+pin and returned nothing. Every group turn from 2026-10-23 to 2026-10-26 ran on
+the built-in words: 5 pages a turn, no picture section, none of the setup's
+rules. Dev2's team-night-out ask hit "this turn's limit on page reads". The
+test passed because its fake group grant was a member of the pin.
+
+The control plane now returns the pin on a group grant marked `setupOnly`.
+The gateway keeps that row out of `workspaces`, so no tool argument, URL or
+orient listing reaches it. It honours the row for the group client only, and
+`sessionForSetup` opens it read-only for `production.js` alone. Note mail and
+live presence refuse it (`addressable`). The fixture now has the real shape.
+Tests: `apps/mcp/test/groupSetupReach.test.mjs`,
+`apps/convex/__tests__/textGroups.test.ts` ("Tex's setup in a group chat").
+
+### What a group's Tex sent, and a bug it was asked to file (2026-10-26)
+
+The same afternoon in Tex Devs, three more slips:
+
+- **The chat's memory now keeps the cards it sent.** It kept the words and
+  never the card, so Tex answered "redo the diagram" with "the only graphic
+  I made was the Reason Network one". It now keeps the same line a text
+  keeps (`sentPicturesLine`): what each card showed.
+- **"File this as a bug" files one.** Tex wrote into a team handoff note and
+  texted "Filed." When their text asks to file a bug, a note write before
+  `report_problem` is refused, and an answer with no report goes back once
+  (`agent/bugCheck.js`). A group's report lands in the Tex bug notes as its
+  tagger's, the same as a text (`filedAsBugNote`), and never carries texts:
+  the tagger's own texts with Tex aren't the chat's to send.
+- **"The note now has a picture" needs a write that carried one**
+  (`claimsNotePicture`). Otherwise it goes back once.
+
+Tests: `apps/mcp/test/agentBugReportAsked.test.mjs`,
+`apps/mcp/test/agentGroupTurn.test.mjs` (the card in memory),
+`apps/convex/__tests__/controlPlane/bugNotes.test.ts`.
 
 ## What wakes Tex, and what it remembers it did (the group chat of 2026-10-23)
 

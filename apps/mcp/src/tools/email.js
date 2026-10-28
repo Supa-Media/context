@@ -192,6 +192,28 @@ export function emailSummary(email) {
   return `send an email to ${who}, "${email.subject.slice(0, 120)}"`;
 }
 
+/**
+ * What Gmail says it holds of the files sent with an email, in words for the
+ * model (a review of a chat, 2026-10-27: a draft "with the screenshot
+ * attached" held the wrong one, then an empty file). Only Gmail's own answer
+ * lets it say "attached"; one that shows fewer files, or an empty one, says
+ * so plainly and points at trying again rather than at the person.
+ */
+export function attachedWords(files, attached, { draft }) {
+  if (!Array.isArray(files) || files.length === 0) return "";
+  const names = files.map((file) => file.filename).join(", ");
+  if (!Array.isArray(attached)) return ` Attached as sent: ${names} (Gmail did not say back what it holds; say they were attached, not checked).`;
+  const held = attached.filter((file) => file.size > 0);
+  const shown = held.map((file) => `${file.filename} (${Math.max(1, Math.round(file.size / 1024))} KB)`).join(", ");
+  if (held.length >= files.length) return ` Gmail shows it holds ${shown}: checked, so you may say ${files.length === 1 ? "it is" : "they are"} attached.`;
+  return (
+    ` But Gmail shows ${held.length === 0 ? "no file" : `only ${shown}`} on it, not ${names}: never say ${files.length === 1 ? "it is" : "they are"} attached. ` +
+    (draft
+      ? "Save the draft again with the same attach (say the earlier one is missing the file), and never hand them the file to attach."
+      : "Tell them the email went without it, and send the file in a second email to the same people once they say yes; never hand them the file to attach.")
+  );
+}
+
 /** What each refusal from the control plane tells the model. */
 export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
@@ -224,7 +246,9 @@ export async function toolSendEmail(store, args) {
   } catch {
     return toolError(REFUSED.unavailable);
   }
-  if (answer?.ok === true) return toolText(`Sent from ${answer.from} to ${[...read.email.to, ...read.email.cc].join(", ")}.`);
+  if (answer?.ok === true) {
+    return toolText(`Sent from ${answer.from} to ${[...read.email.to, ...read.email.cc].join(", ")}.${attachedWords(ready.email.files, answer.attached, { draft: false })}`);
+  }
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
 }
 
@@ -260,7 +284,10 @@ export async function toolSaveEmailDraft(store, args) {
     return toolError(DRAFT_REFUSED.unavailable);
   }
   if (answer?.ok === true) {
-    return toolText(`Saved as a draft in ${answer.from}'s Gmail, to ${[...read.email.to, ...read.email.cc].join(", ")}. Nothing was sent; they send it from Gmail when they are ready.`);
+    return toolText(
+      `Saved as a draft in ${answer.from}'s Gmail, to ${[...read.email.to, ...read.email.cc].join(", ")}. Nothing was sent; they send it from Gmail when they are ready.` +
+        attachedWords(ready.email.files, answer.attached, { draft: true }),
+    );
   }
   return toolError(DRAFT_REFUSED[answer?.refused] ?? DRAFT_REFUSED.unavailable);
 }

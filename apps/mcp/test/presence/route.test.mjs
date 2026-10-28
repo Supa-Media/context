@@ -284,6 +284,19 @@ export async function runPresenceRouteChecks(check) {
 
     const joined = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md&seed=tab-a");
     check("a team connection joins a team note's room", joined.status === 200);
+    check("a header-token join names no subprotocol", joined.protocol === null);
+    // The app's socket offers its token as a subprotocol instead of a URL path
+    // (docs/decisions/gateway-protocol/token-transport.md): it joins the same
+    // room, and the answer names `context.presence` alone, never the token.
+    const viaProtocol = await presenceRequest(env, null, "?note=1-projects/roadmap.md&seed=tab-a", {
+      headers: { "Sec-WebSocket-Protocol": `context.presence, context.token.${TEAM_TOKEN}` },
+    });
+    check("a token offered as a subprotocol joins the same room", viaProtocol.status === 200);
+    check("the answer names the presence protocol and not the token", viaProtocol.protocol === "context.presence");
+    const tokenOnly = await presenceRequest(env, null, "?note=1-projects/roadmap.md", {
+      headers: { "Sec-WebSocket-Protocol": `context.token.${TEAM_TOKEN}` },
+    });
+    check("a token subprotocol without the presence protocol is no token", tokenOnly.status === 401);
     check(
       "the room addressed is the one the session's workspace names",
       rooms.calls.at(-1)?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
@@ -454,6 +467,40 @@ export async function runPresenceRouteChecks(check) {
     check(
       "a client's own member header is overwritten, not honoured",
       forged?.name !== "@theowner",
+    );
+
+    /* -- your own other windows are told apart from colleagues ------------- */
+
+    // The same person through a second client: the Mac app beside a browser.
+    const readerAgainToken = `cat_presence_reader2_${"0".repeat(12)}`;
+    await controlPlane.addGrant({
+      accessToken: readerAgainToken,
+      workspaceId: "ws_presence",
+      role: "member",
+      scopes: ["context:read"],
+      clientId: "mcp_client_presence_reader_mac",
+      userId: "user_presence_reader",
+    });
+    await presenceRequest(env, readerAgainToken, "?note=1-projects/roadmap.md", {
+      headers: { "x-presence-member": JSON.stringify({ name: "@x", accountKey: editorMember?.accountKey }) },
+    });
+    const readerAgain = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "one person through two clients carries one account key, from the session",
+      typeof readerMember?.accountKey === "string" && readerMember.accountKey.length > 0 &&
+        readerAgain?.accountKey === readerMember.accountKey &&
+        readerAgain?.clientKey !== readerMember?.clientKey,
+    );
+    check(
+      "...a different person carries a different one, and a client cannot borrow it",
+      // The forged header names the editor's key; the room must still be told
+      // the reader's, or a client could make itself vanish from a colleague's
+      // note by claiming to be them.
+      typeof editorMember?.accountKey === "string" && editorMember.accountKey !== readerMember?.accountKey,
+    );
+    check(
+      "...and the key is a digest, never the account id",
+      !JSON.stringify(readerMember).includes("user_presence_reader"),
     );
 
     /* -- presence is a read, and refuses exactly like one ------------------ */

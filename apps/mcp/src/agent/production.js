@@ -295,6 +295,12 @@ async function pinnedReach(store, session) {
     const privacy = await loadPrivacyState(store);
     if (!privacy.error) here = { store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides };
   }
+  // A group chat cannot address the pin, but reads its setup there through a
+  // read-only door that opens nothing else (`session.js` `sessionForSetup`).
+  const listed = (store.contexts || []).some((entry) => entry.name === PINNED_CONTEXT_NAME);
+  if (!listed && here === null && typeof store.openPinnedSetup === "function") {
+    return { contexts: [{ name: PINNED_CONTEXT_NAME }], openPinned: store.openPinnedSetup, here: null };
+  }
   return { contexts: store.contexts, openPinned: store.openPinnedContext, here };
 }
 

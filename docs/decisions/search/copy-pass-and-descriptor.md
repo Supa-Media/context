@@ -196,6 +196,19 @@ than asking the bucket index" (`apps/mcp/test/searchProjection/serve.test.mjs`)
 and "a ready projection's miss is the answer, never the bucket index"
 (`apps/convex/__tests__/consoleSearch.test.ts`).
 
+**The relaxed retry travels with the strict question, and the last word is
+a prefix** (the search tune-up, Dev2's pick, 2026-10-27). Asking strict, waiting,
+then asking relaxed was two round trips from our server to Cloudflare (0.14 to
+1.1 s each) on every query that held a word nobody wrote, which is most of what
+a person types before finishing a word; `searchProjectionEach` sends both
+expressions in one batched request and the strict answer is used whenever it
+has a visible note. The strict expression is `toTypingMatchExpression`: every
+word, the last also as the start of a longer word when it has three letters or
+more, so "weekly meet" finds the weekly meeting while it is being typed.
+Reverting fails "a miss costs one request too" and "the word being typed
+matches the start of a longer word"
+(`apps/mcp/test/searchProjection/oneTrip.test.mjs`).
+
 **The tier split ranks; `canSee` decides.** `tablesForTier` picks which FTS
 tables a caller's query is scored against, so `bm25()`'s corpus statistics are
 computed over documents that caller may read — the inference channel

@@ -1,11 +1,11 @@
 import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { layout } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
 import { ChaosPanel } from "./ChaosPanel";
 import { scoreShown } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
+import { densityFor } from "../app/frame";
 
 /**
  * The chaos panel, from a folder page's line or the phone's @name menu. A bottom
@@ -18,7 +18,7 @@ export function ChaosSheet() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   if (view === undefined || view.panel !== "sheet" || !scoreShown(view.result)) return null;
-  const wide = width >= layout.narrowBreakpoint;
+  const wide = densityFor(width) !== "compact";
   return (
     <Modal transparent animationType={wide ? "fade" : "slide"} visible onRequestClose={view.closePanel}>
       <Pressable

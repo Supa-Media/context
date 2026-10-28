@@ -3,6 +3,7 @@ import {
   getDesktopBridge,
   type DesktopBridge,
   type ImessageStatus,
+  type MessagesBackupDownload,
   type MessagesBackupFilesChoice,
 } from "@context/desktop-bridge";
 
@@ -20,6 +21,10 @@ export function useBackupStatus(): {
   setEnabled: (enabled: boolean) => void;
   /** Null on a Mac app that cannot change what is copied. */
   setFiles: ((choice: MessagesBackupFilesChoice) => void) | null;
+  /** Null on a Mac app that cannot download the backup, and off the Mac app. */
+  download: (() => Promise<MessagesBackupDownload>) | null;
+  /** Null off the Mac app and on one from before Delete the backup: turns this Mac's backup off and starts it over. */
+  forget: (() => Promise<void>) | null;
   openFullDiskAccess: () => void;
 } {
   const [bridge] = useState(() => getDesktopBridge());
@@ -72,6 +77,14 @@ export function useBackupStatus(): {
               .then(setStatus, () => {})
               .finally(() => setChanging(false));
           },
+    download:
+      bridge?.imessage?.download === undefined
+        ? null
+        : () => bridge.imessage!.download!().catch((): MessagesBackupDownload => ({ ok: false, problem: "unavailable" })),
+    forget:
+      bridge?.imessage?.forget === undefined
+        ? null
+        : () => bridge.imessage!.forget!().then(() => bridge.imessage!.status().then(setStatus, () => {})),
     openFullDiskAccess: () => {
       void bridge?.imessage?.requestFullDiskAccess().catch(() => {});
     },

@@ -173,9 +173,26 @@ function meetingIdOf(entry) {
  * so nothing is claimed and the finalize is retried (the `503` in
  * `handleMeetings`).
  */
-export async function unclaimedNotePath(store, candidate) {
+export async function unclaimedNotePath(store, candidate, sessionId) {
   if (!(await takenInTree(store, [candidate])).files.has(candidate)) return candidate;
+  /*
+    THIS MEETING'S OWN NOTE IS NOT SOMEBODY ELSE'S.
+
+    The Mac app's window saves a meeting itself when the machine's queue has
+    held it too long (`desktopGateway.ts`, `SHELL_HOLD_LIMIT_MS`), at this same
+    candidate, with this meeting's `meeting-id`. When the queue does get through
+    afterwards, its finalize lands on that note rather than beside it as a
+    second copy of the same meeting. Anything else at the name is suffixed
+    around, as before.
+  */
+  if (sessionId !== undefined && (await ownMeetingNote(store, candidate, sessionId))) return candidate;
   return candidate.replace(/\.md$/, `-${crypto.randomUUID().slice(0, 8)}.md`);
+}
+
+/** Whether the tree says the note at `path` is this meeting's, by its `meeting-id`. */
+async function ownMeetingNote(store, path, sessionId) {
+  const facts = await factProps(store, [path]);
+  return facts !== null && meetingIdOf(facts.get(path)) === sessionId;
 }
 
 export async function publishMeetingNote(store, scope, { path, markdown, segmentCount }) {

@@ -15,6 +15,7 @@ import { startTextedStorage } from "./lib/textSetup/storage";
 import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { scheduleSignInAlert } from "./signInAlerts";
 import { isPhoneNumber, TEXTS_CLIENT_ID } from "./textLinks";
+import { acceptPhoneInvitations } from "./lib/invitations/join";
 
 /**
  * Setting somebody up by text (Dev2, 2026-10-17: onboarding happens by text,
@@ -167,6 +168,8 @@ async function setUp(
   const { workspaceId, slug } = await createWorkspaceHandler(ctx, userId, { slug: handle, displayName, kind: "personal" });
   const now = Date.now();
   await ctx.db.insert("phoneLinks", { userId, phone, linkedAt: now });
+  // A workspace that invited this number from a Tex group chat is joined now: texting from it proved it.
+  await acceptPhoneInvitations(ctx, userId, phone);
   await ctx.db.delete(askedId);
 
   // Every creation on the trail under the person who texted, through Tex.

@@ -76,6 +76,18 @@ against today's live text can delete somebody else's additions. Retries must
 reuse the same operation identities. A version mismatch never authorizes a
 blind overwrite or a fresh seed of an existing document.
 
+An agent's whole-note write through `write_note` is refused when the revision
+it names is no longer the note's current one (decided by the owner,
+2026-10-28). It used to be merged from that retained base. On 2026-10-28 an
+agent wrote a website note from a version read before the owner's save; where
+both had changed the same lines the merge kept the agent's words, the owner's
+edit was gone, and the write reported success. `replaceText` takes
+`onlyCurrent`, checked on every attempt, and `write_note` passes it and answers
+the conflict with the current etag and text. The console's saves and offline
+replays do not pass it and keep the exact-base merge below.
+`packages/collaboration/test/currentBase.mjs` and
+`apps/mcp/test/staleEtagWrite.test.mjs` fail if it is reversed.
+
 The exact-base merge keeps everything the document gained since that base as a
 peer's unseen insertion, so it must not be handed the writer's *own* typing
 back. On 2026-09-30 a note typed in the browser came back as its text followed
@@ -283,6 +295,33 @@ twice. Why not wait: an offline phone is exactly who the cursor is for.
 `apps/mobile/__tests__/durableOfflineDraft.test.ts` fails if a failed read
 reports an empty note, if typing offline is dropped, or if a draft is merged
 against a version other than the one on screen.
+
+## A note that turns shared under the person typing keeps taking typing
+
+A note made in the console is saved by full-text writes until something reads
+it back, and the read after its rename is usually the first to answer with a
+`c2.` version. The note turns shared under somebody mid-sentence: a durable
+controller starts for it, and it used to hold the note read-only while it read
+the note and then sent the editor's unsaved typing as a replacement — two
+gateway round trips and a grant, about five seconds after every rename typed
+straight through, with nothing typed in that window taken (Dev2, 2026-10-27).
+
+Now the editor's draft (`legacyDraftFor`) with a `c2.` version to merge against
+is an offline draft from the controller's first moment (`draftFromLegacy`), and
+a controller that starts for a note already on screen unshared takes typing at
+once (`draftWaitMs: 0`, followed across this console's rename). It goes as one
+replacement, typing on top included, and still clears the full-text draft it
+began as (`adopt`), matched by what that draft was. It is laid over the
+device's kept record only when that record holds nothing of the note, as the
+editor's draft was only ever carried onto a cold start, and nothing is saved
+before that record is read. A draft with no shared version still waits for the
+read.
+
+`apps/mobile/__tests__/renameCollabFreeze.test.ts` mounts the console's file
+browser and note room and fails if the note stops taking typing at any render
+of the rename, or if words typed during it are lost;
+`durableOfflineDraft.test.ts` fails if a kept record is written over before it
+is read.
 
 ## A closed shared note's unsent typing is sent without opening it
 

@@ -357,11 +357,11 @@ describe("no public function can reach a storage secret", () => {
         // invisible here and are not any more. See `unattributed` in `analyze`.
         "functions.fastSearchProvision.provisionIndex",
         "functions.fastSearchProvision.releaseIndex",
-        // The meaning index's two, on the same credential and the same shape:
-        // internalActions reached only by a schedule edge from
-        // `meaningSearch.enable` / `.disable` (and the workspace cascade).
+        // The meaning index's two, same credential and shape (schedule edges from `meaningSearch.enable` / `.disable`),
+        // and Delete the backup's eraser, which empties the texts rows through it, scheduled only by owner-only `deleteBackup`.
         "functions.meaningProvision.provisionMeaningIndex",
         "functions.meaningProvision.releaseMeaningIndex",
+        "functions.messagesExport.eraseBackupPage",
         // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
         //
         // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
@@ -426,9 +426,8 @@ describe("no public function can reach a storage secret", () => {
         // needs a function of its own: a Google connection is read-only from the
         // gateway's side and refreshes through the control plane instead, and the
         // function is reused for every product on the grant.
-        // A CONNECTED APP'S TOKEN, opened for one API call or to revoke it
-        // after a disconnect, a reconnect or a workspace's deletion. See the
-        // `functions/connections.ts` entry in `DECRYPT_IMPORTERS`.
+        // A CONNECTED APP'S TOKEN, opened for one API call or to revoke it after a disconnect,
+        // a reconnect or a workspace's deletion. See `functions/connections.ts` in `DECRYPT_IMPORTERS`.
         "functions.connections.callProvider",
         "functions.connections.revokeToken",
         // An MCP tool call or one of our API tools, and the scheduled finish
@@ -445,12 +444,13 @@ describe("no public function can reach a storage secret", () => {
         "functions.googleConnect.mintGoogleAccessTokenOutcome",
         "functions.googleReconnect.recheckRevokedGrants",
         "functions.googleScopeCheck.recheckCalendarWrite",
+        "functions.meetingCalendar.readMeetingCalendars", // Join and take notes' calendar barrier; see CREDENTIAL_BARRIERS.
         "functions.googleConnect.revokeGoogleGrant",
-        // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
-        // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
-        // file. Disconnect and access-token minting are reused verbatim from
-        // `googleConnect.ts` (they are already product-agnostic), so Chat adds
-        // exactly one barrier function, not three.
+        "functions.googleClients.exchangeAndBindAgent", // agent grant (googleClients.ts), on the schedule edge
+        "functions.googleClients.revokeAgentGrant",
+        // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt `googleConnect.ts`'s `exchangeAndBind`
+        // needs, on its own sibling file. Disconnect and access-token minting are reused verbatim from
+        // `googleConnect.ts` (they are already product-agnostic), so Chat adds exactly one barrier function, not three.
         "functions.chatProduct.exchangeAndBindChat",
         // CALENDAR'S OWN VERIFIER-OPENING STEP — see the
         // `functions/calendarConnect.ts` entry in `DECRYPT_IMPORTERS` for why

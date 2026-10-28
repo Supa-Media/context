@@ -74,17 +74,16 @@ import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import {
-  scopesForConnect,
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
   googleRedirectAllowed,
   isGoogleReconnectRequired,
-  refreshGoogleToken,
   revokeGoogleToken,
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
+import { standardScopesFor } from "./lib/googleConnect/aiScopes";
 // eslint-disable-next-line import/extensions
 import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
 import {
@@ -117,6 +116,8 @@ import * as backfill from "./lib/googleConnect/backfill";
 import * as syncTokens from "./lib/googleConnect/syncTokens";
 import * as validators from "./lib/googleConnect/validators";
 import { validateLoginHint } from "./lib/googleConnect/loginHint";
+import { googleClientRole } from "./lib/googleConnect/clients";
+import { mintAccessToken } from "./lib/googleConnect/mintTokens";
 
 export {
   BACKFILL_DAYS_DEFAULT,
@@ -231,7 +232,7 @@ export const startGmailConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(["gmail"]),
+        scopes: standardScopesFor(["gmail"]),
       }),
     };
   },
@@ -310,7 +311,7 @@ export const startGoogleConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(products),
+        scopes: standardScopesFor(products),
         loginHint: validateLoginHint(args.loginHint),
       }),
     };
@@ -355,13 +356,13 @@ export const completeGoogleConnect = action({
   },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
+    // An "allow AI access" consent comes back on this same callback (`googleClients.ts`).
+    const hashed = { hashedState: await hashToken(args.state), code: args.code, hashedCompletion: await hashToken(args.completionSecret ?? "") };
+    const agent = await ctx.runMutation(internal.functions.googleClients.consumeAgentAttempt, hashed);
+    if (agent !== null) return agent.spent ? { workspaceId: agent.workspaceId } : refuseAttempt();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.googleConnect.consumeGoogleAttemptAndExchange,
-      {
-        hashedState: await hashToken(args.state),
-        code: args.code,
-        hashedCompletion: await hashToken(args.completionSecret ?? ""),
-      },
+      hashed,
     );
     if (consumed === null) refuseAttempt();
     return consumed;
@@ -745,8 +746,10 @@ export const disconnectGoogleConnection = mutation({
     if (connection.disconnectedAt !== undefined) return null;
 
     const refreshToken = connection.encryptedRefreshToken;
+    const agentRefreshToken = connection.agentGrant?.encryptedRefreshToken ?? "";
     await ctx.db.patch(args.connectionId, {
       encryptedRefreshToken: "",
+      agentGrant: undefined,
       encryptedAccessToken: undefined,
       accessTokenExpiresAt: undefined,
       gmail: connection.gmail ? { ...connection.gmail, historyId: undefined } : connection.gmail,
@@ -775,6 +778,8 @@ export const disconnectGoogleConnection = mutation({
       workspaceId: args.workspaceId,
       encryptedRefreshToken: refreshToken,
     });
+    const agentRevoke = { workspaceId: args.workspaceId, encryptedRefreshToken: agentRefreshToken };
+    await ctx.scheduler.runAfter(0, internal.functions.googleClients.revokeAgentGrant, agentRevoke);
     return null;
   },
 });
@@ -879,10 +884,10 @@ export const revokeGoogleGrant = internalAction({
  * a stale access token past its expiry.
  */
 export const mintGoogleAccessToken = internalAction({
-  args: { connectionId: v.id("googleConnections") },
+  args: { connectionId: v.id("googleConnections"), role: googleClientRole },
   returns: v.union(v.null(), v.object({ accessToken: v.string(), expiresAt: v.number() })),
   handler: async (ctx, args): Promise<{ accessToken: string; expiresAt: number } | null> => {
-    const outcome = await mintAccessToken(ctx, args.connectionId, false);
+    const outcome = await mintAccessToken(ctx, args.connectionId, false, args.role);
     return outcome.kind === "minted" ? { accessToken: outcome.accessToken, expiresAt: outcome.expiresAt } : null;
   },
 });
@@ -894,77 +899,11 @@ export const mintGoogleAccessToken = internalAction({
  * the cached access token, because only a refresh proves the grant.
  */
 export const mintGoogleAccessTokenOutcome = internalAction({
-  args: { connectionId: v.id("googleConnections"), forceRefresh: v.optional(v.boolean()) },
+  args: { connectionId: v.id("googleConnections"), forceRefresh: v.optional(v.boolean()), role: googleClientRole },
   returns: syncTokens.mintOutcomeValidator,
   handler: async (ctx, args): Promise<syncTokens.MintOutcome> =>
-    await mintAccessToken(ctx, args.connectionId, args.forceRefresh === true),
+    await mintAccessToken(ctx, args.connectionId, args.forceRefresh === true, args.role),
 });
-
-async function mintAccessToken(
-  ctx: ActionCtx,
-  connectionId: Id<"googleConnections">,
-  forceRefresh: boolean,
-): Promise<syncTokens.MintOutcome> {
-  const connection: {
-    workspaceId: Id<"workspaces">;
-    encryptedRefreshToken: string;
-    encryptedAccessToken?: string;
-    accessTokenExpiresAt?: number;
-    disconnectedAt?: number;
-  } | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, { connectionId });
-  if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused" };
-
-  const keyset = requireKeyset();
-  const context = { workspaceId: connection.workspaceId as string };
-
-  // A cached access token good for at least another minute is reused rather
-  // than refreshed on every call — same headroom `storage.ts` gives the
-  // storage access token cache.
-  if (
-    !forceRefresh &&
-    connection.encryptedAccessToken &&
-    connection.accessTokenExpiresAt &&
-    connection.accessTokenExpiresAt > Date.now() + 60_000
-  ) {
-    return {
-      kind: "minted",
-      accessToken: await decryptSecret(connection.encryptedAccessToken, keyset, context),
-      expiresAt: connection.accessTokenExpiresAt,
-    };
-  }
-
-  const refreshToken = await decryptSecret(connection.encryptedRefreshToken, keyset, context);
-  let refreshed;
-  try {
-    refreshed = await refreshGoogleToken({
-      clientId: requireGoogleClientId(),
-      clientSecret: readGoogleClientSecret(),
-      refreshToken,
-    });
-  } catch (error) {
-    // Only `invalid_grant` is the person's to fix. A 5xx, a 429, a timeout or
-    // a garbled answer is Google's, and lifts by itself.
-    if (isGoogleReconnectRequired(error)) {
-      await ctx.runMutation(internal.functions.googleConnect.markReconnectRequired, { connectionId });
-      return { kind: "reconnect_required" };
-    }
-    if (
-      error instanceof GoogleOAuthError &&
-      (error.errorCode === "GOOGLE_UNAVAILABLE" || error.errorCode === "RESPONSE_UNUSABLE")
-    ) {
-      return { kind: "unavailable" };
-    }
-    return { kind: "refused" };
-  }
-
-  // Caching it also clears a `reconnect_required` the refresh just disproved.
-  await ctx.runMutation(internal.functions.googleConnect.cacheAccessToken, {
-    connectionId,
-    encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
-    accessTokenExpiresAt: refreshed.expiresAt,
-  });
-  return { kind: "minted", accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
-}
 
 export const getConnectionForSync = internalQuery({
   args: syncTokens.getConnectionForSyncArgs,

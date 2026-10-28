@@ -37,7 +37,10 @@ type World = {
   members: (string[] | null)[] | null;
 };
 
-function deps(world: World, answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[] } = {}): GroupDeps {
+function deps(
+  world: World,
+  answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[]; decide?: (body: { candidates: string[] }) => unknown } = {},
+): GroupDeps {
   let membersRead = 0;
   let handles = 0;
   const fetcher = (async (url: string, init: RequestInit) => {
@@ -62,6 +65,9 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
       world.reacted.push(body.reaction);
       return Response.json({});
     }
+    // Decide (`decide.ts`): unreachable unless a test says what it answers, so a group falls back to `addressesTex`.
+    if (path === "/agent-texts/decide" && answers.decide) return Response.json(answers.decide(body));
+    if (path === "/agent/events") return Response.json({ written: body.events.map((event: { id: string }) => event.id) });
     if (path === "/agent-texts/group") {
       world.control.push(body);
       return Response.json(answers.control ?? { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
@@ -128,6 +134,14 @@ describe("what wakes Tex in a group", () => {
     expect(groupCommand("Tex @supa", ["supa"])).toEqual({ kind: "use", slug: "supa" });
     expect(groupCommand("supa")).toBeNull();
     expect(groupCommand("hello", ["supa"])).toBeNull();
+  });
+  it("reads adding everyone here, as editors unless it says members", () => {
+    expect(groupCommand("Tex add everyone here to @Crystal-Care")).toEqual({ kind: "invite", slug: "crystal-care" });
+    expect(groupCommand("Tex, invite everybody in this chat to crystal-care.")).toEqual({ kind: "invite", slug: "crystal-care" });
+    expect(groupCommand("Tex add everyone to @crystal-care as members")).toEqual({ kind: "invite", slug: "crystal-care", role: "member" });
+    expect(groupCommand("Tex add everyone to @crystal-care as an editor")).toEqual({ kind: "invite", slug: "crystal-care", role: "editor" });
+    expect(groupCommand("Tex add everyone to the guest list")).toBeNull();
+    expect(groupCommand("Tex add milk to the list")).toBeNull();
   });
 });
 
@@ -216,14 +230,17 @@ describe("a group's queue", () => {
   it("reads a picture sent just after the tag with it (Jhon's screenshot, 2026-10-23)", async () => {
     const storage = new MemoryStorage();
     const w = world();
+    // Quiet: only the tagger's own picture after their tag goes to decide with it (`followsOwnTag`).
+    const quiet = { status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", engagement: "quiet", engagementChosen: true };
     await acceptGroup(storage, message("Tex, hi"), 0);
-    await drainGroup(storage, deps(w));
+    await drainGroup(storage, deps(w, { control: quiet }));
     expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
     expect(storage.alarms.at(-1)).toBe(10 + GROUP_TEXT_WAIT_MS);
     // Somebody else's picture is chat, not the tagger's screenshot.
     expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
-    expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("queued");
-    await drainGroup(storage, deps(w));
+    // Kept as chat, and put to decide with the tag it follows; decide's covers make them one turn.
+    expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("kept");
+    await drainGroup(storage, deps(w, { decide: (body) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 }) }));
     expect(w.asks).toHaveLength(2);
     expect(w.asks[1]).toMatchObject({ question: "Tex, file this screenshot as a bug report", attachments: [{ name: "IMG_0001.png", mediaType: "image/png" }] });
     expect((w.asks[1].attachments as { data?: string }[])[0].data).toBeTruthy();
@@ -451,9 +468,11 @@ describe("a group's queue", () => {
     const w = world();
     await acceptGroup(storage, message("Tex, when's the gig?"), 0);
     await drainGroup(storage, deps(w));
-    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("queued");
+    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("kept");
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
+    await acceptGroup(storage, message("yea, don't use the API", { messageId: "h_in4", replyTo: "h_out_1" }), 0).then(() => drainGroup(storage, deps(w)));
+    expect(w.asks).toHaveLength(2);
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
 
@@ -623,5 +642,59 @@ describe("a group chat with guests (docs/decisions/texting-assistant/group-guest
     await drainGroup(storage, deps(w, { control: { status: "guests_off" } }));
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band"), GROUP_LINES.guestsOff]);
     expect(w.asks).toEqual([]);
+  });
+});
+
+describe("adding everyone here (invited family)", () => {
+  it("says who was invited and that the whole workspace is in use, with no model", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex add everyone here to @crystal-care"), 0);
+    await drainGroup(storage, deps(w, { control: { status: "invited", slug: "crystal-care", count: 2, role: "editor" } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.invited("crystal-care", 2, "editor")]);
+    expect(GROUP_LINES.invited("crystal-care", 2, "editor")).toContain("invited 2 people here to @crystal-care as editors");
+    expect(w.asks).toEqual([]);
+  });
+
+  it("tells a non-owner only an owner can add people", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex add everyone here to @crystal-care", { from: BO }), 0);
+    await drainGroup(storage, deps(w, { control: { status: "not_allowed", slug: "crystal-care" } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notOwner("crystal-care")]);
+  });
+});
+
+describe("a mailbox shared with the chat (chat-mail.md)", () => {
+  it("reads sharing and unsharing a mailbox, narrowed by a search or not", () => {
+    expect(groupCommand("Tex, share my mail from Me@Work.example here")).toEqual({ kind: "share_mail", address: "me@work.example" });
+    expect(groupCommand("Tex share my work inbox me@work.example matching to:clients@work.example")).toEqual({ kind: "share_mail", address: "me@work.example", query: "to:clients@work.example" });
+    expect(groupCommand("Tex, stop sharing my mail")).toEqual({ kind: "unshare_mail" });
+    expect(groupCommand("Tex unshare my email me@work.example here")).toEqual({ kind: "unshare_mail", address: "me@work.example" });
+    expect(groupCommand("Tex share the photos from saturday")).toBeNull();
+    expect(addressesTex("Tex share my mail from me@work.example here", false)).toBe(true);
+  });
+
+  it("asks the control plane with the command and answers its verdict with no model", async () => {
+    const lines = [];
+    for (const control of [{ status: "mail_shared", address: "me@work.example", narrowed: true }, { status: "mail_unshared", count: 1 }, { status: "mail_refused" }]) {
+      const storage = new MemoryStorage();
+      const w = world();
+      await acceptGroup(storage, message("Tex, share my mail from me@work.example here"), 0);
+      await drainGroup(storage, deps(w, { control }));
+      expect(w.control[0]?.command).toEqual({ kind: "share_mail", address: "me@work.example" });
+      expect(w.asks).toEqual([]);
+      lines.push(...w.sends.map((sent) => sent.content));
+    }
+    expect(lines).toEqual([GROUP_LINES.mailShared("me@work.example", true), GROUP_LINES.mailUnshared(1), GROUP_LINES.mailRefused]);
+  });
+
+  it("names the shared mailboxes to the turn, dropping any malformed entry", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex what came in today?"), 0);
+    const ready = { status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
+    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
+    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
   });
 });

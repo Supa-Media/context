@@ -227,3 +227,247 @@ What reversing it costs: empty photo blocks on cards whenever a photo site
 refuses a headless browser. Tests: `apps/mcp/test/agentVisuals.test.mjs`
 ("a places card fills each place's photo and logo…"),
 `infra/site-shots/src/read.test.ts` and `fetchText.test.ts` (logo).
+
+## The saved conversation says what a card showed (2026-10-26)
+
+A card is a picture and the history keeps words, so the line kept for a sent
+card was its title alone. The self-review judge then marked card answers down
+for hiding the options, and a later turn could not say what option 3 cost.
+The kept line now lists each thing on the card with the facts beside it
+(cuisine, price, hours, Tex's pick, an option's facts), at most 500 characters
+a card, from the data it was drawn with; never a photo's address
+(`apps/mcp/src/agent/visuals/said.js`). Test: "the saved conversation keeps
+what a card showed" in `apps/mcp/test/agentVisuals.test.mjs`.
+
+## A places card's distances are measured, never guessed (2026-10-27)
+
+Dev2's places card for flower shops had no distances: "tex knows my address
+yet no distance was put for these places". The model cannot measure, and a
+guessed "4 min" is worse than none. So a places card names `from` (where they
+start, usually the address in their about-me note), and the gateway geocodes
+the start and each place's address (Photon, OpenStreetMap data) and fills a
+straight-line distance with a walking time when it is under half an hour
+(`apps/mcp/src/agent/visuals/distance.js`). Miles in the US, km elsewhere. A
+distance the model wrote is kept; a place found more than 80 km away is a
+same-named shop elsewhere and gets none.
+
+A lookup sends an address to an outside service, so an address goes only if
+the turn saw it: their words, a tool result this turn, or their about-me note
+(`outgoingPictures.locates`, fed by `knows` in `route.js`). An address the
+model made up is never looked up, because it could carry whatever the model
+put in it. The owner chose OpenStreetMap now and Google later (2026-10-27);
+`GOOGLE_MAPS_KEY` is being provisioned for that.
+
+What fails if reversed: `test/agentDistance.test.mjs`, "an address the turn
+never saw is never sent to the geocoder" and "their about-me address is a
+start the card may measure from".
+
+## Maps on cards (2026-10-27)
+
+The owner, on a florists card that listed four addresses: "there was a map
+one specifically that would've been great here". A places card now has a map
+above its rows, each pin numbered and coloured like its row, and the `map`
+template is stops on a map (a day's errands, a trip's sights), with a dotted
+line between them when the order is the way to go
+(`apps/mcp/src/agent/visuals/map.js`).
+
+- **Google when there is a key, OpenStreetMap until then** (owner's pick,
+  2026-10-27: "OSM now, Google later"). With `GOOGLE_MAPS_KEY` set, the map
+  is one Google Static Maps picture; without it, the gateway finds each
+  address with the geocoder (`visuals/distance.js`), lays out OpenStreetMap
+  tiles by Web Mercator (12 at most) and draws the pins in HTML, with
+  OpenStreetMap's credit on the map, a user agent that names the app, and
+  tiles cached a week, as its tile policy asks.
+- **The map is the gateway's, never the model's.** It is drawn from the
+  card's addresses after the card's photos, downloaded and put in the page as
+  data like them, so the key never reaches the page or the model. A `map` in
+  the model's data is dropped. A map whose tiles do not all come is left off
+  whole: a map with a hole reads as broken.
+- **Only an address the turn saw goes to a map service**, by the rule
+  distances keep (`outgoingPictures.locates`): their words, a tool result
+  this turn, or their about-me note. A made-up address is never sent.
+- **A bare street address needs `near`** ("Long Island City, NY"), or the
+  town in `from`; without either no map is drawn and the model is told to add it, because a pin on the
+  wrong 2807 Jackson Ave is worse than no map.
+
+What reversing it costs: places answers back to a list of addresses nobody
+can picture, or a key in the page. Tests: `apps/mcp/test/agentMapCard.test.mjs`.
+
+## Photos can be searched for, and an option card never shows a letter (2026-10-27)
+
+In a WhatsApp group Dev2 asked for a caterer's dishes "with pictures and
+prices", and the option cards went out with a big letter in a coloured block
+where each dish should be: "why isn't it adding images?" The caterer's site
+had no photo per dish, and the pages Tex read were its only source.
+
+- `search_web` takes `pictures: true` (Brave's image search). Results are
+  listed like a page's pictures, so they fill a card's photos by name
+  (`visuals/photos.js` `pagesIn`), and are vouched the same way: only an
+  address a result showed this turn is downloaded.
+- A searched picture that won't download falls back to the provider's
+  smaller copy (`sparesIn`), so a refusing host doesn't cost the photo.
+- An option card with no photo has no photo slot, and is as tall as what it
+  holds. A fact shows up to 60 characters, wrapped, not cut at 24.
+
+What fails if reversed: `apps/mcp/test/agentPictureSearch.test.mjs`.
+
+Since the same day, with `GOOGLE_MAPS_KEY` set, the geocoder is Google's,
+with Photon only on Google's miss; each card looks an address up once for its
+distances and its map (`geocoderFor`), and logs a `card_distance` reason
+code (no_from, from_unseen, from_not_found, some_missed, measured), never an
+address. Dev2's ice-cream card came back without distances while only
+Photon was looking, and nothing said why.
+
+## Cards look like Context (2026-10-27)
+
+The owner, on the first round of templates: "Could we redesign these card
+templates in context style? I don't like how it looks currently." After the
+mockups: "this is ok for now. will work on better design elements later".
+
+- **Palettes are the app's tokens.** `kit.js` `LIGHT` and `DARK` mirror
+  `apps/mobile/features/design/tokens/colors.ts`: paper `#FFFDF9`, ink
+  `#1A1714`, hairlines rather than grey fills, one indigo accent. The
+  fixed-palette templates (tickets, streak, the gallery styles) use the same
+  tokens, so no card brings its own navy or green.
+- **Type.** Instrument Sans at weight 600 at most (the app's face), never the
+  old heavy Inter Tight 800. Names and notes are set in a reading serif
+  (Source Serif 4, standing in for the app's Libron, which is self-hosted and
+  not on Google Fonts). Kickers are sentence case, not tracked capitals.
+- **Lists are hairline rows**, like a Context list, not boxed tiles. Numbers
+  and map pins share the one accent, so pin 3 and row 3 match by number,
+  not colour. Google Static Maps is styled in the card's paper and ink.
+- **The footer signs "Tex · Context".**
+
+What it does not change: any template's fields, what the model is told, or
+the copy on a card. Reverting is `kit.js`'s palettes and fonts plus the
+inline styles; `agentVisuals.test.mjs` still draws every template.
+
+## A route shows its path, and Tex looks at every picture before it goes (2026-10-27)
+
+Dev2's "3 mile run loop from my house in LIC" came back as a map card with
+one pin, no line and a cut-off "1.7 miles o…": "what even is this? does Tex
+think critically at all and ask itself if it answered the question? and if
+the visual helps? i don't even see the path". Then: "Tex should always look
+at a card before sending it, and self approve whatever it's about to send",
+and "it should critique itself and think".
+
+- **A route is drawn along streets.** A `map` card with `route` or `loop`
+  (back to stop 1) asks OpenStreetMap's router (FOSSGIS
+  `routing.openstreetmap.de`, foot by default, `travel` bike or drive) for
+  the way through its stops, sending the stops' points only. Google Static
+  Maps draws that polyline (`enc:`); the tiles draw it as a line the map is
+  fitted to. The router's length goes on the map ("3.1 mi") and to the model
+  ("say that length"); without the router the line is straight and the model
+  is told not to claim a length (`apps/mcp/src/agent/visuals/route.js`).
+- **A map card missing a stop is not drawn.** Dropping a stop the turn never
+  looked up turned a three-stop loop into one pin. The tool now refuses and
+  tells the model which stops to look up; the rule that only an address the
+  turn saw goes to a map service is unchanged.
+- **Every picture is looked at before it may go** (`apps/mcp/src/agent/cardCheck.js`).
+  Each picture a texted turn makes, in a 1:1 chat or a group, is shown with
+  the person's text to Haiku, which thinks (effort medium) and critiques it:
+  what was asked, does this answer it at a glance, what is missing or wrong,
+  can every word be read, would a sentence do better. A picture it would not
+  send comes back to Tex as the critique, without the picture, so it is
+  never sent, even unnamed; Tex redraws it or answers in words. After two
+  held pictures in one turn the critique rides along instead, so a turn
+  always ends. It reads the person's text and the picture, never a tool
+  result; when it can't run, the picture goes. `CARD_CHECK=off` turns it off.
+
+Tests: `apps/mcp/test/agentRouteCheck.test.mjs`.
+
+## The count asked for, a map from addresses spelled either way, and no empty band (2026-10-27)
+
+Dev2 asked "show me the top 5 ice cream shops in manhattan" and got four,
+then "couldn't show it to me in a map?" and got "the map wouldn't draw
+pins", on cards with a wide empty band under the rows.
+
+- **The count asked for.** A places card holds up to six rows, and the tool
+  description says to give as many as were asked ("top 5" is five).
+- **Addresses spelled either way.** Only an address the turn saw may go to a
+  map service (`outgoingPictures.locates`). That stays, but the comparison
+  now forgives spelling: "48 E 7th St" is found in "48 East Seventh Street",
+  "6th Ave" in "Avenue of the Americas". It also matches whole words only, so
+  "8 E 7th St" is no longer found inside "48 E 7th St". A parenthetical
+  ("(at 1st Ave)") is dropped from the street part. When no pin can be
+  drawn, or some are missing, the model is told which places to look up, not
+  just that the map was left off.
+- **Cards as tall as their rows.** Places and map cards ask the screenshot
+  Worker to `fit`: the page is taken from a short viewport as a whole-page
+  picture, so it is exactly as tall as what it holds, up to the height asked
+  (a longer page is taken at that height, as before). The height sent is a
+  close estimate, so a Worker without `fit` still draws it with little band.
+  Pages the model writes itself are never fitted.
+
+Reverting the spelling map or the whole-word match fails "an address the
+turn read is found however its street words are spelled" in
+`agentDistance.test.mjs`; dropping `fit` fails the places checks in
+`agentVisuals.test.mjs` and the `render fit` checks in site-shots.
+
+## A comparison shows each thing, and the gateway goes and gets it (2026-10-27, night)
+
+The owner, 21:49: "it's super important that when Tex is showing comparisons,
+for food, locations, countries etc, that we are visual, we need to show
+screenshots of the things PLEASE, Tex needs to stop quitting so soon, it has
+a whole computer."
+
+Two causes, both fixed:
+
+- **The web tools were never read.** A turn's web tools (`turnWeb.js`) run
+  beside the dispatcher, not through it, and `outgoingPictures` watched only
+  the dispatcher. So no page or picture search a texted turn read ever counted
+  as read: every web photo the model put on a card was dropped as unread, and
+  `fillPictures` had nothing to match names in. `outgoing.wrapWeb` now reads
+  them like any tool result; `route.js` passes the turn's web through it.
+- **Missing pictures were the model's to go and find, and it didn't.** A note
+  in the draw result saying "search and draw again" was ignored. Now, before
+  an `option`, `gallery`, `versus`, `places` or `compare` card is drawn, every
+  thing still without a photo is hunted for side by side
+  (`agent/visuals/hunt.js`): a picture search for its name through the turn's
+  own `search_web` (so counted against its searches, and read like any
+  result), the first picture that downloads, described by the name first; and
+  if none comes, a screenshot of its own page (a search result titled with
+  it, else one more web search) by the screenshot Worker at desktop width.
+  At most six things, 24 seconds each; `draw_visual`'s limit went from 40 s to
+  75 s. What is still missing is named in the result.
+
+`VISUALS_LINE` and the page design skill now say a compared option always
+shows a real picture, and that one failed try is not a reason to answer in
+words. A wrong photo is still worse than none, which the card self-check
+(`cardCheck.js`) is there to catch.
+
+**Reversing it costs** the blank comparisons the owner asked to end. Tests:
+`apps/mcp/test/agentPhotoHunt.test.mjs`.
+
+### Pages too (2026-10-27, night)
+
+Every new note Tex makes is a page, so a comparison page gets the same hunt.
+A texted turn's `.page.md` write passes through the picture tools
+(`pictureMaker.js` `pageWrite`, `agent/visuals/pagePhotos.js`): each option in
+a `places`, `vote`, `prices` or `itinerary` block with no `photo:` or
+`photos:` field is hunted for side by side (a place searched with its
+address), at most eight, within 14 seconds so the write never looks slow
+enough to be retried. Each found picture goes in the write's `images` as
+bytes and a `photo:` field naming it is added under the option; nothing else
+in the page's words changes, and a page with nothing found is saved exactly
+as written. Tests: `apps/mcp/test/agentPagePictures.test.mjs`.
+
+A found picture never costs the save (2026-10-28). The first night, a WhatsApp
+guest chat's research page failed four times: a picture found for one venue
+was an AVIF, which a note write refuses (only PNG, JPEG, GIF, WebP and HEIC
+are stored), so the whole page was refused and every retry hunted the same
+picture again. Each found picture is now checked the way the write checks it
+(`notes/uploadedImages.js` `storableImage`) and left out if it would be
+refused or the pictures would pass half the write's size limit; its type comes
+from its bytes, never the address's header. And a page write refused with
+found pictures in it is written again exactly as the writer sent it.
+Simplifying either away brings back a page that cannot be saved for a reason
+the writer cannot see or fix. Tests: `agentPagePictures.test.mjs`, and
+`agentGroupGuests.test.mjs` "a guest chat saves its research as a page".
+
+Then converted, not dropped (owner, 2026-10-28: "can't we convert it? cant we
+screenshot it?"). A page's picture is asked for as JPEG, PNG, WebP or GIF
+only, so a site that negotiates sends one of those; one that still comes as
+AVIF or SVG is opened in the browser (site-shots) and photographed as a JPEG
+(`pagePhotos.js` `storableDownload`); only when that fails too does the hunt
+move to its next picture, then to a screenshot of the option's own page.

@@ -91,6 +91,34 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // How their own Tex talks: a few closed choices and a number.
+  const texStylePreferences = await ctx.db
+    .query("texStylePreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of texStylePreferences) await ctx.db.delete(row._id);
+
+  // Joining from the calendar: addresses switched off and when to ask.
+  const meetingJoinPreferences = await ctx.db
+    .query("meetingJoinPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of meetingJoinPreferences) await ctx.db.delete(row._id);
+
+  // Cloud transcription consent: a version and two times.
+  const transcriptionConsents = await ctx.db
+    .query("transcriptionConsents")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of transcriptionConsents) await ctx.db.delete(row._id);
+
+  // Spelling: on or off, a language, and the words they added.
+  const spellingPreferences = await ctx.db
+    .query("spellingPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of spellingPreferences) await ctx.db.delete(row._id);
+
   // Their yes to sharing finished conversations with Tex (`texReviews.ts`): a time.
   const texReviewSharing = await ctx.db
     .query("texReviewSharing")

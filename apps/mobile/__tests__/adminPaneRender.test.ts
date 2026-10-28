@@ -309,6 +309,46 @@ describe("who the page renders for", () => {
     expect(container.textContent).not.toContain("someone@example.test");
   });
 
+  test("staff whose session owes an authenticator code get the code screen, and not one figure", () => {
+    mockAnswers.set("functions/admin:amIAdmin", false);
+    mockAnswers.set("functions/admin:censusReport", census());
+    mockAnswers.set("functions/staffSecondFactor:myStaffFactor", {
+      staff: true,
+      enrolled: true,
+      required: false,
+      standing: "step_up",
+    });
+    const container = mount();
+    expect(has(container, "staff-factor-gate")).toBe(true);
+    expect(has(container, "staff-factor-code")).toBe(true);
+    expect(has(container, "admin-stat-accounts")).toBe(false);
+    expect(has(container, "dead-link")).toBe(false);
+    mockAnswers.delete("functions/staffSecondFactor:myStaffFactor");
+  });
+
+  test("a stranger told nothing by the second factor still sees the dead link", () => {
+    mockAnswers.set("functions/admin:amIAdmin", false);
+    mockAnswers.set("functions/staffSecondFactor:myStaffFactor", { staff: false });
+    const container = mount();
+    expect(has(container, "dead-link")).toBe(true);
+    expect(has(container, "staff-factor-gate")).toBe(false);
+    mockAnswers.delete("functions/staffSecondFactor:myStaffFactor");
+  });
+
+  test("staff who have not enrolled get the console, with a one-line offer to set up", () => {
+    asAdmin();
+    mockAnswers.set("functions/staffSecondFactor:myStaffFactor", {
+      staff: true,
+      enrolled: false,
+      required: false,
+      standing: "open",
+    });
+    const container = mount();
+    expect(has(container, "admin-stat-accounts")).toBe(true);
+    expect(has(container, "staff-factor-offer")).toBe(true);
+    mockAnswers.delete("functions/staffSecondFactor:myStaffFactor");
+  });
+
   test("an unresolved check names nothing: no console, no refusal, no frame", () => {
     // `undefined` is not `false`. Flashing the dead link at an admin on every
     // cold load is one bug; drawing the console's title while the check is in

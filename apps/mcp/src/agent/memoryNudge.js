@@ -133,6 +133,7 @@ export function nudgeQuestion(shown) {
       "a preference, a correction, someone in their life, a plan or routine, how they like things done? " +
       `If so, read ${ABOUT_ME_PATH} with fetch, then write it back whole with the new facts added, passing its etag: one short line per fact, ` +
       `merge rather than repeat, never more than ${MAX_ABOUT_ME_LINES} lines, and never a secret, a code or a password. Then answer DONE. ` +
+      "A lesson about how you work (a mistake of yours they told you never to repeat) is not about them: leave it out. " +
       `If nothing new is worth keeping, answer exactly ${NONE} and call nothing.`,
     `## Your latest texts\n\n${shown.map((exchange) => `They: ${cut(exchange.question)}\nYou: ${cut(exchange.answer)}`).join("\n\n")}`,
   ].join("\n\n");

@@ -99,6 +99,9 @@ test("a line it can't read is a problem in words, never a silent default", () =>
     monthDay: null,
     send: "both",
     to: ["sayo", "seyi"],
+    // Only a routine set up from a group chat names one (`groupRoutines.js`).
+    chat: null,
+    wake: null,
     until: "it lands",
     paused: true,
     timeZone: "Europe/London",
@@ -110,6 +113,10 @@ test("a line it can't read is a problem in words, never a silent default", () =>
   assert.match(routineSettings("---\ntimezone: Mars/Base\n---\n", daily).problems[0], /isn't a time zone/);
   assert.equal(routineSettings("---\non: last\n---\n", { unit: "month", every: 1 }).settings.monthDay, -1);
   assert.match(routineSettings("---\nat: 9am\n---\n", { unit: "minute", every: 5 }).problems[0], /every few minutes/);
+  assert.equal(routineSettings("---\nchat: 0123456789ABCDEF\n---\n", daily).settings.chat, "0123456789abcdef");
+  assert.match(routineSettings("---\nchat: family\n---\n", daily).problems[0], /isn't a chat/);
+  assert.equal(routineSettings("---\nwake: New mail\n---\n", daily).settings.wake, "mail");
+  assert.match(routineSettings("---\nwake: sunrise\n---\n", daily).problems[0], /wake: new mail/);
 });
 
 test("every N minutes falls on fixed marks, so a re-save doesn't move it", () => {

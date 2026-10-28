@@ -44,16 +44,52 @@ export function peopleOf(line: string, ...lists: (readonly string[] | null)[]): 
   return [...new Set(lists.flatMap((list) => list ?? []).filter((entry) => entry !== line))].sort();
 }
 
+/**
+ * The one hash of a chat's people (`peopleOf`), used everywhere one is: the
+ * members a turn, a job or a review names to the gateway, Tex's events and
+ * the chat's inbound events (`eventPeople`), and the chat's lines.
+ */
+export async function peopleHash(line: string, ...lists: (readonly string[] | null)[]): Promise<string> {
+  return await sha256Hex(peopleOf(line, ...lists).join(","));
+}
+
 /** Who the webhook says was in the chat when a message was sent, hashed. */
 export async function peopleKey(message: GroupMessage): Promise<string> {
-  return await sha256Hex(peopleOf(message.line, message.participants).join(","));
+  return await peopleHash(message.line, message.participants);
+}
+
+/** The webhook's people hash at the last turn, and the full one that turn used (the webhook's list and the app's members together). */
+const PEOPLE_KEY = "gpeople";
+type SeenPeople = { webhook: string; full: string };
+
+/** A turn read the app's members too: what it named the gateway, for the events that follow while the webhook's list is the same. */
+export async function notePeople(storage: InboxStorage, message: GroupMessage, full: string): Promise<void> {
+  await storage.put<SeenPeople>(PEOPLE_KEY, { webhook: await peopleKey(message), full });
+}
+
+/**
+ * The people hash an inbound event is filed under: the one the last turn
+ * named the gateway, while the webhook lists the same people it did then,
+ * so the gateway (which starts a reader's transcript at the first event
+ * filed under the chat's current members) and decide read the same set.
+ * Anything else changed, the webhook's own: less, never more.
+ */
+export async function eventPeople(storage: InboxStorage, message: GroupMessage): Promise<string> {
+  const webhook = await peopleKey(message);
+  const seen = await storage.get<SeenPeople>(PEOPLE_KEY);
+  return seen?.webhook === webhook ? seen.full : webhook;
+}
+
+/** Whether `message` was said in front of the people the chat is bound for. */
+export async function isBound(storage: InboxStorage, message: GroupMessage): Promise<boolean> {
+  return (await storage.get<string>(BOUND_KEY)) === (await peopleKey(message));
 }
 
 /** Keep one untagged message, when the chat is bound. Whether it was kept. */
 export async function keepChatLine(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
   if (message.sms) return false;
+  if (!(await isBound(storage, message))) return false;
   const people = await peopleKey(message);
-  if ((await storage.get<string>(BOUND_KEY)) !== people) return false;
   const seq = ((await storage.get<number>(CHAT_SEQ)) ?? 0) + 1;
   await storage.put(CHAT_SEQ, seq);
   const files = message.attachments?.length ? { attachments: message.attachments } : {};

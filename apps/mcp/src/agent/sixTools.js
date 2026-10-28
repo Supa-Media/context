@@ -162,6 +162,13 @@ export function sixToolsOver(granted, grants = null) {
     if (!SIX.has(name)) return { name, args };
     const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (name === "orient") return { name, args: call };
+    // A file kept from a text reads as itself, whatever else the call carries (`keptFiles.js`): `fetch { id: "download:…",
+    // args: { mail: false } }` was refused as a mail read, and Tex told the person their PDF "won't load" (2026-10-26).
+    if (name === "fetch" && typeof call.id === "string" && call.id.trim().startsWith("download:")) {
+      const extra = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
+      const part = { ...(Number.isInteger(extra.from) ? { from: extra.from } : {}), ...(extra.summary && typeof extra.summary === "object" ? { summary: extra.summary } : {}) };
+      return { name: held.has("read_file") ? "read_file" : "read_note", args: { path: call.id.trim(), ...part } };
+    }
     if (name === "fetch" && typeof call.id === "string") {
       const id = ASSISTANT_FETCH_IDS.find((entry) => call.id.startsWith(entry.prefix));
       if (id) return { name: id.tool, args: id.args(call.id.slice(id.prefix.length)) };

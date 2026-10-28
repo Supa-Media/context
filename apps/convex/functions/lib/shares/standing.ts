@@ -13,6 +13,7 @@ import { findName } from "../nameClaims";
 import { resolveAddressedUser } from "../identities";
 import { getMembership } from "../workspaceAuth";
 import { hasBlocked } from "../blocks";
+import { isReservedReviewer } from "../reviewerAccount";
 
 /**
  * Caps on how many rows one response carries, and on how many shares one
@@ -255,6 +256,10 @@ export async function shareStillStands(
     value: share.recipient,
   });
   if (addressed === null || addressed !== userId) return null;
+
+  // A share addressed to the reserved reviewer reaches nothing
+  // (`reviewerAccount.ts`): its sign-in is a code held outside the company.
+  if (await isReservedReviewer(ctx, userId)) return null;
 
   // The reader blocked the sharer (`lib/blocks.ts`). Only a share addressed to
   // a person reaches this line, so a team or unlisted link is untouched — a

@@ -24,6 +24,14 @@
  *     → "a long batch's line still shows dry_run" fails.
  *  6. `housekeepingEntry` ignoring `running`.
  *     → "the log says a change still running…" fails.
+ *  7. stopping at a batch the control plane could not start, rather than halving it.
+ *     → "a batch the control plane could not start goes again in halves…" fails.
+ *  8. planning each batch as it goes (`PLAN_BATCH` at the batch size).
+ *     → "once a batch asks for versions, the notes are planned a hundred at a time…" fails.
+ *  9. `leftHint` keyed on the stem before the first digit (500s and 600s one family; dated names by month).
+ *     → "a move by name names the families still loose…" fails.
+ * 10. `widened` returning the moves as matched.
+ *     → "a slice of one family takes the whole family…" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -87,7 +95,7 @@ test("a bare into is a subfolder of the folder the notes are in", async () => {
   assert.ok(session.moves()[0].args.moves.every((move) => move.destination.startsWith(`${FOLDER}/coverage/`)));
 });
 
-test("move_notes by name moves only the notes directly in the folder whose names match, 20 a batch, each logged", async () => {
+test("move_notes by name moves only the notes directly in the folder whose names match, 50 a batch, each logged", async () => {
   const session = sessionOver(PATHS);
   const guard = housekeepingCallTool(session.dispatch);
   const into = `${FOLDER}/security-review-coverage`;
@@ -96,7 +104,7 @@ test("move_notes by name moves only the notes directly in the folder whose names
 
   assert.notEqual(result.isError, true, result.content[0].text);
   assert.match(result.content[0].text, /moved 230 notes/);
-  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [...Array(11).fill(20), 10]);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [50, 50, 50, 50, 30]);
   const sources = session.moves().flatMap((call) => call.args.moves.map((move) => move.source));
   assert.deepEqual(sources, Array.from({ length: 230 }, (_, i) => coverage(i)));
   assert.ok(session.moves().every((call) => call.args.moves.every((move) => move.destination === `${into}/${move.source.split("/").pop()}`)));
@@ -116,8 +124,27 @@ test("a long move by name starts no batch the slowest so far would not finish in
   // 20 s a batch: a third would end at 60 s, past the 55 s budget, so two go.
   const first = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
   assert.notEqual(first.isError, true);
-  assert.match(first.content[0].text, /^moved 40 of 230 notes .* the other 190 are still in .* Send the same move again/);
-  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [20, 20]);
+  assert.match(first.content[0].text, /^moved 100 of 230 notes .* the other 130 are still in .* Send the same move again/);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [50, 50]);
+});
+
+test("a batch the control plane could not start goes again in halves, and the rest at the size that moved", async () => {
+  const unstarted = { isError: true, content: [{ type: "text", text: "could not start the moves right now; try again in a moment" }] };
+  const session = sessionOver(PATHS, (args) => (args.moves.length > 7 ? unstarted : { content: [{ type: "text", text: "moved" }] }));
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.match(result.content[0].text, /moved 230 notes/);
+  assert.deepEqual(session.moves().map((call) => call.args.moves.length), [50, 25, 13, ...Array(32).fill(7), 6]);
+  assert.equal(guard.changes.length, 230);
+
+  const never = sessionOver(PATHS, () => unstarted);
+  const stopped = await housekeepingCallTool(never.dispatch).callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+  assert.equal(stopped.isError, true);
+  assert.match(stopped.content[0].text, /^moved 0 of 230 notes .* then stopped: could not start the moves/);
+  assert.deepEqual(never.moves().map((call) => call.args.moves.length), [50, 25, 13, 7, 5]);
 });
 
 test("a batch that asks for versions is planned first and sent again with the versions its plan names", async () => {
@@ -139,6 +166,31 @@ test("a batch that asks for versions is planned first and sent again with the ve
   assert.deepEqual(session.moves()[2].args.moves.map((move) => move.expected_source_etag), ["v0", "v1", "v2"]);
   assert.equal(guard.changes.length, 3);
   assert.equal(guard.dryRuns, 1);
+});
+
+test("once a batch asks for versions, the notes are planned a hundred at a time and every later batch carries them", async () => {
+  const session = sessionOver(PATHS, (args) => {
+    if (args.dry_run === true) {
+      return { content: [{ type: "text", text: `preflight ok: ${args.moves.length} moves\n` + args.moves.map((move) => `- ${move.source} (etag v-${move.source.split("/").pop()}) → ${move.destination} [team]`).join("\n") }] };
+    }
+    if (args.moves.some((move) => move.expected_source_etag !== `v-${move.source.split("/").pop()}`)) {
+      return { isError: true, content: [{ type: "text", text: "expected_source_etag is required for every applied batch move." }] };
+    }
+    return { content: [{ type: "text", text: "moved" }] };
+  });
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+
+  assert.notEqual(result.isError, true, result.content[0].text);
+  assert.match(result.content[0].text, /moved 230 notes/);
+  // One bare batch asks, then three plans of up to 100 between five applied batches: not a plan and a resend for each.
+  assert.deepEqual(
+    session.moves().map((call) => `${call.args.dry_run === true ? "plan" : "move"} ${call.args.moves.length}`),
+    ["move 50", "plan 100", "move 50", "move 50", "plan 100", "move 50", "move 50", "plan 30", "move 30"],
+  );
+  assert.equal(guard.changes.length, 230);
+  assert.equal(guard.dryRuns, 3);
 });
 
 test("a dry run by name moves nothing and says so; a protected folder, a bad pattern or the same folder is refused", async () => {
@@ -260,4 +312,53 @@ test("a keyed batch looks its notes up several at a time, and still moves them i
   assert.match(moved.content[0].text, /^moved notes: 40/);
   assert.equal(seen.batches.length, 1);
   assert.ok(seen.most > 1, `lookups in flight at once: ${seen.most}`);
+});
+
+test("a move by name names the families still loose in the folder, so the next call takes a whole one", async () => {
+  const loose = [
+    ...Array.from({ length: 12 }, (_, i) => `${FOLDER}/log-${581 + i}.md`),
+    ...Array.from({ length: 6 }, (_, i) => `${FOLDER}/log-${613 + i}.md`),
+    ...Array.from({ length: 19 }, (_, i) => `${FOLDER}/passes-2026-09-${21 + (i % 4)}${"abcde"[i % 5]}-${i}.md`),
+    `${FOLDER}/readme-notes.md`,
+    `${FOLDER}/x1.md`,
+    `${FOLDER}/x2.md`,
+  ];
+  const session = sessionOver([...PATHS, ...loose]);
+  const guard = housekeepingCallTool(session.dispatch);
+
+  const result = await guard.callTool("move_notes", { folder: FOLDER, match: "security-review-log-coverage-*", into: `${FOLDER}/c` });
+  const text = result.content[0].text;
+  assert.match(text, /moved 230 notes/);
+  assert.match(text, /41 other notes are still directly in 2-areas\/apps\/context\//);
+  assert.match(text, /passes-2026-09\* \(19\), log-5\* \(12\), log-6\* \(6\)/);
+  assert.doesNotMatch(text, /x\*|readme/, "a family under three, or a name with no number, is not named");
+  assert.equal(guard.changes.length, 230, "nothing outside the pattern moves");
+
+  const dry = await guard.callTool("move_notes", { folder: FOLDER, match: "log-5*", into: `${FOLDER}/500s`, dry_run: true });
+  assert.match(dry.content[0].text, /passes-2026-09\* \(19\)/);
+  const none = await guard.callTool("move_notes", { folder: FOLDER, match: "nothing-*", into: `${FOLDER}/c` });
+  assert.match(none.content[0].text, /Nothing moved\. .*log-5\* \(12\)/);
+});
+
+test("a slice of one family takes the whole family; a pattern across families is taken as written", async () => {
+  const sept = Array.from({ length: 40 }, (_, i) => `${FOLDER}/coverage-2026-09-${String(10 + (i % 20)).padStart(2, "0")}${"ab"[i % 2]}-${i}.md`);
+  const oct = Array.from({ length: 5 }, (_, i) => `${FOLDER}/coverage-2026-10-0${i + 1}.md`);
+  const logs = [...Array.from({ length: 30 }, (_, i) => `${FOLDER}/log-${560 + i}.md`), ...Array.from({ length: 4 }, (_, i) => `${FOLDER}/log-${610 + i}.md`)];
+  const session = sessionOver([...sept, ...oct, ...logs]);
+  const guard = housekeepingCallTool(session.dispatch);
+  const sources = () => session.moves().slice(-1).flatMap((call) => call.args.moves.map((move) => move.source));
+
+  const month = await guard.callTool("move_notes", { folder: FOLDER, match: "coverage-2026-09-1*", into: "2026-09" });
+  assert.match(month.content[0].text, /moved 40 notes .*and the 20 other coverage-2026-09\* notes with them/);
+  assert.equal(guard.changes.length, 40);
+  assert.ok(guard.changes.every((change) => change.from.includes("coverage-2026-09-")), "October stays");
+
+  const hundreds = await guard.callTool("move_notes", { folder: FOLDER, match: "log-56*", into: "500s" });
+  assert.match(hundreds.content[0].text, /moved 30 notes/);
+  assert.ok(sources().every((source) => /log-5\d\d/.test(source)), "the 600s stay");
+
+  const across = sessionOver([...oct, ...logs]);
+  const asWritten = housekeepingCallTool(across.dispatch);
+  await asWritten.callTool("move_notes", { folder: FOLDER, match: "*-{2026-10-01,560}*", into: "mixed" });
+  assert.equal(asWritten.changes.length, 2, "one coverage note and one log: no widening");
 });

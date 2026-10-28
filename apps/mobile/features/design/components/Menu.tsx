@@ -238,10 +238,13 @@ export function Menu<Id extends string = MenuActionId>({
       // Both mean "I am done with this sheet", so both are the same callback.
       onRequestClose={onDismiss}
     >
-      <Pressable style={styles.scrim} accessibilityLabel="Close menu" onPress={onDismiss}>
+      <Pressable style={styles.scrim} accessible={false} accessibilityLabel="Close menu" onPress={onDismiss}>
         {/* Swallow presses inside the sheet, so only the scrim dismisses. */}
         <Pressable
           style={[styles.sheet, { paddingBottom: insets.bottom + space.x2 }]}
+          // Gesture containers must not group their action rows into one
+          // iOS accessibility element. The visible Cancel row dismisses it.
+          accessible={false}
           onPress={() => {}}
           accessibilityLabel={title ?? "Actions"}
           testID="menu-sheet"

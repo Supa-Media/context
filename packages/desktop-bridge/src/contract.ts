@@ -46,11 +46,15 @@
 
 import type { TranscriptSegment } from "@context/meetings/protocol";
 import type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus } from "./localAgent.ts";
-import type { ImessageStatus, MessagesBackupFilesChoice } from "./messagesBackup.ts";
-export type { ImessageStatus, MessagesBackupFiles, MessagesBackupFilesChoice, MessagesBackupPhase, MessagesBackupView } from "./messagesBackup.ts";
+import type { ImessageStatus, MessagesBackupDownload, MessagesBackupFilesChoice } from "./messagesBackup.ts";
+export type { ImessageStatus, MessagesBackupDownload, MessagesBackupFiles, MessagesBackupFilesChoice, MessagesBackupPhase, MessagesBackupView } from "./messagesBackup.ts";
 
 export type { TranscriptSegment };
 export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
+import type { UpcomingMeetings } from "./calendar.ts";
+import type { SpellingCheck } from "./spelling.ts";
+export type { UpcomingMeetings, UpcomingMeetingView } from "./calendar.ts";
+export type { SpellingCheck } from "./spelling.ts";
 
 /**
  * The bridge's shape, and the only number a bundle compares against.
@@ -62,7 +66,7 @@ export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 8;
+export const BRIDGE_VERSION = 9;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -614,20 +618,21 @@ export interface DesktopBridge {
   };
 
   /**
-   * The Messages backup on this Mac, and the one fact it needs from the
-   * person before it can run (Full Disk Access). **Version 5.** Optional for
-   * `MIN_BRIDGE_VERSION`'s reason, like `meetings` above: a shell older than
-   * version 5 has no `imessage` member, so the console checks for the member.
-   * `setEnabled` mirrors `toggleDetection`: reversible, and never a dialog.
+   * The Messages backup on this Mac and Full Disk Access, which it needs. **Version 5.**
+   * Optional like `meetings`: older shells lack it, so the console checks for the member.
    */
   imessage?: {
     status(): Promise<ImessageStatus>;
-    /** Turn import on or off. Never opens a system dialog — see `docs/decisions/communications.md`. */
+    /** Turn the backup on or off: reversible, like `toggleDetection`, and never a system dialog. */
     setEnabled(enabled: boolean): Promise<void>;
     /** Explain Full Disk Access and open the exact System Settings pane when the person continues. */
     requestFullDiskAccess(): Promise<void>;
     /** The backup's "What's copied" switches. Absent before the backup copied files; the page checks for it. */
     setFiles?(choice: MessagesBackupFilesChoice): Promise<void>;
+    /** Download messages into a folder in Downloads, with the pictures. Absent before it existed; the page checks. */
+    download?(): Promise<MessagesBackupDownload>;
+    /** After Delete the backup: turn it off here and start its cursor over. Absent before it existed. */
+    forget?(): Promise<void>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
 
@@ -673,16 +678,10 @@ export interface DesktopBridge {
   spelling?: {
     check(word: string): Promise<SpellingCheck>;
   };
+  /** Today's meetings for the menu bar. **Version 9.** See `calendar.ts` for what the shell does with them. */
+  calendar?: { setUpcoming(upcoming: UpcomingMeetings): void };
 }
 
-/**
- * What the checker said about one word. `suggestions` is empty for a word it
- * accepts, and may be empty for one it flags but cannot place.
- */
-export interface SpellingCheck {
-  misspelled: boolean;
-  suggestions: string[];
-}
 
 /**
  * The IPC channel names, in the package both sides import.
@@ -740,19 +739,19 @@ export const BRIDGE_CHANNELS = Object.freeze({
   outboxStatus: "context:outbox-status",
   outboxDrain: "context:outbox-drain",
 
-  /** Version 2. One write about a meeting, into the shell's own queue. */
-  meetingsWrite: "context:meetings-write",
+  meetingsWrite: "context:meetings-write", // Version 2: one write about a meeting, into the shell's own queue.
 
   /** Version 5. */
   imessageStatus: "context:imessage-status",
   imessageSetEnabled: "context:imessage-set-enabled",
-  /** Version 6. Show the native guide, then open Full Disk Access settings. */
-  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
+  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access", // Version 6: the guide, then the settings pane.
   imessageSetFiles: "context:imessage-set-files",
+  imessageDownload: "context:imessage-download",
+  imessageForget: "context:imessage-forget",
 
-  /** Version 7. Is there a local CLI to ask, and asking it. */
-  agentStatus: "context:agent-status",
+  agentStatus: "context:agent-status", // Version 7: is there a local CLI to ask, and asking it.
   agentAsk: "context:agent-ask",
+  calendarSetUpcoming: "context:calendar-set-upcoming", // Version 9: today's meetings, for the menu bar.
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",

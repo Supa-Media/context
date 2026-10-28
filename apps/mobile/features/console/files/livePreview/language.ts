@@ -11,7 +11,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
-import { GFM } from "@lezer/markdown";
+import { GFM, type MarkdownConfig } from "@lezer/markdown";
 import { tags } from "@lezer/highlight";
 import { castGrammar } from "./castGrammar";
 import { highlightGrammar } from "./highlightGrammar";
@@ -38,12 +38,22 @@ import { tagGrammar } from "./tagGrammar";
  * `==highlight==`, which GFM does not have — see `highlightGrammar.ts`.
  * `tagGrammar`: a `#tag` written in the text — see `tagGrammar.ts`.
  *
+ * Minus one CommonMark rule: setext headings. A line of only `-` or `=` under
+ * a paragraph makes that paragraph a heading, so typing `-` to start a bullet
+ * under some text drew the whole paragraph large and bold until the next key,
+ * and `---` meant as a divider did it for good. Headings here are `#`; without
+ * the rule a `-` is the list item it was typed as and `---` is a rule, which is
+ * also what the share page and website reader (`share/markdown.ts`) always
+ * drew. The Markdown on disk is untouched either way.
+ *
  * Exported so `__tests__/livePreview.test.ts` builds its states with the same
  * configuration the editor ships. A test that parsed a different dialect from
  * the product would be asserting against a grammar nobody uses.
  */
+const noSetextHeadings: MarkdownConfig = { remove: ["SetextHeading"] };
+
 export function markdownLanguage() {
-  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, tagGrammar], codeLanguages: FENCE_LANGUAGES });
+  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, tagGrammar, noSetextHeadings], codeLanguages: FENCE_LANGUAGES });
 }
 
 /**

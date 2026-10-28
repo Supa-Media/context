@@ -15,9 +15,10 @@
  */
 
 import { CARD_HEIGHT, CARD_WIDTH, SCALE } from "./kit.js";
-import { compare, gallery, option, places, tickets, versus } from "./choices.js";
+import { compare, gallery, mapCard, option, places, tickets, versus } from "./choices.js";
 import { day, plan, streak, trip } from "./time.js";
 import { board, chart, people, spending, steps, system } from "./status.js";
+import { PAGE_TEMPLATE, PAGE_TEMPLATE_LINE } from "./page.js";
 
 export const VISUAL_TOOL = "draw_visual";
 
@@ -25,9 +26,10 @@ export const VISUAL_TOOL = "draw_visual";
 const TEMPLATES = {
   compare: [compare, "options ranked on one number against a limit (quotes, plans, prices). {kicker, title, subtitle, limit, lower_is_better (default true), items:[{name, value (number), display ('$225'), detail ('$7.50 a person'), note ('$75 under'), photo, pick, tag}] ≤5, footer}"],
   gallery: [gallery, "things to look at, a photo each: clothes (style editorial), food (style warm, the pick large), gifts or products (style polaroid). {style, kicker, title, items:[{name, price, note, photo, source ('Aritzia'), pick, tag}] ≤4 (warm ≤3), footer}"],
-  option: [option, "ONE option per card, for 2-8 options sent together as a swipeable set (one draw_visual call each, numbered): caterers, dresses, hotels, cars. {index, of, kicker, name, price, price_note ('$7.50 a person'), photo, source, facts:[{label, value}] ≤4, note, pick, tag}"],
+  option: [option, "ONE option per card, for 2-8 options sent together as a swipeable set (one draw_visual call each, numbered): caterers, dresses, hotels, cars, a caterer's dishes. {index, of, kicker, name, price, price_note ('$7.50 a person'), photo (a photo of this very thing from a page you opened; when the pages have none, search_web with pictures: true for '<business> <thing>'), source, facts:[{label, value}] ≤4, note, pick, tag}"],
   versus: [versus, "two things side by side: homes, cars, jobs. {kicker, title, items:[{name, photo, source}] ×2, rows:[{label, a, b, better: 'a'|'b'}] ≤7}"],
-  places: [places, "places to go (restaurants, bars, shops), numbered. {kicker, title, items:[{name, cuisine ('Ethiopian'), price ('$$' or '$60 prix fixe'), hours ('5 to 10 pm'), address, note (one short line: why go, booking), distance ('4 min', only if you know it), distance_label ('walk'), photo (a dish or room photo from the place's own page, Yelp, OpenTable or a review you opened: open each place's own page first: its read lists photos and a Logo line), logo (that Logo line), pick}] ≤4, footer}. Every field shows in full; leave out what you don't know"],
+  places: [places, "places to go (restaurants, bars, shops, florists), numbered, with a map of them on top. {kicker, title, near (the town or neighbourhood the places are in, 'Long Island City, NY': the map needs it), from (where they start: their address from about-me, or where they said they are, written as it is there: each place's distance is measured from it for you), items:[{name, cuisine ('Ethiopian'), price ('$$' or '$60 prix fixe'), hours ('5 to 10 pm'), address (the full street address from the page you read), note (one short line: why go, booking), photo (a dish or room photo from the place's own page, Yelp, OpenTable or a review you opened: open each place's own page first: its read lists photos and a Logo line), logo (that Logo line), pick}] ≤6: as many as they asked for ('top 5' is 5), footer}. Every field shows in full; leave out what you don't know"],
+  map: [mapCard, "stops on a map, numbered: a day's errands, a trip's sights, where to meet, a run or walk route. {kicker, title, near ('Montreal, QC'), route (true when the order is the way to go: the path along streets is drawn and measured for you), loop (true when it ends back at stop 1: a run or walk loop from home), travel ('walk'|'bike'|'drive', default walk), stops:[{name, address (the street address you read this turn: look up each landmark's address first), time ('10:00', or a short distance like '1.7 mi'), note}] ≤6, footer}"],
   tickets: [tickets, "flights, trains, shows as ticket cards. {kicker, title, items:[{name ('Delta 1421'), depart, arrive, duration, stops, price, price_label, note, pick, tag}] ≤3, facts:[{label, value}] ≤3}"],
   trip: [trip, "a trip or event by day. {kicker, title, days:[{name, stops:[{time, what, note}] ≤5}] ≤3, chips:[{label, value, tone: 'good'|'warn'}] ≤3}"],
   day: [day, "one day hour by hour. {kicker, title, events:[{start ('9:30'), end, title, note, kind: meeting|free|travel|warn}] ≤9}"],
@@ -52,11 +54,13 @@ export const VISUAL_DEFINITION = {
     "theme 'dark' or 'light' (default) for the plain ones.\nTemplates:\n" +
     Object.entries(TEMPLATES)
       .map(([name, [, line]]) => `- ${name}: ${line}`)
-      .join("\n"),
+      .join("\n") +
+    `\n- ${PAGE_TEMPLATE}: ${PAGE_TEMPLATE_LINE}`,
   inputSchema: {
     type: "object",
     properties: {
-      template: { type: "string", enum: VISUAL_TEMPLATES },
+      // The cards, and a page's cover, which `../pictureMaker.js` draws from the note (`./page.js`).
+      template: { type: "string", enum: [...VISUAL_TEMPLATES, PAGE_TEMPLATE] },
       data: { type: "object", description: "The template's fields, as listed for it." },
       theme: { type: "string", enum: ["light", "dark"] },
     },
@@ -67,16 +71,17 @@ export const VISUAL_DEFINITION = {
 };
 
 /** The page for one visual, at the size it is photographed, or an error the model can act on. */
-export function buildVisual(args, { canLoad, photos } = {}) {
+export function buildVisual(args, { canLoad, photos, map = null } = {}) {
   const template = typeof args?.template === "string" ? args.template : "";
   if (!Object.hasOwn(TEMPLATES, template)) return { error: `No template "${template.slice(0, 30)}". Pick one of: ${VISUAL_TEMPLATES.join(", ")}.` };
   const data = args?.data && typeof args.data === "object" && !Array.isArray(args.data) ? args.data : null;
   if (data === null) return { error: "Pass the template's fields as data." };
   const theme = args?.theme === "dark" ? "dark" : "light";
   const dropped = [];
-  const drawn = TEMPLATES[template][0](loadable(data, canLoad, dropped, photos), theme);
+  // The map is only ever the gateway's (`./map.js`): one the model wrote into data is not drawn.
+  const drawn = TEMPLATES[template][0]({ ...loadable(data, canLoad, dropped, photos), map }, theme);
   const page = typeof drawn === "string" ? { html: drawn, height: CARD_HEIGHT } : drawn;
-  return { html: page.html, width: CARD_WIDTH * SCALE, height: page.height * SCALE, dropped: dropped.length };
+  return { html: page.html, width: CARD_WIDTH * SCALE, height: page.height * SCALE, fit: page.fit === true, dropped: dropped.length };
 }
 
 /**
@@ -123,6 +128,8 @@ export const VISUALS_LINE =
   "connect or who owns what; things whose looks matter (clothes, food, homes, gifts). Two or more, or they ask to see, compare, plan " +
   "or map: call draw_visual with the template that fits, then text ONE line (25 words at most: verdict and next step) and " +
   "[picture N]; never repeat the card in words. For 2-8 options that each need a photo and facts, draw one option card each " +
-  "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Never draw for a yes or no, one fact, " +
-  "a draft, hard news, or after they ask for text only. If draw_visual fails, text it all in words, no word of the card. For looks, take photos from the pages you open. To keep the card in a " +
+  "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Places to go or buy from (restaurants, bars, shops, florists) are one places card, never option cards. Never draw for a yes or no, one fact, " +
+  "a draft, hard news, or after they ask for text only. COMPARISONS ARE SEEN: each option (food, place, country, product) shows a real picture, from " +
+  "pages you open, search_web pictures: true, or its page in your browser; the card hunts any you leave out. Never give up on pictures after one try. " +
+  "If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card. To keep the card in a " +
   "note: write with args { images: [{ name: 'card.png', data: 'picture:N' }] } and ![[card.png]] in the content.";

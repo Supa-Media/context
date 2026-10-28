@@ -65,7 +65,8 @@ export const MAX_PREVIEW_TITLE = 60;
  * be retracted from anybody's CDN.
  */
 export function titleFromPath(path: string): string | null {
-  const base = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+  // A page (`plan.page.md`) is titled without its `.page`.
+  const base = path.slice(path.lastIndexOf("/") + 1).replace(/(\.page)?\.md$/i, "");
   const words = base
     .replace(CONTROL_CHARACTERS, " ")
     .replace(/^\d+[-_.\s]+/, "")

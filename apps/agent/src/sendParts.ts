@@ -7,22 +7,6 @@
 import type { AppCard } from "./appCards";
 import { isRefusal } from "./carousel";
 import type { Line } from "./line";
-import { PICTURE_FAILED, type Media } from "./outgoing";
-
-/**
- * A picture that the line refuses (a web address that is gone, or not an
- * image) becomes a sentence saying so rather than a reply retried until
- * dropped; a failure that is not a refusal is retried with the reply.
- */
-export async function sendPicture(line: Line, chatId: string, media: Media, key: string, thread?: string): Promise<void> {
-  try {
-    await line.sendMedia(chatId, media, key, thread);
-  } catch (error) {
-    const status = (error as { status?: number | null }).status;
-    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`, thread);
-  }
-}
 
 /**
  * A pick card after a set of option cards (`pickCard.ts`). A line with no

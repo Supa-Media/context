@@ -38,11 +38,10 @@
  * when it was read, so nothing legitimate is lost.
  */
 
+import { cardWords } from "./visuals/said.js";
+
 /** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
 export const MAX_PICTURES = 8;
-/** The most characters of a drawn card's caption kept in the saved conversation. */
-const MAX_CAPTION = 60;
-/** The most characters of an option's name a pick card carries (`apps/agent/src/pickCard.ts` caps it again). */
 const MAX_CHOICE_NAME = 60;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
@@ -108,6 +107,35 @@ function webAddress(value) {
   return url.href;
 }
 
+/** The shortest address worth looking up: "Main" alone could be anywhere, and anything. */
+const MIN_ADDRESS = 6;
+/**
+ * The words an address is written in either way, as one spelling: a page says
+ * "48 East 7th Street" where the card says "48 E 7th St" (owner, 2026-10-27:
+ * an ice cream card's map was left off over exactly that). Only spelling is
+ * forgiven; the address still has to be in what the turn read.
+ */
+const SPELLED = new Map(
+  Object.entries({
+    street: "st", avenue: "ave", av: "ave", boulevard: "blvd", road: "rd", drive: "dr", place: "pl", lane: "ln", parkway: "pkwy",
+    square: "sq", court: "ct", terrace: "ter", highway: "hwy", plaza: "plz", saint: "st",
+    east: "e", west: "w", north: "n", south: "s",
+    first: "1st", second: "2nd", third: "3rd", fourth: "4th", fifth: "5th", sixth: "6th", seventh: "7th", eighth: "8th", ninth: "9th", tenth: "10th", eleventh: "11th", twelfth: "12th",
+  }),
+);
+/** An address as it is compared: case, commas, spacing and the spellings above aside. */
+const plainAddress = (value) =>
+  typeof value === "string"
+    ? value
+        .toLowerCase()
+        .replace(/avenue of the americas/g, "6th ave")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .split(" ")
+        .map((word) => SPELLED.get(word) ?? word)
+        .join(" ")
+    : "";
+
 /**
  * One turn's pictures. `enabled` is false for every turn that is not a text
  * from the person's phone; such a turn's tool results and answers pass through
@@ -138,6 +166,14 @@ export function outgoingPictures({ enabled, question = "" }) {
       return { ...result, content: [...content, { type: "text", text: hint.join("\n") }] };
     };
   };
+
+  /**
+   * The turn's web tools (`turnWeb.js`), read the same way: they run beside
+   * the dispatcher, not through it, so until 2026-10-27 no page or picture
+   * search a texted turn read ever reached `read` or `vouches`, and every web
+   * photo on a card was dropped as unread (Dev2: "why isn't it adding images?").
+   */
+  const wrapWeb = (web) => (web === null || !enabled ? web : { ...web, call: wrap((name, args) => web.call(name, args)) });
 
   /** The answer without its picture lines, and the pictures those lines named that may go. */
   const take = (answer) => {
@@ -216,19 +252,39 @@ export function outgoingPictures({ enabled, question = "" }) {
   /** Every word the turn's tool results showed, for finding a card's photos among them (`visuals/photos.js`). */
   const read = () => text;
 
-  return { wrap, take, picture, made, vouches, read };
+  // Their about-me note, which names where they live: a places card's start (`visuals/distance.js`).
+  let known = "";
+  /** Keeps a texted turn's Tex notes' about-me text and hands the notes back, for `locates`. */
+  const knows = (notes) => {
+    if (typeof notes?.aboutMe === "string") known = notes.aboutMe.slice(0, MAX_SEEN_TEXT);
+    return notes;
+  };
+  /** Whether an address was in their words, a tool result this turn, or their about-me note, so it may go to a geocoder. */
+  // The turn's text as compared, kept until more is read: a card asks about each of its addresses.
+  let plain = { length: -1, text: "" };
+  const plainSeen = () => {
+    if (plain.length !== text.length) plain = { length: text.length, text: ` ${plainAddress(text)} ` };
+    return plain.text;
+  };
+  const locates = (address) => {
+    const wanted = plainAddress(address);
+    // Whole words only, so "8 W 9th St" is not found inside "48 W 9th St".
+    return wanted.length >= MIN_ADDRESS && (plainSeen().includes(` ${wanted} `) || ` ${plainAddress(known)} `.includes(` ${wanted} `));
+  };
+
+  return { wrap, wrapWeb, take, picture, made, vouches, read, knows, locates };
 }
 
 /**
- * What a drawn card shows, in a few words, from the arguments it was drawn
- * with: the option's name, or the card's title. So a reply of "the 2nd one"
- * to a set of option cards has an answer in the saved conversation.
+ * What a drawn card shows, in words, from the arguments it was drawn with:
+ * its title or option, and each thing on it with its facts. So a reply of
+ * "the 2nd one" to a set of option cards has an answer in the saved
+ * conversation, and a review reads what the card offered.
  */
 function captionOf(name, args) {
   if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
-  const data = args.data;
-  const said = [data.name, data.title, data.kicker].find((value) => typeof value === "string" && value.trim() !== "") ?? "";
-  return said.replace(/[\s\[\]]+/g, " ").trim().slice(0, MAX_CAPTION);
+  // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
+  return cardWords(args.data);
 }
 
 /**

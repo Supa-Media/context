@@ -51,6 +51,7 @@ const FEATURE_NAMES: Readonly<Record<string, string>> = {
   meaning: "Search by meaning",
   meetingSummary: "Meeting summaries",
   iconSuggest: "Icon suggestions",
+  textDecide: "Tex decides when to answer",
 };
 
 /** Features no account pays for: Cloudflare meters them, nobody's plan does. */

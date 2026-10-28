@@ -73,7 +73,7 @@ import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
 import { hideOldCopiesPass, readOldCopyTexts } from "../oldCopies/hiding";
-import { readMessagesLogPage } from "../messagesBackup/exportLog";
+import { isMessagesBackupOperation, runMessagesBackupOperation } from "../messagesBackup/exportLog";
 import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
@@ -179,7 +179,8 @@ export async function runFileOperationHandler(
     // (`searchNotes`), so a filling one is read too and says it is behind.
     const [target, meaningTarget] = await Promise.all([
       ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId }),
-      meaningSearchDescriptor(ctx, args.workspaceId),
+      // The words half asks no meaning index, so it reads no credential for one.
+      args.operation.half === "words" ? Promise.resolve(null) : meaningSearchDescriptor(ctx, args.workspaceId),
     ]);
     if (target !== null && (target.state === "ready" || target.state === "backfilling")) {
       const client = await clientFor(target);
@@ -438,7 +439,7 @@ export async function runFileOperationHandler(
       managedEncryption,
       idLayout,
     }) as unknown as FileStore;
-    if (args.operation.kind === "readOldCopies" || args.operation.kind === "readMessagesLog") {
+    if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
       keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption }) as unknown as FileStore;
     }
   } catch {
@@ -493,7 +494,7 @@ export async function runFileOperationHandler(
   if (args.operation.kind === "readOldCopies") {
     return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, keyStore ?? store, args.operation.paths) };
   }
-  if (args.operation.kind === "readMessagesLog") return await readMessagesLogPage(keyStore ?? store, args.operation.after);
+  if (isMessagesBackupOperation(args.operation)) return await runMessagesBackupOperation(keyStore ?? store, args.operation);
   // A queued move's links (`lib/nodes/linkRepair.ts`): the notes it rewrote are told to the tree as any write is.
   if (args.operation.kind === "repairLinks") {
     const written = recordWrites(store);

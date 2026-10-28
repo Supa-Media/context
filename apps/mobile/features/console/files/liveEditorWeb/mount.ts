@@ -31,6 +31,7 @@ import { noteMail } from "../mail/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
+import { spelling } from "../spelling/extension";
 
 export function mountEditor({
   host,
@@ -244,6 +245,13 @@ export function mountEditor({
       // Empty until the room answers; see the effect below.
       collab.current.of([]),
       reportSelection(() => presenceRef.current?.report),
+      /*
+        Spelling: Context's own checker, whose fixes sit on top of the
+        right-click menu. Nothing is drawn in the note (Dev2, 2026-10-28).
+        Web only for now: the iOS guest keeps the system's own checker
+        (`spelling/extension.ts`).
+      */
+      spelling(),
     ],
   });
 

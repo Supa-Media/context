@@ -79,6 +79,7 @@ import { runTenancyCrossTenantIsolationChecks } from "./tenancy/crossTenantIsola
 import { runTenancyResolutionChecks } from "./tenancy/resolutionScopeRevocation.test.mjs";
 import { runTenancyDiscoveryChecks } from "./tenancy/discoveryAndStaticToken.test.mjs";
 import { runTenancyRegistrationAndPkceChecks } from "./tenancy/registrationAndPkce.test.mjs";
+import { runTenancyRepeatedParameterChecks } from "./tenancy/repeatedParameters.test.mjs";
 import { runTenancyRedirectAndTokenChecks } from "./tenancy/redirectAndToken.test.mjs";
 import { runTenancyAuditAndSecretChecks } from "./tenancy/auditAndSecrets.test.mjs";
 
@@ -88,6 +89,7 @@ export async function runTenancyChecks(check) {
   await runTenancyResolutionChecks(check, harness);
   await runTenancyDiscoveryChecks(check, harness);
   await runTenancyRegistrationAndPkceChecks(check, harness);
+  await runTenancyRepeatedParameterChecks(check, harness);
   await runTenancyRedirectAndTokenChecks(check, harness);
   await runTenancyAuditAndSecretChecks(check, harness);
   harness.restoreAll();

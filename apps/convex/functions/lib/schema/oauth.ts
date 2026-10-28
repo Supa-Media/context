@@ -198,6 +198,13 @@ export const oauthTables = {
          */
         guestGroupId: v.optional(v.id("workspaceGroups")),
         guestTagger: v.optional(v.boolean()),
+        /**
+         * Invited family (`lib/textGroupInvited.ts`): the phone invitations the chat counted as members, each of
+         * which must still count for the grant to resolve, and the invitation's role when an invited person tagged
+         * Tex, so the grant is the binder's, clamped to that role, and acts for nobody's own account.
+         */
+        coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
+        invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
       }),
     ),
     workspaceId: v.id("workspaces"),
@@ -263,6 +270,14 @@ export const oauthTables = {
      * nothing about what was listed.
      */
     toolsListedAt: v.optional(v.number()),
+    /**
+     * When this grant's token last came in a URL (`/t/<token>/...`) rather
+     * than an Authorization header, at most hourly, and the coarse route it
+     * came on (`mcp`, `presence`, ...). What says whether removing the URL
+     * form would break a connection (`functions/tokenTransport.ts`).
+     */
+    pathTokenSeenAt: v.optional(v.number()),
+    pathTokenRoute: v.optional(v.string()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
@@ -271,5 +286,6 @@ export const oauthTables = {
     .index("by_workspace_user", ["workspaceId", "userId"])
     .index("by_refresh_token", ["hashedRefreshToken"])
     .index("by_access_token", ["hashedAccessToken"])
-    .index("by_previous_refresh_token", ["previousHashedRefreshToken"]),
+    .index("by_previous_refresh_token", ["previousHashedRefreshToken"])
+    .index("by_path_token_seen", ["pathTokenSeenAt"]),
 };

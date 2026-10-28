@@ -18,6 +18,7 @@ import { CHAT_SEND_SCOPES, chatSendPolicies } from "./lib/googleChatSend";
 import { CHAT_READ_SCOPES } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
+import { aiScopesOf } from "./lib/googleConnect/aiScopes";
 
 const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("hourly_limit"), v.literal("daily_limit"));
 
@@ -58,7 +59,7 @@ export const claimChatSend = internalMutation({
       .take(20);
     // Every scope sending needs, granted on one live connection.
     const sender = connections.find(
-      (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => row.scopes.includes(scope)),
+      (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
     if (sender === undefined) return { ok: false as const, refused: "no_chat" as const };
     const policies = chatSendPolicies(cleared.actorUserId);
@@ -105,7 +106,7 @@ export const claimChatRead = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.personal._id))
       .take(20);
     const reader = connections.find(
-      (row) => row.disconnectedAt === undefined && CHAT_READ_SCOPES.every((scope) => row.scopes.includes(scope)),
+      (row) => row.disconnectedAt === undefined && CHAT_READ_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
     if (reader === undefined) return { ok: false as const, refused: "no_chat" as const };
     const room = await tryConsumeRateLimit(ctx, {

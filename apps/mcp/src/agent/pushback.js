@@ -33,11 +33,20 @@ export const OPINION_LINE =
 const FLATTERY =
   /^\s*(?:(?:oh|ah|ooh|wow)[,!.]?\s+)?(?:you(?:'re| are) (?:so|absolutely|totally|completely|100%|exactly) right|(?:that's |what )?(?:an? )?(?:great|excellent|fantastic|brilliant|amazing|awesome|love(?:ly)?) (?:question|idea|call|point|thought|plan|catch)|absolutely|love (?:that|this|it)(?: idea)?|i love (?:that|this|it)(?: idea)?)(?:,\s*[a-z]+[.!]+|[.!]+|,)\s*/i;
 
-/** `answer` with a flattering opening sentence taken off, unless nothing would be left. */
+/*
+  A bare apology opening the answer: "Sorry.", "Sorry about that!", "My bad,"
+  or "Sorry, I should have moved one of them" (keeps "I should have …"). On
+  2026-10-27 every reply to a corrected calendar change opened with "Sorry"
+  and then showed the same change again (`sameAsk.js`); the fix is the right
+  change, not the word. "Sorry to hear that" is sympathy and stays.
+*/
+const APOLOGY = /^\s*(?:(?:so |really |very )?sorry(?: about that| for (?:the|that) (?:confusion|mix-?up|mistake))?|my bad|apologies|my apologies)(?:[.!]+|,)\s*/i;
+
+/** `answer` with a flattering or apologetic opening sentence taken off, unless nothing would be left. */
 export function withoutFlattery(answer) {
   if (typeof answer !== "string") return answer;
   const straight = answer.replace(/[‘’]/g, "'");
-  const match = FLATTERY.exec(straight);
+  const match = FLATTERY.exec(straight) ?? APOLOGY.exec(straight);
   if (match === null) return answer;
   const rest = answer.slice(match[0].length).trimStart();
   if (rest === "") return answer;
@@ -67,3 +76,6 @@ export function pushbackNudge(question, goals = []) {
   }
   return lines.length > 0 ? `\n\n${lines.join(" ")}` : "";
 }
+
+/** How Tex talks in this chat, as the person or group set it, beside how much it pushes back (`texStyle.js`). */
+export { readTexStyle, stylePrompt } from "./texStyle.js";

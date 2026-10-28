@@ -33,14 +33,21 @@ const NOTE_BODY = "---\nmeeting-id: mtg_claim_a\n---\n# Weekly sync\n\nThe discu
  * `treeNames` (files) — the two are set independently, as they are in life
  * while the tree catches up with the bucket.
  */
-function claimStore({ objects = {}, treeNames = [], treeServed = true } = {}) {
+function claimStore({ objects = {}, treeNames = [], treeServed = true, treeProps = {} } = {}) {
   const bucket = createBucket();
   for (const [key, body] of Object.entries(objects)) bucket.seed(key, body);
   const store = new R2Store(bucket);
   Object.defineProperty(store, "treeFacts", {
     configurable: true,
     value: async (request) => {
-      assert.equal(request.ask, "names", "the claim asks the tree for names only");
+      if (request.ask === "props") {
+        // Front matter as the tree keeps it: what a note's `meeting-id` is, read without opening the note.
+        const props = request.paths
+          .filter((path) => treeProps[path] !== undefined)
+          .map((path) => ({ path, props: JSON.stringify({ properties: treeProps[path] }) }));
+        return { served: true, props };
+      }
+      assert.equal(request.ask, "names", "the claim asks the tree for names and front matter only");
       if (!treeServed) return { served: false };
       const names = new Set(treeNames);
       return { served: true, files: request.paths.filter((path) => names.has(path)), folders: [] };
@@ -86,4 +93,30 @@ test("a tree that does not serve names fails the claim, and reads nothing from t
 
   await assert.rejects(unclaimedNotePath(store, CANDIDATE), (error) => error instanceof TreeUnavailable);
   assert.deepEqual(getsOf(bucket, [CANDIDATE]), [], "no bucket GET stands in for the tree");
+});
+
+test("a name held by this meeting's own note is claimed again, not suffixed around", async () => {
+  // The Mac app's window saved the meeting itself (`desktopGateway.ts`) at this very name; the machine's queue then
+  // gets through. One meeting is one note.
+  const { store, bucket } = claimStore({
+    treeNames: [CANDIDATE],
+    treeProps: { [CANDIDATE]: { "meeting-id": "mtg_claim_a" } },
+  });
+
+  assert.equal(await unclaimedNotePath(store, CANDIDATE, "mtg_claim_a"), CANDIDATE);
+  assert.deepEqual(getsOf(bucket, [CANDIDATE]), [], "the note's meeting-id came from the tree, not the bucket");
+});
+
+test("...and a name held by another meeting's note, or one with no meeting-id, is still suffixed around", async () => {
+  const other = claimStore({
+    treeNames: [CANDIDATE],
+    treeProps: { [CANDIDATE]: { "meeting-id": "mtg_someone_else" } },
+  });
+  assert.notEqual(await unclaimedNotePath(other.store, CANDIDATE, "mtg_claim_a"), CANDIDATE);
+
+  const plain = claimStore({ treeNames: [CANDIDATE], treeProps: { [CANDIDATE]: { title: "Weekly sync" } } });
+  assert.notEqual(await unclaimedNotePath(plain.store, CANDIDATE, "mtg_claim_a"), CANDIDATE);
+
+  const unread = claimStore({ treeNames: [CANDIDATE] });
+  assert.notEqual(await unclaimedNotePath(unread.store, CANDIDATE, "mtg_claim_a"), CANDIDATE);
 });

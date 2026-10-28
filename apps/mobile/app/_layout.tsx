@@ -17,6 +17,7 @@ import { useConvexAuth } from "convex/react";
 import { useEffect, useState } from "react";
 import { appearanceLoaded } from "../features/design/appearance";
 import { useAccountAppearanceSync } from "../features/design/useAccountAppearanceSync";
+import { useSpellingSync } from "../features/console/files/spelling/useSpellingSync";
 import { SiteRoot } from "../features/site/SiteRoot";
 import { EmailProofHost } from "../features/account/EmailProofDialog";
 import { siteHostname } from "../features/site/host";
@@ -115,6 +116,8 @@ function AppGround() {
   const colors = useColors();
   const scheme = useScheme();
   useAccountAppearanceSync();
+  // The note editor's spelling settings and added words, from the account.
+  useSpellingSync();
 
   /*
     The launch image comes down when there is something behind it.

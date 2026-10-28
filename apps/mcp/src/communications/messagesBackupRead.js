@@ -14,17 +14,19 @@
  */
 
 import { fileKeyOf } from "../../../../packages/communications/src/backup.js";
-import { readLogPage } from "../../../../packages/communications/src/backupLog.js";
+import { MESSAGES_BACKUP_LOG_ROUTE, readLogPage } from "../../../../packages/communications/src/backupLog.js";
+import { recordRead } from "../../../../packages/communications/src/backupReads.js";
 import { ATTACHMENT_CONTENT_TYPE } from "../store/contentTypes.js";
 import { json } from "../http/responses.js";
 
-export const MESSAGES_BACKUP_LOG_ROUTE = "/messages/imessage/log";
+export { MESSAGES_BACKUP_LOG_ROUTE };
 
-/** One page of the log. */
-export async function handleMessagesBackupLog(request, store) {
+/** One page of the log. The first page of a download, when there is a backup, is written down as one read (`backupReads.js`). */
+export async function handleMessagesBackupLog(request, store, session = null) {
   const after = new URL(request.url).searchParams.get("after") ?? undefined;
   try {
     const page = await readLogPage(store, after === "" ? undefined : after);
+    if (!after && page.objects.length > 0) await recordRead(store, { who: session?.actorClientName, how: "downloaded" });
     return json({ ok: true, ...page });
   } catch {
     return json({ ok: false, error: "unavailable" }, 503);

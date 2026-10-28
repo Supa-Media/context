@@ -68,7 +68,21 @@ type Mailbox = {
   folder: string;
   syncedFrom: number;
   syncedThrough?: number;
+  /** Shared with a group chat: every read of it is narrowed by this search (`lib/textGroupMail.ts`). */
+  filter?: string;
+  shared?: true;
+  /** Also watched by group chats in these workspaces (`lib/textGroupLooks.ts`). */
+  watchedIn?: string[];
 };
+
+/**
+ * A query narrowed by a shared mailbox's search: Gmail reads the two side by
+ * side as both. The query's own brackets go, so it can't close the share's
+ * group and open one of its own beside it.
+ */
+export function withinShare(query: string, mailbox: Pick<Mailbox, "filter">): string {
+  return mailbox.filter === undefined ? query : `(${mailbox.filter}) (${query.replace(/[(){}]/g, " ").trim()})`;
+}
 
 function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_mail", ...fields }));
@@ -83,7 +97,7 @@ async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: s
 }
 
 async function tokenFor(ctx: ActionCtx, mailbox: Mailbox): Promise<string | null> {
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
     connectionId: mailbox.connectionId,
   });
   return minted?.accessToken ?? null;
@@ -160,7 +174,8 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
         return [];
       }
       try {
-        const q = body.outsideSync === true ? outsideSyncQuery(query, mailbox) : query;
+        const own = body.outsideSync === true && mailbox.shared !== true ? outsideSyncQuery(query, mailbox) : query;
+        const q = withinShare(own, mailbox);
         const live = { fetchImpl: timeoutFetch, accessToken: token, delaysMs: LIVE_RETRY_MS };
         const { ids } = await listMessageIds({ ...live, query: q, pageToken: undefined, maxResults: share });
         const messages = await Promise.all(
@@ -201,7 +216,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   log({ route: "search", outcome: "ok", results: results.length, mailboxes: claimed.mailboxes.length, failed: unanswered.length });
   // Each mailbox's folder, where its synced day notes are: the gateway reads
   // them for a mailbox Gmail did not answer for.
-  const mailboxes = claimed.mailboxes.map(({ address, folder }: Mailbox) => ({ address, folder }));
+  const mailboxes = claimed.mailboxes.map(({ address, folder, watchedIn }: Mailbox) => ({ address, folder, ...(watchedIn ? { watchedIn } : {}) }));
   return json({
     ok: true,
     results,
@@ -228,7 +243,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
     log({ route: "read", outcome: "refused", reason: claimed.refused });
     return json({ ok: false, refused: claimed.refused });
   }
-  const mailbox = claimed.mailboxes[0]!;
+  const mailbox: Mailbox = claimed.mailboxes[0]!;
   const token = await tokenFor(ctx, mailbox);
   if (token === null) return json({ ok: false, refused: "unavailable" });
   let message;
@@ -239,6 +254,8 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
     return json({ ok: false, refused: "unavailable" });
   }
   if (message === null) return json({ ok: false, refused: "not_found" });
+  // A shared mailbox opens only a message its share's search finds: asked of Gmail by the message's own id.
+  if (mailbox.filter !== undefined && !(await insideShare(token, mailbox, message))) return json({ ok: false, refused: "not_found" });
   const event = gmailMessageToEvent(message, { mailboxSlug: "live" });
   const format = (entry: { name?: string; address?: string }) =>
     entry?.name ? `${entry.name} <${entry.address ?? ""}>` : (entry?.address ?? "");
@@ -279,4 +296,18 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
       })),
     },
   });
+}
+
+/** Whether a message is one its shared mailbox's search finds, by the Message-ID it carries. */
+async function insideShare(token: string, mailbox: Mailbox, message: { id?: unknown; payload?: { headers?: unknown } }): Promise<boolean> {
+  const headers = (message.payload?.headers ?? []) as Array<{ name?: string; value?: string }>;
+  const messageId = headerValue(headers, "Message-ID").trim().replace(/^<|>$/g, "");
+  if (messageId === "" || /[\s"()]/.test(messageId)) return false;
+  try {
+    const live = { fetchImpl: timeoutFetch, accessToken: token, delaysMs: LIVE_RETRY_MS };
+    const { ids } = await listMessageIds({ ...live, query: withinShare(`rfc822msgid:${messageId}`, mailbox), pageToken: undefined, maxResults: 5 });
+    return ids.includes(String(message.id));
+  } catch {
+    return false;
+  }
 }

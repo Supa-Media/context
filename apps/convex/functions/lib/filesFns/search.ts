@@ -23,6 +23,7 @@ import { recordSearchTiming, timingOf } from "../searchTiming";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 import { type BlendedAnswer, SOURCE_DEADLINE_MS, withDeadline } from "./searchDeadline";
+import { MEANING_EXTRA_FLOOR_WITH_WORDS } from "../../../../mcp/src/search/meaning/serve.js";
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -283,6 +284,13 @@ export async function searchContextsHandler(
     query: string;
     contexts?: Id<"workspaces">[];
     cursor?: string;
+    /**
+     * Half of the search: the words, or the meaning, for a palette that draws
+     * the words first and folds meaning in after (the search tune-up, Dev2's
+     * pick, 2026-10-27). Absent is both, merged, which the search page's
+     * later pages and older apps ask for. A meaning half has one page.
+     */
+    half?: "words" | "meaning";
   },
 ): Promise<BlendedAnswer> {
   const actorUserId = await callerId(ctx);
@@ -308,7 +316,9 @@ export async function searchContextsHandler(
   }
 
   const fingerprint = queryFingerprint(query);
-  const read = decodeCursor(args.cursor, fingerprint);
+  const meaningHalf = args.half === "meaning";
+  // A meaning half is one page: its rows are the few notes about the question.
+  const read = meaningHalf ? ({ kind: "fresh" } as const) : decodeCursor(args.cursor, fingerprint);
   const offsets = read.kind === "page" ? read.offsets : {};
 
   /*
@@ -354,6 +364,7 @@ export async function searchContextsHandler(
                 // by construction, and one listing per miss is the cost of a
                 // rule written for a single spinner.
                 refreshOnMiss: false,
+                ...(args.half === undefined ? {} : { half: args.half }),
               },
             },
           )) as Extract<OperationResult, { kind: "searchResults" }>;
@@ -370,12 +381,17 @@ export async function searchContextsHandler(
       // source, and the log should be able to say which one that was. A source
       // that missed its deadline is timed at the deadline.
       const ms = Date.now() - started;
-      await recordSearchTiming(ctx, {
-        workspaceId: context.workspaceId as Id<"workspaces">,
-        surface: "page",
-        ...timingOf(settled === null ? null : settled.answer),
-        ms,
-      });
+      // One row per search, from the half a person waits on: the meaning half
+      // arrives after the words are drawn, and a second row would count one
+      // search twice in admin › Search.
+      if (!meaningHalf) {
+        await recordSearchTiming(ctx, {
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          surface: "page",
+          ...timingOf(settled === null ? null : settled.answer),
+          ms,
+        });
+      }
       return {
         ms,
         context,
@@ -468,7 +484,13 @@ export async function searchContextsHandler(
     }
   }
 
-  const page = pageOf(fuse(sources), sources);
+  const fused = fuse(sources);
+  // Meaning rows from every workspace are scored by the same model, so the
+  // closest note leads wherever it lives; rank-fusion would put each
+  // workspace's first match level with every other's.
+  if (meaningHalf) fused.sort((a, b) => (b.closeness ?? 0) - (a.closeness ?? 0));
+  const paged = pageOf(fused, sources);
+  const page = meaningHalf ? { ...paged, next: null } : paged;
   const named = new Map(scope.map((context) => [context.workspaceId, context]));
   const edited = await editedTimes(ctx, page.rows);
   return {
@@ -484,6 +506,7 @@ export async function searchContextsHandler(
         snippet: row.snippet,
         meaningOnly: row.meaningOnly,
         ...(row.loose ? { loose: true } : {}),
+        ...(meaningHalf ? { close: (row.closeness ?? 0) >= MEANING_EXTRA_FLOOR_WITH_WORDS } : {}),
         ...(when === undefined || when === null ? {} : { edited: when }),
       };
     }),

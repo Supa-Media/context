@@ -10,6 +10,8 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
+import { LANGUAGE_LINE, MIRROR_LINE } from "./chatVoice.js";
+import { LOOK_FIRST_LINE } from "./lookFirst.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -87,6 +89,16 @@ export const OTHER_ROUTES_LINE =
 export const PRONOUNS_LINE =
   "Never guess anyone's pronouns, from a name or anything else: use their name or they/them, unless they or their notes say which pronouns they use.";
 
+/**
+ * Two people with one name are two people (the owner's review of a chat,
+ * 2026-10-26): asked for a job referral for a friend, Tex wrote one from
+ * what the notes said about a different person with the same first name,
+ * because the search for that name found both.
+ */
+export const SAME_NAME_LINE =
+  "Two people can share a name: a fact is about someone only when what you read ties it to that person (full name, email, number, handle), never because a first name or nickname matches. " +
+  "If you can't tell which one they mean, ask once before writing about either.";
+
 const GROUND_RULES = [
   // "In this conversation" includes earlier texts whose lookups are not shown
   // (`conversation.js`): read narrowly, this rule had the model take back its
@@ -101,9 +113,12 @@ const GROUND_RULES = [
   // day before: "Tex should never suggest the user should do something
   // themselves that Tex has the access and capability to do."
   DO_IT_YOURSELF_LINE,
+  // Self-review, 2026-10-27/28: asked which caterer emails to use, when a routine started, and "what's broken" after its own failed saves (`lookFirst.js`).
+  LOOK_FIRST_LINE,
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
   // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
   PRONOUNS_LINE,
+  SAME_NAME_LINE,
 ];
 
 /**
@@ -158,11 +173,20 @@ export const ACTIONS_LINE =
  * cooking menus nobody asked for, priced only the mains, and after "catering
  * only" offered "I can write these up if you want" instead of opening the
  * caterers' price pages. `stopsShort.js` sends such an answer back.
+ *
+ * A guest group chat (self-review 9d98ef, 2026-10-27) asked for five
+ * Manhattan venues for Sunday services: Tex listed two that churches already
+ * meet in on Sundays, dropped to three and offered "Want me to find two
+ * more?", and set a directory's $50-to-$25,000 range beside a venue with no
+ * published price.
  */
 export const RESEARCH_LINE =
   "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), your whole first reply is that one question: no options, no pick (not even \"I'd cook it\"), no guess from their notes. A town they name is enough to search on: never ask which state first. " +
   "Once they answer, open the pages with the figures and give the whole figure asked for (a cost per person counts sides and drinks), each place with its page link, and don't ask what those pages settle (where they deliver) or tell them to confirm the figures. " +
   "Asked for options, give each one found with the fact that decides it (open tonight till when, price), then your pick. " +
+  "Asked for a number, give that many: replace any you drop, never offer to find more. " +
+  "Check each fits its use on its own page (a Sunday-service venue isn't where a church already meets on Sundays). " +
+  "A price is the place's own, never a directory's general range: else say it isn't published. " +
   "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
 
 /**
@@ -174,6 +198,19 @@ export const RESEARCH_LINE =
 export const REMEMBER_LINE =
   "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference, a goal they're working toward, a decision they've made and why), " +
   "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
+
+/**
+ * A lesson for Tex is not a fact about them (the owner's review of a chat,
+ * 2026-10-26): told "take note of this please and make sure this never
+ * happens again" after a mistake, Tex wrote "no drafts from a file I can't
+ * open" into tex/about-me.md; "that's common sense, not about me info".
+ * How Tex should work is for the people improving it to fix, through a bug
+ * report (`report_problem`, held for their yes) and the self-review of
+ * finished chats; about-me is for them.
+ */
+export const LESSONS_LINE =
+  "A mistake of yours they want never repeated is about how you work, not about them: never put it in tex/about-me.md. " +
+  "Fix what you can in this turn, and file it with report_problem so the people improving you see it.";
 
 /**
  * A note they ask for is saved, and saved where their folders say (Tex's
@@ -202,6 +239,19 @@ export const REORGANIZE_LINE =
   "When they ask you to move, rename, archive or reorganize notes or folders, in their own workspace or a shared one they can write in, " +
   "do it yourself in this turn: a move keeps who can see each note, so you don't ask first. Several notes go in one move_notes. " +
   "If a move is refused, read why and fix the call rather than telling them it needs their OK.";
+
+/**
+ * Every new note Tex makes is a designed page (the owner, 2026-10-27, after
+ * "a detailed plan for putting on a 100 person concert in nyc" came back as a
+ * plain checklist: "THIS SHOULD HAVE BEEN A WELL DESIGNED PAGE", then "by
+ * default every note that tex produces should be a page, and only ever a
+ * regular note when the user explicitly asks"). Only background jobs had been
+ * told about pages (`PAGE_JOB_LINE`); `pageNotice.js` sends a plain new note back.
+ */
+export const PAGES_LINE =
+  "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
+  "Read the page design skill first (orient about: \"pages\") and follow it. A change to a note they already have keeps its form, and your own tex/ notes, " +
+  "about-me and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
@@ -350,7 +400,10 @@ export function systemPrompt(
         RESEARCH_LINE,
         // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
         OPINION_LINE,
-        ...(edits ? [REMEMBER_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
+        // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
+        MIRROR_LINE,
+        LANGUAGE_LINE,
+        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

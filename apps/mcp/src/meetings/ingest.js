@@ -369,7 +369,7 @@ export async function handleMeetings(
   path,
   store,
   session,
-  { publishNote, transcribe = null, resolveNotePath = null },
+  { publishNote, transcribe = null, transcriptionConsent = null, resolveNotePath = null },
 ) {
   const route = matchMeetingRoute(path);
   if (!route) return json({ error: ERRORS.invalid, error_description: "no such meeting route" }, 404);
@@ -406,7 +406,7 @@ export async function handleMeetings(
         and for the same reason: what it needs is a configured transcription
         service, which belongs to the environment, and this module reads none.
       */
-      return json(await transcribeChunk(request, store, session, route.id, transcribe));
+      return json(await transcribeChunk(request, store, session, route.id, transcribe, transcriptionConsent));
     }
     return await finalizeSession(request, store, session, route.id, publishNote);
   } catch (error) {
@@ -687,7 +687,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
         // cannot reach here: it was resolved before any of this.
         throw invalid("this session's start time is not a timestamp, so it has no note path");
       }
-      next = { ...next, notePath: await unclaimedNotePath(store, candidate) };
+      next = { ...next, notePath: await unclaimedNotePath(store, candidate, id) };
     }
     return assertSessionWithinLimits(next);
   }, session.scope);

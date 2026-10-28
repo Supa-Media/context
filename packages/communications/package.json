@@ -24,8 +24,8 @@
     "./calendar/meetingLink": "./src/calendar/meetingLink.js",
     "./calendar/contacts": "./src/calendar/contacts.js",
     "./backup": "./src/backup.js",
-    "./backupTranscript": "./src/backupTranscript.js",
-    "./backupLog": "./src/backupLog.js"
+    "./backupLog": "./src/backupLog.js",
+    "./backupReads": "./src/backupReads.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

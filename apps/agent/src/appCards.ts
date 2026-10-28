@@ -54,15 +54,16 @@ function decoded(segment: string): string | null {
 
 /** "1-projects/tex/launch-plan.md" → "Launch plan". */
 function titleOf(file: string): string {
-  const words = file.replace(/\.md$/i, "").replace(/[-_]+/g, " ").trim();
+  // A page (`plan.page.md`) is named without its `.page`, as everywhere else.
+  const words = file.replace(/(\.page)?\.md$/i, "").replace(/[-_]+/g, " ").trim();
   return (words.charAt(0).toUpperCase() + words.slice(1)).slice(0, MAX_CAPTION);
 }
 
-/**
- * The card for a text that is nothing but a link to a note, or null for any
- * other text: words, a web page, a link with anything around it.
- */
-export function noteCard(text: string, config: AppCardConfig): AppCard | null {
+/** A text that is nothing but a link to a note, read apart: its name, folder and workspace. */
+export type NoteLink = { url: string; slug: string; folder: string; caption: string };
+
+/** The note a text links to, or null for any other text: words, a web page, a link with anything around it. */
+export function noteLinkOf(text: string): NoteLink | null {
   const match = NOTE_LINK.exec(text.trim());
   if (!match) return null;
   const slug = decoded(match[1]);
@@ -71,9 +72,17 @@ export function noteCard(text: string, config: AppCardConfig): AppCard | null {
   const parts = segments as string[];
   const file = parts[parts.length - 1];
   if (!/\.md$/i.test(file)) return null;
-  const folder = parts.slice(0, -1).join("/");
-  const caption = titleOf(file);
-  const url = text.trim();
+  return { url: text.trim(), slug, folder: parts.slice(0, -1).join("/"), caption: titleOf(file) };
+}
+
+/**
+ * The card for a text that is nothing but a link to a note, or null for any
+ * other text: words, a web page, a link with anything around it.
+ */
+export function noteCard(text: string, config: AppCardConfig): AppCard | null {
+  const link = noteLinkOf(text);
+  if (!link) return null;
+  const { url, slug, folder, caption } = link;
   return {
     appName: "Context",
     extensionBundleId: config.extensionBundleId,

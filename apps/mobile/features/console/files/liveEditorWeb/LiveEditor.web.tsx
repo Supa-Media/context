@@ -68,6 +68,7 @@ import { showTitleNote } from "./titleLine";
 import { showPropertySlot } from "./propertySlot";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
+import { forgetIgnoredWords } from "../spelling/extension";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
 import { hasMargin } from "../comments/model";
 import { redrawDiagrams } from "../livePreview/diagram";
@@ -555,6 +556,8 @@ export function LiveEditor({
   useEffect(() => {
     setMenuAt(null);
     setTableAt(null);
+    // "Ignore in this note" lasts until the note is closed (board 5).
+    if (view.current !== null) forgetIgnoredWords(view.current);
   }, [notePath]);
 
   // One menu id, run against the live editor — see `runEditorMenuAction`.
@@ -610,6 +613,7 @@ export function LiveEditor({
             canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,
             spellingHint: menuAt.spellingHint === true,
+            spellingLearns: menuAt.spellingLearns === true,
           })}
           anchor={menuAt}
           title="Format"

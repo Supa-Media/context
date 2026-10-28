@@ -21,8 +21,7 @@
  */
 
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "../_generated/server";
 import { userIsStaff } from "./lib/admin";
@@ -155,7 +154,16 @@ export const recordScores = internalMutation({
     texts: v.optional(v.number()),
     ...scoreFields,
   },
-  returns: v.array(v.object({ at: v.number(), kind: v.union(v.literal("one"), v.literal("group")), reason: v.string(), ...scoreFields })),
+  returns: v.array(
+    v.object({
+      at: v.number(),
+      kind: v.union(v.literal("one"), v.literal("group")),
+      reason: v.string(),
+      ...scoreFields,
+      task: v.union(v.string(), v.null()),
+      signals: v.array(v.string()),
+    }),
+  ),
   handler: async (ctx, { userId, grantId, now, texts, ...row }) => {
     await consumeRateLimit(ctx, { key: `tex.review:${userId}`, limit: REVIEWS_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
     const day = new Date(now).toISOString().slice(0, 10);
@@ -175,7 +183,7 @@ export const recordScores = internalMutation({
       .take(MAX_SCORES_PER_DAY);
     return rows
       .sort((a, b) => a.at - b.at)
-      .map(({ at, kind, reason, goal, independence, turns, friendly, calm }) => ({ at, kind, reason, goal, independence, turns, friendly, calm }));
+      .map(({ at, kind, reason, goal, independence, turns, friendly, calm, task, signals }) => ({ at, kind, reason, goal, independence, turns, friendly, calm, task: task ?? null, signals: signals ?? [] }));
   },
 });
 

@@ -194,7 +194,7 @@ describe("the AI costs report", () => {
     await spend(t, adaWs, "ownerSuggest", { costUsd: 0.5, calls: 10 });
 
     const result = await report(t, staff, 7);
-    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "ownerSuggest", "meetingSummary", "iconSuggest"]);
+    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "ownerSuggest", "meetingSummary", "iconSuggest", "textDecide"]);
     expect(new Set(result.features.map((f) => f.feature))).toEqual(new Set(Object.keys(JEV_FEATURES)));
 
     expect(result.features[0]).toMatchObject({ feature: "assistant", uses: 4, unit: "questions", costUsd: 2 });

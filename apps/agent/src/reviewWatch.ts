@@ -19,7 +19,7 @@
 
 import { openSession, post, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
-import { chatBefore, peopleOf, sha256Hex } from "./groupChat";
+import { chatBefore, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 
 export const REVIEW_KEY = "review-watch";
@@ -93,7 +93,7 @@ export async function checkReview(storage: InboxStorage, deps: ReviewDeps): Prom
     const handles = new Map(minted.names.map(({ phone, handle }) => [phone, handle]));
     const group = {
       key: await sha256Hex(`${message.line}:${message.groupId}`),
-      members: await sha256Hex(peopleOf(message.line, watch.people).join(",")),
+      members: await peopleHash(message.line, watch.people),
       ...(minted.handle ? { from: minted.handle } : {}),
       people: [...new Set(handles.values())].filter(Boolean),
       chat: said.lines.filter((line) => line.text).map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })),

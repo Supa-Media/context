@@ -7,6 +7,7 @@ import {
   spaceLabel,
   waitingForFullDiskAccess,
   whatsCopiedLines,
+  downloadLine,
   whoseTexts,
 } from "../features/messagesBackup/view";
 
@@ -108,5 +109,13 @@ describe("what's copied", () => {
     expect(whatsCopiedLines({ pictures: true, videos: false, bytes: 0 })).toEqual({ pictures: "Up to 25 MB each", videos: "Off. Videos take most of the space." });
     expect(whatsCopiedLines({ pictures: true, videos: true, bytes: 2_000_000 }).pictures).toBe("Up to 25 MB each · 2 MB so far");
     expect(whatsCopiedLines({ pictures: false, videos: true, bytes: 2_000_000 })).toEqual({ pictures: "Off. The 2 MB already copied stays.", videos: "Up to 25 MB each" });
+  });
+
+  test("a download says what it saved, what it could not, and never the shell's own words", () => {
+    expect(downloadLine({ ok: true, conversations: 12, transcripts: 40, pictures: 1340, notCopied: 0 })).toBe("Saved 12 conversations and 1,340 pictures to Downloads.");
+    expect(downloadLine({ ok: true, conversations: 1, transcripts: 1, pictures: 0, notCopied: 1 })).toBe("Saved 1 conversation to Downloads. 1 file was never copied, so it isn't in it.");
+    expect(downloadLine({ ok: true, conversations: 0, transcripts: 0, pictures: 0, notCopied: 0 })).toBe("Nothing is backed up yet.");
+    expect(downloadLine({ ok: false, problem: "write_failed" })).toBe("Couldn't save to Downloads. Check there's room on this Mac, then try again.");
+    expect(downloadLine({ ok: false, problem: "something new" })).toBe("Something went wrong. Try again.");
   });
 });

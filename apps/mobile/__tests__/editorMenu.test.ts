@@ -264,4 +264,28 @@ describe("spelling", () => {
   test("no hint where a checker was asked", () => {
     expect(ids({ canEdit: true, hasSelection: false, apple: true })).not.toContain("spellingHint");
   });
+
+  test("Context's own checker adds Add to dictionary and Ignore under the fixes", () => {
+    const got = ids({
+      canEdit: true,
+      hasSelection: false,
+      apple: true,
+      spelling: { suggestions: ["eleven"] },
+      spellingLearns: true,
+    });
+    expect(got.slice(0, 3)).toEqual(["spelling:0", "spellingAdd", "spellingIgnore"]);
+    expect(got).toContain("bold");
+  });
+
+  test("a note nobody may write gets no spelling rows", () => {
+    const got = ids({
+      canEdit: false,
+      hasSelection: false,
+      apple: true,
+      spelling: { suggestions: ["eleven"] },
+      spellingLearns: true,
+    });
+    expect(got).not.toContain("spelling:0");
+    expect(got).not.toContain("spellingAdd");
+  });
 });

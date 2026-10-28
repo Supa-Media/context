@@ -29,9 +29,10 @@ export function createTreeMethods({ post }) {
      *
      * @param {string} accessToken
      * @param {string} expectedWorkspaceId
-     * @param {{cursor?: string, folder?: string}} page
+     * @param {{cursor?: string, folder?: string, changedSince?: number}} page `changedSince`: only the notes written since then, whole
+     * @param {{timeoutMs?: number}} [options] a longer wait, for a reader nobody is waiting on (a check-in)
      */
-    async readTreeManifest(accessToken, expectedWorkspaceId, page = {}) {
+    async readTreeManifest(accessToken, expectedWorkspaceId, page = {}, { timeoutMs = TREE_MANIFEST_TIMEOUT_MS } = {}) {
       const parsed = await post(
         "/gateway/tree/manifest",
         {
@@ -39,8 +40,9 @@ export function createTreeMethods({ post }) {
           expectedWorkspaceId,
           ...(typeof page.cursor === "string" ? { cursor: page.cursor } : {}),
           ...(typeof page.folder === "string" ? { folder: page.folder } : {}),
+          ...(Number.isFinite(page.changedSince) ? { changedSince: page.changedSince } : {}),
         },
-        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
+        { timeoutMs, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
       if (!parsed || parsed.served !== true) return { served: false };
       if (!Array.isArray(parsed.entries) || !(parsed.cursor === null || typeof parsed.cursor === "string")) {
@@ -124,8 +126,29 @@ export function createTreeMethods({ post }) {
       }
       return true;
     },
+
+    /**
+     * The cover just drawn of a `.page.md` note (`draw_visual` template
+     * `page`), kept in the person's bucket so a linked page's card shows it
+     * (`/gateway/page-cover`). True once kept; false for every refusal.
+     *
+     * @param {string} accessToken
+     * @param {string} expectedWorkspaceId
+     * @param {string} path
+     * @param {string} png base64
+     */
+    async recordPageCover(accessToken, expectedWorkspaceId, path, png) {
+      if (typeof png !== "string" || png.length > MAX_COVER_CHARS) return false;
+      const parsed = await post("/gateway/page-cover", { path, png, accessToken, expectedWorkspaceId }, { timeoutMs: PAGE_COVER_TIMEOUT_MS });
+      return parsed?.recorded === true;
+    },
   };
 }
+
+/** A cover's base64, at most: the control plane takes up to 2 MB of picture (`MAX_COVER_BYTES`). */
+export const MAX_COVER_CHARS = 2_666_668;
+/** Writing a cover is a bucket write; it never holds up the turn for long. */
+export const PAGE_COVER_TIMEOUT_MS = 8_000;
 
 /** Forwarding addresses or icon moves one request carries: the control plane's `TOUCH_SMALL_DATA`. */
 export const SMALL_DATA_BATCH = 100;

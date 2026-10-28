@@ -74,7 +74,8 @@ export async function settleTextedText(store, session, { dispatch, question, has
     again nor says it was dropped.
   */
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
-  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ tool: record.tool, summary: record.summary })) } : null;
+  // `id` and `args` let a correction drop exactly these (`claimCheck.js` rule 6); only `summary` is ever shown.
+  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ id: record.id, tool: record.tool, summary: record.summary, args: record.args })) } : null;
   return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
 }
 
@@ -85,7 +86,8 @@ export function setAsideLine(setAside, dropped = []) {
   return (
     `(Context: you asked the person to give a 👍 or say yes to ${each}, and it still waits: their yes or 👍 makes it, nothing else is needed. ` +
     "This text is not that yes. Answer it; don't show it again or ask for the yes again. Only if this text changes what it should be, " +
-    "make the call again with the change, and they are asked about the new one instead.)"
+    "or says what is wrong with it (\"they're both still at 6:30\"), make the call again with that change, and they are asked about the new one instead; " +
+    "the same change again is never shown, and an apology is no answer.)"
   );
 }
 
