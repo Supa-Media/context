@@ -8,13 +8,16 @@ import type { CalendarEvent } from "../meetings/protocol";
 import type { MeetingRecord } from "../meetings/record";
 import { setScheduledMeetings } from "../meetings/scheduled";
 import { useColors } from "../design/theme";
+import { MeetingJoinSettingsView } from "../console/settings/panels/MeetingJoinSettings";
+import type { AskBefore } from "../meetings/joinPreferences";
 
 /**
  * Join and take notes, for screenshots (boards w1 and w2, 2026-10-27).
  *
  * `/e2e-fixture?screen=meeting-join&at=console|live|phone`: `console` draws the
  * sidebar's next-up row beside the Meetings tab's Today list, `live` the
- * running card with its Open Google Meet button, `phone` the meetings list.
+ * running card with its Open Google Meet button, `phone` the meetings list,
+ * `settings` the Settings › Meetings card.
  * The calendar store and the controller's snapshot are set directly: nothing
  * records and nothing reads Google.
  */
@@ -79,6 +82,7 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   }, [view]);
   if (!ready) return null;
   if (view === "phone") return <MeetingsListScreen />;
+  if (view === "settings") return <SettingsCard />;
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface, gap: 40, padding: 24 }} testID="meeting-join-fixture">
       <View style={{ width: 262, backgroundColor: colors.chrome }}>
@@ -87,6 +91,24 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
       <View style={{ width: 340 }}>
         <MeetingsTab onOpenNote={null} onJoin={() => {}} />
       </View>
+    </View>
+  );
+}
+
+function SettingsCard() {
+  const colors = useColors();
+  const [off, setOff] = useState<readonly string[]>(["seyi.personal.calendar.with.a.long.address@gmail.example"]);
+  const [ask, setAsk] = useState<AskBefore>("1");
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface, padding: 16, maxWidth: 640 }} testID="meeting-join-fixture">
+      <MeetingJoinSettingsView
+        calendars={["seyi@supa.example", "seyi.personal.calendar.with.a.long.address@gmail.example"]}
+        off={off}
+        ask={ask}
+        problem={false}
+        onToggle={(address, on) => setOff(on ? off.filter((entry) => entry !== address) : [...off, address])}
+        onAsk={setAsk}
+      />
     </View>
   );
 }

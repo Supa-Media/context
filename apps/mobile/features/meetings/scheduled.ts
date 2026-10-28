@@ -68,6 +68,14 @@ export function useNextMeeting(now: number): CalendarEvent | null {
   return nextMeeting(meetings, now === 0 ? Date.now() : now, NEXT_MEETING_LEAD_MS);
 }
 
+/** Set by the mounted source: ask Google again now, after a setting changed. */
+let refreshNow: (() => void) | null = null;
+
+/** Read today's meetings again now, rather than at the next five-minute tick. */
+export function refreshScheduledMeetings(): void {
+  refreshNow?.();
+}
+
 /** How often the day is asked of Google again while the app is open. */
 export const SCHEDULED_REFRESH_MS = 5 * 60 * 1000;
 
@@ -115,12 +123,14 @@ export function useScheduledMeetingsSource({ enabled }: { enabled: boolean }): v
       }
     };
     void refresh();
+    refreshNow = () => void refresh();
     const timer = setInterval(() => void refresh(), SCHEDULED_REFRESH_MS);
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") void refresh();
     });
     return () => {
       stopped = true;
+      refreshNow = null;
       clearInterval(timer);
       appState.remove();
     };

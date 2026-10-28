@@ -10,6 +10,7 @@
  *     "an editor of somebody's personal workspace never sees their meetings" fails.
  *  2. Dropping the rate limit. → "an hour holds a bounded number of reads" fails.
  *  3. Dropping the window bound. → "a window wider than two days is refused before Google is asked" fails.
+ *  4. Ignoring `calendarsOff` in the claim. → "a calendar switched off in Settings › Meetings is not read" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -156,5 +157,29 @@ describe("meetings to join, from the person's own calendars", () => {
       ctx.db.insert("rateLimits", { key: `meeting.calendar.read:${alice}`, windowStartedAt: Date.now(), count: MEETING_CALENDAR_READS_PER_HOUR }),
     );
     expect(await at(t, alice).action(api.functions.meetingCalendar.upcomingMeetings, { from: FROM, to: TO })).toEqual({ ok: false, refused: "rate_limited" });
+  });
+
+  test("a calendar switched off in Settings › Meetings is not read", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-28T12:00:00Z"), toFake: ["Date"] });
+    const urls = calendar();
+    const { t, alice } = await connected();
+    await at(t, alice).mutation(api.functions.meetingPreferences.setMyMeetingPreferences, {
+      calendarsOff: ["  Alice@Gmail.Example "],
+      askBeforeMs: null,
+    });
+    expect(await at(t, alice).query(api.functions.meetingPreferences.myMeetingPreferences, {})).toMatchObject({
+      calendarsOff: ["alice@gmail.example"],
+      askBeforeMs: null,
+    });
+    expect(await at(t, alice).action(api.functions.meetingCalendar.upcomingMeetings, { from: FROM, to: TO })).toEqual({ ok: false, refused: "no_calendar" });
+    expect(urls).toHaveLength(0);
+  });
+
+  test("one person's choice is nobody else's", async () => {
+    const { t, alice, bob } = await connected();
+    await at(t, alice).mutation(api.functions.meetingPreferences.setMyMeetingPreferences, { calendarsOff: [], askBeforeMs: 300_000 });
+    expect(await at(t, bob).query(api.functions.meetingPreferences.myMeetingPreferences, {})).toBeNull();
+    expect(await t.query(api.functions.meetingPreferences.myMeetingPreferences, {})).toBeNull();
+    await expect(t.mutation(api.functions.meetingPreferences.setMyMeetingPreferences, { calendarsOff: [], askBeforeMs: null })).rejects.toThrow();
   });
 });

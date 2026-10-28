@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // Joining from the calendar: addresses switched off and when to ask.
+  const meetingJoinPreferences = await ctx.db
+    .query("meetingJoinPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of meetingJoinPreferences) await ctx.db.delete(row._id);
+
   // Spelling: on or off, a language, and the words they added.
   const spellingPreferences = await ctx.db
     .query("spellingPreferences")

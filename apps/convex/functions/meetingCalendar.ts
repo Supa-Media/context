@@ -73,7 +73,15 @@ export const claimMeetingCalendars = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
       .take(MAX_CONNECTIONS);
-    const calendars = connections.filter((row) => row.disconnectedAt === undefined && row.products.includes("calendar"));
+    // Settings › Meetings: a calendar the person switched off offers nothing.
+    const preferences = await ctx.db
+      .query("meetingJoinPreferences")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .unique();
+    const off = new Set(preferences?.calendarsOff ?? []);
+    const calendars = connections.filter(
+      (row) => row.disconnectedAt === undefined && row.products.includes("calendar") && !off.has(row.address.toLowerCase()),
+    );
     const reconnect = calendars.filter((row) => row.health === "reconnect_required").map((row) => row.address.toLowerCase());
     const readable = calendars
       .filter((row) => row.health !== "reconnect_required")

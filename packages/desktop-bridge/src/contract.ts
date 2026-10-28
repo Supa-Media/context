@@ -51,6 +51,10 @@ export type { ImessageStatus, MessagesBackupDownload, MessagesBackupFiles, Messa
 
 export type { TranscriptSegment };
 export type { LocalAgentAsk, LocalAgentReply, LocalAgentStatus };
+import type { UpcomingMeetings } from "./calendar.ts";
+import type { SpellingCheck } from "./spelling.ts";
+export type { UpcomingMeetings, UpcomingMeetingView } from "./calendar.ts";
+export type { SpellingCheck } from "./spelling.ts";
 
 /**
  * The bridge's shape, and the only number a bundle compares against.
@@ -674,54 +678,10 @@ export interface DesktopBridge {
   spelling?: {
     check(word: string): Promise<SpellingCheck>;
   };
-  /**
-   * Today's meetings from the person's own calendars, handed to the menu bar.
-   * **Version 9.**
-   *
-   * The shell holds no control-plane session and so cannot read a calendar;
-   * the page can, and pushes what it read whenever it changes. The shell keeps
-   * the last list in memory only, names the next meeting beside the menu-bar
-   * icon, offers "Join and take notes" in its menu, and asks `askBeforeMs`
-   * before one starts. Nothing it is handed ever starts a recording: joining
-   * is a press on the menu or on the nudge, the same consent as Record
-   * (docs/decisions/meetings/joining-from-the-calendar.md).
-   *
-   * The shell re-checks every link against the join-host allowlist before it
-   * opens one, because this crosses from a page served from the network.
-   * Optional for `MIN_BRIDGE_VERSION`'s reason, like `spelling` above.
-   */
-  calendar?: {
-    setUpcoming(upcoming: UpcomingMeetings): void;
-  };
+  /** Today's meetings for the menu bar. **Version 9.** See `calendar.ts` for what the shell does with them. */
+  calendar?: { setUpcoming(upcoming: UpcomingMeetings): void };
 }
 
-/** One meeting the menu bar may name and join. Text is the invite's, so it is rendered as text. */
-export interface UpcomingMeetingView {
-  id: string;
-  title: string;
-  /** ISO instants. */
-  startsAt: string;
-  endsAt: string;
-  /** The call link, already allowlisted by the page and checked again by the shell, or `null`. */
-  conferenceUrl: string | null;
-  /** The other guests, for naming speakers. The person themself is not listed. */
-  attendees: { name: string; email: string }[];
-}
-
-export interface UpcomingMeetings {
-  meetings: UpcomingMeetingView[];
-  /** How long before a meeting the shell asks, or `null` for never. */
-  askBeforeMs: number | null;
-}
-
-/**
- * What the checker said about one word. `suggestions` is empty for a word it
- * accepts, and may be empty for one it flags but cannot place.
- */
-export interface SpellingCheck {
-  misspelled: boolean;
-  suggestions: string[];
-}
 
 /**
  * The IPC channel names, in the package both sides import.
@@ -791,7 +751,6 @@ export const BRIDGE_CHANNELS = Object.freeze({
 
   agentStatus: "context:agent-status", // Version 7: is there a local CLI to ask, and asking it.
   agentAsk: "context:agent-ask",
-
   calendarSetUpcoming: "context:calendar-set-upcoming", // Version 9: today's meetings, for the menu bar.
 
   /** Main → page. Pushed; the page subscribes through the bridge. */

@@ -87,3 +87,12 @@ Nothing the shell is handed starts a recording. Only a press does, and it
 takes the same path as Record a meeting. `apps/desktop/test/calendarUpcoming.test.mjs`
 reads `main/calendar.ts` and fails if a tick, an arriving list or a shown
 nudge could reach `recordNow`.
+
+**Settings › Meetings, Joining from your calendar.** One switch per connected
+calendar, and **Ask on the Mac**: 1 minute before, 5 minutes before, or Don't
+ask. Both are kept on the account (`meetingJoinPreferences`: addresses and a
+number, never an event, deleted with the account). The calendar read leaves
+out a calendar that is switched off, and the console hands the ask time to
+the Mac app with the day's meetings. If the console sends an ask time that is
+not one of the choices, the Mac app falls back to one minute, so a broken
+page can't switch the reminder off.

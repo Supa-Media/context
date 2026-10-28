@@ -28,7 +28,22 @@ export function upcomingView(meeting: CalendarEvent): UpcomingMeetingView {
  * phone, an older Mac app. The shell keeps them in memory and checks every
  * link again; nothing it is handed starts a recording.
  */
-export function tellShellUpcoming(meetings: readonly CalendarEvent[], askBeforeMs: number | null = DEFAULT_ASK_BEFORE_MS): void {
+let askBefore: number | null = DEFAULT_ASK_BEFORE_MS;
+let lastMeetings: readonly CalendarEvent[] = [];
+
+/**
+ * Settings › Meetings' "Ask on the Mac": how long before a meeting, or `null`
+ * for don't ask. Hands the menu bar the day again with the new choice.
+ */
+export function setShellAskBefore(ms: number | null): void {
+  if (ms === askBefore) return;
+  askBefore = ms;
+  tellShellUpcoming(lastMeetings);
+}
+
+export function tellShellUpcoming(meetings: readonly CalendarEvent[]): void {
+  lastMeetings = meetings;
+  const askBeforeMs = askBefore;
   const calendar = getDesktopBridge()?.calendar;
   if (calendar === undefined) return;
   try {
