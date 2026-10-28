@@ -112,7 +112,7 @@ export function decideRequest(body: DecideBody): JevRequest {
       },
     },
   };
-  // A choice needs two options or the decide Worker refuses the whole request (`infra/transcribe-worker/src/decide.ts`):
+  // A choice needs two options or the inference Worker refuses the whole request (its `readQuestion`):
   // with one message waiting there is nothing to choose, and the answer covers it alone.
   if (body.candidates.length > 1) {
     questions.start = {
