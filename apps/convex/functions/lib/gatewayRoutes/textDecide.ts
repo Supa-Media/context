@@ -180,14 +180,20 @@ async function workspaceFor(ctx: ActionCtx, body: DecideBody): Promise<Id<"works
 export async function agentTextsDecideHandler(ctx: ActionCtx, raw: Record<string, unknown>): Promise<Response> {
   const body = readDecideBody(raw);
   if (body === null) return badRequest();
+  // Each hop timed, so a slow decide says where the time went (2026-10-27: every group decide ran past the Worker's 4s).
+  const started = Date.now();
   const workspaceId = await workspaceFor(ctx, body);
+  const lookupMs = Date.now() - started;
+  let modelMs: number | undefined;
   const result: DecideResult =
     workspaceId === null
       ? { ok: false, reason: "unavailable" }
       : await withJev(ctx, { feature: "textDecide", workspaceId }, async (jev, refusal) => {
           if (!jev) return { ok: false, reason: refusal === "daily_cap" || refusal === "not_premium" ? "capped" : refusal === "unconfigured" ? "unavailable" : "off" };
           if (jev.remaining <= 0) return { ok: false, reason: "capped" };
+          const asked = Date.now();
           const answers = await jev.decide(decideRequest(body));
+          modelMs = Date.now() - asked;
           return answers === null ? { ok: false, reason: "unavailable" } : readDecideAnswers(body, answers);
         });
   // Counts and codes only: never the transcript, a candidate's words, or a number.
@@ -198,6 +204,9 @@ export async function agentTextsDecideHandler(ctx: ActionCtx, raw: Record<string
       candidates: body.candidates.length,
       waitingAsks: body.waitingAsks.length,
       running: body.running,
+      lookupMs,
+      ...(modelMs !== undefined ? { modelMs } : {}),
+      totalMs: Date.now() - started,
       ...(result.ok ? { act: result.act, covers: result.covers.length, stale: result.stale.length } : { reason: result.reason }),
     }),
   );
