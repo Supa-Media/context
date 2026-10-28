@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { ATTEMPT_TTL_MS } from "./config";
+import { isReservedReviewer } from "../reviewerAccount";
 
 export const requirePersonalOwnerArgs = { workspaceId: v.id("workspaces"), userId: v.id("users") };
 
@@ -27,6 +28,8 @@ export async function requirePersonalOwnerHandler(
 ) {
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null || workspace.kind !== "personal") return false;
+  // The reserved reviewer never holds a Google connection (`reviewerAccount.ts`).
+  if (await isReservedReviewer(ctx, args.userId)) return false;
   const membership = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace_user", (q) =>
