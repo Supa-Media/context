@@ -22,6 +22,7 @@
  * real origin runs nothing it is handed" fails on both counts.
  */
 
+import { expect, test } from "@jest/globals";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
@@ -48,7 +49,7 @@ function runBox(origin: string): Run {
     disconnect(): void {}
   };
   window.eval(BOX);
-  window.dispatchEvent(new window.MessageEvent("message", { data: { channel: "context-page-box", type: "box", page: {}, html: HTML }, source: window }));
+  window.dispatchEvent(new window.MessageEvent("message", { data: { channel: "context-page-box", type: "box", page: {}, html: HTML }, source: window as unknown as MessageEventSource }));
   const ran = (window as unknown as { __boxScriptRan?: boolean }).__boxScriptRan === true;
   const drawn = window.document.getElementById("drawn") !== null;
   dom.window.close();

@@ -270,7 +270,7 @@ describe("castSite", () => {
 
   test("the cast's room says it is a demo in the chip", () => {
     const shared = createSharedDoc({});
-    const member = { id: "cast:@maya", name: "@maya", color: "#ec4899", anchor: null, head: null, canWrite: false, isAgent: false };
+    const member = { id: "cast:@maya", name: "@maya", color: "#ec4899", anchor: null, head: null, canWrite: false, isAgent: false, isYou: false };
     const presence = castPresence(shared, [member]);
     expect(presence).toMatchObject({ phase: "live", settled: true, canWrite: true, summary: "1 here" });
     expect(presenceLabel(presence)).toBe("@maya · 1 other here · demo");
