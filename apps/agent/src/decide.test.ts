@@ -15,6 +15,7 @@ describe("decide's outcome for the logs", () => {
     expect(await decide(deps(answering(502, {})), ASK)).toMatchObject({ ok: false, reason: "unavailable", cause: "http_502" });
     expect(await decide(deps(answering(200, { ok: false, reason: "unavailable" })), ASK)).toMatchObject({ ok: false, cause: "unavailable" });
     expect(await decide(deps(answering(200, { ok: false, reason: "capped" })), ASK)).toMatchObject({ ok: false, reason: "capped", cause: "capped" });
+    expect(await decide(deps(answering(200, { ok: false, reason: "unavailable", cause: "no_group" })), ASK)).toMatchObject({ ok: false, reason: "unavailable", cause: "no_group" });
     expect(await decide(deps(answering(200, { ok: true, act: "shout" })), ASK)).toMatchObject({ ok: false, cause: "bad_answer" });
     const refused = (async () => {
       throw new Error("refused");
