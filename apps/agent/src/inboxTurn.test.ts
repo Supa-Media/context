@@ -123,6 +123,20 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
 const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 const act = (what: "silent" | "react") => () => ({ ok: true, act: what, covers: [], stale: [], movedOn: false, confidence: 0.9 });
 
+
+/**
+ * Advance fake time until `work` settles. One big advance raced on slow CI runners (2026-10-28,
+ * production deploy): a timer scheduled after the advance finished never fired, and the test hung.
+ */
+async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
+  let done = false;
+  const settled = work.finally(() => {
+    done = true;
+  });
+  for (let step = 0; step < 600 && !done; step++) await vi.advanceTimersByTimeAsync(100);
+  await settled;
+}
+
 describe("decide in a person's own chat", () => {
   for (const line of LINES) {
     it(`a split request, a text then a link a second later, is decided together and answered once (${line.name})`, async () => {
@@ -204,9 +218,7 @@ describe("decide in a person's own chat", () => {
         const w = world(() => ({ ok: false, reason: "unavailable" }), { decideNeverAnswers: true });
         await accept(storage, msg(line.chatId, "e1", "what's on"), 1_000);
         await accept(storage, msg(line.chatId, "e2", "today"), 1_000);
-        const draining = drain(storage, w.deps);
-        await vi.advanceTimersByTimeAsync(IDLE_DECIDE_MS + 100);
-        await draining;
+        await drainedUnderFakeTimers(drain(storage, w.deps));
         const first = (name: string) => w.calls.findIndex((call) => call === name);
         expect(first("decide")).toBeGreaterThan(first("read"));
         expect(first("decide")).toBeGreaterThan(first("typing"));
@@ -242,9 +254,7 @@ describe("decide in a person's own chat", () => {
       const w = world(act("react"), { agentTakes: 12_000 });
       await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
-      const draining = drain(storage, w.deps);
-      await vi.advanceTimersByTimeAsync(15_000);
-      await draining;
+      await drainedUnderFakeTimers(drain(storage, w.deps));
       expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
       expect(w.reactedOn).toEqual(["m_e2"]);
     } finally {
