@@ -1,5 +1,4 @@
-import type { KeyValueStore } from "../offline/memory";
-import { openStore } from "../offline/store";
+import { deviceWithdrawalStore, type StrictKeyValue } from "./transcriptionWithdrawalStore";
 
 /**
  * A Turn off the account has not confirmed yet, kept on this device so it
@@ -14,15 +13,28 @@ import { openStore } from "../offline/store";
  * (the Turn off arrived) or Allow is pressed here. Another account's answer
  * never touches it: the key names the account.
  *
- * Sign-out empties the device's store, and this key with it; the account's
- * answer is then whatever the server holds, and the row in Settings shows it.
+ * A store that cannot be read holds the device off too: "unknown" is never
+ * read as "nothing kept". It is not sent again (nothing says there was a Turn
+ * off), and Allow pressed here lifts it for this run.
+ *
+ * **Limit:** sign-out empties the device's store, this key with it. A Turn off
+ * that never reached the account and is followed by a sign-out is lost; the
+ * account's answer is then whatever the server holds, which the Settings row
+ * shows after the next sign-in.
  */
+
+/** What this device holds for an account: a kept Turn off, nothing, or a store it could not read. */
+export type KeptWithdrawal = "pending" | "clear" | "unknown";
 
 const PREFIX = "context.transcription.withdrawnHere:";
 
-let injected: KeyValueStore | null = null;
-let opened: KeyValueStore | null = null;
-/** What this process has read or written, per account, so a yes needs no wait after the first. */
+let injected: StrictKeyValue | null = null;
+let opened: StrictKeyValue | null = null;
+/**
+ * What this process has read or written, per account, so a yes needs no wait
+ * after the first. An unreadable store is never cached: the next answer reads
+ * again.
+ */
 const known = new Map<string, boolean>();
 
 let signedInAccount: string | null = null;
@@ -37,34 +49,36 @@ export function consentAccount(): string | null {
 }
 
 /** Tests hand in a store; `null` goes back to the device's own. */
-export function setWithdrawalStore(store: KeyValueStore | null): void {
+export function setWithdrawalStore(store: StrictKeyValue | null): void {
   injected = store;
   known.clear();
 }
 
-function store(): KeyValueStore {
+function store(): StrictKeyValue {
   if (injected !== null) return injected;
-  opened ??= openStore();
+  opened ??= deviceWithdrawalStore();
   return opened;
 }
 
-/** Whether this process already knows the answer for this account, and what it is. */
-export function knownPendingWithdrawal(account: string): boolean | undefined {
-  return known.get(account);
+/** What this process already knows for this account, or `undefined` before the store is read. */
+export function knownPendingWithdrawal(account: string): KeptWithdrawal | undefined {
+  const cached = known.get(account);
+  return cached === undefined ? undefined : cached ? "pending" : "clear";
 }
 
-export async function readPendingWithdrawal(account: string): Promise<boolean> {
-  const cached = known.get(account);
+export async function readPendingWithdrawal(account: string): Promise<KeptWithdrawal> {
+  const cached = knownPendingWithdrawal(account);
   if (cached !== undefined) return cached;
-  let pending = false;
+  let pending: boolean;
   try {
     pending = (await store().get(PREFIX + account)) !== null;
   } catch {
-    // Unreadable is no evidence of a Turn off; the account's own answer stands.
+    // Unreadable is not "nothing kept": hold off, and read again next time.
+    return knownPendingWithdrawal(account) ?? "unknown";
   }
-  // A Turn off pressed while this read was in flight wins over what it found.
+  // A Turn off or an Allow pressed while this read was in flight wins over what it found.
   if (!known.has(account)) known.set(account, pending);
-  return known.get(account)!;
+  return knownPendingWithdrawal(account)!;
 }
 
 export async function rememberWithdrawal(account: string): Promise<void> {

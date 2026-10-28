@@ -42,6 +42,8 @@ import {
  *     → `Allow from a New meeting clears it…` fails.
  *  7. The sync hook ignores a kept Turn off.
  *     → the restart tests fail.
+ *  8. An unreadable store read as "nothing kept".
+ *     → `a kept Turn off that cannot be read…` fails.
  */
 
 const mockForget = jest.fn(() => ({ left: 0 }));
@@ -388,6 +390,52 @@ function NewMeeting(): ReactElement {
     consent.sheet,
   );
 }
+
+describe("a store that cannot be read holds the device off", () => {
+  test("a kept Turn off that cannot be read: the account's yes is not used and nothing is resent", async () => {
+    await (async () => {
+      mockAnswer = ON;
+      mockMutationFails = true;
+      const view = mount(createElement(SettingsWithSync));
+      await settle();
+      press("cloud-transcription-turn-off");
+      await settle();
+      view.unmount();
+    })();
+    // A restart into a store that throws on every read.
+    setWithdrawalStore({
+      get: async () => {
+        throw new Error("storage unavailable");
+      },
+      set: device.set,
+      remove: device.remove,
+    });
+    transcriptionWithdrawalConfirmed();
+    setTranscriptionConsent(null);
+    mockMutations.length = 0;
+    mockMutationFails = false;
+
+    mockAnswer = { ...ON };
+    const view = mount(createElement("div", null, createElement(Sync), createElement(NewMeeting)));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+    expect(mockMutations).toEqual([]);
+
+    // Read again on the next answer, and still held off.
+    mockAnswer = { ...ON };
+    view.rerender(createElement("div", null, createElement(Sync), createElement(NewMeeting)));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+
+    // Allow pressed here lifts it for this run.
+    press("start");
+    await settle();
+    press("transcription-consent-allow");
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(true);
+    view.unmount();
+  });
+});
 
 describe("Allow pressed here lifts a kept Turn off", () => {
   test("Allow from a New meeting clears it for the signed-in account, so the account's yes counts again", async () => {
