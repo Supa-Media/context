@@ -32,8 +32,9 @@
  * this policy blocks, and only when someone uses them, so a quiet hour says
  * nothing about them: the plugin sandbox (`packages/obsidian-runtime`) is a
  * `srcdoc` document, which inherits this policy, and runs its bootstrap and
- * every plugin as inline script; the drawing editor's bundled WebAssembly glue
- * (`drawing-assets/editor/editor.js`) builds functions with `new Function`.
+ * every plugin as inline script; the drawing editor's bundle
+ * (`drawing-assets/editor/editor.js`, built from `@excalidraw/excalidraw`)
+ * carries WebAssembly glue that builds functions with `new Function`.
  * Each has to move to a document this policy does not cover, or stop needing
  * it, first; `cspReport.test.ts` fails if the policy enforces before then.
  *

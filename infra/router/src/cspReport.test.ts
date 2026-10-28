@@ -86,10 +86,12 @@ describe("the policy", () => {
   it("stays report-only while a frame of ours needs inline script or eval", () => {
     const repo = join(__dirname, "..", "..", "..");
     const sandbox = readFileSync(join(repo, "packages", "obsidian-runtime", "src", "sandbox", "lifecycle.js"), "utf8");
-    const editor = readFileSync(join(repo, "apps", "mobile", "public", "drawing-assets", "editor", "editor.js"), "utf8");
+    // The editor bundle is built, not committed; the dependency that brings
+    // the `new Function` in is.
+    const app = JSON.parse(readFileSync(join(repo, "apps", "mobile", "package.json"), "utf8")) as { dependencies?: Record<string, string> };
     const needs = [
       ...(/script\.textContent\s*=/.test(sandbox) ? ["plugin sandbox: inline script in a srcdoc frame"] : []),
-      ...(/new Function\(/.test(editor) ? ["drawing editor: new Function"] : []),
+      ...(app.dependencies?.["@excalidraw/excalidraw"] ? ["drawing editor: Excalidraw's WebAssembly glue calls new Function"] : []),
     ];
     if (needs.length > 0) expect(SECURITY_HEADERS["Content-Security-Policy"], needs.join("; ")).not.toContain("script-src");
   });
