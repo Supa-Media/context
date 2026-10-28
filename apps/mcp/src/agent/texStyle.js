@@ -31,9 +31,11 @@ const DIALS = {
   enthusiasm: { more: "Enthusiasm: more. Be upbeat and energetic.", less: "Enthusiasm: less. Stay calm and matter-of-fact; no exclamation marks." },
   emoji: { more: "Emoji: more. Use emoji freely where they fit.", less: "Emoji: less. Use no emoji in your texts." },
 };
+/** A length someone set wins over any length rule said earlier, such as a group's "in a line or two" (Dev2, 2026-10-28). */
+const OVERRIDES = " This replaces any earlier rule about how long to answer, such as answering in a line or two.";
 const LENGTHS = {
-  short: "Length: short. One short paragraph, the answer and nothing else, unless they ask for more.",
-  detailed: "Length: detailed. Say more when it helps: the reasons, the options, the next step.",
+  short: `Length: short. One short paragraph, the answer and nothing else, unless they ask for more.${OVERRIDES}`,
+  detailed: `Length: detailed. Say more when it helps: the reasons, the options, the next step.${OVERRIDES}`,
 };
 const BUBBLES = { one: "Bubbles: one. Write the whole answer as one text, with no blank lines between paragraphs." };
 

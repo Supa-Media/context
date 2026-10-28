@@ -266,3 +266,4 @@ test/staleEtagWrite.test.mjs
 test/oneVersion.test.mjs
 test/outcome.test.mjs
 test/agentTexStyle.test.mjs
+test/agentChatVoice.test.mjs
