@@ -11,7 +11,7 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
-import { noteCard, type AppCardConfig } from "./appCards";
+import { noteCard, type AppCard, type AppCardConfig } from "./appCards";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
 import {
@@ -51,6 +51,8 @@ export interface Line {
    */
   sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<string | undefined>;
   sendMedia(chatId: string, media: Media, idempotencyKey: string, replyTo?: string): Promise<void>;
+  /** A Context card on its own (`pickCard.ts`), where the line has App Cards (Sendblue); absent elsewhere. Refused with a 4xx. */
+  sendAppCard?(chatId: string, card: AppCard, replyTo?: string): Promise<void>;
   /** Pictures by address as one swipeable set, where the line has carousels (Sendblue); absent elsewhere. */
   sendCarousel?(chatId: string, urls: string[], replyTo?: string): Promise<void>;
   /** A picture's bytes made sendable: an uploaded attachment, or an address the line fetches. */
@@ -138,6 +140,9 @@ function sendblueLine(deps: LineDeps): Line {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("sendblue", 400);
       await sendSendblueMedia(fetch, keys(), chatId, media.url, replyTo);
+    },
+    sendAppCard: async (chatId, card, replyTo) => {
+      await sendSendblueAppCard(fetch, keys(), chatId, card, replyTo);
     },
     sendCarousel: (chatId, urls, replyTo) => sendSendblueCarousel(fetch, keys(), chatId, urls, replyTo),
     uploadPicture: async (picture) => {

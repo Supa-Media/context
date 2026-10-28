@@ -47,6 +47,8 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
+import { sendCardPart } from "./sendParts";
+import { withPickCard, type Choice } from "./pickCard";
 import { textsFromAnswer } from "./format";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
@@ -420,6 +422,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
         await out(partEvent(part));
+      } else if ("card" in part) {
+        await sendCardPart(line, item.message.chatId, part.card, thread);
       } else {
         const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
         await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
@@ -451,6 +455,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
 /** The event for one part Tex sent: a picture it could not upload is one that never went. */
 function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
   if (part === PICTURE_FAILED) return { kind: "picture", delivered: false, reason: "upload_failed" };
+  if (typeof part !== "string" && "card" in part) return { kind: "text", text: part.card.fallbackText, delivered: true };
   if (typeof part !== "string") return { kind: "picture", delivered: true, ...("url" in part.media ? { text: part.media.url } : {}) };
   return { kind: kindOf(part), text: part, delivered: true };
 }
@@ -506,6 +511,7 @@ type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: str
 
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
+  let choices: Choice[] = [];
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -546,7 +552,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
-      onPictures: (sent) => void (pictures = sent),
+      onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       // "Tex, settings" and the style it keeps (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
@@ -574,7 +580,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await partsFor(texts, pictures, upload));
+  return done(withPickCard(await partsFor(texts, pictures, upload), choices, message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */

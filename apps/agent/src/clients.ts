@@ -20,6 +20,7 @@ import type { GatewayAttachment } from "./attachments";
 import { readTexStyle, type TexStyle } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import { readChoices, type Choice } from "./pickCard";
 import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
@@ -227,7 +228,7 @@ export type AgentAnswer =
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -366,6 +367,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       kind: "answer",
       text: body.answer.trim(),
       pictures,
+      ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),

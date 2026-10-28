@@ -181,6 +181,28 @@ test("an address read before the model used it stays vouched when a tool repeats
   assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
 });
 
+test("option cards sent together carry their choices, so the person can pick with one tap", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "places", data: { title: "Near you" } });
+  await draw("draw_visual", { template: "option", data: { index: 1, of: 2, name: "  Via\nCarota ", price: "$$", pick: true } });
+  await draw("draw_visual", { template: "option", data: { index: 2, of: 2, name: "Bar Pitti" } });
+  const { choices } = outgoing.take("Two good ones.\n[picture 2]\n[picture 3]\n[picture 1]");
+  assert.deepEqual(choices, [
+    { name: "Via Carota", price: "$$", pick: true, picture: 0 },
+    { name: "Bar Pitti", picture: 1 },
+  ]);
+});
+
+test("one option card, or option cards never sent, offer no choice", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "option", data: { name: "Via Carota" } });
+  await draw("draw_visual", { template: "option", data: { name: "Bar Pitti" } });
+  assert.deepEqual(outgoing.take("Just this one.\n[picture 1]").choices, []);
+  assert.deepEqual(outgoingPictures({ enabled: false }).take("x").choices, undefined);
+});
+
 // Tex Devs group, 2026-10-26: draw_visual worked, the answer said "Here's the one-pager" and named no
 // [picture N], so the card never went. A card the turn drew goes even when the answer forgot to name it.
 test("a drawn card the answer forgot to name still goes; a redrawn one replaces it; option cards go as a set", async () => {
@@ -206,4 +228,12 @@ test("a drawn card the answer forgot to name still goes; a redrawn one replaces 
   await named.wrap(image("a"))("draw_visual", { template: "board", data: {} });
   await named.wrap(image("b"))("draw_visual", { template: "board", data: {} });
   assert.deepEqual(named.take("Here.\n[picture 1]").pictures.map((p) => p.data), ["a"]);
+});
+
+test("an option set the answer forgot to name still carries its choices", async () => {
+  const set = outgoingPictures({ enabled: true });
+  for (const [i, name] of ["Lugo's", "Blend"].entries()) {
+    await set.wrap(async () => ({ content: [image()] }))("draw_visual", { template: "option", data: { index: i + 1, of: 2, name } });
+  }
+  assert.deepEqual(set.take("Lugo's is my pick.").choices, [{ name: "Lugo's", picture: 0 }, { name: "Blend", picture: 1 }]);
 });

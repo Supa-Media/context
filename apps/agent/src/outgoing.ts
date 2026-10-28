@@ -11,6 +11,7 @@
  * saying so, never a failed answer.
  */
 
+import type { AppCard } from "./appCards";
 import type { ImagesLike } from "./attachments";
 import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 
@@ -19,8 +20,8 @@ export type OutgoingPicture = { name: string; mediaType: string; data: string } 
 /** A picture ready to send: an attachment uploaded to Linq, or an address the line fetches. */
 export type Media = { attachment_id: string } | { url: string };
 
-/** What the inbox sends after the words: a text, or a media part ready for the line. */
-export type SendPart = string | { media: Media };
+/** What the inbox sends after the words: a text, a media part ready for the line, or a Context card (`pickCard.ts`). */
+export type SendPart = string | { media: Media } | { card: AppCard };
 
 export const MAX_OUTGOING_PICTURES = 8;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
@@ -185,5 +186,6 @@ export async function sendLinqMedia(
 /** What the simulator's log shows for a picture. */
 export function describePart(part: SendPart): string {
   if (typeof part === "string") return part.slice(0, MAX_REPLY_TEXT);
+  if ("card" in part) return `[card: ${part.card.layout.caption}]`;
   return "url" in part.media ? `[picture: ${part.media.url}]` : "[picture]";
 }

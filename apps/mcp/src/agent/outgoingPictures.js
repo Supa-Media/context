@@ -42,6 +42,7 @@ import { cardWords } from "./visuals/said.js";
 
 /** The most pictures one answer sends: a set of option cards, not an album. Two or more go as one swipeable carousel. */
 export const MAX_PICTURES = 8;
+const MAX_CHOICE_NAME = 60;
 /** The most base64 one answer carries back to the texting Worker. */
 const MAX_PICTURE_CHARS = 16_000_000;
 /** The most bytes kept from tool results to check a web address against. */
@@ -156,7 +157,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "" });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "", choice: choiceOf(name, args) });
           numbers.push(seen.length);
         }
       }
@@ -179,6 +180,7 @@ export function outgoingPictures({ enabled, question = "" }) {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
     const pictures = [];
     const captions = [];
+    const choices = [];
     const named = new Set();
     let carried = 0;
     const stripped = answer.replace(PICTURE_LINE, (_, ref) => {
@@ -188,6 +190,7 @@ export function outgoingPictures({ enabled, question = "" }) {
         const picture = seen[Number(ref) - 1];
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
+          if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
           pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
           captions.push(picture.caption);
         }
@@ -205,11 +208,13 @@ export function outgoingPictures({ enabled, question = "" }) {
       for (const picture of unnamedCards()) {
         if (pictures.length >= MAX_PICTURES || carried + picture.data.length > MAX_PICTURE_CHARS) break;
         carried += picture.data.length;
+        if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
         pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
         captions.push(picture.caption);
       }
     }
-    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions };
+    // Two or more option cards are a choice the person can make with one tap (`apps/agent/src/pickCard.ts`).
+    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions, choices: choices.length >= 2 ? choices : [] };
   };
 
   /**
@@ -280,6 +285,21 @@ function captionOf(name, args) {
   if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
   // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
   return cardWords(args.data);
+}
+
+/**
+ * The option an option card shows, for the card that lets the person choose
+ * among a set of them with one tap: its name, its price and whether it is
+ * Tex's pick. Words only, cut short; the texting Worker checks them again.
+ */
+function choiceOf(name, args) {
+  if (name !== "draw_visual" || args?.template !== "option" || !args.data || typeof args.data !== "object") return null;
+  const data = args.data;
+  const clean = (value, max) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+  const option = clean(data.name, MAX_CHOICE_NAME);
+  if (!option) return null;
+  const price = clean(data.price, 20);
+  return { name: option, ...(price ? { price } : {}), ...(data.pick === true ? { pick: true } : {}) };
 }
 
 /** The line the saved conversation keeps for what was sent, so "what was that picture?" and "the 2nd one" have an answer. */

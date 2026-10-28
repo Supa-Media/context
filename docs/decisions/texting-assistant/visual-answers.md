@@ -145,6 +145,31 @@ an https link on context.lc and nothing else. The IPA check
 extension point and the host's exact version. It reaches people with the next
 native build and App Store release, which stay separate explicit actions.
 
+### Choosing with one tap: the pick card (2026-10-26, built switched off)
+
+The owner, on App Cards: "if you come up with UX that utilizes both, great".
+The carousel is for looking and a card is for deciding: after a set of option
+cards (two or more `option` draws sent together), one Context card follows
+that names Tex's pick, with that option's own card as its picture, and says
+"Tap to choose, or reply 1–3" (`apps/agent/src/pickCard.ts`). The gateway
+hands the options over as `choices` (`outgoingPictures.js`): names and prices
+from the option cards' own data, never anything else the turn read.
+
+The options travel in the card's URL (`https://context.lc/tex/pick?p=1&o=…`),
+so nothing is kept on our side. The extension lists them; choosing one sends
+the card back from their phone with `&c=2`, and that reaches Tex as the text
+"I pick 2: Lugo's" (`pickedText`). A card that comes back is untrusted input:
+only a card from our own extension, on context.lc's `/tex/pick`, naming one
+of its own options, becomes words, and those words are never more than the
+person could have typed. Any other card is not a message.
+
+The card goes only where note cards go (`APP_CARDS` on, a Sendblue one-to-one
+chat), and a line that refuses it sends nothing in its place: every option
+card already says "Reply 2 for more". Reverting it costs the one-tap choice,
+and the carousel and numbered replies stay. A CI job (`messages-extension`)
+type-checks the extension against the iOS SDK on every pull request that
+touches it, because otherwise only the hand-run native release compiles it.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

@@ -43,6 +43,7 @@ import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import type { OutgoingPicture } from "./outgoing";
+import type { Choice } from "./pickCard";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
@@ -82,7 +83,7 @@ export type ReplyDeps = {
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
-  onPictures?: (pictures: OutgoingPicture[]) => void;
+  onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -264,7 +265,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
-      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
+      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
