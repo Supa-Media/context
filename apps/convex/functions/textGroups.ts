@@ -5,6 +5,7 @@ import { phoneSignInPaused } from "./lib/emailProof";
 import { recordAudit } from "./lib/audit";
 import { SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "./lib/consentScopes";
 import { hashToken } from "./lib/crypto";
+import { hasTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
 import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
@@ -67,9 +68,10 @@ export const ENGAGEMENT_STYLES = ["quiet", "attentive", "followAlong", "helpful"
 export type Engagement = (typeof ENGAGEMENT_STYLES)[number];
 const engagementValidator = v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
 
-/** What the Worker is told about a chat's style: the choice, and whether anyone made one. */
-function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean } {
-  return chat.engagement === undefined ? { engagementChosen: false } : { engagement: chat.engagement, engagementChosen: true };
+/** What the Worker is told about a chat's style: the choice, whether anyone made one, and how Tex talks there (`lib/texStyle.ts`). */
+function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean; texStyle?: TexStyle } {
+  const talk = hasTexStyle(chat.texStyle) ? { texStyle: chat.texStyle } : {};
+  return chat.engagement === undefined ? { engagementChosen: false, ...talk } : { engagement: chat.engagement, engagementChosen: true, ...talk };
 }
 
 const commandValidator = v.union(
@@ -124,6 +126,7 @@ export const groupAnswerValidator = v.union(
     /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
     engagement: v.optional(engagementValidator),
     engagementChosen: v.boolean(),
+    texStyle: v.optional(texStyleValidator),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
     mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   }),
@@ -153,6 +156,7 @@ export type GroupAnswer =
       guestTagger?: string;
       engagement?: Engagement;
       engagementChosen: boolean;
+      texStyle?: TexStyle;
     };
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */

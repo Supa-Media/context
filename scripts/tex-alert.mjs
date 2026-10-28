@@ -7,6 +7,8 @@
 // Usage: node scripts/tex-alert.mjs > report.md  (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID)
 // Exit 0 with an empty report: healthy. A non-empty report: open or update the alert issue.
 
+import { code } from "./log-codes.mjs";
+
 /** Decide calls in the window before the unavailable share counts. */
 export const MIN_DECIDES = 3;
 
@@ -26,15 +28,11 @@ export function problemsIn(events) {
   if (unbound.length > 0) problems.push(`${unbound.length} untagged group texts dropped as unbound`);
   for (const outcome of ["workflow_unavailable", "workflow_gave_up"]) {
     const hits = events.filter((e) => e.event === "group_turn" && e.outcome === outcome);
-    if (hits.length > 0) problems.push(`${hits.length} group turns: ${outcome}${outcome === "workflow_gave_up" ? ` (reasons: ${countBy(hits, (e) => e.reason ?? "unknown")})` : ""}`);
+    // kind: a chat routine's run or a check-in (Dev2, 2026-10-28); a turn people asked for has none.
+    const kinds = `kinds: ${countBy(hits, (e) => e.kind ?? "asked")}`;
+    if (hits.length > 0) problems.push(`${hits.length} group turns: ${outcome} (${outcome === "workflow_gave_up" ? `reasons: ${countBy(hits, (e) => e.reason ?? "unknown")}; ` : ""}${kinds})`);
   }
   return problems;
-}
-
-/** A log code as written, or "other": anything else (a number, words) never reaches the public issue. */
-function code(value) {
-  const text = String(value);
-  return /^[a-z][a-z0-9_:-]{0,39}$/i.test(text) && !/\d{7}/.test(text) ? text : "other";
 }
 
 function countBy(items, key) {
@@ -73,7 +71,7 @@ async function readEvents(minutes) {
         try { source = JSON.parse(e.$metadata.message); } catch { source = null; }
       }
       if (source && typeof source === "object" && typeof source.event === "string") {
-        out.push({ event: source.event, outcome: source.outcome, reason: source.reason });
+        out.push({ event: source.event, outcome: source.outcome, reason: source.reason, kind: source.kind });
       }
     }
     if (events.length < 500) break;

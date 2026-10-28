@@ -304,16 +304,20 @@ for (const { name, groupId } of LINES) {
       expect(await storage.get("gengask")).toBeUndefined();
     });
 
-    it("a style's name sets it too, any case; \"Tex, settings\" asks again", async () => {
+    it("a style's name sets it too, any case; \"Tex, settings\" then 1 asks again", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId);
       await acceptGroup(storage, w.message("Tex, settings"), 0);
       await drainGroup(storage, w.deps);
-      expect(w.texts).toEqual([ENGAGEMENT_QUESTION]);
+      // Dev2, 2026-10-28: "Tex, settings" is the two-level menu; its first choice is this question (`texStyle.ts`).
+      expect(w.texts[0]).toMatch(/^My settings here:\n\n1 When I speak up \(Follow-along\)\n2 Tone \(Default\)/);
+      await acceptGroup(storage, w.message("1", { from: BO }), 5);
+      await drainGroup(storage, w.deps);
+      expect(w.texts[1]).toBe(ENGAGEMENT_QUESTION);
       await acceptGroup(storage, w.message("QUIET", { from: BO }), 10);
       await drainGroup(storage, w.deps);
       expect(w.engagement).toEqual([{ line: LINE, groupId, style: "quiet", setBy: "bo" }]);
-      expect(w.texts[1]).toBe('Got it, Quiet (set by bo). To change it later, text "Tex, settings".');
+      expect(w.texts[2]).toBe('Got it, Quiet (set by bo). To change it later, text "Tex, settings".');
       expect(w.asks).toEqual([]);
     });
 

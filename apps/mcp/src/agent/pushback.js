@@ -76,3 +76,6 @@ export function pushbackNudge(question, goals = []) {
   }
   return lines.length > 0 ? `\n\n${lines.join(" ")}` : "";
 }
+
+/** How Tex talks in this chat, as the person or group set it, beside how much it pushes back (`texStyle.js`). */
+export { readTexStyle, stylePrompt } from "./texStyle.js";

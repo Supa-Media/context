@@ -37,3 +37,18 @@ send ("a retry sends only what did not reach the chat" in
 `groupTurnWorkflow.test.ts` fails); dropping the in-memory guard answers a
 turn twice when a retry overlaps its first attempt ("the same turn asked twice
 at once is answered once" fails).
+
+## Chat routines and check-ins (Dev2, 2026-10-28)
+
+A chat routine's run and a group check-in (`groupRoutines.ts`, the check-in is the routine path `(check-in)`) already reached the chat's queue as their writer's tag and were answered as a group turn, so they already went through this workflow. Three things changed so each run is its own instance and shows as such:
+
+- The instance is named by the run: `routine-<runId>`. A run handed to the chat again is found by a seen key (`gseen:routine:<runId>:`) and never queued twice, so it never starts a second instance or a second answer.
+- A run the gateway could not answer now throws like any turn, so the workflow retries it (3 retries, exponential from 10 seconds). Failing every try reports `failed` to the control plane quietly; the chat is never told. A daily limit or no model is still reported at once, without retrying.
+- Every `group_turn` workflow log line of a run carries `kind=routine` or `kind=heartbeat`, and the Tex group alert counts kinds when it reports a turn the workflow could not start or gave up on.
+
+Unchanged: a run answers only while its writer is in the chat, never rebinds the chat (#2318), and waits behind a turn already handed over in the same chat. No new binding: runs use `GROUP_TURN`. The cron still fires runs every minute and the chat's alarm still wakes the queue at once; only the answering moved, as for people's turns.
+
+## A workflow that never starts: the chat is told, not answered here (Dev2, 2026-10-28)
+
+The turn used to be answered inside the chat's object when its workflow could not start after `MAX_STARTS` tries. That kept two paths alive for one turn. Now, after the last failed start, the turn's messages are dropped, `workflow_unavailable` is logged as an error as before, and the chat gets one fixed line, `GROUP_LINES.stuck` ("I'm having trouble answering right now. Try me again in a minute."), once per stuck turn. A routine's or check-in's run reports `failed` quietly and says nothing. A Worker with no Workflows binding at all (tests, a self-hosted deployment without Workflows) still answers in the object, since it has no other path. Test: "a workflow that will not start is tried again, then the chat is told once that Tex is stuck" (`groupTurnWorkflow.test.ts`).
+

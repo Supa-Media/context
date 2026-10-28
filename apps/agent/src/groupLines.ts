@@ -60,5 +60,7 @@ export const GROUP_LINES = {
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
   sms: "I only answer in iMessage group chats.",
   failed: "I couldn't answer that one. Try again in a bit.",
+  // A turn whose workflow never started (`groupTurnRun.ts` `stuck`).
+  stuck: "I'm having trouble answering right now. Try me again in a minute.",
 } as const;
 

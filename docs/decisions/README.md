@@ -194,6 +194,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
 - [A note has one version tag, and every tool accepts it](./gateway-protocol/one-version-tag.md)
+- [Every change ends with its outcome, as data](./gateway-protocol/change-outcomes.md)
+- [Orient again with `since`, and only what changed comes back](./gateway-protocol/orient-since.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
@@ -745,6 +747,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
+- [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
+- [How Tex sounds in each chat: mirror, language, group voice note (Dev2, 2026-10-28)](./texting-assistant/tex-voice.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does

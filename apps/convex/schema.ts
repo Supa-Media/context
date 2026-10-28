@@ -33,6 +33,7 @@ import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { texReviewTables } from "./functions/lib/schema/texReviews";
 import { appearanceTables } from "./functions/lib/schema/appearance";
+import { texStyleTables } from "./functions/lib/schema/texStyle";
 import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
 import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
@@ -127,6 +128,7 @@ const schema = defineSchema({
   ...sharedInboxTables,
   ...telemetryTables,
   ...appearanceTables,
+  ...texStyleTables,
   ...meetingJoinTables,
   ...transcriptionConsentTables,
   ...spellingTables,

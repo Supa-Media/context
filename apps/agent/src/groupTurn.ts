@@ -10,12 +10,14 @@
  * transcript starts where they joined (`renderTranscript` with `people`).
  */
 
+import type { SettingReply } from "./texStyle";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { addEvent, keptEvents, kindOf, markStale, renderTranscript, waitingAsks } from "./events";
 import { decide, GROUP_DECIDE_MS, MAX_CANDIDATES, RUNNING_DECIDE_MS, type ControlDeps, type Decision, type GroupStyle } from "./decide";
 import { eventPeople, sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
+import { decideDownAnswer, honoursWait } from "./groupPolicy";
 import { groupStyle, movedOn } from "./groupStyle";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
@@ -36,6 +38,8 @@ export type GroupPending = {
   force?: true;
   byCode?: true;
   engagement?: GroupStyle;
+  /** A reply to the open "Tex, settings" menu (`texStyle.ts`), answered by code. */
+  setting?: SettingReply;
   /** On a turn kept for a retry: the events it answers besides its own. */
   covers?: string[];
   /** The message the style question held: never asked about again. */
@@ -115,10 +119,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
  */
 export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupMessage; emoji?: string; wait?: GroupEntry[] };
 
-/** How long after the newest message a waiting burst is decided again. */
-export const WAIT_MS = 20_000;
-/** Waits in a row before Tex answers anyway. */
-export const MAX_WAITS = 3;
+// The reply rules live in `groupPolicy.ts`; these stay importable from here.
+export { looksUnfinished, MAX_WAITS, WAIT_MS } from "./groupPolicy";
 
 const soft = (entry: GroupEntry) => entry[1].soft === true && entry[1].force !== true;
 
@@ -149,14 +151,14 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) {
     const first = burst.findIndex((entry) => !soft(entry));
-    const question = burst.map((entry) => entry[1].message.text.trim().endsWith("?")).lastIndexOf(true);
+    const question = decideDownAnswer(burst.map(([, item]) => item));
     if (first === -1 && question !== -1) return { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
     return first === -1 ? { answer: [], chat: burst, drop: [] } : { answer: withJoins(burst, burst[first]), chat: burst.slice(0, first), drop: [] };
   }
   const floor = new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)));
   // Wait never delays an addressed message (the floor is answered now); after MAX_WAITS in a row it is an answer.
   const waited = Math.max(0, ...burst.filter((entry) => !floor.has(entry)).map((entry) => entry[1].waits ?? 0));
-  const act = decision.act === "wait" && waited >= MAX_WAITS ? "answer" : decision.act;
+  const act = decision.act === "wait" && !honoursWait(burst.filter((entry) => !floor.has(entry)).map(([, item]) => item), waited) ? "answer" : decision.act;
   if (act === "wait") return { answer: burst.filter((entry) => floor.has(entry)), chat: [], drop: [], wait: burst.filter((entry) => !floor.has(entry)) };
   // No tapback on a message about to be answered: its answer gets one of its own (`answerGroup`).
   const react = act === "react" && !floor.has(burst.at(-1)!) ? { react: burst.at(-1)![1].message, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
