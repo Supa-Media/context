@@ -115,8 +115,27 @@ export function guestAwareCallTool(callTool, { store, group, guestTagger }) {
           : "Not done: nobody in this chat is on Context with an account it could go from. Say so in a line.",
       );
     }
-    return await callTool(name, supplied);
+    const result = await callTool(name, supplied);
+    return name === "write_note" ? hiddenNameRefusal(result, supplied.path, group) : result;
   };
+}
+
+/**
+ * A write in the chat's own folder refused as outside what it may write.
+ * The chat's folder is held at edit, so the one thing that refuses there is a
+ * note under that name the chat can't see: one a member saved, which the
+ * chat's rules read as private (`chatRules` in the control plane). On
+ * 2026-10-28 Tex, asked for a page, chose the name of a page a member had
+ * already saved there, read "permission denied", and told the chat it
+ * couldn't write pages to its own folder. It is told to use another name
+ * instead, in words that say nothing about what is there.
+ */
+function hiddenNameRefusal(result, path, group) {
+  const folder = group?.guest?.folder;
+  if (result?.isError !== true || typeof path !== "string" || !folder || !path.startsWith(`${folder}/`)) return result;
+  const text = Array.isArray(result.content) ? result.content.map((part) => part?.text ?? "").join("") : "";
+  if (!text.startsWith("permission denied:")) return result;
+  return toolError(`That name can't be written from this chat. Save it under a different name in ${folder}/ and send that link; nothing else needs to change.`);
 }
 
 /** Whether the chat reads `path`, by its store's rules (which are the chat's own). */

@@ -79,7 +79,8 @@ before(async () => {
       { prefix: "trip", visibility: "team" },
       { prefix: "notes", visibility: "private" },
     ],
-    notes: [{ path: "trip/packing.md", visibility: "team" }],
+    // A note a member saved in the chat's folder, which the chat's rules read as private (`chatRules`).
+    notes: [{ path: "trip/packing.md", visibility: "team" }, { path: `${FOLDER}/research.page.md`, visibility: "private" }],
     readOnly: { folders: ["trip"], notes: [] },
   });
   controlPlane.setBuiltinVerdict("ws_egress_team", BUILTIN_ALLOWED);
@@ -88,6 +89,7 @@ before(async () => {
   team.set("trip/flights.md", { body: "# Flights\n\nTAP 204.\n", etag: "c2" });
   team.set("trip/packing.md", { body: "# Packing\n\nSunscreen.\n", etag: "c3" });
   team.set("notes/budget.md", { body: "# Budget\n\nBUDGET-MARKER\n", etag: "c4" });
+  team.set(`${FOLDER}/research.page.md`, { body: "# Research\n\nMEMBER-PAGE\n", etag: "c5" });
 });
 after(() => world.restore());
 
@@ -213,6 +215,24 @@ test("research a guest chat saves as a plain note goes back to be a page, and th
   const system = JSON.stringify(world.model.requests[0].system);
   assert.match(system, /as a page \(<name>\.page\.md\) like any new note: pages save here like anywhere else/);
   assert.match(JSON.stringify(world.model.requests.at(-1)), new RegExp(`Write it again now as ${FOLDER}/research\\.page\\.md`));
+});
+
+test("a page named like a note the chat can't see is saved under another name, never called unwritable", async () => {
+  // 2026-10-28 01:25: Tex picked the name of a page a member had saved in the chat's folder, read
+  // "permission denied", and told the chat it couldn't write pages to that folder.
+  const page = ["---", "kind: research", `skill: ${PAGE_SKILL_STAMP}`, "---", "# Research", "", "The Stand first.", ""].join("\n");
+  world.model.install([
+    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research.page.md`, content: page } }] },
+    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research-2.page.md`, content: page } }] },
+    { text: "Saved the page." },
+  ]);
+  const asked = await tagged("", "Tex try again putting this research into a page");
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  const [refused, written] = toolReplies(world.model.requests.at(-1));
+  assert.match(refused, /That name can't be written from this chat\. Save it under a different name in tex\/chats\/chair-blast-tiger\//);
+  assert.doesNotMatch(refused, /permission denied|MEMBER-PAGE|exists/, "nothing said about what is there");
+  assert.match(written, /written: tex\/chats\/chair-blast-tiger\/research-2\.page\.md/);
+  assert.match(bodyAt(`${FOLDER}/research.page.md`), /MEMBER-PAGE/, "the member's page is untouched");
 });
 
 test("a guest's email goes only from a member, on that member's yes", async () => {
