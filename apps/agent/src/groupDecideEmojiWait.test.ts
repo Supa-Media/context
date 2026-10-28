@@ -1,9 +1,10 @@
 /**
  * Decide's emoji and wait in a group (Dev2, 2026-10-27): a react goes out at
  * once with decide's emoji when it is one of the 64 (`reactEmoji.ts`), else
- * the words' (`ackEmoji.ts`); wait holds untagged messages until 20 seconds
- * after the newest (`WAIT_MS`), at most `MAX_WAITS` times, and never delays a
- * message addressed to Tex.
+ * the words' (`ackEmoji.ts`); wait holds untagged messages `WAIT_MS` (8s) from
+ * when it was decided or from the sender's newest message, at most `MAX_WAITS`
+ * (one) time, only on a real burst (`burstStillTyped`), and never delays a
+ * message addressed to Tex (Dev2, 2026-10-28).
  *
  * Sabotage (temporary local edits, reverted):
  *  - `reactionFor` returning decide's emoji unchecked: "an emoji outside the 64" fails;
@@ -13,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { AlarmStorage, MemoryStorage } from "./memoryStorage.testing";
 import { ackEmoji } from "./ackEmoji";
-import { MAX_WAITS, WAIT_MS } from "./groupTurn";
+import { looksUnfinished, MAX_WAITS, WAIT_MS } from "./groupTurn";
 import { answerAll, LINES, setup, type Answer, type Decide } from "./groupWorld.testing";
 
 const react = (emoji?: string): Answer => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.9, ...(emoji ? { emoji } : {}) });
@@ -50,7 +51,7 @@ for (const { name, groupId } of LINES) {
       expect(w.reactions).toEqual([ackEmoji("we got the venue")]);
     });
 
-    it("wait holds the burst until 20 seconds after its newest message, then decides again", async () => {
+    it("wait holds the burst WAIT_MS from when it was decided, then decides again", async () => {
       // The alarm fires (it is cleared, as a Durable Object's is while its handler runs), then the drain runs.
       const storage = new AlarmStorage();
       const fired = () => (storage.fire(), drainGroup(storage, w.deps));
@@ -61,19 +62,19 @@ for (const { name, groupId } of LINES) {
       w.deps.now = () => 5_000;
       await fired();
       expect(w.decided).toHaveLength(1);
-      expect(storage.alarm).toBe(100 + WAIT_MS);
+      expect(storage.alarm).toBe(5_000 + WAIT_MS);
       // Woken early (another text's alarm): still waiting, decide is not asked again, and the wait's alarm stays.
       await fired();
       expect(w.decided).toHaveLength(1);
-      expect(storage.alarm).toBe(100 + WAIT_MS);
+      expect(storage.alarm).toBe(5_000 + WAIT_MS);
       next = answerAll;
-      w.deps.now = () => 100 + WAIT_MS;
+      w.deps.now = () => 5_000 + WAIT_MS;
       await fired();
       expect(w.decided).toHaveLength(2);
       expect(w.asks.map((ask) => ask.question)).toEqual(["so about friday"]);
     });
 
-    it("answers after three waits in a row", async () => {
+    it("answers after MAX_WAITS waits in a row", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: wait, control: STYLE });
       await bound(storage, w);
@@ -84,6 +85,52 @@ for (const { name, groupId } of LINES) {
       }
       expect(w.decided).toHaveLength(MAX_WAITS + 1);
       expect(w.asks.map((ask) => ask.question)).toEqual(["so about friday"]);
+    });
+
+    // 2026-10-28, production: after the first wait ran out, three more decides ran within two seconds. The wait's end
+    // was counted from the newest message, so a wait decided after that point ended before it began.
+    it("a wait decided late still waits its full time from now, and an early wake does not decide again", async () => {
+      const storage = new AlarmStorage();
+      const w = setup(groupId, { decide: wait, control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("so about friday"), 100);
+      const late = 100 + WAIT_MS + 5_000;
+      w.deps.now = () => late;
+      storage.fire();
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(1);
+      expect(storage.alarm).toBe(late + WAIT_MS);
+      w.deps.now = () => late + 1_000;
+      storage.fire();
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(1);
+    });
+
+    it("a new message from the sender during a wait starts the wait again", async () => {
+      const storage = new AlarmStorage();
+      const w = setup(groupId, { decide: wait, control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("so about friday"), 100);
+      w.deps.now = () => 5_000;
+      storage.fire();
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(1);
+      await acceptGroup(storage, w.message("and saturday"), 100 + WAIT_MS - 1_000);
+      w.deps.now = () => 100 + WAIT_MS;
+      storage.fire();
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(1);
+      expect(storage.alarm).toBe(100 + 2 * WAIT_MS - 1_000);
+    });
+
+    it("a single complete message is never held, whatever decide says", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: wait, control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("Which parts of about.md are out of date?"), 100);
+      await drainGroup(storage, w.deps);
+      expect(w.decided).toHaveLength(1);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Which parts of about.md are out of date?"]);
     });
 
     it("never delays a message addressed to Tex", async () => {
@@ -97,3 +144,12 @@ for (const { name, groupId } of LINES) {
     });
   });
 }
+
+describe("what counts as a burst still being typed", () => {
+  it("reads unfinished words", () => {
+    for (const text of ["so about friday", "we could go,", "I was thinking and", "maybe...", "ok but"]) expect(looksUnfinished(text), text).toBe(true);
+    for (const text of ["Which parts of about.md are out of date?", "We got a deal!", "Dinner is at 7 tonight.", "lol 😂", ""]) {
+      expect(looksUnfinished(text), text).toBe(false);
+    }
+  });
+});
