@@ -245,9 +245,12 @@ export function canWriteCalendar(scopes: readonly string[]): boolean {
   return scopes.includes(CALENDAR_WRITE_SCOPE) || scopes.includes(CALENDAR_OWNED_SCOPE);
 }
 
+/** The four Calendar event scopes, both pairs; any one of them reads. */
+export const CALENDAR_EVENT_SCOPES: readonly string[] = [CALENDAR_SCOPES[0], CALENDAR_WRITE_SCOPE, CALENDAR_OWNED_READ_SCOPE, CALENDAR_OWNED_SCOPE];
+
 /** Whether a grant lets Context read events: any of the four Calendar event scopes does. */
 export function canReadCalendar(scopes: readonly string[]): boolean {
-  return canWriteCalendar(scopes) || scopes.includes(CALENDAR_SCOPES[0]) || scopes.includes(CALENDAR_OWNED_READ_SCOPE);
+  return CALENDAR_EVENT_SCOPES.some((scope) => scopes.includes(scope));
 }
 
 /**
@@ -257,7 +260,9 @@ export function canReadCalendar(scopes: readonly string[]): boolean {
  * with it.
  */
 export function grantedScopesFor(product: GoogleProduct, grantedScopes: readonly string[]): string[] {
-  const wanted = new Set<string>(product === "calendar" ? [...CALENDAR_SCOPES, CALENDAR_OWNED_READ_SCOPE] : PRODUCT_SCOPES[product]);
+  // Calendar's slice is every event scope granted, either pair, read or
+  // write: each of them reads (`canReadCalendar`).
+  const wanted = new Set<string>(product === "calendar" ? CALENDAR_EVENT_SCOPES : PRODUCT_SCOPES[product]);
   return grantedScopes.filter((scope) => wanted.has(scope));
 }
 

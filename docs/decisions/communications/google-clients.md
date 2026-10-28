@@ -86,7 +86,12 @@ asks for more than is used. `GOOGLE_CALENDAR_SCOPE=owned` swaps the pair in
 every consent (agent and standard); it is set once Google's Data Access list
 carries the new pair, and until then the table holds. Either pair reads and
 writes whatever the setting (`canReadCalendar`, `canWriteCalendar`), so a
-connection made before needs no reconnect. Tests:
+connection made before needs no reconnect. A consent that kept only a
+write scope, of either pair, binds Calendar and reads it, because every
+event scope reads (`CALENDAR_EVENT_SCOPES`); identity alone is refused as
+incomplete. The setting is synced from the vault like the other optional
+deploy settings (`scripts/secrets-allowlist.json`, `deploy-convex.yml`), never
+set by hand. Tests:
 `googleConnect/calendarOwnedScope.test.ts`, including one that fails if a
 Calendar request reaches any calendar but `primary`.
 

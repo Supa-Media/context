@@ -84,6 +84,8 @@ export function standardScopesFor(products: readonly GoogleProduct[], env: Env =
  */
 export function standardGrantCovers(product: GoogleProduct, scopes: readonly string[], env: Env = process.env): boolean {
   if (agentClientActive(env) && product !== "calendar") return true;
+  // A Calendar write scope of either pair reads too, so a consent that kept only it still binds.
+  if (product === "calendar") return canReadCalendar(scopes);
   return grantedScopesFor(product, scopes).length > 0;
 }
 

@@ -15,7 +15,11 @@
  * broad scope fails "grants of the broader pair keep ..."; `grantedScopesFor`
  * dropping the owned read fails "a standard grant of the owned read ...";
  * handing calendarLive.js a team calendar's id fails "the one request that
- * takes a calendar id ...".
+ * takes a calendar id ..."; narrowing Calendar's slice in `grantedScopesFor`
+ * back to its read scopes fails both write-only "binds and reads" tests
+ * (the bind's `canReadCalendar` and the slice share `CALENDAR_EVENT_SCOPES`,
+ * so either one alone still binds); dropping Calendar from both
+ * `standardGrantCovers` and `canReadProduct` fails the bind and read tests.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -35,6 +39,8 @@ import {
 } from "../../functions/lib/googleOAuth";
 import { agentGrantCovers, agentScopesFor, canReadProduct, standardGrantCovers, standardScopesFor } from "../../functions/lib/googleConnect/aiScopes";
 import { readOnlyServices } from "../../functions/lib/googleWriteAccess";
+import { internal } from "../../_generated/api";
+import { hashToken } from "../../functions/lib/crypto";
 import { gatewayPost, seedGoogleConnection } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
 
@@ -93,6 +99,68 @@ describe("what a grant lets Context do", () => {
     expect(standardGrantCovers("calendar", [...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE], SWITCHED_OWNED)).toBe(true);
     expect(standardGrantCovers("calendar", [...IDENTITY_SCOPES, CALENDAR_READ], SWITCHED_OWNED)).toBe(true);
     expect(standardGrantCovers("calendar", [...IDENTITY_SCOPES], SWITCHED_OWNED)).toBe(false);
+  });
+});
+
+/**
+ * Alice connects Calendar with a standard grant holding `scopes` (the console's
+ * own bind, before the switch), then AI reads her calendar through it.
+ */
+async function bindAndRead(scopes: string[]) {
+  vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+  const { t, aliceWs, alice, grantA } = await twoConnectedTenants();
+  const keyset = requireKeyset();
+  const context = { workspaceId: aliceWs as string };
+  const connectionId = await t.mutation(internal.functions.calendarConnect.applyCalendarConnectionBinding, {
+    workspaceId: aliceWs,
+    boundBy: alice,
+    address: "alice@gmail.example",
+    googleAccountId: "google-alice",
+    scopes: [...IDENTITY_SCOPES, ...scopes],
+    encryptedRefreshToken: await encryptSecret("refresh-calendar", keyset, context),
+    encryptedAccessToken: await encryptSecret("access-calendar", keyset, context),
+    accessTokenExpiresAt: Date.now() + 3_600_000,
+  });
+  const row = await t.run((ctx) => ctx.db.get(connectionId));
+  // Reading the person's calendar takes a grant that reaches private notes, as in personCalendar.test.ts.
+  await t.run((ctx) => ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }));
+  const read = await t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, {
+    hashedAccessToken: await hashToken(ACCESS_A),
+    expectedWorkspaceId: aliceWs as string,
+  });
+  return { row: row!, read };
+}
+
+describe("a Calendar connect binds and reads on whichever event scope the person kept", () => {
+  test("a broad write-only consent binds and reads", async () => {
+    const { row, read } = await bindAndRead([CALENDAR_WRITE_SCOPE]);
+    expect(row.health).not.toBe("reconnect_required");
+    expect(row.errorCode).toBeUndefined();
+    expect(row.calendar?.scopes).toEqual([CALENDAR_WRITE_SCOPE]);
+    expect(read).toMatchObject({ ok: true });
+  });
+
+  test("an owned write-only consent binds and reads", async () => {
+    const { row, read } = await bindAndRead([CALENDAR_OWNED_SCOPE]);
+    expect(row.health).not.toBe("reconnect_required");
+    expect(row.errorCode).toBeUndefined();
+    expect(row.calendar?.scopes).toEqual([CALENDAR_OWNED_SCOPE]);
+    expect(read).toMatchObject({ ok: true });
+  });
+
+  test("a read-only consent of either pair binds and reads", async () => {
+    for (const scope of [CALENDAR_READ, CALENDAR_OWNED_READ_SCOPE]) {
+      const { row, read } = await bindAndRead([scope]);
+      expect(row.errorCode).toBeUndefined();
+      expect(row.calendar?.scopes).toEqual([scope]);
+      expect(read).toMatchObject({ ok: true });
+    }
+  });
+
+  test("an identity-only consent is refused as incomplete and reads nothing", async () => {
+    const { row, read } = await bindAndRead([]);
+    expect(row).toMatchObject({ health: "reconnect_required", errorCode: "SCOPES_INCOMPLETE" });
+    expect(read).toMatchObject({ ok: false });
   });
 });
 
