@@ -117,7 +117,7 @@ describe("the privacy policy matches what the phone app collects", () => {
 
 describe("the terms and support page cover objectionable content (App Store guideline 1.2)", () => {
   test("the terms say there is no tolerance, how to report, and what happens within 24 hours", () => {
-    expect(termsContent.updated).toBe("October 15, 2026");
+    expect(termsContent.updated).toBe("October 28, 2026");
     const section = termsContent.sections.find((entry) => entry.title === "Objectionable content and abuse");
     const text = section?.body.join(" ") ?? "";
     expect(text).toContain("no tolerance for objectionable or abusive content or behaviour");
@@ -134,5 +134,49 @@ describe("the terms and support page cover objectionable content (App Store guid
     expect(text).toContain("context@supa.media");
     expect(text).toContain("unblock people in Settings, under Profile");
     expect(text).toContain("within 24 hours");
+  });
+});
+
+/**
+ * Google verification and CASA: the policy must describe what the requested
+ * scopes actually do, writes included (`WRITE_SCOPES` in
+ * `apps/convex/functions/lib/googleOAuth.ts`), and name every processor the
+ * code sends content to. A policy that says "sync only" while the app asks
+ * for gmail.send is the mismatch a reviewer rejects.
+ */
+describe("the policy describes Google data as the code uses it", () => {
+  const privacy = privacyContent.sections.map((section) => section.body.join("\n")).join("\n");
+  const googleUse = privacyContent.sections.find((section) => section.title === "How we use Google data")?.body.join("\n") ?? "";
+  const termsGoogle = termsContent.sections.find((section) => section.title === "Google integrations")?.body.join("\n") ?? "";
+
+  test("names every write the scopes allow, and that sends wait for a yes", () => {
+    expect(googleUse).toContain("create Gmail drafts");
+    expect(googleUse).toContain("send email you approve");
+    expect(googleUse).toContain("create or change events on your calendar");
+    expect(googleUse).toContain("asking you first when a change would notify a guest");
+    expect(googleUse).toContain("send Chat messages you approve");
+    expect(googleUse).not.toMatch(/only to provide the integration you requested/);
+    expect(termsGoogle).not.toMatch(/only to sync/);
+    expect(termsGoogle).toContain("send the email and Chat messages you approve");
+  });
+
+  test("says disconnecting and deleting copied notes are separate", () => {
+    expect(googleUse).toContain("Revoking Google access and deleting copied notes are separate controls.");
+  });
+
+  test("keeps the Limited Use, no-sale and no-training commitments", () => {
+    expect(googleUse).toContain("We do not sell Google user data, use it for advertising, or use it to train third-party AI models.");
+    expect(privacy).toContain("Limited Use requirements");
+  });
+
+  test("names the processors the assistant sends content to", () => {
+    for (const name of ["Browserbase", "Brave Search", "Sendblue", "Linq", "Whapi", "Gemini", "Anthropic", "Cloudflare Workers AI"]) {
+      expect(privacy).toContain(name);
+    }
+  });
+
+  test("both pages carry the date of this change", () => {
+    expect(privacyContent.updated).toBe("October 28, 2026");
+    expect(termsContent.updated).toBe("October 28, 2026");
   });
 });
