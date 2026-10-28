@@ -57,7 +57,8 @@ function byTestId(id: string): HTMLElement {
 
 async function pick(menu: string, label: string) {
   await act(async () => {
-    (byTestId(menu).querySelector('[role="button"]') as HTMLElement | null)?.click() ?? byTestId(menu).click();
+    const opener = (byTestId(menu).querySelector('[role="button"]') as HTMLElement | null) ?? byTestId(menu);
+    opener.click();
   });
   const item = [...host!.querySelectorAll('[role="menuitem"], [role="menuitemradio"]')].find((entry) => entry.textContent?.trim() === label) as HTMLElement | undefined;
   if (item === undefined) throw new Error(`no ${label} in ${menu}`);
