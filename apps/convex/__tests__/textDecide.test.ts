@@ -20,6 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
+import { decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -287,4 +288,17 @@ describe("a group's style", () => {
     const [row] = await t.run((ctx) => ctx.db.query("textGroups").collect());
     expect(row!.engagement).toBeUndefined();
   });
+});
+
+// 2026-10-27: with one message waiting, `start` went out as a choice of one, which the decide Worker
+// (infra/transcribe-worker/src/decide.ts) refuses, so every single-message decide failed as model_failed.
+test("every choice it asks offers at least two options, whatever the number of messages waiting", () => {
+  const base = { chat: GROUP, line: LINE, style: "helpful" as const, transcript: "x", running: true, waitingAsks: [] };
+  for (const candidates of [["1761619442000-000001"], ["1761619442000-000001", "1761619443000-000002"]]) {
+    const { questions } = decideRequest({ ...base, candidates, newest: candidates.at(-1)! });
+    for (const [name, question] of Object.entries(questions as Record<string, { type: string; criteria: object }>)) {
+      if (question.type === "choice") expect(Object.keys(question.criteria).length, name).toBeGreaterThanOrEqual(2);
+    }
+    expect("start" in questions).toBe(candidates.length > 1);
+  }
 });

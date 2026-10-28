@@ -559,8 +559,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
       planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
-    // The question's browser, if it opened one, is not left running.
-    if (opened !== null) await afterAnswer(opened.close());
+    // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).
+    if (opened !== null) await afterAnswer(opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
     await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
     outcome.clean = ledger.untrusted !== true;

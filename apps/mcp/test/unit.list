@@ -17,6 +17,7 @@ bench/test/world.test.mjs
 test/agentAboutMe.test.mjs
 test/agentAttachments.test.mjs
 test/agentBrowserbaseRefused.test.mjs
+test/agentBrowserHold.test.mjs
 test/agentCatalog.test.mjs
 test/agentConversation.test.mjs
 test/agentFillLogin.test.mjs

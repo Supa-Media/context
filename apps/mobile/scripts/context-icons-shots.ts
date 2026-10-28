@@ -222,10 +222,8 @@ const desktop = (withPicker: boolean) => () =>
           { style: { paddingTop: 12, paddingHorizontal: 8 } },
           createElement(FileTree, {
             rows: TREE,
-            canSetVisibility: false,
             onSelect: () => {},
             onToggle: () => {},
-            onCycleVisibility: () => {},
             workspaceId: "ws-maya",
             iconOf,
             onIconPress: () => {},

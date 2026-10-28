@@ -464,6 +464,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates
 - The tree is drawn from the press, and `privacy.md` is what it may not guess
+- The tree's visibility word is a label, not a button (2026-10-28)
 - What the sidebar can do to a folder, the listing can do to it too
 - Nothing is named before it is written, and the phone's `+` is the only key
 - A phone can ask its context a question, and could not before
@@ -768,6 +769,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
+- [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)

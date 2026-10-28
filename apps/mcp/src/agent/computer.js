@@ -397,7 +397,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       });
     },
     /** Ends this question's browser, if it opened one. */
-    close: () => browser?.close() ?? Promise.resolve(),
+    close: (options) => browser?.close(options) ?? Promise.resolve(),
     async call(name, args) {
       if (name === SEARCH_WEB_TOOL && search) return searchWeb(args);
       if (name === BROWSE_TOOL && browser) return browser.call(args);

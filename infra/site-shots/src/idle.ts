@@ -17,6 +17,14 @@ import { ownerSessionIds, releaseSession, type BrowserbaseEnv } from "./browserb
 
 /** How long a browser outlives its last use. */
 export const IDLE_MS = 5 * 60 * 1000;
+/**
+ * How long a browser is held while Tex waits on the person for something only
+ * they can give: a sign-in code, a captcha, a login to save, or a browser
+ * handed to them (Dev2, 2026-10-28). A reply inside it lands on the same page,
+ * still waiting for the code, instead of a new sign-in from the start. Still
+ * under the vendor's ceiling (`SESSION_LIFETIME_S`).
+ */
+export const HOLD_MS = 15 * 60 * 1000;
 /** How soon a release that Browserbase could not answer is tried again. */
 export const RETRY_MS = 60 * 1000;
 
@@ -41,8 +49,13 @@ export class IdleTimer {
     private exclusive: Exclusive = (fn) => fn(),
   ) {}
 
-  async touch(owner: string): Promise<void> {
-    const until = this.now() + IDLE_MS;
+  /**
+   * Never brings the end closer: a step or a look during a hold leaves the
+   * hold's end standing, so only time ends a wait on the person.
+   */
+  async touch(owner: string, ms: number = IDLE_MS): Promise<void> {
+    const held = await this.storage.get<number>("until");
+    const until = Math.max(this.now() + ms, typeof held === "number" ? held : 0);
     await this.storage.put("owner", owner);
     // The deadline is kept, not read back from the alarm: an alarm can run
     // more than once, and inside its handler getAlarm says nothing of a touch.
@@ -87,14 +100,14 @@ export class IdleTimer {
 
 export interface IdleNamespace {
   idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): { touch(owner: string): Promise<void> };
+  get(id: DurableObjectId): { touch(owner: string, ms?: number): Promise<void> };
 }
 
-/** Pushes this person's browser's end five minutes out. Never fails the step it rides on. */
-export async function touchIdle(namespace: IdleNamespace | undefined, owner: string): Promise<void> {
+/** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
+export async function touchIdle(namespace: IdleNamespace | undefined, owner: string, ms: number = IDLE_MS): Promise<void> {
   if (!namespace) return;
   try {
-    await namespace.get(namespace.idFromName(owner)).touch(owner);
+    await namespace.get(namespace.idFromName(owner)).touch(owner, ms);
   } catch (error) {
     console.log(JSON.stringify({ event: "site_shots_idle_touch_failed", error: error instanceof Error ? error.name : "unknown" }));
   }

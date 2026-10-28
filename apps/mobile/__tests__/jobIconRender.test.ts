@@ -68,10 +68,8 @@ describe("the tree", () => {
   const tree = (onIconPress?: () => void) =>
     createElement(FileTree, {
       rows: [folder("Capture"), folder("Recipes")],
-      canSetVisibility: false,
       onSelect: () => {},
       onToggle: () => {},
-      onCycleVisibility: () => {},
       workspaceId: "ws-1",
       iconOf: (path: string) => (path === "Capture" ? INBOX : "🍳"),
       ...(onIconPress === undefined ? {} : { onIconPress }),

@@ -469,6 +469,7 @@ export function createWeb(sites) {
         }
         if (path === "/browse") return json(200, browse(body));
         if (path === "/browse/close") return json(200, { ok: true });
+        if (path === "/browse/hold") return json(200, { held: true });
         // A card drawn (`draw_visual`): the bench has no browser to photograph it, so a blank picture
         // stands in. Without it every card failed to draw and the bench scored "the card won't draw".
         if (path === "/render") return json(200, { png: BLANK_PNG, width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
