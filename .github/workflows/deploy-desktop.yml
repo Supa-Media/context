@@ -448,6 +448,25 @@ jobs:
           pnpm exec electron-builder --mac --config electron-builder.yml --publish never 2>&1 \
             | bash build/redact-signing-log.sh
 
+      # Every copy already installed checks latest-mac.yml on launch, and its
+      # electron-updater skips a release whose `minimumSystemVersion` is above
+      # the running system. It compares that value with `os.release()`, the
+      # Darwin kernel version, not the macOS version: 21.0.0 is macOS 12, the
+      # floor for the Electron this app ships (see `minimumSystemVersion` in
+      # electron-builder.yml). electron-builder does not write the key for a
+      # mac zip, so it is added here, before anything is published. Without
+      # it, a Mac on macOS 11 would install an update that cannot launch.
+      # Only the yml changes; the sha512 it carries is the zip's.
+      - name: Keep older Macs off a build they cannot open
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          if [ -f release/latest-mac.yml ]; then
+            grep -q '^minimumSystemVersion:' release/latest-mac.yml \
+              || echo 'minimumSystemVersion: 21.0.0' >> release/latest-mac.yml
+            grep '^minimumSystemVersion:' release/latest-mac.yml
+          fi
+
       - name: What was produced
         working-directory: apps/desktop
         env:
