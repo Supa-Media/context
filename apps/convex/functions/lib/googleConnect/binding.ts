@@ -13,6 +13,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { recordAudit } from "../audit";
 import { grantedScopesFor } from "../googleOAuth";
+import { standardGrantCovers } from "./aiScopes";
 import { DEFAULT_MAIL_QUOTA_BYTES } from "./config";
 import { defaultGoogleDestinationFolder } from "./validation";
 
@@ -100,7 +101,7 @@ export async function applyGmailConnectionBindingHandler(
   // row goes on reporting `backfilling` for a product whose sync can only
   // ever take a refusal from Google. Every name in the message is one of
   // this module's own literals, never a provider string.
-  const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+  const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes));
   const gmailHistoryId = existing?.gmail?.historyId ?? args.historyId;
 
   const fields = {

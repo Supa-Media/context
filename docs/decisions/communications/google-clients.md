@@ -53,16 +53,34 @@ workspace only, redirect pinned to `APP_ORIGIN`. The authorize URL hints the
 connection's own address, and a consent from a different Google account binds
 nothing.
 
+**Scopes, per client.**
+
+| Client | Asks for | Used by |
+| --- | --- | --- |
+| Agent | identity; `gmail.readonly`, `gmail.compose`; `calendar.events`; `chat.messages.readonly`, `chat.spaces.readonly`, `chat.messages.create`, `chat.spaces.create` (per product connected) | Tex, AI clients, routines, sync |
+| Standard (today) | the same set plus `calendar.events.readonly` | the Meetings view's calendar read; until the switch, AI too |
+| Standard (after the switch) | identity, plus `calendar.events.readonly` with Calendar | the Meetings view only |
+
+The agent consent drops `calendar.events.readonly`, which `calendar.events`
+covers. An agent grant counts as AI access only when it holds the read
+scopes of every product on the connection; a consent with boxes unticked is
+asked again. What AI may do (send mail, write the calendar, read or send
+Chat, the read-only marks in Settings) is read from the grant AI mints from
+(`aiScopesOf`), so after the switch the standard grant's scopes never vouch
+for AI, and AI's mail and calendar reads take the same rule: a connection
+whose AI grant cannot read the product is named for one more consent, not
+read. The standard consent narrows at the switch (`standardScopesFor`), not
+before, because until then AI reads through it. From the switch a connect
+binds Gmail and Chat by the person's choice, not by reads the standard grant
+no longer carries (`standardGrantCovers`); Calendar still needs the calendar
+read, which the Meetings view uses. Existing broader grants are left as they
+are and nothing is revoked. Tests: `googleConnect/standardScopes.test.ts`.
+
 **The split, by caller**: standard is `meetingCalendar` (the Meetings view) and
 `googleReconnect`; agent is every `/gateway/*` Google route (person mail,
 calendar, chat, calendar writes, email sends), the scope check and forward
 sync. Gateway approvals replayed from the console are still AI acting on the
 person's yes, so they stay agent.
-
-**Known simplification.** Capability checks after activation still read the
-connection's `scopes` (the standard grant's); the agent grant records its own
-`agentGrant.scopes`, asked for the same products. If the two ever diverge, the
-check moves to the role's grant.
 
 What reversing this costs: AI reads under the client the person consented to
 for their own use, which is the finding the CASA reviewer raised. The tests

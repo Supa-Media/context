@@ -10,6 +10,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
+import { aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
 /** Live calendar reads per person per hour. */
@@ -41,9 +42,14 @@ export const claimPersonCalendarRead = internalMutation({
     );
     // A calendar whose sign-in Google stopped honouring is named, so the
     // person is told to reconnect it rather than its days reading as empty.
-    const reconnect = calendars.filter((row) => row.health === "reconnect_required").map((row) => row.address.toLowerCase());
+    // So is one whose AI grant does not read the calendar (a box left
+    // unticked, or AI access not yet allowed once switched on).
+    const unreadable = (row: (typeof calendars)[number]) => !canReadProduct("calendar", aiScopesOf(row));
+    const reconnect = calendars
+      .filter((row) => row.health === "reconnect_required" || unreadable(row))
+      .map((row) => row.address.toLowerCase());
     const readable = calendars
-      .filter((row) => row.health !== "reconnect_required")
+      .filter((row) => row.health !== "reconnect_required" && !unreadable(row))
       .map((row) => ({ connectionId: row._id, address: row.address.toLowerCase() }));
     if (readable.length === 0) {
       return reconnect.length > 0
