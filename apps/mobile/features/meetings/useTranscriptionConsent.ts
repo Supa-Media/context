@@ -4,9 +4,11 @@ import { api } from "@context/convex/_generated/api";
 import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import {
   cloudTranscriptionAllowed,
+  allowTranscriptionHere,
   forgetSpooledAudio,
   onTranscriptionConsentChange,
   setTranscriptionConsent,
+  transcriptionWithdrawalConfirmed,
   type RecorderCapability,
 } from "./capture";
 import { TranscriptionConsent } from "./components/TranscriptionConsent";
@@ -49,6 +51,7 @@ export function useTranscriptionConsentSync(signedIn = true): void {
       return;
     }
     setTranscriptionConsent(null);
+    transcriptionWithdrawalConfirmed();
     // A definite no: whatever audio is still on this device waiting to be
     // transcribed is never sent, including after a relaunch.
     forgetSpooledAudio();
@@ -128,7 +131,7 @@ export function useTranscriptionConsentGate(options: {
           });
         }
         // Ahead of the live query, so the recorder this press starts sees it.
-        setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+        allowTranscriptionHere(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
         finish();
       } catch {
         setBusy(false);

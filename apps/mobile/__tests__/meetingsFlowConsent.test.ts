@@ -7,6 +7,7 @@ import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import {
   CLOUD_TRANSCRIPTION_CONSENT_VERSION,
+  NO_TRANSCRIPTION_CONSENT,
   TRANSCRIPTION_CONSENT_COPY,
 } from "@context/shared";
 
@@ -204,6 +205,29 @@ describe("the question comes first", () => {
     // The notepad still opens: the person can type.
     expect(meetings.getSnapshot().live).not.toBeNull();
     expect(shown("transcription-consent")).toBe(false);
+    unmount();
+  });
+
+  test("after Not now the recorder refuses, and the meeting is still a notepad that keeps what is typed", async () => {
+    const recorder = await configureCloud();
+    // What the real recorders do without a yes (meetingsCapture/consent.test.ts).
+    recorder.refuseStart(NO_TRANSCRIPTION_CONSENT);
+    const unmount = mount(createElement(Harness, { contexts: [OWN] }));
+    await settle();
+
+    press("new-meeting");
+    await settle();
+    press("transcription-consent-decline");
+    await settle();
+
+    const snapshot = meetings.getSnapshot();
+    expect(snapshot.live).not.toBeNull();
+    expect(snapshot.live!.session.state).toBe("recording");
+    expect(snapshot.captureError).toBe(NO_TRANSCRIPTION_CONSENT);
+
+    act(() => meetings.setNotes(snapshot.live!.session.id, "Decided to ship on Friday."));
+    await settle();
+    expect(meetings.getSnapshot().live!.session.notes).toBe("Decided to ship on Friday.");
     unmount();
   });
 

@@ -258,6 +258,13 @@ let installedTranscriber: ChunkTranscriber | null = null;
 */
 let consentedVersion: number | null = null;
 const consentListeners = new Set<() => void>();
+/**
+ * Set by Turn off on this device and held until the account is seen saying no
+ * or somebody presses Allow here again. Without it, a withdrawal whose save
+ * failed would be undone by the next answer the account sends, and the
+ * device-stop promise in Settings would last only until the next query.
+ */
+let withdrawnHere = false;
 
 /** The thrown refusal when a chunk would have left without a current yes. */
 export class TranscriptionConsentMissing extends Error {
@@ -272,10 +279,30 @@ export class TranscriptionConsentMissing extends Error {
  * shows counts: a yes to another version is treated as no.
  */
 export function setTranscriptionConsent(version: number | null): void {
-  const next = version === CLOUD_TRANSCRIPTION_CONSENT_VERSION ? version : null;
+  // Turned off here and not yet confirmed by the account: an account answer
+  // that still says yes (a failed or pending withdrawal, a reconnect) is not
+  // allowed to switch this device back on.
+  const next = version === CLOUD_TRANSCRIPTION_CONSENT_VERSION && !withdrawnHere ? version : null;
   if (next === consentedVersion) return;
   consentedVersion = next;
   for (const listener of [...consentListeners]) listener();
+}
+
+/** Turn off on this device: stops at once, whatever the account says until it agrees. */
+export function withdrawTranscriptionHere(): void {
+  withdrawnHere = true;
+  setTranscriptionConsent(null);
+}
+
+/** Allow pressed on this device, after the dialog: the one thing that lifts a local Turn off. */
+export function allowTranscriptionHere(version: number): void {
+  withdrawnHere = false;
+  setTranscriptionConsent(version);
+}
+
+/** The account was seen saying no, so the local Turn off has reached it. */
+export function transcriptionWithdrawalConfirmed(): void {
+  withdrawnHere = false;
 }
 
 /** Whether a chunk may go to the cloud right now. */

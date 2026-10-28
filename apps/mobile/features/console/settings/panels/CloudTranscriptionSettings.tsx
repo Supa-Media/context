@@ -9,7 +9,7 @@ import { Card, Grow, Row } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
-import { forgetSpooledAudio, setTranscriptionConsent } from "../../../meetings/capture";
+import { forgetSpooledAudio, withdrawTranscriptionHere } from "../../../meetings/capture";
 import {
   useTranscriptionConsentAnswer,
   useTranscriptionConsentGate,
@@ -50,8 +50,9 @@ function CloudTranscriptionSettingsLive() {
   const state: CloudTranscriptionState = answer.allowed ? "on" : answer.outdated ? "outdated" : "off";
 
   function turnOff() {
-    // This device first, so nothing more leaves it even if the save fails.
-    setTranscriptionConsent(null);
+    // This device first, so nothing more leaves it even if the save fails,
+    // and it stays off until the account agrees or Allow is pressed here.
+    withdrawTranscriptionHere();
     forgetSpooledAudio();
     setBusy(true);
     setProblem(false);

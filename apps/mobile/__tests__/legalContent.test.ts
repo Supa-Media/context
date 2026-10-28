@@ -43,6 +43,11 @@ describe("the privacy policy describes cloud transcription", () => {
     expect(text).toContain("If you choose Not now, no audio is recorded or sent");
     expect(text).toContain("in Settings, under Meetings");
     expect(text).toContain("including from a recording that is already running");
+    // Withdrawal reaches other devices and the servers when it arrives, and a
+    // request already sent cannot be recalled: said, not promised away.
+    expect(text).toContain("Your other devices and our servers stop once the change reaches them");
+    expect(text).toContain("cannot be called back");
+    expect(text).not.toContain("From then on nothing more is sent");
     expect(text).toContain("we ask again if the provider or the purpose changes");
   });
 

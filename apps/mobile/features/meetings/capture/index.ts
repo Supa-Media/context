@@ -357,6 +357,9 @@ export {
   onTranscriptionConsentChange,
   setTranscriptionClient,
   setTranscriptionConsent,
+  allowTranscriptionHere,
+  transcriptionWithdrawalConfirmed,
+  withdrawTranscriptionHere,
   type ChunkTranscriber,
   type TranscribeChunkArgs,
 } from "./transcriber";

@@ -53,8 +53,13 @@ chunk is deleted, not queued. A definite no also empties the on-device spool
 **Withdrawing.** Settings › Meetings › Cloud transcription shows the answer
 for every account, including one that said no. *Turn off* stops this device
 first and empties its spool, then tells the account, so it holds even when the
-save fails. The account's no then reaches every other device through the live
-query, and every server boundary refuses from that moment.
+save fails, and a local latch keeps this device off against a later answer from
+the account that still says yes (a failed or pending save, a reconnect) until
+the account is seen saying no or Allow is pressed here again. The account's no
+reaches other devices through the live query and every server boundary refuses
+from the moment it is saved. A chunk already in flight when Turn off is pressed
+is not recalled, and the policy says so rather than promising an instant stop
+everywhere.
 
 **What we claim.** Context does not store the audio: the transcription Worker
 has no storage binding (`infra/transcribe-worker/src/wranglerConfig.test.ts`
@@ -77,10 +82,15 @@ privacy policy's *AI built into Context.lc* section and is not covered by this
 question:
 
 - **Texting assistant (Tex)**: the person's messages and the notes it reads go
-  to Anthropic (through Cloudflare AI Gateway) or a Workers AI model. The person
-  starts it by texting it.
-- **Meeting summaries**: a meeting note's transcript and notes go to the
-  built-in model when the note is opened.
+  to Anthropic (through Cloudflare AI Gateway) or a Workers AI model. No
+  question names those providers; texting it is the only signal, which is not
+  informed consent to the provider.
+- **Meeting summaries**: a meeting note's transcript and typed notes go to
+  Anthropic's Haiku (through Cloudflare AI Gateway) automatically the first time
+  a meeting note with a transcript is opened (`apps/mcp/src/meetings/summarize.js`,
+  `apps/mobile/features/meetings/summaryRequest.ts`), on every surface that
+  opens meeting notes, iOS included. A yes to transcription does not cover it;
+  whether it gets its own question is waiting on the owner (2026-10-28).
 - **Search by meaning**: note text is embedded with Workers AI `bge-m3`.
 - **Organizing and routing decisions**: Workers AI `clef` reads note text.
 - **Reading files**: Workers AI `toMarkdown` turns attached files into text.

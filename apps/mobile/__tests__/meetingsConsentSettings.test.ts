@@ -69,7 +69,7 @@ const { CloudTranscriptionSettings } =
   require("../features/console/settings/panels/CloudTranscriptionSettings") as typeof import("../features/console/settings/panels/CloudTranscriptionSettings");
 const { useTranscriptionConsentSync } =
   require("../features/meetings/useTranscriptionConsent") as typeof import("../features/meetings/useTranscriptionConsent");
-const { cloudTranscriptionAllowed, setTranscriptionConsent } =
+const { cloudTranscriptionAllowed, setTranscriptionConsent, transcriptionWithdrawalConfirmed } =
   require("../features/meetings/capture") as typeof import("../features/meetings/capture");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -117,6 +117,7 @@ beforeEach(() => {
   mockMutations.length = 0;
   mockMutationFails = false;
   mockForget.mockClear();
+  transcriptionWithdrawalConfirmed();
   setTranscriptionConsent(null);
 });
 
@@ -198,6 +199,54 @@ function Sync(): null {
   useTranscriptionConsentSync();
   return null;
 }
+
+/** The Settings row and the layout's sync, mounted together as in the app. */
+function SettingsWithSync(): ReactElement {
+  return createElement("div", null, createElement(Sync), createElement(CloudTranscriptionSettings));
+}
+
+describe("a Turn off the account has not heard yet", () => {
+  test("a yes from the account, refreshed after a failed withdrawal, does not switch this device back on", async () => {
+    mockAnswer = ON;
+    mockMutationFails = true;
+    const view = mount(createElement(SettingsWithSync));
+    expect(cloudTranscriptionAllowed()).toBe(true);
+
+    press("cloud-transcription-turn-off");
+    await settle();
+    expect(shown("cloud-transcription-unsaved")).toBe(true);
+
+    // A reconnect: the account still says yes, as a fresh answer.
+    mockAnswer = { ...ON };
+    view.rerender(createElement(SettingsWithSync));
+    await settle();
+
+    expect(cloudTranscriptionAllowed()).toBe(false);
+    view.unmount();
+  });
+
+  test("once the account is seen saying no, a later yes from the account counts again", async () => {
+    mockAnswer = ON;
+    mockMutationFails = true;
+    const view = mount(createElement(SettingsWithSync));
+    press("cloud-transcription-turn-off");
+    await settle();
+    mockMutationFails = false;
+
+    // The account's no confirms the withdrawal; a yes after it (Allow pressed
+    // on another device) is honoured.
+    mockAnswer = { ...OFF };
+    view.rerender(createElement(SettingsWithSync));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(false);
+
+    mockAnswer = { ...ON };
+    view.rerender(createElement(SettingsWithSync));
+    await settle();
+    expect(cloudTranscriptionAllowed()).toBe(true);
+    view.unmount();
+  });
+});
 
 describe("the account's answer on this device", () => {
   test("loading is no", () => {

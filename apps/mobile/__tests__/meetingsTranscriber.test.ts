@@ -10,6 +10,9 @@ import {
   setTranscriber, setTranscriptionConsent,
   cloudTranscriptionAllowed,
   onTranscriptionConsentChange,
+  allowTranscriptionHere,
+  transcriptionWithdrawalConfirmed,
+  withdrawTranscriptionHere,
   setTranscriptionClient,
   type ActionRunner,
   type TranscribeChunkArgs,
@@ -98,6 +101,7 @@ function stubClient(
 }
 
 afterEach(() => {
+  transcriptionWithdrawalConfirmed();
   setTranscriber(null);
   setTranscriptionConsent(null);
   setTranscriptionClient(null);
@@ -290,6 +294,19 @@ describe("no cloud transcription without a current yes", () => {
   test("a transcriber that works on the device needs no yes", () => {
     setTranscriber(fakeTranscriber("device"));
     expect(resolveTranscriber()).not.toBeNull();
+  });
+
+  test("Turn off here holds against the account's yes until Allow is pressed here", () => {
+    setTranscriptionClient(stubClient([]));
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    withdrawTranscriptionHere();
+    expect(resolveTranscriber()).toBeNull();
+
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    expect(cloudTranscriptionAllowed()).toBe(false);
+
+    allowTranscriptionHere(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
+    expect(cloudTranscriptionAllowed()).toBe(true);
   });
 
   test("a change of answer is announced", () => {
