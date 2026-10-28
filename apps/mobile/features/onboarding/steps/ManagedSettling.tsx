@@ -160,7 +160,7 @@ export function ManagedSettling({
         {state.slow
           ? "Still creating and verifying your storage; this can take up to 2 minutes. " +
             "Keep this page open until we confirm it is ready."
-          : `Setting up storage for ${contextName}; this can take up to 2 minutes, so keep this page open until it is ready.`}
+          : `Setting up storage for ${contextName}. Your workspace opens in a few seconds, and your folders appear there.`}
       </Text>
 
       <Card style={styles.card}>
