@@ -11,9 +11,22 @@
  * policy would have blocked to `/_csp-report`, which logs it. Once those logs
  * are quiet the same policy moves to the enforcing header.
  *
- * Only `'self'` and Cloudflare Turnstile may serve script: PostHog's SDK comes
- * through our own `/ingest` (`analyticsIngest.ts`), and Stripe is a redirect,
- * not a script on our page.
+ * What may run is what the first day of reports (2026-10-28, 79 of them)
+ * showed the app needs, and nothing more:
+ *
+ *  - `'self'`, and Cloudflare Turnstile for sign-in.
+ *  - The web shell's three inline scripts (`apps/mobile/public/index.html`: the
+ *    appearance read before first paint, and the X and Meta pixel snippets),
+ *    each by its SHA-256, never `'unsafe-inline'`. Editing one changes its
+ *    hash, and `cspReport.test.ts` fails until the hash here is updated.
+ *  - Cloudflare Web Analytics' beacon, which Cloudflare adds to the page.
+ *  - The X and Meta pixels' own scripts, which the shell loads on context.lc's
+ *    landing page only.
+ *  - `'wasm-unsafe-eval'`: compiling WebAssembly, which the app does. It
+ *    allows no JavaScript `eval`.
+ *
+ * PostHog's SDK comes through our own `/ingest` (`analyticsIngest.ts`), and
+ * Stripe is a redirect, not a script on our page.
  *
  * A report names URLs, and a URL can carry a note's path or a token, so the
  * log keeps origins and the directive only: never a path, a query, or the
@@ -22,8 +35,23 @@
 
 export const CSP_REPORT_PATH = "/_csp-report";
 
+/** The web shell's inline scripts, by hash, in the order the shell has them. */
+export const SHELL_SCRIPT_HASHES = [
+  "sha256-+p42j0S/XRK9dBQV/QIKuA78k3f1xWDUZtUJtkUnraw=",
+  "sha256-WdDumAGqjyCYC8GSuHcTrKM+J3LudTENffnuL4oTaVw=",
+  "sha256-ARyvZ8XnRfx9fPB0hl4d0/OMeuJeyct7psw/aPkcjTo=",
+];
+
+/** Every host that may serve script, each for the reason above. */
+export const SCRIPT_HOSTS = [
+  "https://challenges.cloudflare.com",
+  "https://static.cloudflareinsights.com",
+  "https://static.ads-twitter.com",
+  "https://connect.facebook.net",
+];
+
 export const SCRIPT_POLICY =
-  "script-src 'self' https://challenges.cloudflare.com; " +
+  `script-src 'self' ${SHELL_SCRIPT_HASHES.map((hash) => `'${hash}'`).join(" ")} ${SCRIPT_HOSTS.join(" ")} 'wasm-unsafe-eval'; ` +
   "object-src 'none'; base-uri 'self'; " +
   `report-uri ${CSP_REPORT_PATH}`;
 
