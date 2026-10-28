@@ -347,10 +347,8 @@ describe("every list marks the notes that are not in the bucket", () => {
     const view = mount(
       createElement(FileTree, {
         rows: [treeRow(QUEUED), treeRow(STUCK), treeRow(CLEAN)],
-        canSetVisibility: false,
         onSelect: () => {},
         onToggle: () => {},
-        onCycleVisibility: () => {},
         pendingStateFor: MARKS.stateFor,
       }),
       1200,
@@ -413,10 +411,8 @@ describe("every list marks the notes that are not in the bucket", () => {
     const view = mount(
       createElement(FileTree, {
         rows: [treeRow(QUEUED)],
-        canSetVisibility: false,
         onSelect: () => {},
         onToggle: () => {},
-        onCycleVisibility: () => {},
       }),
       1200,
     );

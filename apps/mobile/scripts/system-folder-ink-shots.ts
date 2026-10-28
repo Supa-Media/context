@@ -209,10 +209,8 @@ const sidebar = (width: number | string) =>
         { style: { paddingTop: 12, paddingHorizontal: 8 } },
         createElement(FileTree, {
           rows: TREE,
-          canSetVisibility: false,
           onSelect: () => {},
           onToggle: () => {},
-          onCycleVisibility: () => {},
           workspaceId: "ws-demo",
           iconOf,
           onIconPress: () => {},

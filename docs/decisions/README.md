@@ -463,6 +463,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates
 - The tree is drawn from the press, and `privacy.md` is what it may not guess
+- The tree's visibility word is a label, not a button (2026-10-28)
 - What the sidebar can do to a folder, the listing can do to it too
 - Nothing is named before it is written, and the phone's `+` is the only key
 - A phone can ask its context a question, and could not before
