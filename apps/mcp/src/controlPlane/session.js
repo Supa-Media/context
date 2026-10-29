@@ -4,6 +4,7 @@
  * built-in model.
  */
 import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
+import { TREE_RESPONSE_BYTE_CAP } from "./tree.js";
 
 export function createSessionMethods({ post, required }) {
   return {
@@ -83,7 +84,10 @@ export function createSessionMethods({ post, required }) {
         ...(typeof rotationRequest?.complete === "string"
           ? { completeEncryptionRotation: rotationRequest.complete }
           : {}),
-      });
+        // The tree's cap, for the tree's reason: the answer carries the workspace's access rules, one line per
+        // note with its own (`nodesPrivacy.ts` heldFor), so the 256 KB every other answer is held to refused
+        // every request to a workspace past a few thousand such notes (@supa, 2026-10-29: group Tex dark).
+      }, { maxBytes: TREE_RESPONSE_BYTE_CAP });
       // Four siblings on the response, not one shape with the other three
       // nested inside it. `binding` is required; `searchIndex`, `encryptionKey`
       // and `rotation` are absent in the ordinary case — no index opted in, no

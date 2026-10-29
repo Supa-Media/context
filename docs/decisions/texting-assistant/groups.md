@@ -421,3 +421,13 @@ generic line says the fault is Tex's. The gateway logs `storage_unavailable`
 with its reason code (`sessionStore.js`), readable with `agent-logs.yml` in
 tail mode on `context-mcp`. Test: `groupTurnWorkflow.test.ts` "a chat whose
 workspace can't be opened", `apps/mcp/test/storageUnavailableLog.test.mjs`.
+
+The cause, read with that log the same morning: `control_plane_unreachable`,
+a `/gateway/binding` answer the gateway refused unread. The answer carries the
+workspace's access rules, one line per note with its own access, and @supa had
+passed the 256 KB every control-plane answer was held to, so every request to
+it was refused (the same cap had cut off the tree's manifest on 2026-10-13).
+`/gateway/binding` now takes the tree's cap (`TREE_RESPONSE_BYTE_CAP`), and a
+control-plane refusal is logged by what went wrong (`response_too_large`,
+`timed_out`, a status). Test: `storageUnavailableLog.test.mjs` "a binding whose
+access rules are past 256 KB still opens".
