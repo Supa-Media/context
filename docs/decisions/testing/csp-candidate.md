@@ -104,6 +104,23 @@ In `full` mode, every violation is a style or font one:
    policy. `mermaid.spec.ts` still passes, because it checks structure, not
    paint. The page needs a style policy of its own, the way the drawing
    editor has one.
+   **Given one (2026-10-29):** the router now reports the diagram page
+   against `DIAGRAM_POLICY` (`infra/router/src/cspReport.ts`), the policy
+   its own `<meta>` already enforces: `default-src 'none'`, `script-src
+   'self'`, `style-src 'unsafe-inline'`, `img-src data:`. Inline style is
+   allowed on this one document only. It runs in an opaque origin
+   (`sandbox="allow-scripts"`), and with no fetch, font, frame or remote
+   picture allowed, a style cannot carry anything out. Its script half is
+   narrower than the shell's. `cspReport.test.ts` holds the header to the
+   meta that the build writes, and checks that no platform page but this
+   one allows inline style. `cspDiagramStyle.spec.ts` runs in WebKit over
+   HTTPS with the whole candidate enforced and the shell nonced:
+   - Mermaid's node fill applies, and the diagram frame refuses nothing.
+   - Opened on its own, the page refuses a remote picture, an inline
+     script, a stylesheet by URL and a fetch, each enforced and reported.
+   - It still allows an inline style and a `data:` picture.
+   - Sending the diagram the shell's policy fails all three checks.
+   The production enforced header is unchanged.
 4. **The drawing editor's font fallbacks (`font-src`, esm.sh).** Excalidraw
    lists an esm.sh URL after ours for every face. Under report-only, the
    browser reports those URLs but fetches nothing. Enforced, each one becomes

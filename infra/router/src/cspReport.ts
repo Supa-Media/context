@@ -118,6 +118,29 @@ export const EDITOR_POLICY =
   `report-uri ${CSP_REPORT_PATH}`;
 
 /**
+ * The diagram renderer's page (`/drawing-assets/diagram/`) reports against
+ * the policy it already enforces in its own `<meta>` (`diagramPageHtml` in
+ * `scripts/build-drawing-editor.mjs`), not the shell's.
+ *
+ * It is a page of its own, framed by URL with `sandbox="allow-scripts"`
+ * (`livePreview/diagram.ts`), so it runs in an opaque origin with no access to
+ * the app, its storage or its cookies. Mermaid draws the SVG with a `<style>`
+ * of its own and with style attributes, both written by script, so this one
+ * document allows inline style. What stops a diagram from leaking anything is
+ * the rest: one script, ours, and no fetch, picture, font or frame from
+ * anywhere, `data:` pictures aside. Measured against the shell's policy, every
+ * diagram drawn reported Mermaid's styles (`docs/decisions/testing/
+ * csp-candidate.md`, blocker 3), and that policy is not the one this page
+ * would ever enforce. Its script half is narrower than the shell's: no
+ * inline hashes, no other host. `cspReport.test.ts` holds this to the meta
+ * the build writes.
+ */
+export const DIAGRAM_PATH_PREFIX = "/drawing-assets/diagram/";
+
+export const DIAGRAM_POLICY =
+  "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
+
+/**
  * The fetch directives a `default-src` candidate would set, measured in
  * report-only before anything enforces it (the CASA scan's "CSP: Wildcard
  * Directive": with no `default-src`, every fetch directive falls back to any
@@ -171,10 +194,12 @@ export function fetchDirectives(convexOrigin: string | undefined): string {
 /**
  * The report-only policy a platform document at `pathname` is given. The
  * plugin sandbox's page reports against its own policy (`pluginSandbox.ts`),
- * which it also enforces; the console's would only report every plugin.
+ * which it also enforces; the console's would only report every plugin. The
+ * diagram page reports against the policy its own `<meta>` enforces.
  */
 export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | undefined): string {
   if (isPluginSandboxPath(pathname)) return `${SANDBOX_POLICY}; report-uri ${CSP_REPORT_PATH}`;
+  if (pathname.startsWith(DIAGRAM_PATH_PREFIX)) return `${DIAGRAM_POLICY}; report-uri ${CSP_REPORT_PATH}`;
   const scripts = pathname.startsWith(EDITOR_PATH_PREFIX) ? EDITOR_POLICY : SCRIPT_POLICY;
   return `${fetchDirectives(convexOrigin)}; ${scripts}`;
 }
@@ -186,9 +211,9 @@ export type CspViolation = { directive: string; blocked: string; page: string; d
 
 /**
  * Which of our documents a report came from, as a fixed class rather than a
- * path: the console, the drawing editor and the plugin sandbox each get a
- * policy of their own, so their reports have to be told apart before any of
- * them can enforce, and `page` is an origin only. A path can name a note or
+ * path: the console, the drawing editor, the diagram page and the plugin
+ * sandbox each get a policy of their own, so their reports have to be told
+ * apart before any of them can enforce, and `page` is an origin only. A path can name a note or
  * a person (`/note/@acme/…`), so it is never logged; the class is one of the
  * words below or "none".
  */
@@ -209,6 +234,7 @@ function documentClass(value: unknown): string {
   if (path.startsWith(EDITOR_PATH_PREFIX)) return "drawing-editor";
   if (isPluginSandboxPath(path)) return "plugin-sandbox";
   if (path.startsWith("/drawing-assets/page/") || path.startsWith("/_page/")) return "page-runtime";
+  if (path.startsWith(DIAGRAM_PATH_PREFIX)) return "diagram";
   if (path.startsWith("/drawing-assets/")) return "drawing-assets";
   if (path === "/console" || path.startsWith("/console/")) return "console";
   if (path === "/note" || path.startsWith("/note/")) return "shared-note";

@@ -99,6 +99,7 @@ jobs:
             apps/mobile/e2e/webkit/cspNegativeProbe.spec.ts
             apps/mobile/e2e/webkit/cspStyleNonce.spec.ts
             apps/mobile/e2e/webkit/offlineStyleNonce.spec.ts
+            apps/mobile/e2e/webkit/cspDiagramStyle.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
@@ -415,6 +416,33 @@ jobs:
           # Where each refusal came from, under the nonce only (static-server.mjs).
           if [ -s "$log.where" ]; then sort "$log.where" | uniq -c | sort -rn | head -20; fi
           if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src; fi
+      # The diagram page has a policy of its own (`DIAGRAM_POLICY`), the one its
+      # meta already enforces: inline style for Mermaid, nothing from the network.
+      # Enforced whole, with the shell nonced so the note it is drawn in reports
+      # nothing either. The control (the page refuses a remote picture, an inline
+      # script, a stylesheet by URL and a fetch, and allows an inline style) runs
+      # first, on its own, so its refusals never reach the log checked after.
+      - name: The diagram page's own policy, enforced, with Mermaid's styles applied
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-diagram-checks e2e/webkit/cspDiagramStyle.spec.ts --grep-invert "drawn in a note" || status=$?
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-diagram e2e/webkit/cspDiagramStyle.spec.ts e2e/webkit/mermaid.spec.ts \
+            --grep "drawn in a note|mermaid fence|cannot reach the console|gives the source back" || status=$?
+          log=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl
+          if [ -s "$log.where" ]; then sort "$log.where" | uniq -c | sort -rn | head -20; fi
+          if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src || status=$?; fi
+          exit "$status"
       - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
@@ -456,6 +484,8 @@ jobs:
             apps/mobile/e2e/webkit/test-results-nonce/
             apps/mobile/e2e/webkit/test-results-nonce-checks/
             apps/mobile/e2e/webkit/test-results-nonce-offline/
+            apps/mobile/e2e/webkit/test-results-diagram-checks/
+            apps/mobile/e2e/webkit/test-results-diagram/
             apps/mobile/e2e/webkit/csp-candidate/
           retention-days: 7
           if-no-files-found: ignore
