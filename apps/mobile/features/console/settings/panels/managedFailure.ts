@@ -7,28 +7,48 @@ import { foundingAtNoCharge } from "./founding";
 import type { PremiumStatus } from "./premium";
 
 /**
- * Whether somebody paid for this storage: a Stripe customer behind a plan that
- * is not founding Premium, the free tier, a test account or staging's free
- * storage. Only then does the failure copy mention a payment. A founder, a
- * free-tier owner or Google's reviewer who never saw a checkout was told
- * "Your payment went through" (2026-10-29), which is false and alarming.
- * Unknown is unpaid: the sentence is never said on a guess.
+ * What the billing fields prove about money for this storage, and nothing
+ * more (2026-10-29: Google's verification reviewer, founding Premium at no
+ * charge, was told "Your payment went through" after a checkout they never
+ * saw).
+ *
+ * - `subscribed`: an owner's own Stripe subscription that Stripe still calls
+ *   active (`status: "active"` and `subscriptionLive`), not founding at no
+ *   charge. That proves a live subscription, not that a payment cleared — a
+ *   trial reads as active too — so the copy says only the former.
+ * - `none`: provably nothing to charge. No Stripe customer exists for this
+ *   plan (owner-only field, so `false` is a statement, not an absence), or
+ *   staging's storage, which costs nothing.
+ * - `unknown`: everything else — a member who is never shown money facts, a
+ *   past or cancelled subscriber, an abandoned checkout that left a customer
+ *   behind, a payment that is past due. The copy names no money at all.
  */
-export function paidForStorage(status: PremiumStatus | null | undefined): boolean {
-  if (status === null || status === undefined) return false;
-  if (status.freeManaged === true || status.stagingFreeStorage === true || status.isTestAccount === true) return false;
-  return status.hasStripeCustomer === true && !foundingAtNoCharge(status);
+export type StorageMoney = "subscribed" | "none" | "unknown";
+
+export function storageMoneyOf(status: PremiumStatus | null | undefined): StorageMoney {
+  if (status === null || status === undefined) return "unknown";
+  if (status.stagingFreeStorage === true || status.hasStripeCustomer === false) return "none";
+  if (
+    status.hasStripeCustomer === true &&
+    status.subscriptionLive === true &&
+    status.status === "active" &&
+    !foundingAtNoCharge(status)
+  ) {
+    return "subscribed";
+  }
+  return "unknown";
 }
 
 /**
- * Storage could not be made: paid for (`charged`), or free.
+ * Storage could not be made, with what is proven about money for it
+ * (`storageMoneyOf`).
  *
- * Paid for, the worst state in the product — money taken, nothing delivered —
- * and the three things this copy has to do, in order:
+ * Subscribed, the worst state in the product — a subscription running,
+ * nothing delivered — and the three things this copy has to do, in order:
  *
- * 1. **Say the payment and the notes are safe**, before anything else. With
- *    nothing charged, only the notes: a payment is never named that was not
- *    made.
+ * 1. **Say the subscription and the notes are safe**, before anything else.
+ *    With nothing to charge, say so; with money unknown, only the notes: no
+ *    sentence about money is said on a guess.
  * 2. **Say a retry cannot duplicate anything.** That is a fact rather than
  *    reassurance: provisioning adopts the bucket named for this workspace, and
  *    `apps/convex/__tests__/managedProvisioning.test.ts` holds it to that.
@@ -41,17 +61,22 @@ export function paidForStorage(status: PremiumStatus | null | undefined): boolea
  */
 export function managedFailureCopy(
   errorCode: string | undefined,
-  { charged }: { charged: boolean },
+  { money }: { money: StorageMoney },
 ): {
   title: string;
   body: string;
   canRetry: boolean;
 } {
-  const safe = charged ? "Your payment went through and nothing has been lost." : "Nothing has been lost, and nothing was charged.";
+  const safe =
+    money === "subscribed"
+      ? "Your subscription is active and nothing has been lost."
+      : money === "none"
+        ? "Nothing has been lost, and nothing was charged."
+        : "Nothing has been lost.";
   if (errorCode === "NOT_CONFIGURED") {
     return {
       title: "We cannot set up storage on this deployment yet",
-      body: charged
+      body: money === "subscribed"
         ? `${safe} This one is at our end and trying again will not fix it — get in touch and we will sort it ` +
           "out, or connect storage you own and we will stop the subscription."
         : `${safe} This one is at our end and trying again will not fix it — get in touch and we will sort it ` +

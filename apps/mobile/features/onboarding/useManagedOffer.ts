@@ -8,7 +8,7 @@ import { leaveTo } from "../consent/leave";
 import {
   formatPrice,
   managedFailureCopy,
-  paidForStorage,
+  storageMoneyOf,
   type PremiumEntitlements,
   type PremiumSession,
   type PremiumStatus,
@@ -348,7 +348,7 @@ export function useManagedOffer(options: {
     paid: status?.status === "active",
     provisionFailure:
       status?.managedProvisioning === "failed"
-        ? managedFailureCopy(status.managedProvisioningError, { charged: paidForStorage(status) })
+        ? managedFailureCopy(status.managedProvisioningError, { money: storageMoneyOf(status) })
         : undefined,
     slow,
     choose,
