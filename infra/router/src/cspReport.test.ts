@@ -133,8 +133,11 @@ describe("the policy", () => {
     for (const path of ["/console", "/", "/drawing-assets/editorial", "/drawing-assets/page/index.html"]) {
       expect(reportOnlyPolicyFor(path, ENV.CONVEX_ORIGIN), path).not.toContain("'unsafe-eval'");
     }
-    // Its one inline block is a style, named by hash.
-    const page = readFileSync(join(__dirname, "..", "..", "..", "apps", "mobile", "public", "drawing-assets", "editor", "index.html"), "utf8");
+    // Its one inline block is a style, named by hash. The page is built, not
+    // committed, so it is read from the function that writes it.
+    const script = readFileSync(join(__dirname, "..", "..", "..", "scripts", "build-drawing-editor.mjs"), "utf8");
+    const page = /function pageHtml\(\) \{\n  return `([\s\S]*?)`;\n\}/.exec(script)?.[1] ?? "";
+    expect(page).toContain('<script type="module" src="./editor.js"></script>');
     expect(page).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
     const inline = [...page.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(
       ([, body]) => `sha256-${createHash("sha256").update(body, "utf8").digest("base64")}`,

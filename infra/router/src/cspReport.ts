@@ -103,7 +103,8 @@ export const SCRIPT_POLICY =
  * (`editor.js`; `@excalidraw/excalidraw/dist/prod/chunk-EIO257PC.js`). No
  * Excalidraw setting removes that, so this one document allows
  * `'unsafe-eval'`, and the shell never does. Like the shell it has no
- * `'unsafe-inline'` script: its only inline block is a style, named by hash.
+ * `'unsafe-inline'` script: its only inline block is a style, named by hash
+ * (`pageHtml` in `scripts/build-drawing-editor.mjs`, which writes the page).
  */
 export const EDITOR_PATH_PREFIX = "/drawing-assets/editor/";
 export const EDITOR_STYLE_HASHES = ["sha256-fInPXTRE3c/KCdPESxq2HoZMsIp8mGnmHRluR4cSYts="];
