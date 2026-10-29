@@ -66,13 +66,30 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
   const rules = candidateRules("full").sort((a, b) => b.prefix.length - a.prefix.length);
   const classify = (pathname: string): string => rules.find((rule) => pathname.startsWith(rule.prefix))?.document ?? "unmatched";
   const rows: ReturnType<typeof reportLines> = [];
-  // Only the report sink is routed; the shell, its nonce and the app come from the fixture server.
-  await page.route(`${origin}/_csp-report**`, async (route) => {
+  // Only the report sink is answered here; the shell, its nonce and the app come from the fixture server.
+  await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() !== "POST" || (url.pathname !== REPORT_PATH && url.pathname !== ENFORCED_REPORT_PATH)) return route.fallback();
+    if (url.origin !== origin || request.method() !== "POST" || (url.pathname !== REPORT_PATH && url.pathname !== ENFORCED_REPORT_PATH)) {
+      return route.fallback();
+    }
     rows.push(...reportLines(request.postData() ?? "", classify, url.pathname === ENFORCED_REPORT_PATH ? "enforce" : "report"));
     return route.fulfill({ status: 204, body: "" });
+  });
+  // Every refusal the page sees, with the element it refused, so a failure names what was not nonced.
+  await page.addInitScript(() => {
+    const seen: unknown[] = [];
+    (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals = seen;
+    document.addEventListener("securitypolicyviolation", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      seen.push({
+        directive: event.effectiveDirective,
+        disposition: event.disposition,
+        element: target === null ? null : `${target.tagName.toLowerCase()}${target.id ? `#${target.id}` : ""}`,
+        nonced: target instanceof HTMLStyleElement ? target.nonce !== "" : null,
+        sample: event.sample.slice(0, 60),
+      });
+    });
   });
   const served = page.waitForResponse((response) => new URL(response.url()).pathname === "/e2e-fixture");
   await openWeeklyReview(page);
@@ -94,6 +111,10 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
   expect(editor.page, "the page's nonce is readable from its style").toBe(nonce);
   expect(editor.editor, "CodeMirror's stylesheet carries it").toBe(nonce);
   expect(editor.display, "and its rules apply").toBe("flex");
+  const refusals = () => page.evaluate(() => (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals);
+  const before = await refusals();
+  console.log(`[${test.info().project.name}] refusals while the note opened ${JSON.stringify(before)}`);
+  expect(before, "nothing the shell or the editor wrote was refused").toEqual([]);
 
   // The control: a style the nonce does not cover is still refused.
   const applied = await page.evaluate(async () => {
