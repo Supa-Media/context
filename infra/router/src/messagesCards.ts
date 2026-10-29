@@ -13,13 +13,19 @@
  * - `/messages/ask?k=&c=`: Yes or Not now under an ask (apps/agent/src/cardChats.ts).
  * - `/messages/hello`: a hello card, already sent.
  * - `/messages/drawer`: the extension opened from the drawer, with no card.
+ * - `/messages/inbox` and `/messages/times`: the person's own inbox to hand
+ *   to Tex, and their week to pick free times from (`messagesData.ts`).
  *
  * Every page is a pure function of its address: no session, no storage, no
- * fetch. Nothing in the address is trusted; it is the card's own URL, which
+ * fetch of its own. The two data pages ask the extension for the person's
+ * data, which it fetches with the card key (`CardGrant.swift`). Nothing in the address is trusted; it is the card's own URL, which
  * anyone in the chat could have written. Names are escaped, counts clamped,
  * and the only addresses a page hands the bridge are `https://context.lc/tex/…`
  * cards it builds itself. The one script is a constant, allowed by its hash.
  */
+
+import { DATA_SCRIPT, DATA_SCRIPT_HASH, inboxPage, timesPage } from "./messagesData";
+import { escaped, type Page } from "./messagesPage";
 
 export const MESSAGES_PREFIX = "/messages/";
 
@@ -59,14 +65,10 @@ export const BRIDGE_SCRIPT = `(function () {
 /** `BRIDGE_SCRIPT`'s sha256, which the page's policy allows (`messagesCards.test.ts` checks it). */
 export const BRIDGE_SCRIPT_HASH = "sha256-QuW0ZHNrFNWVWbHCP50Ugg8tugL73qVyqnZ6JvZA0cU=";
 
-const POLICY =
+const policy = (hash: string) =>
   "default-src 'none'; style-src 'unsafe-inline'; " +
-  `script-src '${BRIDGE_SCRIPT_HASH}'; ` +
+  `script-src '${hash}'; ` +
   "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-
-function escaped(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
 
 function clean(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, MAX_NAME);
@@ -83,9 +85,6 @@ function button(label: string, request: CardRequest, fallback: string, primary: 
     `<span>${escaped(label)}</span>${detail ? `<span class="detail">${escaped(detail)}</span>` : ""}</button>`
   );
 }
-
-/** `size`: compact docks the page where the keyboard goes, so the chat above stays in view (the owner, 2026-10-29). */
-type Page = { title: string; body: string; size?: "expanded" | "compact" };
 
 function pickPage(query: URLSearchParams): Page {
   const options = query.getAll("o").map(clean).filter(Boolean).slice(0, MAX_OPTIONS);
@@ -120,6 +119,8 @@ function drawerPage(): Page {
     title: "Context",
     body:
       "<h1>Context</h1><p>In your chat with Tex, cards let you answer with a tap: choose one of Tex's options, say yes to an email, or open a note.</p>" +
+      '<a class="row" href="/messages/inbox"><span>Hand Tex some email</span><span class="detail">Your inbox</span></a>' +
+      '<a class="row" href="/messages/times"><span>Pick times that work</span><span class="detail">Your week</span></a>' +
       button("Turn on cards with Tex", hello, "Open this from your chat with Tex in Messages.", true) +
       "<p class=\"small\">It goes in the text field. Send it to Tex to turn cards on.</p>",
   };
@@ -139,14 +140,20 @@ body{margin:0;padding:16px 20px;background:var(--bg);color:var(--fg);font:16px/1
 h1{margin:0 0 4px;font-size:17px;font-weight:600}p{margin:0;color:var(--muted);font-size:15px}.small{font-size:12px}
 button{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:50px;padding:0 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg);font:inherit;text-align:left}
 button.primary{border:2px solid var(--accent);background:var(--soft)}button:disabled{opacity:.5}
+a.row{display:flex;justify-content:space-between;align-items:center;min-height:50px;padding:0 14px;border:1px solid var(--line);border-radius:12px;color:var(--fg);text-decoration:none}
+button.on{border:2px solid var(--accent);background:var(--soft)}#list{display:flex;flex-direction:column;gap:8px}
+.mail{width:100%;flex-direction:column;align-items:stretch;justify-content:center;gap:2px;padding:10px 14px}
+.mail b{font-weight:600}.mail .line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.day{margin-top:6px;font-weight:600}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.slots button{min-height:40px;padding:0;justify-content:center;font-size:14px}
+.bar{display:flex;gap:6px}.bar button{flex:1;justify-content:center}#send{position:sticky;bottom:8px;width:100%;justify-content:center;font-weight:600}
 .detail{font-size:13px;color:var(--muted)}#status{color:#c4314b;font-size:14px}`;
 
 function render(page: Page): string {
   return (
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<meta name="robots" content="noindex"><title>${escaped(page.title)}</title><style>${STYLE}</style></head>` +
-    `<body${page.size ? ` data-size="${page.size}"` : ""}>${page.body}<p id="status" role="status"></p>` +
-    `<script>${BRIDGE_SCRIPT}</script></body></html>`
+    `<body${page.size ? ` data-size="${page.size}"` : ""}${page.view ? ` data-view="${escaped(page.view)}"` : ""}>${page.body}<p id="status" role="status"></p>` +
+    `<script>${page.script === "data" ? DATA_SCRIPT : BRIDGE_SCRIPT}</script></body></html>`
   );
 }
 
@@ -155,7 +162,8 @@ export function messagesCardResponse(request: Request, url: URL): Response | nul
   if (!url.pathname.startsWith(MESSAGES_PREFIX)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const kind = url.pathname.slice(MESSAGES_PREFIX.length);
-  const page = kind === "pick" ? pickPage(url.searchParams) : kind === "ask" ? askPage(url.searchParams) : kind === "drawer" ? drawerPage() : kind === "hello" ? helloPage() : null;
+  const pages: Record<string, (query: URLSearchParams) => Page> = { pick: pickPage, ask: askPage, drawer: drawerPage, hello: helloPage, inbox: inboxPage, times: timesPage };
+  const page = Object.hasOwn(pages, kind) ? pages[kind]!(url.searchParams) : null;
   if (page === null) return new Response("Not found", { status: 404 });
   return new Response(request.method === "HEAD" ? null : render(page), {
     status: 200,
@@ -163,8 +171,8 @@ export function messagesCardResponse(request: Request, url: URL): Response | nul
       "Content-Type": "text/html; charset=utf-8",
       // A function of the address alone: safe to keep a few minutes, short enough that a change ships quickly.
       "Cache-Control": "public, max-age=300",
-      "Content-Security-Policy": POLICY,
-      "Content-Security-Policy-Report-Only": POLICY,
+      "Content-Security-Policy": policy(page.script === "data" ? DATA_SCRIPT_HASH : BRIDGE_SCRIPT_HASH),
+      "Content-Security-Policy-Report-Only": policy(page.script === "data" ? DATA_SCRIPT_HASH : BRIDGE_SCRIPT_HASH),
       "X-Robots-Tag": "noindex, nofollow",
       "Referrer-Policy": "no-referrer",
     },
