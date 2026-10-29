@@ -36,6 +36,7 @@
  * so it is allowed to open exactly as a link on a page is.
  */
 
+import { BUILT_FORM_LINK_ERROR, builtFormLink } from "./pageWalls.js";
 import { thinPageHint } from "./publishedText.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
@@ -416,6 +417,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
       const wanted = [...new Set(asked.map(canonicalUrl))];
+      if (wanted.some(builtFormLink)) return text(BUILT_FORM_LINK_ERROR, true);
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
           "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site — and there only its plain path, with nothing of yours written into it. Ask them for the address.",
