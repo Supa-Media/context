@@ -10,7 +10,46 @@
  *
  * The card is untrusted input, as every card is: anything malformed is
  * dropped, and a card naming nothing is not a card (null).
+ *
+ * Tex offers either one with a line of its answer (`[card times]`,
+ * `[card inbox]`, `apps/mcp/src/agent/outgoingPictures.js`), which arrives
+ * as `offers`; the card goes after the words, only where cards go.
  */
+
+import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
+import type { SendPart } from "./outgoing";
+
+export type DataCardKind = "times" | "inbox";
+
+const CARDS: Record<DataCardKind, { caption: string; subcaption: string; trailing: string; summary: string }> = {
+  times: { caption: "Pick times that work", subcaption: "Tap free times from your calendar", trailing: "Pick", summary: "Pick times that work" },
+  inbox: { caption: "Your inbox", subcaption: "Tap the emails for Tex", trailing: "Open", summary: "Hand Tex some email" },
+};
+
+/** The gateway's `offers`, checked: each kind once, in order, or none. Never throws. */
+export function readOffers(raw: unknown): DataCardKind[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((kind): kind is DataCardKind => kind === "times" || kind === "inbox"))];
+}
+
+export function dataCard(kind: DataCardKind, config: AppCardConfig): AppCard {
+  const words = CARDS[kind];
+  return {
+    appName: "Context",
+    extensionBundleId: config.extensionBundleId,
+    teamId: config.teamId,
+    ...(config.appStoreId ? { appStoreId: config.appStoreId } : {}),
+    url: `https://context.lc/tex/${kind}`,
+    interactive: false,
+    fallbackText: words.summary,
+    layout: { caption: words.caption, subcaption: words.subcaption, trailingCaption: words.trailing, summary: words.summary },
+  };
+}
+
+/** The offered cards after the answer, where cards go. */
+export function withDataCards(parts: SendPart[], offers: readonly DataCardKind[], config: AppCardConfig | null | undefined): SendPart[] {
+  return offers.length > 0 && cardsOn(config) ? [...parts, ...offers.map((kind) => ({ card: dataCard(kind, config) }))] : parts;
+}
 
 const MAX_EMAILS = 10;
 const MAX_TIMES = 5;

@@ -27,7 +27,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../src/agent/outgoingPictures.js";
+import { DATA_CARDS_LINE, MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 // A 1x1 PNG.
@@ -236,4 +236,28 @@ test("an option set the answer forgot to name still carries its choices", async 
     await set.wrap(async () => ({ content: [image()] }))("draw_visual", { template: "option", data: { index: i + 1, of: 2, name } });
   }
   assert.deepEqual(set.take("Lugo's is my pick.").choices, [{ name: "Lugo's", picture: 0 }, { name: "Blend", picture: 1 }]);
+});
+
+test("a card line offers a card on their own data, and never reaches them as words", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.model.install([{ text: "When are you free next week?\n[card times]\n[card times] [card inbox]\n[card pick]" }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "find a lunch slot with Ana", conversation: "texts" });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(asked.body.offers, ["times", "inbox"]);
+    assert.doesNotMatch(asked.body.answer, /\[card (times|inbox)\]/);
+    assert.match(asked.body.answer, /^When are you free next week\?/);
+    assert.ok(JSON.stringify(world.model.requests.at(-1).system).includes(DATA_CARDS_LINE.slice(0, 60)), "the prompt says how to offer one");
+
+    world.model.install([{ text: "Done." }]);
+    const plain = await request(world.env, TOKEN_TEXTS, "/agent", { question: "thanks", conversation: "texts" });
+    assert.ok(!("offers" in plain.body));
+  } finally {
+    world.restore();
+  }
+});
+
+test("a turn not from a phone keeps a card line as written", () => {
+  const off = outgoingPictures({ enabled: false });
+  assert.deepEqual(off.take("[card times]"), { answer: "[card times]", pictures: [] });
 });
