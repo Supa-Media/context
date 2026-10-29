@@ -365,8 +365,9 @@ export function jobPrompt(job) {
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
     "before you finish, even if some of it is unfinished, and say what's missing in it. " +
     `${PAGE_JOB_LINE} ` +
-    "Then draw_visual template page with its path, so its first screen is texted with the link. End with the result in a few lines and the " +
-    "page's link: that is what gets texted to them. No progress texts unless something needs them, like a sign-in link."
+    "Then draw_visual template page with its path, so its first screen is texted with the link. End with ONE casual line, your bottom line or " +
+    "your take (\"I think you keep what you've got and borrow some of Cloudflare's stuff, here are my notes\"), and the page's link: that is what " +
+    "gets texted to them. Never describe what's on the page. No progress texts unless something needs them, like a sign-in link."
   );
 }
 

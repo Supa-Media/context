@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { LANGUAGE_LINE, MIRROR_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
@@ -35,7 +35,7 @@ const TEXTING_STYLE = [
   "Write the way a thoughtful friend texts: plain words, short sentences, the answer first.",
   "No Markdown at all. No asterisks or bold, no headings, no tables, no [text](link) links, no code formatting: iMessage shows those characters as they are.",
   "Don't name note paths or say which note something came from unless they ask where it's written.",
-  "Keep it short: usually one to three short paragraphs. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
+  "Keep it short: most answers are one or two short sentences, and three short texts is the most. Never recap what they asked or what a page or picture you sent shows. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
   "Put a web link on its own line, as the bare URL.",
   "If their notes don't say, tell them so in one sentence.",
   "Be quick. For most questions one search call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
@@ -408,6 +408,8 @@ export function systemPrompt(
         // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
         MIRROR_LINE,
         LANGUAGE_LINE,
+        // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
+        BRIEF_LINE,
         ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]

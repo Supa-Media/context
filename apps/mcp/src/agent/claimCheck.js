@@ -429,9 +429,9 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [] }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyChecks({ question, waiting, pictures, history });
+  const shape = replyChecks({ question, waiting, pictures, history, detailed });
   let wrote = false;
   let keptWish = false;
   let held = false;
@@ -511,7 +511,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         const result = refused ?? (await callTool(name, args));
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}) });
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
