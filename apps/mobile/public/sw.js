@@ -286,6 +286,37 @@ async function anonymous(response) {
  * offline layer takes over — `useRememberedContexts` knows which contexts
  * exist and the note cache has the bodies.
  */
+/**
+ * The held shell with a new style nonce, minted for this replay.
+ *
+ * The router gives every shell response a nonce of its own, in the `nonce` of
+ * its two inline styles and as `'nonce-…'` in its policies
+ * (`infra/router/src/styleNonce.ts`). This store holds one response, header
+ * and body together, so replayed as stored, every offline load would carry
+ * the same nonce, and a nonce that repeats is no defence. So each replay
+ * swaps the stored one for 128 fresh random bits, in the same places. A shell
+ * stored without a nonce is replayed as it is.
+ */
+const POLICY_HEADERS = ["Content-Security-Policy", "Content-Security-Policy-Report-Only"];
+const NONCE_SOURCE = /'nonce-([A-Za-z0-9+/]+={0,2})'/;
+
+async function renonced(held) {
+  let old = null;
+  for (const name of POLICY_HEADERS) old = old ?? (held.headers.get(name) ?? "").match(NONCE_SOURCE)?.[1] ?? null;
+  if (old === null) return held;
+  const fresh = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  const headers = new Headers(held.headers);
+  for (const name of POLICY_HEADERS) {
+    const value = headers.get(name);
+    if (value !== null) headers.set(name, value.split(`'nonce-${old}'`).join(`'nonce-${fresh}'`));
+  }
+  // The body is read decoded and written again: the stored length and encoding describe other bytes.
+  headers.delete("Content-Length");
+  headers.delete("Content-Encoding");
+  const body = (await held.text()).split(`nonce="${old}"`).join(`nonce="${fresh}"`);
+  return new Response(body, { status: held.status, statusText: held.statusText, headers });
+}
+
 async function shell(request) {
   const cache = await open();
   try {
@@ -294,7 +325,7 @@ async function shell(request) {
     return fresh;
   } catch {
     const held = await lookup(cache, SHELL_KEY);
-    if (held) return held;
+    if (held) return await renonced(held);
     /*
       No network and nothing held: a first visit that never completed. Answered
       by this worker rather than by the browser's offline page only because the
