@@ -5,7 +5,7 @@
  * the pinned `@context-lc` workspace, which take their place when present.
  */
 
-import { PICTURES_LINE } from "./outgoingPictures.js";
+import { DATA_CARDS_LINE, PICTURES_LINE } from "./outgoingPictures.js";
 import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
@@ -392,7 +392,7 @@ export function systemPrompt(
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
         // A fact about this build, so a production setup's own words keep it too.
-        ...(pictures ? [PICTURES_LINE, VISUALS_LINE] : []),
+        ...(pictures ? [PICTURES_LINE, VISUALS_LINE, DATA_CARDS_LINE] : []),
         NOTE_LINK_LINE,
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,

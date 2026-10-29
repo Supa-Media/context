@@ -44,6 +44,7 @@ import { textsFromAnswer, textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
+import type { DataCardKind } from "./dataCards";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
@@ -85,6 +86,8 @@ export type ReplyDeps = {
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
+  /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
+  onOffers?: (offers: DataCardKind[]) => void;
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -267,6 +270,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
+      if (answer.offers) deps.onOffers?.(answer.offers);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only

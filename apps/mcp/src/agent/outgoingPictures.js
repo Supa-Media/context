@@ -54,6 +54,8 @@ const MAX_URL_LENGTH = 2000;
 // sentence with "[picture 1]" still means the picture, and the person must
 // never see the marker (Dev, 2026-10-19).
 const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
+/** A card the person's phone can open on their own data (`apps/agent/src/dataCards.ts`): `[card times]` or `[card inbox]`. */
+const CARD_LINE = /[ \t]*\[card[ \t]+(times|inbox)[ \t]*\]/gi;
 /** Any https address, wherever it sits in a block of text or in a tool's arguments. */
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 /** The most addresses one call's arguments are checked against: an argument may be a whole page. */
@@ -71,6 +73,15 @@ export const PICTURES_LINE =
   "options, photos, plans, days, boards, charts), draw_picture (a poster, an invite, from a page you write) or make_picture " +
   "(a photo: them in an outfit, a scene). Asked for a picture, make one " +
   "now, guessing what they left out, then offer changes; don't ask first.";
+
+/**
+ * The two cards that open on the person's own data in Messages, offered by a
+ * line of their own. Only a phone with the Context app gets one, so the words
+ * never lean on it (`apps/agent/src/dataCards.ts`).
+ */
+export const DATA_CARDS_LINE =
+  "Asking when they're free, add [card times] on its own line; asked to go through their email, add [card inbox]. A phone with " +
+  "the Context app gets a card to tap from (their free times, their newest mail); keep your words whole without it, never mention it.";
 
 /**
  * One tool result's words, with every address this same call carried in cut
@@ -178,6 +189,11 @@ export function outgoingPictures({ enabled, question = "" }) {
   /** The answer without its picture lines, and the pictures those lines named that may go. */
   const take = (answer) => {
     if (!enabled || typeof answer !== "string") return { answer, pictures: [] };
+    const offers = [];
+    answer = answer.replace(CARD_LINE, (_, kind) => {
+      if (!offers.includes(kind.toLowerCase())) offers.push(kind.toLowerCase());
+      return "";
+    });
     const pictures = [];
     const captions = [];
     const choices = [];
@@ -214,7 +230,7 @@ export function outgoingPictures({ enabled, question = "" }) {
       }
     }
     // Two or more option cards are a choice the person can make with one tap (`apps/agent/src/pickCard.ts`).
-    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions, choices: choices.length >= 2 ? choices : [] };
+    return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions, choices: choices.length >= 2 ? choices : [], offers };
   };
 
   /**

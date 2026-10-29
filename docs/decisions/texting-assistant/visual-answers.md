@@ -294,6 +294,14 @@ chat sees the times, never their own week. The agent reads them in
 `apps/agent/src/dataCards.ts`. Tests: `infra/router/src/messagesData.test.ts`,
 `apps/agent/src/cardChats.test.ts`.
 
+Tex offers either card itself with a line of its answer, `[card times]` when
+it asks when they're free and `[card inbox]` when asked to go through their
+email (`DATA_CARDS_LINE`). The gateway strips the line into the answer's
+`offers` (`outgoingPictures.js`), and the Worker sends the card after the
+words only where cards go (`apps/agent/src/dataCards.ts` `withDataCards`), so
+Tex's words must stand without it. Tests: `agentOutgoingPictures.test.mjs`,
+`apps/agent/src/dataCards.test.ts`.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices
