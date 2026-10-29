@@ -209,25 +209,40 @@ export function readReview(text, { words }) {
   return { scores, ...codes, words: { summary: word("summary"), expected: word("expected"), improve: word("improve") } };
 }
 
-/** Ask the model; null when it could not run or answered nothing readable. */
+/**
+ * Room for the answer and the thinking before it. Haiku 5.5 thinks by default
+ * and its thinking counts against `max_tokens`: at 200 (960 with the words) a
+ * long chat's thinking used it all and the answer came back empty, so 8 of 10
+ * reviews on 2026-10-29 filed nothing (`no_score`). The answer itself stays
+ * short; this only stops the thinking from crowding it out.
+ */
+export const REVIEW_MAX_TOKENS = { scores: 2000, full: 4000 };
+
+/**
+ * Ask the model: the review, or null with why (`model_failed`: the call threw;
+ * `cut_off`: it ran out of room; `no_score`: it answered nothing readable).
+ */
 export async function scoreConversation({ transcript, words, config, request = requestViaGateway, metadata }) {
+  let reply;
   try {
-    const reply = await request(
+    reply = await request(
       {
         model: SELF_REVIEW_MODEL,
         system: words ? SYSTEM_FULL : SYSTEM_SCORES,
         messages: [{ role: "user", text: `CONVERSATION\n\n${transcript}` }],
         tools: [],
-        maxTokens: words ? 960 : 200,
+        maxTokens: words ? REVIEW_MAX_TOKENS.full : REVIEW_MAX_TOKENS.scores,
         effort: "low",
       },
       config,
       { metadata },
     );
-    return readReview(reply?.text, { words });
   } catch {
-    return null;
+    return { review: null, miss: "model_failed" };
   }
+  const review = readReview(reply?.text, { words });
+  if (review !== null) return { review, miss: null };
+  return { review: null, miss: reply?.stop === "max_tokens" ? "cut_off" : "no_score" };
 }
 
 function markKey(key) {
@@ -276,7 +291,7 @@ export async function reviewConversation(options) {
 
 /**
  * As `reviewConversation`, with why nothing was filed (`off`, `nothing_new`,
- * `unmarked`, `no_tier`, `no_score`, `not_filed`), so the Worker's log tells
+ * `unmarked`, `no_tier`, `model_failed`, `cut_off`, `no_score`, `not_filed`), so the Worker's log tells
  * a review that was asked from one that was filed. A conversation whose asks
  * all failed (`failed`) is reviewed too, though no answer was kept: those are
  * the ones that went worst (Tex Devs, 2026-10-29, every reply failed and
@@ -326,11 +341,11 @@ export async function reviewOutcome({ env, store, session, controlPlane, history
   if (whole && tier !== "full") return none("not_shared");
   const transcript = transcriptOf(turns, after, failed, whole ? WHOLE_REVIEW_CHARS : MAX_REVIEW_CHARS);
   const metadata = { feature: "self-review", workspace: String(session.workspaceId) };
-  const review = await scoreConversation({ transcript, words: tier === "full", config, request, metadata });
+  const { review, miss } = await scoreConversation({ transcript, words: tier === "full", config, request, metadata });
   if (review === null) {
     await unclaim();
-    log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed: null }));
-    return none("no_score");
+    log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed: null, miss }));
+    return none(miss);
   }
   // A filing that never answered (timed out, cut off) may well have landed: its turns stay marked. Only a
   // control plane that answered "nothing filed" gives them back, or the next review scores them again.

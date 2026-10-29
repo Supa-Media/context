@@ -38,6 +38,9 @@
  *     fails.
  * 12. `whole` filing on the scores tier. → same test fails: a scores row for
  *     turns already scored.
+ * 13. `REVIEW_MAX_TOKENS` back at 200 / 960, or a `max_tokens` stop reported
+ *     as `no_score` (2026-10-29). → "a review leaves the model room to think
+ *     before it answers…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -289,6 +292,26 @@ test("asked is not filed: each review that files nothing says why", async () => 
   assert.deepEqual(await reviewOutcome({ ...args, controlPlane: { ...plane("scores"), fileTexReview: async () => null }, request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "not_filed" });
   assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: "scores", why: null });
   assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "nothing_new" });
+});
+
+test("a review leaves the model room to think before it answers, and says when the answer still ran out of room", async () => {
+  // 2026-10-29: Haiku 5.5 thinks by default, and at 200 tokens its thinking
+  // used them all: 8 of 10 reviews came back empty and filed nothing.
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  const asked = [];
+  const cut = async (body) => (asked.push(body), { text: "", stop: "max_tokens" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: cut }), { filed: null, why: "cut_off" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("full"), request: cut }), { filed: null, why: "cut_off" });
+  assert.ok(asked[0].maxTokens >= 2000, `scores review asks for ${asked[0].maxTokens} tokens`);
+  assert.ok(asked[1].maxTokens >= 4000, `full review asks for ${asked[1].maxTokens} tokens`);
+  const thrown = async () => {
+    throw new Error("status 529");
+  };
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: thrown }), { filed: null, why: "model_failed" });
+  // A miss gives the turns back: the next review reads them.
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: "scores", why: null });
 });
 
 test("a conversation whose every ask failed is reviewed from the lines the Worker sent, and moves no mark", async () => {
