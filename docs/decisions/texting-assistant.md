@@ -479,9 +479,8 @@ typing rule is lifted and the step and page budgets raised:
 
 **Browserbase, and handing the browser to the person.** Decided by the owner
 the same day: Browserbase is the browser (`recordSession: false`); since
-2026-10-20 its sign-ins are kept sealed in the person's own vault, and since
-2026-10-29 first in a saved Browserbase profile per person or group chat, the
-vault copy kept as the fallback ([vault](./texting-assistant/vault.md)). It sits in `infra/site-shots`
+2026-10-29 its sign-ins live in a saved profile per person or group chat,
+sealed in the person's vault too ([vault](./texting-assistant/vault.md)). It sits in `infra/site-shots`
 (`src/browserbase.ts`), which holds its key, and switches on by itself once
 `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
 Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
