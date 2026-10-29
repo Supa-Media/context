@@ -174,9 +174,19 @@ async function toolApplyLayoutFolder(calls, role) {
 export async function toolConnectGoogle(store, args) {
   const calls = store?.workspaceSetup;
   if (!calls) return toolError(UNAVAILABLE);
-  if (args.kind !== "gmail" && args.kind !== "calendar") return toolError("kind is gmail or calendar.");
+  if (args.kind !== "gmail" && args.kind !== "calendar" && args.kind !== "ai") return toolError("kind is gmail, calendar or ai.");
   const answer = await calls.connectGoogle(args.kind);
   if (answer === null || answer.ok !== true || typeof answer.url !== "string") return refused(answer);
+  if (args.kind === "ai") {
+    // A second consent, to the client AI reads through (`googleClients.ts`):
+    // a reconnect would give the person's own client a grant AI never reads.
+    return toolText(
+      `Link to allow AI access: ${answer.url}\n` +
+        "Send it to them: they open it, tap Allow AI access beside the Google account (or in its ••• menu), pick that same " +
+        "account in Google's sign-in, tick Select all and tap Continue. It is not a reconnect, and nothing they set up is lost. " +
+        "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a code; say so in one line.",
+    );
+  }
   const what = args.kind === "gmail" ? "Gmail" : "Google Calendar";
   // Gmail opens its own page with one Connect Gmail button (2026-10-20);
   // Calendar opens Connected apps.

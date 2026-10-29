@@ -3,6 +3,7 @@
 import { isCalendarDayDate } from "../../../../packages/communications/src/calendar/paths.js";
 import { DEFAULT_HORIZON_DAYS } from "../../../../packages/communications/src/calendar/protocol.js";
 import { toolError, toolText } from "./results.js";
+import { AI_ACCESS_STEP, aiAccessLine } from "./googleAiAccess.js";
 
 /** The most days one call reads. */
 export const MAX_CALENDAR_DAYS = DEFAULT_HORIZON_DAYS;
@@ -17,6 +18,7 @@ export const REFUSED = {
     "That address isn't one of their connected Google calendars, so nothing was read, and no other calendar was read instead. " +
     "Say so; never answer from another account.",
   reconnect_required: "Their Google sign-in stopped working, so the calendar can't be read. They need to reconnect it with manage connect_google.",
+  ai_access_needed: `AI access isn't allowed yet for their Google calendar, so it can't be read. ${AI_ACCESS_STEP}`,
   rate_limited: "Too many calendar reads this hour. Say you couldn't check the calendar just now, never that the day is empty.",
   unavailable: "Google Calendar didn't answer just now. Say you couldn't check it, never that the day is empty.",
 };
@@ -60,7 +62,10 @@ export async function toolReadCalendar(store, _scope, _rules, _overrides, args =
   } catch {
     answer = { ok: false, refused: "unavailable" };
   }
-  if (!answer?.ok) return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+  if (!answer?.ok) {
+    if (answer?.refused === "ai_access_needed") return toolError(aiAccessLine(answer.aiAccess, "calendar") ?? REFUSED.ai_access_needed);
+    return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+  }
 
   const dates = runOfDays(from, days);
   const sections = dates.map((date) => {
@@ -76,6 +81,8 @@ export async function toolReadCalendar(store, _scope, _rules, _overrides, args =
   if (answer.reconnect?.length) {
     notes.push(`The Google sign-in for ${answer.reconnect.join(", ")} stopped working; tell them to reconnect it with manage connect_google.`);
   }
+  const allow = aiAccessLine(answer.aiAccess, "calendar");
+  if (allow !== null) notes.push(allow);
   return toolText(
     `${sections.join("\n\n")}\n\n` +
       (account === undefined

@@ -25,7 +25,7 @@ const REFUSALS = new Set([
   "unavailable",
 ]);
 
-const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_calendar", "other_calendar", "rate_limited", "reconnect_required", "unavailable"]);
+const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_calendar", "other_calendar", "rate_limited", "reconnect_required", "ai_access_needed", "unavailable"]);
 
 /** A live read waits longer than the control plane's own bounded Google calls. */
 const READ_TIMEOUT_MS = 25_000;
@@ -61,9 +61,9 @@ export function createCalendarMethods({ post }) {
         const valid = answer.days.filter(
           (day) => typeof day?.address === "string" && typeof day?.date === "string" && typeof day?.text === "string",
         );
-        return { ok: true, days: valid, unanswered: names(answer.unanswered), reconnect: names(answer.reconnect) };
+        return { ok: true, days: valid, unanswered: names(answer.unanswered), reconnect: names(answer.reconnect), aiAccess: names(answer.aiAccess) };
       }
-      return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", reconnect: names(answer?.reconnect) };
+      return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", reconnect: names(answer?.reconnect), aiAccess: names(answer?.aiAccess) };
     },
     async changePersonCalendar(accessToken, expectedWorkspaceId, change, { check = false } = {}) {
       const answer = await post("/gateway/calendar/event", { accessToken, expectedWorkspaceId, change, check }, { timeoutMs: CHANGE_TIMEOUT_MS });

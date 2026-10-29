@@ -35,7 +35,7 @@ function attachedOf(answer) {
   return { attached };
 }
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required"]);
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required", "ai_access_needed"]);
 
 export function createEmailMethods({ post }) {
   return {
@@ -56,15 +56,17 @@ export function createEmailMethods({ post }) {
       // Which mailboxes Gmail did not search, and why, so their synced notes can answer instead.
       const named = (list) => (Array.isArray(list) ? list.filter((entry) => typeof entry?.address === "string" && typeof entry?.folder === "string") : []);
       const reconnect = named(answer?.reconnect);
+      const aiAccess = Array.isArray(answer?.aiAccess) ? answer.aiAccess.filter((address) => typeof address === "string") : [];
       if (answer?.ok === true && Array.isArray(answer.results) && Array.isArray(answer.mailboxes)) {
         const unanswered = Array.isArray(answer.unanswered) ? answer.unanswered.filter((address) => typeof address === "string") : [];
-        return { ok: true, results: answer.results, mailboxes: named(answer.mailboxes), incomplete: answer.incomplete === true, unanswered, reconnect };
+        return { ok: true, results: answer.results, mailboxes: named(answer.mailboxes), incomplete: answer.incomplete === true, unanswered, reconnect, aiAccess };
       }
       return {
         ok: false,
         refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable",
         mailboxes: named(answer?.mailboxes),
         reconnect,
+        aiAccess,
       };
     },
     /** With `attachment` (1 for the first), that attachment's bytes come back too, as base64. */
@@ -88,4 +90,4 @@ export function createEmailMethods({ post }) {
   };
 }
 
-const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "reconnect_required", "not_found", "too_large", "unavailable"]);
+const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "reconnect_required", "ai_access_needed", "not_found", "too_large", "unavailable"]);

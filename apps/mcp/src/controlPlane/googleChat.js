@@ -14,6 +14,7 @@ const REFUSALS = new Set([
   "invalid",
   "not_allowed",
   "no_chat",
+  "ai_access_needed",
   "hourly_limit",
   "daily_limit",
   "space_not_found",

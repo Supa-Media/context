@@ -25,6 +25,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { calendarConnectEnabled } from "../../calendarConnect";
 import { mailConnectEnabled } from "../googleConnect/config";
+import { agentClientConfigured } from "../googleConnect/clients";
 import { hashToken } from "../crypto";
 import { httpsAppOrigin, json, stringField } from "../gatewayAuth";
 import { isLayoutName, layoutStructure } from "../workspaces/layouts";
@@ -276,7 +277,7 @@ export async function gatewayWorkspacesConnectGoogleHandler(
   ctx: ActionCtx,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const kind = body.kind === "gmail" || body.kind === "calendar" ? body.kind : null;
+  const kind = body.kind === "gmail" || body.kind === "calendar" || body.kind === "ai" ? body.kind : null;
   if (kind === null) return json({ google: null });
   const cleared = await clear(ctx, body);
   if (cleared === null) return json({ google: null });
@@ -285,6 +286,14 @@ export async function gatewayWorkspacesConnectGoogleHandler(
     return json({
       google: { ok: false, message: "Google connects only to your own personal workspace, by its owner." },
     });
+  }
+  // Allow AI access is on each listed account in Connected apps
+  // (`GoogleConnectionsCard`), once the agent client is set up.
+  if (kind === "ai") {
+    if (!agentClientConfigured()) return json({ google: { ok: false, message: "Allowing AI access is not set up on this deployment." } });
+    const origin = httpsAppOrigin();
+    if (origin === null) return json({ google: null });
+    return json({ google: { ok: true, url: `${origin}${integrationsSettingsPath(entry.slug)}` } });
   }
   const enabled = kind === "gmail" ? mailConnectEnabled() : calendarConnectEnabled();
   if (!enabled) {

@@ -156,6 +156,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
       refused: claimed.refused,
       ...(claimed.mailboxes ? { mailboxes: claimed.mailboxes } : {}),
       ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}),
+      ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
     });
   }
   // Every mailbox is searched, each for its share of the results, and the
@@ -223,6 +224,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     mailboxes,
     ...(unanswered.length > 0 ? { incomplete: true, unanswered } : {}),
     ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}),
+    ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
   });
 }
 
