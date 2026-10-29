@@ -35,6 +35,12 @@
  *   so a note moved somewhere narrower never keeps its wider tier's rows,
  *   which `upsertStatements` explains the cost of.
  *
+ * - A note or folder whose ACCESS changed (`retiered`: `set_visibility`,
+ *   `set_folder_visibility`, the console's visibility and group controls) has
+ *   its held rows moved to the tier it has now, with no read. Its version did
+ *   not change, so the sweep would never move them: a note opened to the team
+ *   stayed out of every team caller's search (2026-10-29).
+ *
  * Bounded by `FOLLOW_NOTE_CAP` reads. Past it the sweep finishes the job, as
  * it did before; this only makes the common case immediate. The renames cost
  * one `SELECT` of the moved rows and no reads at all.
@@ -171,6 +177,9 @@ export function tierMoveStatements(path, from, to) {
  * @param {string[]} [change.written] notes that hold new text
  * @param {string[]} [change.gone] notes or folders that are no longer there
  * @param {[string, string][]} [change.moved] `[from, to]`, notes or folders
+ * @param {string[]} [change.retiered] notes or folders whose access changed
+ *   and whose text did not: each held row is moved to the tier it has now,
+ *   with no read
  * @param {(path: string) => string} change.visibilityOf the privacy engine, bound
  * @param {number} [change.noteCap]
  * @param {(path: string, content: string, visibility: string) => void} [change.onRead]
@@ -181,7 +190,7 @@ export function tierMoveStatements(path, from, to) {
 export async function followChange(
   store,
   client,
-  { written = [], gone = [], moved = [], visibilityOf, noteCap = FOLLOW_NOTE_CAP, onRead = null } = {},
+  { written = [], gone = [], moved = [], retiered = [], visibilityOf, noteCap = FOLLOW_NOTE_CAP, onRead = null } = {},
 ) {
   const result = { projected: 0, deleted: 0, renamed: 0, deferred: 0 };
   const statements = [];
@@ -261,13 +270,34 @@ export async function followChange(
   // A renamed note whose new place gives it another tier: its rows change
   // table, with no read. A note about to be projected anyway is left to that.
   const tierMoves = [];
+  const retierSeen = new Set();
   const retier = (path, held) => {
-    if (toProject.includes(path)) return;
+    // Once per path: a second move of the same rows would find the first's
+    // target already full and delete it.
+    if (toProject.includes(path) || retierSeen.has(path)) return;
+    retierSeen.add(path);
     const now = visibilityOf(path);
     if (now !== held) tierMoves.push(...tierMoveStatements(path, held, now));
   };
   for (const { path, visibility } of renamedNotes) retier(path, visibility);
-  for (const folder of renamedFolders) {
+  // A note or folder whose access changed. Its text and version did not, so
+  // the sweep, which re-projects only a version it does not hold, would leave
+  // its rows in the old tier for good: a note opened to the team stayed out
+  // of every team caller's search (2026-10-29), and one narrowed stayed in
+  // the team corpus every member is ranked against.
+  const retieredNotes = [...new Set((Array.isArray(retiered) ? retiered : []).filter(followsNote))];
+  for (let start = 0; start < retieredNotes.length; start += NOTE_LOOKUP_BATCH) {
+    const batch = retieredNotes.slice(start, start + NOTE_LOOKUP_BATCH);
+    const rows = await client.query(
+      `SELECT path, visibility FROM notes WHERE path IN (${batch.map(() => "?").join(", ")})`,
+      batch,
+    );
+    for (const row of rows) {
+      if (typeof row?.path === "string") retier(row.path, row.visibility);
+    }
+  }
+  const retieredFolders = [...new Set((Array.isArray(retiered) ? retiered : []).filter(followsFolder))];
+  for (const folder of [...renamedFolders, ...retieredFolders]) {
     const rows = await client.query(
       `SELECT path, visibility FROM notes WHERE path LIKE ? ESCAPE '\\'`,
       [underPattern(folder)],

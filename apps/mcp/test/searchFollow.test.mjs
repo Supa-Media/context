@@ -281,8 +281,68 @@ test("which changes are followed, and which their writer already projected", () 
   // Still only logical: the bucket holds the old layout until it materializes.
   assert.equal(searchChangeOf("move_folder", ["x", "y"], { status: "logical_active" }), null);
   assert.equal(searchChangeOf("move_folder", ["x", "y"], { count: 3, queued: true }), null);
-  assert.equal(searchChangeOf("set_visibility", ["a.md"], {}), null);
+  // An access change moves the tier and reads nothing (2026-10-29: it was
+  // `null`, and a note opened to the team never reached a team search).
+  assert.deepEqual(searchChangeOf("set_visibility", ["a.md"], {}), { notes: [], follow: { retiered: ["a.md"] } });
+  assert.deepEqual(searchChangeOf("set_folder_visibility", ["2-areas"], {}).follow, { retiered: ["2-areas"] });
 });
+
+/*
+  Found 2026-10-29 in a CASA setup: a fresh note opened to the team was read
+  by a team-tier connection and its exact title searched nothing. The rows
+  sat in the private table, and the sweep re-projects only a version it does
+  not hold, which an access change never touches.
+*/
+test(
+  "a note opened to the team moves to the team tier with no read, and a team search finds it",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "2-areas/zap synthetic note.md": "# zap synthetic note\n\nquokka\n" });
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
+    const store = noteStore({});
+    const opened = (path) => (path === "2-areas/zap synthetic note.md" ? "team" : visibilityOf(path));
+    await followChange(store, client, { retiered: ["2-areas/zap synthetic note.md"], visibilityOf: opened });
+    assert.deepEqual(store.reads, []);
+    assert.deepEqual(pathsIn(d1, "notes_private_fts"), []);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), ["2-areas/zap synthetic note.md"]);
+    assert.equal(d1.rows("SELECT visibility FROM notes")[0].visibility, "team");
+    const found = d1.rows("SELECT path FROM notes_team_fts WHERE notes_team_fts MATCH ?", ['"zap" "synthetic" "note"']);
+    assert.deepEqual(found.map((row) => row.path), ["2-areas/zap synthetic note.md"]);
+    // The version is kept: nothing was read, so nothing newer is known.
+    assert.equal(d1.rows("SELECT version FROM notes")[0].version, "old-2-areas/zap synthetic note.md");
+  }),
+);
+
+test(
+  "a folder narrowed takes its notes out of the team tier, each once, even when a note is named too",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/a.md": "# A\n\nquokka\n",
+      "1-projects/b.md": "# B\n\nquokka\n",
+      "1-projects-notes.md": "# Sibling\n\nquokka\n",
+    });
+    const store = noteStore({});
+    const narrowed = (path) => (path.startsWith("1-projects/") ? "private" : visibilityOf(path));
+    await followChange(store, client, { retiered: ["1-projects", "1-projects/a.md", "1-projects/a.md"], visibilityOf: narrowed });
+    assert.deepEqual(store.reads, []);
+    assert.deepEqual(pathsIn(d1, "notes_private_fts"), ["1-projects-notes.md", "1-projects/a.md", "1-projects/b.md"]);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
+    // Each note's chunks moved once: none lost to a second move, none doubled.
+    assert.equal(d1.rows("SELECT COUNT(*) AS n FROM notes_private_fts WHERE path = ?", ["1-projects/a.md"])[0].n, 1);
+  }),
+);
+
+test(
+  "an access change for a note the projection does not hold, or a tier it already has, writes nothing",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "1-projects/a.md": "# A\n\nquokka\n" });
+    const before = d1.rows("SELECT path, visibility, version FROM notes");
+    const store = noteStore({});
+    await followChange(store, client, { retiered: ["1-projects/a.md", "2-areas/absent.md", "../x.md", ".context/y.md"], visibilityOf });
+    assert.deepEqual(store.reads, []);
+    assert.deepEqual(d1.rows("SELECT path, visibility, version FROM notes"), before);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), ["1-projects/a.md"]);
+  }),
+);
 
 /* ---------------------------------------------------------------------- */
 /*                  end to end, through the worker                         */

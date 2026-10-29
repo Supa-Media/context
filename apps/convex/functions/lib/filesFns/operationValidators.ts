@@ -274,6 +274,8 @@ export const operationValidator = v.union(
     gone: v.array(v.string()),
     moved: v.optional(v.array(v.array(v.string()))),
     queued: v.optional(v.boolean()),
+    /** Notes or folders whose access changed (`lib/filesFns/visibility.ts`): fast search moves their tier. */
+    retiered: v.optional(v.array(v.string())),
   }),
   /**
    * Copy a pass's worth of this context's notes into its search database.
