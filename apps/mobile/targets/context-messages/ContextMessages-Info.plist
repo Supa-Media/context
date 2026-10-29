@@ -18,6 +18,16 @@
   <string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key>
   <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>NSCameraUsageDescription</key>
+  <string>A Context card can take a photo to send to Tex, such as a receipt or a page.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>A Context card can record a voice note for Tex.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>A Context card can pick a photo to send to Tex.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>A Context card can save a picture Tex made to your photos.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>A Context card can use where you are to find places nearby.</string>
   <key>NSExtension</key>
   <dict>
     <key>NSExtensionPointIdentifier</key>

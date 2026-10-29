@@ -17,8 +17,10 @@ import WebKit
 ///
 /// What each card shows is a page from context.lc (`/messages/<kind>`,
 /// infra/router/src/messagesCards.ts), so it changes with a deploy rather than
-/// an App Store build. The page asks through one bridge (`context`) to send a
-/// card back, put one in the text field, or resize, and every request is
+/// an App Store build, and so does a new kind of card: any `/tex/<kind>` opens
+/// its page. The page asks through one bridge (`context`) to send a card back,
+/// put one in the text field, resize, or anything in CardShell.swift (haptics,
+/// clipboard, share sheet, words for the text field, a live bubble), and every request is
 /// checked here again: only from context.lc's own page, only for a
 /// `https://context.lc/tex/…` card. When the page cannot load, the screens
 /// below draw the same choices natively.
@@ -30,6 +32,7 @@ final class MessagesViewController: MSMessagesAppViewController {
   private var webView: WKWebView?
   private var pageSession: MSSession?
   private var pageFallback: (() -> Void)?
+  private var bubbleHeight: CGFloat = 160
 
   static let helloURL = URL(string: "https://context.lc/tex/hello")!
 
@@ -53,11 +56,33 @@ final class MessagesViewController: MSMessagesAppViewController {
 
   override func willBecomeActive(with conversation: MSConversation) {
     super.willBecomeActive(with: conversation)
+    if presentationStyle == .transcript {
+      drawBubble(conversation.selectedMessage)
+      return
+    }
     if let message = conversation.selectedMessage {
       open(message)
     } else {
       showPage(Self.pageURL(kind: "drawer", query: nil), session: nil) { [weak self] in self?.showHello() }
     }
+  }
+
+  /// A live card's bubble: its page with `bubble=1`, drawn in the transcript at the card's `bh` height.
+  private func drawBubble(_ message: MSMessage?) {
+    guard let url = message?.url, Self.isContextLink(url), let page = Self.pageURL(forCard: url, bubble: true) else { return }
+    bubbleHeight = CardShell.bubbleHeight(for: url)
+    showPage(page, session: nil) { [weak self] in self?.label.text = message?.summaryText }
+    webView?.isUserInteractionEnabled = false
+  }
+
+  override func contentSizeThatFits(_ size: CGSize) -> CGSize {
+    CGSize(width: size.width, height: bubbleHeight)
+  }
+
+  override func didTransition(to presentationStyle: MSMessagesAppPresentationStyle) {
+    super.didTransition(to: presentationStyle)
+    let style = presentationStyle == .expanded ? "expanded" : "compact"
+    webView?.evaluateJavaScript("window.contextCardStyle && window.contextCardStyle(\"\(style)\")", completionHandler: nil)
   }
 
   override func didSelect(_ message: MSMessage, conversation: MSConversation) {
@@ -207,11 +232,20 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
   }
 
-  /// `https://context.lc/tex/pick?…` → `https://context.lc/messages/pick?…`; nil for a card with no page.
-  static func pageURL(forCard url: URL) -> URL? {
+  /// `https://context.lc/tex/<kind>?…` → `https://context.lc/messages/<kind>?…`; nil for anything else.
+  /// Any kind, not a fixed list: a new kind of card is a new page on context.lc
+  /// and ships with a deploy (a kind with no page 404s and falls back here).
+  static func pageURL(forCard url: URL, bubble: Bool = false) -> URL? {
     let kind = url.lastPathComponent
-    guard url.path == "/tex/\(kind)", ["pick", "ask", "hello"].contains(kind) else { return nil }
-    return pageURL(kind: kind, query: URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+    guard url.path == "/tex/\(kind)", isCardKind(kind) else { return nil }
+    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery
+    guard bubble else { return pageURL(kind: kind, query: query) }
+    return pageURL(kind: kind, query: [query, "bubble=1"].compactMap { $0 }.joined(separator: "&"))
+  }
+
+  /// Lowercase letters, digits and dashes, at most 32: a path segment that cannot climb out of `/messages/`.
+  static func isCardKind(_ kind: String) -> Bool {
+    !kind.isEmpty && kind.count <= 32 && kind.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
   }
 
   static func pageURL(kind: String, query: String?) -> URL {
@@ -300,6 +334,9 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     // No cookies or storage: the page is a function of its address.
     configuration.websiteDataStore = .nonPersistent()
     configuration.userContentController.add(WeakBridge(self), name: "context")
+    configuration.userContentController.addUserScript(CardShell.userScript)
+    // A page may play audio or video, or show the camera, in place.
+    configuration.allowsInlineMediaPlayback = true
     let web = WKWebView(frame: .zero, configuration: configuration)
     web.navigationDelegate = self
     web.translatesAutoresizingMaskIntoConstraints = false
@@ -363,7 +400,9 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     let origin = message.frameInfo.securityOrigin
     guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host == "context.lc",
       Self.isCardPage(message.webView?.url),
-      let body = message.body as? [String: Any], let kind = body["kind"] as? String
+      let body = message.body as? [String: Any], let kind = body["kind"] as? String,
+      // A live bubble only draws: its taps open the panel, which answers.
+      presentationStyle != .transcript
     else { return }
     switch kind {
     case "size":
@@ -372,7 +411,7 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
       guard let card = CardReply(body) else { return finish(false) }
       reply(card, insert: kind == "insert")
     default:
-      return
+      _ = handleShellRequest(kind, body)
     }
   }
 
@@ -384,7 +423,8 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     let layout = MSMessageTemplateLayout()
     layout.caption = card.caption
     layout.subcaption = card.subcaption
-    message.layout = layout
+    // A live card is drawn by its page in the bubble; the template is what a phone without the app shows.
+    message.layout = card.live ? MSMessageLiveLayout(alternateLayout: layout) : layout
     message.summaryText = card.summary
     let done: (Error?) -> Void = { [weak self] error in
       DispatchQueue.main.async {
@@ -411,6 +451,7 @@ struct CardReply {
   let caption: String
   let subcaption: String?
   let summary: String
+  let live: Bool
 
   init?(_ body: [String: Any]) {
     guard let address = body["url"] as? String, address.count <= 2048, let url = URL(string: address),
@@ -424,5 +465,6 @@ struct CardReply {
     self.caption = caption
     self.subcaption = subcaption
     self.summary = summary
+    self.live = body["live"] as? Bool == true
   }
 }
