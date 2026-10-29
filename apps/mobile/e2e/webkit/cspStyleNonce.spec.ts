@@ -76,6 +76,10 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
     rows.push(...reportLines(request.postData() ?? "", classify, url.pathname === ENFORCED_REPORT_PATH ? "enforce" : "report"));
     return route.fulfill({ status: 204, body: "" });
   });
+  const consoleRefusals: string[] = [];
+  page.on("console", (message) => {
+    if (/refused/i.test(message.text())) consoleRefusals.push(message.text().slice(0, 200));
+  });
   // Every refusal the page sees, with the element it refused, so a failure names what was not nonced.
   await page.addInitScript(() => {
     const seen: unknown[] = [];
@@ -114,7 +118,17 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
   const refusals = () => page.evaluate(() => (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals);
   const before = await refusals();
   console.log(`[${test.info().project.name}] refusals while the note opened ${JSON.stringify(before)}`);
+
+  // Another note: the editor is made again, and style-mod's one element per document is reused.
+  const link = page.locator(".cm-note-link").first();
+  await link.click();
+  await expect(page.locator(".cm-editor")).toBeVisible();
+  await page.waitForTimeout(500);
+  const afterSecond = await refusals();
+  console.log(`[${test.info().project.name}] refusals after a second note ${JSON.stringify(afterSecond)}`);
+  console.log(`[${test.info().project.name}] refusals in the console ${JSON.stringify(consoleRefusals)}`);
   expect(before, "nothing the shell or the editor wrote was refused").toEqual([]);
+  expect(afterSecond, "nor when the editor is made again for another note").toEqual([]);
 
   // The control: a style the nonce does not cover is still refused.
   const applied = await page.evaluate(async () => {
@@ -125,6 +139,7 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
     return getComputedStyle(document.body).getPropertyValue("--csp-nonce-probe").trim() === "1";
   });
   expect(applied, "a style without the nonce is blocked").toBe(false);
+  console.log(`[${test.info().project.name}] refusals after the control ${JSON.stringify(await refusals())}`);
   await expect.poll(() => rows.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
   const refusal = { document: "shell", directive: "style-src-elem", blocked: "inline" };
   const matches = (row: (typeof rows)[number]) =>

@@ -373,10 +373,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The nonce's own checks first, in a run of their own: the log restarts
+          # with each run, so the editor run's log holds only what it caused.
+          # Both run whatever the first does, and either failing fails the step.
+          status=0
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-nonce-checks e2e/webkit/cspStyleNonce.spec.ts || status=$?
           pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
             --output e2e/webkit/test-results-nonce \
             e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
-            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts e2e/webkit/cspStyleNonce.spec.ts
+            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts || status=$?
+          exit "$status"
       - name: The editor specs reported nothing under the nonce
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
@@ -423,6 +430,7 @@ jobs:
             apps/mobile/e2e/webkit/test-results/
             apps/mobile/e2e/webkit/test-results-production/
             apps/mobile/e2e/webkit/test-results-nonce/
+            apps/mobile/e2e/webkit/test-results-nonce-checks/
             apps/mobile/e2e/webkit/csp-candidate/
           retention-days: 7
           if-no-files-found: ignore
