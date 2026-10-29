@@ -139,7 +139,7 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → when the gateway last said that context changed */
   const activityStamps = new Map();
 
-  const { clearedOwner, clearedEditor, clearedOwnAccount } = createClearances(grantForAccessToken, coveredContexts);
+  const { clearedOwner, clearedEditor, clearedOwnAccount, clearedRead } = createClearances(grantForAccessToken, coveredContexts);
 
   /** One row as the real route reports it: URLs, and never the token. */
   function describeStubLink(row) {
@@ -297,8 +297,8 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
-  const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
-  const calendar = createCalendarRoute(clearedOwnAccount, flags);
+  const email = createEmailRoute(clearedOwnAccount, flags, clearedRead);
+  const calendar = createCalendarRoute(clearedOwnAccount, flags, clearedRead);
   const googleChat = createGoogleChatRoute(clearedOwnAccount);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });

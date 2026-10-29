@@ -258,6 +258,22 @@ test("the live read keeps the asked days on the calendar's own wall clock, and r
   assert.equal(urls[0].searchParams.get("singleEvents"), "true");
 });
 
+test("the live read names each day's busy times as instants only, for a card that picks free times", async () => {
+  const { fetchImpl } = google([
+    { id: "b", summary: "Friday dinner", location: "Somewhere", start: { dateTime: "2026-10-23T19:00:00-04:00" }, end: { dateTime: "2026-10-23T21:00:00-04:00" } },
+    { id: "a", summary: "Standup", start: { dateTime: "2026-10-23T09:00:00-04:00" }, end: { dateTime: "2026-10-23T09:15:00-04:00" } },
+    { id: "c", summary: "Gone", status: "cancelled", start: { dateTime: "2026-10-23T10:00:00-04:00" }, end: { dateTime: "2026-10-23T11:00:00-04:00" } },
+    { id: "d", summary: "Holiday", start: { date: "2026-10-23" }, end: { date: "2026-10-24" } },
+  ]);
+  const read = await readCalendarDays({ fetchImpl, accessToken: "tok", account: "a@example.invalid", from: "2026-10-23", days: 1, nonce: "live:x" });
+  assert.deepEqual(read.days[0].busy, [
+    { start: "2026-10-23T13:00:00.000Z", end: "2026-10-23T13:15:00.000Z" },
+    { start: "2026-10-23T23:00:00.000Z", end: "2026-10-24T01:00:00.000Z" },
+  ]);
+  assert.equal(read.days[0].allDay, 1);
+  assert.doesNotMatch(JSON.stringify(read.days[0].busy), /dinner|Standup|Somewhere|Gone/);
+});
+
 test("the live read refuses a bad range before asking Google", async () => {
   const { urls, fetchImpl } = google([]);
   for (const [from, days] of [["nope", 1], ["2026-10-23", 0], ["2026-10-23", 15]]) {

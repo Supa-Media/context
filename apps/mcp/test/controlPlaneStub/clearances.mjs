@@ -50,5 +50,25 @@ export function createClearances(grantForAccessToken, coveredContexts) {
     return await clearedEditor(body);
   }
 
-  return { clearedOwner, clearedEditor, clearedOwnAccount };
+  /**
+   * The real live reads' clearance (`personalOwnerReadClearance`): the owner
+   * of a personal workspace, with private access and no write needed. So a
+   * read-only grant such as the card key (`context_cards`) reads its person's
+   * own mail and calendar. The stub's reads also take `clearedEditor`, which
+   * the suites written before this line lean on.
+   */
+  async function clearedPersonalOwnerRead(body) {
+    const grant = await grantForAccessToken(body.accessToken);
+    if (!grant || !grant.scopes.includes("context:private")) return null;
+    const named = coveredContexts(grant).find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+    if (!named || named.role !== "owner" || named.kind !== "personal") return null;
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId, role: named.role };
+  }
+
+  /** A live read of mail or the calendar, as `clearedPersonalOwnerRead` says. */
+  async function clearedRead(body) {
+    return (await clearedEditor(body)) ?? (await clearedPersonalOwnerRead(body));
+  }
+
+  return { clearedOwner, clearedEditor, clearedOwnAccount, clearedRead };
 }

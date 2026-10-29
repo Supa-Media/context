@@ -16,7 +16,7 @@
  * proved in Convex.
  */
 
-export function createCalendarRoute(clearedEditor, flags) {
+export function createCalendarRoute(clearedEditor, flags, clearedRead = clearedEditor) {
   /** Every call: the change, whether it was a check, and what was answered. */
   const calls = [];
 
@@ -41,7 +41,7 @@ export function createCalendarRoute(clearedEditor, flags) {
   }
 
   async function days(body) {
-    if (!(await clearedEditor(body))) return { ok: false, refused: "not_allowed" };
+    if (!(await clearedRead(body))) return { ok: false, refused: "not_allowed" };
     return typeof flags.calendarDays === "function" ? flags.calendarDays(body) : { ok: false, refused: "no_calendar" };
   }
 
