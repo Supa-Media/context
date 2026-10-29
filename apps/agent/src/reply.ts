@@ -42,6 +42,7 @@ import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
 import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
+import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { DataCardKind } from "./dataCards";
@@ -120,6 +121,8 @@ export type ReplyDeps = {
    */
   settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
   onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
+  /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
+  onShared?: () => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -238,6 +241,14 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
       : null;
     if (settings !== null) return settings;
+    // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
+    const sharing = message.event ? null : sharingWords(message.text);
+    if (sharing !== null) {
+      const answer = await saveReviewSharing(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, sharing);
+      const backfill = sharing === "on" && answer?.status === "ok" && answer.changed && deps.onShared !== undefined;
+      if (backfill) await deps.onShared?.();
+      return sharingReply(sharing, answer, { backfill });
+    }
 
     // Files are fetched only for a linked phone, and only now: an unlinked
     // stranger's photo is never downloaded.

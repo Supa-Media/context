@@ -4,6 +4,7 @@
  * ("Tex use @name", "Tex, stop"). Answered in `groupInbox.ts`.
  */
 
+import { sharingWords, type Sharing } from "./reviewSharing";
 import { styleWords, type TexStyle } from "./texStyle";
 
 export type Command =
@@ -15,6 +16,8 @@ export type Command =
   | { kind: "unshare_mail"; address?: string }
   | { kind: "status" }
   | { kind: "settings" }
+  /** "Tex, share my chats with the devs", or stop, or ask: the sender's own switch (`reviewSharing.ts`). */
+  | { kind: "review_sharing"; sharing: Sharing }
   /** Plain words for one of Tex's settings ("Tex, less emoji", "Tex, humor 60%"; `texStyle.ts`). */
   | { kind: "style"; patch: TexStyle };
 
@@ -95,6 +98,8 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^settings\??$/.test(rest)) return { kind: "settings" };
   const patch = styleWords(rest);
   if (patch) return { kind: "style", patch };
+  const sharing = sharingWords(rest);
+  if (sharing) return { kind: "review_sharing", sharing };
   const shared = SHARE_MAIL.exec(rest);
   if (shared) return { kind: "share_mail", address: shared[1]!, ...(shared[2] ? { query: shared[2] } : {}) };
   const unshared = UNSHARE_MAIL.exec(rest);

@@ -121,6 +121,7 @@ import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
 import * as texStyleRoutes from "./functions/lib/gatewayRoutes/texStyle";
+import * as texReviewSharing from "./functions/lib/gatewayRoutes/texReviewSharing";
 import * as noteCard from "./functions/lib/gatewayRoutes/noteCard";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
@@ -969,6 +970,8 @@ http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRo
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
 http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });
+/* "Tex, share my chats with the devs", or stop (`functions/texReviews.ts` `setTextsReviewSharing`). */
+http.route({ path: "/agent-texts/review-sharing", method: "POST", handler: agentWorkerRoute(texReviewSharing.agentTextsReviewSharingHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });

@@ -79,8 +79,32 @@ export async function watchFailed(storage: InboxStorage, deps: { now: () => numb
   await watchConversation(storage, { kind: "group", message, people: peopleOf(message.line, message.participants) }, deps.now()).catch(() => {});
 }
 
+/** A 1:1 texted yes to sharing (`reviewSharing.ts`): the phone whose kept history goes to the team once, from the next alarm. */
+export const SHARED_KEY = "review-shared";
+
+/** After a texted yes: file what Tex keeps of this chat at the next alarm, beside any quiet-spell watch. */
+export async function watchShared(storage: InboxStorage, phone: string, now: number): Promise<void> {
+  await storage.put<{ phone: string }>(SHARED_KEY, { phone });
+  await armBy(storage, now);
+}
+
+/** The history a yes was given for, asked once (`whole`): it reads past the review mark and never moves it. */
+async function checkShared(storage: InboxStorage, deps: ReviewDeps): Promise<void> {
+  const shared = await storage.get<{ phone: string }>(SHARED_KEY);
+  if (shared === undefined) return;
+  await storage.delete(SHARED_KEY);
+  try {
+    const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, shared.phone);
+    if (session.status !== "linked") return void logReview("unlinked");
+    await ask(deps, session.accessToken, { conversation: "texts", whole: true });
+  } catch (error) {
+    logReview(error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error");
+  }
+}
+
 /** From the alarm: ask for the review once the chat has been quiet long enough. True when it was asked. */
 export async function checkReview(storage: InboxStorage, deps: ReviewDeps): Promise<boolean> {
+  await checkShared(storage, deps);
   const watch = await storage.get<Watch>(REVIEW_KEY);
   if (watch === undefined) return false;
   const now = deps.now();

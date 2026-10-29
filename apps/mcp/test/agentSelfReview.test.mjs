@@ -33,6 +33,11 @@
  *     waits longer than a lookup" fails.
  * 10. Dropping "Judge Tex's answers themselves" from `SCORING` (2026-10-26).
  *     → "answers are judged themselves, not only the person's mood" fails.
+ * 11. `whole` reading from the mark, or moving it (2026-10-29). → "a texted
+ *     yes files the history Tex keeps once, past the mark, without moving it"
+ *     fails.
+ * 12. `whole` filing on the scores tier. → same test fails: a scores row for
+ *     turns already scored.
  */
 
 import assert from "node:assert/strict";
@@ -316,4 +321,41 @@ test("after a turn, only 'fix this' or frustration reviews at once", async () =>
   assert.equal(asked, 0);
   await reviewAfterTurn({ env: ENV, store, session: SESSION, controlPlane: control, question: "Tex fix this", group: null, saved: true });
   assert.equal(asked, 1);
+});
+
+test("a texted yes files the history Tex keeps once, past the mark, without moving it", async () => {
+  // Dev2, 2026-10-29: "share my chats with the devs" (`apps/agent/src/reviewSharing.ts`).
+  const store = memoryStore();
+  let history = await texted(store, ["find my avocado note", "Here it is."]);
+  const scored = road(JSON.stringify({ scores: SCORES }));
+  await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: plane("scores"), history, key: "texts", reason: "ended", request: scored.request, log: () => {} });
+  history = [...history, { role: "user", text: "and the banana one?" }, { role: "assistant", text: "Found it too." }];
+  const marks = () => [...store.objects.entries()].filter(([key]) => key.startsWith(".context/agent/reviews/"));
+  const before = marks();
+
+  // Not shared after all (the yes was taken back before the review ran): nothing filed, no scores row.
+  const refused = plane("scores");
+  assert.deepEqual(await reviewOutcome({ env: ENV, store, session: SESSION, controlPlane: refused, history, key: "texts", reason: "shared", whole: true, request: road(FULL_ANSWER).request, log: () => {} }), { filed: null, why: "not_shared" });
+  assert.equal(refused.filed.length, 0);
+
+  const control = plane("full");
+  const model = road(FULL_ANSWER);
+  const shared = await reviewOutcome({ env: ENV, store, session: SESSION, controlPlane: control, history, key: "texts", reason: "shared", whole: true, request: model.request, log: () => {} });
+  assert.deepEqual(shared, { filed: "full", why: null });
+  assert.equal(control.filed[0].reason, "shared");
+  assert.match(control.filed[0].words.transcript, /avocado/, "the turns reviewed before are in it");
+  assert.match(control.filed[0].words.transcript, /banana/);
+  assert.deepEqual(marks(), before, "the mark is where it was: the banana turns are still the next review's");
+  const next = road(JSON.stringify({ scores: SCORES }));
+  await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: plane("scores"), history, key: "texts", reason: "ended", request: next.request, log: () => {} });
+  assert.match(next.asked[0].messages[0].text, /banana/);
+  assert.doesNotMatch(next.asked[0].messages[0].text, /avocado/);
+});
+
+test("a shared history reads far more than one conversation's window", async () => {
+  const many = [];
+  for (let i = 0; i < 120; i += 1) many.push({ role: "user", text: `question ${i}` }, { role: "assistant", text: `answer ${i}` });
+  assert.equal((await sinceReviewed(many, null)).length, 40);
+  assert.equal((await sinceReviewed(many, null, 300)).length, 240);
+  assert.ok(transcriptOf(await sinceReviewed(many, null, 300), [], [], 110_000).includes("question 0"));
 });

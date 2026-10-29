@@ -45,6 +45,8 @@ export function setup(
   /** Each `/agent-texts/group/style` set, and the group's style as the control plane keeps it (`texStyle.ts`). */
   const styles: Record<string, unknown>[] = [];
   let groupStyle: Record<string, unknown> = {};
+  /** Each `/agent-texts/review-sharing` asked (`reviewSharing.ts`). */
+  const sharing: Record<string, unknown>[] = [];
   const people: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
@@ -98,6 +100,10 @@ export function setup(
       styles.push(body);
       groupStyle = { ...groupStyle, ...body.style };
       return Response.json({ ok: true, style: groupStyle });
+    }
+    if (path === "/agent-texts/review-sharing") {
+      sharing.push(body);
+      return Response.json({ status: "ok", sharing: body.share === true, changed: true, team: false, chatShared: false });
     }
     if (path === "/agent-texts/group/engagement") {
       engagement.push(body);
@@ -173,7 +179,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, asks, control, engagement, styles, people, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, asks, control, engagement, styles, sharing, people, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */
