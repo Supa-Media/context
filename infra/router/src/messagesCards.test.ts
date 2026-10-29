@@ -32,6 +32,8 @@ describe("a pick card's page", () => {
     const { status, html } = await page("/messages/pick?p=1&o=Blend%20LIC&o=Lugo's&o=India%20Passage");
     expect(status).toBe(200);
     expect(html).toContain("Which one?");
+    // Docked where the keyboard goes, never a sheet over the chat.
+    expect(html).toContain('data-size="compact"');
     expect(html).toContain("Tex&#39;s pick");
     expect(requests(html)).toEqual([
       expect.objectContaining({ kind: "send", url: "https://context.lc/tex/pick?p=1&o=Blend%20LIC&o=Lugo's&o=India%20Passage&c=1", caption: "Picked: Blend LIC" }),

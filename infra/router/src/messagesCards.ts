@@ -84,6 +84,7 @@ function button(label: string, request: CardRequest, fallback: string, primary: 
   );
 }
 
+/** `size`: compact docks the page where the keyboard goes, so the chat above stays in view (the owner, 2026-10-29). */
 type Page = { title: string; body: string; size?: "expanded" | "compact" };
 
 function pickPage(query: URLSearchParams): Page {
@@ -99,7 +100,7 @@ function pickPage(query: URLSearchParams): Page {
     return button(`${n}. ${name}`, request, `That didn't send. Reply ${n} instead.`, n === (chosen ?? pick), detail);
   });
   const heading = chosen ? `You picked ${options[chosen - 1]}. Choose again?` : "Which one?";
-  return { title: "Which one?", body: `<h1>${escaped(heading)}</h1>${buttons.join("")}`, size: "expanded" };
+  return { title: "Which one?", body: `<h1>${escaped(heading)}</h1>${buttons.join("")}`, size: "compact" };
 }
 
 function askPage(query: URLSearchParams): Page {
