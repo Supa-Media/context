@@ -491,9 +491,14 @@ and nothing is suppressed:
   each browser with different CSS, so any fixed hash breaks someone. The
   files are Fontsource's variable-weight woff2 subsets, unmodified (neither
   family has a Reserved Font Name), upright only, as the old request asked
-  for. Published websites still load Instrument Serif and an owner's chosen
-  faces from Google Fonts (`siteFonts.ts`, `packages/shared` site design);
-  they were not in the scan, and an owner's font choice is theirs.
+  for. Instrument Serif, the heading face every published website page draws
+  in, is ours the same way since the same day (`public/context-site-serif.css`,
+  `public/InstrumentSerif-*.woff2`, the OFL beside them; `siteFonts.ts`), the
+  latin and latin-ext upright subsets of `@fontsource/instrument-serif` 5.3.0,
+  unmodified, as the Google request asked for. A designed site's chosen faces
+  still come from Google Fonts (`packages/shared` site design): an owner's
+  font choice is theirs. `websitePage.test.ts` fails if a page links Google
+  for the serif or a face it names is missing.
 - **The enforcing header now also says `form-action 'self'; object-src
   'none'; base-uri 'self'`** (`infra/router/src/securityHeaders.ts`), the
   directives with no `default-src` fallback that nothing here needs more of.
