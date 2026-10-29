@@ -17,6 +17,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { AI_ACCESS_STEP } from "./googleAiAccess.js";
 import { parseEmailId } from "./emailRead.js";
 import { attachedFiles, readAttach } from "./emailAttach.js";
 
@@ -218,6 +219,7 @@ export function attachedWords(files, attached, { draft }) {
 export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
   not_allowed: "Not sent: this connection cannot send email as the person.",
+  ai_access_needed: `Not sent: AI access isn't allowed yet for their Gmail, so you can't send from it. ${AI_ACCESS_STEP} Send it once they say it's done.`,
   no_sender:
     "Not sent: no Gmail of theirs lets Context send yet; one connected before Context asked to send can only be read, so never say it " +
     "isn't connected. Send them the link from manage connect_google (kind gmail) in one line, saying one reconnect lets you send it, " +
@@ -256,6 +258,7 @@ export async function toolSendEmail(store, args) {
 export const DRAFT_REFUSED = {
   invalid: "Not saved: the draft was not valid.",
   not_allowed: "Not saved: this connection cannot save drafts in the person's Gmail.",
+  ai_access_needed: `Not saved: AI access isn't allowed yet for their Gmail, so you can't save drafts in it. ${AI_ACCESS_STEP} Save it once they say it's done.`,
   no_sender:
     "Not saved: no Gmail of theirs lets Context save drafts yet; one connected before Context asked can only be read, so never say it " +
     "isn't connected. Send them the link from manage connect_google (kind gmail) in one line, saying one reconnect lets you save it, " +

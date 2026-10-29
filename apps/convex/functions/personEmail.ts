@@ -22,11 +22,12 @@ import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { GMAIL_COMPOSE_SCOPE, canSendEmail, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
-import { aiScopesOf } from "./lib/googleConnect/aiScopes";
+import { aiAccessNeeded, aiScopesOf } from "./lib/googleConnect/aiScopes";
 
 const refusal = v.union(
   v.literal("not_allowed"),
   v.literal("no_sender"),
+  v.literal("ai_access_needed"),
   v.literal("reconnect_required"),
   v.literal("hourly_limit"),
   v.literal("daily_limit"),
@@ -88,7 +89,16 @@ export const claimPersonEmail = internalMutation({
     // that can is chosen, or the person is told to reconnect it (2026-10-20).
     const sender = able.find((row) => row.health !== "reconnect_required");
     if (sender === undefined) {
-      return { ok: false as const, refused: able.length > 0 ? ("reconnect_required" as const) : ("no_sender" as const) };
+      if (able.length > 0) return { ok: false as const, refused: "reconnect_required" as const };
+      // A Gmail AI may not use until its owner allows AI access: a reconnect would not let it send (`aiAccessNeeded`).
+      const waiting = connections.some(
+        (row) =>
+          row.disconnectedAt === undefined &&
+          row.products.includes("gmail") &&
+          (args.from === null || row.address.toLowerCase() === args.from) &&
+          aiAccessNeeded(row),
+      );
+      return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_sender" as const) };
     }
     const hashes = [...new Set(args.recipientHashes)];
     if (hashes.length === 0 || hashes.some((hash) => !/^[0-9a-f]{64}$/.test(hash))) {

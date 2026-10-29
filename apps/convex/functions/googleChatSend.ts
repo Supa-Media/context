@@ -18,9 +18,9 @@ import { CHAT_SEND_SCOPES, chatSendPolicies } from "./lib/googleChatSend";
 import { CHAT_READ_SCOPES } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
-import { aiScopesOf } from "./lib/googleConnect/aiScopes";
+import { aiAccessNeeded, aiScopesOf } from "./lib/googleConnect/aiScopes";
 
-const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("hourly_limit"), v.literal("daily_limit"));
+const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("ai_access_needed"), v.literal("hourly_limit"), v.literal("daily_limit"));
 
 /** Whether this key has room for one more, without spending it. */
 async function hasRoom(ctx: MutationCtx, policy: RateLimitPolicy): Promise<boolean> {
@@ -61,7 +61,12 @@ export const claimChatSend = internalMutation({
     const sender = connections.find(
       (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
-    if (sender === undefined) return { ok: false as const, refused: "no_chat" as const };
+    if (sender === undefined) {
+      // A Chat account AI may not use until its owner allows AI access is
+      // not one a reconnect sets up (`aiAccessNeeded`).
+      const waiting = connections.some((row) => row.disconnectedAt === undefined && row.products.includes("chat") && aiAccessNeeded(row));
+      return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_chat" as const) };
+    }
     const policies = chatSendPolicies(cleared.actorUserId);
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };

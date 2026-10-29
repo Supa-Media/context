@@ -3,7 +3,7 @@
  * calendars, read live (`functions/personCalendar.ts`).
  *
  * Body `{ accessToken, expectedWorkspaceId, date, days?, account? }` answers
- * `{ ok: true, days: [{ address, date, timezone, events, text }], unanswered?, reconnect? }`,
+ * `{ ok: true, days: [{ address, date, timezone, events, text }], unanswered?, reconnect?, aiAccess? }`,
  * one entry per calendar per day, where `text` is the day rendered as the
  * calendar day note used to be (events fenced as untrusted, since an event's
  * words are whoever sent the invite). Or `{ ok: false, refused }`.
@@ -62,7 +62,7 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   });
   if (!claimed.ok) {
     log({ outcome: "refused", reason: claimed.refused });
-    return json({ ok: false, refused: claimed.refused, ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}) });
+    return json({ ok: false, refused: claimed.refused, ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}), ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}) });
   }
 
   // A fresh fence nonce per answer: a guest who writes a closing fence into
@@ -100,12 +100,13 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   const answered = perCalendar.flat();
   log({ outcome: "ok", calendars: claimed.calendars.length, failed: unanswered.length, days: answered.length });
   if (answered.length === 0 && unanswered.length > 0) {
-    return json({ ok: false, refused: "unavailable", ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}) });
+    return json({ ok: false, refused: "unavailable", ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}), ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}) });
   }
   return json({
     ok: true,
     days: answered,
     ...(unanswered.length > 0 ? { unanswered } : {}),
     ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}),
+    ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
   });
 }

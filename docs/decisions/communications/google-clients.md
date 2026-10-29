@@ -55,6 +55,25 @@ choose it is a per-call bypass of the switch.
 `apps/convex/__tests__/googleConnect/cutoverCanary.test.ts` runs a canary
 workspace beside one that is not named and fails if either leaks.
 
+**Waiting for AI access is not a reconnect (2026-10-29).** Where AI mints
+from the agent grant (switched on, the canary, or an owner who already
+allowed it) and that grant is missing or leaves a product out, the read and
+send routes answer `ai_access_needed` with the accounts, apart from
+`reconnect` (`aiAccessNeeded` in `lib/googleConnect/aiScopes.ts`; calendar,
+mail, sending, drafts and Chat). Tex is told to send the Allow AI access link
+(`manage connect_google` with kind `ai`, Connected apps) and never to say
+reconnect: after the switch a reconnect gives the standard client a narrowed
+grant AI never reads, so the person would go round in a loop. A sign-in Google
+stopped honouring stays `reconnect_required`. Before the switch, an account
+with no agent grant still reads through the standard grant and waits for
+nothing. `__tests__/googleConnect/aiAccessNeeded.test.ts` and the gateway's
+`test/googleAiAccess.test.mjs` fail if either answer comes back as a reconnect.
+
+**Count before the switch.** `googleClientsAccess:aiAccessCensus`, run from the
+deploy key, returns `{ live, covering, partial, missing, canary }` over live
+connections: numbers only, never an address, id or token. `partial` plus
+`missing` is how many accounts AI stops reading at the switch.
+
 **Nothing revokes at Google except disconnect.** Google's `/revoke` ends the
 account's grants to the whole project, every client. So a replaced agent
 grant is discarded, not revoked (revoking it would also end the new one and

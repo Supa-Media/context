@@ -13,6 +13,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { AI_ACCESS_STEP } from "./googleAiAccess.js";
 
 export const GOOGLE_CHAT_TOOL = "google_chat";
 
@@ -69,6 +70,7 @@ export function chatCopy(place, from, text) {
 export const REFUSED = {
   invalid: "Not sent: the message was not valid.",
   not_allowed: "Not sent: this connection cannot send Google Chat messages as the person.",
+  ai_access_needed: `Not sent: AI access isn't allowed yet for their Google account, so you can't send Chat messages from it. ${AI_ACCESS_STEP}`,
   no_chat:
     "Not sent: their Google account isn't set up for Google Chat through Context yet. Get the link from manage connect_google (kind gmail) " +
     "and ask them to reconnect the Google account they use for work once; it adds Chat. Don't send it another way unless they ask.",

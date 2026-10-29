@@ -15,7 +15,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
-import { aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
+import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
 /** Live calendar reads per person per hour. */
@@ -28,6 +28,7 @@ export const claimPersonCalendarRead = internalMutation({
       ok: v.literal(true),
       calendars: v.array(v.object({ connectionId: v.id("googleConnections"), address: v.string() })),
       reconnect: v.array(v.string()),
+      aiAccess: v.optional(v.array(v.string())),
     }),
     v.object({
       ok: v.literal(false),
@@ -37,8 +38,10 @@ export const claimPersonCalendarRead = internalMutation({
         v.literal("other_calendar"),
         v.literal("rate_limited"),
         v.literal("reconnect_required"),
+        v.literal("ai_access_needed"),
       ),
       reconnect: v.optional(v.array(v.string())),
+      aiAccess: v.optional(v.array(v.string())),
     }),
   ),
   handler: async (ctx, args) => {
@@ -61,15 +64,21 @@ export const claimPersonCalendarRead = internalMutation({
     // So is one whose AI grant does not read the calendar (a box left
     // unticked, or AI access not yet allowed once switched on).
     const unreadable = (row: (typeof calendars)[number]) => !canReadProduct("calendar", aiScopesOf(row));
+    // One that needs only its owner's Allow AI access is named apart: a
+    // reconnect would not mend it (`aiAccessNeeded`).
+    const needsAiAccess = (row: (typeof calendars)[number]) => row.health !== "reconnect_required" && unreadable(row) && aiAccessNeeded(row);
     const reconnect = calendars
-      .filter((row) => row.health === "reconnect_required" || unreadable(row))
+      .filter((row) => row.health === "reconnect_required" || (unreadable(row) && !needsAiAccess(row)))
       .map((row) => row.address.toLowerCase());
+    const aiAccess = calendars.filter(needsAiAccess).map((row) => row.address.toLowerCase());
+    const named = aiAccess.length > 0 ? { aiAccess } : {};
     const readable = calendars
       .filter((row) => row.health !== "reconnect_required" && !unreadable(row))
       .map((row) => ({ connectionId: row._id, address: row.address.toLowerCase() }));
     if (readable.length === 0) {
-      return reconnect.length > 0
-        ? { ok: false as const, refused: "reconnect_required" as const, reconnect }
+      if (reconnect.length > 0) return { ok: false as const, refused: "reconnect_required" as const, reconnect, ...named };
+      return aiAccess.length > 0
+        ? { ok: false as const, refused: "ai_access_needed" as const, aiAccess }
         : { ok: false as const, refused: "no_calendar" as const };
     }
     const room = await tryConsumeRateLimit(ctx, {
@@ -77,7 +86,7 @@ export const claimPersonCalendarRead = internalMutation({
       limit: PERSON_CALENDAR_READS_PER_HOUR,
       windowMs: 60 * 60 * 1000,
     });
-    if (!room) return { ok: false as const, refused: "rate_limited" as const, reconnect };
-    return { ok: true as const, calendars: readable, reconnect };
+    if (!room) return { ok: false as const, refused: "rate_limited" as const, reconnect, ...named };
+    return { ok: true as const, calendars: readable, reconnect, ...named };
   },
 });

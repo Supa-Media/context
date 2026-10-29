@@ -63,6 +63,19 @@ interface ScopedConnection {
   agentGrant?: { scopes: string[] };
 }
 
+/**
+ * Whether what AI lacks on this connection is its owner's Allow AI access:
+ * AI mints from the agent grant here (switched on, the canary, or an owner
+ * who already allowed it), and that grant is missing or does not cover every
+ * product the connection has. Only the agent consent mends that; a reconnect
+ * gives the standard client a new grant AI never reads, so telling the person
+ * to reconnect would send them round in a loop.
+ */
+export function aiAccessNeeded(row: ScopedConnection & { products: readonly GoogleProduct[] }, env: Env = googleEnvFor(row.workspaceId)): boolean {
+  if (grantFor("agent", row.agentGrant !== undefined, env) !== "agent") return false;
+  return row.agentGrant === undefined || !agentGrantCovers(row.products, row.agentGrant.scopes);
+}
+
 /** The scopes AI may act on for this connection: those of the grant AI mints from. */
 export function aiScopesOf(row: ScopedConnection, env: Env = googleEnvFor(row.workspaceId)): string[] {
   return grantFor("agent", row.agentGrant !== undefined, env) === "agent" ? (row.agentGrant?.scopes ?? []) : row.scopes;

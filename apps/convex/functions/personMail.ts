@@ -15,7 +15,7 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { chatMailClearance, chatsWatching } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
-import { aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
+import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
 /** Live reads per person per hour: searches and opened messages together. */
@@ -48,14 +48,16 @@ export const claimPersonMailRead = internalMutation({
     address: v.union(v.string(), v.null()),
   },
   returns: v.union(
-    v.object({ ok: v.literal(true), mailboxes: v.array(mailbox), reconnect: v.array(named) }),
+    v.object({ ok: v.literal(true), mailboxes: v.array(mailbox), reconnect: v.array(named), aiAccess: v.optional(v.array(v.string())) }),
     v.object({
       ok: v.literal(false),
-      refused: v.union(v.literal("not_allowed"), v.literal("no_mailbox"), v.literal("rate_limited"), v.literal("reconnect_required")),
+      refused: v.union(v.literal("not_allowed"), v.literal("no_mailbox"), v.literal("rate_limited"), v.literal("reconnect_required"), v.literal("ai_access_needed")),
       /** Every mailbox the search would have asked, so its notes can answer instead. */
       mailboxes: v.optional(v.array(named)),
       /** Mailboxes whose Google sign-in stopped working: not searched, and not syncing. */
       reconnect: v.optional(v.array(named)),
+      /** Mailboxes AI may not read until their owner allows AI access (`aiAccessNeeded`): a reconnect would not mend them. */
+      aiAccess: v.optional(v.array(v.string())),
     }),
   ),
   handler: async (ctx, args) => {
@@ -81,9 +83,12 @@ export const claimPersonMailRead = internalMutation({
     // So is one whose AI grant does not read mail (a box left unticked, or AI
     // access not yet allowed once switched on): one more consent fixes both.
     const unreadable = (row: (typeof gmails)[number]) => !canReadProduct("gmail", aiScopesOf(row));
+    const needsAiAccess = (row: (typeof gmails)[number]) => row.health !== "reconnect_required" && unreadable(row) && aiAccessNeeded(row);
     const reconnect = gmails
-      .filter((row) => row.health === "reconnect_required" || unreadable(row))
+      .filter((row) => row.health === "reconnect_required" || (unreadable(row) && !needsAiAccess(row)))
       .map((row) => ({ address: row.address.toLowerCase(), folder: folderOf(row) }));
+    const aiAccess = gmails.filter(needsAiAccess).map((row) => row.address.toLowerCase());
+    const allow = aiAccess.length > 0 ? { aiAccess } : {};
     const mailboxes = gmails
       .filter((row) => row.health !== "reconnect_required" && !unreadable(row))
       .map((row) => ({
@@ -99,8 +104,9 @@ export const claimPersonMailRead = internalMutation({
       if (watchedIn.length > 0) Object.assign(mailbox, { watchedIn });
     }
     if (mailboxes.length === 0) {
-      return reconnect.length > 0
-        ? { ok: false as const, refused: "reconnect_required" as const, reconnect }
+      if (reconnect.length > 0) return { ok: false as const, refused: "reconnect_required" as const, reconnect, ...allow };
+      return aiAccess.length > 0
+        ? { ok: false as const, refused: "ai_access_needed" as const, aiAccess }
         : { ok: false as const, refused: "no_mailbox" as const };
     }
 
@@ -111,9 +117,9 @@ export const claimPersonMailRead = internalMutation({
     });
     if (!room) {
       const asked = mailboxes.map(({ address, folder }) => ({ address, folder }));
-      return { ok: false as const, refused: "rate_limited" as const, mailboxes: asked, reconnect };
+      return { ok: false as const, refused: "rate_limited" as const, mailboxes: asked, reconnect, ...allow };
     }
-    return { ok: true as const, mailboxes, reconnect };
+    return { ok: true as const, mailboxes, reconnect, ...allow };
   },
 });
 

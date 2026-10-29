@@ -147,13 +147,14 @@ describe("AI reads through the grant it mints from, partial consent included", (
     expect(await t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, args)).toMatchObject({ ok: true });
   });
 
+  // Named for Allow AI access, not a reconnect, since 2026-10-29 (`aiAccessNeeded`): a reconnect never mends an agent grant.
   test("an agent grant that does not read the calendar is named for one more consent, not read", async () => {
     configure(ROLLOUT);
     const { t, ...args } = await aliceCalendar([...GMAIL_SCOPES]);
     expect(await t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, args)).toEqual({
       ok: false,
-      refused: "reconnect_required",
-      reconnect: ["alice@gmail.example"],
+      refused: "ai_access_needed",
+      aiAccess: ["alice@gmail.example"],
     });
   });
 
@@ -168,8 +169,8 @@ describe("AI reads through the grant it mints from, partial consent included", (
     const { t, ...args } = await aliceCalendar(null);
     expect(await t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, args)).toEqual({
       ok: false,
-      refused: "reconnect_required",
-      reconnect: ["alice@gmail.example"],
+      refused: "ai_access_needed",
+      aiAccess: ["alice@gmail.example"],
     });
   });
 });
