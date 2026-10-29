@@ -249,11 +249,15 @@ is a separate change, with the html preview and diagram style findings above
 still open.
 
 The service worker (`public/sw.js`) stores the whole shell response, header
-and body together, under one key, and answers a navigation from it only when
-the network fails. A replayed shell therefore carries a nonce that matches its
-own policy, and reuses it on that device while offline. That reuse is
-bounded: the cached document is the static shell, which holds no injected
-content, so a known nonce there gives nothing to inject into.
+and body together, under one key, and answers a navigation from it when the
+network fails. Replayed as stored, that shell would carry a nonce some earlier
+response already used, so a nonce would no longer be one per response. The
+router change therefore has to come with a worker change: when the worker
+answers from its cache, it mints a new nonce and rewrites the stored policy
+headers and the two style attributes with it, the same three places, before
+returning the response, or it stores the shell with the nonce removed and
+adds a fresh one on the way out. This PR does not touch the worker, because
+nothing it caches carries a nonce yet.
 
 Still not covered: browsers without constructable stylesheets.
 `liveEditorWeb/stylesheet.ts` falls back to a `<style>` element there that
