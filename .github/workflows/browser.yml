@@ -97,6 +97,7 @@ jobs:
             apps/mobile/e2e/webkit/cspOpaqueSelf.spec.ts
             apps/mobile/e2e/webkit/cspDiagramFrame.spec.ts
             apps/mobile/e2e/webkit/cspNegativeProbe.spec.ts
+            apps/mobile/e2e/webkit/cspStyleNonce.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
@@ -105,6 +106,8 @@ jobs:
             apps/mobile/e2e/webkit/csp-candidate-check.mjs
             apps/mobile/e2e/webkit/csp-report-log.mjs
             apps/mobile/e2e/webkit/csp-candidate-check.selftest.mjs
+            apps/mobile/e2e/webkit/csp-style-nonce.mjs
+            apps/mobile/e2e/webkit/csp-style-nonce.selftest.mjs
             infra/router/src/cspReport.ts
             infra/router/src/securityHeaders.ts
             infra/router/src/pluginSandbox.ts
@@ -302,13 +305,13 @@ jobs:
   # must hold no enforced `script-src` violation, because a blocked script can
   # fail quietly (the shell's appearance script does) while every spec stays
   # green. See `docs/decisions/testing/csp-candidate.md` for what this does
-  # and does not prove, and why the style half is not run here.
+  # and does not prove, and why the style half runs only with a proposed style nonce.
   webkit_csp_script:
     name: Script policy enforced in WebKit
     needs: webkit_build
     if: needs.webkit_build.outputs.affected == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
@@ -325,7 +328,7 @@ jobs:
           path: apps/mobile
       - name: The evidence check fails every log that says nothing
         working-directory: apps/mobile
-        run: node --test e2e/webkit/csp-candidate-check.selftest.mjs
+        run: node --test e2e/webkit/csp-candidate-check.selftest.mjs e2e/webkit/csp-style-nonce.selftest.mjs
       # Over HTTPS, as production is (`E2E_HTTPS=1`: a self-signed certificate
       # made for this run and trusted only by these browsers, in these steps).
       # WebKit refuses an opaque-origin frame's own script under any enforcing
@@ -351,6 +354,48 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
         run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/production-https/csp-candidate-reports.jsonl script-src
+      # A proposal, not production: the whole policy enforced, style-src
+      # included, with a style nonce minted per shell response the way the
+      # router would have to (`csp-style-nonce.mjs`). The editor's specs must
+      # pass with it, and `cspStyleNonce.spec.ts` checks the nonce agrees in
+      # header, document and editor, is new every time, and still blocks and
+      # reports a style without it. Those reports stay in the spec, so the
+      # log holds only what the editor specs caused: an empty one is the
+      # result, and anything in it fails on style-src or script-src.
+      - name: Editor specs with the whole policy enforced and a style nonce per response
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The nonce's own checks first, in a run of their own: the log restarts
+          # with each run, so the editor run's log holds only what it caused.
+          # Both run whatever the first does, and either failing fails the step.
+          status=0
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-nonce-checks e2e/webkit/cspStyleNonce.spec.ts || status=$?
+          # What the checks' deliberate refusals looked like as reports, before the editor run resets the log.
+          where=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl.where
+          if [ -s "$where" ]; then sort "$where" | uniq -c | sort -rn | head -20; fi
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-nonce \
+            e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
+            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts || status=$?
+          exit "$status"
+      - name: The editor specs reported nothing under the nonce
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          log=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl
+          # Where each refusal came from, under the nonce only (static-server.mjs).
+          if [ -s "$log.where" ]; then sort "$log.where" | uniq -c | sort -rn | head -20; fi
+          if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src; fi
       - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
@@ -389,6 +434,8 @@ jobs:
           path: |
             apps/mobile/e2e/webkit/test-results/
             apps/mobile/e2e/webkit/test-results-production/
+            apps/mobile/e2e/webkit/test-results-nonce/
+            apps/mobile/e2e/webkit/test-results-nonce-checks/
             apps/mobile/e2e/webkit/csp-candidate/
           retention-days: 7
           if-no-files-found: ignore

@@ -90,8 +90,8 @@ In `full` mode, every violation is a style or font one:
    the two scroll-position cases fail. This is the one shell violation the
    suites found, and they found it in every spec that opens a note. The fix
    is either a nonce per response, which the router would have to write into
-   the static shell, or mounting the editor in a shadow root. Both are design
-   changes.
+   the static shell, or mounting the editor in a shadow root. The nonce is
+   tried below, in [A style nonce per shell response](#a-style-nonce-per-shell-response-proposed-2026-10-29).
 2. **The html preview fence (`srcdoc` frame, `style-src-elem`).**
    `livePreview/htmlPreview.ts` renders the author's HTML in a
    `sandbox=""` `srcdoc` frame, and a `srcdoc` document inherits the shell's
@@ -198,6 +198,72 @@ report-only refusal. Its reports are caught by the spec and never reach the
 run's log, so a refusal made on purpose can neither hide nor stand in for one
 the functional specs caused. When the candidate was sabotaged (its
 `script-src` dropped), the probe failed.
+
+### A style nonce per shell response (proposed, 2026-10-29)
+
+CodeMirror already has the hook: `EditorView.cspNonce` (view 6.43.9) is
+passed to `style-mod` 4.1.3, which sets it on the `<style>` element it writes.
+`liveEditorWeb/styleNonce.ts` reads the nonce the page was served with from
+the IDL `nonce` property of the shell's own `<style id="context-ground">`
+(browsers hide the attribute after load, the property stays readable by
+script), and `mount.ts` hands it to the editor. A page served without one,
+which is every page today, gets the empty string and CodeMirror sets nothing,
+so this changes nothing in production on its own.
+
+The fixture server proves the serving half with `E2E_CSP_NONCE=1`
+(`csp-style-nonce.mjs`): every shell document gets 128 fresh random bits,
+written as `nonce="…"` on its two inline styles and as `'nonce-…'` in every
+`style-src` of that response's policies, enforced and report-only alike.
+Nothing else in the document gets it, so a `srcdoc` preview's own style is
+still refused. A `style-src` that allows `'unsafe-inline'` is refused rather
+than nonced, because a browser drops `'unsafe-inline'` once a nonce is
+present and that would quietly block every other inline style. The response
+is `no-cache` with no `ETag` or `Last-Modified`: a validator would let a
+revalidation pair a cached body's old nonce with a new header's, and the
+shell would lose its own styles.
+
+What it showed in Chromium over HTTPS, the whole policy enforced, editor
+specs plus the negative probe: without the nonce 34 passed, 3 failed (both
+scroll cases and the known new-tab link case) and the log held 14 enforced
+`style-src-elem` refusals in the shell, each with its report-only
+duplicate; with it 36 passed, 1 failed (the known new-tab link case, which
+fails in Chromium without any policy too) and the log was empty.
+`cspStyleNonce.spec.ts` checks the three places agree, the nonce is new on
+every response, the editor's base theme applies, and a style without the
+nonce is still blocked and reported (that report is caught in the spec and
+kept out of the log). Serving one nonce in the header and another in the
+body fails it, and so does a fixed nonce. The WebKit job runs the same under
+`E2E_CSP_CANDIDATE=full E2E_CSP_NONCE=1`, before its script-only run.
+
+**Recommendation.** The router mints the nonce, because it is the only part
+that sees every shell response: for an HTML document answered from the
+`ASSETS` binding, `crypto.getRandomValues` 16 bytes, add `nonce` to the two
+shell styles with `HTMLRewriter`, add `'nonce-…'` to `style-src` in the
+enforced and report-only policies of that same response, drop `ETag` and
+`Last-Modified`, strip `If-None-Match` and `If-Modified-Since` before asking
+`ASSETS` (so it never answers 304 with an old body), and send `no-cache`.
+Ship it report-only first: the report-only policy gains the nonce while the
+enforced one does not change, and production reports must show the shell's
+`style-src-elem` rows gone before `style-src` is enforced. That enforcement
+is a separate change, with the html preview and diagram style findings above
+still open.
+
+The service worker (`public/sw.js`) stores the whole shell response, header
+and body together, under one key, and answers a navigation from it when the
+network fails. Replayed as stored, that shell would carry a nonce some earlier
+response already used, so a nonce would no longer be one per response. The
+router change therefore has to come with a worker change: when the worker
+answers from its cache, it mints a new nonce and rewrites the stored policy
+headers and the two style attributes with it, the same three places, before
+returning the response, or it stores the shell with the nonce removed and
+adds a fresh one on the way out. This PR does not touch the worker, because
+nothing it caches carries a nonce yet.
+
+Still not covered: browsers without constructable stylesheets.
+`liveEditorWeb/stylesheet.ts` falls back to a `<style>` element there that
+does not take the nonce, so under an enforced `style-src` those browsers
+would still lose the live editor's own styles. That is the older-browser
+limitation below, unchanged here.
 
 ### What this does not prove
 

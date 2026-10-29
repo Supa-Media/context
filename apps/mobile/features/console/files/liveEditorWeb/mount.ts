@@ -32,6 +32,7 @@ import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
 import { spelling } from "../spelling/extension";
+import { pageStyleNonce } from "./styleNonce";
 
 export function mountEditor({
   host,
@@ -148,6 +149,9 @@ export function mountEditor({
     // keymap (`findInNote`) is web-only — see that module's header for why
     // it is appended here instead of folded into the shared list.
     extensions: [
+      // The served page's style nonce, if it has one, for CodeMirror's
+      // stylesheet (`styleNonce.ts`). Empty, it sets nothing.
+      EditorView.cspNonce.of(pageStyleNonce()),
       ...editorExtensions({
         editable,
         editableCompartment: editableCompartment.current,

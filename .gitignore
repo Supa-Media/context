@@ -69,6 +69,8 @@ apps/mobile/e2e/webkit/test-results/
 apps/mobile/e2e/webkit/csp-candidate/
 apps/mobile/e2e/webkit/tls/
 apps/mobile/e2e/webkit/test-results-production/
+apps/mobile/e2e/webkit/test-results-nonce/
+apps/mobile/e2e/webkit/test-results-nonce-checks/
 
 # The real community-plugin releases `e2e/webkit/pluginBundles.spec.ts` runs
 # through the shim, fetched by `e2e/webkit/fetch-bundles.mjs`. Megabytes of

@@ -109,7 +109,11 @@ export default defineConfig({
     hasTouch: true,
     // Fail loudly with an artifact, per the task: a screenshot on every
     // failure and a trace to replay it, uploaded by the CI job on failure.
-    screenshot: "only-on-failure",
+    // Not under the style nonce: the recorder screenshots every page as it
+    // closes, and in WebKit that screenshot appends an un-nonced `<style>` of
+    // Playwright's own, which the enforced style-src rightly refuses
+    // (`cspStyleNonce.spec.ts` proves it). The trace still holds every frame.
+    screenshot: process.env.E2E_CSP_NONCE === "1" ? "off" : "only-on-failure",
     trace: "retain-on-failure",
   },
   projects: [
@@ -122,7 +126,9 @@ export default defineConfig({
     ...(HTTPS ? { url: `https://127.0.0.1:${PORT}/`, ignoreHTTPSErrors: true } : { port: PORT }),
     reuseExistingServer: !process.env.CI && !CSP_CANDIDATE && !HTTPS,
     env: {
-      ...(CSP_CANDIDATE ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports } : {}),
+      ...(CSP_CANDIDATE
+        ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports, E2E_CSP_NONCE: process.env.E2E_CSP_NONCE ?? "" }
+        : {}),
       ...(TLS ? { E2E_TLS_KEY: TLS.key, E2E_TLS_CERT: TLS.cert } : {}),
     },
     timeout: 20_000,

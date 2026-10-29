@@ -23,14 +23,16 @@
  * longest matching rule, with as much of the router's report-only policy
  * enforced as the mode asks, and `POST /_csp-report` appends one line per
  * violation to `E2E_CSP_REPORTS`, bounded by `csp-report-log.mjs` to the same
- * schema the router logs. Without it the server sends no security headers at
- * all, as before.
+ * schema the router logs. With `E2E_CSP_NONCE=1` too, every shell document
+ * gets a fresh style nonce (`csp-style-nonce.mjs`). Without rules the server
+ * sends no security headers at all, as before.
  */
 import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
 import { reportLines } from "./csp-report-log.mjs";
+import { freshNonce, policyWithNonce, withStyleNonce } from "./csp-style-nonce.mjs";
 
 const [, , rootArg, portArg] = process.argv;
 if (rootArg === undefined || portArg === undefined) {
@@ -69,6 +71,8 @@ const rules = process.env.E2E_CSP_RULES
   ? JSON.parse(readFileSync(process.env.E2E_CSP_RULES, "utf8")).sort((a, b) => b.prefix.length - a.prefix.length)
   : null;
 const reportLog = process.env.E2E_CSP_REPORTS ?? null;
+// A fresh style nonce on every shell document (`csp-style-nonce.mjs`); only with rules.
+const nonceShell = rules !== null && process.env.E2E_CSP_NONCE === "1";
 
 function ruleFor(pathname) {
   return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
@@ -78,6 +82,43 @@ function ruleFor(pathname) {
 function recordReports(text, disposition) {
   const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
   for (const line of reportLines(text, classify, disposition)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+  if (nonceShell) recordWhere(text, disposition);
+}
+
+/**
+ * Under the style nonce only, and only in this fixture: where each refusal
+ * came from (the source file's path, line and column, and the first 40
+ * characters of the sample), so a refusal the shell's own nonce did not cover
+ * can be found. Every page here is the E2E export and its fixture notes; the
+ * router never logs this.
+ */
+function recordWhere(text, disposition) {
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return;
+  }
+  for (const entry of Array.isArray(body) ? body.map((item) => item?.body) : [body?.["csp-report"]]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const path = (value) => {
+      try {
+        return new URL(String(value)).pathname;
+      } catch {
+        return String(value ?? "").slice(0, 20);
+      }
+    };
+    const where = {
+      disposition,
+      directive: String(entry["effective-directive"] ?? entry.effectiveDirective ?? entry["violated-directive"] ?? ""),
+      document: path(entry["document-uri"] ?? entry.documentURL),
+      source: path(entry["source-file"] ?? entry.sourceFile),
+      line: Number(entry["line-number"] ?? entry.lineNumber ?? 0),
+      column: Number(entry["column-number"] ?? entry.columnNumber ?? 0),
+      sample: String(entry["script-sample"] ?? entry.sample ?? "").slice(0, 40),
+    };
+    appendFileSync(`${reportLog}.where`, `${JSON.stringify(where)}\n`);
+  }
 }
 
 /** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */
@@ -108,13 +149,25 @@ const handle = (req, res) => {
     });
     return;
   }
-  for (const [name, value] of Object.entries(ruleFor(pathname)?.headers ?? {})) res.setHeader(name, value);
+  const rule = ruleFor(pathname);
   const direct = fileFor(req.url ?? "/");
   const file = direct ?? join(root, "index.html");
   if (!existsSync(file)) {
+    for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
     res.writeHead(404).end("not found");
     return;
   }
+  if (nonceShell && rule?.document === "shell" && file === join(root, "index.html")) {
+    const nonce = freshNonce();
+    for (const [name, value] of Object.entries(rule.headers)) {
+      const policy = (one) => (/^content-security-policy/i.test(name) ? policyWithNonce(one, nonce) : one);
+      res.setHeader(name, Array.isArray(value) ? value.map(policy) : policy(value));
+    }
+    res.writeHead(200, { "Content-Type": CONTENT_TYPES[".html"], "Cache-Control": "no-cache" });
+    res.end(withStyleNonce(readFileSync(file, "utf8"), nonce));
+    return;
+  }
+  for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
   const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
   res.writeHead(200, { "Content-Type": type });
   createReadStream(file).pipe(res);
