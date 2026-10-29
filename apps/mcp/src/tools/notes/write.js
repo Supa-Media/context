@@ -340,7 +340,6 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   let collaborationResult = null;
   if (collaborationEligibleExisting) {
     try {
-      const base = await readCollaborationDocument(store, path);
       // The opaque etag is the version the caller actually read, and it must
       // still be the note's version. Merging a whole-note write from an older
       // one kept the merge's own rules, not the person's edit: on 2026-10-28
@@ -349,8 +348,9 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       if (desiredVisibility === "private") {
         await persistExactVisibility(store, path, "private", rules);
       }
+      // The replacement loads the document itself and holds the etag to its generation; reading it here
+      // first only to name that generation was a second whole load per write.
       collaborationResult = await replaceCollaborationText(store, path, {
-        documentId: base.documentId,
         expectedEtag,
         onlyCurrent: true,
         text: content,

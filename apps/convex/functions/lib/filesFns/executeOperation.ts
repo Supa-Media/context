@@ -6,6 +6,7 @@
  */
 
 import { followHeading } from "../fileOps/followHeading";
+import { handedEtagAt } from "../nodes/handedVersion";
 import { type ActivityActor, readActivity, recordActivity } from "../activity";
 import type { Clearance } from "../clearance";
 import {
@@ -439,13 +440,18 @@ export async function executeOperation(
           clearance,
           now,
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+          // The heading's own read hands out the note's version, so the move does not read the note for it too.
+          ...(operation.followHeading === true ? { handOut: false } : {}),
         });
-        // The heading follows the new name inside the rename (`followHeading.ts`).
-        const headed = operation.followHeading === true ? await followHeading(store, moved, { clearance, now }) : undefined;
-        await noteActivity("file.move", [moved.from, moved.to], {
-          count: moved.queued ?? moved.paths.length,
-        });
-        return { kind: "moved", ...moved, ...(headed === undefined ? {} : { etag: headed }) };
+        // The heading follows the new name inside the rename (`followHeading.ts`), beside the activity
+        // line: two different notes, and neither may fail a rename that has landed.
+        const [headed] = await Promise.all([
+          operation.followHeading === true ? followHeading(store, moved, { clearance, now }) : Promise.resolve(undefined),
+          noteActivity("file.move", [moved.from, moved.to], { count: moved.queued ?? moved.paths.length }),
+        ]);
+        // Where the heading step did not hand a version out, the version a read of the new name gives, as any move answers.
+        const etag = headed ?? (operation.followHeading === true && moved.etag !== undefined ? await handedEtagAt(store, moved.to) : undefined);
+        return { kind: "moved", ...moved, ...(etag === undefined ? {} : { etag }) };
       }
       case "folderPaths": {
         const found = await listFolderPaths(store, { clearance });

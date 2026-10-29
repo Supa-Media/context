@@ -198,8 +198,8 @@ export async function writeFile(
   ) {
     if (collaborationEligible(path, existingText!) && options.expectedEtag !== undefined) {
       try {
-        const base = await readCollaborationDocument(store, path);
         if (isEncryptedNote(options.text)) {
+          const base = await readCollaborationDocument(store, path);
           const sealed = await sealCollaborationDocument(store, path, {
             documentId: base.documentId,
             expectedEtag: options.expectedEtag,
@@ -207,8 +207,9 @@ export async function writeFile(
           });
           sealedResult = { etag: sealed.etag, bytes: byteLength(options.text) };
         } else {
+          // The replacement loads the document itself and holds the base to the generation the etag names,
+          // so reading it here first only to name that generation was a second whole load per save.
           collaborationResult = await replaceCollaborationText(store, path, {
-            documentId: base.documentId,
             expectedEtag: options.expectedEtag,
             text: options.text,
           });
