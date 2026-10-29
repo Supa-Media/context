@@ -67,6 +67,15 @@ const HAS_LINK = /https?:\/\//i;
 export const STEERS_KEY = "jobsteers";
 /** Set when they asked for the job to stop. Deleted with the run. */
 export const STOP_KEY = "jobstop";
+/**
+ * The pass that holds the job now. A pass whose Durable Object was reset under
+ * it can run on while its workflow retries the step, so two turns of one job
+ * once ran side by side and both texted the chat, with opposite accounts of
+ * one page save (Tex Devs, 2026-10-29). Each pass takes the lease when it
+ * starts; one that finds it taken, or the job finished, when its turn returns
+ * says nothing and stores nothing. Deleted with the run.
+ */
+export const PASS_KEY = "jobpass";
 const MAX_STEERS = 5;
 /** The most of a replaced answer handed to the next part. */
 const MAX_DRAFT = 4_000;
@@ -145,10 +154,13 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const run = await storage.get<Stored>(RUN_KEY);
   if (run === undefined) return { kind: "done" };
   let sent = run.sent ?? 0;
+  // An owed update keeps the pass that wrote it, so the inbox takes it as that pass's word again.
+  const pass = run.owed?.pass ?? crypto.randomUUID();
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
-    const ok = await deps.report(run.inbox, { id: run.id, ...update, first: sent }).catch(() => false);
+    const ok = await deps.report(run.inbox, { id: run.id, pass, ...update, first: sent }).catch(() => false);
     const count = (update.pictures?.length ?? 0) + (update.texts?.length ?? 0);
-    if (ok && count > 0) {
+    // Counted only while this pass holds the job: a pass overtaken never writes the run back.
+    if (ok && count > 0 && (await storage.get<string>(PASS_KEY)) === pass) {
       sent += count;
       await storage.put<Stored>(RUN_KEY, { ...run, sent });
     }
@@ -156,7 +168,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   };
   if (run.owed !== undefined) return await finish(storage, run, run.owed, tell);
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
-  if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell);
+  if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, pass);
+  await storage.put(PASS_KEY, pass);
   const onProgress = async (text: string) => {
     // Only a line with a link is texted (a sign-in page): the rest is status, read when they ask.
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
@@ -178,6 +191,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
+  // Another pass took the job meanwhile, or already finished it: that one's word is the only one the chat gets.
+  if ((await storage.get<string>(PASS_KEY)) !== pass) {
+    log("stale_pass", run.id);
+    return { kind: "done" };
+  }
   // Nothing ran on a retry, so what it was shown is shown again.
   const left =
     outcome.kind === "retry"
@@ -185,7 +203,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
       : await settleSteers(storage, new Set([...shown.map((steer) => steer.id), ...(outcome.kind === "answer" ? outcome.steered : [])]));
 
   if ((await storage.get<boolean>(STOP_KEY)) === true) {
-    return await finish(storage, { ...run, sent }, { state: "failed", status: "Stopped" }, tell);
+    return await finish(storage, { ...run, sent }, { state: "failed", status: "Stopped" }, tell, pass);
   }
   if (outcome.kind === "retry" && run.tries + 1 < MAX_JOB_TRIES) {
     await storage.put<Stored>(RUN_KEY, { ...run, sent, tries: run.tries + 1 });
@@ -230,7 +248,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
       : outcome.kind === "stop"
         ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
         : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
-  return await finish(storage, { ...run, sent }, update, tell);
+  return await finish(storage, { ...run, sent }, update, tell, pass);
 }
 
 /** Hand the inbox the job's last word; one it didn't take is kept and offered again, never run again. */
@@ -239,15 +257,17 @@ async function finish(
   run: Stored,
   update: Omit<JobUpdate, "id" | "first">,
   tell: (update: Omit<JobUpdate, "id" | "first">) => Promise<boolean>,
+  pass?: string,
 ): Promise<JobNext> {
   if (!(await tell(update)) && (run.owedTries ?? 0) + 1 < MAX_JOB_TRIES) {
-    await storage.put<Stored>(RUN_KEY, { ...run, owed: update, owedTries: (run.owedTries ?? 0) + 1 });
+    await storage.put<Stored>(RUN_KEY, { ...run, owed: pass === undefined ? update : { ...update, pass }, owedTries: (run.owedTries ?? 0) + 1 });
     log("report_retry", run.id);
     return { kind: "after", ms: RETRY_MS };
   }
   await storage.delete(RUN_KEY);
   await storage.delete(STEERS_KEY);
   await storage.delete(STOP_KEY);
+  await storage.delete(PASS_KEY);
   log(update.state, run.id);
   return { kind: "done" };
 }

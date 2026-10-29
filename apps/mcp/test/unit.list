@@ -260,6 +260,7 @@ test/agentHandoffGate.test.mjs
 test/pages.test.mjs
 test/pagesFormat.test.mjs
 test/agentConfession.test.mjs
+test/agentSaveAccount.test.mjs
 test/pagesDesign.test.mjs
 test/agentPhotoHunt.test.mjs
 test/agentPagePictures.test.mjs

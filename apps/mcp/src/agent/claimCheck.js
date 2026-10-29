@@ -61,6 +61,7 @@ import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
+import { noteStep, saveAccountCheck } from "./saveAccount.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
@@ -475,6 +476,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let supersedeNoticed = false;
   // A confession the turn's own record contradicts (`confession.js`).
   let confessNoticed = false;
+  // A save told as failed before the note was read back, or a sign-in given as the cause with none on record (`saveAccount.js`).
+  const saveAccount = saveAccountCheck();
   // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
   let keptRead = false;
   let keptNoticed = false;
@@ -511,7 +514,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         const result = refused ?? (await callTool(name, args));
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}) });
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
@@ -555,6 +558,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       confessNoticed = true;
       return confessionNotice(confessed);
     }
+    const accounted = saveAccount(answer, { history, steps });
+    if (accounted !== null) return accounted;
     // "The PDF won't load" or "paste its text" with the file kept and unread this turn: read it.
     if (!keptNoticed && kept.length > 0 && !keptRead && givesUpOnAFile(answer)) {
       keptNoticed = true;
