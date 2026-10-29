@@ -67,6 +67,8 @@ apps/mobile/live-map-shots/
 apps/mobile/e2e/webkit/playwright-report/
 apps/mobile/e2e/webkit/test-results/
 apps/mobile/e2e/webkit/csp-candidate/
+apps/mobile/e2e/webkit/csp-production/
+apps/mobile/e2e/webkit/test-results-production/
 
 # The real community-plugin releases `e2e/webkit/pluginBundles.spec.ts` runs
 # through the shim, fetched by `e2e/webkit/fetch-bundles.mjs`. Megabytes of

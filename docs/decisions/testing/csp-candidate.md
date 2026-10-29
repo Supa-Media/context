@@ -142,7 +142,9 @@ sends, production's alone), origin (`https://context.test` or the fixture's
 meta policy) and script (a marker or the shipped `frame.js`). Then it bridges
 back with the shipped page from the fixture's own server, unrouted, with
 each policy on a header line of its own. Chromium runs every frame. The
-WebKit run names the frames that do not, and that decides the fix. Root
+WebKit run names the frames that do not, and that decides the fix. The same job first runs `mermaid.spec.ts` and this spec under
+`production` mode, the router's headers alone, so a WebKit failure under the
+candidate is told apart from one production already has. Root
 reviews any change to the diagram page's policy separately; this PR changes
 no production policy, and `mermaid.spec.ts` stays as it is.
 

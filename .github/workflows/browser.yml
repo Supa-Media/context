@@ -319,7 +319,30 @@ jobs:
       - name: The evidence check fails every log that says nothing
         working-directory: apps/mobile
         run: node --test e2e/webkit/csp-candidate-check.selftest.mjs
+      # The baseline: the same diagram specs under exactly the router's headers
+      # (report-only included, nothing extra enforced), so a WebKit failure in
+      # the step below is told apart from one production already has.
+      - name: Diagram specs under production's headers alone
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_CSP_CANDIDATE: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-production e2e/webkit/mermaid.spec.ts e2e/webkit/cspDiagramFrame.spec.ts
+      - name: What production's headers reported
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p e2e/webkit/csp-production
+          cp e2e/webkit/csp-candidate/csp-candidate-reports.jsonl e2e/webkit/csp-production/
+          node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-production/csp-candidate-reports.jsonl script-src
       - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
+        if: ${{ !cancelled() }}
         working-directory: apps/mobile
         env:
           CI: "true"
@@ -353,7 +376,9 @@ jobs:
           name: webkit-csp-script-results
           path: |
             apps/mobile/e2e/webkit/test-results/
+            apps/mobile/e2e/webkit/test-results-production/
             apps/mobile/e2e/webkit/csp-candidate/
+            apps/mobile/e2e/webkit/csp-production/
           retention-days: 7
           if-no-files-found: ignore
 
