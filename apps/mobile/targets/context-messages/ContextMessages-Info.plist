@@ -18,6 +18,8 @@
   <string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key>
   <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>ContextAppGroup</key>
+  <string>$(CONTEXT_APP_GROUP)</string>
   <key>NSCameraUsageDescription</key>
   <string>A Context card can take a photo to send to Tex, such as a receipt or a page.</string>
   <key>NSMicrophoneUsageDescription</key>

@@ -13,7 +13,7 @@ const { withDangerousMod, withXcodeProject } = require("@expo/config-plugins");
 const TARGET_NAME = "ContextMessages";
 const SOURCE_DIRECTORY = "targets/context-messages";
 const IOS_DIRECTORY = TARGET_NAME;
-const SOURCE_FILES = ["MessagesViewController.swift", "CardShell.swift"];
+const SOURCE_FILES = ["MessagesViewController.swift", "CardShell.swift", "CardGrant.swift"];
 const RESOURCE_FILES = ["Assets.xcassets"];
 const ICON_SET = "iMessage App Icon";
 const PRODUCT_TYPE = '"com.apple.product-type.app-extension.messages"';
@@ -21,7 +21,9 @@ const PRODUCT_TYPE = '"com.apple.product-type.app-extension.messages"';
 function identifiers(config) {
   const bundleIdentifier = config.ios?.bundleIdentifier;
   if (!bundleIdentifier) throw new Error("with-context-messages requires ios.bundleIdentifier");
-  return { extensionBundleIdentifier: `${bundleIdentifier}.messages` };
+  // The app's own group (with-context-widgets.js): the app leaves the card key
+  // in its keychain, and only this extension and the app can read it.
+  return { appGroup: `group.${bundleIdentifier}`, extensionBundleIdentifier: `${bundleIdentifier}.messages` };
 }
 
 function declareEasExtension(config, ids) {
@@ -31,7 +33,11 @@ function declareEasExtension(config, ids) {
   const experimental = { ...(build.experimental ?? {}) };
   const ios = { ...(experimental.ios ?? {}) };
   const current = Array.isArray(ios.appExtensions) ? ios.appExtensions : [];
-  const extension = { targetName: TARGET_NAME, bundleIdentifier: ids.extensionBundleIdentifier };
+  const extension = {
+    targetName: TARGET_NAME,
+    bundleIdentifier: ids.extensionBundleIdentifier,
+    entitlements: { "com.apple.security.application-groups": [ids.appGroup] },
+  };
   ios.appExtensions = [...current.filter((item) => item?.targetName !== TARGET_NAME), extension];
   experimental.ios = ios;
   build.experimental = experimental;
@@ -79,6 +85,8 @@ function addMessagesTarget(project, ids, versions = {}) {
     if (String(settings?.PRODUCT_NAME).replaceAll('"', "") !== TARGET_NAME) continue;
     settings.APPLICATION_EXTENSION_API_ONLY = "YES";
     settings.ASSETCATALOG_COMPILER_APPICON_NAME = `"${ICON_SET}"`;
+    settings.CODE_SIGN_ENTITLEMENTS = `"${IOS_DIRECTORY}/${TARGET_NAME}.entitlements"`;
+    settings.CONTEXT_APP_GROUP = `"${ids.appGroup}"`;
     settings.CURRENT_PROJECT_VERSION = String(versions.buildNumber ?? "1");
     settings.GENERATE_INFOPLIST_FILE = "NO";
     settings.INFOPLIST_FILE = `"${IOS_DIRECTORY}/${TARGET_NAME}-Info.plist"`;

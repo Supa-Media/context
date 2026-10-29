@@ -14,7 +14,9 @@ import WebKit
 /// Each request is small and stays inside the conversation or the phone:
 /// words for the text field or the clipboard, the share sheet, a haptic tap,
 /// closing or resizing the panel. None reaches another person without the
-/// person's own tap on Send, and none reads anything back to the page.
+/// person's own tap on Send. The one that reads anything back is `fetch`: the
+/// person's own data from the gateway's `/cards/`, on their own phone, through
+/// the key in CardGrant.swift, which the page never sees.
 /// The camera, microphone, photos and location are not requests here: the
 /// page uses the web's own (`<input type=file>`, `getUserMedia`,
 /// `navigator.geolocation`), each behind iOS's permission prompt, which the
@@ -23,7 +25,7 @@ enum CardShell {
   static let version = 2
   static let abilities = [
     "send", "insert", "live", "size", "open", "close", "haptic", "copy", "insertText", "share",
-    "camera", "microphone", "photos", "location", "bubble",
+    "camera", "microphone", "photos", "location", "bubble", "fetch",
   ]
   static let maxText = 2000
 
@@ -90,6 +92,21 @@ extension MessagesViewController {
       let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
       sheet.popoverPresentationController?.sourceView = view
       present(sheet, animated: true)
+    case "fetch":
+      // The person's own data through the card key (CardGrant.swift); the answer goes to `contextCardResponse`.
+      guard let id = body["id"] as? String, id.count <= 64, let path = body["path"] as? String else { return true }
+      let method = (body["method"] as? String) == "POST" ? "POST" : "GET"
+      let payload = body["body"] as? String
+      if let payload = payload, payload.utf8.count > CardGrant.maxBody { return true }
+      Task { [weak self] in
+        let (status, text) = await CardGrant.shared.fetch(path: path, method: method, body: method == "POST" ? payload : nil)
+        guard let args = try? JSONSerialization.data(withJSONObject: [id, status, text] as [Any]),
+          let list = String(data: args, encoding: .utf8)
+        else { return }
+        await MainActor.run {
+          self?.answerPage("window.contextCardResponse && window.contextCardResponse.apply(null, \(list))")
+        }
+      }
     default:
       return false
     }
