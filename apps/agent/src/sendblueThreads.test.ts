@@ -276,7 +276,9 @@ describe("Tex answers inside iMessage threads", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+    // Five fake minutes of typing bubbles run every timer in between: seconds of
+    // wall time on a busy runner (it overran 5 s on main's staging run, 2026-10-29).
+  }, 30_000);
 
   it("reads a Spanish tapback as a reaction, never a text", () => {
     const base = {
