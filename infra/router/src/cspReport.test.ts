@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { CSP_REPORT_PATH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES } from "./cspReport";
+import { CSP_REPORT_PATH, EMPTY_STYLE_HASH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES, SHELL_STYLE_HASHES } from "./cspReport";
 import { ENFORCED_POLICY, SECURITY_HEADERS } from "./securityHeaders";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -75,6 +75,21 @@ describe("the policy", () => {
     expect(inline.length).toBeGreaterThan(0);
     expect(SHELL_SCRIPT_HASHES).toEqual(inline);
     for (const hash of inline) expect(SCRIPT_POLICY).toContain(`'${hash}'`);
+  });
+
+  // The style candidate is measured the same way: the shell's inline styles
+  // by hash, the empty sheet React Native Web fills by insertRule, and never
+  // 'unsafe-inline'.
+  it("names every inline style in the web shell by its hash, plus the empty sheet, and nothing unsafe", () => {
+    const shell = readFileSync(join(__dirname, "..", "..", "..", "apps", "mobile", "public", "index.html"), "utf8");
+    const inline = [...shell.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(
+      ([, body]) => `sha256-${createHash("sha256").update(body, "utf8").digest("base64")}`,
+    );
+    expect(inline.length).toBeGreaterThan(0);
+    expect(SHELL_STYLE_HASHES).toEqual(inline);
+    expect(EMPTY_STYLE_HASH).toBe(`sha256-${createHash("sha256").update("", "utf8").digest("base64")}`);
+    const style = SCRIPT_POLICY.split(";").map((part) => part.trim()).find((part) => part.startsWith("style-src "));
+    expect(style).toBe(`style-src 'self' ${[...inline, EMPTY_STYLE_HASH].map((hash) => `'${hash}'`).join(" ")}`);
   });
 
   // Two frames run script this policy would block, and a quiet report log
