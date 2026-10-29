@@ -59,8 +59,16 @@ export const GROUP_LINES = {
   started: "I'm back. Start a message with \"Tex\" when you need me.",
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
   sms: "I only answer in iMessage group chats.",
-  failed: "I couldn't answer that one. Try again in a bit.",
+  // Given up after the workflow's retries (`groupTurnRun.ts`): it says it tried, and that it's Tex's fault, not the asker's.
+  failed: "Something broke on my side and I couldn't answer that. Ask me again in a few minutes.",
+  // The chat's workspace couldn't be opened (the gateway's `storage_unavailable`; Tex Devs on 2026-10-29, when every
+  // reply read "Try again in a bit" while the 1:1 answered): that, said plainly, since no rewording of the ask will help.
+  noStorage: "I can't open this chat's workspace right now, so I can't answer here. It's a problem on my side, and it's been flagged.",
   // A turn whose workflow never started (`groupTurnRun.ts` `stuck`).
   stuck: "I'm having trouble answering right now. Try me again in a minute.",
 } as const;
 
+/** The line for a turn given up on, by the reason it was logged with (`turnFailed`). */
+export function failedLine(reason: string | undefined): string {
+  return reason === "gateway:503" ? GROUP_LINES.noStorage : GROUP_LINES.failed;
+}

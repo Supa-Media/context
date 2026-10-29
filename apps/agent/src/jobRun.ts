@@ -343,6 +343,11 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await peopleHash(message.line, people),
     ...(asked.handle ? { from: asked.handle } : {}),
+    // Who is here and what the chat may read, as its own turn is told (`groupInbox.ts`): a job that drops `mail`
+    // can't open the inbox shared with the chat it is working for.
+    people: [...new Set((asked.names ?? []).map(({ handle }) => handle))].filter(Boolean),
+    ...(asked.guest ? { guest: asked.guest } : {}),
+    ...(asked.mail?.length ? { mail: asked.mail } : {}),
     chat: [],
   };
   // Streamed, so its steps reach the chat as it takes them; a group's turn texts no progress of its own.

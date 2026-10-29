@@ -26,15 +26,20 @@ control plane with no model (`textGroups.applyGroupTurn`,
 
 - **Only its own person shares it**, only a Gmail connected to their own
   personal workspace, and only into a chat bound to a shared workspace where
-  they are an owner or editor. Never a guest chat, never a personal
-  workspace's chat. Each refusal reads the same ("mail_refused").
+  they are an owner or editor. Never a personal workspace's chat. Each
+  refusal reads the same ("mail_refused"). A guest chat too, since
+  2026-10-29 (the owner: "it should work even in guest mode if I'm sharing
+  my email explicitly"): the sharer chose who sees it by sharing it there. A
+  guest chat reads it only when someone asks; it has no looks, and the
+  sharer's own check-in does not count it as watching that mail.
   `apps/convex/__tests__/textGroupMail.test.ts`: "only the mailbox's own
   person", "never into a chat on a personal workspace".
 - **Read live, narrowed, kept nowhere.** Each search is sent to Gmail as
   `(<share's search>) (<query>)`; a read opens a message only if the share's
   search, asked by that message's own Message-ID, still finds it. Nothing of
   a message is stored. "every search is narrowed", "a message outside the
-  share is not found".
+  share is not found". "a guest chat reads it too";
+  `apps/agent/src/groupJobs.test.ts` "a job is told the mail shared".
 - **Asked again at every read.** The share counts only while the chat is
   bound to the same workspace and not muted, the sharer still writes there,
   and the Gmail is still connected. "losing edit, or disconnecting the Gmail,
@@ -44,7 +49,9 @@ control plane with no model (`textGroups.applyGroupTurn`,
 - **Each read counts against the sharer's own hourly mail reads**, the same
   limit their own reads use.
 - **The turn is told whose mailbox it may read** (handle and address), and is
-  offered `search_email`/`read_email` only then (`apps/mcp/src/agent/groupMail.js`,
+  offered `search_email`/`read_email` only then. A background job the chat
+  started is told the same (`apps/agent/src/jobRun.ts`); until 2026-10-29 it
+  was not, and a job asked to "check the mail" answered that it couldn't (`apps/mcp/src/agent/groupMail.js`,
   `apps/mcp/test/agentGroupMail.test.mjs`). Live mail is untrusted for
   egress as it is anywhere else.
 - **Sending is unchanged**: an email from someone's own Gmail still goes only

@@ -48,7 +48,7 @@ import { askAgentStream, askLine, reportRoutineResult, ServiceError, type AgentA
 import { CHAT_LOOK_PATH, chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { noteGuestChat } from "./groupGuestPeople";
-import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
+import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
 export type { Command };
@@ -429,15 +429,15 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
       return true;
     }
     for (const [done] of entries) await storage.delete(done);
-    await turnFailed(storage, deps, item.message, error instanceof ServiceError && error.status === 504);
+    await turnFailed(storage, deps, item.message, error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : undefined);
   }
   return false;
 }
 
-/** A turn given up on: a routine nobody asked for just now fails quietly (the chat didn't ask, so it is told nothing); anyone else is told, and the chat is scored (`watchFailed`). */
-export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, timedOut: boolean): Promise<void> {
+/** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
+export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
   if (message.routine !== undefined) await routineDone(deps, message, "failed");
-  else await say(storage, deps, message, GROUP_LINES.failed, { system: true, reason: timedOut ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
+  else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
 }
 
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
@@ -620,7 +620,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   if (routine && (answer.kind === "daily_limit" || answer.kind === "no_model")) return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : "no_provider"));
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
-  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "unavailable" && answer.timedOut ? 504 : null);
+  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);

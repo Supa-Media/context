@@ -108,7 +108,7 @@ async function stuck(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   await storage.setAlarm(deps.now());
   const last = entries.at(-1)?.[1].message;
   if (last === undefined) return;
-  if (last.routine !== undefined) await turnFailed(storage, deps, last, false);
+  if (last.routine !== undefined) await turnFailed(storage, deps, last, undefined);
   else {
     await say(storage, deps, last, GROUP_LINES.stuck, { system: true, reason: "failed" }).catch(() => {});
     await watchFailed(storage, deps, last);
@@ -159,7 +159,7 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
   for (const [key] of entries) await storage.delete(key);
   log("workflow_gave_up", turn.reason, turn.tries, turn.kind);
   const last = entries.at(-1)?.[1];
-  if (last !== undefined) await turnFailed(storage, deps, last.message, turn.reason?.endsWith(":504") === true);
+  if (last !== undefined) await turnFailed(storage, deps, last.message, turn.reason);
   return await finish(storage, deps, id);
 }
 
