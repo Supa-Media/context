@@ -179,6 +179,50 @@ jobs:
           }
           JS
 
+      # Shapes only: for each group the line is in, which kinds of id its
+      # participants carry (a phone, a @lid), the fields an entry has, and
+      # whether Whapi resolves a @lid to a phone. Counts and status codes only.
+      - name: Probe group participant shapes
+        if: ${{ inputs.probe }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$WHAPI_TOKEN"
+          node - <<'JS'
+          const api = "https://gate.whapi.cloud";
+          const auth = { authorization: `Bearer ${process.env.WHAPI_TOKEN}` };
+          const get = async (path) => {
+            const r = await fetch(api + path, { headers: auth }).catch(() => null);
+            if (r === null) return { status: 0, body: null };
+            return { status: r.status, body: await r.json().catch(() => null) };
+          };
+          const kind = (id) => (typeof id !== "string" ? typeof id : id.endsWith("@lid") ? "lid" : /@s\.whatsapp\.net$|@c\.us$/.test(id) ? "phone" : /^\d+$/.test(id) ? "bare" : "other");
+          const list = await get("/groups?count=20");
+          const groups = list.body?.groups ?? [];
+          console.log("groups read:", list.status, groups.length, "list keys:", Object.keys(list.body ?? {}).join(","));
+          let n = 0;
+          for (const g of groups) {
+            n += 1;
+            const one = await get(`/groups/${encodeURIComponent(g.id)}`);
+            const ps = Array.isArray(one.body?.participants) ? one.body.participants : [];
+            const kinds = {};
+            const keys = new Set();
+            for (const p of ps) {
+              kinds[kind(p?.id)] = (kinds[kind(p?.id)] ?? 0) + 1;
+              for (const [k, v] of Object.entries(p ?? {})) keys.add(`${k}:${k === "id" ? kind(v) : typeof v === "string" ? kind(v) : typeof v}`);
+            }
+            console.log(`group#${n} status=${one.status} groupKeys=${Object.keys(one.body ?? {}).join(",")} participants=${ps.length} kinds=${JSON.stringify(kinds)} entryKeys=${[...keys].join(",")}`);
+            const lid = ps.find((p) => kind(p?.id) === "lid")?.id;
+            if (lid !== undefined) {
+              const bare = lid.replace(/@.*$/, "");
+              for (const path of [`/contacts/ids/${lid}`, `/contacts/ids/${bare}`, `/contacts/lids/${lid}`, `/contacts/${lid}`, `/users/lid/${bare}`]) {
+                const r = await get(path.replace(/@/g, "%40"));
+                const fields = Object.entries(r.body ?? {}).map(([k, v]) => `${k}:${Array.isArray(v) ? "array" + v.length + (v[0] ? "[" + Object.entries(v[0]).map(([a, b]) => a + ":" + kind(b)).join(";") + "]" : "") : kind(v)}`);
+                console.log(`  ${path.replace(/\d+/g, "N")} -> ${r.status} ${fields.join(",")}`);
+              }
+            }
+          }
+          JS
+
       - name: Build the settings
         run: |
           set -euo pipefail
