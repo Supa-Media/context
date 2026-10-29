@@ -42,6 +42,8 @@ export interface FixtureParams {
    */
   note?: string | string[];
   user?: string | string[];
+  /** `screen=phone-check`: `1` draws the step for an account that may skip it. */
+  skip?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
   role?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
@@ -105,7 +107,12 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
-    return <PhoneCheckScreen initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined} />;
+    return (
+      <PhoneCheckScreen
+        initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined}
+        canSkip={first(params.skip) === "1"}
+      />
+    );
   }
   // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
   if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;

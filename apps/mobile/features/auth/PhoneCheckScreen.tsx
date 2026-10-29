@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
@@ -10,7 +10,16 @@ import { fonts, layout, leading, pointerType as t, space, tracking } from "../de
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { useSwitchAccount } from "./useSwitchAccount";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
-import { JOINED_BODY, JOINED_TITLE, PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
+import {
+  JOINED_BODY,
+  JOINED_TITLE,
+  PHONE_CHECK_LATER,
+  PHONE_CHECK_TITLE,
+  PHONE_CHECK_WHY,
+  PHONE_CHECK_WHY_SKIPPABLE,
+  confirmError,
+  sendError,
+} from "./phoneCheck";
 
 /**
  * The phone check (Dev2, 2026-10-09): one screen in front of the whole app
@@ -25,12 +34,18 @@ import { JOINED_BODY, JOINED_TITLE, PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmE
  * A number another account already holds joins the two when this one owns
  * nothing ("joined", `lib/account/phoneJoin.ts`): this account closes into
  * that one, so the screen says so and the person signs in again to land there.
+ *
+ * "Skip for now" (board S1, Dev2 2026-10-29) shows when the server says this
+ * account may skip (`canSkip`: everyone but a work-domain joiner). The skip is
+ * saved on the account, so the layout's subscription answers "not required"
+ * on every device and this screen is not drawn again.
  */
-export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } = {}) {
+export function PhoneCheckScreen({ initialSentTo, canSkip = false }: { initialSentTo?: string; canSkip?: boolean } = {}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const sendCode = useAction(api.functions.phoneCheck.sendPhoneCode);
   const confirmCode = useAction(api.functions.phoneCheck.confirmPhoneCode);
+  const skipCheck = useMutation(api.functions.phoneCheck.skipPhoneCheck);
 
   const [phone, setPhone] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(initialSentTo ?? null);
@@ -73,6 +88,19 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     }
   };
 
+  const skip = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await skipCheck({});
+    } catch {
+      setError("That didn't work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const switchAccount = useSwitchAccount();
   const useAnotherAccount = () => switchAccount("/");
 
@@ -106,7 +134,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                 {PHONE_CHECK_TITLE}
               </Text>
               <Text variant="rowSub" style={styles.body}>
-                {PHONE_CHECK_WHY}
+                {canSkip ? PHONE_CHECK_WHY_SKIPPABLE : PHONE_CHECK_WHY}
               </Text>
               <View style={styles.field}>
                 <PhoneNumberField
@@ -157,6 +185,17 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
                 trailing={spinner}
                 testID="phone-check-send"
               />
+              {canSkip ? (
+                <Text
+                  variant="foot"
+                  role="link"
+                  style={styles.skip}
+                  onPress={() => void skip()}
+                  testID="phone-check-skip"
+                >
+                  Skip for now
+                </Text>
+              ) : null}
             </View>
           ) : (
             <>
@@ -194,14 +233,12 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
           )}
 
           {joined ? null : (
-            <Text
-              variant="foot"
-              role="link"
-              style={styles.signOut}
-              onPress={useAnotherAccount}
-              testID="phone-check-sign-out"
-            >
-              Sign out
+            <Text variant="foot" style={styles.signOut}>
+              {canSkip && sentTo === null ? `${PHONE_CHECK_LATER} · ` : null}
+              <Text variant="foot" role="link" style={styles.signOutLink} onPress={useAnotherAccount} testID="phone-check-sign-out">
+                {/* Kept on one line where the sentence before it wraps. */}
+                Sign{"\u00a0"}out
+              </Text>
             </Text>
           )}
         </View>
@@ -238,5 +275,7 @@ const makeStyles = (colors: Colors) =>
     primaryRow: { marginTop: space.x5, alignSelf: "stretch" },
     verifyRow: { marginTop: space.x5, flexDirection: "row", justifyContent: "space-between", gap: space.x3 },
     link: { marginTop: space.x4, color: colors.accent, fontWeight: "600", textDecorationLine: "underline" },
-    signOut: { marginTop: space.x6, color: colors.muted, textDecorationLine: "underline" },
+    skip: { marginTop: space.x5, color: colors.text, fontWeight: "600", textDecorationLine: "underline" },
+    signOut: { marginTop: space.x6, color: colors.muted },
+    signOutLink: { color: colors.muted, textDecorationLine: "underline" },
   });
