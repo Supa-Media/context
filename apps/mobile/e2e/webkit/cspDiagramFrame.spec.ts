@@ -39,7 +39,8 @@ import { candidateRules, ENFORCED_REPORT_PATH, REPORT_PATH } from "./csp-candida
  */
 
 const HERE = __dirname;
-const DIAGRAM = join(HERE, "..", "..", "public", "drawing-assets", "diagram");
+/** The shipped page and script, from the export the fixture serves (`playwright.config.ts`); they are built, not committed. */
+const DIAGRAM = join(process.env.E2E_WEB_EXPORT_DIR ?? join(HERE, "..", "..", "web-build"), "drawing-assets", "diagram");
 const PAGE = readFileSync(join(DIAGRAM, "index.html"), "utf8");
 const SCRIPT = readFileSync(join(DIAGRAM, "frame.js"), "utf8");
 const MINIMAL = '<!doctype html><html><head></head><body><script src="./frame.js"></script></body></html>';
