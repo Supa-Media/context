@@ -244,7 +244,7 @@ function GoogleCardBody({
         </Text>
       ) : null}
       <Text variant="foot" style={styles.note}>
-        Your AI reads mail, calendar and chat from Google when you ask. Nothing is copied into your notes.
+        Your AI reads mail, calendar and chat from Google when you ask, and during check-ins and routines you allow. Nothing is copied into your notes in bulk; Tex's replies, the quotes and sources they use, check-in records and any note you save stay until you delete them.
         {actions ? "" : " Only an owner can connect or remove Google accounts."}
       </Text>
     </View>
