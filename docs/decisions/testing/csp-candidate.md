@@ -125,18 +125,26 @@ plus its report-only duplicate, not two independent refusals.
 
 The diagram frame is `sandbox="allow-scripts"` without `allow-same-origin`,
 so its document has an opaque origin, and it loads `frame.js` from its own
-path under `'self'`. The working explanation is that WebKit matches `'self'`
-in a header policy against that opaque origin rather than the URL's. If so,
-the router's real report-only policy for this path would refuse the script
-in Safari once enforced. That makes it a production blocker, not a fixture
-artefact. `cspOpaqueSelf.spec.ts` tests it one variable at a time, in frames
-served by `page.route`: header `'self'`, meta `'self'` (what the diagram page
-ships today, which runs), header `'self'` plus the origin named, and an
-unsandboxed control. Chromium runs all four. The WebKit result decides the
-fix. If header `'self'` fails there, the diagram page needs a policy of its
-own from the router that keeps the frame opaque: its meta's directives, its
-origin named in `script-src`, and its own style rules. Root reviews that
-change separately; this PR changes no production policy.
+path under `'self'`. The first explanation was that WebKit matches `'self'`
+in a header policy against that opaque origin. The second WebKit run (head
+f595426d) disproved it: `cspOpaqueSelf.spec.ts` ran its script in all four
+frames there (header `'self'`, meta `'self'`, header `'self'` plus the origin,
+and unsandboxed). So naming the origin explicitly is not the fix, and is not
+made. The same run's log, with dispositions now known by address, held one
+enforced and one report-only `script-src-elem` row for the diagram, and the
+five style rows were all report-only.
+
+`cspDiagramFrame.spec.ts` narrows it further. It rebuilds the real frame one
+difference at a time, as `livePreview/diagram.ts` makes it: header set (bare
+`'self'`, the candidate's enforced copy alone, every header the candidate
+sends, production's alone), origin (`https://context.test` or the fixture's
+`http://127.0.0.1:4874`), page (minimal or the shipped `index.html` with its
+meta policy) and script (a marker or the shipped `frame.js`). Then it bridges
+back with the shipped page from the fixture's own server, unrouted, with
+each policy on a header line of its own. Chromium runs every frame. The
+WebKit run names the frames that do not, and that decides the fix. Root
+reviews any change to the diagram page's policy separately; this PR changes
+no production policy, and `mermaid.spec.ts` stays as it is.
 
 ### What this does not prove
 
