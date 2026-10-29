@@ -31,6 +31,7 @@ import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } 
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
+import { gzipSync } from "node:zlib";
 import { reportLines } from "./csp-report-log.mjs";
 import { freshNonce, policyWithNonce, withStyleNonce } from "./csp-style-nonce.mjs";
 
@@ -135,8 +136,22 @@ const tls =
     ? { key: readFileSync(process.env.E2E_TLS_KEY), cert: readFileSync(process.env.E2E_TLS_CERT) }
     : null;
 
+/*
+  Under the style nonce only: a switch that makes the shell document's address
+  unreachable, so a service worker's own fetch fails as it does on a train.
+  Playwright's offline emulation does not reach a worker's requests in
+  Chromium, so a spec that set it would see the worker fetch a fresh shell from
+  here and never replay the one it holds (`offlineStyleNonce.spec.ts`).
+*/
+let shellUnreachable = false;
+
 const handle = (req, res) => {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (nonceShell && req.method === "POST" && pathname === "/_e2e-shell-unreachable") {
+    shellUnreachable = req.headers["x-unreachable"] === "1";
+    res.writeHead(204).end();
+    return;
+  }
   if (reportLog !== null && req.method === "POST" && Object.hasOwn(REPORT_ADDRESSES, pathname)) {
     let text = "";
     req.setEncoding("utf8");
@@ -158,13 +173,25 @@ const handle = (req, res) => {
     return;
   }
   if (nonceShell && rule?.document === "shell" && file === join(root, "index.html")) {
+    if (shellUnreachable) {
+      req.socket.destroy();
+      return;
+    }
     const nonce = freshNonce();
     for (const [name, value] of Object.entries(rule.headers)) {
       const policy = (one) => (/^content-security-policy/i.test(name) ? policyWithNonce(one, nonce) : one);
       res.setHeader(name, Array.isArray(value) ? value.map(policy) : policy(value));
     }
-    res.writeHead(200, { "Content-Type": CONTENT_TYPES[".html"], "Cache-Control": "no-cache" });
-    res.end(withStyleNonce(readFileSync(file, "utf8"), nonce));
+    const html = withStyleNonce(readFileSync(file, "utf8"), nonce);
+    // Compressed when the browser asks, as the edge serves it, so a worker that holds it holds a response
+    // still marked `Content-Encoding` over a body it reads decoded (`offlineStyleNonce.spec.ts`).
+    const gzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    res.writeHead(200, {
+      "Content-Type": CONTENT_TYPES[".html"],
+      "Cache-Control": "no-cache",
+      ...(gzip ? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" } : {}),
+    });
+    res.end(gzip ? gzipSync(html) : html);
     return;
   }
   for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);

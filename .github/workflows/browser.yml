@@ -98,6 +98,7 @@ jobs:
             apps/mobile/e2e/webkit/cspDiagramFrame.spec.ts
             apps/mobile/e2e/webkit/cspNegativeProbe.spec.ts
             apps/mobile/e2e/webkit/cspStyleNonce.spec.ts
+            apps/mobile/e2e/webkit/offlineStyleNonce.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
@@ -111,6 +112,8 @@ jobs:
             infra/router/src/cspReport.ts
             infra/router/src/securityHeaders.ts
             infra/router/src/pluginSandbox.ts
+            infra/router/src/styleNonce.ts
+            apps/mobile/public/sw.js
             apps/mobile/app/e2e-fixture.tsx
             apps/mobile/features/console/E2EFixtureScreen.tsx
             apps/mobile/features/console/e2eFixtureData.ts
@@ -387,6 +390,19 @@ jobs:
             e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
             e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts || status=$?
           exit "$status"
+      # Offline, the service worker replays the one shell it holds; it must mint a
+      # new nonce for every replay, in the header and the document alike, from the
+      # browser's own cache. Chromium, plain HTTP: Playwright's WebKit driver cannot
+      # reload offline (`offlineShell.spec.ts`), and a worker needs no certificate on
+      # 127.0.0.1. Its log is its own (`full`, not `full-https`).
+      - name: Offline replays mint a new style nonce (Chromium)
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=chromium --reporter=list --output e2e/webkit/test-results-nonce-offline e2e/webkit/offlineStyleNonce.spec.ts
       - name: The editor specs reported nothing under the nonce
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
@@ -436,6 +452,7 @@ jobs:
             apps/mobile/e2e/webkit/test-results-production/
             apps/mobile/e2e/webkit/test-results-nonce/
             apps/mobile/e2e/webkit/test-results-nonce-checks/
+            apps/mobile/e2e/webkit/test-results-nonce-offline/
             apps/mobile/e2e/webkit/csp-candidate/
           retention-days: 7
           if-no-files-found: ignore
