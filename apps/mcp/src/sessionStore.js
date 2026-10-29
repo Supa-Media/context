@@ -70,7 +70,7 @@ async function openSessionStore(session, env, controlPlane) {
       session.workspaceId
     );
   } catch (error) {
-    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? "unreachable"}`);
+    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
     throw error;
   }
   const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
