@@ -256,6 +256,15 @@ own: only the person's tap does, with words the page chose. Minting the grant
 (Convex), writing it (the app's JavaScript) and the `/cards/` routes (the
 gateway) ship by deploy and over the air after the native build.
 
+The key is minted by `functions/cardsKey.ts` (client `context_cards`, read
+and private scopes clamped by role, the person's own personal workspace only,
+one per phone keyed on a device id the app keeps, with a real refresh token
+the extension rotates) and written by `features/cards/useCardKey.ts` on iOS,
+only where no key for this workspace is stored, checked again whenever the app
+comes to the front, and deleted at sign-out. Another account's key on the same
+phone is deleted rather than reused. Tests: `apps/convex/__tests__/cardsKey.test.ts`,
+`apps/mobile/__tests__/cardKey.test.ts`.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

@@ -26,6 +26,7 @@ import type * as functions_billingWindDown from "../functions/billingWindDown.js
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
+import type * as functions_cardsKey from "../functions/cardsKey.js";
 import type * as functions_chaosScore from "../functions/chaosScore.js";
 import type * as functions_chatProduct from "../functions/chatProduct.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
@@ -262,6 +263,7 @@ declare const fullApi: ApiFromModules<{
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;
   "functions/cardRender": typeof functions_cardRender;
+  "functions/cardsKey": typeof functions_cardsKey;
   "functions/chaosScore": typeof functions_chaosScore;
   "functions/chatProduct": typeof functions_chatProduct;
   "functions/collaborationFiling": typeof functions_collaborationFiling;
