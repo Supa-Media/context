@@ -96,6 +96,16 @@ tests fail. The gateway also answers why a review filed nothing (`off`,
 `nothing_new`, `no_tier`, `no_score`, `not_filed`), and the Worker logs it,
 since "asked" alone hid 15 of 17 reviews that day filing nothing.
 
+**The scorer gets room to think** (2026-10-29). The review model thinks by
+default, and its thinking counts against the answer's token limit. At 200
+tokens (960 with the words), a long chat's thinking used all of it and the
+answer came back empty: that log then showed 8 of 10 reviews as `no_score`.
+A review now asks for 2,000 tokens (4,000 with the words). The answer itself
+is still short, and at Haiku's price the extra room costs about a tenth of a
+cent. A miss also says which kind it was: `model_failed` (the call threw),
+`cut_off` (it still ran out of room) or `no_score` (it answered nothing
+readable). Reverting it: "a review leaves the model room to think" fails.
+
 **"fix this" reviews at once.** The owner's own words, and plain frustration
 (swearing, "I already told you", an angry face), review the conversation right
 after that turn's answer has gone, so a staff report reaches the team while it
