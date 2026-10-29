@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SESSION_LIFETIME_S, createSession, forgetRefusedTiers, sessionRequests } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { READ_WORLD, STORAGE_WORLD } from "./jar";
+import { PASSKEYS_OFF_SOURCE } from "./passkeys";
 
 const ISOLATED = 7;
 const SHOP_DB = { name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "firebaseLocalStorage", keyPath: "fbase_key", autoIncrement: false, indexes: [], records: [{ value: { fbase_key: "k", value: { uid: "u1" } } }] }] };
@@ -217,7 +218,11 @@ describe("sign-ins kept between browsers", () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], keep: true, jar });
     const set = result.api.cdp.find((line) => line.startsWith("Storage.setCookies "));
     expect(JSON.parse(set!.slice("Storage.setCookies ".length))).toEqual({ cookies: jar.cookies });
-    const script = result.api.cdp.find((line) => line.startsWith("Page.addScriptToEvaluateOnNewDocument "));
+    const scripts = result.api.cdp.filter((line) => line.startsWith("Page.addScriptToEvaluateOnNewDocument "));
+    const parsed = scripts.map((line) => JSON.parse(line.slice("Page.addScriptToEvaluateOnNewDocument ".length)));
+    // Passkeys off first, in the page's own world, where its scripts ask (./passkeys.ts).
+    expect(parsed[0]).toEqual({ source: PASSKEYS_OFF_SOURCE, runImmediately: true });
+    const script = scripts.find((line) => !line.includes(JSON.stringify(PASSKEYS_OFF_SOURCE)));
     // In a world of its own: no site's scripts read what it carries.
     expect(JSON.parse(script!.slice("Page.addScriptToEvaluateOnNewDocument ".length)).worldName).toBe(STORAGE_WORLD);
     expect(result.body.jar).toEqual({
