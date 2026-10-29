@@ -272,6 +272,14 @@ test("a card line offers a card on their own data, and never reaches them as wor
   }
 });
 
+// Dev2, 2026-10-29: a card showing the running jobs, tapped for each one's steps (apps/agent/src/jobs.ts).
+test("a threads line offers the live view of the chat's jobs, and never reaches them as words", () => {
+  const taken = outgoingPictures({ enabled: true }).take("On it, I'll text you when it's done.\n[card threads]");
+  assert.deepEqual(taken.offers, ["threads"]);
+  assert.equal(taken.answer, "On it, I'll text you when it's done.");
+  assert.match(DATA_CARDS_LINE, /\[card threads\]/);
+});
+
 test("a turn not from a phone keeps a card line as written", () => {
   const off = outgoingPictures({ enabled: false });
   assert.deepEqual(off.take("[card times]"), { answer: "[card times]", pictures: [] });

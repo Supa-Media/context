@@ -70,7 +70,7 @@ import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHas
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation, watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
-import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, startJobs, steerJobs, threadsLines, type JobRun, type JobSteer } from "./jobs";
 import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
 import { reactionFor } from "./reactEmoji";
 import { staleAsks } from "./decide";
@@ -90,8 +90,8 @@ export type GroupDeps = {
   whapi?: WhapiKeys | null;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
-  /** Serves a picture Tex sends at a short-lived address Sendblue fetches (`media.ts`); absent, pictures aren't sent. */
-  hostPicture?: (picture: Picture) => Promise<string>;
+  hostPicture?: (picture: Picture) => Promise<string>; // a picture Tex sends, at a short-lived address Sendblue fetches (`media.ts`); absent, none go
+  threadsLink?: () => Promise<string>; // a new link to the chat's live view of its jobs (`jobs.ts` `mintThreadsLink`)
   /** Draws a note link's picture, sent before the link (`noteCards.ts`); absent, the link goes alone. */
   noteCardPicture?: NoteCardDrawer;
   now: () => number;
@@ -640,7 +640,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   // an unreadable list holds the answer, as a joiner does.
   if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one");
+  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
   const now = await app.readMembers(chat);
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");

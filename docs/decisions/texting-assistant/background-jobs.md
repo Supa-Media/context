@@ -113,3 +113,36 @@ person already changed; texting what a stopped job says on its way out
 ignores the stop. Tests: `apps/agent/src/jobSteer.test.ts`, and the steer and
 step checks in `apps/mcp/test/agentBackground.test.mjs`,
 `agentBackgroundRoute.test.mjs` and `agentSteer.test.mjs`.
+
+### The live view of what's running (2026-10-29)
+
+Dev2 asked for a card that shows the running threads, each tapped to see
+what it is doing, so iMessage works more like an agent chat, and for it to
+work in groups too. When Tex starts a job, or is asked what it is working on,
+it adds `[card threads]` (`background.js` tells it to, and `DATA_CARDS_LINE`
+says when). The texting Worker then mints a link to the chat's live view
+(`apps/agent/src/jobs.ts` `mintThreadsLink`): a one-to-one chat with Context
+cards gets a card that the Messages extension opens (`/tex/threads` →
+`/messages/threads`), and anyone else, every group included, gets the link
+in words, because Sendblue App Cards are one-to-one only. The page
+(`infra/router/src/messagesThreads.ts`) reads the chat's jobs through the
+router's `TEXTS` binding to the texting Worker. It lists each job's title,
+state, status line and last steps, opens the running ones, and reloads every
+ten seconds while one runs.
+
+The link is a bearer link, and that was the decision: 256 random bits per
+link, kept in the chat's own object for six hours, the newest four per chat,
+with the same "this view has ended" page for every miss. It shows only what
+every texted turn of that chat is already told about its jobs (titles,
+status, steps as tool and target, never a note's text, never the ask), so a
+forwarded link reveals what anyone in the chat could ask Tex for, and stops
+working within hours. The page has no script and sets its own policy. A
+self-hosted router without the binding shows the ended page. Simplifying
+the token check away exposes every chat's jobs to anyone who guesses an
+object id. Tests: `apps/agent/src/threadsView.test.ts`,
+`infra/router/src/messagesThreads.test.ts` (sabotage records in each header).
+
+The 3-job limit is told when it bites. The gateway refuses a fourth job with
+words for Tex to say, and since 2026-10-29 a job lost to two texts racing
+past the limit, or one that could not be handed off, gets a line in the
+answer (`notStartedText`) instead of a silent "on it".

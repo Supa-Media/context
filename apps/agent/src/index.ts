@@ -46,7 +46,7 @@ import { syncGuestPeople } from "./groupGuestPeople";
 import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
-import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { acceptJob, armJobNext, failJob, runJob, steerJob } from "./jobRun";
 import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
@@ -137,6 +137,7 @@ export default {
       return handleSimulator(request, env, SIMULATOR_PAGE);
     }
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
+    if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
@@ -384,6 +385,24 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
 }
 
 /**
+ * `GET /threads/<object id>/<token>`: a chat's live view of its jobs, as JSON,
+ * read by the router's page through its binding to this Worker (`jobs.ts`
+ * `serveThreads`). Every miss is the same 404.
+ */
+async function threads(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
+  if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
+  let id: DurableObjectId;
+  try {
+    id = env.SENDER_INBOX.idFromString(match[1]);
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  return env.SENDER_INBOX.get(id).fetch(`https://inbox/threads/${match[2]}`);
+}
+
+/**
  * `POST /new-line` `{ number, send }`: tell everyone whose last chat is on the
  * old line that Tex has a new number (`newLine.ts`). Behind the Worker's own
  * secret; without `send: true` it is a dry run that texts nobody.
@@ -545,6 +564,10 @@ export class SenderInbox implements DurableObject {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
     }
+    if (path.startsWith("/threads/")) {
+      if (request.method !== "GET") return new Response(null, { status: 405 });
+      return serveThreads(this.state.storage, path.slice("/threads/".length), Date.now());
+    }
     if (path.startsWith("/media/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });
       return serveMedia(this.state.storage, path.slice("/media/".length), Date.now());
@@ -629,6 +652,7 @@ export class SenderInbox implements DurableObject {
           picture,
           Date.now(),
         ),
+      threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
       now: () => Date.now(),
       spawnJob: async (id: string, run: JobRun) => {

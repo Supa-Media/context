@@ -47,10 +47,11 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
-import { sendCardPart, withDrawnCards } from "./sendParts";
-import { withPickCard, type Choice } from "./pickCard";
-import { settleCard, withAskCard, withCardsHere } from "./cardChats";
-import { withDataCards, type DataCardKind } from "./dataCards";
+import { sendCardPart } from "./sendParts";
+import type { Choice } from "./pickCard";
+import { settleCard, withCardsHere } from "./cardChats";
+import type { Offer } from "./dataCards";
+import { withAnswerCards } from "./answerCards";
 import { textsFromAnswer } from "./format";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
@@ -517,7 +518,7 @@ type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: str
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
-  let offers: DataCardKind[] = [];
+  let offers: Offer[] = [];
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -582,14 +583,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
   const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
-  if (pictures.length === 0) return done(withAskCard(withDataCards(texts, offers, cards), texts, cards));
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, deps.threadsLink));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(withAskCard(withDataCards(withDrawnCards(withPickCard(await partsFor(texts, pictures, upload), choices, cards), cards), offers, cards), texts, cards));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
