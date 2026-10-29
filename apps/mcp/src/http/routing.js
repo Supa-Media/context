@@ -38,6 +38,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Tex's saved Browserbase profile (`agent/browserProfile.js`), filed under
+  // this session's workspace; the control plane makes and releases it.
+  Object.defineProperty(store, "browserProfiles", {
+    value: {
+      get: (owner, chat) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, chat }),
+      forget: (owner) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, forget: true }),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
   // read back only by the grant that joined.
   Object.defineProperty(store, "mail", {

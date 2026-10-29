@@ -169,6 +169,7 @@ test/agentUploads.test.mjs
 test/agentDownloads.test.mjs
 test/agentEmailFiles.test.mjs
 test/agentBrowserJar.test.mjs
+test/agentBrowserProfile.test.mjs
 test/agentDoneLine.test.mjs
 test/agentFallback.test.mjs
 test/agentGatewayRetry.test.mjs
