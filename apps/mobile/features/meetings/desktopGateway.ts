@@ -213,7 +213,43 @@ export function createDesktopGateway(
     },
 
     async finalize(to, session, continues?: MeetingContinuation | null) {
-      const ack = await write(to, session.id, "finalize", finalizeBody(to));
+      /** The page's own writer files it: in the protocol's order, so the writer has the meeting first. */
+      const fileFromWindow = async (writer: MeetingsGateway): Promise<IngestAck> => {
+        await writer.putSession(to, session);
+        return writer.finalize(to, session, continues ?? null);
+      };
+      let ack: MeetingWriteAck;
+      try {
+        ack = await write(to, session.id, "finalize", finalizeBody(to));
+      } catch (error) {
+        /*
+          THE SHELL COULD NOT EVEN TAKE IT, AND IT HAS BEEN TOO LONG.
+
+          A shell that throws on every finalize leaves the meeting with nobody
+          to save it, just as one that holds it does. The owner's meetings of
+          2026-10-28 got `ENOENT ... outbox.json.tmp -> outbox.json` back from
+          every try: the shell's own queue file could not be written
+          (`apps/desktop/src/main/store.ts`). Past the hold limit the window
+          files the meeting the same way as below. A refusal is not rescued:
+          only `unavailable`, the answer that means "ask again".
+        */
+        if (
+          fallback === undefined ||
+          !(error instanceof MeetingGatewayError) ||
+          error.code !== ERRORS.unavailable ||
+          !heldPastLimit(session, now())
+        ) {
+          throw error;
+        }
+        try {
+          return await fileFromWindow(fallback);
+        } catch (windowError) {
+          throw new MeetingGatewayError(
+            ERRORS.unavailable,
+            `${error.message} ${DESKTOP_WRITE_SENTENCES.windowFailed} ${messageOf(windowError)}`,
+          );
+        }
+      }
       if (ack.notePath === null) {
         /*
           HELD TOO LONG: THE WINDOW SAVES IT.
@@ -235,10 +271,7 @@ export function createDesktopGateway(
         */
         if (fallback !== undefined && heldPastLimit(session, now())) {
           try {
-            // In the protocol's order, so the writer has the meeting before it is asked to file it. The page's
-            // own writer keeps nothing for the first three, and files from `session` itself.
-            await fallback.putSession(to, session);
-            return await fallback.finalize(to, session, continues ?? null);
+            return await fileFromWindow(fallback);
           } catch (error) {
             throw new MeetingHeldByDevice(
               `${DESKTOP_WRITE_SENTENCES.queued} ${DESKTOP_WRITE_SENTENCES.windowFailed} ${messageOf(error)}`,

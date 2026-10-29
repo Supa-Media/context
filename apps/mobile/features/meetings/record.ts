@@ -624,7 +624,7 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
  */
 function restoredSyncState(
   record: Partial<MeetingRecord>,
-): Pick<MeetingRecord, "rejection" | "lastError" | "handedOver"> {
+): Pick<MeetingRecord, "rejection" | "lastError" | "handedOver"> & { attempts?: number } {
   const rejection = record.rejection;
   if (
     rejection !== undefined &&
@@ -633,6 +633,22 @@ function restoredSyncState(
     rejection.message.startsWith(QUEUED_ON_THIS_MACHINE)
   ) {
     return { rejection: undefined, lastError: QUEUED_ON_THIS_MACHINE, handedOver: true };
+  }
+  /*
+    The Mac app could not write its own queue file (`ENOENT ... outbox.json`,
+    two of its writes sharing one temporary file; fixed in
+    `apps/desktop/src/main/store.ts`). Six of those parked the owner's meetings
+    of 2026-10-28, and they are this app's failure, not the meeting's: put back
+    with a fresh count, so the next drain tries again, and a meeting past
+    `SHELL_HOLD_LIMIT_MS` is saved from the window (`desktopGateway.ts`).
+  */
+  if (
+    rejection !== undefined &&
+    rejection.code === "RETRIES_EXHAUSTED" &&
+    typeof rejection.message === "string" &&
+    rejection.message.includes("outbox.json")
+  ) {
+    return { rejection: undefined, lastError: rejection.message, attempts: 0 };
   }
   return {
     rejection,

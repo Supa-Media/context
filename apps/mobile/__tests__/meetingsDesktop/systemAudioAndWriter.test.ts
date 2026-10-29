@@ -503,6 +503,51 @@ describe("the shell records it, and the shell writes it", () => {
     });
   });
 
+  /*
+    A SHELL THAT THROWS ON THE FINALIZE, PAST THE LIMIT, IS RESCUED THE SAME WAY.
+
+    The owner's meetings of 2026-10-28 got `ENOENT ... outbox.json.tmp ->
+    outbox.json` back from the shell on every try, so "held" never happened and
+    the branch above never ran. Sabotage, run: drop the catch in
+    `desktopGateway.finalize` and the first of these fails.
+  */
+  const throwingShell = () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    return {
+      ...shell.bridge.meetings!,
+      write: async () => {
+        throw new Error("ENOENT: no such file or directory, rename 'outbox.json.tmp' -> 'outbox.json'");
+      },
+    };
+  };
+
+  test("a finalize the shell throws on, past the limit, is filed by the window", async () => {
+    const page = fakeGateway();
+    const gateway = createDesktopGateway(throwingShell(), { fallback: page, now: minutesAfterEnd(11) });
+    const ack = await gateway.finalize(null, held);
+    expect(ack.state).toBe("complete");
+    expect(page.notesWritten()).toBe(1);
+  });
+
+  test("...but before the limit the throw stands, and is asked again", async () => {
+    const page = fakeGateway();
+    const gateway = createDesktopGateway(throwingShell(), { fallback: page, now: minutesAfterEnd(2) });
+    await expect(gateway.finalize(null, held)).rejects.toMatchObject({ code: "meeting_unavailable" });
+    expect(page.notesWritten()).toBe(0);
+  });
+
+  test("...and a refusal from the shell is never rescued, however late", async () => {
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const refusing = {
+      ...shell.bridge.meetings!,
+      write: async () => ({ notePath: null, rejected: { code: "meeting_forbidden", message: "no" } }),
+    };
+    const page = fakeGateway();
+    const gateway = createDesktopGateway(refusing as never, { fallback: page, now: minutesAfterEnd(60) });
+    await expect(gateway.finalize(null, held)).rejects.toMatchObject({ code: "meeting_forbidden" });
+    expect(page.notesWritten()).toBe(0);
+  });
+
   test("A MEETING THE MACHINE NEVER SENDS IS SAVED: the page's writer is the shell's fallback", async () => {
     const shell = fakeDesktopBridge({ capabilities: { mic: true } });
     installShell(shell);
