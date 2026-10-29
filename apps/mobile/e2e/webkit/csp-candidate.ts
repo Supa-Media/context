@@ -39,6 +39,10 @@ const FIXTURE_CONVEX_ORIGIN = "https://e2e-fixture.invalid";
 
 const REPO = join(__dirname, "..", "..", "..", "..");
 
+/** Where the router's report-only policy reports, and where the candidate's enforced copy reports instead. */
+export const REPORT_PATH = "/_csp-report";
+export const ENFORCED_REPORT_PATH = "/_csp-report/enforce";
+
 export type CandidateRule = { prefix: string; document: string; headers: Record<string, string | string[]> };
 
 /** The router's modules, through Playwright's own TypeScript loader (the router is typed for Workers, not this app). */
@@ -105,7 +109,14 @@ export function candidateRules(mode: CandidateMode): CandidateRule[] {
     if (sent["content-security-policy-report-only"] !== reportOnly) {
       throw new Error(`the router's report-only policy for ${prefix} is not reportOnlyPolicyFor's`);
     }
-    const added = mode === "full" ? reportOnly : mode === "script" ? only(reportOnly, ["script-src"]) : null;
+    const candidate = mode === "full" ? reportOnly : mode === "script" ? only(reportOnly, ["script-src"]) : null;
+    // Its reports go to an address of their own: WebKit's reports carry no
+    // disposition, so the address is the only way to tell an enforced
+    // violation from one the report-only copy of the same policy sent.
+    const added = candidate === null ? null : candidate.replace(`report-uri ${REPORT_PATH}`, `report-uri ${ENFORCED_REPORT_PATH}`);
+    if (added !== null && !added.includes(`report-uri ${ENFORCED_REPORT_PATH}`)) {
+      throw new Error(`the candidate for ${prefix} has no report-uri ${REPORT_PATH} to redirect`);
+    }
     const rule: Record<string, string | string[]> =
       added === null ? { ...sent } : { ...sent, "content-security-policy": [sent["content-security-policy"] ?? "", added] };
     // HSTS on a plain-HTTP local server means nothing, and is left off.

@@ -74,21 +74,24 @@ function ruleFor(pathname) {
 }
 
 /** Each violation as `csp-report-log.mjs` bounds it: classes, keywords and origins only. */
-function recordReports(text) {
+function recordReports(text, disposition) {
   const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
-  for (const line of reportLines(text, classify)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+  for (const line of reportLines(text, classify, disposition)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
 }
+
+/** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */
+const REPORT_ADDRESSES = { "/_csp-report": "report", "/_csp-report/enforce": "enforce" };
 
 const server = createServer((req, res) => {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-  if (reportLog !== null && req.method === "POST" && pathname === "/_csp-report") {
+  if (reportLog !== null && req.method === "POST" && Object.hasOwn(REPORT_ADDRESSES, pathname)) {
     let text = "";
     req.setEncoding("utf8");
     req.on("data", (chunk) => {
       if (text.length < 16 * 1024) text += chunk;
     });
     req.on("end", () => {
-      recordReports(text);
+      recordReports(text, REPORT_ADDRESSES[pathname]);
       res.writeHead(204).end();
     });
     return;

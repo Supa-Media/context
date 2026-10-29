@@ -46,9 +46,13 @@ export function directiveOf(value) {
   return typeof value === "string" && /^[a-z-]{1,40}$/.test(value) ? value : "unknown";
 }
 
-function dispositionOf(value) {
-  // Chrome's legacy report omits it for an enforced policy.
-  if (value === undefined) return "enforce";
+/**
+ * The disposition. The address a report arrived at decides it when the
+ * server knows (`known`): WebKit's reports carry none, and a body that
+ * claims one the address contradicts is "unknown", which fails the check.
+ */
+function dispositionOf(value, known) {
+  if (known !== undefined) return value === undefined || value === known ? known : "unknown";
   return value === "enforce" || value === "report" ? value : "unknown";
 }
 
@@ -95,12 +99,12 @@ function bodiesOf(text) {
   return bodies;
 }
 
-/** One log line per violation in `text`, every field bounded as above. */
-export function reportLines(text, classify) {
+/** One log line per violation in `text`, every field bounded as above; `disposition` is the one its address implies, if any. */
+export function reportLines(text, classify, disposition) {
   return bodiesOf(text).map((body) => ({
     document: documentOf(body["document-uri"] ?? body.documentURL, classify),
     directive: directiveOf(body["effective-directive"] ?? body.effectiveDirective ?? body["violated-directive"]),
     blocked: originOnly(body["blocked-uri"] ?? body.blockedURL),
-    disposition: dispositionOf(body.disposition),
+    disposition: dispositionOf(body.disposition, disposition),
   }));
 }

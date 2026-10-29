@@ -24,7 +24,17 @@ the server enforces as much of the report-only policy as the mode asks for:
 - `script`: the report-only policy's `script-src`, and nothing else.
 - `full`: every directive in the report-only policy.
 
-Reports go to the same `/_csp-report` path. The server keeps the same fields
+The router's report-only policy still reports to `/_csp-report`; the
+enforced copy reports to `/_csp-report/enforce`, and that address is how a
+report's disposition is known. WebKit's legacy reports carry no
+`disposition` for either policy, and in `full` mode the two policies are the
+same text, so neither the body nor its `original-policy` can tell them apart.
+A body whose own disposition contradicts its address, or a report with
+neither, is logged "unknown" and fails the check; nothing assumes "enforce".
+(Before this, a missing disposition was logged as "enforce", which
+mislabelled WebKit's report-only style rows in the first CI run.)
+
+The server keeps the same fields
 the router does, with the same bounds (`csp-report-log.mjs`): a document class
 from a fixed list, a directive of at most 40 lowercase letters and hyphens, an
 origin or one of the keywords CSP reports, and the disposition. It is plain
@@ -102,6 +112,31 @@ In `full` mode, every violation is a style or font one:
    request event, blocked ones included, so it fails. Nothing reaches esm.sh,
    but the guard cannot tell that, and it should not be loosened to tell it
    until `font-src` is the directive being moved.
+
+### What the first WebKit run showed (CI, 2026-10-29, head f34694d6)
+
+`script` mode, per-push specs: 43 passed, 3 failed. All three failures are
+`mermaid.spec.ts`: the diagram's SVG never appeared, on the first attempt and
+the retry. The trace shows WebKit refusing `/drawing-assets/diagram/frame.js`
+under the enforcing `script-src`, alongside a `[Report Only]` duplicate of
+the same refusal. Chromium ran the same frame under the same policy. So the
+two logged `script-src-elem` rows for that document are one enforced refusal
+plus its report-only duplicate, not two independent refusals.
+
+The diagram frame is `sandbox="allow-scripts"` without `allow-same-origin`,
+so its document has an opaque origin, and it loads `frame.js` from its own
+path under `'self'`. The working explanation is that WebKit matches `'self'`
+in a header policy against that opaque origin rather than the URL's. If so,
+the router's real report-only policy for this path would refuse the script
+in Safari once enforced. That makes it a production blocker, not a fixture
+artefact. `cspOpaqueSelf.spec.ts` tests it one variable at a time, in frames
+served by `page.route`: header `'self'`, meta `'self'` (what the diagram page
+ships today, which runs), header `'self'` plus the origin named, and an
+unsandboxed control. Chromium runs all four. The WebKit result decides the
+fix. If header `'self'` fails there, the diagram page needs a policy of its
+own from the router that keeps the frame opaque: its meta's directives, its
+origin named in `script-src`, and its own style rules. Root reviews that
+change separately; this PR changes no production policy.
 
 ### What this does not prove
 

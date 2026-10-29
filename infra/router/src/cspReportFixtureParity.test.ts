@@ -14,7 +14,7 @@ import { parseCspReport } from "./cspReport";
 
 type Line = { document: string; directive: string; blocked: string; disposition: string };
 type FixtureLog = {
-  reportLines: (text: string, classify: (pathname: string) => string) => Line[];
+  reportLines: (text: string, classify: (pathname: string) => string, disposition?: "enforce" | "report") => Line[];
   DOCUMENT_CLASSES: string[];
 };
 
@@ -102,5 +102,66 @@ describe("the browser suite's CSP log keeps the router's bounds", () => {
       { document: "shell", directive: "font-src", blocked: "https://cdn.example", disposition: "report" },
     ]);
     expect(reportLines("not json", classify)).toEqual([]);
+  });
+
+  /*
+    WebKit's legacy report has no `disposition` for either policy, and in the
+    candidate's `full` mode the enforced copy and the report-only policy are
+    the same text, so neither the body nor `original-policy` can tell them
+    apart. The address can: the enforced copy reports to its own
+    (`csp-candidate.ts`). Without a known address a missing disposition is
+    "unknown", which fails the evidence check, never a guess.
+  */
+  const POLICY = "script-src 'self'; style-src 'self'; report-uri /_csp-report";
+  const webkitLegacy = JSON.stringify({
+    "csp-report": {
+      "document-uri": "http://127.0.0.1:4874/drawing-assets/diagram/index.html",
+      referrer: "",
+      "violated-directive": "script-src-elem",
+      "effective-directive": "script-src-elem",
+      "original-policy": POLICY,
+      "blocked-uri": "http://127.0.0.1:4874/drawing-assets/diagram/frame.js",
+      "status-code": 200,
+    },
+  });
+  const chromeLegacy = (disposition: string) =>
+    JSON.stringify({
+      "csp-report": {
+        "document-uri": "http://127.0.0.1:4874/",
+        "effective-directive": "style-src-elem",
+        "original-policy": POLICY,
+        "blocked-uri": "inline",
+        disposition,
+      },
+    });
+
+  it("takes a WebKit report's disposition from the address it arrived at", async () => {
+    const { reportLines } = await fixtureLog();
+    const classify = () => "diagram";
+    expect(reportLines(webkitLegacy, classify, "enforce")[0]?.disposition).toBe("enforce");
+    expect(reportLines(webkitLegacy, classify, "report")[0]?.disposition).toBe("report");
+  });
+
+  it("never assumes one: no address and no disposition is unknown", async () => {
+    const { reportLines } = await fixtureLog();
+    expect(reportLines(webkitLegacy, () => "diagram")[0]?.disposition).toBe("unknown");
+  });
+
+  it("keeps Chrome's own disposition, and refuses one the address contradicts", async () => {
+    const { reportLines } = await fixtureLog();
+    const classify = () => "shell";
+    expect(reportLines(chromeLegacy("report"), classify)[0]?.disposition).toBe("report");
+    expect(reportLines(chromeLegacy("report"), classify, "report")[0]?.disposition).toBe("report");
+    expect(reportLines(chromeLegacy("report"), classify, "enforce")[0]?.disposition).toBe("unknown");
+    expect(reportLines(chromeLegacy("enforce"), classify, "report")[0]?.disposition).toBe("unknown");
+    expect(reportLines(chromeLegacy("Enforce"), classify)[0]?.disposition).toBe("unknown");
+  });
+
+  it("never logs the original policy", async () => {
+    const { reportLines } = await fixtureLog();
+    for (const line of reportLines(webkitLegacy, () => "diagram", "enforce")) {
+      expect(JSON.stringify(line)).not.toContain("script-src 'self'");
+      expect(JSON.stringify(line)).not.toContain("frame.js");
+    }
   });
 });

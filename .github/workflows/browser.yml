@@ -331,7 +331,8 @@ jobs:
           set -euo pipefail
           specs="e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
             e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts
-            e2e/webkit/drawingFonts.spec.ts e2e/webkit/mermaid.spec.ts e2e/webkit/htmlPreview.spec.ts"
+            e2e/webkit/drawingFonts.spec.ts e2e/webkit/mermaid.spec.ts e2e/webkit/htmlPreview.spec.ts
+            e2e/webkit/cspCandidateRules.spec.ts e2e/webkit/cspOpaqueSelf.spec.ts"
           # Per push the browser tests the editor and what it draws; the plugin
           # panels join once a day, with the community releases fetched.
           if [ "$DAILY" = true ]; then
