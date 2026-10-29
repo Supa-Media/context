@@ -78,6 +78,17 @@ describe("passkeys off in Tex's browser", () => {
     expect(Function.prototype.toString.call(once)).toMatch(/\{ \[native code\] \}$/);
     expect(page.run<boolean>(PASSKEYS_OFF_CHECK)).toBe(true);
   });
+
+  it("leaves nothing in the page that names what this browser is", () => {
+    // The mark the source sets is an own property of `window`, so every script on
+    // every page the browser opens can read it. Measured in Chromium: a page that
+    // knows the key gets `true` back. Naming the product there would undo the
+    // native-looking wrapper above — a site could tell the assistant from the
+    // person whose accounts it is signed into, and act on the difference.
+    for (const source of [PASSKEYS_OFF_SOURCE, PASSKEYS_OFF_CHECK]) {
+      expect(source).not.toMatch(/context|\btex\b|supa|assistant|claude|passkeys-off/i);
+    }
+  });
 });
 
 describe("Google's passkey step", () => {

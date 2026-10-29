@@ -23,8 +23,17 @@
 
 import type { AttachedPage } from "./cdp";
 
-/** Set on a page once the source below has run, so a second run does nothing. */
-const MARK = 'Symbol.for("context.passkeys-off")';
+/**
+ * Set on a page once the source below has run, so a second run does nothing.
+ *
+ * Every script on every page this browser opens can read it, so it names
+ * nothing: a key that said what this browser is would undo the native-looking
+ * wrapper below, letting a site tell the assistant from the person whose
+ * accounts it is signed into. It is in the global registry because the source
+ * runs afresh in each document and has to find its own earlier run; the string
+ * is arbitrary and long enough that no page sets it by chance.
+ */
+const MARK = 'Symbol.for("b7f2a91c4d")';
 
 /**
  * Run as page code, in the page's own world (its scripts are the ones that
