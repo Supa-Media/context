@@ -100,6 +100,30 @@ describe("Context Messages extension config plugin", () => {
     expect(shell).toContain("[id, status, text]");
   });
 
+  /*
+    The fence has to mean the same thing on both ends. Swift rejects a literal
+    `..`; the gateway resolves the path with the WHATWG URL parser, which
+    treats `%2e%2e` (and `.%2e`) as a dot segment, so an encoded climb reads
+    as `/cards/...` to the phone and as something else entirely to the
+    gateway, carrying the person's bearer with it.
+  */
+  test("a path that climbs out of /cards/ once the gateway parses it is refused", () => {
+    const grant = fs.readFileSync(target("CardGrant.swift"), "utf8");
+    const climbs = ["/cards/%2e%2e/admin", "/cards/%2E%2E/admin", "/cards/.%2e/admin", "/cards/a/%2e%2e/%2e%2e/tokens"];
+
+    for (const climb of climbs) {
+      // What the gateway makes of it: no longer under /cards/.
+      expect(new URL(`https://gateway.example.com${climb}`).pathname).not.toMatch(/^\/cards\//);
+    }
+    // So the phone must not send one: a percent escape has no place in a route
+    // name. Asserted against the source, as its neighbours are, because CI has
+    // no Swift; the lines above are the half that can be run.
+    expect(grant).toContain("percentInPath");
+    // Applied to the route, not the whole path: a query value may be escaped.
+    expect(grant).toContain('let route = path.prefix { $0 != "?" }');
+    expect(grant).toContain("guard !percentInPath(route) else { return false }");
+  });
+
   test("a card opens only a context.lc link", () => {
     const source = fs.readFileSync(target("MessagesViewController.swift"), "utf8");
     expect(source).toContain('url.scheme == "https"');
