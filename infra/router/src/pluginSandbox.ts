@@ -13,6 +13,13 @@
  * missing file, and the frame must only ever be handed the sandbox, so the
  * file is checked to be the sandbox page (`scripts/build-plugin-sandbox.mjs`)
  * before it is returned.
+ *
+ * The page is public and ungated: plugins a context already enabled run in
+ * production whatever the experiment flag says. On its own it is inert (no
+ * plugin code, no credential, an opaque origin that can reach nothing); the
+ * threat model is `docs/decisions/plugins/message-checks-and-shim.md`, "The
+ * sandbox is a page of its own, and is public on purpose", and the real-engine
+ * proof is `apps/mobile/e2e/webkit/pluginSandboxPage.spec.ts`.
  */
 
 import type { Env } from "./env";

@@ -311,6 +311,71 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The plugin sandbox's boundary in a real engine, per push, but only when
+  # the sandbox itself changed. It is a security boundary rather than a
+  # screen, which is the kind of "super critical" the per-push rule above keeps
+  # in the browser: the page the router serves, loaded by URL into an
+  # opaque-origin frame, its handshake, and the tripwire for a frame that
+  # reloads or navigates itself (`pluginSandboxPage.spec.ts`). Every request
+  # is fulfilled by `page.route`, so it needs no web export and no network.
+  plugin_sandbox_scope:
+    name: Does this touch the plugin sandbox?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.scope.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          push-diff: "true"
+          paths: |
+            packages/obsidian-runtime/**
+            infra/router/src/pluginSandbox.ts
+            infra/router/src/securityHeaders.ts
+            infra/router/src/cspReport.ts
+            apps/mobile/features/console/plugins/PluginSandbox.web.tsx
+            scripts/build-plugin-sandbox.mjs
+            apps/mobile/e2e/webkit/pluginSandbox.spec.ts
+            apps/mobile/e2e/webkit/pluginSandboxPage.spec.ts
+            apps/mobile/e2e/webkit/playwright.config.ts
+            .github/workflows/browser.yml
+
+  plugin_sandbox_webkit:
+    name: Plugin sandbox in WebKit
+    needs: plugin_sandbox_scope
+    if: needs.plugin_sandbox_scope.outputs.affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - name: The sandbox boundary, srcdoc and by URL
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_WEB_EXPORT_DIR: /tmp/no-export
+        run: >-
+          mkdir -p /tmp/no-export &&
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list
+          e2e/webkit/pluginSandbox.spec.ts e2e/webkit/pluginSandboxPage.spec.ts
+      - name: Keep sandbox failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-sandbox-results
+          path: apps/mobile/e2e/webkit/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   editor_webkit:
     name: Editor in WebKit
     needs: [webkit_build, webkit_full, webkit_editor, webkit_offline]
