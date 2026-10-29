@@ -1,0 +1,49 @@
+# Read back which control-plane functions failed in production recently, and
+# with what kind of error, so a refusal the gateway answers only as
+# "storage unavailable" can be taken apart (group Tex, 2026-10-29). Manual only.
+#
+# This run page is public, so it prints a function's name, a count and the
+# error's first words with every digit run, id-like token and quoted value
+# replaced: never a workspace, a person, a path or a key.
+name: Control plane errors
+
+on:
+  workflow_dispatch:
+    inputs:
+      history:
+        description: "How many recent log events to read (100 to 5000)"
+        required: true
+        default: "2000"
+      match:
+        description: "Only functions whose path contains this (blank for all), e.g. controlPlane"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  errors:
+    name: Read recent function errors
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Read and summarise
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          HISTORY: ${{ inputs.history }}
+          MATCH: ${{ inputs.match }}
+        run: |
+          set -uo pipefail
+          case "$HISTORY" in ''|*[!0-9]*) echo "history must be a number" >&2; exit 1 ;; esac
+          case "$MATCH" in *[!A-Za-z0-9_:/.-]*) echo "match must be a function path fragment" >&2; exit 1 ;; esac
+          timeout 90 npx convex logs --prod --history "$HISTORY" --jsonl > events.jsonl 2>/dev/null || true
+          node scripts/control-plane-errors.mjs events.jsonl
