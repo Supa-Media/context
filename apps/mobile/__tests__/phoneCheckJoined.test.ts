@@ -29,6 +29,7 @@ let mockConfirm = "joined";
 jest.mock("convex/react", () => ({
   useAction: () => async (args: Record<string, unknown>) =>
     "code" in args ? { status: mockConfirm } : { status: "sent", phone: "+15555550100" },
+  useMutation: () => async () => ({ status: "skipped" }),
 }));
 
 import { act, createElement } from "react";

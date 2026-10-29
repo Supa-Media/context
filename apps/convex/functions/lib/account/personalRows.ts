@@ -91,6 +91,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // That they skipped the phone step: a time.
+  const phoneCheckSkips = await ctx.db
+    .query("phoneCheckSkips")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of phoneCheckSkips) await ctx.db.delete(row._id);
+
   // How their own Tex talks: a few closed choices and a number.
   const texStylePreferences = await ctx.db
     .query("texStylePreferences")

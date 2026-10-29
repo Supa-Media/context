@@ -262,8 +262,8 @@ export default function AppLayout() {
     server answers "required" only when the check is switched on, has its
     keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
   */
-  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean }>(results.phoneCheck);
-  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen />;
+  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean; canSkip?: boolean }>(results.phoneCheck);
+  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen canSkip={phoneAnswer?.canSkip === true} />;
 
   /*
     An account a phone made (a number staff let in from the waitlist) has no

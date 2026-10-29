@@ -123,7 +123,7 @@ describe("when it asks", () => {
 
   test("signed out is never asked, and cannot send or confirm", async () => {
     const t = setupTest();
-    expect(await t.query(api.functions.phoneCheck.myPhoneCheck, {})).toEqual({ required: false, confirmed: false, needsEmail: false });
+    expect(await t.query(api.functions.phoneCheck.myPhoneCheck, {})).toEqual({ required: false, confirmed: false, needsEmail: false, canSkip: false });
     expect(errorCode(await captureError(() => t.action(api.functions.phoneCheck.sendPhoneCode, { phone: PHONE })))).toBe(
       "NOT_AUTHENTICATED",
     );
