@@ -64,6 +64,22 @@ describe("Context Messages extension config plugin", () => {
     expect(source).toContain('const ICON_SET = "iMessage App Icon"');
   });
 
+  test("the shell bakes in what card pages may use, words for every permission included", () => {
+    // Card formats ship as context.lc pages with a deploy; anything they need from the phone has to be here first.
+    const plist = fs.readFileSync(target("ContextMessages-Info.plist"), "utf8");
+    for (const key of ["NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryUsageDescription", "NSLocationWhenInUseUsageDescription"]) {
+      expect(plist).toMatch(new RegExp(`<key>${key}</key>\\s*<string>[^<]{10,}</string>`));
+    }
+    const plugin = fs.readFileSync(path.join(__dirname, "..", "plugins", "with-context-messages.js"), "utf8");
+    expect(plugin).toContain('"CardShell.swift"');
+    const shell = fs.readFileSync(target("CardShell.swift"), "utf8");
+    for (const ability of ["haptic", "copy", "insertText", "share", "close", "open"]) expect(shell).toContain(`case "${ability}"`);
+    const controller = fs.readFileSync(target("MessagesViewController.swift"), "utf8");
+    // Any kind of card opens its page, not a fixed list.
+    expect(controller).toContain("isCardKind(kind)");
+    expect(controller).not.toMatch(/\["pick", "ask", "hello"\]\.contains/);
+  });
+
   test("a card opens only a context.lc link", () => {
     const source = fs.readFileSync(target("MessagesViewController.swift"), "utf8");
     expect(source).toContain('url.scheme == "https"');

@@ -224,9 +224,22 @@ the time". So before the shell's first native build it opens any
 `/messages/<kind>` rather than a fixed list, and the bridge also takes
 `open` (a context.lc link, in the app), `haptic` and `close`. A new format is
 then a new page and a deploy; a kind with no page 404s and falls back to
-opening the card's link. Only a new phone ability (camera, live bubble
-layout) needs another build. Narrowing the kinds back to a list puts every
-new format behind an App Store build.
+opening the card's link. Narrowing the kinds back to a list puts every new
+format behind an App Store build.
+
+The owner then asked to "package everything we think we might need ... baked
+into the permissions" so the shell needs no build for a while
+(`CardShell.swift`). The bridge also takes `copy`, `insertText` (words in the
+text field, still sent by the person), `share` (the share sheet) and haptic
+styles. A card sent with `live: true` goes out as a live bubble: in the
+transcript the extension draws the card's page with `bubble=1`, at the card's
+`bh` height (60 to 400 points), with taps passing through to open the panel;
+phones without the app see the template. The camera, microphone, photos and
+location are the web's own APIs in the page, each behind iOS's prompt, which
+the extension's Info.plist words. A page reads `window.contextShell` (version
+and abilities) before its script runs. None of these reach another person
+without the person's own tap on Send, and none reads anything back to the
+page. Test: `apps/mobile/__tests__/contextMessagesPlugin.test.js`.
 
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
