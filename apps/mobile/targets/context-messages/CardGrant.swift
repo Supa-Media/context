@@ -42,10 +42,25 @@ actor CardGrant {
   private var refreshing: Task<Stored?, Never>?
 
   /// A path a page may fetch: under `/cards/`, plain characters, no climbing out.
+  ///
+  /// `..` is refused, and so is any percent escape **before the query**. The
+  /// two ends read a path with different parsers: this one compares the
+  /// characters as written, while the gateway resolves it with the WHATWG URL
+  /// parser, which counts `%2e%2e` and `.%2e` as a dot segment. So a literal
+  /// check alone lets `/cards/%2e%2e/admin` read as under `/cards/` here and
+  /// arrive somewhere else entirely there, with the person's bearer on it. A
+  /// route name needs no escape; a query value may have as many as it likes.
   static func isCardPath(_ path: String) -> Bool {
     guard path.hasPrefix("/cards/"), path.count <= 1024, !path.contains(".."), !path.contains("//") else { return false }
+    let route = path.prefix { $0 != "?" }
+    guard !percentInPath(route) else { return false }
     let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/-_.~?=&%+,:"))
     return path.unicodeScalars.allSatisfy { $0.isASCII && allowed.contains($0) }
+  }
+
+  /// Whether the part before the query carries a percent escape.
+  static func percentInPath(_ route: Substring) -> Bool {
+    route.contains("%")
   }
 
   /// The page's request with the grant added: (status, body). 401 with
