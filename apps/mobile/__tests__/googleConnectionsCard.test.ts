@@ -201,7 +201,7 @@ describe("nothing is copied, so nothing is behind", () => {
   // quotes it uses and notes the person keeps do stay.
   test("the card says nothing is copied in automatically, and what is kept", () => {
     const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
-    expect(screen.text()).toContain("Your AI reads mail, calendar and chat from Google when you ask, and nothing is copied into your notes automatically. Tex's replies and the quotes they use, and any note you save, stay until you delete them.");
+    expect(screen.text()).toContain("Your AI reads mail, calendar and chat from Google when you ask, and during check-ins and routines you allow. Nothing is copied into your notes in bulk; Tex's replies, the quotes and sources they use, check-in records and any note you save stay until you delete them.");
     expect(screen.text()).not.toContain("Nothing is copied into your notes.");
     expect(screen.text()).not.toContain("land in your inbox folder");
     screen.unmount();
