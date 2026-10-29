@@ -3,6 +3,7 @@
  */
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { describe, expect, it } from "@jest/globals";
 
 import { pageStyleNonce, STYLE_NONCE_SOURCE_ID } from "../features/console/files/liveEditorWeb/styleNonce";
 
