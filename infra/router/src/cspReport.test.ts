@@ -178,19 +178,39 @@ describe("the report endpoint", () => {
       directive: "script-src-elem",
       blocked: "https://evil.example",
       page: "https://context.lc",
+      document: "shared-note",
     });
-    expect(logs[0]).not.toMatch(/secret-merger|abc123|localStorage|steal/);
+    expect(logs[0]).not.toMatch(/secret-merger|abc123|localStorage|steal|acme|projects/);
   });
 
   it("reads the Reporting API's array shape", () => {
     expect(
       parseCspReport(JSON.stringify([{ type: "csp-violation", body: { documentURL: LEAKY["document-uri"], blockedURL: "inline", effectiveDirective: "script-src-elem" } }, { type: "deprecation", body: {} }])),
-    ).toEqual([{ directive: "script-src-elem", blocked: "inline", page: "https://context.lc" }]);
+    ).toEqual([{ directive: "script-src-elem", blocked: "inline", page: "https://context.lc", document: "shared-note" }]);
   });
 
   it("never logs a directive or keyword it does not recognise verbatim", () => {
     const [violation] = parseCspReport(JSON.stringify({ "csp-report": { "effective-directive": "x; secret note text", "blocked-uri": "notes about the merger" } }));
-    expect(violation).toEqual({ directive: "unknown", blocked: "unparsed", page: "none" });
+    expect(violation).toEqual({ directive: "unknown", blocked: "unparsed", page: "none", document: "none" });
+  });
+
+  it("names which of our documents a report came from, by class and never by path", () => {
+    const from = (documentURL: string) =>
+      parseCspReport(JSON.stringify([{ type: "csp-violation", body: { documentURL, blockedURL: "inline", effectiveDirective: "script-src-elem" } }]))[0].document;
+    expect(from("https://context.lc/")).toBe("shell");
+    expect(from("https://tex.lc/settings?tab=x")).toBe("shell");
+    expect(from("https://context.lc/console/@acme/projects/secret.md")).toBe("console");
+    expect(from("https://context.lc/console")).toBe("console");
+    expect(from("https://context.lc/consoles")).toBe("shell");
+    expect(from("https://context.lc/drawing-assets/editor/")).toBe("drawing-editor");
+    expect(from("https://context.lc/drawing-assets/plugin-sandbox/index.html")).toBe("plugin-sandbox");
+    expect(from("https://context.lc/drawing-assets/page/box.html")).toBe("page-runtime");
+    expect(from("https://context.lc/drawing-assets/diagram/")).toBe("drawing-assets");
+    expect(from("https://context.lc/note/@acme/a.md")).toBe("shared-note");
+    expect(from("about:srcdoc")).toBe("srcdoc");
+    expect(from("about:blank")).toBe("about");
+    expect(from("blob:https://context.lc/1234")).toBe("other-scheme");
+    expect(from("not a url at all")).toBe("unparsed");
   });
 
   it("answers anything that is not a POST with 405, and logs nothing", async () => {
