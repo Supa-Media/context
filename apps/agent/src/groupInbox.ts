@@ -68,7 +68,7 @@ import { groupLineFor } from "./groupLine";
 import type { NoteCardDrawer } from "./noteCards";
 import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
-import { watchConversation } from "./reviewWatch";
+import { watchConversation, watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
@@ -434,10 +434,10 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
   return false;
 }
 
-/** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke. */
+/** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
 export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
   if (message.routine !== undefined) await routineDone(deps, message, "failed");
-  else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {});
+  else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
 }
 
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */

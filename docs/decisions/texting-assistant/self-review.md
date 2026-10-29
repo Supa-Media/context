@@ -59,6 +59,18 @@ grant. A group's review also reads what the chat said after Tex's last text
 after the last one, found by a fingerprint of the last exchange it read, kept
 beside the conversation's history.
 
+**A turn that failed is reviewed too** (2026-10-29). A group turn given up on
+(the chat got "I couldn't answer that one" or "I'm having trouble answering")
+starts the same watch, and its review carries the asks nobody answered and
+the line sent instead, from the events the chat's object already keeps for the
+gateway, each sent once. The gateway scores those even though no answer was
+kept, and moves no mark. Before this, a chat where every reply failed was
+never watched, so the conversations that went worst were never scored (Tex
+Devs, 2026-10-29). Reverting it: the "a turn that failed is still scored"
+tests fail. The gateway also answers why a review filed nothing (`off`,
+`nothing_new`, `no_tier`, `no_score`, `not_filed`), and the Worker logs it,
+since "asked" alone hid 15 of 17 reviews that day filing nothing.
+
 **"fix this" reviews at once.** The owner's own words, and plain frustration
 (swearing, "I already told you", an angry face), review the conversation right
 after that turn's answer has gone, so a staff report reaches the team while it
