@@ -114,6 +114,19 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
+    it("a chat whose workspace can't be opened is told that, once, after the same tries", async () => {
+      const { storage, w, deps, run } = handedWorld(groupId);
+      deps.fetch = (async (url: string, init?: RequestInit) => {
+        if (new URL(url).pathname === "/agent") return Response.json({ error: "storage_unavailable" }, { status: 503 });
+        return await w.deps.fetch(url, init);
+      }) as unknown as Fetch;
+      await acceptGroup(storage, w.message("Tex what's my name"), 0);
+      await drainGroup(storage, deps);
+      expect((await run()).outcome).toBe("failed");
+      expect(w.texts.filter((text) => text === GROUP_LINES.noStorage)).toHaveLength(1);
+      expect(w.texts).not.toContain(GROUP_LINES.failed);
+    });
+
     it("the logs say a turn ran through the workflow, and on which attempt it answered or gave up", async () => {
       const logs = vi.spyOn(console, "log").mockImplementation(() => {});
       const outcomes = () => logs.mock.calls.flat().map((line) => JSON.parse(String(line))).filter((l) => l.event === "group_turn");

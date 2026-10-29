@@ -37,6 +37,19 @@ import { attachSearchIndexes } from "./search/storeIndexes.js";
  * it; it is not tenancy and is never derived from a workspace id.
  */
 export async function storeForSession(session, env, controlPlane) {
+  try {
+    return await openSessionStore(session, env, controlPlane);
+  } catch (error) {
+    // Every caller answers this with the same reasonless 503, so the reason is said here or nowhere
+    // (group Tex on 2026-10-29: every reply in one chat failed and nothing said why). A code, never a key.
+    if (error instanceof StorageUnavailable) {
+      console.error(JSON.stringify({ event: "storage_unavailable", reason: error.reason, workspace: session?.workspaceId ?? null }));
+    }
+    throw error;
+  }
+}
+
+async function openSessionStore(session, env, controlPlane) {
   if (!session || typeof session.workspaceId !== "string" || !session.workspaceId) {
     throw new StorageUnavailable("no workspace");
   }
@@ -57,7 +70,7 @@ export async function storeForSession(session, env, controlPlane) {
       session.workspaceId
     );
   } catch (error) {
-    if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
+    if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? "unreachable"}`);
     throw error;
   }
   const { binding, searchIndex, meaningIndex, encryptionKey, rotation, noteCap } = opened;
