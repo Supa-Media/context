@@ -31,14 +31,19 @@ real hole, so that is the line not to cross.
 The same run found `Strict-Transport-Security` and `X-Content-Type-Options`
 missing (Low) on Convex's `/.well-known/jwks.json` and
 `/.well-known/openid-configuration` and on `/gateway/*`. Every route
-`gatewayRoute` builds, refusals included, and every route
-`auth.addHttpRoutes` registers now answers with
+`gatewayRoute` builds, refusals included, and the two auth discovery
+documents now answer with
 `Strict-Transport-Security: max-age=31536000` (no `includeSubDomains`: the
 deployment's host is not ours to speak for beneath) and
 `X-Content-Type-Options: nosniff`, through
-`apps/convex/functions/lib/httpSecurityHeaders.ts`. The auth routes are the
-library's; `securedRouter` wraps each handler as Convex registers it, without
-changing its status, body or other headers.
+`apps/convex/functions/lib/httpSecurityHeaders.ts`. The discovery documents
+are served there with the same body, status and caching `@convex-dev/auth`
+uses, and the library's own copies of those two paths are not registered; any
+other route the library adds (none while sign-in is OTP only) is registered
+as it is. Wrapping the library's handlers instead would mean calling a
+registered function's internals, which the credential-reachability analysis
+refuses, so a future OAuth sign-in route would need its headers added the
+same way.
 `apps/convex/__tests__/httpSecurityHeaders.test.ts` fails if either set loses
 them.
 

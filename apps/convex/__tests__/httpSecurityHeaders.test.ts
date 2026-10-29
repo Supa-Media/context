@@ -5,14 +5,15 @@
  * `/gateway/binding`, `/gateway/session` and `/gateway/sessions/by-grant`).
  *
  * Sabotage record (applied, run, observed failing, reverted):
- *  1. `auth.addHttpRoutes(http)` without `securedRouter` fails "the auth
- *     discovery documents ...".
+ *  1. `auth.addHttpRoutes(http)` in place of `addAuthHttpRoutes` fails "the
+ *     auth discovery documents ...".
  *  2. `gatewayRoute` returning `unauthorized()` bare fails "a refused gateway
  *     call carries them too".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { SECURITY_HEADERS, withSecurityHeaders } from "../functions/lib/httpSecurityHeaders";
+import { httpActionGeneric, httpRouter, type HttpRouter } from "convex/server";
+import { addAuthHttpRoutes, SECURITY_HEADERS, withSecurityHeaders } from "../functions/lib/httpSecurityHeaders";
 import { gatewayPost, setupTest } from "./fixtures.helpers";
 
 function expectSecured(response: Response) {
@@ -33,8 +34,28 @@ describe("the control plane's HTTP answers carry HSTS and nosniff", () => {
       expect(response.status).toBe(200);
       expectSecured(response);
       expect(response.headers.get("Content-Type")).toMatch(/application\/json/);
-      expect(await response.json()).toBeTypeOf("object");
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=15, stale-while-revalidate=15, stale-if-error=86400");
     }
+    const configuration = await t.fetch("/.well-known/openid-configuration", { method: "GET" });
+    expect(await configuration.json()).toEqual({
+      issuer: "https://control.context.invalid",
+      jwks_uri: "https://control.context.invalid/.well-known/jwks.json",
+      authorization_endpoint: "https://control.context.invalid/oauth/authorize",
+    });
+    const jwks = await t.fetch("/.well-known/jwks.json", { method: "GET" });
+    expect(await jwks.text()).toBe(JSON.stringify({ keys: [] }));
+  });
+
+  test("every other route the auth library adds is still registered, the discovery paths once", () => {
+    const http = httpRouter();
+    const handler = httpActionGeneric(async () => new Response(null));
+    addAuthHttpRoutes(http, (router: HttpRouter) => {
+      router.route({ path: "/.well-known/jwks.json", method: "GET", handler });
+      router.route({ path: "/.well-known/openid-configuration", method: "GET", handler });
+      router.route({ pathPrefix: "/api/auth/signin/", method: "GET", handler });
+    });
+    expect(http.lookup("/api/auth/signin/google", "GET")?.[0]).toBe(handler);
+    expect(http.lookup("/.well-known/jwks.json", "GET")?.[0]).not.toBe(handler);
   });
 
   test("a gateway answer, with its own no-store kept", async () => {

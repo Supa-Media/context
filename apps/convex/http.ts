@@ -146,12 +146,12 @@ import {
   pubsubPushRoute,
 } from "./functions/lib/googlePush/routes";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
-import { securedRouter, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
+import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
 const http = httpRouter();
 
 // Auth routes (OTP callbacks, the JWKS and OpenID discovery), with the security headers.
-auth.addHttpRoutes(securedRouter(http));
+addAuthHttpRoutes(http, auth.addHttpRoutes);
 
 /**
  * Wrap a control-plane handler so it cannot be reached without the gateway
