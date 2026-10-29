@@ -301,7 +301,7 @@ jobs:
     needs: webkit_build
     if: needs.webkit_build.outputs.affected == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
@@ -319,10 +319,22 @@ jobs:
       - name: The evidence check fails every log that says nothing
         working-directory: apps/mobile
         run: node --test e2e/webkit/csp-candidate-check.selftest.mjs
+      # The plain fixture server, with no headers at all: the diagram page's
+      # own meta policy is the only one.
+      - name: Diagram specs from the plain fixture server
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-plain e2e/webkit/mermaid.spec.ts
       # The baseline: the same diagram specs under exactly the router's headers
       # (report-only included, nothing extra enforced), so a WebKit failure in
       # the step below is told apart from one production already has.
       - name: Diagram specs under production's headers alone
+        if: ${{ !cancelled() }}
         working-directory: apps/mobile
         env:
           CI: "true"
@@ -377,6 +389,7 @@ jobs:
           path: |
             apps/mobile/e2e/webkit/test-results/
             apps/mobile/e2e/webkit/test-results-production/
+            apps/mobile/e2e/webkit/test-results-plain/
             apps/mobile/e2e/webkit/csp-candidate/
             apps/mobile/e2e/webkit/csp-production/
           retention-days: 7

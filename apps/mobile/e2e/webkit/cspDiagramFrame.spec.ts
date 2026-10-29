@@ -15,13 +15,14 @@ import { candidateRules, ENFORCED_REPORT_PATH, REPORT_PATH } from "./csp-candida
  * with `referrerpolicy="no-referrer"`, exactly as `livePreview/diagram.ts`
  * makes it, and served by `page.route` so nothing but the variable changes:
  *
- *  - headers: a bare `script-src 'self'`; the candidate's enforced copy for
+ *  - headers: none (the page's meta policy alone); a bare `script-src 'self'`; the candidate's enforced copy for
  *    this path alone (the router's `script-src`, hashes and hosts included);
  *    every header the candidate sends for this path, the platform policy, the
  *    enforced copy and the report-only policy together; or production's
  *    headers alone, without the enforced copy;
- *  - origin: `https://context.test`, or the fixture's own
- *    `http://127.0.0.1:4874`;
+ *  - origin: `https://context.test`, the fixture's own
+ *    `http://127.0.0.1:4874`, and the two crossed (`http://context.test`,
+ *    `https://127.0.0.1:4874`), so scheme and host are told apart;
  *  - page: a minimal one, or the shipped `index.html` with its meta policy;
  *  - script: a one-line marker, or the shipped `frame.js`, which says
  *    `ready` when it runs.
@@ -54,6 +55,8 @@ const [platform, enforcedCopy] = enforcing as [string, string];
 
 /** Header sets, by name. A list of policies is sent as one comma-joined header, which is the same policies to a browser. */
 const HEADERS: Record<string, Record<string, string>> = {
+  // No header at all: only the shipped page's own meta policy, as the plain fixture server sends it.
+  none: {},
   "bare-self": { "content-security-policy": "script-src 'self'" },
   "candidate-copy": { "content-security-policy": enforcedCopy },
   "candidate-all": {
@@ -67,7 +70,13 @@ function stringHeaders(headers: Record<string, string | string[]>): Record<strin
   return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
-const ORIGINS = { https: "https://context.test", fixture: "http://127.0.0.1:4874" } as const;
+/** Scheme and host apart: the fixture is plain HTTP on an IP address, production is HTTPS on a name. */
+const ORIGINS = {
+  https: "https://context.test",
+  fixture: "http://127.0.0.1:4874",
+  "http-name": "http://context.test",
+  "https-ip": "https://127.0.0.1:4874",
+} as const;
 
 type Variant = { name: string; headers: string; page: "minimal" | "shipped"; script: "marker" | "shipped" };
 
@@ -141,9 +150,6 @@ for (const [label, origin] of Object.entries(ORIGINS)) {
     }
     console.log(`[${browserName}:${label}] ran ${JSON.stringify(ran)}`);
     console.log(`[${browserName}:${label}] reports ${JSON.stringify(Object.fromEntries(reports))}`);
-    // The controls: without the enforced copy, the shipped page runs its shipped script.
-    expect(ran["bare-self.minimal-page.marker-script"], "a bare header 'self' runs the marker").toBe(true);
-    expect(ran["production-only.shipped-page.shipped-script"], "production's headers run the shipped page").toBe(true);
     const blocked = Object.entries(ran).filter(([, value]) => !value).map(([name]) => name);
     expect(blocked, "frames whose script did not run").toEqual([]);
   });

@@ -135,18 +135,28 @@ enforced and one report-only `script-src-elem` row for the diagram, and the
 five style rows were all report-only.
 
 `cspDiagramFrame.spec.ts` narrows it further. It rebuilds the real frame one
-difference at a time, as `livePreview/diagram.ts` makes it: header set (bare
-`'self'`, the candidate's enforced copy alone, every header the candidate
-sends, production's alone), origin (`https://context.test` or the fixture's
-`http://127.0.0.1:4874`), page (minimal or the shipped `index.html` with its
-meta policy) and script (a marker or the shipped `frame.js`). Then it bridges
-back with the shipped page from the fixture's own server, unrouted, with
-each policy on a header line of its own. Chromium runs every frame. The
-WebKit run names the frames that do not, and that decides the fix. The same job first runs `mermaid.spec.ts` and this spec under
-`production` mode, the router's headers alone, so a WebKit failure under the
-candidate is told apart from one production already has. Root
-reviews any change to the diagram page's policy separately; this PR changes
-no production policy, and `mermaid.spec.ts` stays as it is.
+difference at a time, as `livePreview/diagram.ts` makes it: header set (none,
+bare `'self'`, the candidate's enforced copy alone, every header the
+candidate sends, production's alone), origin, page (minimal or the shipped
+`index.html` with its meta policy) and script (a marker or the shipped
+`frame.js`). Then it bridges back with the shipped page from the fixture's
+own server, unrouted. The job runs `mermaid.spec.ts` from the plain server
+(no headers) and the diagram specs under `production` mode before the
+candidate, so a failure the candidate causes is told apart from one the
+fixture already has.
+
+The first WebKit run of it (head 521be076, job 123373317020) split on origin.
+At `https://context.test` all 16 frames ran. At the fixture's
+`http://127.0.0.1:4874` 14 of 16 were blocked. The two that ran were the
+minimal page under production's headers, the only frames with no enforcing
+`'self'` at all. The block was the same under `production` mode as under
+`script`, and `mermaid.spec.ts` failed under production's headers too. So the
+refusal follows the fixture's plain-HTTP, IP-address origin. It is not the
+candidate, and nothing shows it in an HTTPS deployment. That run did not yet
+separate scheme from host. The spec now crosses them (`http://context.test`,
+`https://127.0.0.1:4874`), and adds a no-header variant. Until an HTTPS run
+says otherwise, no production policy or origin list changes, and
+`mermaid.spec.ts` stays as it is.
 
 ### What this does not prove
 
