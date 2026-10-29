@@ -12,7 +12,7 @@ import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
 import { syncChatPhones } from "./lib/guestPhones";
-import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, guestsOnTag, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
@@ -291,7 +291,9 @@ export const applyGroupTurn = internalMutation({
       await clearGuests(ctx, group);
       workspace = chosen;
     } else if (!everyone || shared.length === 0) {
-      return { status: "no_shared" };
+      // Bound here, and its owner or editor tags Tex: the chat goes on as their guests (`lib/textGroupGuests.ts`).
+      const opened = args.routine === true ? null : await guestsOnTag(ctx, group, senderUser);
+      return opened === null ? { status: "no_shared" } : await guestTurn(ctx, args, opened, senderUser, others, true);
     } else if (workspace === null) {
       if (shared.length > 1) return { status: "choose", slugs: shared.map((entry) => entry.slug).sort() };
       workspace = shared[0];

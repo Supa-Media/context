@@ -215,12 +215,30 @@ describe("what the chat reaches", () => {
     expect(await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "nowhere" } })).toEqual(shared);
   });
 
-  test("a bound workspace someone new doesn't share stops being used", async () => {
+  test("a bound workspace someone new doesn't share is refused to a viewer's tag and a routine, never used at team tier", async () => {
     const t = setupTest();
     await crew(t);
     expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "studio" });
     await texter(t, "di", STRANGER);
-    expect(await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE])).toEqual({ status: "no_shared" });
+    expect(await turn(t, CY, [ADA, BO, CY, STRANGER, LINE])).toEqual({ status: "no_shared" });
+    expect(await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE], { routine: true })).toEqual({ status: "no_shared" });
+  });
+
+  test("a bound workspace someone new doesn't share: its editor's tag opens it to them as guests, as their use would", async () => {
+    const t = setupTest();
+    await crew(t);
+    expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "studio", intro: true });
+    await texter(t, "di", STRANGER);
+    // The Crystal Care chat of 2026-10-29: bound, the family not in yet, and a research question refused.
+    const opened = await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE]);
+    expect(opened).toMatchObject({ status: "ready", slug: "studio", bound: true, minted: true, intro: true, guest: { group: expect.stringMatching(/^studio-/) } });
+    expect(opened.guests).toHaveLength(1);
+    // The guest grant, never the team tier the chat had before.
+    const session = await resolves(t, opened.accessToken as string);
+    expect(session?.workspaces[0]?.grantedNames ?? []).toContain("#reads-as-guest");
+    expect(session?.scopes).not.toContain(SCOPE_PRIVATE);
+    // The newcomer may now tag it too, as a guest; the introduction is not repeated.
+    expect(await turn(t, STRANGER, [ADA, BO, CY, STRANGER, LINE])).toMatchObject({ status: "ready", intro: false, guestTagger: expect.stringMatching(/^guest-/) });
   });
 });
 

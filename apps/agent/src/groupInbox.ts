@@ -453,10 +453,10 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
   const command = item.engagement || item.setting || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
-
-  // The app's own list too: more people only ever narrows what Tex may use.
+  // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
   const members = await app.readMembers(chat);
   if (members === null) log("members_unread");
+  if (members === null && !routine && app.senderOnlyWebhook) throw new ServiceError("whapi", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
