@@ -37,6 +37,24 @@ vault); allow AI access on a test account and check Tex reads through it;
 announce the change in the app; then set the switch. Every account that has
 not allowed AI access stops being readable by AI at that moment.
 
+**A canary before the switch (2026-10-29).** Google's Data Access page warns
+against sending production traffic to scopes it does not list yet, and the
+final consent (identity plus the owned calendar read on the standard client,
+AI on the agent client only) has to be filmed and proven before review. So
+`GOOGLE_CUTOVER_CANARY_WORKSPACES` names up to three workspace ids that run
+as though `GOOGLE_AGENT_CLIENT_ACTIVE=true` and `GOOGLE_CALENDAR_SCOPE=owned`,
+while every other workspace runs on the global values (`googleEnvFor` in
+`functions/lib/googleConnect/clients.ts`, threaded through every call that
+reads either setting: both consents, binding, minting, the scope check and
+the app's AI access row). Only the deployment's environment names a
+workspace, never a request or a caller; a list of more than three names
+nobody, so it cannot quietly become the rollout; `none` is the brake. It is
+for synthetic test accounts the operator chose. The cost of dropping it is
+filming the final scopes by switching everyone. The cost of letting a request
+choose it is a per-call bypass of the switch.
+`apps/convex/__tests__/googleConnect/cutoverCanary.test.ts` runs a canary
+workspace beside one that is not named and fails if either leaks.
+
 **Nothing revokes at Google except disconnect.** Google's `/revoke` ends the
 account's grants to the whole project, every client. So a replaced agent
 grant is discarded, not revoked (revoking it would also end the new one and

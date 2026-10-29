@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { agentGrantCovers } from "./lib/googleConnect/aiScopes";
-import { agentClientActive, agentClientConfigured } from "./lib/googleConnect/clients";
+import { agentClientActive, agentClientConfigured, googleEnvFor } from "./lib/googleConnect/clients";
 import { requirePersonalOwnerHandler } from "./lib/googleConnect/attempts";
 import { getAuthUserId } from "./lib/signedIn";
 
@@ -31,7 +31,7 @@ export const myGoogleAiAccess = query({
     const userId = await getAuthUserId(ctx);
     if (userId === null) return [];
     if (!(await requirePersonalOwnerHandler(ctx, { workspaceId: args.workspaceId, userId }))) return [];
-    const active = agentClientActive();
+    const active = agentClientActive(googleEnvFor(args.workspaceId));
     const configured = agentClientConfigured();
     const rows = await ctx.db
       .query("googleConnections")

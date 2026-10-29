@@ -28,6 +28,32 @@ export function agentClientActive(env: Env = process.env): boolean {
   return env[AGENT_CLIENT_ACTIVE_ENV_VAR]?.trim() === "true";
 }
 
+/**
+ * The canary: up to three workspaces, named by id in
+ * `GOOGLE_CUTOVER_CANARY_WORKSPACES` (comma separated), that run as though
+ * both cutover settings were on, `GOOGLE_AGENT_CLIENT_ACTIVE=true` and
+ * `GOOGLE_CALENDAR_SCOPE=owned`, while everyone else runs on the global
+ * values. It is how the final scopes are proven on a synthetic account
+ * without asking every person for them before Google lists them. Only the
+ * deployment's environment names a workspace, never a request, and a list
+ * longer than three names nobody, so it cannot quietly become the rollout.
+ * Any value that names no workspace (e.g. `none`) is the brake.
+ */
+export const CUTOVER_CANARY_ENV_VAR = "GOOGLE_CUTOVER_CANARY_WORKSPACES";
+const CUTOVER_CANARY_LIMIT = 3;
+
+export function cutoverCanary(workspaceId: string | undefined, env: Env = process.env): boolean {
+  if (!set(workspaceId)) return false;
+  const named = (env[CUTOVER_CANARY_ENV_VAR] ?? "").split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return named.length <= CUTOVER_CANARY_LIMIT && named.includes(workspaceId);
+}
+
+/** The environment a workspace's Google calls read: the canary's settings on top for a canary workspace, unchanged for every other. */
+export function googleEnvFor(workspaceId: string | undefined, env: Env = process.env): Env {
+  if (!cutoverCanary(workspaceId, env)) return env;
+  return { ...env, [AGENT_CLIENT_ACTIVE_ENV_VAR]: "true", GOOGLE_CALENDAR_SCOPE: "owned" };
+}
+
 /** Whether the agent client is configured, so a person can give it consent, switched on or not. */
 export function agentClientConfigured(env: Env = process.env): boolean {
   return set(env[AGENT_CLIENT_ID_ENV_VAR]);

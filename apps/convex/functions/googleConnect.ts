@@ -116,7 +116,7 @@ import * as backfill from "./lib/googleConnect/backfill";
 import * as syncTokens from "./lib/googleConnect/syncTokens";
 import * as validators from "./lib/googleConnect/validators";
 import { validateLoginHint } from "./lib/googleConnect/loginHint";
-import { googleClientRole } from "./lib/googleConnect/clients";
+import { googleClientRole, googleEnvFor } from "./lib/googleConnect/clients";
 import { mintAccessToken } from "./lib/googleConnect/mintTokens";
 
 export {
@@ -232,7 +232,7 @@ export const startGmailConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(["gmail"]),
+        scopes: standardScopesFor(["gmail"], googleEnvFor(args.workspaceId)),
       }),
     };
   },
@@ -311,7 +311,7 @@ export const startGoogleConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(products),
+        scopes: standardScopesFor(products, googleEnvFor(args.workspaceId)),
         loginHint: validateLoginHint(args.loginHint),
       }),
     };

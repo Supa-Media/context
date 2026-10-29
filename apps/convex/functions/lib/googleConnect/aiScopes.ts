@@ -21,7 +21,7 @@ import {
   scopesForConnect,
   type GoogleProduct,
 } from "../googleOAuth";
-import { agentClientActive, grantFor } from "./clients";
+import { agentClientActive, googleEnvFor, grantFor } from "./clients";
 
 type Env = Record<string, string | undefined>;
 
@@ -54,12 +54,13 @@ export function agentGrantCovers(products: readonly GoogleProduct[], scopes: rea
 }
 
 interface ScopedConnection {
+  workspaceId?: string;
   scopes: string[];
   agentGrant?: { scopes: string[] };
 }
 
 /** The scopes AI may act on for this connection: those of the grant AI mints from. */
-export function aiScopesOf(row: ScopedConnection, env: Env = process.env): string[] {
+export function aiScopesOf(row: ScopedConnection, env: Env = googleEnvFor(row.workspaceId)): string[] {
   return grantFor("agent", row.agentGrant !== undefined, env) === "agent" ? (row.agentGrant?.scopes ?? []) : row.scopes;
 }
 
