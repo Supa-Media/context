@@ -166,7 +166,7 @@ describe("nothing here is a setting, except who may send", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain("Sync schedule");
     expect(text).not.toContain("every five minutes");
-    expect(text).toContain("Nothing is copied into your notes.");
+    expect(text).toContain("Nothing is copied into your notes in bulk;");
   });
 
   test("no attachment policy: the choice is gone from the panel entirely", () => {
