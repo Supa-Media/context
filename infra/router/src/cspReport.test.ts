@@ -234,6 +234,7 @@ describe("the report endpoint", () => {
     expect(from("https://context.lc/drawing-assets/diagram/")).toBe("drawing-assets");
     expect(from("https://context.lc/note/@acme/a.md")).toBe("shared-note");
     expect(from("about:srcdoc")).toBe("srcdoc");
+    expect(from("about")).toBe("about");
     expect(from("about:blank")).toBe("about");
     expect(from("blob:https://context.lc/1234")).toBe("other-scheme");
     expect(from("not a url at all")).toBe("unparsed");

@@ -17,10 +17,20 @@
  * dozen lines this needs, and `node:http`/`node:fs` are already there.
  *
  * Usage: `node static-server.mjs <export-dir> <port>`
+ *
+ * With `E2E_CSP_RULES` set (`csp-candidate.ts` writes it, only when
+ * `E2E_CSP_CANDIDATE` names a mode), every response carries the headers of the
+ * longest matching rule, with as much of the router's report-only policy
+ * enforced as the mode asks, and `POST /_csp-report` appends one line per
+ * violation to `E2E_CSP_REPORTS`, bounded by `csp-report-log.mjs` to the same
+ * schema the router logs. Without it the server sends no security headers at
+ * all, as before.
  */
-import { createReadStream, existsSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
+import { reportLines } from "./csp-report-log.mjs";
 
 const [, , rootArg, portArg] = process.argv;
 if (rootArg === undefined || portArg === undefined) {
@@ -55,7 +65,50 @@ function fileFor(pathname) {
   return null;
 }
 
-const server = createServer((req, res) => {
+const rules = process.env.E2E_CSP_RULES
+  ? JSON.parse(readFileSync(process.env.E2E_CSP_RULES, "utf8")).sort((a, b) => b.prefix.length - a.prefix.length)
+  : null;
+const reportLog = process.env.E2E_CSP_REPORTS ?? null;
+
+function ruleFor(pathname) {
+  return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
+}
+
+/** Each violation as `csp-report-log.mjs` bounds it: classes, keywords and origins only. */
+function recordReports(text, disposition) {
+  const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
+  for (const line of reportLines(text, classify, disposition)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+}
+
+/** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */
+const REPORT_ADDRESSES = { "/_csp-report": "report", "/_csp-report/enforce": "enforce" };
+
+/*
+  With `E2E_TLS_KEY` and `E2E_TLS_CERT` (a throwaway self-signed pair the
+  Playwright config makes for one run, `E2E_HTTPS=1`), the same server
+  answers over HTTPS, so a spec sees the app on a secure origin as
+  production does.
+*/
+const tls =
+  process.env.E2E_TLS_KEY && process.env.E2E_TLS_CERT
+    ? { key: readFileSync(process.env.E2E_TLS_KEY), cert: readFileSync(process.env.E2E_TLS_CERT) }
+    : null;
+
+const handle = (req, res) => {
+  const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (reportLog !== null && req.method === "POST" && Object.hasOwn(REPORT_ADDRESSES, pathname)) {
+    let text = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      if (text.length < 16 * 1024) text += chunk;
+    });
+    req.on("end", () => {
+      recordReports(text, REPORT_ADDRESSES[pathname]);
+      res.writeHead(204).end();
+    });
+    return;
+  }
+  for (const [name, value] of Object.entries(ruleFor(pathname)?.headers ?? {})) res.setHeader(name, value);
   const direct = fileFor(req.url ?? "/");
   const file = direct ?? join(root, "index.html");
   if (!existsSync(file)) {
@@ -65,8 +118,10 @@ const server = createServer((req, res) => {
   const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
   res.writeHead(200, { "Content-Type": type });
   createReadStream(file).pipe(res);
-});
+};
+
+const server = tls === null ? createHttpServer(handle) : createHttpsServer(tls, handle);
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`static export served: http://127.0.0.1:${port}`);
+  console.log(`static export served: ${tls === null ? "http" : "https"}://127.0.0.1:${port}`);
 });

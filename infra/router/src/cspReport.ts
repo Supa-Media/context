@@ -194,6 +194,9 @@ export type CspViolation = { directive: string; blocked: string; page: string; d
  */
 function documentClass(value: unknown): string {
   if (typeof value !== "string" || value === "") return "none";
+  // Chrome's legacy report names a `srcdoc` (or blank) frame's document as a
+  // bare "about", which is not a URL; it still inherits its parent's policy.
+  if (value === "about") return "about";
   let url: URL;
   try {
     url = new URL(value);

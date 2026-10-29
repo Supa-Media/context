@@ -456,9 +456,11 @@ export function check(root = ROOT) {
   if (!scopeStep.includes('push-diff: "true"')) throw new Error("a merge that does not touch the editor runs its browser tests again");
   const scopedSpecs = [...scopeStep.matchAll(/^ {12}(apps\/mobile\/e2e\/webkit\/[\w.]+\.spec\.ts)$/gm)].map((m) => m[1]).sort();
   const editorJob = jobBlock(browser, "webkit_editor");
-  const editorSpecs = [...editorJob.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`).sort();
-  if (!scopedSpecs.length || scopedSpecs.join() !== [...new Set(editorSpecs)].join()) {
-    throw new Error(`the editor job runs ${editorSpecs.join(", ")} but the scope watches ${scopedSpecs.join(", ")}`);
+  // The CSP candidate job runs per push on this scope too, its daily plugin specs aside.
+  const perPush = editorJob + jobBlock(browser, "webkit_csp_script").split('if [ "$DAILY" = true ]')[0];
+  const perPushSpecs = [...new Set([...perPush.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`))].sort();
+  if (!scopedSpecs.length || scopedSpecs.join() !== perPushSpecs.join()) {
+    throw new Error(`the per-push browser jobs run ${perPushSpecs.join(", ")} but the scope watches ${scopedSpecs.join(", ")}`);
   }
   for (const job of ["webkit_full", "webkit_offline"]) {
     if (!/\n    if: .*needs\.webkit_build\.outputs\.daily == 'true'/.test(jobBlock(browser, job))) {
