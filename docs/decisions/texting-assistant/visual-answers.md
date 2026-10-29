@@ -170,6 +170,26 @@ and the carousel and numbered replies stay. A CI job (`messages-extension`)
 type-checks the extension against the iOS SDK on every pull request that
 touches it, because otherwise only the hand-run native release compiles it.
 
+### A drawn card goes as a Context card (2026-10-29)
+
+Asked by the owner to test native iMessage cards, Tex
+sent its card as a photo and said a card can only be a picture in iMessage,
+in a chat where Context cards were already on (owner, 2026-10-29). Now a card
+Tex drew with `draw_visual` carries its title (or kicker) out of the gateway
+(`outgoingPictures.js` `titleOf`), and where cards go (`cardsOn`, a Sendblue
+one-to-one chat) the worker sends it as a Context card: the drawing is the
+card's picture, the title its caption, and a tap opens `/messages/card`, which
+names it and says to reply in the chat to change it (`apps/agent/src/sendParts.ts`
+`withDrawnCards`, `infra/router/src/messagesCards.ts`). Option cards carry no
+title, so a set still goes as a carousel with its pick card. The photo rides
+along with the card and goes instead when the line refuses it, so the drawing
+always arrives. The texting prompt says a drawn card arrives as a Context card
+on a phone with the app and as a photo elsewhere, and never to say a card can
+only be a picture (`PICTURES_LINE`). Simplifying the fallback away loses the
+drawing on any line without cards. Tests: `apps/agent/src/drawnCards.test.ts`
+(sabotage record in its header), `agentOutgoingPictures.test.mjs` "a drawn
+card carries its title", `messagesCards.test.ts` "a drawn card's page".
+
 ### Cards where the app is, and Yes with a tap (2026-10-28)
 
 The owner, opening the Context app in the Messages drawer and finding only

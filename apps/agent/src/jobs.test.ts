@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LINES, JOB_STALE_MS, MAX_JOB_ATTEMPTS, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LINES, JOB_STALE_MS, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -88,8 +88,8 @@ describe("background jobs", () => {
       place: { chatId: "chat_1", messageId: "m1" },
       spawn: async (_id: string, job: JobRun) => void spawned.push(job),
     };
-    expect(await startJobs(storage, [{ title: "Competitor research", brief: "b" }, { title: "competitor  research!", brief: "b" }], context)).toBe(1);
-    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toBe(2);
+    expect(await startJobs(storage, [{ title: "Competitor research", brief: "b" }, { title: "competitor  research!", brief: "b" }], context)).toEqual({ started: 1, notStarted: [] });
+    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toEqual({ started: 2, notStarted: ["Fourth one"] });
     expect(spawned.map((job) => job.title)).toEqual(["Competitor research", "Trip plan", "Gift ideas"]);
     expect(spawned[0]).toMatchObject({ inbox: PHONE, attempt: 1, origin: { kind: "phone", question: "q" } });
     const listed = await chatJobs(storage, NOW);
@@ -98,8 +98,16 @@ describe("background jobs", () => {
 
     const failing = { ...context, spawn: async () => Promise.reject(new Error("no")) };
     const other = new MemoryStorage();
-    expect(await startJobs(other, [{ title: "x y", brief: "b" }], failing)).toBe(0);
+    expect(await startJobs(other, [{ title: "x y", brief: "b" }], failing)).toEqual({ started: 0, notStarted: ["x y"] });
     expect(await chatJobs(other, NOW)).toEqual([]);
+  });
+
+  it("tells them about a job it said it started that never did, and says nothing when every one started", () => {
+    expect(notStartedText([])).toBeUndefined();
+    const said = notStartedText(["Fourth one"]);
+    expect(said).toContain('"Fourth one"');
+    expect(said).toContain(`${MAX_RUNNING_JOBS} jobs at once`);
+    expect(notStartedText(["A", "B"])).toContain('"A" and "B"');
   });
 
   it("forgets finished jobs after a while, and marks one that died as stopped", async () => {

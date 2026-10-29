@@ -83,6 +83,18 @@ describe("the drawer", () => {
   });
 });
 
+describe("a drawn card's page", () => {
+  it("names the card, escaped, says how to change it, and hands the extension nothing", async () => {
+    const opened = await page("/messages/card?t=%3Cb%3ETeam%20lunch%3C%2Fb%3E");
+    expect(opened.status).toBe(200);
+    expect(opened.html).toContain("&lt;b&gt;Team lunch&lt;/b&gt;");
+    expect(opened.html).not.toContain("<b>Team");
+    expect(opened.html).toContain("Reply to Tex in the chat");
+    expect(requests(opened.html)).toEqual([]);
+    expect((await page("/messages/card")).html).toContain("From Tex");
+  });
+});
+
 describe("every page", () => {
   it("the one script is the one its policy allows, and nothing else may load", async () => {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(BRIDGE_SCRIPT));

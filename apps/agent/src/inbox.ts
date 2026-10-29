@@ -47,7 +47,7 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
-import { sendCardPart } from "./sendParts";
+import { sendCardPart, withDrawnCards } from "./sendParts";
 import { withPickCard, type Choice } from "./pickCard";
 import { settleCard, withAskCard, withCardsHere } from "./cardChats";
 import { withDataCards, type DataCardKind } from "./dataCards";
@@ -75,7 +75,7 @@ import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
@@ -428,7 +428,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
         await out(partEvent(part));
       } else if ("card" in part) {
-        await sendCardPart(line, item.message.chatId, part.card, thread);
+        await sendCardPart(line, item.message.chatId, part, thread, idempotency);
       } else {
         const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
         await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
@@ -589,7 +589,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(withAskCard(withDataCards(withPickCard(await partsFor(texts, pictures, upload), choices, cards), offers, cards), texts, cards));
+  return done(withAskCard(withDataCards(withDrawnCards(withPickCard(await partsFor(texts, pictures, upload), choices, cards), cards), offers, cards), texts, cards));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
@@ -599,15 +599,14 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now()),
-    onJobs: async (jobs) => {
-      await startJobs(storage, jobs, {
+    onJobs: async (jobs) =>
+      notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
         origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
-      });
-    },
+      })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
       if (deps.steerJob && message.text.trim() !== "") await steerJobs(storage, asks, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());

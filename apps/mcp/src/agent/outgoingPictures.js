@@ -69,7 +69,8 @@ const MADE_BY = new Set(["draw_picture", "draw_visual", "make_picture"]);
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_visual (your designed cards: " +
+  "you read in a tool result. It goes after your words; a card you draw arrives as a Context card on a phone with the Context app, " +
+  "and as a photo elsewhere, so never tell them a card can only be a picture in iMessage. To make one, send draw_visual (your designed cards: " +
   "options, photos, plans, days, boards, charts), draw_picture (a poster, an invite, from a page you write) or make_picture " +
   "(a photo: them in an outfit, a scene). Asked for a picture, make one " +
   "now, guessing what they left out, then offer changes; don't ask first.";
@@ -168,7 +169,7 @@ export function outgoingPictures({ enabled, question = "" }) {
           text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
-          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), template: typeof args?.template === "string" ? args.template : "", choice: choiceOf(name, args) });
+          seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data, tool: name, caption: captionOf(name, args), title: titleOf(name, args), template: typeof args?.template === "string" ? args.template : "", choice: choiceOf(name, args) });
           numbers.push(seen.length);
         }
       }
@@ -207,7 +208,7 @@ export function outgoingPictures({ enabled, question = "" }) {
         if (picture && carried + picture.data.length <= MAX_PICTURE_CHARS) {
           carried += picture.data.length;
           if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
-          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+          pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data, ...(picture.title ? { title: picture.title } : {}) });
           captions.push(picture.caption);
         }
         return "";
@@ -225,7 +226,7 @@ export function outgoingPictures({ enabled, question = "" }) {
         if (pictures.length >= MAX_PICTURES || carried + picture.data.length > MAX_PICTURE_CHARS) break;
         carried += picture.data.length;
         if (picture.choice) choices.push({ ...picture.choice, picture: pictures.length });
-        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data });
+        pictures.push({ name: picture.name, mediaType: picture.mediaType, data: picture.data, ...(picture.title ? { title: picture.title } : {}) });
         captions.push(picture.caption);
       }
     }
@@ -301,6 +302,18 @@ function captionOf(name, args) {
   if (name !== "draw_visual" || !args || typeof args.data !== "object" || args.data === null) return "";
   // Every option and its facts, not only the title: a later turn and the self-review read only these words (`visuals/said.js`).
   return cardWords(args.data);
+}
+
+/**
+ * What a drawn card is called, for a chat where it goes as a Context card
+ * (`apps/agent/src/sendParts.ts`): its title, or its kicker. None for an
+ * option card, whose set goes as a carousel with a pick card instead, and
+ * none for anything not drawn by `draw_visual`.
+ */
+function titleOf(name, args) {
+  if (name !== "draw_visual" || args?.template === "option" || !args?.data || typeof args.data !== "object") return "";
+  const title = [args.data.title, args.data.kicker].find((value) => typeof value === "string" && value.trim());
+  return title ? title.replace(/\s+/g, " ").trim().slice(0, 100) : "";
 }
 
 /**

@@ -209,11 +209,18 @@ export async function startJobs(
   storage: InboxStorage,
   started: StartedJob[],
   context: { now: number; inbox: string; origin: JobOrigin; place: JobPlace; spawn: (id: string, run: JobRun) => Promise<void> },
-): Promise<number> {
+): Promise<{ started: number; notStarted: string[] }> {
   let count = 0;
+  const notStarted: string[] = [];
   for (const job of started) {
     const running = (await chatJobs(storage, context.now)).filter((entry) => entry.state === "running");
-    if (running.some((entry) => sameTitle(entry.title, job.title)) || running.length >= MAX_RUNNING_JOBS) continue;
+    // The same job already running is the one they asked for; a job over the limit was promised and never runs, so they hear so.
+    if (running.some((entry) => sameTitle(entry.title, job.title))) continue;
+    if (running.length >= MAX_RUNNING_JOBS) {
+      notStarted.push(job.title);
+      log("over_limit", "");
+      continue;
+    }
     const id = crypto.randomUUID();
     const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place };
     await storage.put(entryKey(id), entry);
@@ -223,10 +230,23 @@ export async function startJobs(
       log("started", id);
     } catch {
       await storage.delete(entryKey(id));
+      notStarted.push(job.title);
       log("not_started", id);
     }
   }
-  return count;
+  return { started: count, notStarted };
+}
+
+/**
+ * What the person is told about jobs Tex said it started that never did: two
+ * texts raced past the limit the gateway checks, or the job could not be
+ * handed off. Without it, "on it" was the last they heard (Dev2 asked on
+ * 2026-10-29 whether people are told about the limit).
+ */
+export function notStartedText(titles: readonly string[]): string | undefined {
+  if (titles.length === 0) return undefined;
+  const named = titles.map((title) => `"${title}"`).join(" and ");
+  return `I couldn't start ${named} after all. I can run ${MAX_RUNNING_JOBS} jobs at once in this chat, so ask me again once one finishes.`;
 }
 
 /** A job's word about itself: its entry updated, and what to text, which the caller sends; nothing at all (`quiet`) from a stopped one. */
