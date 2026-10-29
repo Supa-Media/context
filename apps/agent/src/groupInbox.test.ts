@@ -672,6 +672,10 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     expect(groupCommand("Tex, stop sharing my mail")).toEqual({ kind: "unshare_mail" });
     expect(groupCommand("Tex unshare my email me@work.example here")).toEqual({ kind: "unshare_mail", address: "me@work.example" });
     expect(groupCommand("Tex share the photos from saturday")).toBeNull();
+    // The Crystal Care chat, 2026-10-29: read as inviting the address, when it meant the inbox.
+    expect(groupCommand("Tex add my seyi@crystalnurse.example email to this group")).toEqual({ kind: "share_mail", address: "seyi@crystalnurse.example" });
+    expect(groupCommand("Tex, connect my gmail me@work.example to the chat")).toEqual({ kind: "share_mail", address: "me@work.example" });
+    expect(groupCommand("Tex add bo@work.example to this group")).toBeNull();
     expect(addressesTex("Tex share my mail from me@work.example here", false)).toBe(true);
   });
 

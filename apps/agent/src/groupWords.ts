@@ -66,8 +66,10 @@ export function unquoted(text: string): string {
 
 /** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
 const MAILBOX = "(?:my )?(?:work )?(?:mail|email|emails|inbox|gmail)";
-const HERE = "(?: (?:here|in here|with (?:this|the) (?:chat|group)|with everyone here|with us))?";
-const SHARE_MAIL = new RegExp(`^share ${MAILBOX} (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190})(?: (?:matching|that matches|filtered by|only) (.{1,300}?))?${HERE}$`);
+const HERE = "(?: (?:here|in here|(?:with|to|for|into) (?:this|the) (?:group )?(?:chat|group)|with everyone here|with us))?";
+/** "Add my mail me@work.example to this group" means the same (the Crystal Care chat, 2026-10-29): "my" makes it the inbox, never an invitation. */
+const SHARED_BY = `(?:share ${MAILBOX} |(?:add|connect) my (?:(?:work )?(?:mail|email|emails|inbox|gmail) )?)`;
+const SHARE_MAIL = new RegExp(`^${SHARED_BY}(?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190})(?: (?:mail|email|inbox|gmail|account))?(?: (?:matching|that matches|filtered by|only) (.{1,300}?))?${HERE}$`);
 const UNSHARE_MAIL = new RegExp(`^(?:stop sharing|unshare) ${MAILBOX}(?: (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190}))?${HERE}$`);
 
 /**
