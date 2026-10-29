@@ -17,8 +17,10 @@ import WebKit
 ///
 /// What each card shows is a page from context.lc (`/messages/<kind>`,
 /// infra/router/src/messagesCards.ts), so it changes with a deploy rather than
-/// an App Store build. The page asks through one bridge (`context`) to send a
-/// card back, put one in the text field, or resize, and every request is
+/// an App Store build, and so does a new kind of card: any `/tex/<kind>` opens
+/// its page. The page asks through one bridge (`context`) to send a card back,
+/// put one in the text field, resize, open a context.lc link in the app, tap
+/// the phone's haptics, or close the panel, and every request is
 /// checked here again: only from context.lc's own page, only for a
 /// `https://context.lc/tex/…` card. When the page cannot load, the screens
 /// below draw the same choices natively.
@@ -207,11 +209,18 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
   }
 
-  /// `https://context.lc/tex/pick?…` → `https://context.lc/messages/pick?…`; nil for a card with no page.
+  /// `https://context.lc/tex/<kind>?…` → `https://context.lc/messages/<kind>?…`; nil for anything else.
+  /// Any kind, not a fixed list: a new kind of card is a new page on context.lc
+  /// and ships with a deploy (a kind with no page 404s and falls back here).
   static func pageURL(forCard url: URL) -> URL? {
     let kind = url.lastPathComponent
-    guard url.path == "/tex/\(kind)", ["pick", "ask", "hello"].contains(kind) else { return nil }
+    guard url.path == "/tex/\(kind)", isCardKind(kind) else { return nil }
     return pageURL(kind: kind, query: URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+  }
+
+  /// Lowercase letters, digits and dashes, at most 32: a path segment that cannot climb out of `/messages/`.
+  static func isCardKind(_ kind: String) -> Bool {
+    !kind.isEmpty && kind.count <= 32 && kind.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
   }
 
   static func pageURL(kind: String, query: String?) -> URL {
@@ -371,6 +380,14 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     case "send", "insert":
       guard let card = CardReply(body) else { return finish(false) }
       reply(card, insert: kind == "insert")
+    case "open":
+      // A note or page in the app; only context.lc addresses.
+      guard let address = body["url"] as? String, address.count <= 2048, let url = URL(string: address), Self.isContextLink(url) else { return }
+      extensionContext?.open(url, completionHandler: nil)
+    case "haptic":
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    case "close":
+      dismiss()
     default:
       return
     }

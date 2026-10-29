@@ -216,6 +216,18 @@ works. Reverting it puts every card change behind an App Store build. Tests:
 `infra/router/src/messagesCards.test.ts`, and the `messages-extension` CI job
 for the Swift.
 
+Later that night the owner saw mocks of richer cards (sorting an inbox, picking
+meeting times on a week grid, editing a draft, adjusting a cart) and asked to
+"play around" with formats "on the fly without asking for a new update all
+the time". So before the shell's first native build it opens any
+`/tex/<kind>` (lowercase letters, digits and dashes, at most 32) as
+`/messages/<kind>` rather than a fixed list, and the bridge also takes
+`open` (a context.lc link, in the app), `haptic` and `close`. A new format is
+then a new page and a deploy; a kind with no page 404s and falls back to
+opening the card's link. Only a new phone ability (camera, live bubble
+layout) needs another build. Narrowing the kinds back to a list puts every
+new format behind an App Store build.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices
