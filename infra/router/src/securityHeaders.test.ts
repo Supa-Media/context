@@ -10,6 +10,7 @@ import worker from "./index";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ENFORCED_POLICY, SECURITY_HEADERS, withSecurityHeaders } from "./securityHeaders";
+import { reportOnlyPolicyFor } from "./cspReport";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
@@ -37,10 +38,11 @@ function get(url: string, userAgent = BROWSER_UA): Promise<Response> {
   return worker.fetch(new Request(url, { headers: { "User-Agent": userAgent } }), ENV, CTX) as Promise<Response>;
 }
 
-function expectHardened(response: Response) {
+function expectHardened(response: Response, url: string) {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     if (name === "Referrer-Policy") continue;
-    expect(response.headers.get(name), name).toBe(value);
+    const expected = name === "Content-Security-Policy-Report-Only" ? reportOnlyPolicyFor(new URL(url).pathname, ENV.CONVEX_ORIGIN) : value;
+    expect(response.headers.get(name), name).toBe(expected);
   }
   expect(response.headers.get("Referrer-Policy")).not.toBeNull();
 }
@@ -53,7 +55,7 @@ describe("platform responses are hardened", () => {
     ["the auth routes proxied to Convex", "https://context.lc/api/auth/callback/github?code=abc"],
     ["robots.txt", "https://context.lc/robots.txt"],
   ])("%s", async (_name, url) => {
-    expectHardened(await get(url));
+    expectHardened(await get(url), url);
   });
 
   it("the app document keeps its body", async () => {

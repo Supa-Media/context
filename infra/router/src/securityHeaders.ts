@@ -32,7 +32,7 @@
  * their sites have a routing table and headers of their own (`site.ts`).
  */
 
-import { SCRIPT_POLICY } from "./cspReport";
+import { reportOnlyPolicyFor, SCRIPT_POLICY } from "./cspReport";
 import { isPageBoxPath } from "./pageFrame";
 
 /** What the enforcing header allows: no directive here may block a script or a style. */
@@ -65,12 +65,15 @@ const FRAMING = new Set(["X-Frame-Options", "Content-Security-Policy", "Content-
  * A WebSocket upgrade (101) is returned untouched: its `webSocket` does not
  * survive being copied into a new Response.
  */
-export function withSecurityHeaders(response: Response, pathname = ""): Response {
+export function withSecurityHeaders(response: Response, pathname = "", convexOrigin?: string): Response {
   if (response.status === 101) return response;
   const framable = isPageBoxPath(pathname);
   const missing = Object.entries(SECURITY_HEADERS).filter(([name]) => !response.headers.has(name) && !(framable && FRAMING.has(name)));
   if (missing.length === 0) return response;
   const hardened = new Response(response.body, response);
-  for (const [name, value] of missing) hardened.headers.set(name, value);
+  for (const [name, value] of missing) {
+    // The report-only policy depends on the document (`cspReport.ts`).
+    hardened.headers.set(name, name === "Content-Security-Policy-Report-Only" ? reportOnlyPolicyFor(pathname, convexOrigin) : value);
+  }
   return hardened;
 }

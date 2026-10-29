@@ -9,7 +9,18 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { CSP_REPORT_PATH, EMPTY_STYLE_HASH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES, SHELL_STYLE_HASHES } from "./cspReport";
+import {
+  CSP_REPORT_PATH,
+  EDITOR_POLICY,
+  EDITOR_STYLE_HASHES,
+  EMPTY_STYLE_HASH,
+  fetchDirectives,
+  parseCspReport,
+  reportOnlyPolicyFor,
+  SCRIPT_POLICY,
+  SHELL_SCRIPT_HASHES,
+  SHELL_STYLE_HASHES,
+} from "./cspReport";
 import { ENFORCED_POLICY, SECURITY_HEADERS } from "./securityHeaders";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -47,7 +58,7 @@ const LEAKY = {
 describe("the policy", () => {
   it("is report-only on the app document and names the report path", async () => {
     const response = await worker.fetch(new Request("https://context.lc/console"), ENV, CTX);
-    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(SCRIPT_POLICY);
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(`${fetchDirectives(ENV.CONVEX_ORIGIN)}; ${SCRIPT_POLICY}`);
     expect(SCRIPT_POLICY).toContain(`report-uri ${CSP_REPORT_PATH}`);
     expect(SCRIPT_POLICY).toContain("object-src 'none'");
     // Enforcing CSP says who may frame, where forms go, and bars plugins and <base>; scripts and styles are not blocked yet.
@@ -104,11 +115,48 @@ describe("the policy", () => {
     // The editor bundle is built, not committed; the dependency that brings
     // the `new Function` in is.
     const app = JSON.parse(readFileSync(join(repo, "apps", "mobile", "package.json"), "utf8")) as { dependencies?: Record<string, string> };
+    // The drawing editor is a document of its own, framed by URL: it stops
+    // holding the shell back once that document has a policy of its own.
+    const editorShared = reportOnlyPolicyFor("/drawing-assets/editor/index.html", undefined) === reportOnlyPolicyFor("/console", undefined);
     const needs = [
       ...(/script\.textContent\s*=/.test(sandbox) ? ["plugin sandbox: inline script in a srcdoc frame"] : []),
-      ...(app.dependencies?.["@excalidraw/excalidraw"] ? ["drawing editor: Excalidraw's WebAssembly glue calls new Function"] : []),
+      ...(app.dependencies?.["@excalidraw/excalidraw"] && editorShared ? ["drawing editor: Excalidraw's WebAssembly glue calls new Function"] : []),
     ];
     if (needs.length > 0) expect(SECURITY_HEADERS["Content-Security-Policy"], needs.join("; ")).not.toContain("script-src");
+  });
+
+  it("gives the drawing editor its own policy, and only it may build functions", async () => {
+    const editor = await worker.fetch(new Request("https://context.lc/drawing-assets/editor/index.html"), ENV, CTX);
+    expect(editor.headers.get("Content-Security-Policy-Report-Only")).toBe(`${fetchDirectives(ENV.CONVEX_ORIGIN)}; ${EDITOR_POLICY}`);
+    expect(EDITOR_POLICY).toContain("'unsafe-eval'");
+    expect(EDITOR_POLICY).not.toMatch(/'unsafe-inline'|\*/);
+    for (const path of ["/console", "/", "/drawing-assets/editorial", "/drawing-assets/page/index.html"]) {
+      expect(reportOnlyPolicyFor(path, ENV.CONVEX_ORIGIN), path).not.toContain("'unsafe-eval'");
+    }
+    // Its one inline block is a style, named by hash.
+    const page = readFileSync(join(__dirname, "..", "..", "..", "apps", "mobile", "public", "drawing-assets", "editor", "index.html"), "utf8");
+    expect(page).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+    const inline = [...page.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(
+      ([, body]) => `sha256-${createHash("sha256").update(body, "utf8").digest("base64")}`,
+    );
+    expect(EDITOR_STYLE_HASHES).toEqual(inline);
+  });
+
+  it("measures a default-src candidate with no wildcard source and no deployment name written in", () => {
+    const directives = fetchDirectives("https://example-deployment.convex.site");
+    expect(directives.startsWith("default-src 'self'")).toBe(true);
+    const connect = directives.split("; ").find((part) => part.startsWith("connect-src "));
+    expect(connect).toContain("https://example-deployment.convex.site");
+    expect(connect).toContain("https://example-deployment.convex.cloud");
+    expect(connect).toContain("wss://example-deployment.convex.cloud");
+    for (const part of directives.split("; ")) {
+      const sources = part.split(" ").slice(1);
+      // No bare `*`, no bare scheme beyond the data and blob URLs the app builds itself.
+      expect(sources.filter((source) => source === "*" || /^(https?|wss?):$/.test(source)), part).toEqual([]);
+      expect(part).not.toMatch(/'unsafe-/);
+    }
+    expect(fetchDirectives(undefined)).not.toContain("convex");
+    expect(fetchDirectives("not a url")).not.toContain("convex");
   });
 });
 

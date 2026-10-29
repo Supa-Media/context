@@ -92,6 +92,85 @@ export const SCRIPT_POLICY =
   "object-src 'none'; base-uri 'self'; " +
   `report-uri ${CSP_REPORT_PATH}`;
 
+/**
+ * The drawing editor's document (`/drawing-assets/editor/`) gets a report-only
+ * policy of its own, so the app shell's script policy can enforce without it.
+ *
+ * The editor is a page of its own, framed by URL, never `srcdoc`, so it is
+ * given its own policy rather than inheriting the shell's. Its bundle is
+ * Excalidraw 0.18.1, whose WebAssembly font compressor (`woff2.wasm`) ships
+ * Emscripten embind glue that builds two functions with `new Function`
+ * (`editor.js`; `@excalidraw/excalidraw/dist/prod/chunk-EIO257PC.js`). No
+ * Excalidraw setting removes that, so this one document allows
+ * `'unsafe-eval'`, and the shell never does. Like the shell it has no
+ * `'unsafe-inline'` script: its only inline block is a style, named by hash.
+ */
+export const EDITOR_PATH_PREFIX = "/drawing-assets/editor/";
+export const EDITOR_STYLE_HASHES = ["sha256-fInPXTRE3c/KCdPESxq2HoZMsIp8mGnmHRluR4cSYts="];
+
+export const EDITOR_POLICY =
+  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; " +
+  `style-src 'self' ${[...EDITOR_STYLE_HASHES, EMPTY_STYLE_HASH].map((hash) => `'${hash}'`).join(" ")}; ` +
+  "object-src 'none'; base-uri 'self'; " +
+  `report-uri ${CSP_REPORT_PATH}`;
+
+/**
+ * The fetch directives a `default-src` candidate would set, measured in
+ * report-only before anything enforces it (the CASA scan's "CSP: Wildcard
+ * Directive": with no `default-src`, every fetch directive falls back to any
+ * source). Each source is one the app is known to reach:
+ *
+ *  - connect: the control plane (its HTTP and sync origins, from
+ *    `CONVEX_ORIGIN`, so no deployment name is written here), the MCP
+ *    gateway, Sentry, Turnstile and the Cloudflare beacon. PostHog comes
+ *    through our own `/ingest`.
+ *  - frame: our own frames, Turnstile, and the page runtime on the sites
+ *    domain (`pageFrame.ts`).
+ *  - img, font, media, worker: our own files, plus `data:` and `blob:`,
+ *    which the app builds pictures, fonts, recordings and workers from.
+ *
+ * Anything else the reports show (a picture from another site, an embed) is
+ * a decision about that feature, not a host to add blind.
+ */
+export function fetchDirectives(convexOrigin: string | undefined): string {
+  const control: string[] = [];
+  try {
+    if (convexOrigin) {
+      const site = new URL(convexOrigin);
+      const cloudHost = site.hostname.replace(/\.convex\.site$/, ".convex.cloud");
+      control.push(site.origin, `https://${cloudHost}`, `wss://${cloudHost}`);
+    }
+  } catch {
+    // A malformed origin adds nothing; the reports will say what is missing.
+  }
+  const connect = [
+    "'self'",
+    ...control,
+    "https://mcp.context.lc",
+    "wss://mcp.context.lc",
+    "https://*.ingest.sentry.io",
+    "https://*.ingest.us.sentry.io",
+    "https://challenges.cloudflare.com",
+    "https://cloudflareinsights.com",
+  ];
+  return [
+    "default-src 'self'",
+    `connect-src ${connect.join(" ")}`,
+    "frame-src 'self' https://challenges.cloudflare.com https://*.ctxlc.site",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+  ].join("; ");
+}
+
+/** The report-only policy a platform document at `pathname` is given. */
+export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | undefined): string {
+  const scripts = pathname.startsWith(EDITOR_PATH_PREFIX) ? EDITOR_POLICY : SCRIPT_POLICY;
+  return `${fetchDirectives(convexOrigin)}; ${scripts}`;
+}
+
 /** Larger than any real report; a bigger body is not read. */
 const MAX_REPORT_BYTES = 16 * 1024;
 
