@@ -194,6 +194,28 @@ which no approval reads as a yes. Not now is always a no. Reverting the key
 check lets a Yes tapped on yesterday's card approve today's ask. Test:
 `apps/agent/src/cardChats.test.ts`.
 
+### The extension shows context.lc's page for each card (2026-10-29)
+
+The owner: "the message extension can't get ota updates?" It cannot: an
+over-the-air update swaps the app's JavaScript, and the Messages extension is
+compiled Swift, which only an App Store build changes. So the extension is
+now a thin shell. For a pick, ask or hello card, and for the drawer, it shows
+`https://context.lc/messages/<kind>` with the card's own query
+(`infra/router/src/messagesCards.ts`), and does what that page asks through
+one bridge: send a card back in the card's session, put the hello card in the
+text field, or resize. The page decides what a card offers and how it looks,
+so that ships with a deploy.
+
+The phone still checks every request: only from context.lc's top frame on a
+`/messages/` page, only a `https://context.lc/tex/…` card with short words.
+The page is a function of its address (no session, no storage, one constant
+script allowed by its hash), and every name in it is escaped, because the
+address is the card's URL, which anyone in a chat could write. When the page
+cannot load, the native screens draw the same choices, so offline still
+works. Reverting it puts every card change behind an App Store build. Tests:
+`infra/router/src/messagesCards.test.ts`, and the `messages-extension` CI job
+for the Swift.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

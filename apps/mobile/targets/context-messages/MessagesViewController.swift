@@ -1,5 +1,6 @@
 import Messages
 import UIKit
+import WebKit
 
 /// The Context cards in Messages (apps/agent/src/appCards.ts, pickCard.ts).
 ///
@@ -13,11 +14,22 @@ import UIKit
 /// drawer with no card, it offers to tell Tex this phone has the app
 /// (`/tex/hello`), after which Tex sends cards to tap. Only links on
 /// context.lc are opened or read; anything else in a card's URL is ignored.
+///
+/// What each card shows is a page from context.lc (`/messages/<kind>`,
+/// infra/router/src/messagesCards.ts), so it changes with a deploy rather than
+/// an App Store build. The page asks through one bridge (`context`) to send a
+/// card back, put one in the text field, or resize, and every request is
+/// checked here again: only from context.lc's own page, only for a
+/// `https://context.lc/tex/…` card. When the page cannot load, the screens
+/// below draw the same choices natively.
 final class MessagesViewController: MSMessagesAppViewController {
   private let label = UILabel()
   private let stack = UIStackView()
   private var pick: Pick?
   private var answering: (url: URL, session: MSSession?)?
+  private var webView: WKWebView?
+  private var pageSession: MSSession?
+  private var pageFallback: (() -> Void)?
 
   static let helloURL = URL(string: "https://context.lc/tex/hello")!
 
@@ -44,7 +56,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     if let message = conversation.selectedMessage {
       open(message)
     } else {
-      showHello()
+      showPage(Self.pageURL(kind: "drawer", query: nil), session: nil) { [weak self] in self?.showHello() }
     }
   }
 
@@ -55,6 +67,14 @@ final class MessagesViewController: MSMessagesAppViewController {
 
   private func open(_ message: MSMessage?) {
     guard let message = message, let url = message.url, Self.isContextLink(url) else { return }
+    if let page = Self.pageURL(forCard: url) {
+      showPage(page, session: message.session) { [weak self] in self?.openNatively(message, url: url) }
+      return
+    }
+    openNatively(message, url: url)
+  }
+
+  private func openNatively(_ message: MSMessage, url: URL) {
     if let pick = Pick(url: url) {
       show(pick, from: message)
       return
@@ -187,6 +207,22 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
   }
 
+  /// `https://context.lc/tex/pick?…` → `https://context.lc/messages/pick?…`; nil for a card with no page.
+  static func pageURL(forCard url: URL) -> URL? {
+    let kind = url.lastPathComponent
+    guard url.path == "/tex/\(kind)", ["pick", "ask", "hello"].contains(kind) else { return nil }
+    return pageURL(kind: kind, query: URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+  }
+
+  static func pageURL(kind: String, query: String?) -> URL {
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = "context.lc"
+    components.path = "/messages/\(kind)"
+    components.percentEncodedQuery = query
+    return components.url!
+  }
+
   static func isContextLink(_ url: URL) -> Bool {
     guard url.scheme == "https", let host = url.host?.lowercased() else { return false }
     return host == "context.lc" || host.hasSuffix(".context.lc")
@@ -237,4 +273,156 @@ func withChoice(_ url: URL, _ number: Int) -> URL? {
   items.append(URLQueryItem(name: "c", value: String(number)))
   components.percentEncodedQueryItems = items
   return components.url
+}
+
+// MARK: The card's page
+
+/// Holds the controller weakly: the content controller keeps its handlers alive.
+private final class WeakBridge: NSObject, WKScriptMessageHandler {
+  weak var target: WKScriptMessageHandler?
+  init(_ target: WKScriptMessageHandler) { self.target = target }
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    target?.userContentController(controller, didReceive: message)
+  }
+}
+
+extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
+  fileprivate func showPage(_ url: URL, session: MSSession?, fallback: @escaping () -> Void) {
+    pageSession = session
+    pageFallback = fallback
+    let web = webView ?? makeWebView()
+    web.isHidden = false
+    web.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 8))
+  }
+
+  private func makeWebView() -> WKWebView {
+    let configuration = WKWebViewConfiguration()
+    // No cookies or storage: the page is a function of its address.
+    configuration.websiteDataStore = .nonPersistent()
+    configuration.userContentController.add(WeakBridge(self), name: "context")
+    let web = WKWebView(frame: .zero, configuration: configuration)
+    web.navigationDelegate = self
+    web.translatesAutoresizingMaskIntoConstraints = false
+    // Opaque, so the native screens beneath never show through.
+    web.backgroundColor = .systemBackground
+    view.addSubview(web)
+    NSLayoutConstraint.activate([
+      web.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      web.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      web.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      web.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+    ])
+    webView = web
+    return web
+  }
+
+  private func fallBack() {
+    webView?.isHidden = true
+    let fallback = pageFallback
+    pageFallback = nil
+    fallback?()
+  }
+
+  static func isCardPage(_ url: URL?) -> Bool {
+    guard let url = url, url.scheme == "https", url.host?.lowercased() == "context.lc" else { return false }
+    return url.path.hasPrefix("/messages/")
+  }
+
+  func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    if Self.isCardPage(action.request.url) {
+      decisionHandler(.allow)
+      return
+    }
+    // Anything else the page links to leaves it: a note opens in the app, the rest goes nowhere.
+    if action.navigationType == .linkActivated, let url = action.request.url, Self.isContextLink(url) {
+      extensionContext?.open(url, completionHandler: nil)
+    }
+    decisionHandler(.cancel)
+  }
+
+  func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+    let ok = (response.response as? HTTPURLResponse)?.statusCode == 200
+    decisionHandler(ok ? .allow : .cancel)
+    if !ok { fallBack() }
+  }
+
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    fallBack()
+  }
+
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    fallBack()
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    pageFallback = nil
+  }
+
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    // Only context.lc's own page, never a frame inside it.
+    let origin = message.frameInfo.securityOrigin
+    guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host == "context.lc",
+      Self.isCardPage(message.webView?.url),
+      let body = message.body as? [String: Any], let kind = body["kind"] as? String
+    else { return }
+    switch kind {
+    case "size":
+      requestPresentationStyle((body["style"] as? String) == "expanded" ? .expanded : .compact)
+    case "send", "insert":
+      guard let card = CardReply(body) else { return finish(false) }
+      reply(card, insert: kind == "insert")
+    default:
+      return
+    }
+  }
+
+  private func reply(_ card: CardReply, insert: Bool) {
+    guard let conversation = activeConversation else { return finish(false) }
+    // A hello starts a session of its own; an answer stays in the card's.
+    let message = MSMessage(session: insert ? MSSession() : (pageSession ?? MSSession()))
+    message.url = card.url
+    let layout = MSMessageTemplateLayout()
+    layout.caption = card.caption
+    layout.subcaption = card.subcaption
+    message.layout = layout
+    message.summaryText = card.summary
+    let done: (Error?) -> Void = { [weak self] error in
+      DispatchQueue.main.async {
+        self?.finish(error == nil)
+        if error == nil { self?.dismiss() }
+      }
+    }
+    if insert {
+      conversation.insert(message, completionHandler: done)
+    } else {
+      conversation.send(message, completionHandler: done)
+    }
+  }
+
+  private func finish(_ ok: Bool) {
+    webView?.evaluateJavaScript("window.contextCardDone && window.contextCardDone(\(ok ? "true" : "false"))", completionHandler: nil)
+  }
+}
+
+/// A card the page asks to send back, checked: a `https://context.lc/tex/…`
+/// address and short words, nothing else.
+struct CardReply {
+  let url: URL
+  let caption: String
+  let subcaption: String?
+  let summary: String
+
+  init?(_ body: [String: Any]) {
+    guard let address = body["url"] as? String, address.count <= 2048, let url = URL(string: address),
+      MessagesViewController.isContextLink(url), url.host?.lowercased() == "context.lc", url.path.hasPrefix("/tex/"),
+      let caption = body["caption"] as? String, !caption.isEmpty, caption.count <= 100,
+      let summary = body["summary"] as? String, summary.count <= 100
+    else { return nil }
+    let subcaption = body["subcaption"] as? String
+    if let subcaption = subcaption, subcaption.count > 100 { return nil }
+    self.url = url
+    self.caption = caption
+    self.subcaption = subcaption
+    self.summary = summary
+  }
 }
