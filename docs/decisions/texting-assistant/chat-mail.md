@@ -12,7 +12,10 @@ The mailbox's own person shares it, in the chat, in their own words:
 
 - "Tex, share my mail from me@work.example here", optionally followed by
   "matching <a Gmail search>" (for example `to:clients@work.example`) to
-  narrow what the chat sees.
+  narrow what the chat sees. "Tex, add my me@work.example email to this
+  group" (or "connect my gmail ... to the chat") means the same: "my" makes
+  it the inbox, never an invitation of that address (2026-10-29, when that
+  wording was read as inviting it).
 - "Tex, stop sharing my mail" ends it.
 
 Both are fixed commands (`apps/agent/src/groupWords.ts`), answered by the
