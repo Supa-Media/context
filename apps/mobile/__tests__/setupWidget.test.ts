@@ -213,7 +213,7 @@ describe("“You're set up.”", () => {
     // No Download button: there is no whole-workspace download to wire it to.
     expect(done.byId("setup-done-exit")?.textContent).toMatch(/downloads as a \.zip from Files/);
     expect(done.container.textContent).not.toMatch(/\bDownload\b/);
-    await done.press("setup-done-close");
+    await done.press("setup-done-dismiss");
     expect(closed).toBe(1);
     done.unmount();
   });

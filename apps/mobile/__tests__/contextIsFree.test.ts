@@ -238,7 +238,7 @@ describe("the exit promise, said without a plan", () => {
 
   test.each([
     ["features/console/storage/handoff/copy.ts", "Free, always."],
-    ["features/console/setupWidget/SetupDone.tsx", "If we run your storage, you can move every file to a bucket of your own"],
+    ["features/console/setupWidget/SetupDone.tsx", "to your own bucket in Settings → Storage. Free, any time."],
     ["features/legal/content.ts", "use Download everything in Settings. It is free, always."],
     ["features/landing/variants.web.tsx", "Either way you can download everything, any time, for free."],
     ["features/onboarding/steps/PointAtBucket.tsx", "Start on a bucket we run instead"],
