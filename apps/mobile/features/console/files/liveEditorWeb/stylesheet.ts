@@ -50,8 +50,13 @@ export function ensureStyles(colors: Colors): void {
  * Policy, so it would need `'unsafe-inline'` (the CASA scan's "CSP:
  * style-src unsafe-inline"; `infra/router/src/cspReport.ts`). A constructed
  * sheet adopted by the document is CSSOM, which a policy does not govern, so
- * the same rules apply with no inline style at all. Browsers without
- * constructable sheets (and jsdom) keep the `<style>` element.
+ * the same rules apply with no inline style at all.
+ *
+ * Browsers without constructable sheets (Safari before 16.4, and jsdom), or
+ * one that claims the API and then refuses the sheet, keep the `<style>`
+ * element. That fallback is still inline style: under an enforced style
+ * policy without `'unsafe-inline'` those browsers would draw the editor
+ * unstyled, so it is not strict-CSP compatible.
  */
 let adopted: CSSStyleSheet | null = null;
 
@@ -59,16 +64,17 @@ type Adopting = Document & { adoptedStyleSheets?: CSSStyleSheet[] };
 
 function adoptStyles(doc: Adopting, css: string): boolean {
   if (!Array.isArray(doc.adoptedStyleSheets) || typeof CSSStyleSheet === "undefined") return false;
-  let sheet: CSSStyleSheet;
   try {
-    sheet = adopted ?? new CSSStyleSheet();
+    const sheet = adopted ?? new CSSStyleSheet();
     sheet.replaceSync(css);
+    if (!doc.adoptedStyleSheets.includes(sheet)) doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+    // A setter that ignored the sheet has adopted nothing.
+    if (!doc.adoptedStyleSheets.includes(sheet)) return false;
+    adopted = sheet;
+    return true;
   } catch {
     return false;
   }
-  adopted = sheet;
-  if (!doc.adoptedStyleSheets.includes(sheet)) doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
-  return true;
 }
 
 /** The rules, for whichever of the two ways `ensureStyles` applies them. */
