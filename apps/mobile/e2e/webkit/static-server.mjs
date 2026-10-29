@@ -23,14 +23,16 @@
  * longest matching rule, with as much of the router's report-only policy
  * enforced as the mode asks, and `POST /_csp-report` appends one line per
  * violation to `E2E_CSP_REPORTS`, bounded by `csp-report-log.mjs` to the same
- * schema the router logs. Without it the server sends no security headers at
- * all, as before.
+ * schema the router logs. With `E2E_CSP_NONCE=1` too, every shell document
+ * gets a fresh style nonce (`csp-style-nonce.mjs`). Without rules the server
+ * sends no security headers at all, as before.
  */
 import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
 import { reportLines } from "./csp-report-log.mjs";
+import { freshNonce, policyWithNonce, withStyleNonce } from "./csp-style-nonce.mjs";
 
 const [, , rootArg, portArg] = process.argv;
 if (rootArg === undefined || portArg === undefined) {
@@ -69,6 +71,8 @@ const rules = process.env.E2E_CSP_RULES
   ? JSON.parse(readFileSync(process.env.E2E_CSP_RULES, "utf8")).sort((a, b) => b.prefix.length - a.prefix.length)
   : null;
 const reportLog = process.env.E2E_CSP_REPORTS ?? null;
+// A fresh style nonce on every shell document (`csp-style-nonce.mjs`); only with rules.
+const nonceShell = rules !== null && process.env.E2E_CSP_NONCE === "1";
 
 function ruleFor(pathname) {
   return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
@@ -108,13 +112,25 @@ const handle = (req, res) => {
     });
     return;
   }
-  for (const [name, value] of Object.entries(ruleFor(pathname)?.headers ?? {})) res.setHeader(name, value);
+  const rule = ruleFor(pathname);
   const direct = fileFor(req.url ?? "/");
   const file = direct ?? join(root, "index.html");
   if (!existsSync(file)) {
+    for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
     res.writeHead(404).end("not found");
     return;
   }
+  if (nonceShell && rule?.document === "shell" && file === join(root, "index.html")) {
+    const nonce = freshNonce();
+    for (const [name, value] of Object.entries(rule.headers)) {
+      const policy = (one) => (/^content-security-policy/i.test(name) ? policyWithNonce(one, nonce) : one);
+      res.setHeader(name, Array.isArray(value) ? value.map(policy) : policy(value));
+    }
+    res.writeHead(200, { "Content-Type": CONTENT_TYPES[".html"], "Cache-Control": "no-cache" });
+    res.end(withStyleNonce(readFileSync(file, "utf8"), nonce));
+    return;
+  }
+  for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
   const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
   res.writeHead(200, { "Content-Type": type });
   createReadStream(file).pipe(res);

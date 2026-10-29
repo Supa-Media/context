@@ -122,7 +122,9 @@ export default defineConfig({
     ...(HTTPS ? { url: `https://127.0.0.1:${PORT}/`, ignoreHTTPSErrors: true } : { port: PORT }),
     reuseExistingServer: !process.env.CI && !CSP_CANDIDATE && !HTTPS,
     env: {
-      ...(CSP_CANDIDATE ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports } : {}),
+      ...(CSP_CANDIDATE
+        ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports, E2E_CSP_NONCE: process.env.E2E_CSP_NONCE ?? "" }
+        : {}),
       ...(TLS ? { E2E_TLS_KEY: TLS.key, E2E_TLS_CERT: TLS.cert } : {}),
     },
     timeout: 20_000,
