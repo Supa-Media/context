@@ -10,6 +10,7 @@ import { PRIVACY_KEY, canSee, foldPath, isPlumbing, visibilityOf } from "../priv
 import { type Clearance } from "../clearance";
 import {
   eligible as collaborationEligible,
+  documentStarted as collaborationDocumentStarted,
   readDocument as readCollaborationDocument,
   replaceText as replaceCollaborationText,
   sealDocument as sealCollaborationDocument,
@@ -72,6 +73,15 @@ export interface WriteResult {
  * holds even for a file created between the check and the write. That is the
  * create mode an offline-queued new note uses. There is no way to say "clobber
  * whatever is there", by design.
+ *
+ * `startsNoDocument` is for a write nobody typed (a renamed note's heading
+ * following its name): a note with no collaboration document is written as
+ * its Markdown, conditionally on the version given, instead of starting a
+ * document to change one line (about 14 bucket round trips, 2026-10-29). A
+ * note with no document has no editor or device holding a copy to merge
+ * with; the first open starts it from this Markdown. A note that has one is
+ * written through it as any save is. Only where the bucket has proven
+ * conditional writes, so the version given is enforced by the bucket.
  */
 export async function writeFile(
   store: FileStore,
@@ -81,6 +91,7 @@ export async function writeFile(
     expectedEtag?: string;
     clearance: Clearance;
     now: number;
+    startsNoDocument?: boolean;
   },
 ): Promise<WriteResult> {
   const path = requirePath(options.path);
@@ -196,7 +207,12 @@ export async function writeFile(
     !isEncryptedNote(existingText!) &&
     collaborationSupported(store)
   ) {
-    if (collaborationEligible(path, existingText!) && options.expectedEtag !== undefined) {
+    const quiet =
+      options.startsNoDocument === true &&
+      store.capabilities?.conditionalWrite === true &&
+      !isEncryptedNote(options.text) &&
+      !(await collaborationDocumentStarted(store, path));
+    if (!quiet && collaborationEligible(path, existingText!) && options.expectedEtag !== undefined) {
       try {
         if (isEncryptedNote(options.text)) {
           const base = await readCollaborationDocument(store, path);

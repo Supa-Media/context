@@ -23,14 +23,24 @@ import { makeResult, readHead, writeRevision } from "./records.js";
 import { finalizePending, ready } from "./load.js";
 
 /** Read the current Yjs snapshot and the Markdown etag it materializes. */
-export async function readDocument(store, path) {
+export async function readDocument(store, path, headRead = null) {
   requireSupported(store);
   if (!eligible(path, "")) throw fail("INELIGIBLE_DOCUMENT", "document is not eligible for collaboration");
-  const loaded = await ready(store, path);
+  const loaded = await ready(store, path, headRead);
   if (loaded.state.deferredUpdates.length > 0) {
     throw fail("DEPENDENCY_PENDING", "accepted Yjs updates are waiting for missing dependencies");
   }
   return makeResult(loaded.state, loaded.revision);
+}
+
+/**
+ * Whether `path` has a collaboration document: a head, live or deleted. A note
+ * with none has never been opened or saved through the engine, so no editor or
+ * device holds a copy of it to merge with.
+ */
+export async function documentStarted(store, path) {
+  requireSupported(store);
+  return (await readHead(store, path)) !== null;
 }
 
 /**
@@ -51,8 +61,9 @@ export async function readDocument(store, path) {
 export async function readDocumentIfStarted(store, path) {
   requireSupported(store);
   if (!eligible(path, "")) throw fail("INELIGIBLE_DOCUMENT", "document is not eligible for collaboration");
-  if ((await readHead(store, path)) === null) return null;
-  return readDocument(store, path);
+  const head = await readHead(store, path);
+  if (head === null) return null;
+  return readDocument(store, path, head);
 }
 
 export async function commitSnapshot(store, path, loaded, documentId, nextDoc) {
