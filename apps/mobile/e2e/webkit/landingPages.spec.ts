@@ -10,11 +10,11 @@ import { expect, test } from "@playwright/test";
   still is. `/d` and `/e`, retired, send a visit to `/`.
 */
 
-test("/ is page a: notes first, the sign-up, the editor, free workspaces, and Tex at tex.lc", async ({ page }) => {
+test("/ is page a: Dev2's words first, the sign-up, the editor, free workspaces, and Tex at tex.lc", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^A notes app that every AI you use can read\.$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Context gives your brain that feeling you have when your room is clean\.$/);
   const wide = await page.locator(".np").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(wide).toBeLessThanOrEqual(1);
   // The sign-up is open from the start, asks for an email (tex.lc is the
