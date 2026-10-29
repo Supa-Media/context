@@ -350,7 +350,8 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       // Named, not quoted: the words are read now, and only from Tex's own text in this person's chat.
       const read = await readWhapiMessage((input, init) => fetch(input, init), keys, event.on);
       const own = read !== null && read.fromMe && phoneOfJid(read.chatId) === event.from;
-      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "" };
+      // Read and not Tex's is not the same as unread: only the second may be taken for the ask (`thumbs.ts`).
+      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "", ...(read !== null && !own ? { onOther: true as const } : {}) };
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
