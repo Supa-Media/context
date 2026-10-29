@@ -49,6 +49,7 @@ const SWEEP_PER_WRITE = 20;
 const SWITCH_WRITES_PER_HOUR = 30;
 /** A shared history filed per person per day (`claimSharedReview`). */
 const SHARED_REVIEWS_PER_DAY = 3;
+const SHARED_REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** An account younger than this is `new` on the dashboard. */
 const NEW_ACCOUNT_MS = 7 * 24 * REVIEW_WINDOW_MS;
 /** A conversation's turns are its grant's newest, and never older than this. */
@@ -306,7 +307,7 @@ export const claimSharedReview = internalMutation({
   args: { userId: v.id("users") },
   returns: v.null(),
   handler: async (ctx, { userId }) => {
-    await consumeRateLimit(ctx, { key: `tex.review.shared:${userId}`, limit: SHARED_REVIEWS_PER_DAY, windowMs: 24 * REVIEW_WINDOW_MS });
+    await consumeRateLimit(ctx, { key: `tex.review.shared:${userId}`, limit: SHARED_REVIEWS_PER_DAY, windowMs: SHARED_REVIEW_WINDOW_MS });
     return null;
   },
 });
