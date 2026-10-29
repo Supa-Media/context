@@ -82,6 +82,43 @@ function ruleFor(pathname) {
 function recordReports(text, disposition) {
   const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
   for (const line of reportLines(text, classify, disposition)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+  if (nonceShell) recordWhere(text, disposition);
+}
+
+/**
+ * Under the style nonce only, and only in this fixture: where each refusal
+ * came from (the source file's path, line and column, and the first 40
+ * characters of the sample), so a refusal the shell's own nonce did not cover
+ * can be found. Every page here is the E2E export and its fixture notes; the
+ * router never logs this.
+ */
+function recordWhere(text, disposition) {
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return;
+  }
+  for (const entry of Array.isArray(body) ? body.map((item) => item?.body) : [body?.["csp-report"]]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const path = (value) => {
+      try {
+        return new URL(String(value)).pathname;
+      } catch {
+        return String(value ?? "").slice(0, 20);
+      }
+    };
+    const where = {
+      disposition,
+      directive: String(entry["effective-directive"] ?? entry.effectiveDirective ?? entry["violated-directive"] ?? ""),
+      document: path(entry["document-uri"] ?? entry.documentURL),
+      source: path(entry["source-file"] ?? entry.sourceFile),
+      line: Number(entry["line-number"] ?? entry.lineNumber ?? 0),
+      column: Number(entry["column-number"] ?? entry.columnNumber ?? 0),
+      sample: String(entry["script-sample"] ?? entry.sample ?? "").slice(0, 40),
+    };
+    appendFileSync(`${reportLog}.where`, `${JSON.stringify(where)}\n`);
+  }
 }
 
 /** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */

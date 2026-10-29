@@ -132,5 +132,6 @@ export function writeCandidate(outputDir: string, mode: CandidateMode): { rules:
   const reports = join(outputDir, "csp-candidate-reports.jsonl");
   writeFileSync(rules, JSON.stringify(candidateRules(mode), null, 2));
   writeFileSync(reports, "");
+  writeFileSync(`${reports}.where`, "");
   return { rules, reports };
 }
