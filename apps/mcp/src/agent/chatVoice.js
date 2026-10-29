@@ -28,6 +28,14 @@ export const MIRROR_LINE =
 export const LANGUAGE_LINE = "Answer in the language of the person you're answering.";
 
 /**
+ * A text, not an essay (Dev2, 2026-10-29: "TEX NEEDS TO STOP BEING SO WORDY").
+ * Said whatever the setup's words are, like the two lines above; `wordy.js`
+ * sends back an answer that runs long anyway.
+ */
+export const BRIEF_LINE =
+  "Most replies are a sentence or two. With a page or card you made, text one casual line, your take, never what it shows.";
+
+/**
  * A line that is the fence `voicePrompt` quotes the note in.
  *
  * The note's words are the chat's: Tex writes them from what people say, and
