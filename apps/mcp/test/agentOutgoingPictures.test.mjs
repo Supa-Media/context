@@ -230,6 +230,21 @@ test("a drawn card the answer forgot to name still goes; a redrawn one replaces 
   assert.deepEqual(named.take("Here.\n[picture 1]").pictures.map((p) => p.data), ["a"]);
 });
 
+// Dev2, 2026-10-29: a drawn card went as a bare picture and Tex said iMessage cards can only be pictures.
+// A drawn card carries its title, so a chat with Context cards gets it as one; an option card does not.
+test("a drawn card carries its title for a Context card; an option card and a read picture carry none", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "day", data: { title: "  Team\nlunch " } });
+  await draw("draw_visual", { template: "board", data: { kicker: "This week" } });
+  await draw("draw_visual", { template: "option", data: { title: "Pick", name: "Via Carota" } });
+  await draw("read_image", { path: "a.png" });
+  const { pictures } = outgoing.take("[picture 1]\n[picture 2]\n[picture 3]\n[picture 4]");
+  assert.deepEqual(pictures.map((p) => p.title), ["Team lunch", "This week", undefined, undefined]);
+  assert.match(PICTURES_LINE, /arrives as a Context card on a phone with the Context app/);
+  assert.match(PICTURES_LINE, /never tell them a card can only be a picture/);
+});
+
 test("an option set the answer forgot to name still carries its choices", async () => {
   const set = outgoingPictures({ enabled: true });
   for (const [i, name] of ["Lugo's", "Blend"].entries()) {

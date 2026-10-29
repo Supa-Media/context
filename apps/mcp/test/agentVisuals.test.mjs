@@ -263,7 +263,7 @@ test("a texted turn draws a card, texts one line, and keeps the card in the note
     const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "find catering for the Generals, 30 people, $10 a head, in a plain note", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
     assert.equal(asked.body.answer, "All 3 fit the $300. Blend LIC is cheapest at $225. Want me to book it?");
-    assert.deepEqual(asked.body.pictures, [{ name: "picture-1.png", mediaType: "image/png", data: CARD_PNG }]);
+    assert.deepEqual(asked.body.pictures, [{ name: "picture-1.png", mediaType: "image/png", data: CARD_PNG, title: "All three fit the $300 budget" }]);
     assert.equal(shots.calls[0].body.width, 1200);
     const prompt = JSON.stringify(world.model.requests[0]);
     assert.ok(prompt.includes("VISUAL ANSWERS"), "a texted turn is told when to draw");

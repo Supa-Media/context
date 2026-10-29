@@ -128,13 +128,18 @@ const GROUND_RULES = [
  * about. The owner then removed every copy of mail, calendar and chat from
  * the notes (2026-10-21), so `calendar:` (`tools/calendarRead.js`) asks Google
  * at that moment, and no folder is named here. A fact about this build, so a
- * production setup's own words keep it too, as `NOTE_LINK_LINE` is.
+ * production setup's own words keep it too, as `NOTE_LINK_LINE` is. Asked for
+ * a time to meet someone (Dev2, 2026-10-29), Tex said they were free all
+ * afternoon and then that it couldn't tell what worked for the other person,
+ * with no time offered: it names open times from their own calendar instead.
  */
 export const SYNCED_PLACES_LINE =
   "Once they connect Google, you read their calendar and email from Google itself when they ask; none of it is copied into their notes. " +
   'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar, or only account: "<address>" when they ask about one. ' +
   "For their email, search with args { email: true }. " +
-  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says.";
+  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says. " +
+  "Asked to find a time with someone, name two or three specific open times from that fetch, say which you'd pick, and offer to put it on their calendar with that person invited; " +
+  "their calendar is all you need, so never end on not seeing the other person's.";
 
 /**
  * How to find a call (owner's report, 2026-10-21). Asked for the to-dos from

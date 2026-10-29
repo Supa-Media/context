@@ -238,7 +238,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 17,000 when asked-for options keep their number, fit their use and carry only their own price (RESEARCH_LINE, 2026-10-28; 17,2xx then).
   // and from 17,500 when they were told to look before asking, and what "fix yourself" asks (lookFirst.js, LOOK_FIRST_LINE, 2026-10-28; 17,7xx then).
   // and from 18,000 when they were told to offer a card on their own week or inbox (outgoingPictures.js, DATA_CARDS_LINE, 2026-10-29; 18,2xx then).
-  assert.ok(system.length < 18_500, `system was ${system.length} characters`);
+  // and from 18,500 when a drawn card was said to arrive as a Context card, and a time to meet names open slots (PICTURES_LINE, SYNCED_PLACES_LINE, 2026-10-29; 18,6xx then).
+  assert.ok(system.length < 19_000, `system was ${system.length} characters`);
 });
 
 test("every new note a texted turn makes is a designed page (owner, 2026-10-27)", async () => {

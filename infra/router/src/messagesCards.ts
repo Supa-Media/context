@@ -12,6 +12,7 @@
  * - `/messages/pick?p=&o=&o=&c=`: a pick card's options (apps/agent/src/pickCard.ts).
  * - `/messages/ask?k=&c=`: Yes or Not now under an ask (apps/agent/src/cardChats.ts).
  * - `/messages/hello`: a hello card, already sent.
+ * - `/messages/card?t=`: a card Tex drew, its picture already in the bubble (apps/agent/src/sendParts.ts).
  * - `/messages/drawer`: the extension opened from the drawer, with no card.
  * - `/messages/inbox` and `/messages/times`: the person's own inbox to hand
  *   to Tex, and their week to pick free times from (`messagesData.ts`).
@@ -130,6 +131,12 @@ function helloPage(): Page {
   return { title: "Context cards on", body: "<h1>Cards are on</h1><p>Tex knows this phone has Context, so it sends cards you can tap.</p>" };
 }
 
+/** A drawn card opened: its picture is the bubble itself, so this only says how to change it. */
+function cardPage(query: URLSearchParams): Page {
+  const title = (query.get("t") ?? "").replace(/\s+/g, " ").trim().slice(0, 100);
+  return { title: title || "From Tex", body: `<h1>${escaped(title || "From Tex")}</h1><p>Want it changed? Reply to Tex in the chat and say how.</p>`, size: "compact" };
+}
+
 function noCard(): Page {
   return { title: "Context", body: "<h1>This card can't be answered here</h1><p>Reply to Tex in the chat instead.</p>" };
 }
@@ -162,7 +169,7 @@ export function messagesCardResponse(request: Request, url: URL): Response | nul
   if (!url.pathname.startsWith(MESSAGES_PREFIX)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const kind = url.pathname.slice(MESSAGES_PREFIX.length);
-  const pages: Record<string, (query: URLSearchParams) => Page> = { pick: pickPage, ask: askPage, drawer: drawerPage, hello: helloPage, inbox: inboxPage, times: timesPage };
+  const pages: Record<string, (query: URLSearchParams) => Page> = { pick: pickPage, ask: askPage, card: cardPage, drawer: drawerPage, hello: helloPage, inbox: inboxPage, times: timesPage };
   const page = Object.hasOwn(pages, kind) ? pages[kind]!(url.searchParams) : null;
   if (page === null) return new Response("Not found", { status: 404 });
   return new Response(request.method === "HEAD" ? null : render(page), {

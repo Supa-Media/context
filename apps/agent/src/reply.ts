@@ -111,7 +111,8 @@ export type ReplyDeps = {
    * started (`jobs.ts`). Absent, the turn is offered none.
    */
   running?: RunningJob[];
-  onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
+  onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
   /**
@@ -277,16 +278,17 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      if (answer.jobs) await deps.onJobs?.(answer.jobs);
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
       if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
-      if (!answer.text) return [];
+      const after = notStarted ? [notStarted] : [];
+      if (!answer.text) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one");
+      return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
