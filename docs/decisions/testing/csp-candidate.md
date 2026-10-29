@@ -112,6 +112,12 @@ In `full` mode, every violation is a style or font one:
    request event, blocked ones included, so it fails. Nothing reaches esm.sh,
    but the guard cannot tell that, and it should not be loosened to tell it
    until `font-src` is the directive being moved.
+   **Fixed at the source (2026-10-29):** the build now removes the one
+   statement that pushes the esm.sh URL (`scripts/excalidraw-font-fallback.mjs`,
+   an esbuild plugin that fails the build unless it matches exactly once), so
+   every face lists our file only. A face we do not deploy (`Xiaolai`) falls
+   back to a system font, as `drawingAssets.ts` already says, instead of
+   asking esm.sh. No policy changes and the guard stays as strict.
 
 ### What the first WebKit run showed (CI, 2026-10-29, head f34694d6)
 

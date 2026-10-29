@@ -116,6 +116,9 @@ jobs:
             apps/mobile/features/console/e2eFixtureData.ts
             apps/mobile/features/console/e2eEncryptionFixture.ts
             scripts/webkit-ci-workers.test.mjs
+            scripts/build-drawing-editor.mjs
+            scripts/excalidraw-font-fallback.mjs
+            scripts/excalidraw-font-fallback.test.mjs
             .github/workflows/browser.yml
 
       - uses: pnpm/action-setup@v4
