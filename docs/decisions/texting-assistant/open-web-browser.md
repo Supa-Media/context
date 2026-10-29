@@ -48,3 +48,31 @@ open web would leave the owner's decision undone. The tests that fail are in
 `apps/mcp/test/agentOpenWebBrowse.test.mjs` ("with open web, note words may be
 typed on a site the person never named, with no site limit" and "without open
 web, note words cannot be typed on a site the person never named").
+
+### Passkeys are off in Tex's browser (2026-10-29)
+
+Google asked for a passkey on sign-in in a tester's chat. Chrome answered the
+page's request with its own passkey window, which is browser furniture: it is
+in no picture of the page, yet it holds the tab, so "Try another way" could
+not be pressed by Tex or by the person who took the browser over. A passkey
+lives on the person's own devices, and a request from this browser never
+reaches them, so the request is never worth making there.
+
+- Every page the Browserbase browser opens is told there are no passkeys
+  (`infra/site-shots/src/passkeys.ts`): a passkey `get` or `create` fails at
+  once with `NotAllowedError`, the way a person's cancel does, and the
+  platform-authenticator checks answer false. Google then offers its other
+  ways (password, a code). A password credential request is untouched.
+- It is registered on every attach (`cdp.ts` `attachPage`), for `/browse`
+  and the person's view alike, because a script added through one DevTools
+  connection lasts only as long as that connection.
+- A Google passkey step that was already showing before the script ran is
+  loaded again once, which closes Chrome's window; a page that already had
+  passkeys off is never reloaded, so the step cannot loop.
+
+**What a simplification would cost:** registering the script only for
+`/browse` would leave the takeover view pressing a page under an invisible
+window; reloading every passkey step on attach would reload a page Tex is in
+the middle of. The tests that fail are in
+`infra/site-shots/src/passkeys.test.ts` and the jar test in
+`browserbase.test.ts` that expects the passkey script first.

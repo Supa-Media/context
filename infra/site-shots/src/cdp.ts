@@ -9,6 +9,7 @@
 
 import type { BrowsePage } from "./browse";
 import { frameLister } from "./cdpFrames";
+import { turnOffPasskeys } from "./passkeys";
 import { setFileInput } from "./upload";
 
 /** One CDP connection: send a method, get its result. */
@@ -99,7 +100,8 @@ export interface AttachedPage {
 
 /**
  * Attach to the browser's first page, the one `/browse` drives, so the
- * person's view (`./view.ts`) and the assistant's steps are on the same page.
+ * person's view (`./view.ts`) and the assistant's steps are on the same page,
+ * with passkeys off on it for as long as this connection lasts.
  */
 export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
   const { targetInfos } = await cdp.send<{ targetInfos: Array<{ targetId: string; type: string }> }>("Target.getTargets");
@@ -128,7 +130,11 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
     await sleep(300);
   }
 
-  return { send, evaluate, settle };
+  const attached = { send, evaluate, settle };
+  // Before anything presses or pictures the page: a passkey window Chrome
+  // draws over it is in no picture and takes every press (./passkeys.ts).
+  await turnOffPasskeys(attached);
+  return attached;
 }
 
 /** Attach to the browser's first page (or use `attached`) and drive it as a `BrowsePage`. */
