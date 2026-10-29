@@ -1,6 +1,6 @@
 /**
- * The landing sign-up's stylesheet (`InlineSignUp.web`): a labelled phone
- * field with its country, a button that says what it does, and each later
+ * The landing sign-up's stylesheet (`InlineSignUp.web`): a labelled email
+ * field (or phone field with its country), a button that says what it does, and each later
  * step drawn in the same place. The page that holds it sets the colours
  * (`--card`, `--hair`, `--ink`, `--ink2`, `--paper`, `--bad`,
  * `--blue`) and `--sans`. Classes start `tp-`, the sign-up's own since
@@ -18,6 +18,7 @@ export const SIGN_UP_CSS = `
 .tp-cc select{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:16px}
 .tp-field input{all:unset;flex:1;min-width:0;height:100%;font-family:var(--sans);font-size:17px;color:var(--ink);font-variant-numeric:tabular-nums}
 .tp-field input::placeholder{color:#7A766E;opacity:1;font-family:"Libron",Georgia,serif;font-size:18px}
+.tp-ask input::placeholder{font-family:var(--sans);font-size:15px}
 .tp-code input{letter-spacing:.32em}
 .tp-go{all:unset;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;height:52px;padding:0 20px;border-radius:12px;background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:16px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s,opacity .15s}
 .tp-go:hover{background:#000}
@@ -31,7 +32,8 @@ export const SIGN_UP_CSS = `
 .tp-tick{flex:none;color:#fff;width:28px;height:28px;margin-top:1px;border-radius:50%;background:var(--blue);display:grid;place-items:center}
 .tp-tick svg{width:14px;height:14px}
 .tp-head{font-size:21px;line-height:1.3;font-weight:500}
-.tp-email{max-width:400px;font-size:16px;line-height:1.4}
+.tp-ask{margin-top:12px}
+.tp-small b{font-weight:600;color:var(--ink)}
 @media (max-width:899px){.tp-label{font-size:17px}}
 @media (max-width:599px){.tp-in .tp-row{flex-direction:column}.tp-field{flex:none}.tp-go{width:100%}}
 `;
