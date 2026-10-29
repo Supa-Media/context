@@ -45,7 +45,7 @@ import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type Te
 import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
-import type { DataCardKind } from "./dataCards";
+import type { Offer } from "./dataCards";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
@@ -88,7 +88,7 @@ export type ReplyDeps = {
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
-  onOffers?: (offers: DataCardKind[]) => void;
+  onOffers?: (offers: Offer[]) => void;
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn

@@ -17,6 +17,7 @@ import { siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { isHomeDocument, retiredHomePageRedirect, withHomeSite } from "./homeSite";
 import { textsSimulatorResponse } from "./textsSimulator";
 import { messagesCardResponse } from "./messagesCards";
+import { threadsResponse } from "./messagesThreads";
 import { iconResponse, robotsResponse, staticAsset } from "./icons";
 import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
@@ -61,6 +62,8 @@ async function platformResponse(request: Request, url: URL, env: Env, ctx: Execu
     if (isPluginSandboxPath(url.pathname)) return await pluginSandboxResponse(request, url, env);
     const simulator = textsSimulatorResponse(request, url, env);
     if (simulator !== null) return await simulator;
+    const threads = await threadsResponse(request, url, env); // a chat's live view of its jobs
+    if (threads !== null) return threads;
     const card = messagesCardResponse(request, url); // the Messages extension's pages
     if (card !== null) return card;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);

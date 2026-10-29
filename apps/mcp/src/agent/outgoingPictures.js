@@ -54,8 +54,8 @@ const MAX_URL_LENGTH = 2000;
 // sentence with "[picture 1]" still means the picture, and the person must
 // never see the marker (Dev, 2026-10-19).
 const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
-/** A card the person's phone can open on their own data (`apps/agent/src/dataCards.ts`): `[card times]` or `[card inbox]`. */
-const CARD_LINE = /[ \t]*\[card[ \t]+(times|inbox)[ \t]*\]/gi;
+/** A card the person's phone can open on their own data (`apps/agent/src/dataCards.ts`): `[card times]` or `[card inbox]`; `[card threads]`, the live view of the chat's jobs (`apps/agent/src/jobs.ts`). */
+const CARD_LINE = /[ \t]*\[card[ \t]+(times|inbox|threads)[ \t]*\]/gi;
 /** Any https address, wherever it sits in a block of text or in a tool's arguments. */
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 /** The most addresses one call's arguments are checked against: an argument may be a whole page. */
@@ -82,7 +82,8 @@ export const PICTURES_LINE =
  */
 export const DATA_CARDS_LINE =
   "Asking when they're free, add [card times] on its own line; asked to go through their email, add [card inbox]. A phone with " +
-  "the Context app gets a card to tap from (their free times, their newest mail); keep your words whole without it, never mention it.";
+  "the Context app gets a card to tap from (their free times, their newest mail); keep your words whole without it, never mention it. " +
+  "When you start a background job, or they ask what you're working on, add [card threads]: it sends a live view of every job and its steps.";
 
 /**
  * One tool result's words, with every address this same call carried in cut

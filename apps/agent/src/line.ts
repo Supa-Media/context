@@ -81,6 +81,8 @@ export type LineDeps = {
   appCard?: AppCardConfig | null;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link where there is no App Card. */
   noteCardPicture?: NoteCardDrawer;
+  /** A new link to this chat's live view of its jobs (`jobs.ts` `mintThreadsLink`); absent, the view is never offered. */
+  threadsLink?: () => Promise<string>;
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {

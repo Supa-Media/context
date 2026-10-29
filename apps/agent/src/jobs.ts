@@ -298,3 +298,66 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
 export function log(outcome: string, id: string, reason?: string): void {
   console.log(JSON.stringify({ event: "background_job", outcome, job: id, ...(reason ? { reason } : {}) }));
 }
+
+/**
+ * The chat's running jobs, live, behind a link only the chat is sent (Dev2,
+ * 2026-10-29: a card that shows the running threads, tapped to see what each
+ * is doing, in groups too). Tex adds `[card threads]` when it starts a job or
+ * is asked what it is working on; a one-to-one chat with Context cards gets a
+ * card that opens the view in the Messages extension, and anyone else, a group
+ * included, gets the link. The page itself is `infra/router/src/messagesThreads.ts`
+ * at `https://context.lc/messages/threads?k=<object id>.<token>`, which reads
+ * this object through the router's binding to this Worker.
+ *
+ * The token is 256 random bits, kept here for `THREADS_FOR_MS`, and the newest
+ * `MAX_THREADS_LINKS` per chat; every miss is the same 404. What it shows is
+ * what every texted turn of this chat is already told: each job's title,
+ * state, status line and last steps (tool and target, never a note's text),
+ * so the link reveals nothing the chat could not ask Tex for.
+ */
+export const THREADS_FOR_MS = 6 * 60 * 60 * 1000;
+export const MAX_THREADS_LINKS = 4;
+const THREADS_PREFIX = "threads-link:";
+const THREADS_TOKEN = /^[0-9a-f]{64}$/;
+const THREADS_OBJECT = /^[0-9a-f]{64}$/;
+export const THREADS_PAGE = "https://context.lc/messages/threads";
+
+/** A new link to this chat's live view, dropping links that expired and all but the newest few. */
+export async function mintThreadsLink(storage: InboxStorage, objectId: string, now: number): Promise<string> {
+  if (!THREADS_OBJECT.test(objectId)) throw new Error("not an object id");
+  const token = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const kept = [...(await storage.list<number>({ prefix: THREADS_PREFIX }))].sort(([, a], [, b]) => b - a);
+  for (const [index, [key, at]] of kept.entries()) {
+    if (index >= MAX_THREADS_LINKS - 1 || now - at > THREADS_FOR_MS) await storage.delete(key);
+  }
+  await storage.put<number>(`${THREADS_PREFIX}${token}`, now);
+  return `${THREADS_PAGE}?k=${objectId}.${token}`;
+}
+
+/** The view's data for a live token, as JSON; the same 404 for every miss. */
+export async function serveThreads(storage: InboxStorage, token: string, now: number): Promise<Response> {
+  const at = THREADS_TOKEN.test(token) ? await storage.get<number>(`${THREADS_PREFIX}${token}`) : undefined;
+  if (typeof at !== "number" || now - at > THREADS_FOR_MS) return new Response(null, { status: 404 });
+  return Response.json({ now, max: MAX_RUNNING_JOBS, jobs: await chatJobs(storage, now) }, { headers: { "cache-control": "private, no-store" } });
+}
+
+/** `<object id>.<token>` from a view link's `k`, or null for anything else. */
+export function threadsKey(value: string | null): { objectId: string; token: string } | null {
+  const [objectId, token, extra] = (value ?? "").split(".");
+  return extra === undefined && THREADS_OBJECT.test(objectId ?? "") && THREADS_TOKEN.test(token ?? "") ? { objectId: objectId!, token: token! } : null;
+}
+
+/** The words that carry the view where there is no card to: a group, or a phone without the Context app. */
+export function threadsLine(link: string): string {
+  return `What I'm working on, live (tap one to see its steps): ${link}`;
+}
+
+/** The lines a group's answer ends with when it offered the view, or none. Never throws. */
+export async function threadsLines(offers: readonly string[] | undefined, mint: (() => Promise<string>) | undefined): Promise<string[]> {
+  if (!offers?.includes("threads") || mint === undefined) return [];
+  try {
+    return [threadsLine(await mint())];
+  } catch {
+    return [];
+  }
+}

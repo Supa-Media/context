@@ -20,6 +20,8 @@ import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import type { SendPart } from "./outgoing";
 
 export type DataCardKind = "times" | "inbox";
+/** What a turn may offer: a data card, or the live view of the chat's jobs (`answerCards.ts`). */
+export type Offer = DataCardKind | "threads";
 
 const CARDS: Record<DataCardKind, { caption: string; subcaption: string; trailing: string; summary: string }> = {
   times: { caption: "Pick times that work", subcaption: "Tap free times from your calendar", trailing: "Pick", summary: "Pick times that work" },
@@ -27,9 +29,9 @@ const CARDS: Record<DataCardKind, { caption: string; subcaption: string; trailin
 };
 
 /** The gateway's `offers`, checked: each kind once, in order, or none. Never throws. */
-export function readOffers(raw: unknown): DataCardKind[] {
+export function readOffers(raw: unknown): Offer[] {
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.filter((kind): kind is DataCardKind => kind === "times" || kind === "inbox"))];
+  return [...new Set(raw.filter((kind): kind is Offer => kind === "times" || kind === "inbox" || kind === "threads"))];
 }
 
 export function dataCard(kind: DataCardKind, config: AppCardConfig): AppCard {
@@ -47,8 +49,9 @@ export function dataCard(kind: DataCardKind, config: AppCardConfig): AppCard {
 }
 
 /** The offered cards after the answer, where cards go. */
-export function withDataCards(parts: SendPart[], offers: readonly DataCardKind[], config: AppCardConfig | null | undefined): SendPart[] {
-  return offers.length > 0 && cardsOn(config) ? [...parts, ...offers.map((kind) => ({ card: dataCard(kind, config) }))] : parts;
+export function withDataCards(parts: SendPart[], offers: readonly Offer[], config: AppCardConfig | null | undefined): SendPart[] {
+  const kinds = offers.filter((kind): kind is DataCardKind => kind !== "threads");
+  return kinds.length > 0 && cardsOn(config) ? [...parts, ...kinds.map((kind) => ({ card: dataCard(kind, config) }))] : parts;
 }
 
 const MAX_EMAILS = 10;

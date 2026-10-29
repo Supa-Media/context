@@ -268,8 +268,8 @@ export function backgroundSession({ running, job, now }) {
     }
     started.push({ title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now });
     return text(
-      `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result; ` +
-        "don't do the work in this turn.",
+      `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
+        "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
     );
   };
   const live = running.filter((entry) => entry.state === "running");

@@ -119,6 +119,7 @@ test("an ask for a job already running is refused with its status", async () => 
 
   const fresh = await background.call({ title: "Plan the Lisbon trip", brief: "Flights and a hotel for May", done_when: "a note in 1-projects/trips" });
   assert.match(words(fresh), /Started in the background/);
+  assert.match(words(fresh), /\[card threads\] on its own line/, "a started job offers the live view of what is running");
   const twice = await background.call({ title: "Lisbon trip plan", brief: "Same again" });
   assert.match(words(twice), /Already working on that/, "the same turn can't start it twice either");
   assert.deepEqual(startedJobs(background, false), {
