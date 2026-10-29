@@ -669,6 +669,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A file that does not exist yet is scaffolded, once, and edited ever after
 - The editor is cached by a worker scoped to its own directory
 - The message check is an identity check, not an origin check
+- The sandbox is a page of its own, and is public on purpose
 - A list of what the shim is missing cannot be written by hand
 - A base class has to be real, and a real dialog is text in one direction
 - The only check that has ever caught a plugin not loading

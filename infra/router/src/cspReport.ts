@@ -43,6 +43,8 @@
  * sample of script text a browser may attach.
  */
 
+import { isPluginSandboxPath, SANDBOX_POLICY } from "./pluginSandbox";
+
 export const CSP_REPORT_PATH = "/_csp-report";
 
 /** The web shell's inline scripts, by hash, in the order the shell has them. */
@@ -166,8 +168,13 @@ export function fetchDirectives(convexOrigin: string | undefined): string {
   ].join("; ");
 }
 
-/** The report-only policy a platform document at `pathname` is given. */
+/**
+ * The report-only policy a platform document at `pathname` is given. The
+ * plugin sandbox's page reports against its own policy (`pluginSandbox.ts`),
+ * which it also enforces; the console's would only report every plugin.
+ */
 export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | undefined): string {
+  if (isPluginSandboxPath(pathname)) return `${SANDBOX_POLICY}; report-uri ${CSP_REPORT_PATH}`;
   const scripts = pathname.startsWith(EDITOR_PATH_PREFIX) ? EDITOR_POLICY : SCRIPT_POLICY;
   return `${fetchDirectives(convexOrigin)}; ${scripts}`;
 }

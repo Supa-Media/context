@@ -22,6 +22,7 @@ import {
   SHELL_STYLE_HASHES,
 } from "./cspReport";
 import { ENFORCED_POLICY, SECURITY_HEADERS } from "./securityHeaders";
+import { PLUGIN_SANDBOX_PREFIX } from "./pluginSandbox";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
 const assets = vi.fn(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
@@ -105,10 +106,11 @@ describe("the policy", () => {
 
   // Two frames run script this policy would block, and a quiet report log
   // cannot show it: they run only when someone opens a plugin or exports a
-  // drawing. The plugin sandbox is a `srcdoc` document, which inherits the
-  // app's policy, and runs its bootstrap and each plugin as inline script; the
+  // drawing. The plugin sandbox runs its bootstrap and each plugin as inline
+  // script, which a `srcdoc` frame would run under the app's policy; the
   // drawing editor's bundled WebAssembly glue builds functions with
-  // `new Function`. Until each is moved or rebuilt, the policy stays report-only.
+  // `new Function`. Until each has a document and a policy of its own, the
+  // policy stays report-only.
   it("stays report-only while a frame of ours needs inline script or eval", () => {
     const repo = join(__dirname, "..", "..", "..");
     const sandbox = readFileSync(join(repo, "packages", "obsidian-runtime", "src", "sandbox", "lifecycle.js"), "utf8");
@@ -118,8 +120,10 @@ describe("the policy", () => {
     // The drawing editor is a document of its own, framed by URL: it stops
     // holding the shell back once that document has a policy of its own.
     const editorShared = reportOnlyPolicyFor("/drawing-assets/editor/index.html", undefined) === reportOnlyPolicyFor("/console", undefined);
+    const host = readFileSync(join(repo, "apps", "mobile", "features", "console", "plugins", "PluginSandbox.web.tsx"), "utf8");
+    const sandboxShared = /\bsrcDoc=/.test(host) || reportOnlyPolicyFor(PLUGIN_SANDBOX_PREFIX, undefined) === reportOnlyPolicyFor("/console", undefined);
     const needs = [
-      ...(/script\.textContent\s*=/.test(sandbox) ? ["plugin sandbox: inline script in a srcdoc frame"] : []),
+      ...(/script\.textContent\s*=/.test(sandbox) && sandboxShared ? ["plugin sandbox: inline script in a srcdoc frame"] : []),
       ...(app.dependencies?.["@excalidraw/excalidraw"] && editorShared ? ["drawing editor: Excalidraw's WebAssembly glue calls new Function"] : []),
     ];
     if (needs.length > 0) expect(SECURITY_HEADERS["Content-Security-Policy"], needs.join("; ")).not.toContain("script-src");

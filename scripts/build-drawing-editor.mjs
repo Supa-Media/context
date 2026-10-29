@@ -32,6 +32,7 @@
 import { build } from "esbuild";
 import { buildSpellingDictionaries } from "./build-spelling-dictionaries.mjs";
 import { buildPageFrame } from "./build-page-frame.mjs";
+import { buildPluginSandbox } from "./build-plugin-sandbox.mjs";
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -242,6 +243,8 @@ async function main() {
   await buildDiagramFrame();
   // The page runtime `.page.md` notes are drawn in, a sealed frame like the diagram's.
   await buildPageFrame();
+  // The plugin sandbox, loaded by URL so it carries its own policy, not the console's.
+  await buildPluginSandbox();
   // The note editor's spelling dictionaries, served beside it for the same reason.
   await buildSpellingDictionaries();
 }
