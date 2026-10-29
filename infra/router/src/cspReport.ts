@@ -52,6 +52,32 @@ export const SHELL_SCRIPT_HASHES = [
   "sha256-ARyvZ8XnRfx9fPB0hl4d0/OMeuJeyct7psw/aPkcjTo=",
 ];
 
+/**
+ * The style half, measured the same way before anything enforces it
+ * (2026-10-29, the CASA ZAP scan's "CSP: style-src unsafe-inline"). The
+ * candidate names no `'unsafe-inline'`:
+ *
+ *  - `'self'`: the app's stylesheets and self-hosted fonts.
+ *  - The shell's two inline `<style>` blocks (`expo-reset`, `context-ground`),
+ *    by hash, pinned to the file like the scripts above.
+ *  - The empty string's hash. React Native Web makes its stylesheet as an
+ *    empty `<style>` and fills it with `insertRule`
+ *    (`react-native-web/dist/exports/StyleSheet/dom/index.js`), and CSSOM
+ *    calls are not something CSP governs; only the element's own (empty) text
+ *    is checked. Whether every browser checks it that way is what the reports
+ *    are for.
+ *
+ * What it would still block, and the reports should show: a `<style>` whose
+ * text is written by script, such as the live editor's
+ * (`apps/mobile/features/console/files/liveEditorWeb/stylesheet.ts`, ours to
+ * move to `insertRule` or an adopted sheet), and whatever a library adds.
+ */
+export const SHELL_STYLE_HASHES = [
+  "sha256-+R/ZCHnQviXyQb4aRG+FfnYnvSs95Sh3781AvYd08wc=",
+  "sha256-ZZNz8w0+kaEm4BQi7zaS01zUgbCdEZjHcS4cH8ArMUI=",
+];
+export const EMPTY_STYLE_HASH = "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+
 /** Every host that may serve script, each for the reason above. */
 export const SCRIPT_HOSTS = [
   "https://challenges.cloudflare.com",
@@ -62,6 +88,7 @@ export const SCRIPT_HOSTS = [
 
 export const SCRIPT_POLICY =
   `script-src 'self' ${SHELL_SCRIPT_HASHES.map((hash) => `'${hash}'`).join(" ")} ${SCRIPT_HOSTS.join(" ")} 'wasm-unsafe-eval'; ` +
+  `style-src 'self' ${[...SHELL_STYLE_HASHES, EMPTY_STYLE_HASH].map((hash) => `'${hash}'`).join(" ")}; ` +
   "object-src 'none'; base-uri 'self'; " +
   `report-uri ${CSP_REPORT_PATH}`;
 
