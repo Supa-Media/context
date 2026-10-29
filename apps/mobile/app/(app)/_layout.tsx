@@ -27,6 +27,7 @@ import { useScheduledMeetingsSource } from "../../features/meetings/scheduled";
 import { useMeetingJoinPreferencesSource } from "../../features/meetings/joinPreferences";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
+import { useCardKey } from "../../features/cards/useCardKey";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
 import {
@@ -237,6 +238,8 @@ export default function AppLayout() {
   const asked = resumeAsked() || resumeOnAccount === true;
   const entry = authed ? sessionEntry(pathname) : null;
   const ownId = ownPersonalWorkspace(rows)?.workspaceId;
+  // The Messages extension's key for cards that show this person's own data (features/cards/useCardKey.ts).
+  useCardKey({ workspaceId: ownId, signedOut: !auth.isLoading && !auth.isAuthenticated });
   // Not before the account has said whether it was asked: a gate that cannot
   // answer renders rather than redirects.
   const askBinding =

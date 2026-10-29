@@ -368,6 +368,12 @@ export const PLAINTEXT_CREDENTIAL_FIELDS = [
   // appears as a schema column, because at rest it is one `appSecrets` row's
   // `encryptedValue` and the bare token exists only in flight.
   "apitoken",
+  // A REFRESH TOKEN, which outlives every access token it mints: whoever holds
+  // one holds the grant until it is revoked. No public function returned one
+  // until the card key (`cardsKey.mintCardsKey`), and this name was missing
+  // from the list until then, so the guard would not have noticed it. The one
+  // function that may is enumerated in `DELIBERATE_REFRESH_MINTS` below.
+  "refreshtoken",
   // THE WORKSPACE DATA KEY, which `/gateway/binding` returns beside the bucket
   // key. It opens every encrypted note in one context, which puts it in the
   // same class as `secretaccesskey` rather than a lesser one. At rest it is
@@ -446,7 +452,8 @@ export const DISCLOSED_KEY_FIELD = "material";
  * exactly why this one is listed here instead of having its field renamed to
  * `token` or `session` to slip past.
  *
- * What bounds the disclosure: an hour, no refresh token, one live grant per
+ * What bounds the disclosure (for the console grant; the card key's bounds are
+ * below): an hour, no refresh token, one live grant per
  * person per context (the previous token dies in the transaction that mints the
  * next), and a caller who must already hold the Convex session — which reaches
  * the same notes through `files.ts` and can additionally rebind storage and
@@ -456,7 +463,31 @@ export const DISCLOSED_KEY_FIELD = "material";
  * `accesstoken` fails, and so does this one growing a `secretaccesskey`, an
  * `apitoken` or an `encryptedapikey`. See `__tests__/agentGrant.test.ts`.
  */
-export const DELIBERATE_TOKEN_MINTS = new Set(["functions.agentGrant.mintConsoleGrant"]);
+export const DELIBERATE_TOKEN_MINTS = new Set([
+  "functions.agentGrant.mintConsoleGrant",
+  "functions.cardsKey.mintCardsKey",
+]);
+
+/**
+ * THE CARD KEY, the second mint and the only one with a refresh token. The
+ * owner chose the app's sign-in for cards that show a person's own inbox and
+ * week (2026-10-29; docs/decisions/texting-assistant/visual-answers.md): the
+ * app mints a grant and leaves it in the keychain its Messages extension
+ * shares, and the extension, which cannot ask Convex for another, refreshes it
+ * at the gateway's token endpoint.
+ *
+ * What bounds it: read scopes only, clamped to the role; the caller's own
+ * personal workspace, as its owner; one live grant per phone, the previous
+ * pair dying in the transaction that mints the next; rotation with reuse
+ * detection, so a copied refresh token used twice revokes the grant; its own
+ * client, revocable per phone from the connections list; and, as for the
+ * console grant, a caller who already holds the Convex session. See
+ * `__tests__/cardsKey.test.ts`.
+ */
+export const DELIBERATE_REFRESH_MINTS = new Set(["functions.cardsKey.mintCardsKey"]);
+
+/** The field that one is additionally exempt from. */
+export const MINTED_REFRESH_FIELD = "refreshtoken";
 
 /** The one field that one is exempt from, and nothing else. */
 export const MINTED_TOKEN_FIELD = "accesstoken";
