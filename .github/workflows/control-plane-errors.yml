@@ -42,8 +42,8 @@ jobs:
       - name: Read and summarise
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          HISTORY: ${{ inputs.history || '3000' }}
-          MATCH: ${{ inputs.match || '' }}
+          HISTORY: ${{ inputs.history || '5000' }}
+          MATCH: ${{ inputs.match || 'rovisioning' }}
         run: |
           set -uo pipefail
           case "$HISTORY" in ''|*[!0-9]*) echo "history must be a number" >&2; exit 1 ;; esac

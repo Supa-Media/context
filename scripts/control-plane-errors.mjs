@@ -26,8 +26,11 @@ export function summarise(lines, match = "") {
     const path = typeof event.identifier === "string" ? event.identifier : typeof event.udfPath === "string" ? event.udfPath : "";
     if (!/^[A-Za-z0-9_:/.-]{1,120}$/.test(path) || (match && !path.includes(match))) continue;
     const error = event.error ?? event.message?.error;
-    if (error === undefined || error === null || error === "") continue;
-    const key = `${path} | ${scrub(error)}`;
+    const failed = !(error === undefined || error === null || error === "");
+    // With a match, every run of the matched functions is counted, and what they logged, scrubbed.
+    if (!failed && !match) continue;
+    const said = Array.isArray(event.logLines) ? event.logLines.map((l) => scrub(typeof l === "string" ? l : JSON.stringify(l))).join(" / ").slice(0, 200) : "";
+    const key = `${path} | ${failed ? scrub(error) : "ok"}${said ? ` | ${said}` : ""}`;
     const seen = counts.get(key) ?? { count: 0, last: 0 };
     const at = Number(event.timestamp ?? 0);
     counts.set(key, { count: seen.count + 1, last: Math.max(seen.last, Number.isFinite(at) ? at : 0) });
