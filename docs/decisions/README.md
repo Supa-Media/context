@@ -191,6 +191,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A new argument reaches a client that a new tool cannot
 - [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
 - [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
+- [Open CORS on the gateway, and HSTS with nosniff on the control plane](./gateway-protocol/cors-and-headers.md)
 - [URL tokens are counted, then retired route by route](./gateway-protocol/token-transport.md)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
