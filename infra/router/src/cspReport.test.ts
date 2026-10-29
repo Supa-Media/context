@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import { CSP_REPORT_PATH, parseCspReport, SCRIPT_POLICY, SHELL_SCRIPT_HASHES } from "./cspReport";
-import { SECURITY_HEADERS } from "./securityHeaders";
+import { ENFORCED_POLICY, SECURITY_HEADERS } from "./securityHeaders";
 
 const CTX = { waitUntil: (promise: Promise<unknown>) => void promise, passThroughOnException: () => {} } as unknown as ExecutionContext;
 const assets = vi.fn(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
@@ -50,8 +50,8 @@ describe("the policy", () => {
     expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(SCRIPT_POLICY);
     expect(SCRIPT_POLICY).toContain(`report-uri ${CSP_REPORT_PATH}`);
     expect(SCRIPT_POLICY).toContain("object-src 'none'");
-    // Enforcing CSP still only says who may frame; scripts are not blocked yet.
-    expect(response.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self'");
+    // Enforcing CSP says who may frame, where forms go, and bars plugins and <base>; scripts and styles are not blocked yet.
+    expect(response.headers.get("Content-Security-Policy")).toBe(ENFORCED_POLICY);
   });
 
   it("allows no host it does not need", () => {

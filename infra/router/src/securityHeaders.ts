@@ -15,6 +15,17 @@
  *   clickjacking page on another origin gets a blank frame. Both the legacy
  *   header and CSP `frame-ancestors`, because browsers honour one or the other.
  * - **`nosniff`** and a referrer policy that never sends a path off-site.
+ * - **The enforced policy's other directives** (2026-10-29, the CASA ZAP
+ *   scan's "Failure to Define Directive with No Fallback"): `form-action
+ *   'self'`, `object-src 'none'` and `base-uri 'self'`, none of which falls
+ *   back to `default-src`. Each is enforced because the source shows nothing
+ *   on these hosts needs more: every `<form>` in the app calls
+ *   `preventDefault` and submits by `fetch`, sign-in and checkout leave by
+ *   redirect, and nothing creates an `<object>`, an `<embed>` or a `<base>`.
+ *   Frames of ours that write their own policy keep theirs, which is
+ *   stricter (`'none'`), since a document obeys every policy it is given.
+ *   Script and style stay report-only (`cspReport.ts`) until the frames that
+ *   need inline script and `new Function` move out from under them.
  *
  * Headers a branch already set win: the preview cards' `no-referrer`, for one,
  * is stricter than the default here. Customer domains never pass through this:
@@ -24,10 +35,13 @@
 import { SCRIPT_POLICY } from "./cspReport";
 import { isPageBoxPath } from "./pageFrame";
 
+/** What the enforcing header allows: no directive here may block a script or a style. */
+export const ENFORCED_POLICY = "frame-ancestors 'self'; form-action 'self'; object-src 'none'; base-uri 'self'";
+
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Strict-Transport-Security": "max-age=31536000",
   "X-Frame-Options": "SAMEORIGIN",
-  "Content-Security-Policy": "frame-ancestors 'self'",
+  "Content-Security-Policy": ENFORCED_POLICY,
   // Report-only until its reports are quiet; see cspReport.ts.
   "Content-Security-Policy-Report-Only": SCRIPT_POLICY,
   "X-Content-Type-Options": "nosniff",

@@ -14,9 +14,8 @@
  */
 export const FONT_STYLESHEET_ID = "context-fonts";
 
-export const FONT_STYLESHEET_HREF =
-  "https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600" +
-  "&family=JetBrains+Mono:wght@400;500&display=swap";
+/** Instrument Sans and JetBrains Mono, from our own origin (`public/context-fonts.css`). */
+export const FONT_STYLESHEET_HREF = "/context-fonts.css";
 
 /**
  * Libron, the face note text is read in (`fonts.reading`), is not on Google
