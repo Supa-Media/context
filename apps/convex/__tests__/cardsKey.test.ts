@@ -15,6 +15,8 @@ import { CARDS_CLIENT_ID } from "../functions/cardsKey";
  *   else's, gets no key" fails.
  *   The reuse branch inserting instead of patching → "minting again on the
  *   same phone retires its old key" fails.
+ *   `mintCardsKey` dropped from `DELIBERATE_REFRESH_MINTS` → the structure
+ *   suite's credential-field guard fails on its `refreshtoken`.
  */
 
 const DEVICE = "phone-0000-aaaa";

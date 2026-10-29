@@ -19,6 +19,8 @@ import {
   importsDecrypt,
   LIVE_MODULES,
   MINTED_TOKEN_FIELD,
+  DELIBERATE_REFRESH_MINTS,
+  MINTED_REFRESH_FIELD,
   PUBLIC_FORBIDDEN_FIELDS,
   RAW_SOURCES,
   realModules,
@@ -348,7 +350,11 @@ describe("no public function can reach a storage secret", () => {
         live.add(`${referencePath(globKey)}.${name}`);
       }
     }
-    expect(DELIBERATE_TOKEN_MINTS.size).toBe(1);
+    // The console grant and the card key; a third is a conversation.
+    expect(DELIBERATE_TOKEN_MINTS.size).toBe(2);
+    expect(DELIBERATE_REFRESH_MINTS.size).toBe(1);
+    for (const node of DELIBERATE_REFRESH_MINTS) expect(DELIBERATE_TOKEN_MINTS.has(node)).toBe(true);
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain(MINTED_REFRESH_FIELD);
     for (const node of DELIBERATE_TOKEN_MINTS) {
       expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
     }
@@ -373,6 +379,7 @@ describe("no public function can reach a storage secret", () => {
       expect(returns.length).toBeGreaterThan(0);
       for (const field of PUBLIC_FORBIDDEN_FIELDS) {
         if (field === MINTED_TOKEN_FIELD) continue;
+        if (field === MINTED_REFRESH_FIELD && DELIBERATE_REFRESH_MINTS.has(node)) continue;
         expect(returns.includes(`"${field}"`), `${node} also returns ${field}`).toBe(
           false,
         );
@@ -424,6 +431,9 @@ describe("no public function can reach a storage secret", () => {
           )
             continue;
           if (field === MINTED_TOKEN_FIELD && DELIBERATE_TOKEN_MINTS.has(node)) {
+            continue;
+          }
+          if (field === MINTED_REFRESH_FIELD && DELIBERATE_REFRESH_MINTS.has(node)) {
             continue;
           }
           expect(
