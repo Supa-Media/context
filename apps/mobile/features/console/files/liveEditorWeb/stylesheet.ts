@@ -31,13 +31,49 @@ const STYLE_ELEMENT_ID = "context-live-preview-styles";
  */
 export function ensureStyles(colors: Colors): void {
   if (typeof document === "undefined") return;
+  const css = liveEditorCss(colors);
+  if (adoptStyles(document, css)) return;
   let style = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   const fresh = style === null;
   if (style === null) {
     style = document.createElement("style");
     style.id = STYLE_ELEMENT_ID;
   }
-  style.textContent = `
+  style.textContent = css;
+  if (fresh) document.head.appendChild(style);
+}
+
+/**
+ * The adopted sheet these rules live in, where the browser has them.
+ *
+ * A `<style>` whose text script writes is inline style to a Content Security
+ * Policy, so it would need `'unsafe-inline'` (the CASA scan's "CSP:
+ * style-src unsafe-inline"; `infra/router/src/cspReport.ts`). A constructed
+ * sheet adopted by the document is CSSOM, which a policy does not govern, so
+ * the same rules apply with no inline style at all. Browsers without
+ * constructable sheets (and jsdom) keep the `<style>` element.
+ */
+let adopted: CSSStyleSheet | null = null;
+
+type Adopting = Document & { adoptedStyleSheets?: CSSStyleSheet[] };
+
+function adoptStyles(doc: Adopting, css: string): boolean {
+  if (!Array.isArray(doc.adoptedStyleSheets) || typeof CSSStyleSheet === "undefined") return false;
+  let sheet: CSSStyleSheet;
+  try {
+    sheet = adopted ?? new CSSStyleSheet();
+    sheet.replaceSync(css);
+  } catch {
+    return false;
+  }
+  adopted = sheet;
+  if (!doc.adoptedStyleSheets.includes(sheet)) doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
+  return true;
+}
+
+/** The rules, for whichever of the two ways `ensureStyles` applies them. */
+export function liveEditorCss(colors: Colors): string {
+  return `
 .cm-lp-root {
   --lp-heading: ${colors.text};
   --lp-muted: ${colors.text2};
@@ -258,5 +294,4 @@ ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
 ${mailStyles(colors, fonts.body)}
 `;
-  if (fresh) document.head.appendChild(style);
 }
