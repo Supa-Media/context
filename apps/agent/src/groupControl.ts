@@ -54,7 +54,7 @@ function guestInfoOf(value: unknown): GuestInfo | undefined {
 }
 
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
-  const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" ? undefined : command;
+  const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" || command.kind === "review_sharing" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
     groupId: message.groupId,

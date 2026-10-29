@@ -507,7 +507,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
   // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).
-  if (command?.kind === "settings" || command?.kind === "style" || item.setting) return await groupSettings(storage, deps, message, command, item.setting, asked);
+  if (command?.kind === "settings" || command?.kind === "style" || command?.kind === "review_sharing" || item.setting) return await groupSettings(storage, deps, message, command, item.setting, asked);
   if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.

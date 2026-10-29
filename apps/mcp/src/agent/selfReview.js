@@ -60,6 +60,9 @@ export const REVIEW_MARK_PREFIX = ".context/agent/reviews/";
 /** The most of a conversation one review reads: its newest turns. */
 export const MAX_REVIEW_TURNS = 40;
 export const MAX_REVIEW_CHARS = 30_000;
+/** A shared history (`whole`): everything Tex keeps of a 1:1 chat, within what the control plane files. */
+export const WHOLE_REVIEW_TURNS = 300;
+export const WHOLE_REVIEW_CHARS = 110_000;
 const MAX_TURN_CHARS = 3_000;
 const MAX_WORDS_CHARS = 1_200;
 
@@ -98,7 +101,7 @@ async function exchangePrint(turns, at) {
  * A mark that is no longer in the history (trimmed away, or the chat's note
  * edited) reads as none: the newest turns are reviewed.
  */
-export async function sinceReviewed(history, mark) {
+export async function sinceReviewed(history, mark, most = MAX_REVIEW_TURNS) {
   const turns = Array.isArray(history) ? history.filter((turn) => turn?.role === "user" || turn?.role === "assistant") : [];
   let from = 0;
   if (typeof mark === "string") {
@@ -109,7 +112,7 @@ export async function sinceReviewed(history, mark) {
       }
     }
   }
-  const fresh = turns.slice(from).slice(-MAX_REVIEW_TURNS);
+  const fresh = turns.slice(from).slice(-most);
   while (fresh.length > 0 && fresh[0].role !== "user") fresh.shift();
   return fresh;
 }
@@ -130,7 +133,7 @@ function clip(text, max) {
  * what, and the names of the tools each answer used. `after` is what a group
  * said after Tex's last answer, when it said anything.
  */
-export function transcriptOf(turns, after = [], failed = []) {
+export function transcriptOf(turns, after = [], failed = [], room = MAX_REVIEW_CHARS) {
   const lines = turns.map((turn) =>
     turn.role === "user"
       ? `Them: ${clip(turn.text, MAX_TURN_CHARS)}`
@@ -141,7 +144,7 @@ export function transcriptOf(turns, after = [], failed = []) {
   for (const line of after) lines.push(`${line.from ? `@${line.from}` : "Someone"} (after Tex's last text): ${clip(line.text, MAX_TURN_CHARS)}`);
   let text = lines.join("\n\n");
   // The newest is what ended it: keep that end when it is long.
-  if (text.length > MAX_REVIEW_CHARS) text = `…${text.slice(-(MAX_REVIEW_CHARS - 1))}`;
+  if (text.length > room) text = `…${text.slice(-(room - 1))}`;
   return text;
 }
 
@@ -292,18 +295,19 @@ export async function reviewConversation(options) {
  * landing (01:26 and 02:31 on 2026-10-25). A mark that cannot be written
  * files nothing.
  */
-export async function reviewOutcome({ env, store, session, controlPlane, history, key, reason, after = [], failed = [], request = requestViaGateway, log = (line) => console.log(line) }) {
+export async function reviewOutcome({ env, store, session, controlPlane, history, key, reason, after = [], failed = [], whole = false, request = requestViaGateway, log = (line) => console.log(line) }) {
   const none = (why) => ({ filed: null, why });
   if (env?.TEX_REVIEW !== "on") return none("off");
   const config = aiGatewayConfig(env);
   if (!config || typeof controlPlane?.texReviewTier !== "function") return none("off");
   const mark = await readMark(store, key);
-  const answered = await sinceReviewed(history, mark);
+  // `whole`: the history they just said yes to sharing, newest first, read past the mark and never moving it.
+  const answered = whole ? await sinceReviewed(history, null, WHOLE_REVIEW_TURNS) : await sinceReviewed(history, mark);
   const failedOnly = !answered.some((turn) => turn.role === "assistant");
-  if (failedOnly && !failed.some((line) => line.tex)) return none("nothing_new");
+  if (failedOnly && (whole || !failed.some((line) => line.tex))) return none("nothing_new");
   const turns = failedOnly ? [] : answered;
   // Claimed before anything slow, the tier included, so a review racing this one reads the new mark.
-  if (!failedOnly) {
+  if (!failedOnly && !whole) {
     try {
       await writeMark(store, key, await markOf(turns));
     } catch {
@@ -312,13 +316,15 @@ export async function reviewOutcome({ env, store, session, controlPlane, history
     }
   }
   // Best effort: a mark that could not be put back skips these turns, never counts them twice. A null mark reads as none.
-  const unclaim = () => (failedOnly ? Promise.resolve() : writeMark(store, key, mark).catch(() => {}));
+  const unclaim = () => (failedOnly || whole ? Promise.resolve() : writeMark(store, key, mark).catch(() => {}));
   const tier = await controlPlane.texReviewTier(session.accessToken).catch(() => null);
   if (tier === null) {
     await unclaim();
     return none("no_tier");
   }
-  const transcript = transcriptOf(turns, after, failed);
+  // Those turns were scored already: a shared history is only ever filed for its words.
+  if (whole && tier !== "full") return none("not_shared");
+  const transcript = transcriptOf(turns, after, failed, whole ? WHOLE_REVIEW_CHARS : MAX_REVIEW_CHARS);
   const metadata = { feature: "self-review", workspace: String(session.workspaceId) };
   const review = await scoreConversation({ transcript, words: tier === "full", config, request, metadata });
   if (review === null) {
@@ -392,7 +398,9 @@ export async function handleReview(request, env, store, session, controlPlane) {
   try {
     const history = group !== null ? await readGroupMemory(store, group) : await readConversation(store, "texts");
     const failed = failedOf(body?.failed);
-    const { filed, why } = await reviewOutcome({ env, store, session, controlPlane, history, key: await keyFor(group), reason: "ended", after: group?.chat ?? [], failed });
+    // A 1:1 chat's texted yes to sharing (`apps/agent/src/reviewSharing.ts`): what Tex still keeps of it, filed at once.
+    const whole = group === null && body?.whole === true;
+    const { filed, why } = await reviewOutcome({ env, store, session, controlPlane, history, key: await keyFor(group), reason: whole ? "shared" : "ended", after: group?.chat ?? [], failed, whole });
     return json({ filed, ...(why ? { why } : {}) });
   } catch {
     return json({ filed: null, why: "error" });
