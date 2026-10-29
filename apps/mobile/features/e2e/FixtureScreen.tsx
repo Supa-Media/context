@@ -21,6 +21,7 @@ import { MeetingCardFixture } from "./MeetingCardFixture";
 import { MeetingJoinFixture } from "./MeetingJoinFixture";
 import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
+import { SetupDoneFixture } from "./SetupDoneFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -105,6 +106,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
+  if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
     return (
