@@ -75,12 +75,14 @@ async function post(binding, path, body) {
  * browser. The sign-ins read back out of the browser go to `keep` and never
  * on (`browserJar.js`): nothing past this function sees them.
  */
-async function browseResult(response, keep = null) {
+async function browseResult(response, keep = null, profile = null) {
   const body = await response.json().catch(() => null);
   if (typeof body?.session === "string") {
-    const { jar, ...answer } = body;
+    const { jar, profileGone, ...answer } = body;
     if (!response.ok) return { session: answer.session, ran: [], page: null };
     if (keep !== null && jar && typeof jar === "object") await keep.save(jar);
+    // A profile Browserbase no longer had is released, and the next browser gets a new one.
+    if (profile !== null) await (profileGone === true ? profile.forget() : profile.used());
     // A link to hand over is the gateway's to make (`viewer`), never the
     // Worker's: an older one answered with Browserbase's live-view link here.
     const { liveUrl: _liveUrl, handoffUrl: _handoffUrl, ...result } = answer;
@@ -90,10 +92,12 @@ async function browseResult(response, keep = null) {
 }
 
 /**
- * `jar` keeps the person's sign-ins between their Browserbase browsers
- * (`browserJar.js`); without one, each new browser starts signed out.
+ * `profile` is the Browserbase profile the browser opens and saves into
+ * (`browserProfile.js`), where its sign-ins live first; `jar` keeps them
+ * sealed in the person's vault as well (`browserJar.js`), the fallback and the
+ * copy a new profile starts from. Without either, each browser starts signed out.
  */
-export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, now = Date.now } = {}) {
+export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
@@ -106,6 +110,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
       // the person is being handed this browser; it asks Browserbase for nothing.
       const held = jar !== null ? await jar.load() : null;
+      const saved = profile !== null ? await profile.load() : null;
       const response = await post(binding, "/browse", {
         provider: "browserbase",
         owner,
@@ -114,13 +119,15 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
         ...(fresh ? { fresh: true } : {}),
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+        // A new profile is given the jar's cookies; one in use holds newer ones.
+        ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
       });
       // 402: Browserbase won't start a browser until its bill is paid.
       // Cloudflare's browser does this question; nothing can be handed over.
       if (response.status === 402) browserbaseRefusedAt = now();
       else if (response.status !== 501) {
         onBrowserbase = true;
-        const result = await browseResult(response, jar);
+        const result = await browseResult(response, jar, profile);
         // The person's own page, never a link to the browser itself.
         return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
       } else browserbaseMissing = true;
@@ -147,6 +154,19 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     mayResume: () => browserbaseWanted(),
     /** Whether a person can be handed this browser to sign in: Browserbase, and a page of theirs to do it on. */
     canHandOff: () => browserbaseWanted() && typeof viewer === "string" && viewer.length > 0,
+    /**
+     * "Sign Tex out": the running browser is let go, its saved profile
+     * released at Browserbase, and the sealed jar dropped, so the next
+     * browser starts signed out of everything. Says what could not be done.
+     */
+    async signOut() {
+      if (typeof owner === "string" && owner.length > 0) {
+        await post(binding, "/browse/close", { provider: "browserbase", owner }).catch(() => undefined);
+      }
+      const profileGone = profile === null ? true : await profile.forget();
+      const jarGone = jar === null ? true : await jar.forget();
+      return { signedOut: profileGone && jarGone };
+    },
     /**
      * Cloudflare's browser closes with the question. Browserbase's stays for
      * the next one, ending itself, so a sign-in can be carried on from, and

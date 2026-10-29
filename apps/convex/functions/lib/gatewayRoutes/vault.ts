@@ -45,3 +45,6 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
     .catch(() => "refused" as const);
   return json({ url: status === "issued" ? `${origin}${VAULT_LINK_ROUTE}/${token}` : null });
 }
+
+/** Tex's browser sign-ins, kept in a saved Browserbase profile beside the sealed jar. */
+export { gatewayBrowserProfileHandler } from "./browserProfile";

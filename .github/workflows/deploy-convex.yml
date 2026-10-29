@@ -243,6 +243,13 @@ jobs:
           # working state: the tab says PostHog isn't connected.
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          # Tex's saved browser profiles (`functions/browserProfiles.ts`): the
+          # same Browserbase key the screenshot Worker drives browsers with,
+          # here to make each profile and delete it with its account,
+          # workspace or "sign Tex out". Absent is a working state: Tex's
+          # browser keeps its sign-ins in the sealed jar alone.
+          BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+          BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
           # The gateway's mover: whole-bucket moves copy bucket to bucket there,
           # never through this deployment (`functions/lib/storageMover.ts`). A
           # public origin rather than a secret; unset runs them here, as a
@@ -288,6 +295,7 @@ jobs:
             REVIEWER_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
+            BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or

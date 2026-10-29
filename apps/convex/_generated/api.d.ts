@@ -205,6 +205,7 @@ import type * as functions_vaultPeople from "../functions/vaultPeople.js";
 import type * as functions_vaultNotify from "../functions/vaultNotify.js";
 import type * as functions_vaultMove from "../functions/vaultMove.js";
 import type * as functions_vaultWatch from "../functions/vaultWatch.js";
+import type * as functions_browserProfiles from "../functions/browserProfiles.js";
 import type * as functions_connectionApps from "../functions/connectionApps.js";
 import type * as functions_connectionClients from "../functions/connectionClients.js";
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
@@ -434,6 +435,7 @@ declare const fullApi: ApiFromModules<{
   "functions/vaultNotify": typeof functions_vaultNotify;
   "functions/vaultMove": typeof functions_vaultMove;
   "functions/vaultWatch": typeof functions_vaultWatch;
+  "functions/browserProfiles": typeof functions_browserProfiles;
   "functions/connectionApps": typeof functions_connectionApps;
   "functions/connectionClients": typeof functions_connectionClients;
   "functions/connectionConsent": typeof functions_connectionConsent;

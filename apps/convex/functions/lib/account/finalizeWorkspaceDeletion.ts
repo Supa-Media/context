@@ -13,11 +13,17 @@ import { voidCapabilitiesAddressedTo } from "./addressedTo";
 import { deleteWorkspacePlaces } from "../places";
 import { deleteWorkspaceRoutines } from "../routines/app";
 import { forgetWorkspaceTree } from "../../nodesPurge";
+import { releaseWorkspaceBrowserProfiles } from "../../browserProfiles";
 
 export async function finalizeWorkspaceDeletion(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  // Tex's saved browser profiles hold sign-ins at Browserbase; their rows are
+  // the only handle on them, so they are marked releasing and deleted there
+  // by a retried job (`functions/browserProfiles.ts`), never just dropped.
+  await releaseWorkspaceBrowserProfiles(ctx, workspaceId);
+
   // Disposable website route metadata has no meaning without the workspace;
   // the canonical Markdown remains untouched in the customer's bucket.
   const websiteRoutes = await ctx.db

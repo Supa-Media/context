@@ -858,6 +858,7 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+http.route({ path: "/gateway/browser-profile", method: "POST", handler: gatewayRoute(vault.gatewayBrowserProfileHandler) });
 
 // A connector: a link for the person to connect an app, and one call through it.
 export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);

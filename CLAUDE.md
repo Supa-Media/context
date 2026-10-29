@@ -34,8 +34,11 @@ breaking one, stop and say so rather than working around it.
    URLs, or on a device: encrypted at rest, decrypted only in the gateway at
    request time. The one exception is the texting assistant's autofill vault,
    sealed in the person's own bucket with the key held outside it and never
-   shown to a model, and its browser's sign-ins kept the same way (decided by
-   the owner, 2026-10-06 and 2026-10-20;
+   shown to a model, and its browser's sign-ins kept the same way and, first,
+   in one saved Browserbase profile per person or group chat, which the
+   control plane deletes there with the account, the workspace or "sign Tex
+   out"; export carries the sealed copy (decided by the owner, 2026-10-06,
+   2026-10-20 and 2026-10-29;
    [texting-assistant](./docs/decisions/texting-assistant.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside

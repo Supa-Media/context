@@ -9,6 +9,7 @@ const SHOP_DB = { name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
 const OTHER = "b".repeat(64);
+const PROFILE = "0b6c0e3e-7a43-4b1e-9d0a-2f5a1c9e8d71";
 
 /** A CDP socket that answers just enough for one reading of one page. */
 const socketOptions = { failSetCookies: false, uploadedSize: 9 };
@@ -95,7 +96,7 @@ describe("browseOnBrowserbase", () => {
     expect(result.api.calls).toEqual([]);
   });
 
-  it("starts a stateless, unrecorded browser tagged with the owner, which ends itself", async () => {
+  it("starts an unrecorded browser tagged with the owner, which ends itself, with no profile unless one is given", async () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "goto", url: "https://shop.example.com/" }] });
     expect(result.status).toBe(200);
     const created = result.api.calls.find((c) => c.method === "POST" && c.url.endsWith("/sessions"));
@@ -236,6 +237,57 @@ describe("sign-ins kept between browsers", () => {
     expect(result.body.jar).toBeDefined();
   });
 
+  it("opens the profile in a new browser and leaves its cookies alone: a profile in use holds newer ones", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], keep: true, jar, profile: PROFILE });
+    const created = result.api.calls.find((c) => c.method === "POST" && c.url.endsWith("/sessions"));
+    expect((created?.body as { browserSettings: Record<string, unknown> }).browserSettings.context).toEqual({ id: PROFILE, persist: true });
+    expect(result.api.cdp.some((line) => line.startsWith("Storage.setCookies"))).toBe(false);
+    // Still read back: the jar is the fallback and the copy the person leaves with.
+    expect(result.body.jar).toBeDefined();
+    expect(result.body.profileGone).toBeUndefined();
+  });
+
+  it("gives a new profile the jar's cookies, so sign-ins kept before it carry over", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], keep: true, jar, profile: PROFILE, profileNew: true });
+    expect(result.api.cdp.some((line) => line.startsWith("Storage.setCookies"))).toBe(true);
+  });
+
+  it("starts from the jar and says the profile is gone when Browserbase will not open it", async () => {
+    const api = fakeApi();
+    const bodies: Array<Record<string, unknown>> = [];
+    const refusing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/sessions") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        bodies.push(body);
+        if (body.browserSettings.context) return new Response("{}", { status: 404 });
+      }
+      return await api.fetcher(input, init);
+    }) as typeof fetch;
+    const response = await browseOnBrowserbase(ENV, "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: true, jar, profile: PROFILE }, refusing);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(body.profileGone).toBe(true);
+    expect(bodies.at(-1)!.browserSettings).not.toHaveProperty("context");
+    expect(api.cdp.some((line) => line.startsWith("Storage.setCookies"))).toBe(true);
+  });
+
+  it("never takes a refusal for billing as a lost profile", async () => {
+    const api = fakeApi();
+    const refusing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/sessions") && init?.method === "POST") return new Response("{}", { status: 402 });
+      return await api.fetcher(input, init);
+    }) as typeof fetch;
+    const response = await browseOnBrowserbase(ENV, "/browse", { owner: OWNER, steps: [{ do: "read" }], profile: PROFILE }, refusing);
+    expect(response.status).toBe(402);
+  });
+
+  it("ignores a profile that is not an id", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], profile: "../../contexts" });
+    const created = result.api.calls.find((c) => c.method === "POST" && c.url.endsWith("/sessions"));
+    expect(JSON.stringify(created?.body)).not.toContain("context");
+  });
+
   it("reads nothing out unless asked, and nothing after a restore that failed", async () => {
     const plain = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
     expect(plain.body.jar).toBeUndefined();
@@ -267,10 +319,18 @@ describe("what a new browser is asked for", () => {
     expect(tiers[1]).toMatchObject({ proxies: true, region: "us-east-1" });
     expect((tiers[1]!.browserSettings as Record<string, unknown>).advancedStealth).toBeUndefined();
     expect(tiers.at(-1)).toEqual(plain);
-    // Every tier stays unrecorded and stateless.
+    // Every tier stays unrecorded, and names no profile unless given one.
     for (const tier of tiers) {
       expect((tier.browserSettings as Record<string, unknown>).recordSession).toBe(false);
       expect(JSON.stringify(tier)).not.toContain("context");
+    }
+  });
+
+  it("opens the owner's saved profile, and saves back into it, on every tier", () => {
+    const tiers = sessionRequests({ ...ENV, BROWSERBASE_REGION: "us-east-1" }, OWNER, PROFILE);
+    for (const tier of tiers) {
+      expect((tier.browserSettings as Record<string, unknown>).context).toEqual({ id: PROFILE, persist: true });
+      expect((tier.browserSettings as Record<string, unknown>).recordSession).toBe(false);
     }
   });
 

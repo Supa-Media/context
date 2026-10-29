@@ -38,6 +38,7 @@ import { texStyleTables } from "./functions/lib/schema/texStyle";
 import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
 import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
+import { browserProfileTables } from "./functions/lib/schema/browserProfiles";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
@@ -135,6 +136,7 @@ const schema = defineSchema({
   ...meetingJoinTables,
   ...transcriptionConsentTables,
   ...spellingTables,
+  ...browserProfileTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
