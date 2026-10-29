@@ -39,7 +39,7 @@ const LONGEST_NIGHT = 16 * 60;
 const SLACK = 15;
 
 /** A text that is a sleep line: their automation's, or pasted. */
-const SLEEP_LINE = /\bI slept from\b|\bslept for a total\b|\btotal sleep\b|\bsleep time\b|\byou have slept\b/i;
+const SLEEP_LINE = /\bI slept from\b|\bsleep log\b|\bslept for a total\b|\btotal sleep\b|\bsleep time\b|\byou have slept\b/i;
 /** The automation's line with nothing filled in: "I slept from  to , for a total of: ." */
 const BLANK_LINE = /\bslept from\s+to\s*,/i;
 

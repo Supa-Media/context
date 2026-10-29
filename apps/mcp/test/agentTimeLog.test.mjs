@@ -56,6 +56,8 @@ test("a clean sleep line is one night, and its note says it is theirs and to log
   assert.match(note, /compare it with the last night in their log/);
   assert.match(note, /say what you logged in one line/);
   assert.match(sleepLineNote(TOTAL_ONLY), /even when it says "you"/, "the automation's second-person line");
+  // The Shortcut's earlier wording (2026-10-28): "I woke up! Last sleep log: …".
+  assert.deepEqual(readSleepLine("I woke up! Last sleep log: Mar 2, 2026 at 11:30 PM to Mar 4, 2026 at 5:00 AM, 29.5 hours").problems.length, 2);
 });
 
 test("a night longer than one night, or a total its times can't hold, doesn't add up", () => {
