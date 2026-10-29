@@ -62,7 +62,7 @@ describe("page a, the notes page", () => {
   test("example people are drawn faces, never letters, and none is called Maya (Dev2, 2026-10-29)", () => {
     const FACES = read("../features/landing/sketchFaces.web.tsx");
     expect(PARTS).not.toMatch(/initial:/);
-    expect(PARTS.match(/<SketchFace /g)?.length).toBeGreaterThanOrEqual(3);
+    expect(PARTS.match(/<SketchFace\b/g)?.length).toBeGreaterThanOrEqual(3);
     const MARKETING = [
       PAGE,
       PARTS,
