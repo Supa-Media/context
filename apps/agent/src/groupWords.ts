@@ -62,6 +62,15 @@ export function addressesTex(text: string, repliesToTex: boolean): boolean {
   return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
 }
 
+/**
+ * Tex's name followed by one of the fixed commands ("Tex settings", "Tex less
+ * emoji"): meant for Tex even where `addressesTex` reads the next word as
+ * talking about it, since "settings" and "less" end like a third-person verb.
+ */
+export function namesCommand(text: string, choices: readonly string[] = []): boolean {
+  return new RegExp(`^\\s*(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}`, "i").test(unquoted(text)) && groupCommand(text, choices) !== null;
+}
+
 /** The words without the quotes a person may type around them ("“Tex use @supa”"). */
 export function unquoted(text: string): string {
   return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();

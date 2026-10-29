@@ -69,7 +69,7 @@ import type { NoteCardDrawer } from "./noteCards";
 import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation, watchFailed } from "./reviewWatch";
-import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
+import { addressesTex, groupCommand, namesCommand, offeredName, unquoted, type Command } from "./groupWords";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
 import { reactionFor } from "./reactEmoji";
@@ -164,7 +164,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
   const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
   // A reply in Tex's thread is not addressed by itself: decide judges it, as any untagged text (Dev2, 2026-10-27).
-  const addressed = addressesTex(message.text, false) || offeredName(message.text, choices) !== null;
+  const addressed = addressesTex(message.text, false) || offeredName(message.text, choices) !== null || namesCommand(message.text, choices);
   const tagged = addressed || yes || engagement !== null || setting !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
@@ -224,7 +224,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     return "kept";
   }
-  if (await askedJustNow(storage, message, now)) {
+  if (!byCode && (await askedJustNow(storage, message, now))) { // Code's to answer, never the same ask twice: "Tex, settings" again shows the menu again (Dev2, 2026-10-29).
     await storage.put(seen, now);
     return "duplicate";
   }
