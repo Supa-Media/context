@@ -59,6 +59,7 @@ import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./text
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
+import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
@@ -246,9 +247,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         409,
       );
     }
-    // A control plane that could not be reached is not a refusal, and telling
-    // somebody the assistant is not theirs when it is is worse than telling
-    // them nothing.
+    // A control plane that could not be reached is not a refusal, and telling somebody
+    // the assistant is not theirs when it is is worse than telling them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
@@ -495,7 +495,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     const turn = await runTurn({
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
-      question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.

@@ -431,7 +431,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  */
 export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [] }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyChecks({ question, waiting, pictures });
+  const shape = replyChecks({ question, waiting, pictures, history });
   let wrote = false;
   let keptWish = false;
   let held = false;
