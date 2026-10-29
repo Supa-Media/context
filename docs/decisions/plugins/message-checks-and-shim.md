@@ -42,7 +42,7 @@ The web console used to load the sandbox as a `srcdoc` frame. A `srcdoc` documen
 Since #2437 the console loads `/drawing-assets/plugin-sandbox/index.html` by `src`, keeping `sandbox="allow-scripts"` and never adding `allow-same-origin`. The build writes `pluginSandboxDocument()` to that path, byte for byte (`scripts/build-plugin-sandbox.mjs`). The router answers it in `infra/router/src/pluginSandbox.ts`:
 
 - It serves only that page. Any other name gets a 404, any method but GET or HEAD gets a 405, and anything without the page's own CSP meta tag gets a 503, so the SPA fallback never stands in.
-- It serves the page under the sandbox's own policy: `default-src 'none'`, inline script and style only, `connect-src 'none'`, and nothing else loadable, plus `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`.
+- It serves the page under the sandbox's own policy: `default-src 'none'`, inline script and style only, `connect-src 'none'`, and nothing else loadable. The header adds two directives a meta tag cannot carry: `frame-ancestors 'self'` (with `X-Frame-Options: SAMEORIGIN`), and `sandbox allow-scripts`. The second sandboxes the document itself. The frame's `sandbox` attribute is the console's, and a top-level visit or a frame without the attribute would carry none, so without the header directive such a page would have had context.lc's own origin. That was measured: drop the directive and the real-browser test sees `https://…`, not `null`. Inside the console's frame the directive changes nothing, since that frame already has exactly `allow-scripts`. It is not in the report-only header, where browsers ignore `sandbox`.
 
 **It is not gated on `EXPO_PUBLIC_EXPERIMENTAL_PLUGINS`, and cannot be.** That flag hides the Plugins section. It does not stop plugins running: the sandbox host is still mounted for owners, and a context that already enabled a vault plugin keeps running it ("The section is hidden, the machinery is not"). Gating the page on the flag would stop those plugins in production, which is exactly what deprecation promised not to do.
 
@@ -50,18 +50,19 @@ Since #2437 the console loads `/drawing-assets/plugin-sandbox/index.html` by `sr
 
 - **Nothing to run.** It carries no plugin code. The bootstrap runs nothing until a parent posts it a `load` message with a bundle.
 - **Nothing to be told.** No credential, token or note is in the page or its URL. The bundle is only ever posted by the console, from its own authenticated session, into a frame it created. The grant-holding half (RPC, `fetch` brokering) stays in the console, which answers only its own frame's `contentWindow`, and only while that frame is still the document it loaded ("The message check is an identity check, not an origin check").
-- **Nothing to reach.** Opened directly, or framed by our own origin with a hostile bundle, the page has an opaque origin: no cookies and no storage. Its CSP allows no connection, image, font, frame or worker, so it can exfiltrate nothing and reach no other privilege.
+- **Nothing to reach.** However the page is reached (in the console's frame, opened directly, or framed by our own origin without the attribute), the header's `sandbox` gives it an opaque origin: no cookies, no storage, no access to an embedding page's DOM. Its CSP allows no connection, image, font, frame or worker, so it can exfiltrate nothing and reach no other privilege. Its only channel is `postMessage`, which carries nothing a parent does not choose to send.
 - **No other framer.** Another site cannot frame it at all, because of `frame-ancestors 'self'` and `SAMEORIGIN`.
 
 **Proved in a real engine** by `apps/mobile/e2e/webkit/pluginSandboxPage.spec.ts`, run per push in WebKit whenever the sandbox's files change (`browser.yml`, "Plugin sandbox in WebKit"):
 
 - the page is the router's own answer, with every header it sends;
+- opened directly, or framed by our origin with no `sandbox` attribute, it is still `null`-origin, its storage and cookies are refused, and the host cannot reach into it;
 - the frame's origin is `null`, and the handshake completes;
 - the parent's DOM and storage are refused, and a connection is refused by the CSP itself;
 - a frame that reloads itself or navigates away is handed nothing a second time;
 - another site's frame gets nothing.
 
-It was sabotage-checked three ways: widening `connect-src`, dropping the framing headers, and loosening `sandboxFrameIsOurs` each fail it.
+It was sabotage-checked four ways: widening `connect-src`, dropping the framing headers, dropping the header's `sandbox`, and loosening `sandboxFrameIsOurs` each fail it.
 
 **What this does and does not do to the scan finding.** A scanner that reaches this URL will still report `script-src 'unsafe-inline'` on this one page. That is the expected disposition: a documented exception for an inert, opaque-origin page with no network, not a waiver of the console's finding. The console's own finding is removed only when the console *enforces* a `script-src` without `'unsafe-inline'`. Moving the sandbox out of the console is what makes that enforceable, and it does not count as the enforcement.
 

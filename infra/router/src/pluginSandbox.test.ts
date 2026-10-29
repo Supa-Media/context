@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { PLUGIN_SANDBOX_PREFIX, SANDBOX_POLICY } from "./pluginSandbox";
+import { ENFORCED_SANDBOX_POLICY, PLUGIN_SANDBOX_PREFIX, SANDBOX_POLICY } from "./pluginSandbox";
 import { reportOnlyPolicyFor } from "./cspReport";
 
 // The runtime is untyped JavaScript, so it is loaded by a path the compiler
@@ -43,7 +43,9 @@ describe("the plugin sandbox page", () => {
       const response = await get(path, env);
       expect(response.status, path).toBe(200);
       await expect(response.text()).resolves.toBe(page);
-      expect(response.headers.get("Content-Security-Policy")).toBe(`${SANDBOX_POLICY}; frame-ancestors 'self'`);
+      expect(response.headers.get("Content-Security-Policy")).toBe(ENFORCED_SANDBOX_POLICY);
+      expect(ENFORCED_SANDBOX_POLICY).toMatch(/; sandbox allow-scripts$/);
+      expect(response.headers.get("Content-Security-Policy-Report-Only")).not.toContain("sandbox");
       expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(`${SANDBOX_POLICY}; report-uri /_csp-report`);
       expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
     }

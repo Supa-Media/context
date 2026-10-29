@@ -211,8 +211,10 @@ test("the router's sandbox page loads by URL with an opaque origin and completes
   const [answer] = served;
   expect(answer.status).toBe(200);
   expect(answer.body).toBe(fn<() => string>(await load("@context/obsidian-runtime"), "pluginSandboxDocument")());
-  const sandboxPolicy = String((await load("infra/router/src/pluginSandbox.ts")).SANDBOX_POLICY);
-  expect(answer.headers["content-security-policy"]).toBe(`${sandboxPolicy}; frame-ancestors 'self'`);
+  const router = await load("infra/router/src/pluginSandbox.ts");
+  const sandboxPolicy = String(router.SANDBOX_POLICY);
+  expect(answer.headers["content-security-policy"]).toBe(`${sandboxPolicy}; frame-ancestors 'self'; sandbox allow-scripts`);
+  expect(answer.headers["content-security-policy"]).toBe(String(router.ENFORCED_SANDBOX_POLICY));
   expect(answer.headers["content-security-policy-report-only"]).toBe(`${sandboxPolicy}; report-uri /_csp-report`);
   expect(answer.headers["x-frame-options"]).toBe("SAMEORIGIN");
   expect(answer.headers["x-content-type-options"]).toBe("nosniff");
@@ -247,6 +249,63 @@ test("a sandbox page that reloads itself or navigates away gets no second bundle
       await page.unrouteAll({ behavior: "wait" });
     });
   }
+});
+
+/**
+ * The `sandbox` attribute is the console's; a top-level visit or a frame
+ * without it would not carry one. The header's `sandbox allow-scripts` (a
+ * meta tag cannot set it) sandboxes the document itself, so it is opaque
+ * either way: no cookies, no storage, no reach into an embedding page.
+ */
+test("opened directly, or framed by our origin without the attribute, the page is still opaque", async ({ page }) => {
+  const served = await serve(page, "<main id=host>trusted</main>");
+
+  await page.goto(`${ORIGIN}${SANDBOX_PATH}`);
+  const direct = await page.evaluate(() => {
+    const refused = (probe: () => unknown) => {
+      try {
+        probe();
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    return {
+      origin: self.origin,
+      storage: refused(() => localStorage.getItem("x")),
+      cookie: refused(() => document.cookie),
+      top: window === window.top,
+    };
+  });
+  expect(direct).toEqual({ origin: "null", storage: true, cookie: true, top: true });
+  expect(served.at(-1)?.status).toBe(200);
+
+  await page.goto(`${ORIGIN}/host`);
+  await page.evaluate((src) => {
+    const state = { origins: [] as string[], reach: "unset" };
+    (window as Window & { bare?: typeof state }).bare = state;
+    const frame = document.createElement("iframe");
+    frame.id = "bare";
+    // No `sandbox` attribute: only the header can make this document opaque.
+    frame.addEventListener("load", () => {
+      try {
+        state.reach = frame.contentWindow?.document?.body ? "reached" : "no-document";
+      } catch {
+        state.reach = "refused";
+      }
+    });
+    addEventListener("message", (event) => {
+      if (event.source === frame.contentWindow) state.origins.push(event.origin);
+    });
+    frame.src = src;
+    document.body.appendChild(frame);
+  }, SANDBOX_PATH);
+  await expect.poll(async () => page.evaluate(() => (window as Window & { bare?: { origins: string[] } }).bare?.origins.length ?? 0)).toBeGreaterThan(0);
+  const bare = await page.evaluate(() => (window as Window & { bare?: { origins: string[]; reach: string } }).bare);
+  // The page said ready from an opaque origin, and the same-origin host cannot reach into it.
+  expect(new Set(bare?.origins)).toEqual(new Set(["null"]));
+  expect(bare?.reach).toBe("refused");
+  expect(await page.locator("#bare").getAttribute("sandbox")).toBeNull();
 });
 
 test("another site cannot frame the sandbox page", async ({ page }) => {

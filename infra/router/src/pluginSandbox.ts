@@ -35,6 +35,18 @@ export const PLUGIN_SANDBOX_PREFIX = "/drawing-assets/plugin-sandbox/";
 export const SANDBOX_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:; media-src 'none'; font-src 'none'; child-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 
+/**
+ * The enforced header: the page's own policy, plus two directives a meta tag
+ * cannot carry. `frame-ancestors 'self'` keeps every other site from framing
+ * it. `sandbox allow-scripts` makes the document itself sandboxed, so its
+ * origin is opaque however it is reached: opened directly as a top-level
+ * page, or framed by our own origin without the `sandbox` attribute. Inside
+ * the console's frame it changes nothing, because that frame already has
+ * exactly `allow-scripts`. It is not in the report-only header, where
+ * browsers ignore `sandbox`.
+ */
+export const ENFORCED_SANDBOX_POLICY = `${SANDBOX_POLICY}; frame-ancestors 'self'; sandbox allow-scripts`;
+
 /** A marker only the sandbox page carries: the policy its meta tag sets. */
 const MARKER = `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_POLICY}">`;
 
@@ -63,7 +75,7 @@ export async function pluginSandboxResponse(request: Request, url: URL, env: Env
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, max-age=300",
-      "Content-Security-Policy": `${SANDBOX_POLICY}; frame-ancestors 'self'`,
+      "Content-Security-Policy": ENFORCED_SANDBOX_POLICY,
       "X-Robots-Tag": "noindex, nofollow",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
