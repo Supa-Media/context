@@ -29,9 +29,9 @@ on:
         required: false
         default: ""
       service:
-        description: "Which Worker to read: context-agent, or context-transcribe for the decide model's route"
+        description: "Which Worker to read: context-agent, context-transcribe for the decide model's route, or context-mcp (the gateway, tail only: it keeps no Observability logs)"
         type: choice
-        options: [context-agent, context-transcribe]
+        options: [context-agent, context-transcribe, context-mcp]
         default: context-agent
       tail:
         description: "Watch live for the given minutes (at most 15) instead of reading the past"
@@ -59,14 +59,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MINUTES: ${{ inputs.minutes }}
           EVENT_PREFIX: ${{ inputs.event }}
+          SERVICE: ${{ inputs.service }}
         run: |
           set -uo pipefail
           case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 1 ;; esac
           case "$EVENT_PREFIX" in *[!a-z0-9_]*) echo "event must be lowercase letters, digits and underscores" >&2; exit 1 ;; esac
           seconds=$(( (MINUTES > 15 ? 15 : (MINUTES < 1 ? 1 : MINUTES)) * 60 ))
-          echo "Watching context-agent for $seconds seconds."
+          echo "Watching $SERVICE for $seconds seconds."
           # Only lines carrying a JSON log with an event code reach the filter; it prints the same fixed keys.
-          timeout "$seconds" npx --yes wrangler@4 tail context-agent --format pretty 2>/dev/null \
+          timeout "$seconds" npx --yes wrangler@4 tail "$SERVICE" --format pretty 2>/dev/null \
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
               const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];

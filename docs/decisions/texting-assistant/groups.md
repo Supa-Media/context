@@ -408,3 +408,16 @@ setting widens a folder the owner made private. `apps/mcp/test/agentGroupTurn.te
 still has the chat's memory", "a tex/ folder someone made private is never
 shared", "a member who can't write never shares tex/groups/") fails if any is
 reversed.
+
+## A chat whose workspace can't be opened says so (2026-10-29)
+
+Every Tex Devs reply read "I couldn't answer that one. Try again in a bit."
+for twenty minutes while the 1:1 answered: the gateway refused every group
+turn with `storage_unavailable` for the chat's workspace, the agent folded that
+into the generic `gateway:unreachable`, and the gateway logged no reason. The
+agent now logs such a turn as `gateway:503` and, once its retries are spent,
+says the chat's workspace can't be opened (`GROUP_LINES.noStorage`); the
+generic line says the fault is Tex's. The gateway logs `storage_unavailable`
+with its reason code (`sessionStore.js`), readable with `agent-logs.yml` in
+tail mode on `context-mcp`. Test: `groupTurnWorkflow.test.ts` "a chat whose
+workspace can't be opened", `apps/mcp/test/storageUnavailableLog.test.mjs`.

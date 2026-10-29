@@ -271,3 +271,4 @@ test/lookTree.test.mjs
 test/s3SessionToken.test.mjs
 test/cards.test.mjs
 test/googleAiAccess.test.mjs
+test/storageUnavailableLog.test.mjs
