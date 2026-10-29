@@ -26,6 +26,12 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * laptop window, drawn with no scroll. Now the card is capped at the window's
  * height (`doneCardMaxHeight`), its body scrolls, a close mark sits in its
  * corner outside the scrolling part, and Escape closes it.
+ *
+ * The cap is measured against the layer the host draws it in (`areaHeight`),
+ * not the window: in the console that layer sits under the top bar and above
+ * the status line, so a cap taken from the window let the card's foot run
+ * past the layer's bottom edge and be cut off with nothing left to scroll
+ * (Dev2, 2026-10-29). The window is only the fallback before the first layout.
  */
 export function SetupDone({
   onClose,
@@ -35,8 +41,11 @@ export function SetupDone({
   invitesLeft,
   onInviteFriends,
   closeOnEscape = true,
+  areaHeight,
 }: {
   onClose: () => void;
+  /** The height of the layer the card is drawn in, once laid out; the cap is taken from it. */
+  areaHeight?: number;
   /** False while something is open over the card, so Escape closes that instead. */
   closeOnEscape?: boolean;
   onNewWorkspace?: () => void;
@@ -56,7 +65,7 @@ export function SetupDone({
 
   return (
     <View
-      style={[styles.card, { maxHeight: doneCardMaxHeight(height) }]}
+      style={[styles.card, { maxHeight: doneCardMaxHeight(areaHeight ?? height) }]}
       testID="setup-done"
       role="dialog"
       aria-label="You're set up"
@@ -78,7 +87,8 @@ export function SetupDone({
         <Text style={styles.exitTitle}>Take everything with you</Text>
         <Text style={styles.exitBody}>
           Every note is a plain Markdown file. Any folder downloads as a .zip from Files, free, any
-          time. Storage we run can move every file to your own bucket from Settings → Storage.
+          time. If we run your storage, you can move every file to a bucket of your own from
+          Settings → Storage.
         </Text>
       </View>
 
@@ -158,12 +168,12 @@ export function SetupDone({
   );
 }
 
-/** Where the host draws the card from the window's top, and what it keeps below. */
+/** Where the host draws the card from its layer's top, and what it keeps below. */
 export const DONE_TOP = 60;
 const DONE_BOTTOM = 24;
 
 /**
- * The tallest the card may be in a window this high: from where the host
+ * The tallest the card may be in a layer this high: from where the host
  * draws it to a margin above the bottom edge, so nothing in it is ever out of
  * reach. The rest scrolls.
  */

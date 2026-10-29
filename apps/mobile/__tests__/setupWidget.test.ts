@@ -234,6 +234,22 @@ describe("it always fits the window and always closes", () => {
     }
   });
 
+  /*
+    Dev2, 2026-10-29: in the console the card's layer sits under the top bar
+    and above the status line, so a cap taken from the window still let the
+    foot ("Bootstrap what your AI already knows") run past the layer's bottom
+    and be cut off. The cap follows the layer it is drawn in.
+  */
+  test("the card is capped by the layer it is drawn in, not the window", () => {
+    const done = mount(
+      createElement(SetupDone, { onClose: () => {}, onCopyBootstrap: async () => true, areaHeight: 500 }),
+    );
+    const card = done.byId("setup-done") as HTMLElement | null;
+    expect(card).not.toBeNull();
+    expect(getComputedStyle(card!).maxHeight).toBe(`${doneCardMaxHeight(500)}px`);
+    done.unmount();
+  });
+
   test("the widget's header stays on screen above a long checklist", () => {
     for (const height of [380, 560, 900]) {
       // Anchored 24px from the bottom, it may not grow past the top edge.

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useConvex } from "convex/react";
 import { densityFor } from "../../app/frame";
@@ -87,6 +88,9 @@ function SetupWidgetLive({
   onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const { grants, retired, retire } = useSetupWidget(workspaceId, true, setupRetired);
+  // The layer's own height, which is shorter than the window by the console's
+  // top bar and status line: "You're set up." is capped to fit it.
+  const [areaHeight, setAreaHeight] = useState<number | undefined>(undefined);
   const shown = showSetupWidget({ demo: data.demo === true, compact, kind, role, retired });
   // Its turn, among everything else the app has to say (`features/messages/`).
   const slot = useMessageSlot({
@@ -102,8 +106,14 @@ function SetupWidgetLive({
 
   if (view.complete) {
     return (
-      <View style={styles.center} pointerEvents="box-none">
+      <View
+        style={styles.center}
+        pointerEvents="box-none"
+        onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}
+        testID="setup-done-layer"
+      >
         <SetupDoneLive
+          areaHeight={areaHeight}
           onClose={retire}
           onCopyBootstrap={copyBootstrap}
           onNewWorkspace={
