@@ -1,4 +1,5 @@
 import { Tex } from "../chaos/Tex";
+import { PEOPLE, SketchFace } from "./sketchFaces.web";
 
 /**
  * Page a's pictures and sections (`NotesPage.web`), drawn as option A of the
@@ -14,7 +15,10 @@ export const FREE_NOTES_PER_WORKSPACE = 1000;
 /** The console, as a still picture: folders, one shared note, and who is in it. */
 export function AppWindow() {
   return (
-    <section className="np-wrap" aria-label="The Context editor, with an example note">
+    <section
+      className="np-wrap"
+      aria-label="The Context editor, with an example note"
+    >
       <div className="np-app">
         <div className="np-bar" aria-hidden>
           <i />
@@ -41,10 +45,16 @@ export function AppWindow() {
           <article className="np-note">
             <div className="np-chips">
               <span className="np-chip">Team</span>
-              <span className="np-chip np-chip-blue">Maya is editing</span>
+              <span className="np-chip np-chip-blue">
+                <SketchFace person={PEOPLE.ines} className="np-chipface" />
+                Ines is editing
+              </span>
             </div>
             <h2>Supper club</h2>
-            <p>Everyone brings a dish from where they grew up. First one is Friday at 7.</p>
+            <p>
+              Everyone brings a dish from where they grew up. First one is
+              Friday at 7.
+            </p>
             <h3>Places with a private room</h3>
             <ul>
               <li>Lucia's, Carroll Gardens: room for 14, set menu</li>
@@ -55,16 +65,19 @@ export function AppWindow() {
             </ul>
             <h3>Who's in</h3>
             <p>
-              Maya, Sam, Jo
+              Ines, Sam, Jo
               <span className="np-caret" aria-hidden />
             </p>
           </article>
           <aside className="np-who" aria-label="Who is in this note (example)">
             <div className="np-cap">In this note</div>
-            <div>
-              <b>Maya</b>
-              <br />
-              typing in Who's in
+            <div className="np-whoface">
+              <SketchFace person={PEOPLE.ines} className="np-face" />
+              <span>
+                <b>Ines</b>
+                <br />
+                typing in Who's in
+              </span>
             </div>
             <div>
               <b>Claude</b>
@@ -85,9 +98,18 @@ export function AppWindow() {
 }
 
 const POINTS = [
-  ["Plain Markdown", "Every note is a file. No clutter between you and the words."],
-  ["Every AI, one sign-in", "Claude, ChatGPT, Codex, Cursor and Gemini CLI connect once and see what you can see."],
-  ["Write together", "Live, with people and AIs, in workspaces with their own privacy."],
+  [
+    "Plain Markdown",
+    "Every note is a file. No clutter between you and the words.",
+  ],
+  [
+    "Every AI, one sign-in",
+    "Claude, ChatGPT, Codex, Cursor and Gemini CLI connect once and see what you can see.",
+  ],
+  [
+    "Write together",
+    "Live, with people and AIs, in workspaces with their own privacy.",
+  ],
   ["Yours to take", "Download everything as folders, any time, on every plan."],
 ] as const;
 
@@ -106,10 +128,32 @@ export function Points() {
   );
 }
 
+/** Who each workspace's faces show; the rest of a bigger one is a "+n". */
 const SPACES = [
-  { initial: "P", name: "Phoebe", kind: "Personal · just you", notes: 412, tone: "var(--tint)", mine: true },
-  { initial: "H", name: "Home", kind: "Shared · 3 people", notes: 88, tone: "var(--sage)", mine: false },
-  { initial: "B", name: "Harbor Bakery", kind: "Shared · 6 people", notes: 240, tone: "var(--peach)", mine: false },
+  {
+    name: "Phoebe",
+    kind: "Personal · just you",
+    notes: 412,
+    people: [PEOPLE.phoebe],
+    size: 1,
+    mine: true,
+  },
+  {
+    name: "Home",
+    kind: "Shared · 3 people",
+    notes: 88,
+    people: [PEOPLE.phoebe, PEOPLE.theo, PEOPLE.ada],
+    size: 3,
+    mine: false,
+  },
+  {
+    name: "Harbor Bakery",
+    kind: "Shared · 6 people",
+    notes: 240,
+    people: [PEOPLE.ines, PEOPLE.sam, PEOPLE.jo],
+    size: 6,
+    mine: false,
+  },
 ] as const;
 
 /** A workspace per part of your life, free (Dev2, 2026-10-21). */
@@ -123,22 +167,38 @@ export function Workspaces() {
             A workspace for each part of your life. Free.
           </h2>
           <p className="np-lede">
-            One for you, one for home, one for the business, one for the club. Each has its own people, its own privacy
-            and its own notes, and you switch between them in a tap.
+            One for you, one for home, one for the business, one for the club.
+            Each has its own people, its own privacy and its own notes, and you
+            switch between them in a tap.
           </p>
           <a className="np-go" href="#join">
             Make your first workspace
           </a>
           <p className="np-small">
-            Free: up to {FREE_WORKSPACES} workspaces, {FREE_NOTES_PER_WORKSPACE.toLocaleString("en-US")} notes in each.
+            Free: up to {FREE_WORKSPACES} workspaces,{" "}
+            {FREE_NOTES_PER_WORKSPACE.toLocaleString("en-US")} notes in each.
           </p>
         </div>
         <div>
           <div className="np-spaces" aria-label="Your workspaces (example)">
             {SPACES.map((space) => (
-              <div className={space.mine ? "np-space np-mine" : "np-space"} key={space.name}>
-                <span className="np-av" style={{ background: space.tone }} aria-hidden>
-                  {space.initial}
+              <div
+                className={space.mine ? "np-space np-mine" : "np-space"}
+                key={space.name}
+              >
+                <span className="np-faces" aria-hidden>
+                  {space.people.map((person) => (
+                    <SketchFace
+                      key={person.name}
+                      person={person}
+                      className="np-av"
+                    />
+                  ))}
+                  {space.size > space.people.length ? (
+                    <i className="np-more">
+                      +{space.size - space.people.length}
+                    </i>
+                  ) : null}
                 </span>
                 <b>{space.name}</b>
                 {space.kind}
@@ -174,7 +234,8 @@ export function TexBand() {
             Away from your desk? Text it to Tex.
           </h2>
           <p className="np-lede">
-            Tex is the assistant you text. Everything you send lands in these same notes, filed where it belongs.
+            Tex is the assistant you text. Everything you send lands in these
+            same notes, filed where it belongs.
           </p>
           <a className="np-texlink" href="https://tex.lc">
             Meet Tex at tex.lc →
@@ -186,7 +247,10 @@ export function TexBand() {
             <span>from Tex · 9:41</span>
           </header>
           <h3>Kitchen tile, the green one</h3>
-          <p>Photo from the showroom. 4x4 zellige, $18 a square foot. Filed in Projects › Kitchen redo.</p>
+          <p>
+            Photo from the showroom. 4x4 zellige, $18 a square foot. Filed in
+            Projects › Kitchen redo.
+          </p>
         </div>
       </div>
     </section>

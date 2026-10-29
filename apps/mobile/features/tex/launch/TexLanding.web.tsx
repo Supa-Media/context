@@ -182,9 +182,9 @@ export function TexLanding() {
           </div>
           <p className="tx-me">ugh</p>
           <p className="tx-tex">$140 to Dr. Patel, due the 28th. I put it in your bills note. Remind you Monday at 9?</p>
-          <p className="tx-me">ya. and tell coach maya can't make sat practice</p>
+          <p className="tx-me">ya. and tell coach ines can't make sat practice</p>
           <p className="tx-tex">
-            Here's the email to Coach Ramirez: "Hi Coach, Maya will miss Saturday's practice, family in town. See you
+            Here's the email to Coach Ramirez: "Hi Coach, Ines will miss Saturday's practice, family in town. See you
             Tuesday." Send it?
           </p>
           <p className="tx-me">send</p>
