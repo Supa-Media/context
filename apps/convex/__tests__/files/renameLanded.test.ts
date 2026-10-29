@@ -19,6 +19,12 @@
  *  - `followHeading` rethrowing what it catches: the first case is refused;
  *  - `movePath` not passing `handOut: false` for a heading follow: three loads;
  *  - `writeFile` reading the document before replacing its text: three loads.
+ *
+ * A note nobody has opened has no collaboration document, and its rename used
+ * to start one just to change the heading (2026-10-29, the second pass): it is
+ * now written as its Markdown, and its first open starts the document.
+ * Sabotage: `followHeading` never passing `startsNoDocument` (or reading
+ * through the document): the never-opened case writes a head.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -114,6 +120,34 @@ describe("a rename from the app", { timeout: 60_000 }, () => {
     // The version handed back is the one a read of the new name hands out.
     const read = await asUser(f.t, f.owner).action(api.functions.files.readNote, { workspaceId: f.workspaceId, path: "1-projects/plan-2.md" });
     expect(moved.etag).toBe(read.etag);
+  });
+
+  test("of a never-opened note follows its heading without starting a document, and its first open starts one", async () => {
+    const f = await fixture();
+    f.backend.requests.length = 0;
+    const moved = await asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: "1-projects/plan.md",
+      to: "1-projects/plan-2.md",
+      followHeading: true,
+    });
+    expect(moved).toMatchObject({ from: "1-projects/plan.md", to: "1-projects/plan-2.md" });
+    const historyWrites = f.backend.requests.filter((request) => request.method === "PUT" && request.key.startsWith(".context/collaboration/"));
+    expect(historyWrites).toEqual([]);
+    expect(await bodyAtPath(f, "1-projects/plan-2.md")).toBe("# plan-2\n\nThe body.\n");
+
+    // The first open starts the document from the Markdown as the rename left it, and a save through it merges.
+    const read = await asUser(f.t, f.owner).action(api.functions.files.readNote, { workspaceId: f.workspaceId, path: "1-projects/plan-2.md" });
+    expect(read.etag).toMatch(/^c2\./);
+    expect(read.text).toBe("# plan-2\n\nThe body.\n");
+    const saved = await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/plan-2.md",
+      text: "# plan-2\n\nThe body, edited.\n",
+      expectedEtag: read.etag,
+    });
+    expect(saved.etag).toMatch(/^c2\./);
+    expect(await bodyAtPath(f, "1-projects/plan-2.md")).toBe("# plan-2\n\nThe body, edited.\n");
   });
 
   test("with no heading to follow still hands back the version a read gives", async () => {

@@ -330,6 +330,28 @@ test("verified physical delete stores a marker instead of relying on ABA-prone d
   assert.equal(await store.get("note.md"), null);
 });
 
+test("a create where nothing was ever deleted is one write, with no read first", async () => {
+  const raw = new RawStore();
+  const calls = [];
+  for (const method of ["get", "head", "put"]) {
+    const original = raw[method].bind(raw);
+    raw[method] = async (...args) => {
+      calls.push(`${method} ${args[0]}`);
+      return await original(...args);
+    };
+  }
+  const store = withLogicalDelete(raw);
+  const created = await store.put("fresh.md", "# Fresh\n", { onlyIf: { absent: true } });
+  assert.ok(created?.etag);
+  assert.deepEqual(calls, ["put fresh.md"]);
+  assert.equal(await (await store.get("fresh.md")).text(), "# Fresh\n");
+
+  // Something real at the key: the create is refused, after one look that tells it from a marker.
+  calls.length = 0;
+  assert.equal(await store.put("fresh.md", "# Again\n", { onlyIf: { absent: true } }), null);
+  assert.equal(await (await store.get("fresh.md")).text(), "# Fresh\n");
+});
+
 test("unknown head metadata uses a marker-aware read instead of the provider existence probe", async () => {
   const raw = new RawStore();
   raw.seed("ordinary.md", "text");
