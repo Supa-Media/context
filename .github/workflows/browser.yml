@@ -301,7 +301,7 @@ jobs:
     needs: webkit_build
     if: needs.webkit_build.outputs.affected == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
@@ -319,15 +319,37 @@ jobs:
       - name: The evidence check fails every log that says nothing
         working-directory: apps/mobile
         run: node --test e2e/webkit/csp-candidate-check.selftest.mjs
-      # Plain HTTP, as the rest of this suite runs. WebKit refuses an
-      # opaque-origin frame's own script under any enforcing `'self'` on plain
-      # HTTP and runs it on HTTPS (`cspDiagramFrame.spec.ts` holds exactly
-      # which frames, per engine), so the diagram renderer's functional specs
-      # run in the HTTPS steps below, where production is.
-      - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
+      # Over HTTPS, as production is (`E2E_HTTPS=1`: a self-signed certificate
+      # made for this run and trusted only by these browsers, in these steps).
+      # WebKit refuses an opaque-origin frame's own script under any enforcing
+      # `'self'` on plain HTTP and runs it on HTTPS, so on HTTP the diagram
+      # renderer cannot work at all; `cspDiagramFrame.spec.ts` keeps exactly
+      # which frames each engine blocks on each scheme as asserted controls.
+      # First the baseline, exactly the router's headers with nothing extra
+      # enforced, so a failure the candidate causes is told apart from one
+      # production has.
+      - name: Diagram specs under production's headers alone
         working-directory: apps/mobile
         env:
           CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-production \
+            e2e/webkit/mermaid.spec.ts e2e/webkit/cspDiagramFrame.spec.ts e2e/webkit/cspNegativeProbe.spec.ts
+      - name: What production's headers reported
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/production-https/csp-candidate-reports.jsonl script-src
+      - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
           E2E_CSP_CANDIDATE: script
           DAILY: ${{ needs.webkit_build.outputs.daily }}
         # The Playwright image's default `sh` has no `pipefail`.
@@ -336,7 +358,7 @@ jobs:
           set -euo pipefail
           specs="e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
             e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts
-            e2e/webkit/drawingFonts.spec.ts e2e/webkit/htmlPreview.spec.ts
+            e2e/webkit/drawingFonts.spec.ts e2e/webkit/mermaid.spec.ts e2e/webkit/htmlPreview.spec.ts
             e2e/webkit/cspCandidateRules.spec.ts e2e/webkit/cspOpaqueSelf.spec.ts e2e/webkit/cspDiagramFrame.spec.ts
             e2e/webkit/cspNegativeProbe.spec.ts"
           # Per push the browser tests the editor and what it draws; the plugin
@@ -349,60 +371,9 @@ jobs:
           # shellcheck disable=SC2086
           pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list $specs
       - name: No enforced script-src violation was reported
-        if: always()
-        working-directory: apps/mobile
-        run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/csp-candidate-reports.jsonl script-src
-      # Over HTTPS (`E2E_HTTPS=1`: a self-signed certificate made for this run
-      # and trusted only by these browsers, in these steps). First the
-      # baseline, exactly the router's headers with nothing extra enforced, so
-      # a failure the candidate causes is told apart from one production has.
-      - name: Diagram specs over HTTPS under production's headers alone
         if: ${{ !cancelled() }}
         working-directory: apps/mobile
-        env:
-          CI: "true"
-          E2E_HTTPS: "1"
-          E2E_CSP_CANDIDATE: production
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
-            --output e2e/webkit/test-results-https-production \
-            e2e/webkit/mermaid.spec.ts e2e/webkit/cspDiagramFrame.spec.ts e2e/webkit/cspNegativeProbe.spec.ts
-      - name: What production's headers reported over HTTPS
-        if: ${{ !cancelled() }}
-        working-directory: apps/mobile
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p e2e/webkit/csp-https-production
-          cp e2e/webkit/csp-candidate/csp-candidate-reports.jsonl e2e/webkit/csp-https-production/
-          node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-https-production/csp-candidate-reports.jsonl script-src
-      - name: Editor, drawing and diagram specs over HTTPS with script-src enforced
-        if: ${{ !cancelled() }}
-        working-directory: apps/mobile
-        env:
-          CI: "true"
-          E2E_HTTPS: "1"
-          E2E_CSP_CANDIDATE: script
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
-            --output e2e/webkit/test-results-https \
-            e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
-            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts \
-            e2e/webkit/drawingFonts.spec.ts e2e/webkit/mermaid.spec.ts e2e/webkit/htmlPreview.spec.ts \
-            e2e/webkit/cspDiagramFrame.spec.ts e2e/webkit/cspNegativeProbe.spec.ts
-      - name: No enforced script-src violation was reported over HTTPS
-        if: ${{ !cancelled() }}
-        working-directory: apps/mobile
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p e2e/webkit/csp-https
-          cp e2e/webkit/csp-candidate/csp-candidate-reports.jsonl e2e/webkit/csp-https/
-          node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-https/csp-candidate-reports.jsonl script-src
+        run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/script-https/csp-candidate-reports.jsonl script-src
       - name: Keep candidate failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
@@ -410,11 +381,8 @@ jobs:
           name: webkit-csp-script-results
           path: |
             apps/mobile/e2e/webkit/test-results/
-            apps/mobile/e2e/webkit/test-results-https-production/
-            apps/mobile/e2e/webkit/test-results-https/
+            apps/mobile/e2e/webkit/test-results-production/
             apps/mobile/e2e/webkit/csp-candidate/
-            apps/mobile/e2e/webkit/csp-https-production/
-            apps/mobile/e2e/webkit/csp-https/
           retention-days: 7
           if-no-files-found: ignore
 

@@ -57,7 +57,8 @@ const HERE = __dirname;
 const CSP_MODE = process.env.E2E_CSP_CANDIDATE;
 const CSP_CANDIDATE =
   CSP_MODE === "production" || CSP_MODE === "script" || CSP_MODE === "full"
-    ? writeCandidate(join(HERE, "csp-candidate"), CSP_MODE)
+    ? // One directory per mode and transport, so a later run in the same job never resets an earlier one's log.
+      writeCandidate(join(HERE, "csp-candidate", `${CSP_MODE}-${process.env.E2E_HTTPS === "1" ? "https" : "http"}`), CSP_MODE)
     : null;
 /*
   `E2E_HTTPS=1` serves the export over HTTPS, on a port of its own, with a

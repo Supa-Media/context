@@ -162,22 +162,31 @@ server too, with no headers at all, so the shipped page's own meta policy is
 enough to refuse its script on plain HTTP. The diagram renderer has never
 been tested working in WebKit by this fixture, candidate or not.
 
-So the diagram renderer's functional specs run over HTTPS (`E2E_HTTPS=1`).
-The Playwright config makes a throwaway self-signed certificate for the run,
-the static server answers over HTTPS on its own port, and only these
-browsers, in those steps, skip the certificate check. The job now runs:
+So the candidate job runs over HTTPS (`E2E_HTTPS=1`), as production does.
+This changes the test transport, not which tests run. The Playwright config
+makes a throwaway self-signed certificate for the run, the static server
+answers over HTTPS on its own port, and only these browsers, in those steps,
+skip the certificate check. Each mode and transport writes its report log to
+its own directory (`csp-candidate/<mode>-<http|https>/`), so one run never
+resets another's. The job runs:
 
-1. Over plain HTTP under `script`: the per-push list without
-   `mermaid.spec.ts`, plus the diagnostics, then the log check.
-   `cspDiagramFrame.spec.ts` holds the HTTP limitation as an exact
-   expectation. In WebKit, on an HTTP origin, the frames that enforce a
-   `'self'` are blocked and no others; everywhere else, nothing is blocked. A
-   change either way fails. It is stated there, not ignored, and the
-   functional diagram specs are not dropped; they moved to the HTTPS steps.
-2. Over HTTPS under `production`: `mermaid.spec.ts`, the diagnostics and the
-   probe below, with its own log copy and check.
-3. Over HTTPS under `script`: the whole per-push list, `mermaid.spec.ts`
-   included, with its own log copy and check.
+1. Under `production`: `mermaid.spec.ts`, the diagnostics and the probe
+   below, then the log check.
+2. Under `script`: the whole per-push list (`mermaid.spec.ts` included, the
+   plugin specs daily), the diagnostics and the probe, then the log check.
+
+The plain-HTTP behaviour stays in the suite as asserted controls, not as a
+red step. `cspDiagramFrame.spec.ts` routes its frames itself, so it tests
+both schemes whatever the transport, and holds exactly what each engine
+does. In WebKit, on an HTTP origin, the frames that enforce a `'self'` are
+blocked and no others; everywhere else nothing is blocked. A change either
+way fails. The first all-HTTPS run (head 1bb968ca, job 123386789761) had the
+production step at 9 passed with no enforced script violation. The script
+step had 51 passed and 1 flaky (`comments.spec.ts`, which also flakes
+without any policy), with no enforced script violation in 445 reports. The
+same run's plain-HTTP step passed its 53 specs, but logged 6 enforced
+diagram `script-src-elem` refusals from notes that draw a diagram in passing.
+That is the HTTP limitation again, and the reason the transport moved.
 
 `cspNegativeProbe.spec.ts` proves enforcement in the browser, not just in the
 checker. It loads a shell path from the fixture's own server, keeps that
