@@ -320,6 +320,8 @@ jobs:
           CI: "true"
           E2E_CSP_CANDIDATE: script
           DAILY: ${{ needs.webkit_build.outputs.daily }}
+        # The Playwright image's default `sh` has no `pipefail`.
+        shell: bash
         run: |
           set -euo pipefail
           specs="e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
