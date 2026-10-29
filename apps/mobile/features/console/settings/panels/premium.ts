@@ -28,8 +28,8 @@
 
 import { relativeTime } from "../../format";
 import { foundingAtNoCharge } from "./founding";
-import { managedFailureCopy } from "./managedFailure";
-export { managedFailureCopy } from "./managedFailure";
+import { managedFailureCopy, paidForStorage } from "./managedFailure";
+export { managedFailureCopy, paidForStorage } from "./managedFailure";
 export { renewalLine } from "./renewal";
 
 /** The five states this section can be in. */
@@ -153,7 +153,7 @@ export function managedMigrationCopy(status: PremiumStatus): {
   }
   if (status.managedProvisioning === "failed") {
     if (status.managedMigrationPhase === undefined) {
-      const failure = managedFailureCopy(status.managedProvisioningError);
+      const failure = managedFailureCopy(status.managedProvisioningError, { charged: paidForStorage(status) });
       return { ...failure, failed: true };
     }
     return {
