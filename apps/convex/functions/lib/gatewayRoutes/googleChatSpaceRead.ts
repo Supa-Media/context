@@ -34,7 +34,7 @@ const DEFAULT_SPACE_MESSAGES = 20;
 const MAX_TEXT = 2_000;
 const MAX_NAME = 80;
 const ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
-const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/g;
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
 
 type Entry = Record<string, unknown>;
 
