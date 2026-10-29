@@ -20,15 +20,16 @@
  *
  * With `E2E_CSP_RULES` set (`csp-candidate.ts` writes it, only when
  * `E2E_CSP_CANDIDATE` names a mode), every response carries the headers of the
- * longest matching rule, as much of the router's report-only policy enforced
- * as the mode asks,
- * and `POST /_csp-report` appends one line per violation to `E2E_CSP_REPORTS`:
- * the directive, the blocked source's origin or keyword, and the document's
- * class. Without it the server sends no security headers at all, as before.
+ * longest matching rule, with as much of the router's report-only policy
+ * enforced as the mode asks, and `POST /_csp-report` appends one line per
+ * violation to `E2E_CSP_REPORTS`, bounded by `csp-report-log.mjs` to the same
+ * schema the router logs. Without it the server sends no security headers at
+ * all, as before.
  */
 import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
+import { reportLines } from "./csp-report-log.mjs";
 
 const [, , rootArg, portArg] = process.argv;
 if (rootArg === undefined || portArg === undefined) {
@@ -72,47 +73,10 @@ function ruleFor(pathname) {
   return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
 }
 
-/** An origin or a CSP keyword, never a path or a query. */
-function sourceOf(value) {
-  if (typeof value !== "string" || value === "") return "none";
-  if (/^[a-z-]+$/.test(value)) return value;
-  try {
-    const url = new URL(value);
-    return url.origin === "null" ? `${url.protocol}` : url.origin;
-  } catch {
-    return "unparsed";
-  }
-}
-
-function documentOf(value) {
-  if (typeof value !== "string" || value === "") return "none";
-  // Chrome's legacy report names a `srcdoc` frame's document as bare "about".
-  if (value === "about" || value.startsWith("about:")) return "srcdoc-or-about";
-  try {
-    return ruleFor(new URL(value).pathname)?.document ?? "unmatched";
-  } catch {
-    return "unparsed";
-  }
-}
-
-/** Both report formats: the legacy `{"csp-report": …}` and the Reporting API's array. */
+/** Each violation as `csp-report-log.mjs` bounds it: classes, keywords and origins only. */
 function recordReports(text) {
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return;
-  }
-  const bodies = Array.isArray(parsed) ? parsed.map((entry) => entry?.body).filter(Boolean) : [parsed?.["csp-report"]].filter(Boolean);
-  for (const body of bodies) {
-    const line = {
-      document: documentOf(body["document-uri"] ?? body.documentURL),
-      directive: body["effective-directive"] ?? body.effectiveDirective ?? body["violated-directive"] ?? "unknown",
-      blocked: sourceOf(body["blocked-uri"] ?? body.blockedURL),
-      disposition: body.disposition ?? "enforce",
-    };
-    appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
-  }
+  const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
+  for (const line of reportLines(text, classify)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
 }
 
 const server = createServer((req, res) => {

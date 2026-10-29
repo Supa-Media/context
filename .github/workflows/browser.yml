@@ -96,6 +96,7 @@ jobs:
             apps/mobile/e2e/webkit/ci-workers.cjs
             apps/mobile/e2e/webkit/csp-candidate.ts
             apps/mobile/e2e/webkit/csp-candidate-check.mjs
+            apps/mobile/e2e/webkit/csp-report-log.mjs
             infra/router/src/cspReport.ts
             infra/router/src/securityHeaders.ts
             infra/router/src/pluginSandbox.ts

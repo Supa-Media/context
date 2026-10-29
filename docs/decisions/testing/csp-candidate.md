@@ -25,8 +25,15 @@ the server enforces as much of the report-only policy as the mode asks for:
 - `full`: every directive in the report-only policy.
 
 Reports go to the same `/_csp-report` path. The server keeps the same fields
-the router does: document class, directive, blocked origin or keyword, and
-disposition. `csp-candidate-check.mjs` prints the counts. It fails if a
+the router does, with the same bounds (`csp-report-log.mjs`): a document class
+from a fixed list, a directive of at most 40 lowercase letters and hyphens, an
+origin or one of the keywords CSP reports, and the disposition. It is plain
+Node, so it repeats the router's rules instead of importing them, and the
+router suite's `cspReportFixtureParity.test.ts` keeps the two in step. That
+test feeds both the same hostile reports (paths, queries, tokens, script
+samples, non-string fields, all-letter "keywords") and fails if the directive
+or blocked source differ, or if any of that text reaches a line. Changing the
+fixture module runs the router tests. `csp-candidate-check.mjs` prints the counts. It fails if a
 directive it guards has an enforced violation, or if no report arrived at all.
 
 **The script half runs in CI.** The `Script policy enforced in WebKit` job in
@@ -44,15 +51,19 @@ the log check failed.
 ### What the first runs showed (Chromium, 2026-10-29)
 
 These are local runs against the E2E export, in the agent sandbox's Chromium.
-That is not a WebKit result; the CI job provides that. One failure occurs in
-every mode, the plain server included, so it says nothing about the policy:
-`editorFormatting.spec.ts`, "a click on a web link opens it in a new tab".
+That is not a WebKit result; the CI job provides that. Counts are passed /
+failed, and "baseline" is a failure the plain server (no policy at all) has
+too: `editorFormatting.spec.ts`, "a click on a web link opens it in a new
+tab", which fails in this sandbox whatever the headers are. It is counted as
+a failure in every column, not as a pass.
 
-| Specs | `script` | `full` |
-| --- | --- | --- |
-| Editor (6 files, 36 cases) | All pass. No script violation. | 2 cases fail: `comments.spec.ts` and `pasting.spec.ts` "far down a note keeps the page where it is". |
-| Drawing, diagram, html preview (10 cases) | All pass. No script violation. | 2 cases fail: `drawingFonts.spec.ts` and `htmlPreview.spec.ts` "renders as a diagram". |
-| Plugins (8 files, 17 cases, real bundles fetched; the two sandbox specs fulfil their own requests) | All pass. No script violation. | All pass. 2 shell style violations. |
+| Specs | No policy (plain server) | `script` | `full` |
+| --- | --- | --- | --- |
+| Editor (6 files, 36 cases) | 35 / 1 (baseline) | 35 / 1 (baseline); 0 script violations | 33 / 3 (baseline, plus `comments.spec.ts` and `pasting.spec.ts` "far down a note keeps the page where it is") |
+| Drawing, diagram, html preview (3 files, 10 cases) | 10 / 0 | 10 / 0; 0 script violations | 8 / 2 (`drawingFonts.spec.ts`, `htmlPreview.spec.ts` "renders as a diagram") |
+| Plugins (8 files, 17 cases, real bundles fetched; the two sandbox specs fulfil their own requests) | 17 / 0 | 17 / 0; 0 script violations | 17 / 0; 2 shell style violations |
+
+So `script` adds no failure over the plain server, and `full` adds four.
 
 In `full` mode, every violation is a style or font one:
 
