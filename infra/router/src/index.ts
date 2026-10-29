@@ -49,7 +49,7 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
-    return withSecurityHeaders(await platformResponse(request, url, env, ctx), url.pathname);
+    return withSecurityHeaders(await platformResponse(request, url, env, ctx), url.pathname, env.CONVEX_ORIGIN);
   },
 };
 
