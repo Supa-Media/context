@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-29",
+    text:
+      'fetch id "chat:" lists the person\'s Google Chat spaces with their spaces/… ids; "chat:<spaces/…>" reads that one conversation live, ' +
+      "its newest messages, both sides, oldest first (`limit`, at most 50); and \"chat:\" with args `{ to }`, a work email, reads the direct " +
+      "message with that person. Only their own personal workspace, with private access, through an account whose AI access reads Chat.",
+  },
+  {
     date: "2026-10-28",
     text:
       'fetch id "calendar:" (read_calendar) takes `account`: one connected Google address, and only that calendar is read. ' +
@@ -357,7 +364,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "6597959b";
+export const TOOL_SHAPE = "354a901b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

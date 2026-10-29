@@ -58,8 +58,9 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
  */
 // The texts tools are reached as `search` with `{ texts: true }` and `fetch
 // texts:` (`v2/searchFetch.js`): new arguments on the tools every client
-// already holds, not three new tools a cached list would not have.
-const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "read_texts"]);
+// already holds, not three new tools a cached list would not have. A Google
+// Chat conversation is `fetch chat:<space>` the same way.
+const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "read_texts", "read_google_chat"]);
 
 /**
  * The six tools an MCP client is offered since v2 (decided 2026-10-16,

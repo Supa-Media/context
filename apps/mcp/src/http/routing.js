@@ -87,6 +87,8 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       spaces: () => controlPlane.googleChatSpaces(session.accessToken, session.workspaceId),
       // What was written to them lately, for a check-in (`agent/checkInSources.js`).
       recent: (request) => controlPlane.googleChatRecent(session.accessToken, session.workspaceId, request),
+      // One conversation the person named, read live (`tools/googleChatRead.js`).
+      conversation: (request) => controlPlane.googleChatConversation(session.accessToken, session.workspaceId, request),
     },
     enumerable: false,
     writable: false,

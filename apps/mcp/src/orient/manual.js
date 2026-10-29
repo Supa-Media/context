@@ -129,6 +129,7 @@ const FETCH_IDS = [
   "- `apps:`: the apps the person connects through Context (and which need the browser instead); `apps:<app>` lists one's tools, and with args `{ tool, arguments }` runs a read",
   "- `texts:`: their text conversations (iMessage and SMS), when their Mac backs them up; `texts:<id>`, from it or from `search` with args `{ texts: true, with, since }`, reads one, with args `{ since, before, limit }`",
   "- `email:<address>/<id>`, from `search` with args `{ email: true }`: one email read live from their Gmail; args `{ attachment }` reads one of its files (with `from` and `summary` as for a file)",
+  "- `chat:`: their Google Chat spaces, with ids; `chat:<spaces/…>` reads one live, newest messages, args `{ limit }`, and `chat:` with args `{ to }` (a work email) reads the direct message with that person",
 ].join("\n");
 
 /** The whole manual: the six tools, every action, and the fetch ids. */
