@@ -17,6 +17,7 @@ import {
   fetchDirectives,
   parseCspReport,
   reportOnlyPolicyFor,
+  SCRIPT_HOSTS,
   SCRIPT_POLICY,
   SHELL_SCRIPT_HASHES,
   SHELL_STYLE_HASHES,
@@ -127,6 +128,31 @@ describe("the policy", () => {
       ...(app.dependencies?.["@excalidraw/excalidraw"] && editorShared ? ["drawing editor: Excalidraw's WebAssembly glue calls new Function"] : []),
     ];
     if (needs.length > 0) expect(SECURITY_HEADERS["Content-Security-Policy"], needs.join("; ")).not.toContain("script-src");
+  });
+
+  /*
+    The guard above goes quiet the moment nothing blocks enforcement any more:
+    its `needs` is empty once each frame has a document and a policy of its
+    own (#2435, #2437), and an empty `needs` asserts nothing. That is exactly
+    when the question it was written for becomes live, so this one takes over
+    and fires on the combination that matters rather than on the wait.
+
+    `SCRIPT_HOSTS` carries two hosts the shell loads only on the landing page
+    (`location.hostname === "context.lc" && location.pathname === "/"`), while
+    the policy naming them is served on every document. While it reports, that
+    permits nothing. Enforced, it would let those two serve script on the app
+    pages, where both auth keys live in `localStorage` — so they have to stop
+    being global before `script-src` is enforced, not after.
+  */
+  it("never enforces script-src while the landing page's ad hosts are in the global policy", () => {
+    const landingOnly = ["https://static.ads-twitter.com", "https://connect.facebook.net"];
+    const enforcesScript = SECURITY_HEADERS["Content-Security-Policy"].includes("script-src");
+    const global = landingOnly.filter((host) => SCRIPT_HOSTS.includes(host));
+
+    expect(
+      enforcesScript && global.length > 0,
+      `enforced script-src with ${global.join(" and ")} still global: serve them for context.lc/ only first`,
+    ).toBe(false);
   });
 
   it("gives the drawing editor its own policy, and only it may build functions", async () => {
