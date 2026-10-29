@@ -88,7 +88,8 @@ function fakeCaches() {
         if (!stores.has(name)) stores.set(name, new Map());
         const held = stores.get(name)!;
         return {
-          match: async (request: RequestInfo) => held.get(keyOf(request)) ?? undefined,
+          // A new Response every time, as the real `match` gives: each one's body can be read once.
+          match: async (request: RequestInfo) => held.get(keyOf(request))?.clone() ?? undefined,
           put: async (request: RequestInfo, response: Response) => {
             if (fail.put) throw new DOMException("QuotaExceededError");
             // The real `cache.put` throws on a redirected response. Reproduced
@@ -151,6 +152,8 @@ function load(): Worker {
     Request,
     Response,
     Headers,
+    crypto: globalThis.crypto,
+    btoa,
     TypeError,
     DOMException,
     Promise,
@@ -337,6 +340,53 @@ describe("a navigation", () => {
     await navigate(worker, `${ORIGIN}/`);
 
     expect(held(worker)).toEqual({ "context-app-shell-v1": ["/"] });
+  });
+
+  /*
+    The router mints a style nonce for every shell response
+    (`infra/router/src/styleNonce.ts`). Replayed as stored, every offline load
+    would carry the one the stored response had, and a nonce that repeats is
+    no defence.
+  */
+  test("offline, a held shell's style nonce is new on every replay, in its styles and its policies alike", async () => {
+    const OLD = "b2xkb2xkb2xkb2xkb2xkbw==";
+    const policy = `script-src 'self'; style-src 'self' 'nonce-${OLD}'; report-uri /_csp-report`;
+    worker.setFetch(
+      async () =>
+        new Response(`<!doctype html><style id="expo-reset" nonce="${OLD}">a{}</style><style id="context-ground" nonce="${OLD}">b{}</style>`, {
+          status: 200,
+          headers: { "Content-Type": "text/html", "Content-Security-Policy-Report-Only": policy, "Content-Security-Policy": "frame-ancestors 'self'" },
+        }),
+    );
+    await navigate(worker, `${ORIGIN}/console`);
+    worker.setFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const nonces: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const response = await navigate(worker, `${ORIGIN}/console`);
+      const header = response!.headers.get("Content-Security-Policy-Report-Only")!;
+      const nonce = header.match(/'nonce-([^']+)'/)![1]!;
+      expect(nonce).not.toBe(OLD);
+      expect(atob(nonce)).toHaveLength(16);
+      expect(header).toBe(policy.replace(OLD, nonce));
+      expect(response!.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self'");
+      const body = await response!.text();
+      expect(body).not.toContain(OLD);
+      expect(body.split(`nonce="${nonce}"`).length - 1).toBe(2);
+      nonces.push(nonce);
+    }
+    expect(new Set(nonces).size).toBe(3);
+  });
+
+  test("a held shell without a nonce is replayed as it was", async () => {
+    await navigate(worker, `${ORIGIN}/console`);
+    worker.setFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const response = await navigate(worker, `${ORIGIN}/console`);
+    expect(await response!.text()).toBe("<!doctype html>the shell");
   });
 
   test("a first visit with no network says so, rather than failing silently", async () => {

@@ -256,8 +256,17 @@ router change therefore has to come with a worker change: when the worker
 answers from its cache, it mints a new nonce and rewrites the stored policy
 headers and the two style attributes with it, the same three places, before
 returning the response, or it stores the shell with the nonce removed and
-adds a fresh one on the way out. This PR does not touch the worker, because
-nothing it caches carries a nonce yet.
+adds a fresh one on the way out. Both halves are now built, report-only (2026-10-29):
+`infra/router/src/styleNonce.ts` mints the nonce for every shell document
+answered from `ASSETS` (a document request by `Sec-Fetch-Dest` or `Accept`,
+outside `/drawing-assets/`, the page box and the plugin sandbox), strips the
+conditional request headers and the validators, sends `no-cache`, and adds
+the nonce to the report-only `style-src` only. The enforced policy is
+unchanged. A document without the two shell styles is served as before.
+`public/sw.js` re-mints the nonce on every offline replay (`renonced`).
+`styleNonce.test.ts` holds the router's placement to the fixture's, on the
+real `public/index.html`, and `appShellWorker.test.ts` checks three replays
+get three new nonces.
 
 Still not covered: browsers without constructable stylesheets.
 `liveEditorWeb/stylesheet.ts` falls back to a `<style>` element there that
