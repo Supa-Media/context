@@ -4,7 +4,7 @@ import { privacyContent, supportContent, termsContent } from "../features/legal/
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("October 28, 2026");
+    expect(privacyContent.updated).toBe("October 29, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -124,7 +124,7 @@ describe("the privacy policy matches what the phone app collects", () => {
 
 describe("the terms and support page cover objectionable content (App Store guideline 1.2)", () => {
   test("the terms say there is no tolerance, how to report, and what happens within 24 hours", () => {
-    expect(termsContent.updated).toBe("October 28, 2026");
+    expect(termsContent.updated).toBe("October 29, 2026");
     const section = termsContent.sections.find((entry) => entry.title === "Objectionable content and abuse");
     const text = section?.body.join(" ") ?? "";
     expect(text).toContain("no tolerance for objectionable or abusive content or behaviour");
@@ -167,8 +167,40 @@ describe("the policy describes Google data as the code uses it", () => {
     expect(termsGoogle).toContain("send the email and Chat messages you approve");
   });
 
-  test("says disconnecting and deleting copied notes are separate", () => {
-    expect(googleUse).toContain("Revoking Google access and deleting copied notes are separate controls.");
+  test("says disconnecting and deleting saved notes are separate", () => {
+    expect(googleUse).toContain("Disconnecting a Google account stops all future access to it.");
+    expect(googleUse).toContain("It does not delete notes already in your workspace");
+    expect(googleUse).toContain("Revoking Google access and deleting saved notes are separate controls.");
+  });
+
+  /**
+   * Mail, calendar and chat are read live since 2026-10-21
+   * (`docs/decisions/communications/live-not-copied.md`): no pass copies
+   * them, so the policy may not say one does, nor that nothing is kept.
+   */
+  test("says Google data is read when needed, not synced into notes", () => {
+    const google = [privacy, termsGoogle].join("\n");
+    expect(googleUse).toContain("from Google when they are needed: when you ask");
+    expect(googleUse).toContain("during a check-in or routine Tex runs for you, which you can pause or turn off");
+    expect(googleUse).toContain("no background job syncs them into your workspace");
+    expect(termsGoogle).toContain("to read the information you enabled from Google when you");
+    expect(google).not.toMatch(/read and sync/);
+    expect(google).not.toMatch(/forward-only/);
+    expect(google).not.toMatch(/sync features you enable/);
+    expect(google).not.toMatch(/Calendar sync/);
+    expect(google).not.toMatch(/Synced communication/);
+    expect(google).not.toMatch(/retain synced files/);
+    expect(google).not.toMatch(/sync the information you enabled/);
+  });
+
+  test("says what is kept: conversations, quotes, source names and historical copies", () => {
+    expect(googleUse).toContain("the quotes, summaries and source names");
+    expect(googleUse).toContain("saved in Tex's transcripts and conversation history");
+    expect(googleUse).toContain("These notes stay until you delete them.");
+    expect(googleUse).toContain("Before October 21, 2026, Context.lc copied Gmail, Calendar and Google Chat into notes");
+    expect(googleUse).toContain("are included when you download your workspace, and stay until you delete them");
+    // Saved exchanges exist, so no blanket claim that nothing is kept.
+    expect(privacy).not.toMatch(/(never|not) (stored|kept|retained)|no Google data is (stored|kept|retained)/i);
   });
 
   test("keeps the Limited Use, no-sale and no-training commitments", () => {
@@ -183,7 +215,7 @@ describe("the policy describes Google data as the code uses it", () => {
   });
 
   test("both pages carry the date of this change", () => {
-    expect(privacyContent.updated).toBe("October 28, 2026");
-    expect(termsContent.updated).toBe("October 28, 2026");
+    expect(privacyContent.updated).toBe("October 29, 2026");
+    expect(termsContent.updated).toBe("October 29, 2026");
   });
 });
