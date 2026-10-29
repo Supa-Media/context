@@ -27,7 +27,8 @@
  * all, as before.
  */
 import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
 import { reportLines } from "./csp-report-log.mjs";
 
@@ -82,7 +83,18 @@ function recordReports(text, disposition) {
 /** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */
 const REPORT_ADDRESSES = { "/_csp-report": "report", "/_csp-report/enforce": "enforce" };
 
-const server = createServer((req, res) => {
+/*
+  With `E2E_TLS_KEY` and `E2E_TLS_CERT` (a throwaway self-signed pair the
+  Playwright config makes for one run, `E2E_HTTPS=1`), the same server
+  answers over HTTPS, so a spec sees the app on a secure origin as
+  production does.
+*/
+const tls =
+  process.env.E2E_TLS_KEY && process.env.E2E_TLS_CERT
+    ? { key: readFileSync(process.env.E2E_TLS_KEY), cert: readFileSync(process.env.E2E_TLS_CERT) }
+    : null;
+
+const handle = (req, res) => {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
   if (reportLog !== null && req.method === "POST" && Object.hasOwn(REPORT_ADDRESSES, pathname)) {
     let text = "";
@@ -106,8 +118,10 @@ const server = createServer((req, res) => {
   const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
   res.writeHead(200, { "Content-Type": type });
   createReadStream(file).pipe(res);
-});
+};
+
+const server = tls === null ? createHttpServer(handle) : createHttpsServer(tls, handle);
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`static export served: http://127.0.0.1:${port}`);
+  console.log(`static export served: ${tls === null ? "http" : "https"}://127.0.0.1:${port}`);
 });

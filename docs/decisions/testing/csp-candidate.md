@@ -152,11 +152,24 @@ minimal page under production's headers, the only frames with no enforcing
 `'self'` at all. The block was the same under `production` mode as under
 `script`, and `mermaid.spec.ts` failed under production's headers too. So the
 refusal follows the fixture's plain-HTTP, IP-address origin. It is not the
-candidate, and nothing shows it in an HTTPS deployment. That run did not yet
-separate scheme from host. The spec now crosses them (`http://context.test`,
-`https://127.0.0.1:4874`), and adds a no-header variant. Until an HTTPS run
-says otherwise, no production policy or origin list changes, and
-`mermaid.spec.ts` stays as it is.
+candidate, and nothing shows it in an HTTPS deployment. The next run (head 12be7a27, job 123377644693) separated scheme from host,
+and the scheme decides. At `https://127.0.0.1:4874` all 20 frames ran, and at
+`http://context.test` 16 of 20 were blocked, the same as at the fixture's
+`http://127.0.0.1:4874`. The blocked frames are exactly those that enforce a
+`'self'`, whether by header or by the page's own meta policy. The four that
+ran enforce none. `mermaid.spec.ts` failed in WebKit from the plain fixture
+server too, with no headers at all, so the shipped page's own meta policy is
+enough to refuse its script on plain HTTP. The diagram renderer has never
+been tested working in WebKit by this fixture, candidate or not.
+
+So the job also runs over HTTPS (`E2E_HTTPS=1`). The Playwright config makes
+a throwaway self-signed certificate for the run, the static server answers
+over HTTPS on its own port, and only these browsers skip the certificate
+check. First `mermaid.spec.ts` runs from the plain server, then the full
+per-push spec list under `script`, with its own log check. The HTTP steps
+stay in the job and stay red. They are the evidence for the scheme
+difference, and no failure is ignored or excluded. Until the HTTPS run says
+otherwise, no production policy or origin list changes.
 
 ### What this does not prove
 
