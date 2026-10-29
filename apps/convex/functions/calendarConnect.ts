@@ -73,8 +73,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
-import { googleEnvFor } from "./lib/googleConnect/clients";
+import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,

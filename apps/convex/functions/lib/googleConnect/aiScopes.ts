@@ -23,6 +23,9 @@ import {
 } from "../googleOAuth";
 import { agentClientActive, googleEnvFor, grantFor } from "./clients";
 
+/** Re-exported so a connect flow imports its scopes and their environment from one place. */
+export { googleEnvFor };
+
 type Env = Record<string, string | undefined>;
 
 /**
