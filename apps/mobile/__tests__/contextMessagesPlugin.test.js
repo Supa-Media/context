@@ -8,6 +8,7 @@ const target = (...parts) => path.join(__dirname, "..", "targets", "context-mess
 describe("Context Messages extension config plugin", () => {
   test("its bundle id is the one the texting Worker names on each card", () => {
     expect(plugin.identifiers({ ios: { bundleIdentifier: "lc.context.mobile" } })).toEqual({
+      appGroup: "group.lc.context.mobile",
       extensionBundleIdentifier: "lc.context.mobile.messages",
     });
     const wrangler = fs.readFileSync(path.join(__dirname, "..", "..", "agent", "wrangler.jsonc"), "utf8");
@@ -43,7 +44,11 @@ describe("Context Messages extension config plugin", () => {
     plugin.declareEasExtension(config, ids);
     expect(config.extra.eas.build.experimental.ios.appExtensions).toEqual([
       { targetName: "ContextWidgets", bundleIdentifier: "lc.context.mobile.widgets" },
-      { targetName: "ContextMessages", bundleIdentifier: "lc.context.mobile.messages" },
+      {
+        targetName: "ContextMessages",
+        bundleIdentifier: "lc.context.mobile.messages",
+        entitlements: { "com.apple.security.application-groups": ["group.lc.context.mobile"] },
+      },
     ]);
   });
 
@@ -78,6 +83,21 @@ describe("Context Messages extension config plugin", () => {
     // Any kind of card opens its page, not a fixed list.
     expect(controller).toContain("isCardKind(kind)");
     expect(controller).not.toMatch(/\["pick", "ask", "hello"\]\.contains/);
+  });
+
+  test("a card's page reads the person's data through the app's key, which it never sees", () => {
+    // The owner chose the app's sign-in (2026-10-29): the key sits in the app group's keychain, read only here.
+    const entitlements = fs.readFileSync(target("ContextMessages.entitlements"), "utf8");
+    expect(entitlements).toMatch(/<key>com\.apple\.security\.application-groups<\/key>\s*<array>\s*<string>\$\(CONTEXT_APP_GROUP\)<\/string>/);
+    expect(fs.readFileSync(target("ContextMessages-Info.plist"), "utf8")).toMatch(/<key>ContextAppGroup<\/key>\s*<string>\$\(CONTEXT_APP_GROUP\)<\/string>/);
+    const grant = fs.readFileSync(target("CardGrant.swift"), "utf8");
+    expect(grant).toContain('guard path.hasPrefix("/cards/")');
+    expect(grant).toContain('!path.contains("..")');
+    expect(grant).toContain("kSecAttrAccessGroup");
+    // The bearer is added in Swift; the page only ever gets a status and a body.
+    const shell = fs.readFileSync(target("CardShell.swift"), "utf8");
+    expect(shell).not.toMatch(/accessToken|refreshToken/);
+    expect(shell).toContain("[id, status, text]");
   });
 
   test("a card opens only a context.lc link", () => {

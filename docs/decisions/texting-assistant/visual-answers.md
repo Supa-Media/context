@@ -241,6 +241,21 @@ and abilities) before its script runs. None of these reach another person
 without the person's own tap on Send, and none reads anything back to the
 page. Test: `apps/mobile/__tests__/contextMessagesPlugin.test.js`.
 
+Cards that show the person's own data (their inbox, their week) prove who it
+is with the Context app's sign-in, not a key in each card's link (the owner's
+choice, 2026-10-29), so the data opens only on the signed-in phone. The app
+leaves one gateway OAuth grant (its own revocable client and scopes, never the
+app's session) in its keychain under the app group, which only the app and the
+extension can read (`CardGrant.swift`). The extension alone refreshes it, with
+the token endpoint's rotation, and deletes it when refused, so the app mints
+another when it next opens. A page asks the bridge to `fetch` a path under
+`/cards/` on the grant's gateway, live bubbles included, and gets back only a
+status and a body; the bearer is added in Swift. Since anyone can write a
+card's link, a page that shows fetched data must never send it back on its
+own: only the person's tap does, with words the page chose. Minting the grant
+(Convex), writing it (the app's JavaScript) and the `/cards/` routes (the
+gateway) ship by deploy and over the air after the native build.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

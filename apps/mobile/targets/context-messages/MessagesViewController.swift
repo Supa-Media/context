@@ -401,8 +401,8 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host == "context.lc",
       Self.isCardPage(message.webView?.url),
       let body = message.body as? [String: Any], let kind = body["kind"] as? String,
-      // A live bubble only draws: its taps open the panel, which answers.
-      presentationStyle != .transcript
+      // A live bubble only draws (its taps open the panel, which answers), though it may read the person's own data.
+      presentationStyle != .transcript || kind == "fetch"
     else { return }
     switch kind {
     case "size":
@@ -437,6 +437,11 @@ extension MessagesViewController: WKScriptMessageHandler, WKNavigationDelegate {
     } else {
       conversation.send(message, completionHandler: done)
     }
+  }
+
+  /// Runs one of the page's own callbacks (`contextCardResponse`), in the page that asked.
+  func answerPage(_ script: String) {
+    webView?.evaluateJavaScript(script, completionHandler: nil)
   }
 
   private func finish(_ ok: Bool) {
