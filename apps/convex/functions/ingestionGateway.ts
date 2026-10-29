@@ -437,6 +437,7 @@ interface S3IngestionBinding {
   rootPrefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
+  sessionToken?: string;
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
@@ -470,6 +471,7 @@ export const openIngestionBinding = internalAction({
       rootPrefix: v.optional(v.string()),
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
+      sessionToken: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
       capabilities: capabilitiesValidator,
       status: v.string(),
@@ -511,6 +513,7 @@ export const openIngestionBinding = internalAction({
       rootPrefix: credential.rootPrefix,
       accessKeyId: credential.accessKeyId,
       secretAccessKey: credential.secretAccessKey,
+      ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
       forcePathStyle: credential.forcePathStyle,
       capabilities: credential.capabilities,
       // The contract's vocabulary, not the row's — same translation

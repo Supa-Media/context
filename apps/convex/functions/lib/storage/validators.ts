@@ -8,6 +8,7 @@
  */
 
 import { v } from "convex/values";
+import { sealedTemporaryValidator } from "../managedProvisioningFns/temporaryKey";
 import { capabilitiesValidator, providerValidator } from "./shapes";
 
 export const bindStorageArgs = {
@@ -49,6 +50,11 @@ export const applyBindingArgs = {
   forcePathStyle: v.optional(v.boolean()),
   /** Keep a newly minted managed credential amber while IAM propagates. */
   verificationRetryUntil: v.optional(v.number()),
+  /**
+   * A temporary credential a new managed bucket is served on until its own key
+   * answers (the schema's `temporaryAccessKeyId`). Every field sealed.
+   */
+  temporary: sealedTemporaryValidator,
   /**
    * A layout the first check writes once the bucket answers. Only a bucket we
    * just made for a personal workspace is given one
@@ -122,6 +128,7 @@ export const getBindingForGatewayReturns = v.union(
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.string(),
     secretAccessKey: v.string(),
+    sessionToken: v.optional(v.string()),
     forcePathStyle: v.optional(v.boolean()),
     capabilities: capabilitiesValidator,
     status: v.string(),

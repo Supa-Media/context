@@ -60,6 +60,14 @@ import {
 } from "./lib/managedProvisioningFns/targetReady";
 import { capabilitiesValidator } from "./lib/storage/shapes";
 import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
+import {
+  clearTemporaryCredential,
+  issueTemporaryCredential,
+  ownKeyAnswers,
+  schedulePromotion,
+  sealedTemporaryValidator,
+  temporaryKeyStandingHandler,
+} from "./lib/managedProvisioningFns/temporaryKey";
 import { retryManagedProvisioningHandler } from "./lib/managedProvisioningFns/retry";
 import {
   MANAGED_STORAGE_SETTLE_POLL_MS,
@@ -351,6 +359,14 @@ export const provisionManagedStorage = internalAction({
       );
 
       if (standing.bindingId === null) {
+        // Served at once on a temporary credential while the key just minted
+        // settles; `null` keeps the old wait (`managedProvisioningFns/temporaryKey.ts`).
+        const temporary = await issueTemporaryCredential({
+          apiToken,
+          accountId,
+          bucket,
+          workspaceId: args.workspaceId,
+        });
         await ctx.runMutation(
           internal.functions.managedProvisioning.completeManagedProvisioning,
           {
@@ -360,6 +376,7 @@ export const provisionManagedStorage = internalAction({
             bucket,
             accessKeyId: minted.id,
             encryptedSecretAccessKey,
+            ...(temporary === null ? {} : { temporary }),
           },
         );
       } else {
@@ -827,9 +844,52 @@ export const completeManagedProvisioning = internalMutation({
     bucket: v.string(),
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
+    temporary: sealedTemporaryValidator,
   },
   returns: v.null(),
   handler: async (ctx, args) => completeManagedProvisioningHandler(ctx, args),
+});
+
+/**
+ * Swap a new bucket's temporary credential for its own key, once that key
+ * answers. Asked again until it does, or until the temporary one lapses (the
+ * gateway is on the own key by then regardless). The decrypt stays here, as
+ * the module header explains; the probe is `temporaryKey.ts`'s.
+ */
+export const promoteManagedKey = internalAction({
+  args: { workspaceId: v.id("workspaces"), attempt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.runQuery(internal.functions.managedProvisioning.temporaryKeyStanding, {
+      workspaceId: args.workspaceId,
+    });
+    if (binding === null) return null;
+    const secretAccessKey = await decryptSecret(binding.encryptedSecretAccessKey, requireKeyset(), {
+      workspaceId: args.workspaceId,
+    });
+    const answers = await ownKeyAnswers({ ...binding.credential, secretAccessKey });
+    if (answers) {
+      await ctx.runMutation(internal.functions.managedProvisioning.clearTemporaryKey, {
+        workspaceId: args.workspaceId,
+        temporaryAccessKeyId: binding.temporaryAccessKeyId,
+      });
+    } else {
+      await schedulePromotion(ctx, { workspaceId: args.workspaceId, attempt: args.attempt + 1, until: binding.until });
+    }
+    return null;
+  },
+});
+
+/** The bucket's own key, still sealed, for `promoteManagedKey`. */
+export const temporaryKeyStanding = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: (ctx, args) => temporaryKeyStandingHandler(ctx, args.workspaceId),
+});
+
+export const clearTemporaryKey = internalMutation({
+  args: { workspaceId: v.id("workspaces"), temporaryAccessKeyId: v.string() },
+  returns: v.boolean(),
+  handler: (ctx, args) => clearTemporaryCredential(ctx, args),
 });
 
 /**

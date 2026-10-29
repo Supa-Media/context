@@ -332,6 +332,12 @@ export const applyBinding = internalMutation({
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
       forcePathStyle: args.forcePathStyle,
+      // Set for a new managed bucket only; every other write clears them, so a
+      // rebind never carries a temporary credential to a different bucket.
+      temporaryAccessKeyId: args.temporary?.accessKeyId,
+      encryptedTemporarySecretAccessKey: args.temporary?.encryptedSecretAccessKey,
+      encryptedSessionToken: args.temporary?.encryptedSessionToken,
+      temporaryUntil: args.temporary?.until,
       capabilities: initialCapabilities(),
       status: "unverified" as const,
       // A rebind invalidates whatever we knew about the old bucket. Carrying
