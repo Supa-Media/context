@@ -164,7 +164,8 @@ export function recentTextsSection(history, path) {
   if (shown.length === 0) return "";
   return (
     `Your last texts with them, oldest first:\n${shown.join("\n")}\n\n` +
-    `If another routine or a check-in above already told them what this run would, or they already said it is done, answer ${SKIP_WORD}.`
+    `If another routine or a check-in above already told them what this run would, they already said it is done, or they asked not to be texted until a time still to come ("don't bother me till 5"), answer ${SKIP_WORD}. ` +
+    "Never ask again what they already told you above."
   );
 }
 

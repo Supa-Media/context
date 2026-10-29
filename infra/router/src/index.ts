@@ -34,6 +34,7 @@ import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 import { withSecurityHeaders } from "./securityHeaders";
+import { assetsWithStyleNonce } from "./styleNonce";
 import { CSP_REPORT_PATH, cspReportResponse } from "./cspReport";
 import { isPluginSandboxPath, pluginSandboxResponse } from "./pluginSandbox";
 import { coverOf, noteTitle, SHARE_TITLE_TIMEOUT_MS } from "./previewTitles";
@@ -253,7 +254,8 @@ async function respond(
           // files. The repository's staging and production configurations
           // always provide this binding; EXPO_ORIGIN remains only as a
           // compatibility fallback for external self-hosted configurations.
-          return env.ASSETS.fetch(request);
+          // The shell gets a fresh style nonce in its report-only policy (`styleNonce.ts`).
+          return await assetsWithStyleNonce(request, env.ASSETS, new URL(request.url).pathname, env.CONVEX_ORIGIN);
         }
         const origin = originFor(decision.upstream, env);
         if (!origin) {

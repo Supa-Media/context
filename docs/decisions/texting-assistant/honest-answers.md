@@ -139,6 +139,25 @@ asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
 promise taken out; an untimed later keeps the hourly routine. A routine
 written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.
 
+## Their sleep lines and check-in answers are their data, and get logged
+
+Tex's self-review, 2026-10-28 and 2026-10-29 (@context-lc
+`areas/tex-reviews/themes/sleep-log-wrong.md`, `time-audit-drops-plans.md`).
+Tex took the sleep totals a person's phone Shortcut sent ("You have slept for
+a total of: …") for texts it had sent itself, and apologised for them. It
+quoted a watch email's night as real when the total could not fit between its
+own asleep and up times, and answered a time-audit check-in's plan with "Will
+do." and saved nothing. `agent/timeLog.js` reads a sleep line in their text
+before the model sees it (`sleepLineNote`, also on texts steered in mid-turn,
+never written into the conversation). The note says whose the line is and
+whether it is one night: not over 16 hours, a total its own times can hold,
+not blank. Three answer checks in `replyChecks.js` catch a figure only they
+sent being taken back as Tex's, a quoted night its own times contradict, and a
+bare acknowledgement of a check-in plan (within Tex's last three texts) with
+no write. A routine run is told to stay quiet while they asked not to be
+bothered. Simplifying it away brings back the apology for their own data and
+an empty log. Tests: `agentTimeLog.test.mjs`.
+
 ### A check's note is never the person's text, and a "no" changes the approach (2026-10-29)
 
 In a tester's chat, Tex's browser stopped on a passkey page. Tex kept asking
@@ -160,5 +179,10 @@ with a denial about a calendar nobody had mentioned.
   refused.
 - `LATER_NOTICE` now says to set nothing when they didn't ask to be told
   later, or when the work is blocked on a step only they can take.
+- A check-in sent as an iMessage reply under an earlier text is kept in
+  that text's thread (`heartbeat.js`, `threadView.js` `threadOf`), and a
+  reply in a thread always sees the message it replied to. Before this, a
+  "yes" typed under a check-in's question was shown the thread without the
+  check-in, and Tex asked what the yes was for.
 
 Tests: `agentLosesTrack.test.mjs`.

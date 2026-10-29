@@ -41,6 +41,9 @@
  12. `rebuildScoresNote` filing without `replace`. → "a day's scores note is
      rebuilt by hand…" fails: the existing note conflicts and the lost row
      stays missing.
+ 13. A `shared` review recording scores like any other. → "a texted yes files
+     the kept history for its words alone…" fails: a scores row for turns
+     already scored.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -308,6 +311,20 @@ describe("what a review may carry", () => {
     await asUser(t, alice).mutation(api.functions.texReviews.setMyTexReviewSharing, { share: false });
     expect(await asUser(t, alice).query(api.functions.texReviews.myTexReviewSharing, {})).toBe(false);
     expect(await review(t, { mode: "tier" })).toEqual({ tier: "scores" });
+  });
+
+  test("a texted yes files the kept history for its words alone: no scores row, never on the scores tier, a few a day", async () => {
+    const { t, pinned, alice } = await world();
+    // Not shared: nothing filed, and no row for turns already scored.
+    expect(await review(t, { reason: "shared", scores: SCORES, words: WORDS })).toEqual({ review: null });
+    await asUser(t, alice).mutation(api.functions.texReviews.setMyTexReviewSharing, { share: true });
+    expect(await review(t, { reason: "shared", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    const [path] = reviews(await notesIn(t, pinned));
+    expect(await readNote(t, pinned, path!)).toContain("reason: shared");
+    expect(await t.run((ctx) => ctx.db.query("texReviewScores").collect())).toEqual([]);
+    expect(scoreNotes(await notesIn(t, pinned))).toEqual([]);
+    for (let i = 0; i < 2; i += 1) expect(await review(t, { reason: "shared", scores: SCORES, words: WORDS })).toEqual({ review: { filed: "full" } });
+    expect(await review(t, { reason: "shared", scores: SCORES, words: WORDS })).toEqual({ review: null, refused: "rate_limited" });
   });
 
   test("a group chat keeps words only when everybody in it may share", async () => {

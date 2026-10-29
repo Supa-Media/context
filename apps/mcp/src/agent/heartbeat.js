@@ -52,6 +52,7 @@ import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
 import { appendConversation, readConversation } from "./conversation.js";
+import { threadOf } from "./threadView.js";
 import { appendLogEntryWhy, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
@@ -641,6 +642,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
         sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
+        // Sent as a reply under an earlier text: kept in that text's thread, so their reply there sees it (`threadView.js`).
+        thread: marked.continues === null ? null : threadOf(conversation, marked.continues),
       });
     } catch {
       // A history that could not be written costs the next reply some context, never the check-in.

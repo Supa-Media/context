@@ -44,10 +44,15 @@ describe("a rename's heading follows inside the move", () => {
     expect(await textAt(f, "1-projects/kings-6.md")).toBe("# kings-9\n");
   });
 
+  // Nothing written still hands back the version its read found (2026-10-29): the move leaves that read to
+  // this step (`handOut: false`), so a note gets one read rather than two. A folder is never read.
+  const readEtag = async (f: KeyedBucket, path: string) =>
+    (await readFile(f.store, { path, clearance: OWNER.clearance, forward: "never" })).etag;
+
   test("no heading, an address name, a folder: nothing is written", async () => {
     const f = await keyedBucket({ "1-projects/plain.md": "just words\n" });
     const plain = await rename(f, "1-projects/plain.md", "1-projects/words.md");
-    expect(plain.etag).toBeUndefined();
+    expect(plain.etag).toBe(await readEtag(f, "1-projects/words.md"));
     expect(await textAt(f, "1-projects/words.md")).toBe("just words\n");
 
     await f.store.put("1-projects/notes/about.md", "# Notes\n");
@@ -59,7 +64,7 @@ describe("a rename's heading follows inside the move", () => {
 
     await f.store.put("1-projects/todo-list.md", "# Todo\n");
     const address = await rename(f, "1-projects/todo-list.md", "1-projects/todo.md");
-    expect(address.etag).toBeUndefined();
+    expect(address.etag).toBe(await readEtag(f, "1-projects/todo.md"));
     expect(await textAt(f, "1-projects/todo.md")).toBe("# Todo\n");
   });
 

@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import {
   CSP_REPORT_PATH,
+  DIAGRAM_PATH_PREFIX,
+  DIAGRAM_POLICY,
   EDITOR_POLICY,
   EDITOR_STYLE_HASHES,
   EMPTY_STYLE_HASH,
@@ -175,6 +177,32 @@ describe("the policy", () => {
     expect(EDITOR_STYLE_HASHES).toEqual(inline);
   });
 
+  it("gives the diagram page the policy its own meta enforces, and no platform page inline style", async () => {
+    const diagram = await worker.fetch(new Request("https://context.lc/drawing-assets/diagram/index.html"), ENV, CTX);
+    expect(diagram.headers.get("Content-Security-Policy-Report-Only")).toBe(`${DIAGRAM_POLICY}; report-uri ${CSP_REPORT_PATH}`);
+    // The enforced policy is the platform's, as for every page.
+    expect(diagram.headers.get("Content-Security-Policy")).toBe(ENFORCED_POLICY);
+    // The page is built, not committed, so its meta is read from the function that writes it.
+    const script = readFileSync(join(__dirname, "..", "..", "..", "scripts", "build-drawing-editor.mjs"), "utf8");
+    const page = /function diagramPageHtml\(\) \{\n  return `([\s\S]*?)`;\n\}/.exec(script)?.[1] ?? "";
+    const meta = /<meta http-equiv="Content-Security-Policy" content="([^"]+)" \/>/.exec(page)?.[1];
+    expect(meta).toBe(DIAGRAM_POLICY);
+    expect(page).toContain('<script src="./frame.js"></script>');
+    expect(page).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+    // Inline style, and nothing that would let a diagram reach the network or run another script.
+    const directives = Object.fromEntries(DIAGRAM_POLICY.split("; ").map((part) => [part.split(" ")[0], part.split(" ").slice(1)]));
+    expect(directives["default-src"]).toEqual(["'none'"]);
+    expect(directives["script-src"]).toEqual(["'self'"]);
+    expect(directives["img-src"]).toEqual(["data:"]);
+    expect(DIAGRAM_POLICY).not.toMatch(/'unsafe-eval'|\*|https?:/);
+    // Nowhere else: not the shell, the editor, the page box, nor a path that only starts like it.
+    // (The plugin sandbox has a policy of its own, which `pluginSandbox.test.ts` holds.)
+    for (const path of ["/console", "/", "/drawing-assets/editor/index.html", "/drawing-assets/page/index.html", "/drawing-assets/diagrams"]) {
+      expect(reportOnlyPolicyFor(path, ENV.CONVEX_ORIGIN), path).not.toContain("'unsafe-inline'");
+    }
+    expect(DIAGRAM_PATH_PREFIX).toBe("/drawing-assets/diagram/");
+  });
+
   it("measures a default-src candidate with no wildcard source and no deployment name written in", () => {
     const directives = fetchDirectives("https://example-deployment.convex.site");
     expect(directives.startsWith("default-src 'self'")).toBe(true);
@@ -231,7 +259,8 @@ describe("the report endpoint", () => {
     expect(from("https://context.lc/drawing-assets/editor/")).toBe("drawing-editor");
     expect(from("https://context.lc/drawing-assets/plugin-sandbox/index.html")).toBe("plugin-sandbox");
     expect(from("https://context.lc/drawing-assets/page/box.html")).toBe("page-runtime");
-    expect(from("https://context.lc/drawing-assets/diagram/")).toBe("drawing-assets");
+    expect(from("https://context.lc/drawing-assets/diagram/")).toBe("diagram");
+    expect(from("https://context.lc/drawing-assets/diagrams")).toBe("drawing-assets");
     expect(from("https://context.lc/note/@acme/a.md")).toBe("shared-note");
     expect(from("about:srcdoc")).toBe("srcdoc");
     expect(from("about")).toBe("about");

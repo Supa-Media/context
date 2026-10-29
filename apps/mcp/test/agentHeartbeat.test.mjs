@@ -59,6 +59,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { EVENTS_PREFIX, idOfKey } from "../src/agent/events.js";
 
 const S3_ENDPOINT = "https://s3.example-heartbeat.test";
 const TOKEN_BEAT = `cat_beat_heartbeat_${"0".repeat(20)}`;
@@ -600,6 +601,7 @@ export async function runAgentHeartbeatChecks(check) {
     /* ---------------- continuing a text ---------------- */
 
     const earlier = conversationTurns(bucket);
+    const lastExchange = idOfKey([...bucket.keys()].filter((key) => key.startsWith(EVENTS_PREFIX)).sort()[0]);
     const lastShown = recentTexts(earlier);
     model.install([{ text: `[continues ${lastShown.length}] Still want me to save that image to your branding folder?` }]);
     const continued = await ask(env, TOKEN_BEAT, beat());
@@ -614,6 +616,10 @@ export async function runAgentHeartbeatChecks(check) {
       "the marker is kept out of the day's log and the texting conversation",
       !log().includes("[continues") && log().includes("**Texted:** Still want me to save that image") &&
         afterTurns.at(-1)?.text === "Still want me to save that image to your branding folder?",
+    );
+    check(
+      "a look sent under an earlier text is kept in that text's thread, so a reply there sees it",
+      typeof lastExchange === "string" && afterTurns.at(-2)?.thread === lastExchange,
     );
     check(
       "the look was shown its last texts numbered, and told how to mark one",

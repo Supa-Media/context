@@ -19,6 +19,11 @@
  * starts signed out, and a group never opens a person's own jar. The jar goes from
  * here to the screenshot Worker and back (`browserProviders.js`); it is never
  * in a tool result, a log or a message, and a model never sees it.
+ *
+ * Since 2026-10-29 the browser's first home for its sign-ins is a saved
+ * Browserbase profile (`browserProfile.js`); this jar is still read and sealed
+ * after every run, as the fallback, the copy a new profile starts from, and
+ * the one the person leaves with.
  */
 
 import { VAULT_PREFIX } from "../vault/entries.js";
@@ -115,6 +120,17 @@ export function browserJar(store, { group = null } = {}) {
 
   return {
     load,
+    /** Drop every kept sign-in ("sign Tex out"). False when the bucket refused. */
+    async forget() {
+      try {
+        await store.delete?.(await keyOf());
+        held = null;
+        written = null;
+        return true;
+      } catch {
+        return false;
+      }
+    },
     /** Seal what the browser held, when it changed. A failure keeps the last jar. */
     async save(read) {
       if (!isJar(read)) return;

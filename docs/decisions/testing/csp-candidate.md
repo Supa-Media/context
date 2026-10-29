@@ -104,6 +104,23 @@ In `full` mode, every violation is a style or font one:
    policy. `mermaid.spec.ts` still passes, because it checks structure, not
    paint. The page needs a style policy of its own, the way the drawing
    editor has one.
+   **Given one (2026-10-29):** the router now reports the diagram page
+   against `DIAGRAM_POLICY` (`infra/router/src/cspReport.ts`), the policy
+   its own `<meta>` already enforces: `default-src 'none'`, `script-src
+   'self'`, `style-src 'unsafe-inline'`, `img-src data:`. Inline style is
+   allowed on this one document only. It runs in an opaque origin
+   (`sandbox="allow-scripts"`), and with no fetch, font, frame or remote
+   picture allowed, a style cannot carry anything out. Its script half is
+   narrower than the shell's. `cspReport.test.ts` holds the header to the
+   meta that the build writes, and checks that no platform page but this
+   one allows inline style. `cspDiagramStyle.spec.ts` runs in WebKit over
+   HTTPS with the whole candidate enforced and the shell nonced:
+   - Mermaid's node fill applies, and the diagram frame refuses nothing.
+   - Opened on its own, the page refuses a remote picture, an inline
+     script, a stylesheet by URL and a fetch, each enforced and reported.
+   - It still allows an inline style and a `data:` picture.
+   - Sending the diagram the shell's policy fails all three checks.
+   The production enforced header is unchanged.
 4. **The drawing editor's font fallbacks (`font-src`, esm.sh).** Excalidraw
    lists an esm.sh URL after ours for every face. Under report-only, the
    browser reports those URLs but fetches nothing. Enforced, each one becomes
@@ -112,6 +129,12 @@ In `full` mode, every violation is a style or font one:
    request event, blocked ones included, so it fails. Nothing reaches esm.sh,
    but the guard cannot tell that, and it should not be loosened to tell it
    until `font-src` is the directive being moved.
+   **Fixed at the source (2026-10-29):** the build now removes the one
+   statement that pushes the esm.sh URL (`scripts/excalidraw-font-fallback.mjs`,
+   an esbuild plugin that fails the build unless it matches exactly once), so
+   every face lists our file only. A face we do not deploy (`Xiaolai`) falls
+   back to a system font, as `drawingAssets.ts` already says, instead of
+   asking esm.sh. No policy changes and the guard stays as strict.
 
 ### What the first WebKit run showed (CI, 2026-10-29, head f34694d6)
 
@@ -256,8 +279,17 @@ router change therefore has to come with a worker change: when the worker
 answers from its cache, it mints a new nonce and rewrites the stored policy
 headers and the two style attributes with it, the same three places, before
 returning the response, or it stores the shell with the nonce removed and
-adds a fresh one on the way out. This PR does not touch the worker, because
-nothing it caches carries a nonce yet.
+adds a fresh one on the way out. Both halves are now built, report-only (2026-10-29):
+`infra/router/src/styleNonce.ts` mints the nonce for every shell document
+answered from `ASSETS` (a document request by `Sec-Fetch-Dest` or `Accept`,
+outside `/drawing-assets/`, the page box and the plugin sandbox), strips the
+conditional request headers and the validators, sends `no-cache`, and adds
+the nonce to the report-only `style-src` only. The enforced policy is
+unchanged. A document without the two shell styles is served as before.
+`public/sw.js` re-mints the nonce on every offline replay (`renonced`).
+`styleNonce.test.ts` holds the router's placement to the fixture's, on the
+real `public/index.html`, and `appShellWorker.test.ts` checks three replays
+get three new nonces.
 
 Still not covered: browsers without constructable stylesheets.
 `liveEditorWeb/stylesheet.ts` falls back to a `<style>` element there that

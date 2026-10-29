@@ -121,6 +121,7 @@ import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
 import * as texStyleRoutes from "./functions/lib/gatewayRoutes/texStyle";
+import * as texReviewSharing from "./functions/lib/gatewayRoutes/texReviewSharing";
 import * as noteCard from "./functions/lib/gatewayRoutes/noteCard";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
@@ -857,6 +858,7 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+http.route({ path: "/gateway/browser-profile", method: "POST", handler: gatewayRoute(vault.gatewayBrowserProfileHandler) });
 
 // A connector: a link for the person to connect an app, and one call through it.
 export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);
@@ -969,6 +971,8 @@ http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRo
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
 http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
 http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });
+/* "Tex, share my chats with the devs", or stop (`functions/texReviews.ts` `setTextsReviewSharing`). */
+http.route({ path: "/agent-texts/review-sharing", method: "POST", handler: agentWorkerRoute(texReviewSharing.agentTextsReviewSharingHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });

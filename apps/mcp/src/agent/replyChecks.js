@@ -17,9 +17,12 @@
  *      with "The email is already waiting for your 👍 above": pointing back at
  *      the ask that was waiting instead of answering the text in front of it.
  *
- * Since added: figures read off a picture (`figuresFromPicture`), and a
- * calendar try claimed with no calendar_event call (`claimsCalendarTry`), and
- * a prompt asked for again or a goal dropped after their no (`stuckAsks.js`).
+ * Since added: figures read off a picture (`figuresFromPicture`), a
+ * calendar try claimed with no calendar_event call (`claimsCalendarTry`),
+ * and their sleep lines and check-in answers (`timeLog.js`): a figure they
+ * sent taken back as Tex's, a night whose times contradict its total, and a
+ * plan answered "Will do." with nothing saved; and a prompt asked for again
+ * or a goal dropped after their no (`stuckAsks.js`).
  *
  * Each is something the gateway can see for itself, so each sends the model
  * one more round with a notice (`claimCheck.js` `check`, once per kind), and
@@ -143,11 +146,13 @@ export const TRY_CLAIM_NOTICE =
   "Call calendar_event now with the change they asked for, then answer with what it really said: done, or Google's reason in plain words. " +
   "Never say you tried something you didn't call, and never promise to keep trying later.";
 
+import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, disownsTheirFigure, dropsCheckInAnswer, impossibleNight } from "./timeLog.js";
+
 /**
- * The check for one turn: `{ question, waiting, pictures }` from the turn, `steps` as
+ * The check for one turn: `{ question, waiting, pictures, history }` from the turn, `steps` as
  * `claimCheck.js` records them. Answers a notice, each kind once, or null.
  */
-export function replyChecks({ question, waiting = false, pictures = false }) {
+export function replyChecks({ question, waiting = false, pictures = false, history = [] }) {
   const given = new Set();
   const checks = [
     ["empty", (answer) => isEmptyAnswer(answer), EMPTY_NOTICE],
@@ -157,6 +162,9 @@ export function replyChecks({ question, waiting = false, pictures = false }) {
     ["picture", (answer) => asksPastPicture(answer, pictures), PICTURE_NOTICE],
     ["figures", (answer, steps) => figuresFromPicture(answer, pictures, steps), FIGURES_NOTICE],
     ["tried", (answer, steps) => claimsCalendarTry(answer, steps), TRY_CLAIM_NOTICE],
+    ["theirs", (answer) => disownsTheirFigure(answer, { question, history }), THEIR_FIGURE_NOTICE],
+    ["night", (answer) => impossibleNight(answer), IMPOSSIBLE_NIGHT_NOTICE],
+    ["check-in", (answer, steps) => dropsCheckInAnswer(answer, { question, history, steps }), CHECK_IN_ANSWER_NOTICE],
     ["prompt", (answer) => repeatsUnarrivedPrompt(question, answer), NO_PROMPT_NOTICE],
     ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
   ];

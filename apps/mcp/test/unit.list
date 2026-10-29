@@ -169,6 +169,7 @@ test/agentUploads.test.mjs
 test/agentDownloads.test.mjs
 test/agentEmailFiles.test.mjs
 test/agentBrowserJar.test.mjs
+test/agentBrowserProfile.test.mjs
 test/agentDoneLine.test.mjs
 test/agentFallback.test.mjs
 test/agentGatewayRetry.test.mjs
@@ -220,6 +221,7 @@ test/agentInstacartCheckout.test.mjs
 test/agentKeptCarry.test.mjs
 test/agentKeptFiles.test.mjs
 test/agentReplyChecks.test.mjs
+test/agentTimeLog.test.mjs
 test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs
 test/agentNoteWriteRetry.test.mjs
@@ -273,3 +275,4 @@ test/cards.test.mjs
 test/googleAiAccess.test.mjs
 test/storageUnavailableLog.test.mjs
 test/agentLosesTrack.test.mjs
+test/googleChatConversation.test.mjs

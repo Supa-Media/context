@@ -776,7 +776,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
 - [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
 - [A saved login carries Tex's task on, with no "done" from them](./texting-assistant/vault.md)
-- [Browserbase Contexts stay off; the jar is how Tex stays signed in](./texting-assistant/vault.md)
+- [Tex's sign-ins live in a saved Browserbase profile, the sealed jar beside it](./texting-assistant/vault.md)
 - [A card pays only on the person's yes, once a purchase](./texting-assistant/vault.md)
 - The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first

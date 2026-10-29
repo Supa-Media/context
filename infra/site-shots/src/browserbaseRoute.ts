@@ -12,6 +12,15 @@
  * answer carries none when a jar sent in could not be put back, so a failed
  * restore never reads as a sign-out.
  *
+ * `profile` is the owner's saved Browserbase profile (./browserbase.ts), made
+ * by the control plane. A browser this request starts opens it, and is given
+ * the jar's cookies only when the profile is new (`profileNew`) or could not
+ * be opened: a profile already in use holds newer ones, among them sign-ins
+ * bound to that browser, which an older copy would break. A profile
+ * Browserbase no longer has is dropped for this browser, which starts from the
+ * jar instead, and the answer says `profileGone` so the gateway asks for a
+ * new one.
+ *
  * Downloads are allowed into Browserbase's storage on every call, and a
  * `download` step takes its file from there (./download.ts). An `upload`
  * step's file goes the other way, into the session's storage, and the browser
@@ -39,6 +48,7 @@
 import { parseBrowseRequest, runSteps } from "./browse";
 import {
   OWNER_TAG,
+  PROFILE_ID,
   browserbaseConfigured,
   createSession,
   findSession,
@@ -89,6 +99,10 @@ export async function browseOnBrowserbase(
   const startOver = (body as { fresh?: unknown })?.fresh === true;
   const handingOver = (body as { handoff?: unknown })?.handoff === true;
   const held: Jar | null = keep ? parseJar((body as { jar?: unknown })?.jar) : null;
+  const asked = (body as { profile?: unknown })?.profile;
+  const profile = typeof asked === "string" && PROFILE_ID.test(asked) ? asked : null;
+  const profileNew = (body as { profileNew?: unknown })?.profileNew === true;
+  let profileGone = false;
   const started = Date.now();
   const steps = parsed.steps.map((s) => s.do);
   const failed = (session: string, stage: FailedRun["stage"], ran?: FailedRun["ran"]) =>
@@ -109,7 +123,15 @@ export async function browseOnBrowserbase(
       session = null;
     }
     if (session === null) {
-      session = await createSession(env, owner, fetcher);
+      try {
+        session = await createSession(env, owner, fetcher, profile);
+      } catch (error) {
+        // Billing and too many browsers refuse any browser alike; anything
+        // else with a profile asked for is taken as the profile gone.
+        if (profile === null || /^browserbase (402|429|5\d\d)$/.test(error instanceof Error ? error.message : "")) throw error;
+        profileGone = true;
+        session = await createSession(env, owner, fetcher);
+      }
       fresh = true;
     }
   } catch (error) {
@@ -134,8 +156,9 @@ export async function browseOnBrowserbase(
     let restored = true;
     if (held !== null) {
       try {
-        // A browser already running holds newer cookies than the jar; only a new one is given them.
-        if (fresh) await restoreCookies(cdp, held);
+        // A browser already running, or one opened on a profile in use, holds
+        // newer cookies than the jar; only a browser starting empty is given them.
+        if (fresh && (profile === null || profileNew || profileGone)) await restoreCookies(cdp, held);
         await restoreStorage(attached, held);
       } catch {
         restored = false;
@@ -170,7 +193,7 @@ export async function browseOnBrowserbase(
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
-    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}) });
+    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}), ...(profileGone ? { profileGone: true } : {}) });
   } catch {
     failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);

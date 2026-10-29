@@ -25,6 +25,11 @@
  *     address built from the published link is refused" fails.
  *   The passkey line removed from `readingText` → "a passkey page tells the
  *     model to pick another way" fails.
+ *   `|| pair === repliedTo` removed from `threadView` → "a reply typed under
+ *     a check-in is shown the check-in it answers" fails.
+ *   `heartbeat.js` keeping a continued check-in with `thread: null` → "a look
+ *     sent under an earlier text is kept in that text's thread"
+ *     (`agentHeartbeat.test.mjs`) fails.
  */
 
 import assert from "node:assert/strict";
@@ -161,4 +166,47 @@ test("a passkey page tells the model to pick another way", async () => {
   );
   const result = await browser.call({ steps: [{ do: "goto", url }] });
   assert.ok(result.content[0].text.includes(PASSKEY_LINE), result.content[0].text);
+});
+
+test("a recurring check described with a date never draws a calendar notice", async () => {
+  for (const draft of [
+    "I've set a check each hour through Oct 30. Once the form opens, it texts you the total sign-ups.",
+    "The hourly check is set through Nov 4 and texts you once the responses open.",
+    "I tried again and Google still won't take the sign-in.",
+  ]) {
+    const check = claimCheck({ question: "how many people filled in the signup form?" });
+    const wrapped = check.wrap(async () => ({ content: [{ type: "text", text: "ok" }] }));
+    await wrapped("browse", {});
+    for (let round = 0; round < 8; round += 1) {
+      const notice = await check.check(draft);
+      if (notice === null) break;
+      assert.doesNotMatch(String(notice), /calendar/i, `${draft} → ${notice}`);
+    }
+  }
+});
+
+/** A kept conversation: an earlier text, something else, then a check-in sent as a reply under the earlier one. */
+const CHECK_IN_HISTORY = (checkInThread) => [
+  { role: "user", text: "Plan my evening", id: "a1" },
+  { role: "assistant", text: "Wind down is on your calendar at 10:30 tonight." },
+  { role: "user", text: "what's the weather tomorrow", id: "b2" },
+  { role: "assistant", text: "Sunny, 64." },
+  { role: "user", text: "(Not a text from them. This was your own check-in.)", id: "c3", ...(checkInThread ? { thread: checkInThread } : {}) },
+  { role: "assistant", text: "You're still on the edit. Want me to move Wind down to 11:15?" },
+];
+
+test("a reply typed under a check-in is shown the check-in it answers", async () => {
+  const { threadOf, threadView } = await import("../src/agent/threadView.js");
+  // The check-in continued "Wind down is on your calendar…": it is kept in that text's thread.
+  assert.equal(threadOf(CHECK_IN_HISTORY(null), "Wind down is on your calendar at 10:30 tonight."), "a1");
+  const kept = threadView(CHECK_IN_HISTORY("a1"), { start: "Wind down is on your calendar at 10:30 tonight.", replied: true }, 12);
+  assert.ok(kept.shown.some((turn) => /move Wind down to 11:15/.test(turn.text)), "a check-in kept in the thread is shown");
+  // Kept before this fix, with no thread: the message they replied to is still shown.
+  const old = threadView(
+    CHECK_IN_HISTORY(null),
+    { start: "Wind down is on your calendar at 10:30 tonight.", words: "You're still on the edit. Want me to move Wind down to 11:15?", replied: true },
+    12,
+  );
+  assert.ok(old.shown.some((turn) => /move Wind down to 11:15/.test(turn.text)), "the replied-to message is shown");
+  assert.ok(!old.shown.some((turn) => turn.text === "Sunny, 64."), "the rest of the chat stays out");
 });

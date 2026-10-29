@@ -102,26 +102,44 @@ interface RowMoveArgs {
   now: number;
   expectedEtag?: string;
   projection?: ProjectionClient | null;
+  /**
+   * `false` when the caller reads the moved note itself straight after (`followHeading.ts`), so the version a
+   * read hands out is not read here too. The answer's `etag` is then the row's Markdown etag.
+   */
+  handOut?: boolean;
 }
 
 export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
-  const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from });
-  const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
-  if (recorded !== null && !recorded.trash) {
-    if (recorded.to !== to) throw await busyOrHidden(args);
-    return await resumeRowMove(ctx, args, recorded);
+  /*
+    The reads every move makes before deciding, asked together: none depends on another, and one after
+    another they were a database round trip each before a rename could even start. They are decided below
+    in the order they always were. A recorded move is settled (a write) before the overlap is asked, so
+    those two stay in order.
+  */
+  const [plan, busy, archive, state, rowsTruth] = await Promise.all([
+    ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from }),
+    (async () => {
+      const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
+      if (recorded !== null && !recorded.trash) return { recorded };
+      // One move per subtree at a time; asked before either name is read, since one may be half-moved.
+      return { overlaps: await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from, to }) };
+    })(),
+    // Read before the move lands: the twins in Archive are found at the built-in folders' old paths.
+    archivePlanFor(ctx, workspaceId, from, to),
+    loadPrivacyState(store),
+    ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}),
+  ]);
+  if ("recorded" in busy && busy.recorded !== undefined) {
+    if (busy.recorded.to !== to) throw await busyOrHidden(args);
+    return await resumeRowMove(ctx, args, busy.recorded);
   }
-  // One move per subtree at a time; asked before either name is read, since one may be half-moved.
-  if (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from, to })) throw await busyOrHidden(args);
+  if ("overlaps" in busy && busy.overlaps) throw await busyOrHidden(args);
 
   if (plan.kind === null) throw notFound();
   const planned = await plannedFiles(ctx, workspaceId, from, plan);
-  // Read before the move lands: the twins in Archive are found at the built-in folders' old paths.
-  const archive = await archivePlanFor(ctx, workspaceId, from, to);
   if (planned.unkeyed) throw refusal("unkeyed", to, true);
 
-  const state = await loadPrivacyState(store);
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
   if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
@@ -144,7 +162,6 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
 
   // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
   // narrowing on its own row, which the move then carries (`narrowMove`). The file's own rules are left alone.
-  const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
   if (rowsTruth) await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from, to });
   const carried = rowsTruth
     ? { etag: state.etag, added: { folders: [], notes: [] } }
@@ -209,6 +226,15 @@ async function withArchive(ctx: ActionCtx, args: RowMoveArgs, plan: ArchivePlan,
   return seen.length === 0 ? result : { ...result, moved: [...(result.moved ?? []), ...seen] };
 }
 
+/** One of a landed move's follow-up steps, which may fail without failing the move. Logged by name, never by path. */
+async function settleStep(workspaceId: Id<"workspaces">, step: string, run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    console.error(JSON.stringify({ event: "rowMove.settle_failed", workspaceId, step, error: String((error as Error)?.name ?? "Error") }));
+  }
+}
+
 /**
  * The bucket's side once the rows have moved: the old name's rules go (unless a chunked move left rows
  * there, which still need them), and forwarding, icons and the search index follow.
@@ -220,17 +246,29 @@ async function settleRowMove(
 ): Promise<MoveResult> {
   const { workspaceId, store, from, to, now } = args;
   if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
-  // A note's collaboration history is filed by its note id, so nothing follows the move: the new name finds it, and
-  // the version it was handed before the move is still the one a read of the new name hands out.
-  const etag = moved.kind === "file" ? ((await handedEtagAt(store, to)) ?? moved.etag) : undefined;
-  await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
-  // The links to what moved, and inside it, follow behind the move (`linkRepair.ts`); forwarding sends them on meanwhile.
-  await queueLinkRepair(ctx, workspaceId, moved.files, now);
-  if (moved.kind === "folder") await remapFolderIcons(store, from, to);
-  else await remapIcons(store, [{ from, to }]);
-  if (args.projection) {
-    await followInProjection(store, { written: [], gone: [], moved: [[from, to]] }, args.projection);
-  }
+  /*
+    The rows have moved: the rename has happened, whatever follows. So nothing below may fail it — a
+    caller told "it failed" puts the note back on screen at a name that no longer exists, and its next
+    save makes a second note there (2026-10-29). Each step is a derivative with its own repair, and they
+    are independent of one another, so they run side by side rather than one bucket or database round
+    trip after another: the rename used to wait for each in turn.
+  */
+  const [handed] = await Promise.all([
+    // A note's collaboration history is filed by its note id, so nothing follows the move: the new name finds it, and
+    // the version it was handed before the move is still the one a read of the new name hands out. Skipped when the
+    // heading follows next (`followHeading.ts`): its own read hands out that version, and reading it here as well was
+    // a whole document load more.
+    moved.kind === "file" && args.handOut !== false ? handedEtagAt(store, to) : Promise.resolve(undefined),
+    settleStep(workspaceId, "forwarding", () =>
+      recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now })),
+    // The links to what moved, and inside it, follow behind the move (`linkRepair.ts`); forwarding sends them on meanwhile.
+    queueLinkRepair(ctx, workspaceId, moved.files, now),
+    settleStep(workspaceId, "icons", () => (moved.kind === "folder" ? remapFolderIcons(store, from, to) : remapIcons(store, [{ from, to }]))),
+    args.projection
+      ? settleStep(workspaceId, "search", () => followInProjection(store, { written: [], gone: [], moved: [[from, to]] }, args.projection!))
+      : Promise.resolve(),
+  ]);
+  const etag = moved.kind === "file" ? (handed ?? moved.etag) : undefined;
   return {
     from,
     to,

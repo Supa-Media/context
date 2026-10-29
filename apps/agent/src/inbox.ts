@@ -77,7 +77,7 @@ import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from 
 import { sha256Hex } from "./groupChat";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
-import { watchConversation } from "./reviewWatch";
+import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -564,6 +564,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       // "Tex, settings" and the style it keeps (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
       onTexStyle: (style) => keepTexStyle(storage, style),
+      onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,

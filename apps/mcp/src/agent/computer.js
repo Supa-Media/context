@@ -44,6 +44,8 @@ import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
 import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
+import { browserProfile } from "./browserProfile.js";
+import { SIGN_OUT_BROWSER_TOOL, signOutBrowserTool } from "./signOutBrowser.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
@@ -94,9 +96,11 @@ const PROVIDERS = {
  */
 export function computerFor(env, { owner = null, viewer = null, store = null, group = null } = {}) {
   const jar = store === null ? null : browserJar(store, { group });
+  // Its saved profile is filed where its jar is kept, so only where there is one.
+  const profile = jar === null ? null : browserProfile(store, { owner, group });
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env, { owner, viewer, jar }) : null;
+  return make ? make(env, { owner, viewer, jar, profile }) : null;
 }
 
 /**
@@ -351,6 +355,8 @@ export function webSession(computer, question, { decide = null, search = null, a
           },
         })
       : null;
+  // "Sign Tex out" of every site (`signOutBrowser.js`).
+  const signOut = browser && typeof computer?.signOut === "function" ? signOutBrowserTool(computer) : null;
   const tools = [
     ...(computer ? [OPEN_PAGE_DEFINITION] : []),
     ...(browser ? [browser.definition] : []),
@@ -358,6 +364,7 @@ export function webSession(computer, question, { decide = null, search = null, a
     ...(cards ? [cards.definition] : []),
     ...(search ? [SEARCH_WEB_DEFINITION] : []),
     ...(travel ? [travel.definition] : []),
+    ...(signOut ? [signOut.definition] : []),
   ];
   return {
     tools,
@@ -405,6 +412,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
       if (name === FILL_CARD_TOOL && cards) return cards.call(args);
       if (name === TRAVEL_TIME_TOOL && travel) return travel.call(args);
+      if (name === SIGN_OUT_BROWSER_TOOL && signOut) return signOut.call(args);
       if (name !== OPEN_PAGE_TOOL || !computer) return text("There is no such tool.", true);
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];

@@ -16,6 +16,10 @@
  * connection is one of the token's person's own that granted reading
  * (`functions/googleChatSend.ts` `claimChatRead`). Nothing of a message is
  * stored or logged; only statuses are.
+ *
+ * With `space` or `to` in the body, the same address reads one conversation
+ * the person named instead, under a stricter clearance
+ * (`googleChatSpaceRead.ts`).
  */
 
 import { internal } from "../../../_generated/api";
@@ -24,6 +28,7 @@ import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 import { SPACE_NAME, chatFailure } from "../googleChatSend";
+import { gatewayChatSpaceReadHandler } from "./googleChatSpaceRead";
 
 const CHAT_API = "https://chat.googleapis.com/v1";
 /** Spaces read in one look, most recently active first. */
@@ -152,6 +157,7 @@ export function writtenToThem(message: Entry, spaceType: string, self: ChatSelf)
 }
 
 export async function gatewayChatRecentHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  if (body.space !== undefined || body.to !== undefined) return await gatewayChatSpaceReadHandler(ctx, body);
   const accessToken = stringField(body, "accessToken");
   const expected = stringField(body, "expectedWorkspaceId");
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });

@@ -19,6 +19,7 @@
 
 import { post, record, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
+import { sharingWords } from "./reviewSharing";
 
 export type Level = "more" | "default" | "less";
 export type TexStyle = {
@@ -166,9 +167,13 @@ export function styleWords(text: string): TexStyle | null {
   return null;
 }
 
-/** A 1:1 text that is about the settings: the menu asked for, plain words for one, or a reply the open menu reads. */
+/**
+ * A 1:1 text that is about the settings: the menu asked for, plain words for
+ * one, a reply the open menu reads, or a yes or no to sharing chats with the
+ * devs (`reviewSharing.ts`).
+ */
 export async function isSettingsText(storage: InboxStorage, text: string, now: number): Promise<boolean> {
-  if (asksForSettings(text) || styleWords(text) !== null) return true;
+  if (asksForSettings(text) || styleWords(text) !== null || sharingWords(text) !== null) return true;
   const state = await menuState(storage, now);
   return state !== undefined && menuReply(text, state, false) !== null;
 }
