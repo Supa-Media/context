@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import { join } from "node:path";
 import workerPolicy from "./ci-workers.cjs";
+import { writeCandidate } from "./csp-candidate";
 
 const { workersFor } = workerPolicy;
 
@@ -45,7 +46,18 @@ const HERE = __dirname;
  * new default phone in a future Playwright release should not silently
  * change what "the phone viewport" means here.
  */
-const PORT = Number(process.env.E2E_PORT ?? 4873);
+/*
+  `E2E_CSP_CANDIDATE` (`production`, `script` or `full`) serves every document
+  with the router's headers and that much of its report-only policy enforced
+  (`csp-candidate.ts`), on a port of its own so a plain server already running
+  is never reused for it.
+*/
+const CSP_MODE = process.env.E2E_CSP_CANDIDATE;
+const CSP_CANDIDATE =
+  CSP_MODE === "production" || CSP_MODE === "script" || CSP_MODE === "full"
+    ? writeCandidate(join(HERE, "csp-candidate"), CSP_MODE)
+    : null;
+const PORT = Number(process.env.E2E_PORT ?? (CSP_CANDIDATE ? 4874 : 4873));
 const EXPORT_DIR = process.env.E2E_WEB_EXPORT_DIR ?? join(HERE, "..", "..", "web-build");
 
 export default defineConfig({
@@ -81,7 +93,8 @@ export default defineConfig({
   webServer: {
     command: `node ${JSON.stringify(join(HERE, "static-server.mjs"))} ${JSON.stringify(EXPORT_DIR)} ${PORT}`,
     port: PORT,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI && !CSP_CANDIDATE,
+    env: CSP_CANDIDATE ? { E2E_CSP_RULES: CSP_CANDIDATE.rules, E2E_CSP_REPORTS: CSP_CANDIDATE.reports } : {},
     timeout: 20_000,
   },
 });

@@ -17,8 +17,16 @@
  * dozen lines this needs, and `node:http`/`node:fs` are already there.
  *
  * Usage: `node static-server.mjs <export-dir> <port>`
+ *
+ * With `E2E_CSP_RULES` set (`csp-candidate.ts` writes it, only when
+ * `E2E_CSP_CANDIDATE` names a mode), every response carries the headers of the
+ * longest matching rule, as much of the router's report-only policy enforced
+ * as the mode asks,
+ * and `POST /_csp-report` appends one line per violation to `E2E_CSP_REPORTS`:
+ * the directive, the blocked source's origin or keyword, and the document's
+ * class. Without it the server sends no security headers at all, as before.
  */
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 
@@ -55,7 +63,73 @@ function fileFor(pathname) {
   return null;
 }
 
+const rules = process.env.E2E_CSP_RULES
+  ? JSON.parse(readFileSync(process.env.E2E_CSP_RULES, "utf8")).sort((a, b) => b.prefix.length - a.prefix.length)
+  : null;
+const reportLog = process.env.E2E_CSP_REPORTS ?? null;
+
+function ruleFor(pathname) {
+  return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
+}
+
+/** An origin or a CSP keyword, never a path or a query. */
+function sourceOf(value) {
+  if (typeof value !== "string" || value === "") return "none";
+  if (/^[a-z-]+$/.test(value)) return value;
+  try {
+    const url = new URL(value);
+    return url.origin === "null" ? `${url.protocol}` : url.origin;
+  } catch {
+    return "unparsed";
+  }
+}
+
+function documentOf(value) {
+  if (typeof value !== "string" || value === "") return "none";
+  // Chrome's legacy report names a `srcdoc` frame's document as bare "about".
+  if (value === "about" || value.startsWith("about:")) return "srcdoc-or-about";
+  try {
+    return ruleFor(new URL(value).pathname)?.document ?? "unmatched";
+  } catch {
+    return "unparsed";
+  }
+}
+
+/** Both report formats: the legacy `{"csp-report": …}` and the Reporting API's array. */
+function recordReports(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return;
+  }
+  const bodies = Array.isArray(parsed) ? parsed.map((entry) => entry?.body).filter(Boolean) : [parsed?.["csp-report"]].filter(Boolean);
+  for (const body of bodies) {
+    const line = {
+      document: documentOf(body["document-uri"] ?? body.documentURL),
+      directive: body["effective-directive"] ?? body.effectiveDirective ?? body["violated-directive"] ?? "unknown",
+      blocked: sourceOf(body["blocked-uri"] ?? body.blockedURL),
+      disposition: body.disposition ?? "enforce",
+    };
+    appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+  }
+}
+
 const server = createServer((req, res) => {
+  const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (reportLog !== null && req.method === "POST" && pathname === "/_csp-report") {
+    let text = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      if (text.length < 16 * 1024) text += chunk;
+    });
+    req.on("end", () => {
+      recordReports(text);
+      res.writeHead(204).end();
+    });
+    return;
+  }
+  for (const [name, value] of Object.entries(ruleFor(pathname)?.headers ?? {})) res.setHeader(name, value);
   const direct = fileFor(req.url ?? "/");
   const file = direct ?? join(root, "index.html");
   if (!existsSync(file)) {
