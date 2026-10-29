@@ -18,13 +18,16 @@
  *      the ask that was waiting instead of answering the text in front of it.
  *
  * Since added: figures read off a picture (`figuresFromPicture`), and a
- * calendar try claimed with no calendar_event call (`claimsCalendarTry`).
+ * calendar try claimed with no calendar_event call (`claimsCalendarTry`), and
+ * a prompt asked for again or a goal dropped after their no (`stuckAsks.js`).
  *
  * Each is something the gateway can see for itself, so each sends the model
  * one more round with a notice (`claimCheck.js` `check`, once per kind), and
  * an answer still empty after it is replaced with a line that says so
  * (`EMPTY_FALLBACK`), never sent as nothing.
  */
+
+import { GOAL_NOTICE, NO_PROMPT_NOTICE, dropsTheGoal, repeatsUnarrivedPrompt } from "./stuckAsks.js";
 
 export const EMPTY_NOTICE =
   "Before this goes: your answer is empty, and an empty answer sends them nothing at all. " +
@@ -117,12 +120,17 @@ export const FIGURES_NOTICE =
 
 /**
  * "I tried again and Google Calendar refused it" with no calendar_event call
- * in the turn (@shyoh, 2026-10-25: asked to mark a birthday, Tex's last turn
+ * in the turn (a tester's chat, 2026-10-25: asked to mark a birthday, Tex's last turn
  * called only earlier_texts and write_note, and said it had tried again).
  */
 const SAYS_IT_TRIED =
   /\b(?:I(?:'ve| have)?\s+(?:just\s+|also\s+|now\s+)?(?:tried|retried|re-tried|attempted)|(?:tried|trying)\s+(?:it\s+|that\s+|this\s+)?again|another\s+(?:try|attempt|go)|(?:Google(?:\s+Calendar)?|(?:the|your)\s+calendar)\s+(?:still\s+|again\s+)?(?:refused|rejected|declined|won't take|wouldn't take|didn't take|failed))\b/i;
-const CALENDAR_WORDS = /\b(?:calendar|google|event)\b/i;
+/*
+  Calendar words only. With "Google" among them, a draft saying Google
+  "refused" a sign-in drew this notice (2026-10-29), and Tex texted a denial
+  about a calendar nobody had mentioned.
+*/
+const CALENDAR_WORDS = /\b(?:calendar|event|invite)\b/i;
 
 /** Whether the answer says it tried a calendar change when no calendar_event call was made this turn. */
 export function claimsCalendarTry(answer, steps = []) {
@@ -149,6 +157,8 @@ export function replyChecks({ question, waiting = false, pictures = false }) {
     ["picture", (answer) => asksPastPicture(answer, pictures), PICTURE_NOTICE],
     ["figures", (answer, steps) => figuresFromPicture(answer, pictures, steps), FIGURES_NOTICE],
     ["tried", (answer, steps) => claimsCalendarTry(answer, steps), TRY_CLAIM_NOTICE],
+    ["prompt", (answer) => repeatsUnarrivedPrompt(question, answer), NO_PROMPT_NOTICE],
+    ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
   ];
   return (answer, steps = []) => {
     for (const [kind, fails, notice] of checks) {

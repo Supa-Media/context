@@ -272,3 +272,4 @@ test/s3SessionToken.test.mjs
 test/cards.test.mjs
 test/googleAiAccess.test.mjs
 test/storageUnavailableLog.test.mjs
+test/agentLosesTrack.test.mjs

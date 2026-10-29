@@ -43,6 +43,7 @@
  * it when the turn does, and it closes itself when idle anyway.
  */
 
+import { BUILT_FORM_LINK_ERROR, builtFormLink, passkeyLine } from "./pageWalls.js";
 import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
 import { captchaLadder } from "./captchaLadder.js";
@@ -333,6 +334,7 @@ function readingText(reading, ran, { from = null } = {}) {
     body || "(no text)",
     "",
     ...(reading.popup === true ? [POPUP_LINE, ""] : []),
+    ...(passkeyLine(reading.text) ? [passkeyLine(reading.text), ""] : []),
     Number.isInteger(from) ? `What you can press or type into, from [${from}]:` : "What you can press or type into:",
     shown.map(elementLine).join("\n") || "(nothing)",
     ...(more ? [more] : []),
@@ -510,6 +512,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           handoff = true;
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
+          if (builtFormLink(url)) return textResult(BUILT_FORM_LINK_ERROR, true);
           if (url === null || !allowed.has(url)) {
             return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (fetch skill:), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
           }

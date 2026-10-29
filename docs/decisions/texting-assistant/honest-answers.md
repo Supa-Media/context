@@ -138,3 +138,27 @@ with you", "I'll remind you", "I'll look") with a set time ("tonight", "at
 asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
 promise taken out; an untimed later keeps the hourly routine. A routine
 written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.
+
+### A check's note is never the person's text, and a "no" changes the approach (2026-10-29)
+
+In a tester's chat, Tex's browser stopped on a passkey page. Tex kept asking
+for an approval that, the person said, never arrived. One draft said Google
+"refused" the sign-in, and `claimsCalendarTry` counted "Google" as a calendar
+word. The resulting notice reached the model as the next user message after
+the unsent draft, and Tex answered the notice as if the person had sent it,
+with a denial about a calendar nobody had mentioned.
+
+- `recheck.js`: every recheck notice now opens with `RECHECK_FROM`. It says
+  the note is Context's own check, that the person has not seen the draft,
+  and that their newest text is still the one being answered.
+- `CALENDAR_WORDS` now holds calendar words only.
+- `stuckAsks.js`: if they say a prompt or code never came, the answer may
+  not ask for it again. If they turn down a method, the answer may not drop
+  the goal.
+- `pageWalls.js`: a passkey page's reading says to try another way. A Google
+  Form editor or responses address built from the published `1FAIpQL…` id is
+  refused.
+- `LATER_NOTICE` now says to set nothing when they didn't ask to be told
+  later, or when the work is blocked on a step only they can take.
+
+Tests: `agentLosesTrack.test.mjs`.
