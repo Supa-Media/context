@@ -62,7 +62,7 @@ export async function gatewayPersonCalendarDaysHandler(ctx: ActionCtx, body: Rec
   });
   if (!claimed.ok) {
     log({ outcome: "refused", reason: claimed.refused });
-    return json({ ok: false, refused: claimed.refused, ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}), ...(claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}) });
+    return json({ ok: false, refused: claimed.refused, ...("reconnect" in claimed && claimed.reconnect ? { reconnect: claimed.reconnect } : {}), ...("aiAccess" in claimed && claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}) });
   }
 
   // A fresh fence nonce per answer: a guest who writes a closing fence into
