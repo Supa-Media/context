@@ -220,6 +220,7 @@ test/agentInstacartCheckout.test.mjs
 test/agentKeptCarry.test.mjs
 test/agentKeptFiles.test.mjs
 test/agentReplyChecks.test.mjs
+test/agentTimeLog.test.mjs
 test/agentFolderFit.test.mjs
 test/agentBrowserUntried.test.mjs
 test/agentNoteWriteRetry.test.mjs

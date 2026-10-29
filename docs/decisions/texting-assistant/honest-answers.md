@@ -138,3 +138,22 @@ with you", "I'll remind you", "I'll look") with a set time ("tonight", "at
 asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
 promise taken out; an untimed later keeps the hourly routine. A routine
 written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.
+
+## Their sleep lines and check-in answers are their data, and get logged
+
+Tex's self-review, 2026-10-28 and 2026-10-29 (@context-lc
+`areas/tex-reviews/themes/sleep-log-wrong.md`, `time-audit-drops-plans.md`).
+Tex took the sleep totals a person's phone Shortcut sent ("You have slept for
+a total of: …") for texts it had sent itself, and apologised for them. It
+quoted a watch email's night as real when the total could not fit between its
+own asleep and up times, and answered a time-audit check-in's plan with "Will
+do." and saved nothing. `agent/timeLog.js` reads a sleep line in their text
+before the model sees it (`sleepLineNote`, also on texts steered in mid-turn,
+never written into the conversation). The note says whose the line is and
+whether it is one night: not over 16 hours, a total its own times can hold,
+not blank. Three answer checks in `replyChecks.js` catch a figure only they
+sent being taken back as Tex's, a quoted night its own times contradict, and a
+bare acknowledgement of a check-in plan (within Tex's last three texts) with
+no write. A routine run is told to stay quiet while they asked not to be
+bothered. Simplifying it away brings back the apology for their own data and
+an empty log. Tests: `agentTimeLog.test.mjs`.

@@ -37,6 +37,7 @@
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { toolIsWriting } from "../tools/registry.js";
+import { sleepLineNote } from "./timeLog.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 /** A group chat's grant (`apps/convex/functions/textGroups.ts`): only its background jobs name a turn. */
@@ -106,7 +107,7 @@ export function steerFor(store, session, body) {
     /** The line the turn is given after a tool round, or null when nothing came. */
     async next() {
       const texts = await this.take();
-      return texts.length > 0 ? steeredLine(texts) : null;
+      return texts.length > 0 ? steeredLine(texts, { notes: true }) : null;
     },
     async take() {
       if (taken.length >= MAX_STEERED) return [];
@@ -229,7 +230,7 @@ export async function cancelTurn(store, session, turn) {
   return false;
 }
 
-/** How a taken text reaches the model, and the conversation. */
-export function steeredLine(texts) {
-  return texts.map((text) => `(They texted this while you were working on it; take it into account:) ${text}`).join("\n\n");
+/** How a taken text reaches the model, with what the gateway read in it (`timeLog.js`), and the conversation, without. */
+export function steeredLine(texts, { notes = false } = {}) {
+  return texts.map((text) => [`(They texted this while you were working on it; take it into account:) ${text}`, notes ? sleepLineNote(text) : ""].filter(Boolean).join("\n")).join("\n\n");
 }
