@@ -145,3 +145,31 @@ reading (only what the chat wrote reaches members, or only what a member
 marks) would leave the same invisible-page failure in place for every note
 nobody remembered to mark. Test: `textGroupGuests.test.ts` "the folder is
 shared both ways".
+
+## An owner's or editor's tag in a bound chat turns it on (2026-10-29)
+
+Dev2's Crystal Care WhatsApp chat was bound to @crystal-care, the family had
+been invited but hadn't joined, and Tex refused a research question with "not
+everyone here shares a workspace with me". A chat bound to a workspace whose
+people are not all members there now goes on as a guest chat of it when an
+owner or editor of that workspace tags Tex, exactly as if they had said "Tex
+use @slug" (`guestsOnTag` in `lib/textGroupGuests.ts`). The chat hears the
+guest introduction once, so it knows Tex reads only what is shared with its
+group. A viewer's tag, a routine or check-in, and anyone without an account
+are refused as before: none of them can open a workspace to guests. The
+chat never keeps the team tier it had while everyone was a member.
+
+**What a simplification would cost:** refusing every bound chat the moment a
+non-member is in it leaves a family who were invited but haven't joined with
+a Tex that won't answer even a question that needs no notes, which is what
+happened. Turning guest mode on for anyone's tag would let a member who may
+not open the workspace to guests do so. Tests: `textGroups.test.ts` "its
+editor's tag opens it to them as guests" and "refused to a viewer's tag and a
+routine"; `textGroupInvited.test.ts` revocation and stranger cases.
+
+On WhatsApp the webhook names only the sender, so a turn whose member list
+can't be read is retried rather than decided as if the sender were alone
+(`senderOnlyWebhook` in `apps/agent/src/groupLine.ts`; test:
+`groupWhapiMembers.test.ts`). That is how the Crystal Care chat came to be
+bound on Dev2 alone: Tex had been added moments before, and the list wasn't
+readable yet.
