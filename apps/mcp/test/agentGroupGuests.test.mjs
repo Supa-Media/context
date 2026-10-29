@@ -24,6 +24,9 @@
  *  - `groupOf` trusting the Worker's `guest` instead of the session's names:
  *    "a guest chat is known by its grant".
  *
+ * Sabotage record (2026-10-29): `chatMailTools` or `chatMailPrompt` leaving a
+ * guest chat out again: "a guest chat reads the mail its owner shared with it".
+ *
  * Sabotage record (2026-10-28): `withPagePictures` putting in a picture
  * without `storableImage`'s check fails "a guest chat saves its research as
  * a page, pictures found for it included" (the AVIF shot refused the whole
@@ -313,4 +316,16 @@ test("a guest chat's live keystrokes reach only readers who see everything", () 
   assert.equal(recipientMaySee(chatSender, member, path, privacy), false, "the chat's rules say team, but they are the chat's alone");
   assert.equal(recipientMaySee(chatSender, owner, path, privacy), true);
   assert.equal(recipientMaySee({ grantedGroups: new Set() }, member, path, privacy), true, "anyone else's update as before");
+});
+
+test("a guest chat reads the mail its owner shared with it, only when asked", async () => {
+  world.controlPlane.flags.mailResults = [{ address: "ada@work.example", id: "m1", threadId: "m1", date: "2026-10-29T10:00:00.000Z", from: "Jo <jo@example.com>", to: "ada@work.example", subject: "SHIFTMED-FACILITIES", snippet: "" }];
+  world.model.install([{ toolCalls: [{ name: "search", args: { query: "shiftmed", args: { email: true, account: "ada@work.example" } } }] }, { text: "Found it." }]);
+  await tagged("", "Tex which facilities are in the ShiftMed mail?", {}, { mail: [{ handle: "ada", address: "ada@work.example" }] });
+  const first = world.model.requests.length - 2;
+  const system = JSON.stringify(world.model.requests[first].system);
+  assert.match(system, /@ada's ada@work\.example/);
+  assert.match(system, /nothing watches it here on its own/);
+  assert.match(toolReplies(world.model.requests.at(-1))[0], /SHIFTMED-FACILITIES/);
+  assert.equal(world.controlPlane.mailReadCalls.at(-1)?.path, "/gateway/email/search");
 });

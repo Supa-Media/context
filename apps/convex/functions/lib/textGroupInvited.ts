@@ -16,7 +16,10 @@
  *   One stranger in the chat, and it answers as it would without this.
  * - Somebody with an account who holds one joins at once: the number is
  *   theirs, by code, and the owner invited it. So does anyone who later
- *   links or signs up with it (`lib/invitations/join.ts`).
+ *   links or signs up with it (`lib/invitations/join.ts`). So does somebody
+ *   whose number is linked and who holds an invitation by name or email,
+ *   sent from Members (the owner, 2026-10-29: "everyone was invited to the
+ *   workspace"): it is addressed to that account, and they are in the chat.
  * - An invited person who tags Tex acts through the owner or editor who bound
  *   the chat, never as them: nothing is ever held for that person's yes from
  *   their turn, and their role is the invitation's, never more than editor.
@@ -28,7 +31,8 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { phoneSignInPaused } from "./emailProof";
-import { accountForPhone } from "./identities";
+import { hasBlocked } from "./blocks";
+import { accountForPhone, identifiersForUser, resolveAddressedUser } from "./identities";
 import { isPending } from "./invitations/forCaller";
 import { findInvitationFor, inviteMemberWithId } from "./invitations/invite";
 import { joinByInvitation } from "./invitations/join";
@@ -56,9 +60,30 @@ export async function pendingPhoneInvitation(
 }
 
 /**
+ * A pending invitation to `account` in this workspace by name or email, sent from Members rather than from the chat:
+ * one `resolveAddressedUser` says is theirs, from somebody they have not blocked. Null for none.
+ */
+async function pendingInvitationOf(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  account: Id<"users">,
+  now: number,
+): Promise<Doc<"workspaceInvitations"> | null> {
+  for (const identifier of await identifiersForUser(ctx, account)) {
+    if (identifier.kind === "phone") continue;
+    const row = await findInvitationFor(ctx, workspaceId, identifier);
+    if (row === null || !isPending(row, now)) continue;
+    if ((await resolveAddressedUser(ctx, { kind: row.inviteeKind, value: row.invitee })) !== account) continue;
+    if (await hasBlocked(ctx, account, row.invitedBy)) continue;
+    return row;
+  }
+  return null;
+}
+
+/**
  * Whether every person in the chat counts in `workspace`: a member, or a number
- * with a pending phone invitation there. Somebody with an account holding one
- * joins now. Null when anyone counts as neither, when anyone's texting is
+ * with a pending phone invitation there. Somebody with an account holding one,
+ * or a pending invitation by their name or email, joins now. Null when anyone counts as neither, when anyone's texting is
  * paused, or when the workspace is not a shared one.
  */
 export async function invitedChat(
@@ -77,13 +102,15 @@ export async function invitedChat(
       members.set(phone, account);
       continue;
     }
-    const invitation = await pendingPhoneInvitation(ctx, workspace._id, phone, now);
+    const invitation =
+      (await pendingPhoneInvitation(ctx, workspace._id, phone, now)) ??
+      (account === null ? null : await pendingInvitationOf(ctx, workspace._id, account, now));
     if (invitation === null) return null;
     if (account === null) {
       invited.set(phone, invitation);
       continue;
     }
-    const joined = await joinByInvitation(ctx, invitation, account, now, { via: "phone" });
+    const joined = await joinByInvitation(ctx, invitation, account, now, { via: invitation.inviteeKind === "phone" ? "phone" : "chat" });
     if (joined === null) return null;
     members.set(phone, account);
   }

@@ -29,6 +29,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { canSee, readsAsChat } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
 import { voicePrompt } from "./chatVoice.js";
+import { chatMailPrompt } from "./groupMail.js";
 
 /** A guest chat's group, three words and folder, as the control plane names them to the Worker. */
 const GROUP_NAME = /^[a-z0-9][a-z0-9-]{1,99}$/;
@@ -69,7 +70,7 @@ export function guestPrompt(group, workspace) {
     "A note shared with the chat to view can be read, never changed. " +
     "You can't publish, share or change who sees anything from here. " +
     "The link: line on a note you read or write opens it for everyone here, guests included: a guest types the number they text this chat from and a texted code, no account needed, and it stays signed in on their phone. " +
-    "Nobody's personal notes, mail, calendar or saved logins can be read from here, so never offer them. " +
+    chatMailPrompt(group) +
     `An email or a calendar change goes only from the account of someone here who is on Context (${members}): always pass as with their handle, ` +
     "even when they are the one asking. They are shown the exact copy and only their 👍 or yes makes it; anyone may ask for changes first, and anyone else's yes does nothing. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat. " +
