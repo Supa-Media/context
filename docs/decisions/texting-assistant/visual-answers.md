@@ -265,6 +265,21 @@ comes to the front, and deleted at sign-out. Another account's key on the same
 phone is deleted rather than reused. Tests: `apps/convex/__tests__/cardsKey.test.ts`,
 `apps/mobile/__tests__/cardKey.test.ts`.
 
+The gateway answers it at `/cards/inbox` (the newest mail in their inbox from
+the last two weeks, or `?view=unread`, live from Gmail: sender, subject,
+snippet, ten at most) and `/cards/week?from=&days=` (up to seven days of
+every connected calendar's timed events as start and end instants only, no
+title, place or guest, merged), in `apps/mcp/src/http/cards.js`. Only the
+card key's client is answered: an MCP client already reads mail and the
+calendar through its tools, as words for a model, and these answer as data
+for a page the app owns. A page picks a view and never writes a Gmail query.
+`cards` is reserved as a first path segment and a name, or `/cards/inbox`
+would read as a workspace called `cards` at the capture route. The control
+plane's live reads already clear the card key: the owner of a personal
+workspace with private access, no write (`personalOwnerReadClearance`).
+Tests: `apps/mcp/test/cards.test.mjs`, and `calendarRead.test.mjs` for the
+busy times.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

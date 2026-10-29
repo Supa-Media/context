@@ -135,4 +135,9 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // (`communications/messagesBackup.js`). Also in the control plane's
   // RESERVED_NAMES, for the reason `presence` is.
   "messages",
+  // What a card in Messages shows, `/cards/inbox` and `/cards/week`
+  // (`http/cards.js`). Without it `/cards/inbox` reads as the context called
+  // `cards` at `/inbox`, the capture route. Also in the control plane's
+  // RESERVED_NAMES, for the reason `presence` is.
+  "cards",
 ]);

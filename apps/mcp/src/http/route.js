@@ -44,7 +44,7 @@ import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
 import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
-import { handleApprovals } from "./approvals.js";
+import { APP_ROUTES } from "./appRoutes.js";
 import { handleMessagesBackup, isMessagesBackupPath, isMessagesBackupRead, messagesBackupRefusal, textsCleared } from "../communications/messagesBackup.js";
 import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessagesBackupLog } from "../communications/messagesBackupRead.js";
 import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.js";
@@ -216,10 +216,10 @@ export async function route(request, env, ctx) {
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
     const summaryRoute = path === MEETING_SUMMARY_PATH;
-    // What the egress gate is holding for this person, and their answer: the
-    // app reads it over GET and answers over POST, so the POST-only gate below
-    // is not asked of it either.
-    const approvalsRoute = path === "/approvals";
+    // The app's own routes (`appRoutes.js`): what the egress gate is holding,
+    // and what a card in Messages shows. Each is read over GET, so the
+    // POST-only gate below is not asked of them either.
+    const appRoute = APP_ROUTES.get(path);
     // The Mac app's Messages backup (`communications/messagesBackup.js`): a
     // batch, or one file. A path under the file route that is not one is
     // still this route, refused below rather than read as anything else.
@@ -233,12 +233,12 @@ export async function route(request, env, ctx) {
       TEXTING_ROUTES.has(path) ||
       path === "/agent/review" ||
       path === "/collaboration" ||
-      approvalsRoute ||
+      appRoute ||
       messagesBackupRoute ||
       meetingRoute
     ) {
       const backupRead = messagesBackupRoute && isMessagesBackupRead(path, request.method);
-      if (!meetingRoute && !approvalsRoute && !backupRead && request.method !== "POST") return new Response(null, { status: 405 });
+      if (!meetingRoute && !appRoute && !backupRead && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -283,7 +283,7 @@ export async function route(request, env, ctx) {
       // the route here would 403 them there, and they could never approve it.
       const needed = summaryRoute || messagesBackupRoute
         ? SCOPE_WRITE
-        : approvalsRoute
+        : appRoute
         ? SCOPE_READ
         : meetingRoute
         ? scopeForMeetingRequest(request.method)
@@ -684,7 +684,7 @@ export async function route(request, env, ctx) {
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
-      if (approvalsRoute) return await handleApprovals(request, store, session);
+      if (appRoute) return await appRoute(request, store, session, path);
       if (messagesBackupRoute) {
         const file = parseFileRoute(path);
         if (backupRead) return file ? await handleMessagesBackupFileRead(store, file) : path === MESSAGES_BACKUP_LOG_ROUTE ? await handleMessagesBackupLog(request, store, session) : json({ ok: false, error: "not_found" }, 404);
