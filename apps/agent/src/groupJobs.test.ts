@@ -6,6 +6,7 @@
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `groupTurn` not reading the members again → "holds the result when somebody joined while it ran".
  *  2. `answerGroup` not starting `answer.jobs` → "a tagged message can start a job beside the chat".
+ *  3. `groupTurn` dropping `mail` from the job's group → "a job is told the mail shared with the chat".
  */
 
 import { describe, expect, it } from "vitest";
@@ -37,7 +38,7 @@ const tagged: GroupMessage = {
 
 type World = { sends: { content: string; reply_to?: unknown }[]; asks: Record<string, unknown>[]; members: string[][] };
 
-function deps(world: World, agent: unknown): GroupDeps & { spawned: Array<[string, JobRun]> } {
+function deps(world: World, agent: unknown, ready: Record<string, unknown> = {}): GroupDeps & { spawned: Array<[string, JobRun]> } {
   let read = 0;
   const spawned: Array<[string, JobRun]> = [];
   const fetcher = (async (url: string, init: RequestInit) => {
@@ -53,7 +54,7 @@ function deps(world: World, agent: unknown): GroupDeps & { spawned: Array<[strin
     }
     if (path === "/api/send-reaction") return Response.json({});
     if (path === "/agent-texts/group") {
-      return Response.json({ status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group" });
+      return Response.json({ status: "ready", slug: "band", intro: false, timeZone: "UTC", handle: "ada", accessToken: "cat_group", ...ready });
     }
     if (path === "/agent") {
       world.asks.push(body);
@@ -116,6 +117,17 @@ describe("background jobs in a group chat", () => {
     const [entry] = await chatJobs(inbox, NOW);
     expect(await jobUpdate(inbox, { ...local, linqApiKey: "" }, { ...reports.at(-1)!, id: entry.id })).toBe(true);
     expect(world.sends.at(-1)).toMatchObject({ content: "Wrote @band 1-projects/competitors.md.", reply_to: { message_handle: "h_ask" } });
+  });
+
+  it("a job is told the mail shared with the chat, as the chat's own turn is", async () => {
+    const storage = new MemoryStorage();
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const mail = [{ handle: "ada", address: "ada@work.example" }];
+    const names = [{ phone: ADA, handle: "ada" }, { phone: BO, handle: "bo" }];
+    const d = deps(world, { answer: "Pulled the list from ada@work.example." }, { mail, names });
+    await acceptJob(storage, groupRun(), NOW);
+    await runJob(storage, { ...d, report: async () => true });
+    expect(world.asks[0]).toMatchObject({ group: { from: "ada", mail, people: ["ada", "bo"] } });
   });
 
   it("holds the result when somebody joined while it ran", async () => {

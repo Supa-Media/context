@@ -233,13 +233,17 @@ export const applyGroupTurn = internalMutation({
       return { status: "invited", slug: added.workspace.slug, count: added.count, role };
     }
 
-    // A guest chat answers whoever tags it, accounts or not, until "use" names a workspace everyone shares.
-    if (args.command?.kind !== "use" && group.guestGroupId !== undefined) return await guestTurn(ctx, args, group, senderUser, others);
-
-    // A chat whose people are all members or invited there by number works on the whole workspace (`textGroupInvited.ts`).
+    // A chat whose people are all members or invited there works on the whole workspace (`textGroupInvited.ts`).
     const usingSlug = args.command?.kind === "use" ? cleanSlug(args.command.slug) : null;
     const counted = usingSlug !== null ? await workspaceBySlug(ctx, usingSlug) : group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
     const invited = counted === null ? null : await invitedChat(ctx, counted, others, now);
+    // A guest chat answers whoever tags it, accounts or not, until all of them count there or "use" names another.
+    if (args.command?.kind !== "use" && group.guestGroupId !== undefined) {
+      const answer = invited === null || invited.invited.size === 0 ? null : await invitedTurn(ctx, args, group, invited, false);
+      if (invited === null || (answer === null && invited.invited.size > 0)) return await guestTurn(ctx, args, group, senderUser, others);
+      await clearGuests(ctx, group);
+      if (answer !== null) return answer;
+    }
     if (invited !== null && invited.invited.size > 0) {
       const fresh = (await ctx.db.get(group._id)) ?? group;
       const answer = await invitedTurn(ctx, args, fresh, invited, usingSlug !== null);
@@ -323,8 +327,7 @@ export const applyGroupTurn = internalMutation({
     const names: { phone: string; handle: string }[] = [];
     for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
     const handle = await handleOf(ctx, senderUser);
-    const mail = await mailSharesNamed(ctx, (await ctx.db.get(group._id)) ?? group);
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(mail.length > 0 ? { mail } : {}) };
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)) };
   },
 });
 
@@ -440,7 +443,7 @@ async function guestTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const tagger = taggerMember ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
   const handle = taggerMember ? await handleOf(ctx, actor) : "";
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -506,8 +509,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  const mail = await mailSharesNamed(ctx, (await ctx.db.get(chat._id)) ?? chat);
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(mail.length > 0 ? { mail } : {}) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */
