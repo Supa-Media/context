@@ -93,6 +93,18 @@ async function rowsChange(
     }
     throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file does not exist." });
   }
+  // Fast search keeps each note's rows in a tier, and an access change leaves
+  // the text and version alone, so no sweep would ever move them: a note
+  // opened to the team stayed out of every team caller's search (2026-10-29).
+  // Followed behind the change, with no read; caught, because the search
+  // database is a derivative and must never fail the change it follows.
+  await ctx.scheduler
+    .runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: change.workspaceId,
+      scope: "private",
+      operation: { kind: "indexNotes", written: [], gone: [], retiered: [answer.path] },
+    })
+    .catch(() => {});
   return {
     kind: "visibility",
     path: answer.path,

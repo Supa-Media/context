@@ -216,7 +216,23 @@ computed over documents that caller may read — the inference channel
 *ranking* half and it is not access control: the tier stored on a row is
 `privacy.md` as it was at index time, so a note made private a minute ago still
 has team-tier rows. Every path returned is filtered through the caller's live
-`canSee` before it leaves. The count is taken after that filter, not before,
+`canSee` before it leaves.
+
+**An access change moves the rows' tier at once, with no read (2026-10-29).**
+The sweep re-projects only a version it does not hold, and an access change
+touches neither text nor version, so before this a tier was never corrected
+until the note was next edited. Narrowing cost ranking privacy only; widening
+cost recall: a fresh note opened to the team was read by a team-tier
+connection in a CASA setup, and a search for its exact title found nothing,
+because its rows sat in the private table a team caller is never scored
+against. `set_visibility` and `set_folder_visibility` (`searchChangeOf`'s
+`retiered`) and every console access change (`rowsChange` scheduling
+`indexNotes` with `retiered`) now follow into a ready database through
+`followChange`, which moves each held row once (`tierMoveStatements`).
+Search by meaning's tier is not moved; its every hit still passes `canSee`.
+`apps/mcp/test/searchFollow.test.mjs` ("a note opened to the team…", "a
+folder narrowed…") and `apps/convex/__tests__/visibilityFollowsSearch.test.ts`
+fail if either half is dropped. The count is taken after that filter, not before,
 or the number of results a caller sees would depend on how many notes they
 cannot see.
 
