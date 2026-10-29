@@ -73,7 +73,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
+import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,
@@ -265,7 +265,7 @@ export const startCalendarConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(products),
+        scopes: standardScopesFor(products, googleEnvFor(args.workspaceId)),
       }),
     };
   },
@@ -486,7 +486,7 @@ export const applyCalendarConnectionBinding = internalMutation({
     // with all of its products approved this time. `reconnect_required` is
     // exactly the existing word for that (`markReconnectRequired`), and the
     // remedy is the same one.
-    const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes));
+    const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes, googleEnvFor(args.workspaceId)));
 
     const fields = {
       workspaceId: args.workspaceId,

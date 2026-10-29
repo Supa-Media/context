@@ -315,7 +315,7 @@ describe("allowing AI access", () => {
 });
 
 describe("what AI may act on", () => {
-  const STANDARD = { scopes: [CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE] };
+  const STANDARD = { workspaceId: "ws_not_a_canary", scopes: [CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE] };
   const AGENT = { scopes: ["https://www.googleapis.com/auth/gmail.readonly"] };
 
   test("is the standard grant's scopes before the switch, for an account that has not allowed AI access", () => {

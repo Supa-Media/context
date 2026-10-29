@@ -21,7 +21,10 @@ import {
   scopesForConnect,
   type GoogleProduct,
 } from "../googleOAuth";
-import { agentClientActive, grantFor } from "./clients";
+import { agentClientActive, googleEnvFor, grantFor } from "./clients";
+
+/** Re-exported so a connect flow imports its scopes and their environment from one place. */
+export { googleEnvFor };
 
 type Env = Record<string, string | undefined>;
 
@@ -54,12 +57,14 @@ export function agentGrantCovers(products: readonly GoogleProduct[], scopes: rea
 }
 
 interface ScopedConnection {
+  /** Required, so a row passed without it cannot quietly read the global settings in place of its workspace's (the canary). */
+  workspaceId: string;
   scopes: string[];
   agentGrant?: { scopes: string[] };
 }
 
 /** The scopes AI may act on for this connection: those of the grant AI mints from. */
-export function aiScopesOf(row: ScopedConnection, env: Env = process.env): string[] {
+export function aiScopesOf(row: ScopedConnection, env: Env = googleEnvFor(row.workspaceId)): string[] {
   return grantFor("agent", row.agentGrant !== undefined, env) === "agent" ? (row.agentGrant?.scopes ?? []) : row.scopes;
 }
 

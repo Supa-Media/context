@@ -19,7 +19,7 @@ import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { canWriteCalendar } from "./lib/googleOAuth";
 import { grantedScopes } from "./lib/googleWriteAccess";
 import { aiScopesOf } from "./lib/googleConnect/aiScopes";
-import { grantFor } from "./lib/googleConnect/clients";
+import { googleEnvFor, grantFor } from "./lib/googleConnect/clients";
 
 /** The person's live calendar connections that, by their stored scopes, can only be read. */
 export const calendarReaders = internalQuery({
@@ -46,7 +46,7 @@ export const recordGrantedScopes = internalMutation({
     const row = await ctx.db.get(args.connectionId);
     if (row === null) return null;
     // Onto the grant the check minted from: the agent one when AI reads through it.
-    if (grantFor("agent", row.agentGrant !== undefined) === "agent") {
+    if (grantFor("agent", row.agentGrant !== undefined, googleEnvFor(row.workspaceId)) === "agent") {
       if (row.agentGrant === undefined) return null;
       const scopes = [...new Set([...row.agentGrant.scopes, ...args.scopes])];
       await ctx.db.patch(args.connectionId, { agentGrant: { ...row.agentGrant, scopes } });
