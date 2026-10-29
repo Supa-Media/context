@@ -170,21 +170,37 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
 test("Playwright's own screenshot, in WebKit, appends a style the page's nonce does not cover", async ({ page, browserName }) => {
   test.skip(!ON, "needs E2E_CSP_CANDIDATE=full and E2E_CSP_NONCE=1");
   await recordRefusals(page);
-  const refusals = async () => (await page.evaluate(() => (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals)) as { frame: string; directive: string; disposition: string; element: string | null; nonced: boolean | null; text: string | null }[];
+  // The style is gone again before WebKit dispatches its refusal, so the event's target is the
+  // document; the style itself is named by watching what is added to the document's head.
+  await page.addInitScript(() => {
+    const holder = window as unknown as { __unnoncedStyles?: string[] };
+    holder.__unnoncedStyles = [];
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof HTMLStyleElement && node.nonce === "") holder.__unnoncedStyles?.push((node.textContent ?? "").slice(0, 20));
+    }).observe(document, { childList: true, subtree: true });
+  });
+  type Seen = { frame: string; directive: string; disposition: string; element: string | null };
+  const read = () =>
+    page.evaluate(() => {
+      const holder = window as unknown as { __cspRefusals: unknown[]; __unnoncedStyles: string[] };
+      return { refusals: holder.__cspRefusals as Seen[], styles: [...holder.__unnoncedStyles] };
+    });
   await openWeeklyReview(page);
   await page.waitForTimeout(3000);
-  expect(await refusals(), "nothing refused before the screenshot").toEqual([]);
+  const before = await read();
+  expect(before.refusals, "nothing refused before the screenshot").toEqual([]);
   // The recorder's own call (playwright/lib/index.js, `SnapshotRecorder`).
   await page.screenshot({ timeout: 5000, caret: "initial" });
   await page.waitForTimeout(500);
-  const after = await refusals();
-  console.log(`[${test.info().project.name}] refusals after a screenshot ${JSON.stringify(after)}`);
-  const expected =
-    browserName === "webkit"
-      ? ["enforce", "report"].map((disposition) => ({ frame: "top", directive: "style-src-elem", disposition, element: "style", nonced: false, text: "body {}" }))
-      : [];
+  const after = await read();
+  const added = after.styles.slice(before.styles.length);
+  console.log(`[${test.info().project.name}] after a screenshot: refusals ${JSON.stringify(after.refusals)} un-nonced styles added ${JSON.stringify(added)}`);
+  const webkit = browserName === "webkit";
+  expect(added, "the screenshot's own style, and nothing else, was added without the nonce").toEqual(webkit ? ["body {}"] : []);
   expect(
-    after.map(({ frame, directive, disposition, element, nonced, text }) => ({ frame, directive, disposition, element, nonced, text })).sort((a, b) => a.disposition.localeCompare(b.disposition)),
-    "exactly the screenshot's own style, refused and reported, and nothing else",
-  ).toEqual(expected);
+    after.refusals.map(({ frame, directive, disposition }) => ({ frame, directive, disposition })).sort((a, b) => a.disposition.localeCompare(b.disposition)),
+    "and it alone was refused and reported, in the top document",
+  ).toEqual(webkit ? ["enforce", "report"].map((disposition) => ({ frame: "top", directive: "style-src-elem", disposition })) : []);
 });

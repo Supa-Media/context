@@ -78,7 +78,9 @@ test("a comment is written, answered and resolved in the margin", async ({
   await history.getByRole("button", { name: "Delete this thread" }).click();
   await expect(history).toContainText("Delete this thread and its replies?");
   await expect(page.locator(".cm-cmt-card")).toHaveCount(1);
-  await page.screenshot({ path: process.env.COMMENT_SHOT ?? "test-results/comment-delete.png" });
+  // A picture for a person to look at, checked by nothing. Not under the style nonce: in WebKit a
+  // screenshot appends an un-nonced style of Playwright's own (`cspStyleNonce.spec.ts`).
+  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.COMMENT_SHOT ?? "test-results/comment-delete.png" });
   await history.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.locator(".cm-cmt-card")).toHaveCount(0);
   await expect(page.locator(".cm-content")).not.toContainText("<!--c:");
