@@ -17,6 +17,7 @@
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { EMAIL_ID_PREFIX } from "../emailRead.js";
 import { TEXTS_ID_PREFIX } from "../texts.js";
+import { GOOGLE_CHAT_ID_PREFIX } from "../googleChatRead.js";
 import { readableFileType } from "../readFile.js";
 
 const CHATGPT = /chatgpt|openai/i;
@@ -130,7 +131,7 @@ const APP_PREFIX = "apps:";
 
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
-  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, "proposals:"].some((prefix) => id.startsWith(prefix));
+  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX, "proposals:"].some((prefix) => id.startsWith(prefix));
 }
 
 /** `fetch` in the v2 shape. */
@@ -161,6 +162,14 @@ export function translateFetch(call, app = {}) {
   }
   if (id.startsWith(TEXTS_ID_PREFIX)) {
     return target(label, a, { name: "read_texts", action: "texts", fixed: { chat: id.slice(TEXTS_ID_PREFIX.length) }, copy: ["since", "before", "limit"] });
+  }
+  // Their Google Chat, live (`googleChatRead.js`): `chat:` lists their spaces, `chat:<spaces/…>`
+  // reads one, and `chat:` with args `{ to }` reads the direct message with that person.
+  if (id.startsWith(GOOGLE_CHAT_ID_PREFIX)) {
+    const space = id.slice(GOOGLE_CHAT_ID_PREFIX.length).trim();
+    if (space !== "") return target(label, a, { name: "read_google_chat", action: "chat", fixed: { space }, copy: ["limit"] });
+    if (a.to !== undefined) return target(label, a, { name: "read_google_chat", action: "chat", copy: ["to", "limit"] });
+    return target(label, a, { name: "google_chat", action: "chat_spaces", fixed: { action: "spaces" } });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });

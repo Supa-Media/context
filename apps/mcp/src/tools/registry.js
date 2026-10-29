@@ -28,6 +28,8 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   // and the control plane refuses anybody but the personal workspace's owner.
   "search_email",
   "read_email",
+  // One Google Chat conversation of theirs, live, refused by the control plane the same way.
+  "read_google_chat",
   // Their texts, from the backup their Mac keeps (`tools/texts.js`): the
   // route attaches them for the personal workspace's owner and nobody else.
   "search_texts",
