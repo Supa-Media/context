@@ -125,7 +125,7 @@ export class StorageUnsupported extends StorageUnavailable {
  */
 const CREDENTIAL_FIELDS = {
   "r2-binding": [],
-  credentialed: ["accessKeyId", "secretAccessKey"],
+  credentialed: ["accessKeyId", "secretAccessKey", "sessionToken"],
 };
 
 /**
@@ -382,6 +382,8 @@ function credentialedStore(binding, _env, options = {}) {
       bucket,
       accessKeyId,
       secretAccessKey,
+      // A temporary R2 credential's third part; see `S3Store`.
+      ...(typeof binding.sessionToken === "string" && binding.sessionToken ? { sessionToken: binding.sessionToken } : {}),
       rootPrefix: binding.rootPrefix,
       forcePathStyle: binding.forcePathStyle,
     });

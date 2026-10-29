@@ -184,6 +184,7 @@
  *       "rootPrefix":      "context/",        // optional; "" or absent = bucket root
  *       "accessKeyId":     "<id>",
  *       "secretAccessKey": "<secret>",        // radioactive: sign with it, never log it
+ *       "sessionToken":    "<token>",         // optional; a temporary R2 credential's third part, as radioactive
  *       "forcePathStyle":  true,              // optional; see S3Store
  *       "capabilities":    { "conditionalWrite": true },
  *       "status":          "active"

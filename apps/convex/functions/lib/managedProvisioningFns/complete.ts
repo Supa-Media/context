@@ -12,6 +12,7 @@ import { recordAudit } from "../audit";
 import { R2_CREDENTIAL_SETTLE_MS } from "../cloudflare";
 import { managedBucketBound } from "../managedEncryptionFns/rollout";
 import { PARA_FOLDERS } from "../scaffold";
+import { schedulePromotion, type SealedTemporaryCredential } from "./temporaryKey";
 
 /**
  * Bind the bucket, then let verification mark the plan ready.
@@ -32,6 +33,7 @@ export async function completeManagedProvisioningHandler(
     bucket: string;
     accessKeyId: string;
     encryptedSecretAccessKey: string;
+    temporary?: SealedTemporaryCredential;
   },
 ): Promise<null> {
   const existing = await ctx.db
@@ -68,6 +70,7 @@ export async function completeManagedProvisioningHandler(
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
       verificationRetryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
+      ...(args.temporary === undefined ? {} : { temporary: args.temporary }),
       ...(laysOut ? { firstStructure: { template: "para" as const, folders: [], kind: "personal" as const } } : {}),
     });
     await recordAudit(ctx, {
@@ -87,6 +90,9 @@ export async function completeManagedProvisioningHandler(
         action: "workspace.structure_applied",
         details: { template: "para", folderCount: PARA_FOLDERS.length },
       });
+    }
+    if (args.temporary !== undefined) {
+      await schedulePromotion(ctx, { workspaceId: args.workspaceId, attempt: 0, until: args.temporary.until });
     }
     // Joins the encryption rollout when staff set it to cover every managed
     // workspace, or re-walks a re-adopted bucket that holds sealed files.

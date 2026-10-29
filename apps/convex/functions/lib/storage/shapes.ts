@@ -95,6 +95,11 @@ export interface SealedBinding {
   rootPrefix?: string;
   accessKeyId?: string;
   encryptedSecretAccessKey?: string;
+  /** A new managed bucket's temporary credential; see the schema. */
+  temporaryAccessKeyId?: string;
+  encryptedTemporarySecretAccessKey?: string;
+  encryptedSessionToken?: string;
+  temporaryUntil?: number;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
@@ -120,6 +125,8 @@ export interface S3GatewayCredential {
   rootPrefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Present only while a new managed bucket is served on a temporary credential. */
+  sessionToken?: string;
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
