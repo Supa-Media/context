@@ -42,7 +42,10 @@ export const NOTES_CSS = `
 .np-note{padding:40px clamp(20px,5vw,64px);font-family:var(--serif);font-size:19px;line-height:1.6}
 .np-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;font-family:var(--sans);font-size:12.5px}
 .np-chip{padding:4px 10px;border-radius:999px;background:var(--paper)}
-.np-chip-blue{background:var(--tint);color:var(--blue)}
+.np-chip-blue{background:var(--tint);color:var(--blue);display:inline-flex;align-items:center;gap:6px;padding-left:4px}
+.np-chipface{width:20px;height:20px;border-radius:999px;display:block}
+.np-whoface{display:flex;gap:10px;align-items:flex-start}
+.np-face{flex:none;width:30px;height:30px;border-radius:9px;display:block}
 .np-note h2{margin-bottom:12px;font-weight:500;font-size:36px;line-height:1.15;letter-spacing:-.015em}
 .np-note h3{margin:22px 0 6px;font-family:var(--sans);font-size:17px;font-weight:600}
 .np-note ul{padding-left:22px}
@@ -66,7 +69,10 @@ export const NOTES_CSS = `
 .np-spaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .np-space{background:var(--card);border:1px solid var(--hair);border-radius:14px;padding:18px;font-size:14px;color:var(--ink2)}
 .np-space.np-mine{border:1.5px solid var(--ink)}
-.np-av{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:600;color:var(--ink)}
+.np-faces{display:flex;align-items:center}
+.np-av{width:44px;height:44px;border-radius:12px;display:block;box-shadow:0 0 0 2.5px var(--card)}
+.np-faces .np-av+.np-av{margin-left:-10px}
+.np-more{margin-left:8px;font-style:normal;font-size:13px;font-weight:600;color:var(--ink2)}
 .np-space b{display:block;margin-top:12px;font-size:16px;font-weight:600;color:var(--ink)}
 .np-space small{display:block;margin-top:10px;font-size:13px;color:var(--ink3)}
 .np-new{display:flex;flex-direction:column;justify-content:center;gap:4px;border:1.5px dashed var(--line);border-radius:14px;padding:18px;font-size:14px;color:var(--ink2)}
