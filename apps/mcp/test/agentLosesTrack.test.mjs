@@ -28,8 +28,8 @@
  *   `|| pair === repliedTo` removed from `threadView` → "a reply typed under
  *     a check-in is shown the check-in it answers" fails.
  *   `heartbeat.js` keeping a continued check-in with `thread: null` → "a look
- *     sent under an earlier text is kept in that text's thread"
- *     (`agentHeartbeat.test.mjs`) fails.
+ *     that continues a text … and joins its thread" (`agentHeartbeat.test.mjs`)
+ *     fails.
  */
 
 import assert from "node:assert/strict";
