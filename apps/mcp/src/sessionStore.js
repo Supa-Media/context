@@ -43,7 +43,7 @@ export async function storeForSession(session, env, controlPlane) {
     // Every caller answers this with the same reasonless 503, so the reason is said here or nowhere
     // (group Tex on 2026-10-29: every reply in one chat failed and nothing said why). A code, never a key.
     if (error instanceof StorageUnavailable) {
-      console.error(JSON.stringify({ event: "storage_unavailable", reason: error.reason, workspace: session?.workspaceId ?? null }));
+      console.error(JSON.stringify({ event: "storage_unavailable", reason: String(error.reason).replace(/[^A-Za-z0-9:]+/g, "_"), workspace: session?.workspaceId ?? null }));
     }
     throw error;
   }
