@@ -219,6 +219,12 @@ the functional specs caused. When the candidate was sabotaged (its
   run under the candidate daily only, and only with the releases
   `fetch-bundles.mjs` fetched. They cover those plugins, not every plugin.
 
+- **The daily full WebKit suite.** It runs over plain HTTP, and has been red
+  on `main` since at least 2026-10-26 (runs 40340892430, 40513541303,
+  40706798971). Whether the HTTP diagram limitation is part of why is not
+  established here. Moving it, or fixing what else fails there, is separate
+  work.
+
 ### What a simplification would cost
 
 Dropping the log check leaves a script blocked in a way no spec notices. The

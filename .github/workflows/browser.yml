@@ -81,8 +81,8 @@ jobs:
             apps/mobile/features/console/files/LiveEditor.web.tsx
             apps/mobile/features/console/files/LiveEditor.tsx
             apps/mobile/features/console/files/webview/entry.ts
-          # The editor tests, the harness they share, and the fixture route
-          # they open.
+          # The per-push browser tests (the editor's, and the CSP candidate's
+          # own), the harness they share, and the fixture route they open.
           paths: |
             apps/mobile/e2e/webkit/editor.spec.ts
             apps/mobile/e2e/webkit/editorFormatting.spec.ts
@@ -90,6 +90,13 @@ jobs:
             apps/mobile/e2e/webkit/tables.spec.ts
             apps/mobile/e2e/webkit/comments.spec.ts
             apps/mobile/e2e/webkit/pasting.spec.ts
+            apps/mobile/e2e/webkit/drawingFonts.spec.ts
+            apps/mobile/e2e/webkit/mermaid.spec.ts
+            apps/mobile/e2e/webkit/htmlPreview.spec.ts
+            apps/mobile/e2e/webkit/cspCandidateRules.spec.ts
+            apps/mobile/e2e/webkit/cspOpaqueSelf.spec.ts
+            apps/mobile/e2e/webkit/cspDiagramFrame.spec.ts
+            apps/mobile/e2e/webkit/cspNegativeProbe.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
