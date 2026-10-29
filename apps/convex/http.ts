@@ -146,11 +146,12 @@ import {
   pubsubPushRoute,
 } from "./functions/lib/googlePush/routes";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
+import { securedRouter, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
 const http = httpRouter();
 
-// Auth routes (handles OTP verification callbacks)
-auth.addHttpRoutes(http);
+// Auth routes (OTP callbacks, the JWKS and OpenID discovery), with the security headers.
+auth.addHttpRoutes(securedRouter(http));
 
 /**
  * Wrap a control-plane handler so it cannot be reached without the gateway
@@ -172,10 +173,9 @@ function gatewayRoute(
   maxBytes?: number,
 ) {
   return httpAction(async (ctx, request) => {
-    if (!(await requestIsFromGateway(request))) return unauthorized();
+    if (!(await requestIsFromGateway(request))) return withSecurityHeaders(unauthorized());
     const body = await readJsonBody(request, maxBytes);
-    if (body === null) return badRequest();
-    return await handler(ctx, body);
+    return withSecurityHeaders(body === null ? badRequest() : await handler(ctx, body));
   });
 }
 
