@@ -182,7 +182,35 @@ export function reportOnlyPolicyFor(pathname: string, convexOrigin: string | und
 /** Larger than any real report; a bigger body is not read. */
 const MAX_REPORT_BYTES = 16 * 1024;
 
-export type CspViolation = { directive: string; blocked: string; page: string };
+export type CspViolation = { directive: string; blocked: string; page: string; document: string };
+
+/**
+ * Which of our documents a report came from, as a fixed class rather than a
+ * path: the console, the drawing editor and the plugin sandbox each get a
+ * policy of their own, so their reports have to be told apart before any of
+ * them can enforce, and `page` is an origin only. A path can name a note or
+ * a person (`/note/@acme/…`), so it is never logged; the class is one of the
+ * words below or "none".
+ */
+function documentClass(value: unknown): string {
+  if (typeof value !== "string" || value === "") return "none";
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "unparsed";
+  }
+  if (url.protocol === "about:") return url.pathname === "srcdoc" ? "srcdoc" : "about";
+  if (url.protocol !== "https:" && url.protocol !== "http:") return "other-scheme";
+  const path = url.pathname;
+  if (path.startsWith(EDITOR_PATH_PREFIX)) return "drawing-editor";
+  if (isPluginSandboxPath(path)) return "plugin-sandbox";
+  if (path.startsWith("/drawing-assets/page/") || path.startsWith("/_page/")) return "page-runtime";
+  if (path.startsWith("/drawing-assets/")) return "drawing-assets";
+  if (path === "/console" || path.startsWith("/console/")) return "console";
+  if (path === "/note" || path.startsWith("/note/")) return "shared-note";
+  return "shell";
+}
 
 /** `blocked-uri` reduced to what is safe to log: an origin or a keyword. */
 function originOnly(value: unknown): string {
@@ -229,6 +257,7 @@ export function parseCspReport(text: string): CspViolation[] {
     directive: directiveOf(body["effective-directive"] ?? body.effectiveDirective ?? body["violated-directive"]),
     blocked: originOnly(body["blocked-uri"] ?? body.blockedURL),
     page: originOnly(body["document-uri"] ?? body.documentURL),
+    document: documentClass(body["document-uri"] ?? body.documentURL),
   }));
 }
 
