@@ -97,6 +97,7 @@ jobs:
             apps/mobile/e2e/webkit/csp-candidate.ts
             apps/mobile/e2e/webkit/csp-candidate-check.mjs
             apps/mobile/e2e/webkit/csp-report-log.mjs
+            apps/mobile/e2e/webkit/csp-candidate-check.selftest.mjs
             infra/router/src/cspReport.ts
             infra/router/src/securityHeaders.ts
             infra/router/src/pluginSandbox.ts
@@ -315,6 +316,9 @@ jobs:
         with:
           name: webkit-fixture
           path: apps/mobile
+      - name: The evidence check fails every log that says nothing
+        working-directory: apps/mobile
+        run: node --test e2e/webkit/csp-candidate-check.selftest.mjs
       - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
         working-directory: apps/mobile
         env:

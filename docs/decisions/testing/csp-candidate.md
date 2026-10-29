@@ -34,7 +34,12 @@ test feeds both the same hostile reports (paths, queries, tokens, script
 samples, non-string fields, all-letter "keywords") and fails if the directive
 or blocked source differ, or if any of that text reaches a line. Changing the
 fixture module runs the router tests. `csp-candidate-check.mjs` prints the counts. It fails if a
-directive it guards has an enforced violation, or if no report arrived at all.
+directive it guards has an enforced violation, if no readable report arrived
+at all, or if any row cannot be read: an "unknown" directive or disposition,
+a missing field, a line that is not JSON. An unreadable row is never dropped
+and never counts as the evidence that reporting works, since a run made only
+of those would otherwise pass while saying nothing. Its self-test
+(`csp-candidate-check.selftest.mjs`) runs first in the job.
 
 **The script half runs in CI.** The `Script policy enforced in WebKit` job in
 `browser.yml` runs in `script` mode. It covers the note editor, drawing,
