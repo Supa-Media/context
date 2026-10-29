@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { candidateRules, ENFORCED_REPORT_PATH, REPORT_PATH } from "./csp-candidate";
-import { reportLines } from "./csp-report-log.mjs";
+import { candidateRules } from "./csp-candidate";
 import { NONCED_STYLE_IDS } from "./csp-style-nonce.mjs";
 import { openWeeklyReview } from "./helpers";
 
@@ -14,11 +13,13 @@ import { openWeeklyReview } from "./helpers";
  * `liveEditorWeb/styleNonce.ts` hands it to `EditorView.cspNonce`. This
  * checks the three places it has to agree (header, document, editor), that
  * it is new on every response and cannot be revalidated into a stale one, and
- * that a style without it is still blocked and reported, so a green run is
- * the nonce working and not the policy missing.
+ * that a style without it is still blocked, by the enforced copy and in the
+ * report-only policy, so a green run is the nonce working and not the policy
+ * missing.
  *
- * Reports are caught here and never reach the run's report log, so the
- * deliberate refusal cannot hide one the editor specs caused.
+ * Refusals are read in the page from `securitypolicyviolation` events. The
+ * CI job runs this spec on its own, before the editor specs, so its
+ * deliberate refusal never lands in the log the editor run is checked by.
  */
 
 const ON = process.env.E2E_CSP_CANDIDATE === "full" && process.env.E2E_CSP_NONCE === "1";
@@ -59,42 +60,42 @@ test("every shell response carries its own nonce, the same in its policies and i
   expect(new Set(seen).size, "a new nonce for every response").toBe(2);
 });
 
-test("the editor's own stylesheet carries the page's nonce and applies; a style without it is blocked and reported", async ({ page, baseURL }) => {
+test("the editor's own stylesheet carries the page's nonce and applies; a style without it is blocked", async ({ page }) => {
   test.skip(!ON, "needs E2E_CSP_CANDIDATE=full and E2E_CSP_NONCE=1");
-  if (baseURL === undefined) throw new Error("no baseURL");
-  const origin = new URL(baseURL).origin;
-  const rules = candidateRules("full").sort((a, b) => b.prefix.length - a.prefix.length);
-  const classify = (pathname: string): string => rules.find((rule) => pathname.startsWith(rule.prefix))?.document ?? "unmatched";
-  const rows: ReturnType<typeof reportLines> = [];
-  // Only the report sink is answered here; the shell, its nonce and the app come from the fixture server.
-  await page.route("**/*", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.origin !== origin || request.method() !== "POST" || (url.pathname !== REPORT_PATH && url.pathname !== ENFORCED_REPORT_PATH)) {
-      return route.fallback();
-    }
-    rows.push(...reportLines(request.postData() ?? "", classify, url.pathname === ENFORCED_REPORT_PATH ? "enforce" : "report"));
-    return route.fulfill({ status: 204, body: "" });
-  });
-  const consoleRefusals: string[] = [];
-  page.on("console", (message) => {
-    if (/refused/i.test(message.text())) consoleRefusals.push(message.text().slice(0, 200));
-  });
-  // Every refusal the page sees, with the element it refused, so a failure names what was not nonced.
+  // Refusals are read in the page, from every frame, not from the report requests: WebKit's
+  // report requests do not pass through Playwright's routing, so a route would see none of them.
   await page.addInitScript(() => {
-    const seen: unknown[] = [];
-    (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals = seen;
+    type Seen = { frame: string; directive: string; disposition: string; element: string | null; nonced: boolean | null; source: string; line: number };
+    const holder = window as unknown as { __cspRefusals?: Seen[] };
+    holder.__cspRefusals = [];
+    const path = (url: string) => {
+      try {
+        return new URL(url).pathname;
+      } catch {
+        return url.slice(0, 20);
+      }
+    };
     document.addEventListener("securitypolicyviolation", (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      seen.push({
+      const seen: Seen = {
+        frame: window === window.top ? "top" : path(event.documentURI),
         directive: event.effectiveDirective,
         disposition: event.disposition,
         element: target === null ? null : `${target.tagName.toLowerCase()}${target.id ? `#${target.id}` : ""}`,
         nonced: target instanceof HTMLStyleElement ? target.nonce !== "" : null,
-        sample: event.sample.slice(0, 60),
-      });
+        source: path(event.sourceFile),
+        line: event.lineNumber,
+      };
+      holder.__cspRefusals?.push(seen);
+      // A same-origin frame's refusal is shown beside the top document's.
+      try {
+        if (window !== window.top) (window.top as unknown as { __cspRefusals?: Seen[] }).__cspRefusals?.push(seen);
+      } catch {
+        // An opaque frame cannot reach the top document; its refusals stay its own.
+      }
     });
   });
+  const refusals = () => page.evaluate(() => (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals);
   const served = page.waitForResponse((response) => new URL(response.url()).pathname === "/e2e-fixture");
   await openWeeklyReview(page);
   const nonce = styleNonces((await served).headers()["content-security-policy"])[0];
@@ -115,35 +116,31 @@ test("the editor's own stylesheet carries the page's nonce and applies; a style 
   expect(editor.page, "the page's nonce is readable from its style").toBe(nonce);
   expect(editor.editor, "CodeMirror's stylesheet carries it").toBe(nonce);
   expect(editor.display, "and its rules apply").toBe("flex");
-  const refusals = () => page.evaluate(() => (window as unknown as { __cspRefusals: unknown[] }).__cspRefusals);
-  const before = await refusals();
-  console.log(`[${test.info().project.name}] refusals while the note opened ${JSON.stringify(before)}`);
 
-  // Another note: the editor is made again, and style-mod's one element per document is reused.
-  const link = page.locator(".cm-note-link").first();
-  await link.click();
+  // Settled, then another note (the editor is made again, and style-mod's one element per document is reused).
+  await page.waitForTimeout(3000);
+  const settled = await refusals();
+  await page.locator(".cm-note-link").first().click();
   await expect(page.locator(".cm-editor")).toBeVisible();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(3000);
   const afterSecond = await refusals();
-  console.log(`[${test.info().project.name}] refusals after a second note ${JSON.stringify(afterSecond)}`);
-  console.log(`[${test.info().project.name}] refusals in the console ${JSON.stringify(consoleRefusals)}`);
-  expect(before, "nothing the shell or the editor wrote was refused").toEqual([]);
-  expect(afterSecond, "nor when the editor is made again for another note").toEqual([]);
+  console.log(`[${test.info().project.name}] refusals settled ${JSON.stringify(settled)} after a second note ${JSON.stringify(afterSecond)}`);
+  expect(afterSecond, "nothing the shell or the editor wrote was refused, on either note").toEqual([]);
 
-  // The control: a style the nonce does not cover is still refused.
+  // The control: a style the nonce does not cover is still refused, by the enforced copy and reported by the report-only policy.
   const applied = await page.evaluate(async () => {
     const style = document.createElement("style");
+    style.id = "csp-nonce-control";
     style.textContent = "body { --csp-nonce-probe: 1; }";
     document.head.append(style);
     await new Promise((resolve) => setTimeout(resolve, 50));
     return getComputedStyle(document.body).getPropertyValue("--csp-nonce-probe").trim() === "1";
   });
   expect(applied, "a style without the nonce is blocked").toBe(false);
-  console.log(`[${test.info().project.name}] refusals after the control ${JSON.stringify(await refusals())}`);
-  await expect.poll(() => rows.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
-  const refusal = { document: "shell", directive: "style-src-elem", blocked: "inline" };
-  const matches = (row: (typeof rows)[number]) =>
-    row.document === refusal.document && row.directive === refusal.directive && row.blocked === refusal.blocked;
-  expect(rows.filter(matches).map((row) => row.disposition).sort(), "one enforced refusal, and its report-only duplicate").toEqual(["enforce", "report"]);
-  expect(rows.filter((row) => !matches(row)), "nothing else was reported").toEqual([]);
+  const control = (await refusals()) as { element: string | null; directive: string; disposition: string }[];
+  expect(
+    control.filter((row) => row.element === "style#csp-nonce-control" && row.directive === "style-src-elem").map((row) => row.disposition).sort(),
+    "one enforced refusal, and its report-only duplicate",
+  ).toEqual(["enforce", "report"]);
+  expect(control.filter((row) => row.element !== "style#csp-nonce-control"), "and nothing else").toEqual([]);
 });
