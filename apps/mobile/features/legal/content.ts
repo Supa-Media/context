@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 28, 2026",
+  updated: "October 29, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -13,16 +13,17 @@ export const privacyContent: LegalPageContent = {
         "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
         "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI, to be turned into text, and the transcript and your typed notes are sent to Anthropic to write a summary. The transcript and its summary are saved in your workspace like any other note. See \"Meeting transcripts and summaries\" below.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
-        "When you connect Google, Context.lc may receive your Google account identity, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve and the sync features you enable.",
+        "When you connect Google, Context.lc receives your Google account identity and, at the moment it is asked for, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve.",
       ],
     },
     {
       title: "How we use Google data",
       body: [
-        "When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read and sync Gmail messages, Calendar events and Google Chat spaces and messages into your personal workspace, and to answer your requests using that information.",
+        "When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read Gmail messages, Calendar events and Google Chat spaces and messages from Google when they are needed: when you ask, when an AI assistant you connected asks for you, or during a check-in or routine Tex runs for you, which you can pause or turn off. Your mail, calendar and chat are not copied into your notes in bulk, and no background job syncs them into your workspace.",
         "Where you turn the matching features on, we also use those permissions to act for you: to create Gmail drafts, to send email you approve, to create or change events on your calendar (asking you first when a change would notify a guest), and to create Google Chat spaces or send Chat messages you approve. Read-only permissions cannot do any of these.",
-        "Google data in your workspace may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops further access and sync; notes already copied into your workspace stay until you delete them. Revoking Google access and deleting copied notes are separate controls.",
-        "Email and chat sync are forward-only unless the product explicitly offers a user-initiated import. Calendar sync is used to keep current and upcoming calendar context available to you.",
+        "Some Google data is kept in your personal workspace as part of your conversations with Tex. What you asked, Tex's answers, and the quotes, summaries and source names (such as a sender, a subject or an event title) those answers use are saved in Tex's transcripts and conversation history, and check-ins keep a record of what they looked at and texted. Anything you, Tex or an assistant you connected save as a note is kept the same way. These notes stay until you delete them.",
+        "Before October 21, 2026, Context.lc copied Gmail, Calendar and Google Chat into notes in your workspace. Those historical copies are hidden from search and from AI, are included when you download your workspace, and stay until you delete them, which you can do from Settings.",
+        "Google data may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops all future access to it. It does not delete notes already in your workspace, such as saved conversations and historical copies; deleting those is a separate step. Revoking Google access and deleting saved notes are separate controls.",
         "We do not sell Google user data, use it for advertising, or use it to train third-party AI models.",
       ],
     },
@@ -30,7 +31,7 @@ export const privacyContent: LegalPageContent = {
       title: "Where your data is stored",
       body: [
         "Context.lc stores context as files and folders in the storage connected to your account or in Context-managed storage when you choose that option.",
-        "Synced communication and calendar notes are private to your personal workspace by default. Email, chat, and iMessage-style communication sync is not intended for shared workspaces.",
+        "Notes that hold Google data, such as saved Tex conversations and historical copies, are private to your personal workspace by default. Your mail, calendar and chat are read for your personal workspace only, never for a shared workspace.",
         "OAuth tokens are encrypted server-side and are used only to maintain the connection you authorized.",
       ],
     },
@@ -86,8 +87,8 @@ export const privacyContent: LegalPageContent = {
     {
       title: "Retention and deletion",
       body: [
-        "We retain synced files and account records while your account, context, or connected integration remains active, unless you delete them sooner.",
-        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
+        "We retain your notes, including saved Tex conversations and historical Google copies, and your account records while your account or workspace remains active, unless you delete them sooner.",
+        "You can disconnect an integration, delete saved notes from your workspace, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
       ],
     },
     {
@@ -109,7 +110,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "October 28, 2026",
+  updated: "October 29, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -130,8 +131,8 @@ export const termsContent: LegalPageContent = {
     {
       title: "Google integrations",
       body: [
-        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the scopes you approve to sync the information you enabled into your personal context and, where you turn those features on, to create drafts, send the email and Chat messages you approve, and create or change your calendar events at your request.",
-        "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any synced content you later share is appropriate to share.",
+        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the scopes you approve to read the information you enabled from Google when you, an assistant you connected, or a check-in or routine you allowed asks for it, and, where you turn those features on, to create drafts, send the email and Chat messages you approve, and create or change your calendar events at your request.",
+        "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any Google content you save and later share is appropriate to share.",
       ],
     },
     {

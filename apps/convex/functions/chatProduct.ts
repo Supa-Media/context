@@ -85,8 +85,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
-import { googleEnvFor } from "./lib/googleConnect/clients";
+import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
 
 /** Same ten minutes as every other connect attempt in this control plane. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
