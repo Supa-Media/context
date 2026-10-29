@@ -39,7 +39,13 @@ function pageWith(working: MapPageState["working"]): MapPageState {
     replaying: false,
     events: [],
     now: 0,
-    book: { title: () => "Q4 launch plan", known: () => "Q4 launch plan", workspace: () => "Personal" },
+    book: {
+      title: () => "Q4 launch plan",
+      known: () => "Q4 launch plan",
+      workspace: () => "Personal",
+      link: (_ws: string, from: string, target: string) =>
+        target.startsWith("#") ? from : target === "Pricing" ? "1-projects/pricing.md" : null,
+    },
   } as unknown as MapPageState;
 }
 
@@ -49,7 +55,13 @@ const reader = { id: "r", kind: "agent", name: "ChatGPT", path: NOTE.path, doing
 let root: Root | null = null;
 let host: HTMLDivElement;
 
-async function render(props: { working: MapPageState["working"]; onClose?: () => void; onExpand?: () => void; compact?: boolean }) {
+async function render(props: {
+  working: MapPageState["working"];
+  onClose?: () => void;
+  onExpand?: () => void;
+  onPeek?: (next: OpenPeek) => void;
+  compact?: boolean;
+}) {
   await act(async () =>
     root!.render(
       createElement(NotePeek, {
@@ -59,6 +71,7 @@ async function render(props: { working: MapPageState["working"]; onClose?: () =>
         box: { width: 1200, height: 700 },
         onClose: props.onClose ?? (() => {}),
         onExpand: props.onExpand ?? (() => {}),
+        onPeek: props.onPeek ?? (() => {}),
       }),
     ),
   );
@@ -141,5 +154,28 @@ describe("the note card", () => {
   test("on a phone the button says Open note", async () => {
     await render({ working: [], compact: true });
     expect(byTest("map-peek-expand")[0]!.textContent).toBe("Open note");
+  });
+
+  test("words are drawn as the editor draws them, and a link opens its note", async () => {
+    // Dev2 (2026-10-28): "in map notes preview, links don't show up properly [[]]".
+    mockText = "**Status:** draft. See [[#Adoption]].\n\nSee also: [[Pricing]] · [[Gone]]\n\n---";
+    const peeked: OpenPeek[] = [];
+    let expanded = 0;
+    await render({ working: [], onPeek: (next) => peeked.push(next), onExpand: () => (expanded += 1) });
+    await advance(0);
+    const body = byTest("map-peek-body")[0]!.textContent!;
+    expect(body).toContain("Status: draft. See #Adoption.");
+    expect(body).toContain("See also: Pricing · Gone");
+    expect(body).not.toMatch(/\*\*|\[\[|\]\]|---/);
+    expect(byTest("map-peek-rule")).toHaveLength(1);
+    expect(byTest("map-peek-link-missing")[0]!.textContent).toBe("Gone");
+
+    const links = Array.from(byTest("map-peek-link")) as HTMLElement[];
+    expect(links.map((l) => l.textContent)).toEqual(["#Adoption", "Pricing"]);
+    await act(async () => links[1]!.click());
+    expect(peeked).toEqual([{ ...NOTE, path: "1-projects/pricing.md" }]);
+    // A heading of this note opens the note itself, as Expand does.
+    await act(async () => links[0]!.click());
+    expect(expanded).toBe(1);
   });
 });

@@ -1,4 +1,5 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { indexByName, resolveLink } from "@context/shared/src/links";
 import { fileTitle, folderLabel, noteKey, splitPath } from "./engine/paths";
 import type { MapActor } from "./engine/timeline";
 import type { ActorRef, MapEvent, WorkspaceGraph } from "./types";
@@ -34,6 +35,12 @@ export type NameBook = {
   /** The graph's own name for a note, or `null` when no graph on the map holds it. */
   known(workspaceId: string, path: string): string | null;
   workspace(workspaceId: string): string;
+  /**
+   * The note a wiki link in `fromPath` names, as the editor resolves it, when
+   * that note is on the map; `null` when it is not. A bare `#heading` names
+   * the note it is in.
+   */
+  link(workspaceId: string, fromPath: string, target: string): string | null;
 };
 
 /**
@@ -44,10 +51,19 @@ export type NameBook = {
 export function nameBook(graphs: readonly WorkspaceGraph[]): NameBook {
   const titles = new Map<string, string>();
   const names = new Map<string, string>();
+  const paths = new Map<string, string[]>();
   for (const g of graphs) {
     names.set(g.workspaceId, g.name);
+    paths.set(g.workspaceId, g.nodes.map((n) => n.path));
     for (const n of g.nodes) titles.set(noteKey(g.workspaceId, n.path), n.title);
   }
+  // Built on the first link a card draws, per workspace, not on every map read.
+  const byName = new Map<string, Map<string, string[]>>();
+  const namesIn = (ws: string) => {
+    let index = byName.get(ws);
+    if (index === undefined) byName.set(ws, (index = indexByName(paths.get(ws) ?? [])));
+    return index;
+  };
   return {
     title: (ws, path) => isolateForDisplay(titles.get(noteKey(ws, path)) ?? fileTitle(path)),
     known: (ws, path) => {
@@ -55,6 +71,11 @@ export function nameBook(graphs: readonly WorkspaceGraph[]): NameBook {
       return title === undefined ? null : isolateForDisplay(title);
     },
     workspace: (ws) => isolateForDisplay(names.get(ws) ?? "another workspace"),
+    link: (ws, fromPath, target) => {
+      if (target.trim().startsWith("#")) return fromPath;
+      const path = resolveLink({ kind: "wiki", target }, fromPath, namesIn(ws));
+      return path !== null && titles.has(noteKey(ws, path)) ? path : null;
+    },
   };
 }
 
