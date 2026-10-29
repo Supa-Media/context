@@ -54,7 +54,8 @@ export function agentGrantCovers(products: readonly GoogleProduct[], scopes: rea
 }
 
 interface ScopedConnection {
-  workspaceId?: string;
+  /** Required, so a row passed without it cannot quietly read the global settings in place of its workspace's (the canary). */
+  workspaceId: string;
   scopes: string[];
   agentGrant?: { scopes: string[] };
 }

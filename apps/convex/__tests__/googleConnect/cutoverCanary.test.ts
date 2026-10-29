@@ -19,6 +19,10 @@
  *     names nobody".
  *  4. `mintAccessToken` reading `grantFor` without the workspace's env fails
  *     "the canary workspace's AI mints only from the agent grant".
+ *  5. `aiScopesOf` defaulting to the global env fails "the app shows the
+ *     canary account's Gmail as read-only for AI" and "the canary's calendar
+ *     read refuses an account with no agent grant". `workspaceId` is required
+ *     on the row it reads, so a caller cannot leave it out.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -30,9 +34,12 @@ import {
   CALENDAR_OWNED_SCOPE,
   CALENDAR_SCOPES,
   CALENDAR_WRITE_SCOPE,
+  GMAIL_COMPOSE_SCOPE,
   GMAIL_SCOPES,
   IDENTITY_SCOPES,
 } from "../../functions/lib/googleOAuth";
+import { hashToken } from "../../functions/lib/crypto";
+import { ACCESS_A, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
 import { cutoverCanary, googleEnvFor } from "../../functions/lib/googleConnect/clients";
 import { asUser, createUser, createWorkspace, seedGoogleConnection, setupTest } from "../fixtures.helpers";
 import { REDIRECT, enableAllGoogleConnect } from "./fixtures.helpers";
@@ -93,7 +100,7 @@ async function canaryAndNeighbour() {
     await t.run((ctx) =>
       ctx.db.patch(connectionId, {
         products: ["gmail", "calendar"],
-        scopes: [...IDENTITY_SCOPES, ...GMAIL_SCOPES, ...CALENDAR_SCOPES, CALENDAR_WRITE_SCOPE],
+        scopes: [...IDENTITY_SCOPES, ...GMAIL_SCOPES, GMAIL_COMPOSE_SCOPE, ...CALENDAR_SCOPES, CALENDAR_WRITE_SCOPE],
         encryptedAccessToken: standardAccess,
         accessTokenExpiresAt: Date.now() + HOUR,
       }),
@@ -192,5 +199,31 @@ describe("the canary runs the final scopes on its workspace alone", () => {
       }),
     ).rejects.toThrow();
     expect(await asUser(t, canaryOwner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId: neighbour })).toEqual([]);
+  });
+
+  test("the app shows the canary account's Gmail as read-only for AI; its neighbour's as able to send", async () => {
+    const { t, canary, canaryOwner, neighbour, neighbourOwner } = await canaryAndNeighbour();
+    const readOnly = async (owner: Id<"users">, workspaceId: Id<"workspaces">) =>
+      (await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, { workspaceId }))[0]?.readOnly;
+    expect(await readOnly(canaryOwner, canary)).toEqual(["gmail"]);
+    expect(await readOnly(neighbourOwner, neighbour)).toEqual([]);
+  });
+});
+
+describe("the canary reaches the read routes", () => {
+  test("the canary's calendar read refuses an account with no agent grant; the same account outside it reads", async () => {
+    const tenants = await twoConnectedTenants();
+    const connectionId = await seedGoogleConnection(tenants.t, { workspaceId: tenants.aliceWs, boundBy: tenants.alice, address: "alice@gmail.example" });
+    await tenants.t.run(async (ctx) => {
+      await ctx.db.patch(connectionId, { products: ["calendar"], scopes: [CALENDAR_SCOPES[0], CALENDAR_WRITE_SCOPE] });
+      await ctx.db.patch(tenants.grantA, { scopes: ["context:read", "context:write", "context:private"] });
+    });
+    const args = { hashedAccessToken: await hashToken(ACCESS_A), expectedWorkspaceId: tenants.aliceWs as string };
+    vi.stubEnv("GOOGLE_AGENT_OAUTH_CLIENT_ID", AGENT_ID);
+    vi.stubEnv("GOOGLE_AGENT_CLIENT_ACTIVE", "false");
+    vi.stubEnv("GOOGLE_CUTOVER_CANARY_WORKSPACES", "none");
+    expect(await tenants.t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, args)).toMatchObject({ ok: true });
+    vi.stubEnv("GOOGLE_CUTOVER_CANARY_WORKSPACES", tenants.aliceWs as string);
+    expect(await tenants.t.mutation(internal.functions.personCalendar.claimPersonCalendarRead, args)).toMatchObject({ ok: false });
   });
 });
