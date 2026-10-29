@@ -20,6 +20,7 @@ import { LINES, setup } from "./groupWorld.testing";
 import { answerHanded, failHanded, MAX_STARTS, TURN_KEY } from "./groupTurnRun";
 import { ANSWER_RETRIES, runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
 import type { Fetch } from "./clients";
+import { checkReview, REVIEW_KEY, REVIEW_QUIET_MS, watchConversation } from "./reviewWatch";
 
 type StepConfig = { retries?: { limit: number } };
 
@@ -112,6 +113,32 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text === GROUP_LINES.failed)).toHaveLength(1);
       expect(await storage.get(TURN_KEY)).toBeUndefined();
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
+    });
+
+    it("a turn that failed is still scored: the ask and the line sent instead go to the review, once", async () => {
+      // Tex Devs, 2026-10-29: every reply failed, and no review was ever asked for.
+      const { storage, w, deps, run } = handedWorld(groupId);
+      const reviews: Record<string, unknown>[] = [];
+      deps.fetch = (async (url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === "/agent") return new Response("down", { status: 502 });
+        if (path === "/agent/review") return reviews.push(JSON.parse(String(init?.body))), Response.json({ filed: "full" });
+        return await w.deps.fetch(url, init);
+      }) as unknown as Fetch;
+      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      await drainGroup(storage, deps);
+      expect((await run()).outcome).toBe("failed");
+      expect(await storage.get(REVIEW_KEY)).toBeDefined();
+      const quiet = { ...deps, now: () => deps.now() + REVIEW_QUIET_MS, mintGroup: async () => ({ accessToken: "group-tok-fake", names: [] }) };
+      expect(await checkReview(storage, quiet)).toBe(true);
+      expect(reviews[0].failed).toEqual([
+        { tex: false, text: "Tex what's on tonight" },
+        { tex: true, text: GROUP_LINES.failed },
+      ]);
+      // A later quiet spell with no new failure sends none of it again.
+      await watchConversation(storage, { kind: "group", message: w.message("Tex what's on tonight"), people: [] }, deps.now());
+      expect(await checkReview(storage, quiet)).toBe(true);
+      expect(reviews[1].failed).toBeUndefined();
     });
 
     it("the logs say a turn ran through the workflow, and on which attempt it answered or gave up", async () => {

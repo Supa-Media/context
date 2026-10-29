@@ -40,7 +40,7 @@ import { test } from "node:test";
 
 import { appendConversation } from "../src/agent/conversation.js";
 import { createFeedbackMethods, TEX_REVIEW_FILE_TIMEOUT_MS } from "../src/controlPlane/feedback.js";
-import { handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
+import { failedOf, handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, reviewOutcome, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
 
 const ENV = { TEX_REVIEW: "on", AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "gw-fake", AI_GATEWAY_TOKEN: "fake-token-0123456789abcdef" };
 const SCORES = { goal: 4, independence: 3, turns: 5, friendly: 6, calm: 2 };
@@ -272,7 +272,38 @@ test("only Tex's own texting grants may ask for a review, and a group names its 
   const store = memoryStore();
   await texted(store, ["find my avocado note", "Here it is."]);
   const answered = await handleReview(request({ conversation: "texts" }), { ...ENV }, store, SESSION, { ...plane("scores"), texReviewTier: async () => null });
-  assert.deepEqual(await answered.json(), { filed: null });
+  assert.deepEqual(await answered.json(), { filed: null, why: "no_tier" });
+});
+
+test("asked is not filed: each review that files nothing says why", async () => {
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  assert.deepEqual(await reviewOutcome({ ...args, env: { TEX_REVIEW: "off" }, controlPlane: plane("scores") }), { filed: null, why: "off" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road("no idea").request }), { filed: null, why: "no_score" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: { ...plane("scores"), fileTexReview: async () => null }, request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "not_filed" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: "scores", why: null });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "nothing_new" });
+});
+
+test("a conversation whose every ask failed is reviewed from the lines the Worker sent, and moves no mark", async () => {
+  // Tex Devs, 2026-10-29: every reply failed, nothing was kept, and nothing was scored.
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  await reviewConversation({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request });
+  const marks = () => [...store.objects.entries()].filter(([key]) => key.startsWith(".context/agent/reviews/"));
+  const before = marks();
+  const lines = failedOf([{ tex: false, text: "Tex what's on tonight" }, { tex: true, text: "I couldn't answer that one. Try again in a bit." }, { text: 7 }, "junk", null]);
+  assert.equal(lines.length, 2, "anything that is not a line is left out");
+  const control = plane("full");
+  const model = road(FULL_ANSWER);
+  assert.equal(await reviewConversation({ ...args, controlPlane: control, failed: lines, request: model.request }), "full");
+  assert.match(model.asked[0].messages[0].text, /Them: Tex what's on tonight\n\nTex \(could not answer, sent instead\): I couldn't answer that one/);
+  assert.equal(control.filed[0].texts, 1);
+  assert.deepEqual(marks(), before, "no kept turn was read, so no mark moved");
+  // Without a line Tex sent instead, there is nothing new to review.
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: control, failed: lines.slice(0, 1), request: model.request }), { filed: null, why: "nothing_new" });
 });
 
 test("after a turn, only 'fix this' or frustration reviews at once", async () => {

@@ -130,12 +130,14 @@ function clip(text, max) {
  * what, and the names of the tools each answer used. `after` is what a group
  * said after Tex's last answer, when it said anything.
  */
-export function transcriptOf(turns, after = []) {
+export function transcriptOf(turns, after = [], failed = []) {
   const lines = turns.map((turn) =>
     turn.role === "user"
       ? `Them: ${clip(turn.text, MAX_TURN_CHARS)}`
       : `Tex: ${clip(turn.text, MAX_TURN_CHARS)}${turn.tools?.length ? `\n  (used: ${turn.tools.join(", ")})` : ""}`,
   );
+  // Asks Tex never answered: the turn failed and the chat was sent a fixed line instead.
+  for (const line of failed) lines.push(line.tex ? `Tex (could not answer, sent instead): ${clip(line.text, MAX_TURN_CHARS)}` : `Them: ${clip(line.text, MAX_TURN_CHARS)}`);
   for (const line of after) lines.push(`${line.from ? `@${line.from}` : "Someone"} (after Tex's last text): ${clip(line.text, MAX_TURN_CHARS)}`);
   let text = lines.join("\n\n");
   // The newest is what ended it: keep that end when it is long.
@@ -244,10 +246,38 @@ async function writeMark(store, key, mark) {
   await store.put(markKey(key), JSON.stringify({ version: 1, mark }));
 }
 
+/** At most this many unanswered lines are read from the Worker, each clipped as a turn is. */
+export const MAX_FAILED_LINES = 20;
+
+/**
+ * What the Worker says went unanswered since Tex's last answer: the asks
+ * whose turn failed and the fixed lines the chat got instead, oldest first.
+ * Read strictly: anything that isn't one is left out.
+ */
+export function failedOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((line) => line !== null && typeof line === "object" && typeof line.text === "string" && line.text.trim() !== "")
+    .slice(-MAX_FAILED_LINES)
+    .map((line) => ({ tex: line.tex === true, text: line.text.trim().slice(0, MAX_TURN_CHARS) }));
+}
+
 /**
  * Review one conversation: what came after the last review, scored and
  * filed. Answers what was filed (`full` or `scores`), or null when nothing
  * was: switched off, nothing new, no model, or the control plane said no.
+ */
+export async function reviewConversation(options) {
+  return (await reviewOutcome(options)).filed;
+}
+
+/**
+ * As `reviewConversation`, with why nothing was filed (`off`, `nothing_new`,
+ * `unmarked`, `no_tier`, `no_score`, `not_filed`), so the Worker's log tells
+ * a review that was asked from one that was filed. A conversation whose asks
+ * all failed (`failed`) is reviewed too, though no answer was kept: those are
+ * the ones that went worst (Tex Devs, 2026-10-29, every reply failed and
+ * nothing was scored). It moves no mark, having read no kept turns.
  *
  * The turns are marked reviewed before the model is asked, not after the
  * review is filed. A review runs after the answer has gone, where the host
@@ -262,38 +292,43 @@ async function writeMark(store, key, mark) {
  * landing (01:26 and 02:31 on 2026-10-25). A mark that cannot be written
  * files nothing.
  */
-export async function reviewConversation({ env, store, session, controlPlane, history, key, reason, after = [], request = requestViaGateway, log = (line) => console.log(line) }) {
-  if (env?.TEX_REVIEW !== "on") return null;
+export async function reviewOutcome({ env, store, session, controlPlane, history, key, reason, after = [], failed = [], request = requestViaGateway, log = (line) => console.log(line) }) {
+  const none = (why) => ({ filed: null, why });
+  if (env?.TEX_REVIEW !== "on") return none("off");
   const config = aiGatewayConfig(env);
-  if (!config || typeof controlPlane?.texReviewTier !== "function") return null;
+  if (!config || typeof controlPlane?.texReviewTier !== "function") return none("off");
   const mark = await readMark(store, key);
-  const turns = await sinceReviewed(history, mark);
-  if (!turns.some((turn) => turn.role === "assistant")) return null;
+  const answered = await sinceReviewed(history, mark);
+  const failedOnly = !answered.some((turn) => turn.role === "assistant");
+  if (failedOnly && !failed.some((line) => line.tex)) return none("nothing_new");
+  const turns = failedOnly ? [] : answered;
   // Claimed before anything slow, the tier included, so a review racing this one reads the new mark.
-  try {
-    await writeMark(store, key, await markOf(turns));
-  } catch {
-    log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, filed: null, unmarked: true }));
-    return null;
+  if (!failedOnly) {
+    try {
+      await writeMark(store, key, await markOf(turns));
+    } catch {
+      log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, filed: null, unmarked: true }));
+      return none("unmarked");
+    }
   }
   // Best effort: a mark that could not be put back skips these turns, never counts them twice. A null mark reads as none.
-  const unclaim = () => writeMark(store, key, mark).catch(() => {});
+  const unclaim = () => (failedOnly ? Promise.resolve() : writeMark(store, key, mark).catch(() => {}));
   const tier = await controlPlane.texReviewTier(session.accessToken).catch(() => null);
   if (tier === null) {
     await unclaim();
-    return null;
+    return none("no_tier");
   }
-  const transcript = transcriptOf(turns, after);
+  const transcript = transcriptOf(turns, after, failed);
   const metadata = { feature: "self-review", workspace: String(session.workspaceId) };
   const review = await scoreConversation({ transcript, words: tier === "full", config, request, metadata });
   if (review === null) {
     await unclaim();
     log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed: null }));
-    return null;
+    return none("no_score");
   }
   // A filing that never answered (timed out, cut off) may well have landed: its turns stay marked. Only a
   // control plane that answered "nothing filed" gives them back, or the next review scores them again.
-  let answered = true;
+  let reached = true;
   const filed = await controlPlane
     .fileTexReview(session.accessToken, {
       reason,
@@ -301,17 +336,17 @@ export async function reviewConversation({ env, store, session, controlPlane, hi
       // Codes and a count, on every tier: what it was for, what showed frustration, how many texts it took.
       ...(review.task ? { task: review.task } : {}),
       signals: review.signals,
-      texts: turns.filter((turn) => turn.role === "user").length,
+      texts: turns.filter((turn) => turn.role === "user").length + failed.filter((line) => !line.tex).length,
       ...(tier === "full" ? { words: { ...review.words, transcript } } : {}),
     })
     .catch(() => {
-      answered = false;
+      reached = false;
       return null;
     });
-  if (filed === null && answered) await unclaim();
+  if (filed === null && reached) await unclaim();
   // Numbers only: never anybody's words.
-  log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed, ...review.scores, task: review.task, signals: review.signals }));
-  return filed;
+  log(JSON.stringify({ event: "tex_review", workspace: session.workspaceId ?? null, reason, tier, filed, ...(failedOnly ? { failed: true } : {}), ...review.scores, task: review.task, signals: review.signals }));
+  return filed === null ? none("not_filed") : { filed, why: null };
 }
 
 /** A conversation's review key: the person's own texts, or a group chat's memory. */
@@ -356,9 +391,10 @@ export async function handleReview(request, env, store, session, controlPlane) {
   if (grouped && group === null) return json({ error: "invalid_request", error_description: "A group chat's review names its chat." }, 400);
   try {
     const history = group !== null ? await readGroupMemory(store, group) : await readConversation(store, "texts");
-    const filed = await reviewConversation({ env, store, session, controlPlane, history, key: await keyFor(group), reason: "ended", after: group?.chat ?? [] });
-    return json({ filed });
+    const failed = failedOf(body?.failed);
+    const { filed, why } = await reviewOutcome({ env, store, session, controlPlane, history, key: await keyFor(group), reason: "ended", after: group?.chat ?? [], failed });
+    return json({ filed, ...(why ? { why } : {}) });
   } catch {
-    return json({ filed: null });
+    return json({ filed: null, why: "error" });
   }
 }

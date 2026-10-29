@@ -26,6 +26,7 @@ import { dropParts, say, sendingFor } from "./groupSay";
 import { GROUP_LINES } from "./groupLines";
 import { ServiceError } from "./clients";
 import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
+import { watchFailed } from "./reviewWatch";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 
 export const TURN_KEY = "gturn";
@@ -108,7 +109,10 @@ async function stuck(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   const last = entries.at(-1)?.[1].message;
   if (last === undefined) return;
   if (last.routine !== undefined) await turnFailed(storage, deps, last, false);
-  else await say(storage, deps, last, GROUP_LINES.stuck, { system: true, reason: "failed" }).catch(() => {});
+  else {
+    await say(storage, deps, last, GROUP_LINES.stuck, { system: true, reason: "failed" }).catch(() => {});
+    await watchFailed(storage, deps, last);
+  }
 }
 
 /** `/group-answer`: answer the handed turn `id` here, once at a time. */

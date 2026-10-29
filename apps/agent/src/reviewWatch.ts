@@ -18,11 +18,14 @@
  */
 
 import { openSession, post, ServiceError, type Fetch } from "./clients";
+import { keptEvents } from "./events";
 import type { InboxStorage } from "./inbox";
-import { chatBefore, peopleHash, sha256Hex } from "./groupChat";
+import { chatBefore, eventPeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 
 export const REVIEW_KEY = "review-watch";
+/** Up to when a group's unanswered asks were last sent for review, so none is scored twice. */
+export const FAILED_UPTO_KEY = "review-failed-upto";
 /** How long a chat stays quiet before its conversation counts as ended. */
 export const REVIEW_QUIET_MS = 20 * 60_000;
 
@@ -67,6 +70,15 @@ export async function watchConversation(storage: InboxStorage, watch: { kind: "o
   await armBy(storage, dueAt);
 }
 
+/**
+ * A turn that failed is scored as an answered one is, twenty quiet minutes
+ * on (`failedSince`): a chat where every reply failed is the one most worth
+ * reviewing, and was never watched (Tex Devs, 2026-10-29).
+ */
+export async function watchFailed(storage: InboxStorage, deps: { now: () => number }, message: GroupMessage): Promise<void> {
+  await watchConversation(storage, { kind: "group", message, people: peopleOf(message.line, message.participants) }, deps.now()).catch(() => {});
+}
+
 /** From the alarm: ask for the review once the chat has been quiet long enough. True when it was asked. */
 export async function checkReview(storage: InboxStorage, deps: ReviewDeps): Promise<boolean> {
   const watch = await storage.get<Watch>(REVIEW_KEY);
@@ -98,21 +110,45 @@ export async function checkReview(storage: InboxStorage, deps: ReviewDeps): Prom
       people: [...new Set(handles.values())].filter(Boolean),
       chat: said.lines.filter((line) => line.text).map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })),
     };
-    return await ask(deps, minted.accessToken, { group });
+    const failed = await failedSince(storage, message, now);
+    return await ask(deps, minted.accessToken, { group, ...(failed.length > 0 ? { failed } : {}) });
   } catch (error) {
     return logReview(error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error");
   }
 }
 
 async function ask(deps: ReviewDeps, accessToken: string, body: Record<string, unknown>): Promise<boolean> {
-  const { status } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/review`, accessToken, body);
-  logReview(status === 200 ? "asked" : `gateway:${status}`);
-  return status === 200;
+  const { status, json } = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/review`, accessToken, body);
+  if (status !== 200) return logReview(`gateway:${status}`);
+  // Asked is not filed: the gateway says which, or why not (`selfReview.js` `reviewOutcome`).
+  const answer = (json ?? {}) as { filed?: unknown; why?: unknown };
+  const filed = typeof answer.filed === "string" ? answer.filed : null;
+  logReview("asked", filed !== null ? { filed } : { why: typeof answer.why === "string" ? answer.why : "none" });
+  return true;
+}
+
+/**
+ * What a group's chat was never answered since Tex's last real answer: the
+ * asks whose turn failed, and the fixed line sent instead (`turnFailed`),
+ * oldest first, from the events this object keeps for the gateway anyway.
+ * Only when a turn did fail; each sent once (`FAILED_UPTO_KEY`); only what
+ * was said in front of the people the review's grant is for, as `chatBefore`.
+ */
+export async function failedSince(storage: InboxStorage, message: GroupMessage, now: number): Promise<{ tex: boolean; text: string }[]> {
+  const upto = (await storage.get<number>(FAILED_UPTO_KEY)) ?? -1;
+  const people = await eventPeople(storage, message);
+  const events = (await keptEvents(storage, message.groupId)).sort((a, b) => a.at - b.at);
+  const lastAnswer = events.reduce((at, event) => (event.from.kind === "tex" && event.delivered !== false ? Math.max(at, event.at) : at), -1);
+  const since = events.filter((event) => event.at > Math.max(upto, lastAnswer) && event.text);
+  const failedLine = (event: (typeof since)[number]) => event.from.kind === "system" && (event.reason === "failed" || event.reason === "timed_out");
+  await storage.put(FAILED_UPTO_KEY, now);
+  if (!since.some(failedLine)) return [];
+  return since.filter((event) => (event.from.kind === "person" && event.people === people) || failedLine(event)).map((event) => ({ tex: event.from.kind !== "person", text: event.text ?? "" }));
 }
 
 /** One line per outcome, never a phone or a word. */
-function logReview(outcome: string): false {
-  console.log(JSON.stringify({ event: "review_watch", outcome }));
+function logReview(outcome: string, result: { filed: string } | { why: string } | Record<string, never> = {}): false {
+  console.log(JSON.stringify({ event: "review_watch", outcome, ...result }));
   return false;
 }
 
