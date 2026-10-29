@@ -20,7 +20,7 @@ export const NOTES_CSS = `
 .np-pill{font-weight:600;background:var(--ink);color:var(--card)!important;padding:10px 16px;border-radius:10px}
 
 .np-hero{padding-top:clamp(32px,7vh,72px);padding-bottom:48px;text-align:center}
-.np-h1{max-width:820px;margin:0 auto;font-family:var(--serif);font-weight:500;font-size:clamp(40px,6vw,72px);line-height:1.04;letter-spacing:-.02em;text-wrap:balance}
+.np-h1{max-width:1000px;margin:0 auto;font-family:var(--serif);font-weight:500;font-size:clamp(40px,6vw,72px);line-height:1.04;letter-spacing:-.02em;text-wrap:balance}
 .np-sub{max-width:600px;margin:22px auto 0;font-size:19px;line-height:1.5;color:var(--ink2);text-wrap:pretty}
 .np-sign{display:flex;justify-content:center;margin-top:30px;text-align:left;scroll-margin-top:24px}
 .np-sign .tp-in{width:100%}

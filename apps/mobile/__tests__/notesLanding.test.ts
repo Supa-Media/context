@@ -35,8 +35,8 @@ describe("page a, the notes page", () => {
     expect(new Set(starts)).toEqual(new Set(["join"]));
   });
 
-  test("leads with notes, and sends texting to tex.lc rather than drawing a chat", () => {
-    expect(PAGE).toMatch(/<h1 className="np-h1">A notes app that every AI you use can read\.<\/h1>/);
+  test("leads with Dev2's own words, and sends texting to tex.lc rather than drawing a chat", () => {
+    expect(PAGE).toMatch(/<h1 className="np-h1">Context gives your brain that feeling you have when your room is clean\.<\/h1>/);
     expect(PARTS).toContain('href="https://tex.lc"');
     expect(PAGE).toContain('href="https://tex.lc"');
     expect(PAGE + PARTS).not.toMatch(/TexChat|tp-chat|tp-b\b/);
