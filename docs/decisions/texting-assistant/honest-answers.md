@@ -186,3 +186,14 @@ with a denial about a calendar nobody had mentioned.
   check-in, and Tex asked what the yes was for.
 
 Tests: `agentLosesTrack.test.mjs`.
+
+## One checked account of a save, and no made-up cause (2026-10-29)
+
+From the same Tex Devs review: after its texts disagreed about a page save,
+Tex said it had "signed in anyway with the code", though nothing in the chat
+had signed in. `saveAccount.js`, beside the confession check, sends an answer
+back once when it says a note didn't save while the turn's last failed save
+of it was never read back (read it, then tell it either way; a later save
+that worked is told as saved), and once when it gives a sign-in or a code as
+the cause with no browser, login or code step on the record of the turn or
+the last six texts. Tests: `apps/mcp/test/agentSaveAccount.test.mjs`.

@@ -50,12 +50,13 @@ export type JobOrigin =
 export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true };
+export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true; finalPass?: string };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
-export type JobUpdate = { id: string; state: JobState; status?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string };
+/** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
+export type JobUpdate = { id: string; state: JobState; status?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string; pass?: string };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -257,6 +258,12 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
   const state: JobState = update.state === "done" || update.state === "failed" ? update.state : "running";
   // A job stopped at their ask stays stopped, whatever its object says on its way out.
   if (entry.stopped) return { ...entry, quiet: true };
+  // A job reports its result once: after one pass finished it, another pass's word (a turn overtaken by a retry)
+  // is dropped, so the chat never gets two answers that disagree. The same pass offering its last word again goes on.
+  if (entry.state !== "running" && entry.finalPass !== undefined && update.pass !== entry.finalPass) {
+    log("second_result_dropped", update.id);
+    return { ...entry, quiet: true };
+  }
   const status = line(update.status, MAX_STATUS);
   const step = line(update.step, 140);
   const next: JobEntry = {
@@ -264,7 +271,7 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     state,
     ...(status ? { status } : {}),
     ...(step ? { steps: [...(entry.steps ?? []), { at: now, text: step }].slice(-MAX_STEPS_KEPT) } : {}),
-    ...(state !== "running" ? { finishedAt: now } : {}),
+    ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}) } : {}),
   };
   await storage.put(entryKey(update.id), next);
   return next;
@@ -279,7 +286,7 @@ export async function noteJobSent(storage: InboxStorage, id: string, sent: numbe
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, vaultWatch } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, vaultWatch, pass } = value as Record<string, unknown>;
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || (state !== "running" && state !== "done" && state !== "failed")) return null;
   return {
@@ -288,6 +295,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof status === "string" ? { status } : {}),
     ...(typeof step === "string" ? { step } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
+    ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),

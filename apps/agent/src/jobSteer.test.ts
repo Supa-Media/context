@@ -161,7 +161,7 @@ describe("stopping a running job", () => {
     await runJob(storage, deps);
     expect(steered[0].body).toMatchObject({ text: "stop the logo", stop: true }); // its turn winds up at its next step
     expect(asked).toHaveLength(1);
-    expect(reports.at(-1)).toEqual({ id: "job-1234-abcd", state: "failed", status: "Stopped", first: 0 });
+    expect(reports.at(-1)).toEqual({ id: "job-1234-abcd", state: "failed", status: "Stopped", first: 0, pass: expect.any(String) });
     expect(storage.data.has(RUN_KEY)).toBe(false);
     expect(storage.data.has(STOP_KEY)).toBe(false);
   });

@@ -212,7 +212,7 @@ describe("background jobs", () => {
     const { deps, asked, reports } = jobDeps([], { linked: false });
     await runJob(storage, deps);
     expect(asked).toEqual([]);
-    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0 }]);
+    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0, pass: expect.any(String) }]);
   });
 
   it("texts the result under the ask it came from, and an update offered again repeats no text", async () => {

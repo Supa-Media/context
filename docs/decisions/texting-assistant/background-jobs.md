@@ -146,3 +146,15 @@ The 3-job limit is told when it bites. The gateway refuses a fourth job with
 words for Tex to say, and since 2026-10-29 a job lost to two texts racing
 past the limit, or one that could not be handed off, gets a line in the
 answer (`notStartedText`) instead of a silent "on it".
+
+**One job texts one result** (2026-10-29, Tex Devs review c95b1e). A job's
+Durable Object was reset under its pass, the workflow retried the step, and
+two turns of the same job ran side by side: one texted "I couldn't save the
+page update" with a bug report, the other, after re-arming the finished job,
+"the save went through after all". Each pass now takes the job's lease
+(`jobRun.ts` `PASS_KEY`) when its turn starts; a pass that finds the lease
+taken or gone when its turn returns says and stores nothing (`stale_pass` in
+the log), and the chat's inbox texts one finishing word per job, from the
+pass that sent it first (`jobs.ts` `finalPass`; the same pass offering it
+again is still taken). Dropping the lease brings back two answers that
+disagree. Tests: `apps/agent/src/jobPass.test.ts`.
