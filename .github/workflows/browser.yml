@@ -379,6 +379,9 @@ jobs:
           status=0
           pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
             --output e2e/webkit/test-results-nonce-checks e2e/webkit/cspStyleNonce.spec.ts || status=$?
+          # What the checks' deliberate refusals looked like as reports, before the editor run resets the log.
+          where=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl.where
+          if [ -s "$where" ]; then sort "$where" | uniq -c | sort -rn | head -20; fi
           pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
             --output e2e/webkit/test-results-nonce \
             e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
