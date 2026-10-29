@@ -310,7 +310,9 @@ async function renonced(held) {
     const value = headers.get(name);
     if (value !== null) headers.set(name, value.split(`'nonce-${old}'`).join(`'nonce-${fresh}'`));
   }
+  // The body is read decoded and written again: the stored length and encoding describe other bytes.
   headers.delete("Content-Length");
+  headers.delete("Content-Encoding");
   const body = (await held.text()).split(`nonce="${old}"`).join(`nonce="${fresh}"`);
   return new Response(body, { status: held.status, statusText: held.statusText, headers });
 }

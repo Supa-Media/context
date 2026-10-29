@@ -380,6 +380,33 @@ describe("a navigation", () => {
     expect(new Set(nonces).size).toBe(3);
   });
 
+  test("a held shell marked as compressed is replayed as the decoded body it was read as, with no stale length or encoding", async () => {
+    const OLD = "b2xkb2xkb2xkb2xkb2xkbw==";
+    const html = `<!doctype html><style id="expo-reset" nonce="${OLD}">a{}</style><style id="context-ground" nonce="${OLD}">b{}</style>`;
+    worker.setFetch(
+      async () =>
+        new Response(html, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html",
+            "Content-Encoding": "gzip",
+            "Content-Length": "123",
+            "Content-Security-Policy-Report-Only": `style-src 'self' 'nonce-${OLD}'`,
+          },
+        }),
+    );
+    await navigate(worker, `${ORIGIN}/console`);
+    worker.setFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const response = await navigate(worker, `${ORIGIN}/console`);
+    const nonce = response!.headers.get("Content-Security-Policy-Report-Only")!.match(/'nonce-([^']+)'/)![1]!;
+    expect(response!.headers.get("Content-Encoding")).toBeNull();
+    expect(response!.headers.get("Content-Length")).toBeNull();
+    expect(await response!.text()).toBe(html.split(OLD).join(nonce));
+  });
+
   test("a held shell without a nonce is replayed as it was", async () => {
     await navigate(worker, `${ORIGIN}/console`);
     worker.setFetch(async () => {

@@ -271,6 +271,10 @@ module.exports = [
         fetch: "readonly",
         Response: "readonly",
         URL: "readonly",
+        // A held shell's style nonce is minted again on every offline replay (`renonced`).
+        Headers: "readonly",
+        crypto: "readonly",
+        btoa: "readonly",
       },
     },
   },
