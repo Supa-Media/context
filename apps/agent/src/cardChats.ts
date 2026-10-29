@@ -15,10 +15,12 @@
  * - an ask's Yes or Not now, "yes" or "no", which the gateway then checks
  *   exactly as a typed one. The card carries a key of the ask it was sent
  *   under; tapped after a newer reply, it is no longer a yes (`settleCard`);
- * - the drawer's hello, which only says they have the app.
+ * - the drawer's hello, which only says they have the app;
+ * - the inbox and times cards, the emails or free times they chose (`dataCards.ts`).
  */
 
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
+import { dataCardText } from "./dataCards";
 import type { InboxStorage } from "./inbox";
 import type { SendPart } from "./outgoing";
 import { ourCardUrl, pickedText } from "./pickCard";
@@ -47,6 +49,8 @@ export function cardReply(appCard: unknown): CardReply | null {
     if (!ASK_KEY.test(ask) || (chose !== "1" && chose !== "2")) return null;
     return { text: chose === "1" ? "yes" : "no", ask };
   }
+  const data = dataCardText(url);
+  if (data !== null) return { text: data };
   const picked = pickedText(appCard);
   return picked === null ? null : { text: picked };
 }

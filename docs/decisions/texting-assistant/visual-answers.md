@@ -280,6 +280,20 @@ workspace with private access, no write (`personalOwnerReadClearance`).
 Tests: `apps/mcp/test/cards.test.mjs`, and `calendarRead.test.mjs` for the
 busy times.
 
+The pages are `/messages/inbox` (tap the emails Tex should take care of; the
+card back is `/tex/inbox?m=<address>/<id>&…` and reaches Tex as "Please take
+care of these emails: email:…") and `/messages/times` (the next five days,
+9 to 6 on the phone's clock, busy times left out, 30 minutes or an hour; up to
+five picked go back as `/tex/times?d=&z=&s=…` and read as the times written
+out on that clock), in `infra/router/src/messagesData.ts`, linked from the
+drawer. They run one constant script allowed by its hash, have no
+`connect-src`, set every fetched word with `textContent`, and send only what
+the person tapped. A card that came back shows what was chosen, read from its
+own address, and fetches nothing, so a friend tapping a times card in their
+chat sees the times, never their own week. The agent reads them in
+`apps/agent/src/dataCards.ts`. Tests: `infra/router/src/messagesData.test.ts`,
+`apps/agent/src/cardChats.test.ts`.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices

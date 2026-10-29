@@ -81,6 +81,20 @@ describe("a card sent back from their phone", () => {
     expect(cardReply(card("https://context.lc/tex/pick?o=A&o=B&c=2"))).toEqual({ text: "I pick 2: B" });
   });
 
+  it("is the emails they handed Tex, or the free times they picked, in words", () => {
+    expect(cardReply(card("https://context.lc/tex/inbox?m=me%40example.invalid%2F18c0ffee&m=me%40example.invalid%2F18c0ffef&m=me%40example.invalid%2F18c0ffee"))).toEqual({
+      text: "Please take care of these emails: email:me@example.invalid/18c0ffee, email:me@example.invalid/18c0ffef",
+    });
+    expect(cardReply(card("https://context.lc/tex/times?d=30&z=America%2FNew_York&s=2026-10-31T14%3A00%3A00.000Z&s=2026-10-30T17%3A00%3A00.000Z"))).toEqual({
+      text: "These times work for me (30 min each): Fri, Oct 30, 1:00 PM; Sat, Oct 31, 10:00 AM (America/New_York)",
+    });
+    // Anything malformed is dropped; a card naming nothing is not one.
+    expect(cardReply(card("https://context.lc/tex/inbox?m=no-at-sign%2F1&m=a%40b.example%2F..%2Fx"))).toBeNull();
+    expect(cardReply(card("https://context.lc/tex/times?z=Mars%2FOlympus&d=9999&s=2026-10-30T17%3A00%3A00.000Z"))).toEqual({ text: "These times work for me: Fri, Oct 30, 5:00 PM (UTC)" });
+    expect(cardReply(card("https://context.lc/tex/times?s=tomorrow"))).toBeNull();
+    expect(cardReply(card("https://context.lc/tex/inbox?m=me%40example.invalid%2F18c0ffee", "com.example.orders.MessagesExtension"))).toBeNull();
+  });
+
   it("is nothing from another app's card, another site, an ask with no answer or key, or a note's card", () => {
     expect(cardReply(card(`${ask}&c=1`, "com.example.orders.MessagesExtension"))).toBeNull();
     expect(cardReply(card(`${ask}&c=1`.replace("context.lc", "context.lc.evil.example")))).toBeNull();
