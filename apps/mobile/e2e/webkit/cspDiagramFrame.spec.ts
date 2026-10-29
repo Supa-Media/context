@@ -35,8 +35,9 @@ import { candidateRules, ENFORCED_REPORT_PATH, REPORT_PATH } from "./csp-candida
  *
  * Every frame's outcome is an annotation and one console line, and every
  * report is counted by the address it went to (enforced copy or report-only),
- * never by its content. The spec then expects every frame to have run, so a
- * failing run names exactly the frames that did not.
+ * never by its content. The spec then expects exactly the frames each engine
+ * was seen to block (`expectedBlocked`), so a failing run names the frames
+ * that changed.
  */
 
 const HERE = __dirname;
@@ -85,6 +86,24 @@ const VARIANTS: Variant[] = Object.keys(HEADERS).flatMap((headers) =>
     (["marker", "shipped"] as const).map((script) => ({ name: `${headers}.${page}-page.${script}-script`, headers, page, script })),
   ),
 );
+
+/** Whether a variant's frame enforces a `script-src 'self'`: by header, or by the shipped page's own meta policy. */
+function enforcesSelf(variant: Variant): boolean {
+  return ["bare-self", "candidate-copy", "candidate-all"].includes(variant.headers) || variant.page === "shipped";
+}
+
+/**
+ * What each engine was seen to do, held exactly, so a change either way fails.
+ * WebKit (runs 12be7a27 and 521be076) refuses an opaque-origin frame's own
+ * script under any enforcing `'self'` on plain HTTP, by IP or by name, and
+ * runs it on HTTPS. That is a limitation of testing over HTTP, which is why
+ * the functional diagram specs run over HTTPS (`E2E_HTTPS=1`); it is kept
+ * here as a stated expectation rather than as a failure nobody reads.
+ */
+function expectedBlocked(browserName: string, origin: string): string[] {
+  if (browserName !== "webkit" || new URL(origin).protocol !== "http:") return [];
+  return VARIANTS.filter(enforcesSelf).map((variant) => variant.name);
+}
 
 /** Serve `origin`: a host page, each variant under `/v/<name>/`, and a report sink that keeps counts only. */
 async function serve(page: Page, origin: string, reports: Map<string, number>): Promise<void> {
@@ -151,7 +170,7 @@ for (const [label, origin] of Object.entries(ORIGINS)) {
     console.log(`[${browserName}:${label}] ran ${JSON.stringify(ran)}`);
     console.log(`[${browserName}:${label}] reports ${JSON.stringify(Object.fromEntries(reports))}`);
     const blocked = Object.entries(ran).filter(([, value]) => !value).map(([name]) => name);
-    expect(blocked, "frames whose script did not run").toEqual([]);
+    expect(blocked, "frames whose script did not run").toEqual(expectedBlocked(browserName, origin));
   });
 }
 
@@ -188,5 +207,7 @@ test("the shipped diagram frame from the fixture's own server", async ({ page, b
   });
   test.info().annotations.push({ type: `${browserName}:fixture-server:shipped`, description: ran ? "ran" : "blocked" });
   console.log(`[${browserName}:fixture-server] ran ${ran} reports ${JSON.stringify(Object.fromEntries(reports))}`);
-  expect(ran, "the shipped diagram page, as the fixture serves it, runs its script").toBe(true);
+  // The shipped page's meta policy enforces `'self'`, so plain HTTP in WebKit refuses it, as above.
+  const refused = browserName === "webkit" && new URL(origin).protocol === "http:";
+  expect(ran, "the shipped diagram page, as the fixture serves it, runs its script exactly where expected").toBe(!refused);
 });

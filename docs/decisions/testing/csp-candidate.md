@@ -162,14 +162,33 @@ server too, with no headers at all, so the shipped page's own meta policy is
 enough to refuse its script on plain HTTP. The diagram renderer has never
 been tested working in WebKit by this fixture, candidate or not.
 
-So the job also runs over HTTPS (`E2E_HTTPS=1`). The Playwright config makes
-a throwaway self-signed certificate for the run, the static server answers
-over HTTPS on its own port, and only these browsers skip the certificate
-check. First `mermaid.spec.ts` runs from the plain server, then the full
-per-push spec list under `script`, with its own log check. The HTTP steps
-stay in the job and stay red. They are the evidence for the scheme
-difference, and no failure is ignored or excluded. Until the HTTPS run says
-otherwise, no production policy or origin list changes.
+So the diagram renderer's functional specs run over HTTPS (`E2E_HTTPS=1`).
+The Playwright config makes a throwaway self-signed certificate for the run,
+the static server answers over HTTPS on its own port, and only these
+browsers, in those steps, skip the certificate check. The job now runs:
+
+1. Over plain HTTP under `script`: the per-push list without
+   `mermaid.spec.ts`, plus the diagnostics, then the log check.
+   `cspDiagramFrame.spec.ts` holds the HTTP limitation as an exact
+   expectation. In WebKit, on an HTTP origin, the frames that enforce a
+   `'self'` are blocked and no others; everywhere else, nothing is blocked. A
+   change either way fails. It is stated there, not ignored, and the
+   functional diagram specs are not dropped; they moved to the HTTPS steps.
+2. Over HTTPS under `production`: `mermaid.spec.ts`, the diagnostics and the
+   probe below, with its own log copy and check.
+3. Over HTTPS under `script`: the whole per-push list, `mermaid.spec.ts`
+   included, with its own log copy and check.
+
+`cspNegativeProbe.spec.ts` proves enforcement in the browser, not just in the
+checker. It loads a shell path from the fixture's own server, keeps that
+response's exact headers, and swaps the body for one inline script no policy
+allows. Under `script` or `full` the script must not run, and exactly one
+enforced and one report-only `script-src-elem` refusal of `inline` in the
+shell must be reported. Under `production` the script must run, with only the
+report-only refusal. Its reports are caught by the spec and never reach the
+run's log, so a refusal made on purpose can neither hide nor stand in for one
+the functional specs caused. When the candidate was sabotaged (its
+`script-src` dropped), the probe failed.
 
 ### What this does not prove
 
