@@ -50,14 +50,8 @@ import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupCont
 import { noteGuestChat } from "./groupGuestPeople";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
-<<<<<<< HEAD
 export type { Command, ControlAnswer, GuestInfo };
 import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, timedReply, type ReplyClock, type SayMeta } from "./groupSay";
-=======
-export type { ControlAnswer, GuestInfo };
-export type { Command };
-import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
->>>>>>> origin/claude/project-thread-4ie53c
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
