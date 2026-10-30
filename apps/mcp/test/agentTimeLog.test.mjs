@@ -20,6 +20,8 @@
  *   `answersACheckIn` looking at the last text only → "the plan two texts
  *     after the routine's question" fails.
  *   `KEEPS` emptied → "a turn that saved the plan is let go" fails.
+ *   `ASKS_ABOUT_TIME` dropped from `dropsCheckInAnswer` → "a one-word answer
+ *     to a check-in that asked about a stretch of time…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -142,6 +144,23 @@ test("a plan given to the check-in and answered 'Will do.' with nothing saved ge
   const check = claimCheck({ question: PLAN, history });
   assert.equal(check.check("Will do."), CHECK_IN_ANSWER_NOTICE);
   assert.match(CHECK_IN_ANSWER_NOTICE, /say in one line what you logged/);
+});
+
+test("a one-word answer to a check-in that asked about a stretch of time is caught too (2026-10-30)", () => {
+  // As in the review: the time was only in Tex's question, and "work" got "Will do.".
+  const asked = (text) => [
+    { role: "user", text: ROUTINE_LINE },
+    { role: "assistant", text },
+  ];
+  assert.equal(dropsCheckInAnswer("Will do.", { question: "work", history: asked("What did 9 to 12 go to?") }), true);
+  assert.equal(dropsCheckInAnswer("Will do.", { question: "Gym, then lunch", history: asked("Since 6, what did the last 3 hours go to?") }), true);
+  assert.equal(dropsCheckInAnswer("Got it.", { question: "emails mostly", history: asked("Morning. What did 6 to 9 go to?") }), true);
+  assert.equal(dropsCheckInAnswer("Will do.", { question: "ok", history: asked("What did 9 to 12 go to?") }), false, "not an answer");
+  assert.equal(dropsCheckInAnswer("Will do.", { question: "thanks", history: asked("What did 9 to 12 go to?") }), false, "not an answer");
+  assert.equal(dropsCheckInAnswer("Will do.", { question: "work", history: asked("Reminder: call the bank.") }), false, "the check-in asked nothing");
+  const check = claimCheck({ question: "work", history: asked("What did 9 to 12 go to?") });
+  assert.equal(check.check("Will do."), CHECK_IN_ANSWER_NOTICE);
+  assert.match(CHECK_IN_ANSWER_NOTICE, /the times your check-in asked about/);
 });
 
 test("a turn that saved the plan, an answer that says more, and a text that isn't a check-in answer are let go", () => {
