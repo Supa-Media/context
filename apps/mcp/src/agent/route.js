@@ -206,9 +206,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let thumbsUp = false;
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`), and a 👎 on it is the no (`thumbsDownIsNo`).
-    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null });
-    const thumbsDown = !thumbsUp && (await thumbsDownIsNo(store, session, quoted, { who: group?.from || null }));
+    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null }); // a 👍 on the ask is that yes
+    const thumbsDown = !thumbsUp && (await thumbsDownIsNo(store, session, quoted, { who: group?.from || null })); // and a 👎 the no
     const settled = await settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
