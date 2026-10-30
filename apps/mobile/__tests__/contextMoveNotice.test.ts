@@ -129,8 +129,13 @@ describe("when it finishes", () => {
     expect(notice.text).toBe("Moved acme to @work. 1 encrypted note stayed here: a.md.");
   });
 
+  test("a clean one is never drawn: the tree already shows it (owner, 2026-10-30)", () => {
+    // SABOTAGE: dropping the `cleanlyDone` filter draws "Moved acme to @work." again.
+    expect(contextMoveNotices([move({ status: "complete", objects: 3 })], new Set())).toHaveLength(0);
+  });
+
   test("a dismissed one stops being drawn", () => {
-    const done = move({ id: "m2", status: "complete", objects: 3 });
+    const done = move({ id: "m2", status: "complete", objects: 3, skipped: [{ path: "a.md", reason: "encrypted" }] });
     expect(contextMoveNotices([done], new Set())).toHaveLength(1);
     expect(contextMoveNotices([done], new Set(["m2"]))).toHaveLength(0);
   });

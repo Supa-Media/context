@@ -62,6 +62,13 @@ export const placeTables = {
      * before the row said (2026-10-17), which read as a time alone.
      */
     kind: v.optional(v.union(v.literal("opened"), v.literal("edited"))),
+    /**
+     * When their own hand last changed it, kept through later opens: the
+     * phone's Notes page dates a note by this (owner, 2026-10-30, "why don't i
+     * see previous 30 days?" — an open used to overwrite `kind`, and the edit
+     * with it). Absent on a note they never typed in.
+     */
+    editedAt: v.optional(v.number()),
   })
     .index("by_user_workspace", ["userId", "workspaceId"])
     .index("by_user_workspace_path", ["userId", "workspaceId", "path"])

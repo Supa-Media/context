@@ -15,6 +15,8 @@
  *   recentNotes filters by workspace only (every member's rows)   → "recent is the caller's own, newest first"
  *   recordRecent inserts a second row for a path it has           → "opening again moves it up, as one row"
  *   recordRecent keeps the first kind it wrote                    → "the row says what they did last: opened, or edited"
+ *   an open drops editedAt                                         → "opening a note afterwards keeps when they edited it"
+ *   one ceiling for opened and edited rows                         → "fifty opens never push out a note they wrote"
  *   no ceiling                                                    → "the oldest makes room at the ceiling"
  *   retarget leaves placeRecents alone                            → "a note's recent row follows the mover's move"
  *   placeRecents left out of the sweeps                           → "they leave with the account, the member and the workspace"
@@ -23,7 +25,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "../_generated/api";
-import { RECENT_ROWS_PER_WORKSPACE } from "../functions/lib/places";
+import { EDITED_ROWS_PER_WORKSPACE, RECENT_ROWS_PER_WORKSPACE } from "../functions/lib/places";
 import { addMember, asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const recordRecent = api.functions.places.recordRecent;
@@ -105,6 +107,55 @@ describe("recent notes", () => {
       ["a.md", "edited"],
       ["b.md", "opened"],
     ]);
+  });
+
+  test("opening a note afterwards keeps when they edited it (owner, 2026-10-30)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 9, 10, 9));
+    const { t, seyi, ws } = await world();
+    const me = asUser(t, seyi);
+    await me.mutation(recordRecent, { workspaceId: ws, path: "kings-23.md", kind: "edited" });
+    vi.setSystemTime(Date.UTC(2026, 9, 20, 9));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "kings-23.md", kind: "opened" });
+    expect(await me.query(recentNotes, { workspaceId: ws })).toEqual([
+      { path: "kings-23.md", at: Date.UTC(2026, 9, 20, 9), kind: "opened", editedAt: Date.UTC(2026, 9, 10, 9) },
+    ]);
+    // A row written before `editedAt` existed that says edited reads as edited at its time.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("placeRecents", { userId: seyi, workspaceId: ws, path: "old.md", at: 5, kind: "edited" });
+    });
+    vi.setSystemTime(Date.UTC(2026, 9, 21, 9));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "old.md" });
+    const old = (await me.query(recentNotes, { workspaceId: ws })).find((r) => r.path === "old.md");
+    expect(old).toEqual({ path: "old.md", at: Date.UTC(2026, 9, 21, 9), kind: "opened", editedAt: 5 });
+  });
+
+  test("fifty opens never push out a note they wrote; edits keep a ceiling of their own", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 9, 1));
+    const { t, seyi, ws } = await world();
+    const me = asUser(t, seyi);
+    await me.mutation(recordRecent, { workspaceId: ws, path: "written.md", kind: "edited" });
+    for (let i = 0; i <= RECENT_ROWS_PER_WORKSPACE; i++) {
+      vi.setSystemTime(Date.UTC(2026, 9, 2) + i * 1000);
+      await me.mutation(recordRecent, { workspaceId: ws, path: `n${i}.md` });
+    }
+    const paths = (await me.query(recentNotes, { workspaceId: ws })).map((r) => r.path);
+    expect(paths).toContain("written.md");
+    expect(paths).toHaveLength(RECENT_ROWS_PER_WORKSPACE + 1);
+
+    await t.run(async (ctx) => {
+      for (let i = 0; i < EDITED_ROWS_PER_WORKSPACE - 1; i++) {
+        await ctx.db.insert("placeRecents", { userId: seyi, workspaceId: ws, path: `e${i}.md`, at: 10 + i, kind: "edited", editedAt: 10 + i });
+      }
+    });
+    vi.setSystemTime(Date.UTC(2026, 9, 3));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "newest.md", kind: "edited" });
+    const edited = (await me.query(recentNotes, { workspaceId: ws })).filter((r) => r.editedAt !== undefined).map((r) => r.path);
+    expect(edited).toHaveLength(EDITED_ROWS_PER_WORKSPACE);
+    expect(edited).toContain("newest.md");
+    expect(edited).toContain("written.md");
+    expect(edited).not.toContain("e0.md");
   });
 
   test("a workspace the caller is not in is refused and nothing is written; a bad path is refused", async () => {

@@ -8,7 +8,7 @@ import { useColors } from "../design/theme";
 /**
  * The notice band's move lines, for screenshots: `/e2e-fixture?screen=move-notice`.
  * The real `BrowseNotices` over invented moves (one failed, one running, one
- * finished); every other notice in the band is off. Nothing reaches an account.
+ * finished with a note left behind; a clean finish draws nothing); every other notice in the band is off. Nothing reaches an account.
  */
 const MOVES: ContextMoveProgress[] = [
   {
@@ -22,7 +22,7 @@ const MOVES: ContextMoveProgress[] = [
     error: "Something is already at that path in the other context, so the move stopped.",
   },
   { id: "moving", from: "1-projects/acme", to: "work/acme", destination: "@work", status: "moving", objects: 240, skipped: [] },
-  { id: "done", from: "2-areas/garden.md", to: "garden.md", destination: "@home", status: "complete", objects: 1, skipped: [] },
+  { id: "done", from: "2-areas/garden.md", to: "garden.md", destination: "@home", status: "complete", objects: 1, skipped: [{ path: "2-areas/garden-keys.md", reason: "encrypted" }] },
 ];
 
 export function MoveNoticeFixture({ at }: { at?: string }) {
