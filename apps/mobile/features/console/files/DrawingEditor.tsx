@@ -51,6 +51,8 @@ export function DrawingEditor({
   path: string;
   source: string;
   canEdit: boolean;
+  /** Web only (`DrawingEditor.web.tsx`); a native note keeps its box. */
+  fill?: boolean;
   onChange: (next: string) => void;
   /**
    * The room this canvas is shared with, when there is one.

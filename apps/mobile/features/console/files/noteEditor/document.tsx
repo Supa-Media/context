@@ -217,8 +217,13 @@ export function noteDocument(view: NoteView) {
         {passphraseLocked || drawing || activityList || pageView ? null : (
           <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
         )}
-        <Reveal open={!passphraseLocked && !pageView && (frontmatter !== "" || adding)}>
-        {!passphraseLocked && !pageView && (frontmatter !== "" || adding) ? (
+        {/*
+          Nor over a drawing: the canvas is the whole page (owner,
+          2026-10-30), and its front matter is the Excalidraw plugin's
+          bookkeeping, not anything a person filed.
+        */}
+        <Reveal open={!passphraseLocked && !pageView && !drawing && (frontmatter !== "" || adding)}>
+        {!passphraseLocked && !pageView && !drawing && (frontmatter !== "" || adding) ? (
           <Properties
             frontmatter={frontmatter}
             addAsked={addAsked}
@@ -346,6 +351,7 @@ export function noteDocument(view: NoteView) {
               existed — including an undo that behaves the ordinary way.
             */
             collaboration={drawingCollaboration}
+            fill={!compact}
           />
         ) : passphraseLocked ? (
           <LockedNoteView
