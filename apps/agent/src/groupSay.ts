@@ -61,6 +61,37 @@ export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: nu
   console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
 }
 
+/** Marks inside one group reply (`answerGroup`): after the app's member list, after the control plane's check, and which fixed path answered. */
+export type ReplyClock = { mark(stage: "members" | "control"): void; path(name: string): void };
+
+/**
+ * Where every group reply's time went, fixed lines such as "Tex, settings" included (a model turn adds
+ * `group_turn_timing` for its own part): `queueMs` from the first message in to the hand-off (the pause, a
+ * turn ahead of it, decide), `startMs` from the hand-off to answering (the workflow starting, its retries),
+ * then the member list, the control plane's check, and the reply itself. Milliseconds and a path name only.
+ */
+export async function timedReply<T>(arrivedAt: number, handedAt: number | undefined, now: () => number, answer: (clock: ReplyClock) => Promise<T>): Promise<T> {
+  const started = now();
+  const marks: { members?: number; control?: number } = {};
+  let path = "turn";
+  const done = (outcome: string) => {
+    const end = now();
+    const stages: Record<string, number> = {};
+    let from = started;
+    for (const [name, at] of [["membersMs", marks.members], ["controlMs", marks.control]] as const) if (at !== undefined) (stages[name] = at - from), (from = at);
+    const start = handedAt === undefined ? {} : { startMs: started - handedAt };
+    console.log(JSON.stringify({ event: "group_reply_timing", path, outcome, queueMs: (handedAt ?? started) - arrivedAt, ...start, ...stages, replyMs: end - from, totalMs: end - arrivedAt }));
+  };
+  try {
+    const result = await answer({ mark: (stage) => void (marks[stage] = now()), path: (name) => void (path = name) });
+    done(result === "cancelled" ? "cancelled" : "done");
+    return result;
+  } catch (error) {
+    done("failed");
+    throw error;
+  }
+}
+
 /**
  * How a text Tex sends is logged (`events.ts`): a turn's, with its turn and
  * what it covers; a fixed line (`system`), with no turn, as the system's.

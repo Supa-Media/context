@@ -50,9 +50,8 @@ import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupCont
 import { noteGuestChat } from "./groupGuestPeople";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
-export type { ControlAnswer, GuestInfo };
-export type { Command };
-import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
+export type { Command, ControlAnswer, GuestInfo };
+import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, timedReply, type ReplyClock, type SayMeta } from "./groupSay";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
@@ -413,7 +412,7 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
   // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
   if (item.attempts === 0) log("inline");
   try {
-    const outcome = await answerGroup(storage, entries, deps);
+    const outcome = await timedReply(entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
   } catch (error) {
@@ -440,7 +439,7 @@ export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message
 }
 
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
-export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
+export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps, clock?: ReplyClock): Promise<"cancelled" | void> {
   const item = entries.at(-1)![1];
   const message = mergedGroup(entries.map(([, entry]) => entry.message));
   // What the chat said before the first message it answers is its context; the rest it answers.
@@ -454,12 +453,14 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const command = item.engagement || item.setting || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
   // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
   const members = await app.readMembers(chat);
+  clock?.mark("members");
   if (members === null) log("members_unread");
   if (members === null && !routine && app.senderOnlyWebhook) throw new ServiceError("whapi", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
   const asked = await askControlPlane(deps, message, people, command);
+  clock?.mark("control");
   const status = asked.status;
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that can't run it now is told nothing: nobody in it asked just now.
@@ -506,7 +507,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
   // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).
-  if (command?.kind === "settings" || command?.kind === "style" || command?.kind === "review_sharing" || item.setting) return await groupSettings(storage, deps, message, command, item.setting, asked);
+  if (command?.kind === "settings" || command?.kind === "style" || command?.kind === "review_sharing" || item.setting) return clock?.path(command?.kind ?? "setting"), await groupSettings(storage, deps, message, command, item.setting, asked);
   if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
