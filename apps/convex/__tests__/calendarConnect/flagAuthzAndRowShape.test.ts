@@ -12,6 +12,7 @@ import {
   REDIRECT,
   GMAIL_SCOPE,
   CALENDAR_SCOPE,
+  CALENDAR_REQUEST_SCOPE,
   enableCalendarConnect,
   enableMailConnect,
   personalScenario,
@@ -146,7 +147,11 @@ describe("the scope-union fix — request side", () => {
    * The other 23, including every `include_granted_scopes` and binding test,
    * stay green — this sabotage isolates the request-side fix specifically.
    */
-  test("starting a Calendar connect on an account that already has Gmail requests both scopes, not Calendar alone", async () => {
+  // Since 2026-10-30 the standard client is asked for the Meetings view's
+  // calendar read and nothing of Gmail, whatever is on the row: the union is
+  // of products (recorded on the attempt, below), and what the account
+  // already granted comes back through `include_granted_scopes`.
+  test("starting a Calendar connect on an account that already has Gmail asks for the minimum, and never Gmail's read", async () => {
     enableCalendarConnect();
     const { t, owner, workspaceId } = await personalScenario();
     enableMailConnect();
@@ -158,8 +163,9 @@ describe("the scope-union fix — request side", () => {
     });
     const url = new URL(result.authorizeUrl);
     const scopes = (url.searchParams.get("scope") ?? "").split(" ");
-    expect(scopes).toContain(GMAIL_SCOPE);
-    expect(scopes).toContain(CALENDAR_SCOPE);
+    expect(scopes).not.toContain(GMAIL_SCOPE);
+    expect(scopes).toContain(CALENDAR_REQUEST_SCOPE);
+    expect(scopes).not.toContain(CALENDAR_SCOPE);
   });
 
   test("...and the parked attempt records both products, so a completed exchange knows what was intended", async () => {
@@ -186,7 +192,7 @@ describe("the scope-union fix — request side", () => {
     });
     const url = new URL(result.authorizeUrl);
     const scopes = (url.searchParams.get("scope") ?? "").split(" ");
-    expect(scopes).toContain(CALENDAR_SCOPE);
+    expect(scopes).toContain(CALENDAR_REQUEST_SCOPE);
     expect(scopes).not.toContain(GMAIL_SCOPE);
   });
 
@@ -223,7 +229,7 @@ describe("the scope-union fix — request side", () => {
     // on the URL (checked above), which is what still protects whichever
     // account the person actually picks in Google's chooser.
     expect(scopes).not.toContain(GMAIL_SCOPE);
-    expect(scopes).toContain(CALENDAR_SCOPE);
+    expect(scopes).toContain(CALENDAR_REQUEST_SCOPE);
   });
 });
 

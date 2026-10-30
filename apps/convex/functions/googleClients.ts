@@ -49,7 +49,7 @@ import {
   revokeGoogleToken,
 } from "./lib/googleOAuth";
 import { agentScopesFor } from "./lib/googleConnect/aiScopes";
-import { googleClientFor, googleEnvFor } from "./lib/googleConnect/clients";
+import { googleClientFor } from "./lib/googleConnect/clients";
 import { ATTEMPT_TTL_MS, requireActor, STATE_BYTES } from "./lib/googleConnect/config";
 
 
@@ -124,7 +124,7 @@ export const startGoogleAgentConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: agentScopesFor(target.products, googleEnvFor(args.workspaceId)),
+        scopes: agentScopesFor(target.products),
         loginHint: target.address,
       }),
     };

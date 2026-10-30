@@ -16,6 +16,7 @@ import {
   REDIRECT,
   GMAIL_SCOPE,
   CALENDAR_SCOPE,
+  CALENDAR_REQUEST_SCOPE,
   enableCalendarConnect,
   enableMailConnect,
   personalScenario,
@@ -121,7 +122,7 @@ describe("attacker and victim in the same database", () => {
     // Gmail's scope on the attacker's consent screen, and park an attempt
     // claiming a product the attacker never had.
     expect(scopes).not.toContain(GMAIL_SCOPE);
-    expect(scopes).toContain(CALENDAR_SCOPE);
+    expect(scopes).toContain(CALENDAR_REQUEST_SCOPE);
     const attempts = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
     expect(attempts[0]?.products).toEqual(["calendar"]);
   });
@@ -353,21 +354,39 @@ describe("a grant that does not cover every product says so where somebody looks
    * would go on being scheduled against a grant that cannot answer, getting
    * 403s from Google, while the console shows the connection as fine.
    */
-  test("a Calendar bind that loses Gmail's scope marks the connection as needing a reconnect", async () => {
+  test("a Calendar bind that loses the Calendar read marks the connection as needing a reconnect", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     enableMailConnect();
     await bindGmail(t, workspaceId, owner);
     const healthy = await connectionRow(t, workspaceId, "person@example.invalid");
     expect(healthy?.health).toBe("backfilling");
 
-    await bindCalendar(t, workspaceId, owner, { scopes: [CALENDAR_SCOPE] });
+    await bindCalendar(t, workspaceId, owner, { scopes: [] });
 
     const row = await connectionRow(t, workspaceId, "person@example.invalid");
-    expect(row?.gmail?.scopes).toEqual([]);
     expect(row?.health).toBe("reconnect_required");
     expect(row?.errorCode).toBe("SCOPES_INCOMPLETE");
     // The message names the remedy and carries nothing Google said.
     expect(row?.lastError).toContain("Reconnect");
+  });
+
+  // A row made before the minimum consent whose grant no longer covers Gmail
+  // the old way: a reconnect under the minimum could not mend it, so the row
+  // moves to the minimum consent and AI waits for the person's AI consent
+  // instead (`lib/googleConnect/consentPlan.ts`).
+  test("a Calendar bind that loses Gmail's scope on a row made before moves it to the minimum consent, not to a reconnect", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    enableMailConnect();
+    await bindGmail(t, workspaceId, owner);
+    const made = await connectionRow(t, workspaceId, "person@example.invalid");
+    await t.run((ctx) => ctx.db.patch(made!._id, { consentPlan: undefined }));
+
+    await bindCalendar(t, workspaceId, owner, { scopes: [CALENDAR_SCOPE] });
+
+    const row = await connectionRow(t, workspaceId, "person@example.invalid");
+    expect(row?.gmail?.scopes).toEqual([]);
+    expect(row?.consentPlan).toBe("split");
+    expect(row?.health).not.toBe("reconnect_required");
   });
 
   test("...and a grant that covers both leaves the health alone, exactly as before", async () => {
@@ -500,7 +519,7 @@ describe("a disconnect is not undone by adding a different product", () => {
     // Restricted scope, re-asked for on the strength of a revocation, is the
     // exact thing disconnecting was supposed to end.
     expect(scopes).not.toContain(GMAIL_SCOPE);
-    expect(scopes).toContain(CALENDAR_SCOPE);
+    expect(scopes).toContain(CALENDAR_REQUEST_SCOPE);
     const attempt = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
     expect(attempt[0]?.products).toEqual(["calendar"]);
   });

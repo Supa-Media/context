@@ -23,7 +23,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { gatewayPost, seedGoogleConnection } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
-import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES, scopesForConnect } from "../functions/lib/googleOAuth";
+import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES } from "../functions/lib/googleOAuth";
+import { agentScopesFor } from "../functions/lib/googleConnect/aiScopes";
 import { CHAT_SPACE_READ_HOURLY_LIMIT } from "../functions/googleChatSend";
 import { MAX_SPACE_MESSAGES, conversationOf } from "../functions/lib/gatewayRoutes/googleChatSpaceRead";
 import { chatCallAllowed } from "./googleChatDiscovery.helpers";
@@ -155,7 +156,7 @@ describe("reading one Google Chat conversation the person named", () => {
   });
 
   test("every Chat call it makes is one Google accepts with the scopes the connect asks for", async () => {
-    const granted = scopesForConnect(["gmail"], {});
+    const granted = agentScopesFor(["chat"]);
     const calls = chatApi(granted);
     const { t, aliceWs } = await connected({ scopes: granted });
     expect((await read(t, ACCESS_A, aliceWs, { space: "spaces/AAA" })).ok).toBe(true);

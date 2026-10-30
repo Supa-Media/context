@@ -21,7 +21,7 @@ import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding 
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { CHAT_SEND_HOURLY_LIMIT, CHAT_SEND_SCOPES, chatFailure, readChatMessage } from "../functions/lib/googleChatSend";
-import { WRITE_SCOPES, scopesForConnect } from "../functions/lib/googleOAuth";
+import { agentScopesFor } from "../functions/lib/googleConnect/aiScopes";
 
 const realFetch = globalThis.fetch;
 
@@ -198,9 +198,10 @@ describe("what a message may be, and who is asked for it", () => {
     expect(chatFailure(401, null)).toBe("reconnect_required");
   });
 
-  test("everyone is asked for Chat sending, on the Gmail connect", () => {
-    expect(WRITE_SCOPES.gmail).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
-    expect(scopesForConnect(["gmail"])).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
-    expect(scopesForConnect(["calendar"]).some((scope) => scope.includes("/chat."))).toBe(false);
+  test("AI is asked for Chat sending with Chat, starting a direct message included, and never with Gmail or Calendar alone", () => {
+    // `chat.spaces.create` is what `spaces.setup` takes: the first message to somebody new.
+    expect(agentScopesFor(["chat"])).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
+    expect(agentScopesFor(["gmail"]).some((scope) => scope.includes("/chat."))).toBe(false);
+    expect(agentScopesFor(["calendar"]).some((scope) => scope.includes("/chat."))).toBe(false);
   });
 });

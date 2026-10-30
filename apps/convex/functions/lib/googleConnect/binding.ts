@@ -13,8 +13,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { recordAudit } from "../audit";
 import { grantedScopesFor } from "../googleOAuth";
-import { standardGrantCovers } from "./aiScopes";
-import { googleEnvFor } from "./clients";
+import { planForBinding } from "./consentPlan";
 import { DEFAULT_MAIL_QUOTA_BYTES } from "./config";
 import { defaultGoogleDestinationFolder } from "./validation";
 
@@ -102,7 +101,7 @@ export async function applyGmailConnectionBindingHandler(
   // row goes on reporting `backfilling` for a product whose sync can only
   // ever take a refusal from Google. Every name in the message is one of
   // this module's own literals, never a provider string.
-  const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes, googleEnvFor(args.workspaceId)));
+  const { consentPlan, starved } = planForBinding(args.workspaceId, existing, [...products], args.scopes);
   const gmailHistoryId = existing?.gmail?.historyId ?? args.historyId;
 
   const fields = {
@@ -114,7 +113,7 @@ export async function applyGmailConnectionBindingHandler(
     accessTokenExpiresAt: args.accessTokenExpiresAt,
     scopes: args.scopes,
     googleAccountId: args.googleAccountId,
-    products: [...products],
+    products: [...products], consentPlan,
     gmail: {
       scopes: grantedScopesFor("gmail", args.scopes),
       // A reconnect keeps the folder, the cursor, and last-synced time:

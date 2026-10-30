@@ -175,42 +175,15 @@ export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_S
 export const CHAT_READ_SCOPE = "https://www.googleapis.com/auth/chat.messages.readonly";
 export const CHAT_READ_SCOPES = [CHAT_READ_SCOPE, CHAT_SPACES_READ_SCOPE] as const;
 
-/**
- * The write permissions, asked of everyone who connects the product (the
- * owner, 2026-10-23, reversing the testers-only rule of 2026-10-17 after a
- * texter's connected calendar refused Tex's booking: "??? what happened
- * here", then "Yes, everyone" to email, drafts and Chat). The app is not yet
- * verified by Google, so every consent screen already carries the unverified
- * warning for Gmail's restricted read: these add no screen a person would not
- * see anyway, and asking only staff left everyone else connected and still
- * refused, with a reconnect that changed nothing.
- *
- * A write that reaches somebody waits for the person's yes to the exact copy.
- * `GMAIL_COMPOSE_SCOPE` is the one that does not: a draft saved with it is
- * read by nobody until the person sends it from Gmail themselves
- * (`docs/decisions/communications/sending-email.md`).
- *
- * Google Chat's send and read scopes ride on the Gmail connect every texter
- * already has, so one reconnect lets Tex message people on Chat as them
- * (approved by the owner, 2026-10-22), and read what was written to them for
- * its check-ins (2026-10-23). They work only on a Google Workspace account.
+/*
+ * What a new connect asks for lives in `googleConnect/aiScopes.ts`
+ * (`standardScopesFor`, `agentScopesFor`; 2026-10-30, after Google asked for
+ * exact scope matching and least privilege per feature). Grants made before
+ * then can hold more: the read scopes of every product on the standard
+ * client, the write scopes asked of everyone from 2026-10-23 (`gmail.compose`,
+ * the broad `calendar.events`, and Chat's read and send riding on Gmail), so
+ * every check here recognizes both calendar pairs and either Gmail write.
  */
-export const WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES, CHAT_READ_SCOPE],
-  calendar: [CALENDAR_WRITE_SCOPE],
-  chat: [...CHAT_SEND_SCOPES],
-};
-
-/**
- * The scopes a connect asks Google for: `scopesForProducts`, plus the write
- * scopes of those products, with Calendar's pair narrowed to the calendars
- * the person owns once `GOOGLE_CALENDAR_SCOPE=owned` (`narrowCalendarScopes`).
- */
-export function scopesForConnect(products: readonly GoogleProduct[], env: Record<string, string | undefined> = process.env): string[] {
-  const scopes = new Set(scopesForProducts(products));
-  for (const product of products) for (const scope of WRITE_SCOPES[product] ?? []) scopes.add(scope);
-  return narrowCalendarScopes([...scopes], env);
-}
 
 /**
  * The narrower Calendar pair (CASA least scope, 2026-10-28). Every Calendar
@@ -218,27 +191,12 @@ export function scopesForConnect(products: readonly GoogleProduct[], env: Record
  * get, insert, patch and delete, events.watch and channels.stop. Google's
  * discovery document lists `calendar.events.owned` for all of them and
  * `calendar.events.owned.readonly` for the reads, so the broader pair names
- * calendars Context never touches. Asked for only once
- * `GOOGLE_CALENDAR_SCOPE=owned` (set when Google's Data Access list carries
- * the new pair); a grant of either pair keeps working whatever the setting,
- * so nobody connected today has to reconnect.
+ * calendars Context never touches. Every new request asks for the owned
+ * pair (2026-10-30); a grant of either pair keeps working, so nobody
+ * connected before has to reconnect.
  */
 export const CALENDAR_OWNED_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned";
 export const CALENDAR_OWNED_READ_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
-
-/** Whether a connect asks for the owned-calendar pair rather than the broader one. */
-export function calendarScopeOwned(env: Record<string, string | undefined> = process.env): boolean {
-  return env.GOOGLE_CALENDAR_SCOPE === "owned";
-}
-
-/** A scope list with Calendar's broader pair swapped for the owned pair, when the setting says so. */
-export function narrowCalendarScopes(scopes: readonly string[], env: Record<string, string | undefined> = process.env): string[] {
-  if (!calendarScopeOwned(env)) return [...scopes];
-  const swapped = scopes.map((scope) =>
-    scope === CALENDAR_WRITE_SCOPE ? CALENDAR_OWNED_SCOPE : scope === CALENDAR_SCOPES[0] ? CALENDAR_OWNED_READ_SCOPE : scope,
-  );
-  return [...new Set(swapped)];
-}
 
 /** Whether a grant lets Context change events: either Calendar write scope does. */
 export function canWriteCalendar(scopes: readonly string[]): boolean {

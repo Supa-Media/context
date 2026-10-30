@@ -72,8 +72,9 @@ export const REFUSED = {
   not_allowed: "Not sent: this connection cannot send Google Chat messages as the person.",
   ai_access_needed: `Not sent: AI access isn't allowed yet for their Google account, so you can't send Chat messages from it. ${AI_ACCESS_STEP}`,
   no_chat:
-    "Not sent: their Google account isn't set up for Google Chat through Context yet. Get the link from manage connect_google (kind gmail) " +
-    "and ask them to reconnect the Google account they use for work once; it adds Chat. Don't send it another way unless they ask.",
+    "Not sent: their Google account isn't set up for Google Chat through Context yet. Get the link from manage connect_google (kind calendar): " +
+    "on Connected apps they reconnect the Google account they use for work (Reconnect beside it, or its ••• menu), which adds Chat; " +
+    "if a tool then says AI access isn't allowed yet, send the kind ai link too. Gmail alone never adds Chat. Don't send it another way unless they ask.",
   hourly_limit: "Not sent: the person has sent 10 Google Chat messages through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 40 Google Chat messages through Context today. Try again tomorrow.",
   space_not_found: "Not sent: they are in no Google Chat space by that name. List their spaces with action spaces and use the exact name.",

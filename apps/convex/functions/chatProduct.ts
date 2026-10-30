@@ -85,7 +85,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
+import { planForBinding, standardScopesFor } from "./lib/googleConnect/consentPlan";
 
 /** Same ten minutes as every other connect attempt in this control plane. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -352,7 +352,7 @@ export const startChatConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(products, googleEnvFor(args.workspaceId)),
+        scopes: standardScopesFor(products),
       }),
     };
   },
@@ -553,7 +553,7 @@ export const applyChatConnectionBinding = internalMutation({
     // so out loud, so a console and a sync scheduler read "reconnect" rather
     // than "healthy, and mysteriously syncing nothing". Every name in the
     // message is one of this file's own literals, never a provider string.
-    const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes, googleEnvFor(args.workspaceId)));
+    const { consentPlan, starved } = planForBinding(args.workspaceId, existing, [...products], args.scopes);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -564,7 +564,7 @@ export const applyChatConnectionBinding = internalMutation({
       accessTokenExpiresAt: args.accessTokenExpiresAt,
       scopes: args.scopes,
       googleAccountId: args.googleAccountId,
-      products: [...products],
+      products: [...products], consentPlan,
       // Recomputed from the ONE verbatim grant this connect just received,
       // never carried forward — see this file's and `googleConnect.ts`'s
       // module comments for why, and `include_granted_scopes=true` /

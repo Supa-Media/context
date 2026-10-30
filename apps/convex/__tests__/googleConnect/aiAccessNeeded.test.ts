@@ -162,7 +162,7 @@ describe("the AI access census", () => {
     vi.stubEnv("GOOGLE_CUTOVER_CANARY_WORKSPACES", aliceWs as string);
 
     const census = await t.action(internal.functions.googleClientsAccess.aiAccessCensus, {});
-    expect(census).toEqual({ live: 3, covering: 1, partial: 1, missing: 1, canary: 2 });
+    expect(census).toEqual({ live: 3, covering: 1, partial: 1, missing: 1, canary: 2, split: 0 });
     expect(JSON.stringify(census)).not.toMatch(/@|example|[a-z0-9]{20,}/);
   });
 });

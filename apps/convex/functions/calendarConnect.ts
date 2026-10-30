@@ -73,7 +73,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
+import { planForBinding, standardScopesFor } from "./lib/googleConnect/consentPlan";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,
@@ -265,7 +265,7 @@ export const startCalendarConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: standardScopesFor(products, googleEnvFor(args.workspaceId)),
+        scopes: standardScopesFor(products),
       }),
     };
   },
@@ -486,7 +486,7 @@ export const applyCalendarConnectionBinding = internalMutation({
     // with all of its products approved this time. `reconnect_required` is
     // exactly the existing word for that (`markReconnectRequired`), and the
     // remedy is the same one.
-    const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes, googleEnvFor(args.workspaceId)));
+    const { consentPlan, starved } = planForBinding(args.workspaceId, existing, [...products], args.scopes);
 
     const fields = {
       workspaceId: args.workspaceId,
@@ -497,7 +497,7 @@ export const applyCalendarConnectionBinding = internalMutation({
       accessTokenExpiresAt: args.accessTokenExpiresAt,
       scopes: args.scopes,
       googleAccountId: args.googleAccountId,
-      products: [...products],
+      products: [...products], consentPlan,
       // Gmail's settings and cursor are its own and are kept untouched by a
       // Calendar bind; only its scope slice is a view of the account's
       // grant and is derived fresh, same rule as every other slice here.
