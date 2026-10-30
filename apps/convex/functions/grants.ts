@@ -30,6 +30,7 @@ import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { isDesktopShellClient } from "./lib/machineGrant";
 import { recordAudit } from "./lib/audit";
 import { noteAgentUse } from "./lib/agentUse";
+import { grantsNewestFirst } from "./lib/grants/newestFirst";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
 import {
@@ -168,32 +169,10 @@ export const listGrants = query({
     // means the rows below the cap already arrive newest-first, so nothing
     // downstream has to re-sort them back into that order.
     const seesAll = membership.role === "owner";
-    // Every console subscribes to this per workspace and re-runs it on each
-    // grant stamp, so reading the revoked rows too was most of its cost
-    // (Convex invoice, owner 2026-10-30).
-    const newestFirst = args.activeOnly === true
-      ? seesAll
-        ? ctx.db
-            .query("oauthGrants")
-            .withIndex("by_workspace_status", (q) => q.eq("workspaceId", args.workspaceId).eq("status", "active"))
-            .order("desc")
-        : ctx.db
-            .query("oauthGrants")
-            .withIndex("by_workspace_user_status", (q) =>
-              q.eq("workspaceId", args.workspaceId).eq("userId", userId).eq("status", "active"),
-            )
-            .order("desc")
-      : seesAll
-        ? ctx.db
-            .query("oauthGrants")
-            .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-            .order("desc")
-        : ctx.db
-            .query("oauthGrants")
-            .withIndex("by_workspace_user", (q) =>
-              q.eq("workspaceId", args.workspaceId).eq("userId", userId),
-            )
-            .order("desc");
+    const newestFirst = grantsNewestFirst(ctx, args.workspaceId, userId, {
+      seesAll,
+      activeOnly: args.activeOnly === true,
+    });
 
     // A walk rather than a `.take()`, so the console's extra rows
     // (`MAX_CONSOLE_GRANTS_RETURNED`) can be stepped over instead of spending

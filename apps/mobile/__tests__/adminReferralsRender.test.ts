@@ -29,6 +29,12 @@ let mockCall: (name: string, args: Record<string, unknown>) => Promise<unknown> 
   throw new Error("not used in this test");
 };
 
+// The admin reports are read once (`useReportOnce`); here they answer like every other query.
+jest.mock("../features/admin/useReportOnce", () => ({
+  useReportOnce: (query: never, args: never) =>
+    (jest.requireMock("convex/react") as { useQuery: (q: never, a: never) => unknown }).useQuery(query, args),
+}));
+
 jest.mock("convex/react", () => {
   const { getFunctionName } = jest.requireActual<
     typeof import("convex/server")
