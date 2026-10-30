@@ -47,6 +47,8 @@ export interface FixtureParams {
   skip?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
   role?: string | string[];
+  /** `screen=palette-results`: `1` draws a loaded name while the search runs, then same-topic notes to fold. */
+  names?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
   anyone?: string | string[];
   /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
