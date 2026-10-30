@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { Palette } from "../../design/components/Palette";
 import { noteHref, searchHref } from "../nav";
 import { PaletteSearchHost } from "./EverywhereBar";
-import { loadedInScope } from "./everywhereSearch";
+import { loadedInScope, withTreeNames } from "./everywhereSearch";
 import { scopeLabel, SearchScopeChips } from "./SearchScope";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -65,7 +65,10 @@ export function consolePalette({
         reachability={data.files.sync?.reachability ?? "unknown"}
         render={({ search: asked, accessory, bar, everywhere, read }) => (
       <Palette
-        items={loadedInScope(paletteItems, everywhere?.narrowed ?? null, current?.slug ?? null)}
+        items={withTreeNames(
+          loadedInScope(paletteItems, everywhere?.narrowed ?? null, current?.slug ?? null),
+          everywhere?.names ?? [],
+        )}
         recent={recent}
         emptyHeading={recent.length > 0 ? "Recent" : undefined}
         emptyNote={recent.length > 0 && recentYours ? "Notes you opened or typed in, on any device." : undefined}

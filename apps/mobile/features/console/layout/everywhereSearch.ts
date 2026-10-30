@@ -15,7 +15,7 @@
  */
 
 import { displayPath, parentPath } from "../files/paths";
-import { WHY_LABEL, type PaletteItem } from "../files/palette";
+import { WHY_LABEL, paletteKey, type PaletteItem } from "../files/palette";
 import type { BlendedAnswer, BlendedResult, PageState } from "../search/results";
 
 /** Why a note is in the list, drawn as a tag on its row. */
@@ -93,6 +93,38 @@ export function itemsFromBlended(
       kind: "note" as const,
     };
   });
+}
+
+/**
+ * The tree's name matches as palette rows (`functions/nameSearch.ts`), keyed
+ * the way `itemsFromBlended` keys a search row so the two are one row when
+ * the search finds the same note.
+ */
+export function itemsFromNames(
+  rows: readonly { workspaceId: string; slug: string; path: string; title: string }[],
+  currentSlug: string | null,
+): PaletteItem[] {
+  return rows.map((row) => {
+    const folder = displayPath(parentPath(row.path));
+    return {
+      id: row.path,
+      label: row.title || displayPath(row.path),
+      detail: folder === "" ? `@${row.slug}` : `@${row.slug} · ${folder}`,
+      workspace: { slug: row.slug, current: row.slug === currentSlug, id: row.workspaceId },
+      why: "name" as const,
+      reason: WHY_LABEL.name,
+      kind: "note" as const,
+    };
+  });
+}
+
+/**
+ * Loaded names and the tree's names as one list for the palette to rank: a
+ * note in both is the loaded row, which already opens in place.
+ */
+export function withTreeNames(loaded: readonly PaletteItem[], tree: readonly PaletteItem[]): PaletteItem[] {
+  const have = new Set(loaded.map((item) => paletteKey(item)));
+  return [...loaded, ...tree.filter((item) => !have.has(paletteKey(item)))];
 }
 
 /**

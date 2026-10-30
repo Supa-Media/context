@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { Palette } from "../design/components/Palette";
 import { NotePreview, type NoteReader } from "../console/layout/NotePreview";
@@ -70,6 +70,48 @@ const ANSWERS: PaletteItem[] = [
   },
 ];
 
+/**
+ * `?names=1` (the search tune-up, boards M1 and M2, 2026-10-27): a name the
+ * tree already holds is drawn from the first letter, the search answers 800 ms
+ * later below it, and notes found only by meaning fold into one line.
+ */
+const LOADED: PaletteItem[] = [
+  {
+    id: "1-projects/launch/launch-pricing-plan-checklist-for-the-partner-programme-second-draft.md",
+    label: "Launch pricing plan checklist for the partner programme, second draft",
+    detail: "@acme · Projects/launch",
+    kind: "note",
+    workspace: workspace("acme", 0),
+  },
+];
+
+const SAME_TOPIC: PaletteItem[] = [
+  {
+    id: "3-resources/reading/what-a-yearly-plan-should-cost.md",
+    label: "What a yearly plan should cost when most people only stay a month",
+    detail: "@bandmates · Resources/reading",
+    kind: "note",
+    why: "meaning",
+    reason: "Same topic, different words",
+    meaningOnly: true,
+    workspace: workspace("bandmates", 2),
+    edited: NOW - 90 * DAY,
+    snippet: "Most people who leave do it in the first month, so a discount on the year mostly rewards the ones who were staying anyway.",
+  },
+  {
+    id: "3-resources/reading/notes-on-freemium.md",
+    label: "Notes on freemium",
+    detail: "@jo · Resources/reading",
+    kind: "note",
+    why: "meaning",
+    reason: "Same topic, different words",
+    meaningOnly: true,
+    workspace: workspace("jo", 1),
+    edited: NOW - 200 * DAY,
+    snippet: "A free tier is a marketing cost, not a product: count it next to ads, not next to revenue.",
+  },
+];
+
 const NOTE = `---
 status: active
 ---
@@ -91,15 +133,26 @@ What happens to the spring cohort if a partner leaves in the first quarter? The 
 const read: NoteReader = async (_workspaceId, path) =>
   path.startsWith("3-resources/") ? { text: "", encrypted: true } : { text: NOTE };
 
-export function PaletteResultsFixture() {
+export function PaletteResultsFixture({ names = false }: { names?: boolean }) {
   const [narrowed, setNarrowed] = useState<string | null>(null);
+  const [answered, setAnswered] = useState(!names);
+  useEffect(() => {
+    if (answered) return;
+    const timer = setTimeout(() => setAnswered(true), 800);
+    return () => clearTimeout(timer);
+  }, [answered]);
   return (
     <View style={{ flex: 1 }}>
       {narrowed === null ? null : <Text testID="fixture-narrowed">{narrowed}</Text>}
       <Palette
-        items={[]}
+        items={names ? LOADED : []}
         placeholder="Search notes and names"
-        search={{ onQuery: () => {}, items: ANSWERS, state: "ready", ranked: true }}
+        search={{
+          onQuery: () => {},
+          items: !answered ? [] : names ? [...ANSWERS, ...SAME_TOPIC] : ANSWERS,
+          state: answered ? "ready" : "searching",
+          ranked: true,
+        }}
         preview={(item, query) => <NotePreview item={item} query={query} read={read} />}
         onNarrowTree={setNarrowed}
         onChoose={() => {}}

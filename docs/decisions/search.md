@@ -121,3 +121,7 @@ Moved to [Search by meaning is on for every workspace, free and Premium, and an 
 ### Notes reach the index two ways, and a map in the bucket says which are in
 
 Moved to [Notes reach the index two ways, and a map in the bucket says which are in](./search/meaning-search.md#notes-reach-the-index-two-ways-and-a-map-in-the-bucket-says-which-are-in).
+
+### ⌘K draws names from the tree first, and nothing it drew moves
+
+See [names-first](./search/names-first.md).

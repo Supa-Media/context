@@ -13,7 +13,7 @@ import {
   type Role,
 } from "react-native";
 import { paletteKey, rank, type PaletteItem } from "../../console/files/palette";
-import { mergeRanked } from "./paletteMerge";
+import { SAME_TOPIC_ID, foldSameTopic, mergeRanked } from "./paletteMerge";
 import { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { useColors, useThemedStyles } from "../theme";
@@ -304,6 +304,9 @@ export function Palette({
   const words = typing?.rest ?? query;
 
   const untyped = words.trim() === "" && recent !== undefined && recent.length > 0;
+  // The same-topic line, opened; folded again for every new question.
+  const [sameTopicOpen, setSameTopicOpen] = useState(false);
+  useEffect(() => setSameTopicOpen(false), [words]);
   const ranked = useMemo(
     () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(words, items)),
     [untyped, recent, words, items],
@@ -344,18 +347,14 @@ export function Palette({
   }, [search, local]);
 
   /**
-   * Rows that are answers, as opposed to rows that are a way out of here.
-   *
-   * `matches` is what the keyboard walks and it includes the handoff; this is
-   * what the *copy* is about. Keeping them separate is what lets the handoff
-   * be a real row in the list without it counting as having found something.
+   * Rows that are answers, not a way out of here: `matches` (what the keyboard
+   * walks) includes the handoff, and this is what the copy counts.
    */
   const answeredInOrder =
     search?.ranked === true && (search.state === "ready" || search.state === "indexing");
-  const merged = useMemo(
-    () => (answeredInOrder && search !== undefined ? mergeRanked(ranked, search.items) : null),
-    [answeredInOrder, ranked, search],
-  );
+  // Merged from the first letter, so what shows while searching is the top of the final list.
+  const merged = useMemo(() => (search?.ranked !== true || untyped ? null : mergeRanked(ranked, answeredInOrder ? search.items : [], words)),
+    [answeredInOrder, ranked, search, untyped, words]);
   const found = merged === null ? local.length + remote.length : merged.length;
 
   /**
@@ -375,13 +374,14 @@ export function Palette({
   const matches = useMemo(() => {
     const unranked = (item: PaletteItem) => ({ item, score: 0, ranges: [] as readonly [number, number][] });
     if (typing !== null) return typing.items.map(unranked);
-    const rows = merged ?? [...local, ...remote];
+    // Notes found only by meaning fold into one line under the rest (board M2).
+    const rows = foldSameTopic(merged ?? [...local, ...remote], sameTopicOpen);
     // Under an empty field the filters follow Recent, so Enter still opens the last note.
     const idle = query.trim() === "" && filters?.idle ? filters.idle.items.map(unranked) : [];
     // The handoff is last, so it is never what Enter reaches by accident.
     if (handoff === null) return [...rows, ...idle];
     return [...rows, ...idle, unranked(handoff)];
-  }, [typing, merged, local, remote, handoff, query, filters]);
+  }, [typing, merged, local, remote, handoff, query, filters, sameTopicOpen]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -407,6 +407,7 @@ export function Palette({
   const open = useCallback(
     (item: PaletteItem) => {
       if (item.id === SEE_ALL_ID) onSeeAll?.(query);
+      else if (item.id === SAME_TOPIC_ID) setSameTopicOpen(true);
       else if (item.kind === "filter" && filters !== undefined) {
         // A filter is picked into the field, which keeps the caret.
         setQuery(filters.pick(item, query));
