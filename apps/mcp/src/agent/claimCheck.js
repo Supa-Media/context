@@ -57,8 +57,7 @@ import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, cl
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
-import { amongPlainNotes, noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
-import { ASKS_FOR_PAGE } from "./theirNotes.js";
+import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
@@ -420,17 +419,6 @@ export function asksToMute(question) {
   return MUTE_ASK.test(String(question ?? ""));
 }
 
-/** Whether a new plain note sits among their plain notes (`amongPlainNotes`); a listing that fails says no. */
-async function besidePlainNotes(callTool, path, context) {
-  const cut = path.lastIndexOf("/");
-  try {
-    const listed = await callTool("list_notes", { prefix: cut === -1 ? "" : path.slice(0, cut + 1), ...(typeof context === "string" && context !== "" ? { context } : {}) });
-    return listed?.isError !== true && amongPlainNotes(listed?.content?.[0]?.text, path);
-  } catch {
-    return false;
-  }
-}
-
 function isWrite(name) {
   const tool = toolDefinitions().find((entry) => entry.name === name);
   return tool !== undefined && tool.annotations?.readOnlyHint !== true;
@@ -536,9 +524,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
-          const written = noteWrite(name, args, result);
-          // A new plain note among their plain notes follows their form (`amongPlainNotes`), unless they asked for a page.
-          if (written !== null && written.created && !/\.page\.md$/i.test(written.path) && !ASKS_FOR_PAGE.test(String(question ?? ""))) written.follows = await besidePlainNotes(callTool, written.path, args?.context);
+          const written = await turnNoteWrite(name, args, result, { callTool, question });
           if (written !== null) noteWrites.push(written);
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;

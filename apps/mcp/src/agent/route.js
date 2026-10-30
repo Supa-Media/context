@@ -42,8 +42,7 @@ import { deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
-import { withFolderFit } from "./folderFit.js";
-import { withTheirNotesKept } from "./theirNotes.js";
+import { withFolderFit } from "./folderFit.js"; import { withTheirNotesKept } from "./theirNotes.js";
 import { delegateSession, withDelegate } from "./delegate.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
@@ -492,7 +491,6 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover });
   const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
   maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
-  const kept = withTheirNotesKept(dispatch, { question, on: !runner }); // their note is never moved, archived or made a page unasked
   try {
     await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     const turn = await runTurn({
@@ -515,7 +513,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
-          withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(kept, groupWriting, { store, group, question }) : textingAwareCallTool(kept, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))))),
+          withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group, question }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))))),
         ))),
       )))))),
       pictures: texted || group !== null,

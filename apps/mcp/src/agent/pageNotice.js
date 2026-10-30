@@ -18,6 +18,7 @@
 import { activityHintOf } from "../live/activityHint.js";
 import { isPagePath } from "../pages.js";
 import { PAGE_SKILL } from "../pageSkill.js";
+import { ASKS_FOR_PAGE } from "./theirNotes.js";
 
 /** They asked, in so many words, for a plain note: the one case a new note is not a page. */
 const ASKS_PLAIN = /\b(?:(?:plain|regular|normal|simple|ordinary|markdown|md) (?:note|markdown|text|file)|not (?:as )?a page|no page|without a page)\b/i;
@@ -86,6 +87,25 @@ export function amongPlainNotes(listing, path) {
       const name = key.slice(folder.length);
       return !name.includes("/") && /\.md$/i.test(name) && !isPagePath(name) && !/^(?:about|index)\.md$/i.test(name);
     });
+}
+
+/**
+ * `noteWrite`, and for a new plain note whether it sits among their plain
+ * notes (`follows`, from a listing of its folder), unless they asked for a
+ * page. A listing that fails says no. What the turn's watcher keeps.
+ */
+export async function turnNoteWrite(name, args, result, { callTool, question = "" }) {
+  const written = noteWrite(name, args, result);
+  if (written === null || !written.created || isPagePath(written.path) || ASKS_FOR_PAGE.test(String(question ?? ""))) return written;
+  const cut = written.path.lastIndexOf("/");
+  const context = typeof args?.context === "string" && args.context !== "" ? { context: args.context } : {};
+  try {
+    const listed = await callTool("list_notes", { prefix: cut === -1 ? "" : written.path.slice(0, cut + 1), ...context });
+    written.follows = listed?.isError !== true && amongPlainNotes(listed?.content?.[0]?.text, written.path);
+  } catch {
+    written.follows = false;
+  }
+  return written;
 }
 
 /** What Tex is told: write it as a page, with the skill right here, then archive the plain copy. */
