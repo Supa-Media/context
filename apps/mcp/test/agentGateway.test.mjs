@@ -317,6 +317,10 @@ export async function runAgentGatewayChecks(check) {
   );
 
   resetCreditState();
+  const silent = await failureOf(requestViaGateway(CALL, cfg, { fetchImpl: scripted([{ status: 400, body: "" }]).fetchImpl, now: () => T0 }));
+  check("a refusal with no words still says so, and what kind of body it sent", silent?.detail === "empty body (application/json)");
+
+  resetCreditState();
   const serverError = scripted([{ status: 500, body: { error: { message: `internal ${QUESTION} key ${CREDIT}` } } }]);
   const keyed500 = await failureOf(requestViaGateway(CALL, cfg, { fetchImpl: serverError.fetchImpl, now: () => T0 }));
   check(

@@ -259,7 +259,8 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
       throw new ProviderError(timedOut ? "gateway timed out" : "gateway request failed");
     }
     const status = response?.status ?? null;
-    return { status, text: response ? await readCapped(response) : null };
+    // The body's type rides along for `refusalDetail`: a refusal with no words still says who sent it.
+    return { status, text: response ? await readCapped(response) : null, type: response?.headers?.get?.("content-type") ?? null };
   } finally {
     clearTimeout(timer);
   }
@@ -315,6 +316,11 @@ export function providerDetail(text) {
   return line.length > DETAIL_CHARS ? `${line.slice(0, DETAIL_CHARS - 1)}…` : line;
 }
 
+/** `providerDetail`, or what can be said of a refusal with no readable body. */
+function refusalDetail(answer) {
+  return providerDetail(answer.text) ?? `${answer.text === null ? "no body read" : "empty body"} (${answer.type ?? "no content-type"})`;
+}
+
 /**
  * One round through the gateway, in the shape `providers.js` describes,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
@@ -346,14 +352,14 @@ export async function requestViaGateway(call, config, options = {}) {
       // without it, so a broken key costs a slower answer, never no answer.
       answer = null;
     } else {
-      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, providerDetail(answer.text));
+      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, refusalDetail(answer));
     }
   }
   if (!answer) {
     answer = await sendWithRetry(config, body, { withKey: false, metadata: options.metadata }, fetchImpl, wait);
   }
   if (answer.status !== 200) {
-    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, providerDetail(answer.text));
+    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, refusalDetail(answer));
   }
 
   const text = answer.text;
