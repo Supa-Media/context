@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Card } from "../../design/components/Card";
-import { Dot, type DotTone } from "../../design/components/Dot";
+import { Dot } from "../../design/components/Dot";
 import { Menu } from "../../design/components/Menu";
 import type { MenuItem } from "../files/menuItem";
 import { FormError } from "../../design/components/Input";
@@ -12,10 +12,12 @@ import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import {
   SERVICE_TITLES,
   accountStatus,
+  isDisconnected,
   enabledServices,
   listWords,
   needsReconnect,
   readOnlyOf,
+  serviceTone,
   type GoogleService,
 } from "./googleStatus";
 import { useGoogleAiAccess, type GoogleAiAsk } from "./useGoogleAiAccess";
@@ -283,8 +285,9 @@ function GoogleAccountRow({
   const starting = google?.state.kind === "starting";
   const canReconnect = google !== undefined && google.redirectUri !== null;
   const broken = status.tone === "crit";
+  const off = isDisconnected(connection);
   // Reconnect is offered on the row only when signing in again is what fixes it.
-  const offerReconnect = (needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
+  const offerReconnect = (off || needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
   // A broken grant is fixed by reconnecting first; AI access is the next step.
   const offerAi = aiAsk === "needed" && canReconnect && !offerReconnect;
 
@@ -297,10 +300,11 @@ function GoogleAccountRow({
     ...(canReconnect
       ? [{ id: "reconnect" as const, label: "Reconnect with Google", testID: `menu-reconnect-${connection.connectionId}` }]
       : []),
-    ...(aiAsk !== undefined && canReconnect
+    // A disconnected account has no grant to widen and nothing left to disconnect.
+    ...(aiAsk !== undefined && canReconnect && !off
       ? [{ id: "allow-ai" as const, label: "Allow AI access", testID: `menu-allow-ai-${connection.connectionId}` }]
       : []),
-    ...(actions === undefined
+    ...(actions === undefined || off
       ? []
       : [{
           id: "disconnect" as const,
@@ -452,17 +456,11 @@ function GoogleAccountRow({
   );
 }
 
-/** A service's own health, for its dot: only a grant Google refuses is news. */
-function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
-  if (needsReconnect(connection)) return "crit";
-  return readOnlyOf(connection).includes(service) ? "warn" : "ok";
-}
-
 /** The marks in words, with each one's health: an icon and a dot are not a label. */
 function serviceLabel(connection: GoogleConnection, services: GoogleService[]): string {
   if (services.length === 0) return "No services granted";
   const said = (service: GoogleService) =>
-    needsReconnect(connection) ? "stopped" : readOnlyOf(connection).includes(service) ? "read only" : "connected";
+    isDisconnected(connection) ? "disconnected" : needsReconnect(connection) ? "stopped" : readOnlyOf(connection).includes(service) ? "read only" : "connected";
   return services.map((service) => `${SERVICE_TITLES[service]} ${said(service)}`).join(", ");
 }
 
