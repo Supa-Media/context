@@ -458,7 +458,8 @@ export async function runAgentRoutineChecks(check) {
       },
       { text: "Done." },
     ]);
-    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips in a plain note" });
+    // Archiving and moving are asked for in their words: a note of theirs is never moved unasked (`theirNotes.js`, 2026-10-30).
+    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips in a plain note, archive the old plan and rename rename-me to renamed" });
     const madeRequest = model.requests.at(-2);
     const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write");
     check(

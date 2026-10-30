@@ -57,7 +57,7 @@ import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, cl
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
-import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
+import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
@@ -524,7 +524,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
-          const written = noteWrite(name, args, result);
+          const written = await turnNoteWrite(name, args, result, { callTool, question });
           if (written !== null) noteWrites.push(written);
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;

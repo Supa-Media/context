@@ -155,6 +155,7 @@ test/agentPictureMaker.test.mjs
 test/agentVisuals.test.mjs
 test/agentVisualNotice.test.mjs
 test/agentPageNotice.test.mjs
+test/agentTheirNotes.test.mjs
 test/readFile.test.mjs
 test/readNoteCost.test.mjs
 test/agentLearnedSkills.test.mjs
