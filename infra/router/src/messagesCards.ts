@@ -27,6 +27,7 @@
 
 import { DATA_SCRIPT, DATA_SCRIPT_HASH, inboxPage, timesPage } from "./messagesData";
 import { escaped, type Page } from "./messagesPage";
+import { PICTURE_KEY, PICTURE_PATH } from "./messagesPicture";
 
 export const MESSAGES_PREFIX = "/messages/";
 
@@ -67,7 +68,7 @@ export const BRIDGE_SCRIPT = `(function () {
 export const BRIDGE_SCRIPT_HASH = "sha256-QuW0ZHNrFNWVWbHCP50Ugg8tugL73qVyqnZ6JvZA0cU=";
 
 const policy = (hash: string) =>
-  "default-src 'none'; style-src 'unsafe-inline'; " +
+  "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
   `script-src '${hash}'; ` +
   "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -132,9 +133,16 @@ function helloPage(): Page {
 }
 
 /** A drawn card opened: its picture is the bubble itself, so this only says how to change it. */
+/** A card Tex drew, opened: its title and, where the card names it, the drawing itself (`messagesPicture.ts`). */
 function cardPage(query: URLSearchParams): Page {
-  const title = (query.get("t") ?? "").replace(/\s+/g, " ").trim().slice(0, 100);
-  return { title: title || "From Tex", body: `<h1>${escaped(title || "From Tex")}</h1><p>Want it changed? Reply to Tex in the chat and say how.</p>`, size: "compact" };
+  const title = (query.get("t") ?? "").replace(/\s+/g, " ").trim().slice(0, 100) || "From Tex";
+  const kept = query.get("p") ?? "";
+  const picture = PICTURE_KEY.test(kept) ? `<img class="drawn" src="${PICTURE_PATH}?p=${kept}" alt="${escaped(title)}">` : "";
+  return {
+    title,
+    body: `<h1>${escaped(title)}</h1>${picture}<p>Want it changed? Reply to Tex in the chat and say how.</p>`,
+    size: picture ? "expanded" : "compact",
+  };
 }
 
 function noCard(): Page {
@@ -153,7 +161,8 @@ button.on{border:2px solid var(--accent);background:var(--soft)}#list{display:fl
 .mail b{font-weight:600}.mail .line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.day{margin-top:6px;font-weight:600}
 .slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.slots button{min-height:40px;padding:0;justify-content:center;font-size:14px}
 .bar{display:flex;gap:6px}.bar button{flex:1;justify-content:center}#send{position:sticky;bottom:8px;width:100%;justify-content:center;font-weight:600}
-.detail{font-size:13px;color:var(--muted)}#status{color:#c4314b;font-size:14px}`;
+.detail{font-size:13px;color:var(--muted)}#status{color:#c4314b;font-size:14px}
+img.drawn{width:100%;height:auto;border-radius:12px;border:1px solid var(--line)}`;
 
 function render(page: Page): string {
   return (

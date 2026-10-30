@@ -42,7 +42,8 @@ import {
   type WhapiKeys,
 } from "./whapi";
 
-export type Picture = { name: string; mediaType: string; data: string };
+/** A picture to send; `title` marks a card Tex drew, kept longer where it is hosted (`media.ts` `CARD_FOR_MS`). */
+export type Picture = { name: string; mediaType: string; data: string; title?: string };
 
 export interface Line {
   /**

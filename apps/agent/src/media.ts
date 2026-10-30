@@ -16,6 +16,12 @@ import type { Picture } from "./line";
 /** Long enough for Sendblue to fetch it, short enough not to linger. */
 export const MEDIA_FOR_MS = 30 * 60 * 1000;
 /**
+ * A card Tex drew is also what its Context card shows when tapped
+ * (`sendParts.ts` `drawnCard`, the router's `/messages/card`), and people tap
+ * one well after it arrived, so its picture is kept for a week.
+ */
+export const CARD_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+/**
  * A Durable Object's stored value is capped at 2 MB, and a photo the image
  * model makes is often bigger, so the bytes are kept in pieces under that cap.
  * A picture over the whole cap is not sent.
@@ -23,7 +29,9 @@ export const MEDIA_FOR_MS = 30 * 60 * 1000;
 export const CHUNK_BYTES = 1_900_000;
 export const MAX_HOSTED_BYTES = 8_000_000;
 
-type Hosted = { mediaType: string; at: number; chunks: number };
+type Hosted = { mediaType: string; at: number; chunks: number; for?: number };
+
+const keptFor = (hosted: Hosted) => (typeof hosted.for === "number" ? hosted.for : MEDIA_FOR_MS);
 
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -59,6 +67,7 @@ export async function hostPicture(
   objectId: string,
   picture: Picture,
   now: number,
+  keepFor = MEDIA_FOR_MS,
 ): Promise<string> {
   const extension = EXTENSIONS[picture.mediaType];
   if (!origin || !extension || !OBJECT_ID.test(objectId)) throw new Error("cannot host this picture");
@@ -71,7 +80,7 @@ export async function hostPicture(
       await storage.put<Uint8Array>(chunkKey(token, index), bytes.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES));
     }
     // Written last, so a picture is never served half kept.
-    await storage.put<Hosted>(mediaKey(token), { mediaType: picture.mediaType, at: now, chunks });
+    await storage.put<Hosted>(mediaKey(token), { mediaType: picture.mediaType, at: now, chunks, ...(keepFor !== MEDIA_FOR_MS ? { for: keepFor } : {}) });
   } catch (error) {
     // Pieces with no entry would never be pruned.
     for (let index = 0; index < chunks; index++) await storage.delete(chunkKey(token, index)).catch(() => undefined);
@@ -83,7 +92,7 @@ export async function hostPicture(
 /** The picture at `token`, while it is still kept; 404 otherwise, the same for every miss. */
 export async function serveMedia(storage: InboxStorage, token: string, now: number): Promise<Response> {
   const hosted = TOKEN.test(token) ? await storage.get<Hosted>(mediaKey(token)) : undefined;
-  if (!hosted || typeof hosted.chunks !== "number" || now - hosted.at > MEDIA_FOR_MS) return new Response(null, { status: 404 });
+  if (!hosted || typeof hosted.chunks !== "number" || now - hosted.at > keptFor(hosted)) return new Response(null, { status: 404 });
   const pieces: Uint8Array[] = [];
   for (let index = 0; index < hosted.chunks; index++) {
     const piece = await storage.get<Uint8Array>(chunkKey(token, index));
@@ -104,18 +113,18 @@ export async function serveMedia(storage: InboxStorage, token: string, now: numb
 /** Delete what has expired, and wake again for whatever is still kept. Called when the queue is empty. */
 export async function pruneMedia(storage: InboxStorage, now: number): Promise<void> {
   const kept = await storage.list<Hosted>({ prefix: "media:" });
-  let left = false;
+  let next = Infinity;
   for (const [key, hosted] of kept) {
-    if (now - hosted.at > MEDIA_FOR_MS) {
+    if (now - hosted.at > keptFor(hosted)) {
       const token = key.slice("media:".length);
       for (let index = 0; index < (hosted.chunks ?? 0); index++) await storage.delete(chunkKey(token, index));
       await storage.delete(key);
-    } else left = true;
+    } else next = Math.min(next, hosted.at + keptFor(hosted));
   }
-  if (!left) return;
+  if (next === Infinity) return;
   // Never push back an alarm already set sooner: a text that arrived
   // meanwhile, or a "your notes are ready" text owed (`ready.ts`).
-  const at = now + MEDIA_FOR_MS + 1_000;
+  const at = next + 1_000;
   const current = storage.getAlarm === undefined ? null : await storage.getAlarm();
   if ((current === null || current === undefined || current > at) && (await storage.list({ prefix: "pending:" })).size === 0) {
     await storage.setAlarm(at);

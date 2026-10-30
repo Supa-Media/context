@@ -582,7 +582,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
-      : async (picture: { name: string; mediaType: string; data: string }) =>
+      : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
 }

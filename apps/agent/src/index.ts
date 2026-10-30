@@ -35,7 +35,7 @@ import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
-import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
+import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
@@ -651,6 +651,7 @@ export class SenderInbox implements DurableObject {
           this.state.id.toString(),
           picture,
           Date.now(),
+          picture.title ? CARD_FOR_MS : MEDIA_FOR_MS,
         ),
       threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
