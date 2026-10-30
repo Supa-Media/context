@@ -41,6 +41,21 @@ What is built:
   as a user). Without it Google answers `SERVICE_DISABLED` or "Chat app not
   found", and Tex says it is Context's to fix, never the person's.
 
+**"Sent" is what Google answered (2026-10-30).** A live first direct message
+was reported sent while no conversation could be found afterwards, and the
+answer could not say where it went, because it echoed the address that was
+asked for. Now a send is sent only when `messages.create` names a message
+inside the conversation it was posted to, and `spaces.setup` counts only
+when it answers a `DIRECT_MESSAGE` space. The answer carries Google's ids
+(`space`, `message`, `started` for a new direct message) and Tex's reply
+names them, so anyone can read back exactly that conversation. A 2xx without
+them, or a connection lost while the message was being made, is
+`unconfirmed`: never told as sent, never as "nothing was sent", and never
+retried by itself. Tests: `googleChatSend.test.ts` ("a send Google does not
+confirm is never called sent", "a first direct message goes only into the
+direct message Google made") and `googleChatGate.test.mjs` ("approving it in
+the app sends it, once, and not as a check").
+
 Not built: replies in a thread, reading a space's messages live, and group
 chats sending as their tagger. The browser stays the fallback only when the
 API refuses.

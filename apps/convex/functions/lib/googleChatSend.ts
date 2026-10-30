@@ -39,7 +39,10 @@ export type ChatRefusal =
   | "person_not_found"
   | "chat_not_enabled"
   | "reconnect_required"
-  | "unavailable";
+  | "unavailable"
+  // Google answered a send without naming the message it made, so whether it
+  // went is not known: never reported as sent, nor as nothing sent.
+  | "unconfirmed";
 
 /** `to` is one person's email (a direct message); `space` a space, by its name in Chat or its `spaces/…` id. */
 export interface ChatMessage {

@@ -10,7 +10,7 @@
 
 export function createGoogleChatRoute(clearedOwnAccount) {
   // `recent`: the messages `/gateway/chat/recent` answers (a list, or a function of the body).
-  const flags = { from: null, spaceName: null, refusal: null, recent: null };
+  const flags = { from: null, spaceName: null, refusal: null, recent: null, unnamed: false };
   /** Every call: the message, whether it was a check, and what was answered. */
   const calls = [];
 
@@ -23,6 +23,8 @@ export function createGoogleChatRoute(clearedOwnAccount) {
       const message = body.message ?? {};
       const place = typeof message.to === "string" ? { person: message.to } : { space: flags.spaceName ?? message.space };
       answer = { ok: true, from: flags.from, place };
+      // A send answers with the ids Google gave, as the real route does; `unnamed` leaves them out.
+      if (body.check !== true && !flags.unnamed) Object.assign(answer, { space: "spaces/AAA", message: `spaces/AAA/messages/m${calls.length + 1}`, started: false });
     }
     calls.push({ message: body.message, check: body.check === true, answer });
     return answer;
