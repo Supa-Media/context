@@ -15,10 +15,11 @@
     "./lzstring": "./src/lzstring.js",
     "./serialize": "./src/serialize.js",
     "./scaffold": "./src/scaffold.js",
-    "./collab": "./src/collab.js"
+    "./collab": "./src/collab.js",
+    "./merge": "./src/merge.js"
   },
   "scripts": {
-    "test": "node test/test.mjs && node test/serialize.test.mjs && node test/collab.test.mjs && node test/bounds.test.mjs",
+    "test": "node test/test.mjs && node test/serialize.test.mjs && node test/collab.test.mjs && node test/merge.test.mjs && node test/bounds.test.mjs",
     "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
     "lint": "echo \"no lint configured yet\" && exit 0"
   },

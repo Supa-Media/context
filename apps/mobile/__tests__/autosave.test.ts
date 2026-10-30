@@ -390,6 +390,24 @@ describe("which drafts may be written without being asked for", () => {
     expect(autosaves({ ...dirty(), readOnly: true })).toBe(false);
   });
 
+  test("a draft that moved on while the write was out is still written", () => {
+    // The last stroke of a drawing, made while the previous save was in
+    // flight, used to be marked saved with the bucket never having it.
+    const started = editorReducer(dirty(), { type: "saveStarted" });
+    const written = started.draft;
+    const later = editorReducer(started, { type: "edited", text: `${written}one more stroke\n` });
+    const landed = editorReducer(later, {
+      type: "saveSucceeded",
+      etag: "etag-2",
+      conflictCheck: "conditional",
+      text: written,
+    });
+    expect(landed.baseline).toBe(written);
+    expect(landed.etag).toBe("etag-2");
+    expect(landed.status).toBe("dirty");
+    expect(autosaves(landed)).toBe(true);
+  });
+
   test("never a note that is only different because it was just saved", () => {
     const saved = editorReducer(editorReducer(dirty(), { type: "saveStarted" }), {
       type: "saveSucceeded",

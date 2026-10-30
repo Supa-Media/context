@@ -238,7 +238,12 @@ export type EditorAction =
   | { type: "queueSettled"; etag: string }
   /** A just-created note was reread and now carries the canonical CRDT generation. */
   | { type: "queueCanonicalized"; etag: string; text?: string; baseEtag?: string }
-  | { type: "saveSucceeded"; etag: string; conflictCheck: ConflictCheck }
+  /**
+   * `text` is what was written. A draft that moved on while the write was out
+   * stays unsaved, rather than being marked saved with words the bucket never
+   * got; absent, the draft as it stands is taken as written.
+   */
+  | { type: "saveSucceeded"; etag: string; conflictCheck: ConflictCheck; text?: string }
   | { type: "saveFailed"; error: FileError }
   /** `SAVE_TIMEOUT_MS` elapsed with the save still outstanding. */
   | { type: "saveTimedOut" }
@@ -260,6 +265,13 @@ export type EditorAction =
    * ordinary conditional write.
    */
   | { type: "resolving"; text: string; etag: string | null }
+  /**
+   * A drawing's save was refused because somebody else saved first, and the
+   * two scenes were merged by element instead of asking (`mergeDrawings`).
+   * The draft becomes the merge and the etag the version it was spliced into;
+   * the save that follows is still an ordinary conditional write.
+   */
+  | { type: "drawingMerged"; path: string; text: string; etag: string }
   /**
    * A queued rename of this note reached the bucket. The note is now at its
    * new name at `etag`, which is the version the next save must be checked
@@ -447,12 +459,30 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "saveStarted":
       return { ...state, status: "saving", message: undefined };
 
-    case "saveSucceeded":
+    case "saveSucceeded": {
+      /*
+        What the server holds now, so "unchanged" means this. A stroke or a
+        keystroke made while the write was out is not in it: that draft stays
+        dirty and its own autosave writes it. Marking it saved dropped the last
+        stroke of a drawing until the next one came along.
+      */
+      const written = action.text ?? state.draft;
+      if (written !== state.draft) {
+        return {
+          ...state,
+          status: "dirty",
+          baseline: written,
+          etag: action.etag,
+          conflictCheck: action.conflictCheck,
+          conflictEtag: undefined,
+          draftBase: undefined,
+          message: undefined,
+        };
+      }
       return {
         ...state,
         status: "saved",
-        // The draft is now what the server holds, so "unchanged" means this.
-        baseline: state.draft,
+        baseline: written,
         etag: action.etag,
         conflictCheck: action.conflictCheck,
         conflictEtag: undefined,
@@ -462,6 +492,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
             ? "Saved. This bucket does not enforce conditional writes, so conflict detection is best-effort."
             : "Saved.",
       };
+    }
 
     case "saveFailed":
       if (action.error.code === "CONFLICT") {
@@ -530,6 +561,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         conflictEtag: undefined,
         message: undefined,
       };
+
+    case "drawingMerged":
+      if (state.path !== action.path || state.readOnly || state.status === "conflict") return state;
+      return { ...state, draft: action.text, etag: action.etag, status: "dirty", message: undefined };
 
     case "discarded":
       return {

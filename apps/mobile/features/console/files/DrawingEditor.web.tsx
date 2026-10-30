@@ -3,7 +3,7 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
 import { space } from "../../design/tokens";
 import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
-import { parseDrawing, serializeDrawing } from "@context/drawings";
+import { parseDrawing, readDrawingScene, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
 import { keepDrawingEditorOffline } from "./drawingOffline";
 import {
@@ -109,6 +109,8 @@ export function DrawingEditor({
     constantly. Every splice is against the newest bytes either way.
   */
   const latest = useRef(source);
+  /** The last body this canvas produced, to tell its own echo from a merge. */
+  const emitted = useRef(source);
   useEffect(() => {
     latest.current = source;
   }, [source]);
@@ -198,6 +200,31 @@ export function DrawingEditor({
   }, [collaboration, post]);
 
   /*
+    **A body this canvas did not produce goes onto the canvas.**
+
+    When a save is refused because somebody else saved first, the console
+    merges the two scenes and the draft becomes that merge (`useSaving`).
+    The page holds the scene it was loaded with and ignores a second load,
+    so the merge is handed over the way a peer's elements are — reconciled
+    in by version — with deleted elements included, so a deletion lands too.
+    Without this the next stroke here would splice this canvas's scene, which
+    may lack the other person's shapes, straight back over the merge.
+  */
+  const emittedFor = useRef(path);
+  useEffect(() => {
+    if (source === emitted.current) return;
+    emitted.current = source;
+    // Another drawing opened in this same editor is a load, not a merge.
+    if (emittedFor.current !== path) {
+      emittedFor.current = path;
+      return;
+    }
+    const scene = readDrawingScene(source);
+    const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+    if (elements.length > 0) post({ type: "remote", elements });
+  }, [source, path, post]);
+
+  /*
     The room asked for a compaction, which for a canvas means the whole scene —
     and the console does not have it as elements, only as file bytes. So the
     scene is read back out of the newest bytes the caller holds, which is what
@@ -260,7 +287,10 @@ export function DrawingEditor({
           const next = serializeDrawing(latest.current, message.elements as never[]);
           // A null here means the file stopped being splicable under us. Dropping
           // the change is the safe half of that choice.
-          if (next !== null && next !== latest.current) onChange(next);
+          if (next !== null && next !== latest.current) {
+            emitted.current = next;
+            onChange(next);
+          }
           break;
         }
         case "share":
