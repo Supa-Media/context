@@ -71,7 +71,7 @@ import { ackEmoji } from "./ackEmoji";
 import { reactionFor } from "./reactEmoji";
 import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
+import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
@@ -268,11 +268,11 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  // A 👍 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
+  // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
-  if (holdsAsYes(onAsk)) {
+  if (holdsAsAnswer(onAsk)) {
     // Marked so decide can never silence, fold, drop or stale it: the gateway alone says whether it is the yes (`inboxTurn.ts` `decidedByCode`).
     const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how, askYes: true };
     await holdThumb(storage, asked, reaction.words, now);

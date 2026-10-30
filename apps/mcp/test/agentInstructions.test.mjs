@@ -239,7 +239,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 17,500 when they were told to look before asking, and what "fix yourself" asks (lookFirst.js, LOOK_FIRST_LINE, 2026-10-28; 17,7xx then).
   // and from 18,000 when they were told to offer a card on their own week or inbox (outgoingPictures.js, DATA_CARDS_LINE, 2026-10-29; 18,2xx then).
   // and from 18,500 when a drawn card was said to arrive as a Context card, and a time to meet names open slots (PICTURES_LINE, SYNCED_PLACES_LINE, 2026-10-29; 18,6xx then).
-  assert.ok(system.length < 19_000, `system was ${system.length} characters`);
+  // and from 19,000 when a yes-or-no question was told to invite a 👍 or 👎, never "say yes" (chatVoice.js, YES_NO_LINE, 2026-10-30; 19,0xx then).
+  assert.ok(system.length < 19_500, `system was ${system.length} characters`);
 });
 
 test("every new note a texted turn makes is a designed page (owner, 2026-10-27)", async () => {

@@ -232,7 +232,7 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
-      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must reply YES, " +
+      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must give it a 👍 or say yes, " +
       "and only then do your last few texts with them go to the Context team with it. Every report by text waits for that YES.",
   },
   {

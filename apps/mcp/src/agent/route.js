@@ -55,7 +55,7 @@ import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quot
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
-import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
+import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
@@ -206,12 +206,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let thumbsUp = false;
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
-    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null });
+    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null }); // a 👍 on the ask is that yes
+    const thumbsDown = !thumbsUp && (await thumbsDownIsNo(store, session, quoted, { who: group?.from || null })); // and a 👎 the no
     const settled = await settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
-      question: thumbsUp ? "yes" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
+      question: thumbsUp ? "yes" : thumbsDown ? "no" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
       keep: group !== null ? keepGroupSettled(store, group, dispatch) : null,
       hasAttachments: sent.length > 0,
       now: received,
