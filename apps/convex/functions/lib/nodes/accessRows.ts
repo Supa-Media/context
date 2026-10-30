@@ -91,12 +91,35 @@ export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces"
   return out;
 }
 
+/**
+ * The workspace's `nodeAccessState` row, read once per query.
+ *
+ * It holds the access snapshot, the largest thing a reader reads, and one
+ * query used to read it up to four times: the rules, the rules' etag, and the
+ * access version each asked again (`nodesPrivacy.authority`, the live head,
+ * folder listings; Convex invoice, owner 2026-10-30). A query cannot change
+ * it, so its first answer is the answer for the rest of the query. A mutation
+ * (a `db` that can write) always reads afresh, as it may have just written it.
+ */
+const stateReads = new WeakMap<object, Map<string, Promise<Doc<"nodeAccessState"> | null>>>();
+
+export async function accessStateOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"nodeAccessState"> | null> {
+  const read = () =>
+    ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+  if ("insert" in ctx.db) return await read();
+  let reads = stateReads.get(ctx.db);
+  if (reads === undefined) stateReads.set(ctx.db, (reads = new Map()));
+  let state = reads.get(workspaceId);
+  if (state === undefined) reads.set(workspaceId, (state = read()));
+  return await state;
+}
+
 /** The version of this workspace's access rows: bumped by every finished derivation, `0` before the first. */
 export async function accessVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number> {
-  const state = await ctx.db
-    .query("nodeAccessState")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
+  const state = await accessStateOf(ctx, workspaceId);
   return state?.version ?? 0;
 }
 
@@ -105,10 +128,7 @@ export async function accessVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces
  * finished derivation left one, else the scan.
  */
 export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[]> {
-  const state = await ctx.db
-    .query("nodeAccessState")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
+  const state = await accessStateOf(ctx, workspaceId);
   const rows =
     state?.snapshot !== undefined
       ? state.snapshot.map((entry) => ({
