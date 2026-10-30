@@ -566,7 +566,7 @@ test("a setup with a fallback gets a line saying how often it was used, and a re
     ],
   };
   const md = resultMarkdown(spare);
-  assert.ok(md.includes("Fell back: haiku-spare went on to @cf/zai-org/glm-4.7-flash in 1 of 3 answers after anthropic/claude-haiku-5-5 failed."), md);
+  assert.ok(md.includes("Fell back: haiku-spare went on to @cf/zai-org/glm-4.7-flash in 1 of 3 answers after anthropic/claude-haiku-5-5 failed (529)."), md);
   assert.ok(md.includes("Retried: haiku-spare had the gateway retry a round in 1 of 3 answers."), md);
   assert.ok(md.includes("Tools: fallback: @cf/zai-org/glm-4.7-flash after 529, search_notes"), "the fallback is on the answer's tools line");
 });
