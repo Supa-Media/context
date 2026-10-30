@@ -156,6 +156,10 @@ const OPEN_PAGE_DEFINITION = {
         maxItems: MAX_PAGES_PER_TURN,
         description: "The pages' full addresses.",
       },
+      from: {
+        type: "string",
+        description: "Optional: a heading or words on the page to read on from, for a page that came back cut.",
+      },
     },
     required: ["urls"],
   },
@@ -251,8 +255,27 @@ function text(value, isError = false) {
   return { content: [{ type: "text", text: value }], ...(isError ? { isError: true } : {}) };
 }
 
-function pageText(page) {
-  const body = page.text.length > MAX_PAGE_CHARS ? `${page.text.slice(0, MAX_PAGE_CHARS)}\n[cut]` : page.text;
+/**
+ * A page's text from where `from` asks (a heading further down), cut to
+ * `MAX_PAGE_CHARS` with a line saying how much is unread, so an answer never
+ * reviews a page's first part as the whole (`readClaims.js`).
+ */
+export function pageBody(text, from = null) {
+  const wanted = typeof from === "string" ? from.trim().slice(0, 120) : "";
+  const at = wanted === "" ? -1 : text.toLowerCase().indexOf(wanted.toLowerCase());
+  const start = at > 0 ? at : 0;
+  const lead = wanted === "" ? [] : [at >= 0 ? `(Read from "${wanted}", ${start.toLocaleString("en-US")} characters in.)` : `("${wanted}" isn't on this page; shown from the start.)`];
+  const rest = text.slice(start);
+  if (rest.length <= MAX_PAGE_CHARS) return [...lead, rest].join("\n");
+  return [
+    ...lead,
+    rest.slice(0, MAX_PAGE_CHARS),
+    `[cut: ${(start + MAX_PAGE_CHARS).toLocaleString("en-US")} of ${text.length.toLocaleString("en-US")} characters read; the rest of this page is unread. open_page it again with from: a heading further down to read on.]`,
+  ].join("\n");
+}
+
+function pageText(page, from = null) {
+  const body = pageBody(page.text, from);
   const links = (page.links ?? [])
     .slice(0, MAX_LINKS_SHOWN)
     .map((link, i) => `${i + 1}. ${link.text || "(no text)"} - ${link.href}`)
@@ -443,7 +466,7 @@ export function webSession(computer, question, { decide = null, search = null, a
         }
       }
       if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
-      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page)));
+      const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page, args?.from)));
       const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.

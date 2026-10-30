@@ -191,3 +191,27 @@ also says a figure comes from that very thing's own page and that a yes/no or
 which-is-cheaper answer leads. What a "simplification" costs: dropping the name
 check lets one company's prices be quoted as another's again. Tests:
 `agentSourcedFigures.test.mjs`.
+
+### A page is said to hold only what the turn read in it (2026-10-30)
+
+The same group chat, the same day (self-review ade1c1, b71289): Tex said a
+spec's memory section "is there" and quoted a heading when only the page's
+first 12,000 characters had come back, then two texts later that the section
+was unread; wrote a link off as being for another company's models before
+opening it; and, having said from the notes that a model switch wasn't made
+yet, described it as live a few turns on. `sourcedFigures.js` checked figures
+only, not what a page is said to say.
+
+So `readClaims.js` runs beside the figure check, once a turn, whatever the turn
+read: an answer that says a page or note has a section, covers a subject or
+quotes its words, with those words in no tool result, pasted text or write of
+this turn; a cut page reviewed or said to lack something without saying it was
+only partly read; a link in their text summed up with nothing on the web read;
+a change something read or said earlier calls not live yet, stated as live with
+no correction named; and "it's unread" after one of Tex's last texts said what
+the page holds, with no correction named. Each gets one more round naming it.
+`open_page` takes `from:` (a heading further down) and its cut line says how
+much of the page was read, so the rest can be read rather than guessed.
+`READ_CLAIMS_LINE` says the same in the prompt. What a "simplification" costs:
+taking their question as backing lets "does it have a memory section?" vouch
+for "yes, it's there". Tests: `agentReadClaims.test.mjs`.
