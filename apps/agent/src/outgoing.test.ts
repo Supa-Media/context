@@ -148,6 +148,10 @@ describe("shrinking a big photo before it goes", () => {
     expect(seen).toEqual([{ width: 2048, height: 2048, fit: "scale-down" }, { format: "image/jpeg", quality: 85 }]);
   });
 
+  it("keeps a drawn card's title through the shrink, so it is still kept as a card", async () => {
+    expect(await shrinkPicture(imagesAnswering(JPEG), { ...big, title: "Team night" })).toMatchObject({ mediaType: "image/jpeg", title: "Team night" });
+  });
+
   it("leaves a small picture, a GIF, a failed conversion, and a line with no binding alone", async () => {
     const small = { name: "poster.png", mediaType: "image/png", data: btoa("small") };
     expect(await shrinkPicture(imagesAnswering(JPEG), small)).toBe(small);

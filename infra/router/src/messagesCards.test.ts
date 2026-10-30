@@ -7,6 +7,7 @@
  *   `escaped` returning its input → "never lets a name write markup" fails.
  *   `askPage` not checking the key → "an ask with a bad key offers nothing" fails.
  *   `BRIDGE_SCRIPT` edited without its hash → "the one script is the one its policy allows" fails.
+ *   `cardPage` not checking `p` → "shows the drawing itself … never any other address" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -92,6 +93,17 @@ describe("a drawn card's page", () => {
     expect(opened.html).toContain("Reply to Tex in the chat");
     expect(requests(opened.html)).toEqual([]);
     expect((await page("/messages/card")).html).toContain("From Tex");
+    expect(opened.html).not.toContain("<img");
+  });
+
+  it("shows the drawing itself, full size, when the card names where it is kept, and never any other address", async () => {
+    const key = `${"a".repeat(64)}.${"b".repeat(64)}.png`;
+    const opened = await page(`/messages/card?t=Team%20night&p=${key}`);
+    expect(opened.html).toContain(`<img class="drawn" src="/messages/picture?p=${key}" alt="Team night">`);
+    expect(opened.html).toContain('data-size="expanded"');
+    for (const bad of ["https%3A%2F%2Fevil.example%2Fx.png", `${key}%22%3E%3Cscript%3E`, `${"a".repeat(64)}.${"b".repeat(64)}.svg`, "a.b.png"]) {
+      expect((await page(`/messages/card?t=x&p=${bad}`)).html).not.toContain("<img");
+    }
   });
 });
 
@@ -102,7 +114,7 @@ describe("every page", () => {
     const { html, headers } = await page("/messages/drawer");
     expect(html).toContain(`<script>${BRIDGE_SCRIPT}</script>`);
     expect(html.match(/<script/g)).toHaveLength(1);
-    expect(headers.get("Content-Security-Policy")).toBe(`default-src 'none'; style-src 'unsafe-inline'; script-src '${BRIDGE_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+    expect(headers.get("Content-Security-Policy")).toBe(`default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; script-src '${BRIDGE_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
     expect(headers.get("X-Robots-Tag")).toContain("noindex");
   });
 

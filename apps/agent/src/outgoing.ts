@@ -39,10 +39,7 @@ const SHRUNK_EDGE = 2048;
  * past 2 MB for a photo. Small pictures, GIFs (which may move) and anything
  * Images refuses go unchanged; without the binding nothing is shrunk.
  */
-export async function shrinkPicture(
-  images: ImagesLike | undefined,
-  picture: { name: string; mediaType: string; data: string },
-): Promise<{ name: string; mediaType: string; data: string }> {
+export async function shrinkPicture<P extends { name: string; mediaType: string; data: string }>(images: ImagesLike | undefined, picture: P): Promise<P> {
   if (!images || picture.mediaType === "image/gif" || picture.data.length * 0.75 <= SHRINK_OVER_BYTES) return picture;
   try {
     const result = await images
@@ -54,7 +51,8 @@ export async function shrinkPicture(
     let binary = "";
     for (let i = 0; i < out.length; i += 0x8000) binary += String.fromCharCode(...out.subarray(i, i + 0x8000));
     const dot = picture.name.lastIndexOf(".");
-    return { name: `${dot > 0 ? picture.name.slice(0, dot) : picture.name}.jpg`, mediaType: "image/jpeg", data: btoa(binary) };
+    // Anything else it carries, a drawn card's title, stays (`media.ts` `CARD_FOR_MS`).
+    return { ...picture, name: `${dot > 0 ? picture.name.slice(0, dot) : picture.name}.jpg`, mediaType: "image/jpeg", data: btoa(binary) };
   } catch {
     return picture;
   }
@@ -145,7 +143,7 @@ export async function uploadLinqPicture(
 export async function partsFor(
   texts: string[],
   pictures: OutgoingPicture[],
-  upload: (picture: { name: string; mediaType: string; data: string }) => Promise<Media>,
+  upload: (picture: { name: string; mediaType: string; data: string; title?: string }) => Promise<Media>,
 ): Promise<SendPart[]> {
   const parts: SendPart[] = [...texts];
   let failed = false;

@@ -10,23 +10,40 @@ import type { Line } from "./line";
 import type { Media, SendPart } from "./outgoing";
 
 const MAX_CAPTION = 100;
+const HOSTED = /\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.(png|jpg|gif|webp)$/;
+
+/** `<object id>.<token>.<ext>` for a picture this Worker keeps (`media.ts`), or null for any other address. */
+export function pictureKey(imageUrl: string): string | null {
+  let path: string;
+  try {
+    path = new URL(imageUrl).pathname;
+  } catch {
+    return null;
+  }
+  const match = HOSTED.exec(path);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
+}
 
 /**
  * A card Tex drew, sent as a Context card rather than a bare photo (the
  * owner, 2026-10-29, after Tex sent a drawn card as a photo and said a card
  * can only be a picture in iMessage). The drawing is the card's
  * picture and its title the caption, so it reads as one native bubble; tapping
- * it opens the Context app's Messages extension (`/tex/card`). The card
- * carries no words the picture does not already show.
+ * it opens the Context app's Messages extension (`/tex/card`), which shows
+ * the drawing again, full size (the owner, 2026-10-30: a tapped card showed
+ * only its title). The card carries no words the picture does not already
+ * show; `p` names where the drawing is kept (`media.ts`, a week for a card),
+ * read back through the router's `/messages/picture`.
  */
 export function drawnCard(title: string, imageUrl: string, config: AppCardConfig): AppCard {
   const caption = title.slice(0, MAX_CAPTION);
+  const kept = pictureKey(imageUrl);
   return {
     appName: "Context",
     extensionBundleId: config.extensionBundleId,
     teamId: config.teamId,
     ...(config.appStoreId ? { appStoreId: config.appStoreId } : {}),
-    url: `https://context.lc/tex/card?t=${encodeURIComponent(caption)}`,
+    url: `https://context.lc/tex/card?t=${encodeURIComponent(caption)}${kept ? `&p=${kept}` : ""}`,
     interactive: false,
     fallbackText: caption,
     layout: { caption, subcaption: "From Tex", imageUrl, summary: caption },

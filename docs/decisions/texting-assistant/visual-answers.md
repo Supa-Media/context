@@ -190,6 +190,19 @@ drawing on any line without cards. Tests: `apps/agent/src/drawnCards.test.ts`
 (sabotage record in its header), `agentOutgoingPictures.test.mjs` "a drawn
 card carries its title", `messagesCards.test.ts` "a drawn card's page".
 
+The opened card shows the drawing itself (owner, 2026-10-30: a tapped card
+showed only its title and the reply hint). The card's address carries
+`p=<object id>.<token>.<ext>`, naming where the texting Worker keeps the
+drawing (`media.ts`), and `/messages/card` shows it full size from
+`/messages/picture`, which reads it through the router's `TEXTS` binding and
+passes on only an image (`infra/router/src/messagesPicture.ts`). A picture sent
+with a title is kept a week (`CARD_FOR_MS`) rather than the 30 minutes a photo
+waits for Sendblue, because people tap a card well after it arrives; the
+title survives the shrink to JPEG for that reason. Shortening it back means a
+card tapped an hour later opens blank again. Tests: `media.test.ts` "keeps a
+drawn card's picture for a week", `drawnCards.test.ts` "names where the drawing
+is kept", `messagesPicture.test.ts`.
+
 ### Cards where the app is, and Yes with a tap (2026-10-28)
 
 The owner, opening the Context app in the Messages drawer and finding only
