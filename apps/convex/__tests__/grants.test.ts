@@ -154,6 +154,18 @@ describe("listGrants", () => {
     expect(revoked?.revokedAt).toBeGreaterThan(0);
   });
 
+  test("activeOnly leaves the revoked rows out, for the console's always-open lists", async () => {
+    const { t, user, workspaceId, claude } = await threeClients();
+    await asUser(t, user).mutation(api.functions.grants.revokeGrant, { grantId: claude });
+
+    const live = await asUser(t, user).query(api.functions.grants.listGrants, { workspaceId, activeOnly: true });
+    expect(live.map((g) => g.clientId).sort()).toEqual(["chatgpt", "codex"]);
+    expect(live.every((g) => g.status === "active")).toBe(true);
+    // Without it the record is unchanged.
+    const all = await asUser(t, user).query(api.functions.grants.listGrants, { workspaceId });
+    expect(all.map((g) => g.clientId).sort()).toEqual(["chatgpt", "claude", "codex"]);
+  });
+
   test("names the client when it has registered", async () => {
     const { t, user, workspaceId } = await threeClients();
     await t.mutation(internal.functions.grants.registerClient, {

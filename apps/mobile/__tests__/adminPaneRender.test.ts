@@ -80,6 +80,17 @@ jest.mock("convex/react", () => {
   };
 });
 
+// The reports are read once, not subscribed to (`useReportOnce`): answered
+// from the same table, at once, so the page renders as it did under `useQuery`.
+jest.mock("../features/admin/useReportOnce", () => {
+  const { getFunctionName } = jest.requireActual<
+    typeof import("convex/server")
+  >("convex/server");
+  return {
+    useReportOnce: (reference: never) => mockAnswers.get(getFunctionName(reference)),
+  };
+});
+
 jest.mock("expo-router", () => ({
   useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
 }));
