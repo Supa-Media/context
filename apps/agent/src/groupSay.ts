@@ -61,6 +61,26 @@ export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: nu
   console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
 }
 
+/**
+ * A fixed reply's timing (the settings menu answered by code, never by the gateway), kept until the chat's next
+ * model turn carries it to the chat's note (`fixed` on `/agent`, the gateway's `groupTiming.js`), where it can be
+ * read beside the chat's history. Times and milliseconds only; the newest few.
+ */
+export type FixedTiming = { path: string; arrivedAt: number; sentAt: number; queueMs: number; startMs?: number; membersMs?: number; controlMs?: number; replyMs: number };
+const FIXED_TIMING_KEY = "gfixedtiming";
+const MAX_FIXED_TIMINGS = 5;
+async function keepFixedTiming(storage: InboxStorage, timing: FixedTiming): Promise<void> {
+  const kept = (await storage.get<FixedTiming[]>(FIXED_TIMING_KEY)) ?? [];
+  await storage.put(FIXED_TIMING_KEY, [...kept, timing].slice(-MAX_FIXED_TIMINGS));
+}
+/** The fixed replies' timings for the next `/agent` call, taken so each reaches the note once. */
+export async function fixedTimings(storage: InboxStorage): Promise<{ fixed?: FixedTiming[] }> {
+  const kept = await storage.get<FixedTiming[]>(FIXED_TIMING_KEY);
+  if (kept === undefined || kept.length === 0) return {};
+  await storage.delete(FIXED_TIMING_KEY);
+  return { fixed: kept };
+}
+
 /** Marks inside one group reply (`answerGroup`): after the app's member list, after the control plane's check, and which fixed path answered. */
 export type ReplyClock = { mark(stage: "members" | "control"): void; path(name: string): void };
 
@@ -70,21 +90,25 @@ export type ReplyClock = { mark(stage: "members" | "control"): void; path(name: 
  * turn ahead of it, decide), `startMs` from the hand-off to answering (the workflow starting, its retries),
  * then the member list, the control plane's check, and the reply itself. Milliseconds and a path name only.
  */
-export async function timedReply<T>(arrivedAt: number, handedAt: number | undefined, now: () => number, answer: (clock: ReplyClock) => Promise<T>): Promise<T> {
+export async function timedReply<T>(storage: InboxStorage, arrivedAt: number, handedAt: number | undefined, now: () => number, answer: (clock: ReplyClock) => Promise<T>): Promise<T> {
   const started = now();
   const marks: { members?: number; control?: number } = {};
   let path = "turn";
+  let fixed: FixedTiming | undefined;
   const done = (outcome: string) => {
     const end = now();
     const stages: Record<string, number> = {};
     let from = started;
     for (const [name, at] of [["membersMs", marks.members], ["controlMs", marks.control]] as const) if (at !== undefined) (stages[name] = at - from), (from = at);
     const start = handedAt === undefined ? {} : { startMs: started - handedAt };
-    console.log(JSON.stringify({ event: "group_reply_timing", path, outcome, queueMs: (handedAt ?? started) - arrivedAt, ...start, ...stages, replyMs: end - from, totalMs: end - arrivedAt }));
+    const queueMs = (handedAt ?? started) - arrivedAt;
+    console.log(JSON.stringify({ event: "group_reply_timing", path, outcome, queueMs, ...start, ...stages, replyMs: end - from, totalMs: end - arrivedAt }));
+    if (path !== "turn" && outcome === "done") fixed = { path, arrivedAt, sentAt: end, queueMs, ...start, ...stages, replyMs: end - from };
   };
   try {
     const result = await answer({ mark: (stage) => void (marks[stage] = now()), path: (name) => void (path = name) });
     done(result === "cancelled" ? "cancelled" : "done");
+    if (fixed !== undefined) await keepFixedTiming(storage, fixed).catch(() => {});
     return result;
   } catch (error) {
     done("failed");

@@ -33,7 +33,7 @@
  */
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
-import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, writeGroupNote } from "./groupMemoryNote.js";
+import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, timedTurn, writeGroupNote } from "./groupMemoryNote.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
@@ -187,7 +187,7 @@ export async function readGroupMemory(store, group, dispatch = null) {
   const edited = note !== null && note.etag !== kept.noteEtag ? parseGroupNote(note.text) : null;
   const turns = edited ?? (Array.isArray(kept?.turns) ? kept.turns.filter(isTurn) : []);
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
-  const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources })));
+  const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
   NOTE_STATE.set(history, { etag: note?.etag ?? null, kept: typeof kept?.noteEtag === "string" ? kept.noteEtag : null });
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
   group.playbook = await readPlaybook(dispatch, group);
@@ -239,11 +239,11 @@ function askOnly(text) {
 }
 
 /** One exchange added to the chat's memory, with what the chat said before it. */
-export async function keepGroupExchange(store, group, history, question, answer, { tainted = false, tools = [], sources = [], dispatch = null } = {}) {
+export async function keepGroupExchange(store, group, history, question, answer, { tainted = false, tools = [], sources = [], timing = null, dispatch = null } = {}) {
   const turns = trimGroupTurns([
     ...history,
     { role: "user", text: [chatLines(group), groupQuestionLine(group, question)].filter(Boolean).join("\n\n") },
-    keptTurn({ role: "assistant", text: answer, tainted, tools, sources }),
+    { ...keptTurn({ role: "assistant", text: answer, tainted, tools, sources }), ...timedTurn("assistant", timing) },
   ]);
   const hash = await sha256Hex(`${group.key}:${group.members}`);
   // Only over the note this turn read, so an edit made meanwhile is never overwritten.
