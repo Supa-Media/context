@@ -105,7 +105,7 @@ describe("a disconnect is not undone by adding a different product", () => {
     });
     const scope = new URL(authorizeUrl).searchParams.get("scope") ?? "";
     expect(scope).not.toContain(GMAIL_SCOPE);
-    expect(scope).toContain(CHAT_MESSAGES_SCOPE);
+    expect(scope).toBe("openid https://www.googleapis.com/auth/userinfo.email");
   });
 
   /**
@@ -187,11 +187,18 @@ describe("a grant narrower than the row's products is reported, not just recorde
    * Sabotage: restore the unconditional `health: "backfilling"` and both
    * assertions below fail.
    */
-  test("adding chat with a grant that dropped gmail marks the row reconnect_required", async () => {
+  // A row made before the minimum consent: the narrowed grant cannot be
+  // mended by a reconnect under the minimum, so it moves to the minimum and
+  // AI waits for the person's AI consent (`lib/googleConnect/consentPlan.ts`).
+  test("adding chat with a grant that dropped gmail moves a row made before to the minimum consent, not to a reconnect", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
     const address = await gmailArgs(t, workspaceId, owner);
+    await t.run(async (ctx) => {
+      const made = await ctx.db.query("googleConnections").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
+      await ctx.db.patch(made!._id, { consentPlan: undefined });
+    });
 
     await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, {
       workspaceId,
@@ -212,12 +219,8 @@ describe("a grant narrower than the row's products is reported, not just recorde
     );
     // Unchanged: the record is still honest about the narrow grant.
     expect(row!.gmail?.scopes).toEqual([]);
-    // New: and it says so, rather than reporting a healthy backfill.
-    expect(row!.health).toBe("reconnect_required");
-    expect(row!.errorCode).toBe("SCOPES_INCOMPLETE");
-    expect(row!.lastError).toContain("gmail");
-    // No provider prose, no token, no address in the message.
-    expect(row!.lastError).not.toContain(address);
+    expect(row!.consentPlan).toBe("split");
+    expect(row!.health).not.toBe("reconnect_required");
   });
 
   test("a complete union grant is still an ordinary backfill with no error", async () => {
@@ -248,8 +251,12 @@ describe("a grant narrower than the row's products is reported, not just recorde
     expect(row!.lastError).toBeUndefined();
   });
 
-  /** A grant that does not even cover Chat is the same answer, not a special case. */
-  test("a grant that covers neither product is reconnect_required too", async () => {
+  /**
+   * Under the minimum consent the standard grant reads nothing of Chat: the
+   * product binds on the person's choice and AI's reads wait for the agent
+   * consent, so identity alone is a healthy bind, not a reconnect.
+   */
+  test("a first Chat bind on identity alone is a split row, never a reconnect", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
@@ -266,7 +273,8 @@ describe("a grant narrower than the row's products is reported, not just recorde
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .unique(),
     );
-    expect(row!.health).toBe("reconnect_required");
+    expect(row!.consentPlan).toBe("split");
+    expect(row!.health).not.toBe("reconnect_required");
     expect(row!.chat?.scopes).toEqual([]);
   });
 });
@@ -293,7 +301,7 @@ describe("a stale connection id is 'starting fresh', never an error and never a 
     });
     const scope = new URL(authorizeUrl).searchParams.get("scope") ?? "";
     expect(scope).not.toContain(GMAIL_SCOPE);
-    expect(scope).toContain(CHAT_MESSAGES_SCOPE);
+    expect(scope).toBe("openid https://www.googleapis.com/auth/userinfo.email");
   });
 });
 

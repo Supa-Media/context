@@ -9,7 +9,7 @@ import {
   seedGoogleConnection,
 } from "../fixtures.helpers";
 import { encryptSecret, hashToken, requireKeyset } from "../../functions/lib/crypto";
-import { CALENDAR_SCOPES, CHAT_SCOPES, GMAIL_SCOPES } from "../../functions/lib/googleOAuth";
+import { CALENDAR_OWNED_READ_SCOPE, CALENDAR_SCOPES, CHAT_SCOPES, GMAIL_SCOPES, IDENTITY_SCOPES } from "../../functions/lib/googleOAuth";
 import {
   APP,
   REDIRECT,
@@ -284,7 +284,9 @@ describe("product-aware Google connect", () => {
     expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
   });
 
-  test("one console start can ask Google for Gmail, Calendar and Chat together", async () => {
+  // One consent screen for the person's own use, the minimum (2026-10-30):
+  // AI's scopes for the three products are the agent client's to ask.
+  test("one console start connects Gmail, Calendar and Chat together, asking the standard client for the minimum", async () => {
     enableAllGoogleConnect();
     const { t, owner, workspaceId } = await personalScenario();
     const result = await asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
@@ -294,10 +296,8 @@ describe("product-aware Google connect", () => {
     });
     const params = new URL(result.authorizeUrl).searchParams;
     const scopes = new Set(params.get("scope")?.split(" ") ?? []);
-    expect(scopes).toContain(GMAIL_SCOPES[0]);
-    expect(scopes).toContain(CALENDAR_SCOPES[0]);
-    expect(scopes).toContain(CHAT_SCOPES[0]);
-    expect(scopes).toContain(CHAT_SCOPES[1]);
+    expect(scopes).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]));
+    for (const broad of [GMAIL_SCOPES[0], CALENDAR_SCOPES[0], ...CHAT_SCOPES]) expect(scopes).not.toContain(broad);
     expect(params.get("include_granted_scopes")).toBe("true");
 
     const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
@@ -322,7 +322,7 @@ describe("product-aware Google connect", () => {
     });
     const scopes = new Set(new URL(result.authorizeUrl).searchParams.get("scope")?.split(" ") ?? []);
 
-    expect(scopes).toContain(CALENDAR_SCOPES[0]);
+    expect(scopes).toContain(CALENDAR_OWNED_READ_SCOPE);
     expect(scopes).not.toContain(GMAIL_SCOPES[0]);
     const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
     expect(parked[0]!.products).toEqual(["calendar"]);

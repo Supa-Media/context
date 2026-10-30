@@ -29,8 +29,9 @@ export const READ_REFUSED = {
   invalid: "That is not a Google Chat conversation this can read: name a space by its spaces/… id, or a direct message by the person's work email.",
   not_allowed: "This connection cannot read the person's Google Chat: only their own personal workspace's, with private access.",
   no_chat:
-    "Their Google account isn't set up for reading Google Chat through Context yet. Get the link from manage connect_google (kind gmail) " +
-    "and ask them to reconnect the Google account they use for work once; it adds Chat.",
+    "Their Google account isn't set up for reading Google Chat through Context yet. Get the link from manage connect_google (kind calendar): " +
+    "on Connected apps they reconnect the Google account they use for work (Reconnect beside it, or its ••• menu), which adds Chat; " +
+    "if this then says AI access isn't allowed yet, send the kind ai link too. Gmail alone never adds Chat.",
   ai_access_needed: `AI access isn't allowed yet for their Google account, so its Chat can't be read. ${AI_ACCESS_STEP}`,
   hourly_limit: "Too many Google Chat reads this hour. Try again later.",
   space_not_found: "They are in no Google Chat space with that id. fetch chat: lists their spaces with their ids.",

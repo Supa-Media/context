@@ -20,7 +20,7 @@ import { readOnlyServices } from "../googleWriteAccess";
 import { syncStatusOf } from "../googleSchedule";
 import { destinationPattern } from "../../../../../packages/communications/src/destination.js";
 import { defaultGoogleDestinationFolder } from "./validation";
-import { aiScopesOf } from "./aiScopes";
+import { aiAccessNeeded, aiScopesOf } from "./aiScopes";
 
 export const listMailboxSlugsArgs = { workspaceId: v.id("workspaces") };
 
@@ -197,7 +197,8 @@ export async function listGoogleConnectionsHandler(
         calendar: calendar !== undefined,
         chat: chat !== undefined,
       },
-      readOnly: readOnlyServices({ gmail: gmail !== undefined, calendar: calendar !== undefined, chat: chat !== undefined }, aiScopesOf(row)),
+      // Waiting for AI access is not read-only: the row would offer a reconnect, which never mends it.
+      readOnly: aiAccessNeeded(row) ? [] : readOnlyServices({ gmail: gmail !== undefined, calendar: calendar !== undefined, chat: chat !== undefined }, aiScopesOf(row)),
       syncStatus:
         row.disconnectedAt !== undefined
           ? "disconnected"

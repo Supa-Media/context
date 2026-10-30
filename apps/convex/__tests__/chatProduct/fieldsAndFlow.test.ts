@@ -103,11 +103,11 @@ describe("the PKCE verifier never leaves this server, and the request asks for n
   });
 
   /**
-   * Chat's two read scopes, the identity pair and Chat's send scopes, asked of
-   * everyone since the owner's "Yes, everyone" (2026-10-23, `WRITE_SCOPES`),
-   * and nothing else: no Gmail and nothing that deletes or modifies.
+   * The standard client is the person's own use (2026-10-30): a Chat connect
+   * asks it for identity and nothing else. Chat's read and send scopes are
+   * AI's, asked of the agent client (`googleConnect/consentScopes.test.ts`).
    */
-  test("a chat-only connect requests the chat read and send scopes plus identity, and nothing else", async () => {
+  test("a chat-only connect asks the standard client for identity, and nothing else", async () => {
     enableMailConnect();
     vi.stubEnv("APP_ORIGIN", APP);
     const { t, owner, workspaceId } = await personalScenario();
@@ -116,17 +116,7 @@ describe("the PKCE verifier never leaves this server, and the request asks for n
       redirectUri: REDIRECT,
     });
     const scopes = (new URL(authorizeUrl).searchParams.get("scope") ?? "").split(" ").filter(Boolean);
-    expect(scopes.sort()).toEqual(
-      [
-        "openid",
-        "https://www.googleapis.com/auth/userinfo.email",
-        CHAT_MESSAGES_SCOPE,
-        CHAT_SPACES_SCOPE,
-        "https://www.googleapis.com/auth/chat.messages.create",
-        "https://www.googleapis.com/auth/chat.spaces.create",
-      ].sort(),
-    );
-    for (const scope of scopes) expect(scope).not.toMatch(/\.(send|write|delete|modify)$/);
+    expect(scopes.sort()).toEqual(["openid", "https://www.googleapis.com/auth/userinfo.email"].sort());
   });
 });
 

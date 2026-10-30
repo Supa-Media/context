@@ -127,16 +127,15 @@ async function standardConsent(t: ReturnType<typeof setupTest>, owner: Id<"users
 }
 
 describe("the canary runs the final scopes on its workspace alone", () => {
-  test("the canary workspace's standard consent is identity plus the owned calendar read; its neighbour's is today's", async () => {
+  // Since 2026-10-30 every new request is the minimum, canary or not; the
+  // canary still decides how its rows made before are read (below).
+  test("the canary workspace's standard consent is identity plus the owned calendar read, and so is its neighbour's", async () => {
     const { t, canary, canaryOwner, neighbour, neighbourOwner } = await canaryAndNeighbour();
     expect(await standardConsent(t, canaryOwner, canary)).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]));
-    const neighbours = await standardConsent(t, neighbourOwner, neighbour);
-    expect(neighbours).toContain(GMAIL_SCOPES[0]);
-    expect(neighbours).toContain(CALENDAR_WRITE_SCOPE);
-    expect(neighbours).not.toContain(CALENDAR_OWNED_SCOPE);
+    expect(await standardConsent(t, neighbourOwner, neighbour)).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]));
   });
 
-  test("the canary workspace's AI consent asks the agent client for the owned calendar pair; its neighbour's for the broad one", async () => {
+  test("the canary workspace's AI consent asks the agent client for the owned calendar write, and so does its neighbour's", async () => {
     const { t, canary, canaryOwner, neighbour, neighbourOwner, connections } = await canaryAndNeighbour();
     const agentConsent = async (owner: Id<"users">, workspaceId: Id<"workspaces">, connectionId: Id<"googleConnections">) => {
       const started = await asUser(t, owner).action(api.functions.googleClients.startGoogleAgentConnect, { workspaceId, connectionId, redirectUri: CALLBACK });
@@ -148,8 +147,8 @@ describe("the canary runs the final scopes on its workspace alone", () => {
     expect(canaryScopes).toContain(CALENDAR_OWNED_SCOPE);
     expect(canaryScopes).not.toContain(CALENDAR_WRITE_SCOPE);
     const neighbourScopes = await agentConsent(neighbourOwner, neighbour, connections.neighbour);
-    expect(neighbourScopes).toContain(CALENDAR_WRITE_SCOPE);
-    expect(neighbourScopes).not.toContain(CALENDAR_OWNED_SCOPE);
+    expect(neighbourScopes).toContain(CALENDAR_OWNED_SCOPE);
+    expect(neighbourScopes).not.toContain(CALENDAR_WRITE_SCOPE);
   });
 
   test("the canary workspace's AI mints only from the agent grant: without one it is refused; its neighbour reads as today", async () => {
@@ -201,12 +200,18 @@ describe("the canary runs the final scopes on its workspace alone", () => {
     expect(await asUser(t, canaryOwner).query(api.functions.googleClientsAccess.myGoogleAiAccess, { workspaceId: neighbour })).toEqual([]);
   });
 
-  test("the app shows the canary account's Gmail as read-only for AI; its neighbour's as able to send", async () => {
-    const { t, canary, canaryOwner, neighbour, neighbourOwner } = await canaryAndNeighbour();
+  // Waiting for AI access is not read-only: read-only would offer a
+  // reconnect, which never gives AI a grant (`listGoogleConnections`).
+  test("the app shows the canary account as waiting for AI access, not read-only; its neighbour's as able to send", async () => {
+    const { t, canary, canaryOwner, neighbour, neighbourOwner, connections } = await canaryAndNeighbour();
     const readOnly = async (owner: Id<"users">, workspaceId: Id<"workspaces">) =>
       (await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, { workspaceId }))[0]?.readOnly;
-    expect(await readOnly(canaryOwner, canary)).toEqual(["gmail"]);
+    expect(await readOnly(canaryOwner, canary)).toEqual([]);
     expect(await readOnly(neighbourOwner, neighbour)).toEqual([]);
+    // An agent grant that holds Gmail's read but not its write is read-only for AI.
+    const agentGrant = { encryptedRefreshToken: "sealed-agent-refresh-not-real", scopes: [...GMAIL_SCOPES, CALENDAR_OWNED_SCOPE], grantedAt: Date.now() };
+    await t.run((ctx) => ctx.db.patch(connections.canary, { agentGrant }));
+    expect(await readOnly(canaryOwner, canary)).toEqual(["gmail"]);
   });
 });
 

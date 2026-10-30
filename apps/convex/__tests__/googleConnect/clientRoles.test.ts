@@ -21,7 +21,7 @@ import type { Id } from "../../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { drainScheduled, seedGoogleConnection } from "../fixtures.helpers";
 import { agentGrantCovers, agentScopesFor, aiScopesOf } from "../../functions/lib/googleConnect/aiScopes";
-import { CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE } from "../../functions/lib/googleOAuth";
+import { CALENDAR_OWNED_SCOPE, CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE } from "../../functions/lib/googleOAuth";
 import { withSession } from "../session.helpers";
 import { APP, personalScenario } from "./fixtures.helpers";
 
@@ -331,10 +331,12 @@ describe("what AI may act on", () => {
     expect(aiScopesOf(STANDARD)).toEqual([]);
   });
 
-  test("the agent consent asks for calendar.events and not the read-only scope it covers", () => {
+  test("the agent consent asks for the owned calendar write and not a read-only scope it covers", () => {
     const scopes = agentScopesFor(["gmail", "calendar", "chat"]);
-    expect(scopes).toContain(CALENDAR_WRITE_SCOPE);
+    expect(scopes).toContain(CALENDAR_OWNED_SCOPE);
+    expect(scopes).not.toContain(CALENDAR_WRITE_SCOPE);
     expect(scopes).not.toContain("https://www.googleapis.com/auth/calendar.events.readonly");
+    expect(scopes).not.toContain("https://www.googleapis.com/auth/calendar.events.owned.readonly");
     expect(agentGrantCovers(["gmail", "calendar", "chat"], scopes)).toBe(true);
     expect(agentGrantCovers(["gmail", "calendar"], ["https://www.googleapis.com/auth/gmail.readonly"])).toBe(false);
   });

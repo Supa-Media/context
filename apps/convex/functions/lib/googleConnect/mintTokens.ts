@@ -11,7 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "../crypto";
 import { GoogleOAuthError, isGoogleReconnectRequired, refreshGoogleToken } from "../googleOAuth";
-import { agentClientActive, googleClientFor, googleEnvFor, grantFor, type GoogleClientRole } from "./clients";
+import { agentClientActive, googleClientFor, googleEnvForRow, grantFor, type GoogleClientRole } from "./clients";
 import type { MintOutcome } from "./syncTokens";
 
 type ConnectionTokens = {
@@ -20,6 +20,7 @@ type ConnectionTokens = {
   encryptedAccessToken?: string;
   accessTokenExpiresAt?: number;
   disconnectedAt?: number;
+  consentPlan?: "split";
   agentGrant?: { encryptedRefreshToken: string; encryptedAccessToken?: string; accessTokenExpiresAt?: number };
 };
 
@@ -35,7 +36,7 @@ export async function mintAccessToken(
 ): Promise<MintOutcome> {
   const connection: ConnectionTokens | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, { connectionId });
   if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused" };
-  const env = googleEnvFor(connection.workspaceId as string);
+  const env = googleEnvForRow({ workspaceId: connection.workspaceId as string, consentPlan: connection.consentPlan });
   const grant = grantFor(role, connection.agentGrant !== undefined, env);
   // Once switched on, an agent call takes the agent grant or nothing.
   const tokens = grant === "agent" ? connection.agentGrant : connection;
