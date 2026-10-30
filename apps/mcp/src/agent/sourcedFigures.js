@@ -27,6 +27,8 @@
  * carrying them is not checked. Docs: docs/decisions/texting-assistant/history.md.
  */
 
+import { readClaimCheck } from "./readClaims.js";
+
 /** A price ($0.10, €2, £1,200, $1.5k), a percentage (12%), or a score ("scored 39", "a score of 30"). */
 const FIGURE =
   /[$€£]\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|bn|million|billion)\b)?|\b\d+(?:\.\d+)?\s?%|\bscor(?:e|es|ed|ing)\s+(?:of\s+|was\s+|is\s+)?\d+(?:\.\d+)?\b/gi;
@@ -74,7 +76,7 @@ function numbersIn(text) {
  * it has a digit or is written capitalized mid-sentence somewhere (`known`):
  * "Claude" is, "Switching" is not.
  */
-function namesIn(sentence, known) {
+export function namesIn(sentence, known) {
   const words = sentence.match(/[A-Za-z][\w.-]*\d[\w.-]*|[A-Z][A-Za-z][\w-]*/g) ?? [];
   const first = sentence.match(/^[^A-Za-z]*([A-Za-z][\w.-]*)/)?.[1];
   const named = (word) => /\d/.test(word) || new RegExp(String.raw`[a-z0-9,;:(] ${escaped(word)}(?![A-Za-z0-9])`).test(known);
@@ -92,7 +94,7 @@ function escaped(word) {
   return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function sentencesOf(answer) {
+export function sentencesOf(answer) {
   return said(answer)
     .replace(/https?:\/\/\S+/g, " ")
     .split(/(?<=[.!?])\s+(?=[A-Z"(])|\n+/)
@@ -164,17 +166,31 @@ export function resultText(result) {
   return parts.join("\n").slice(0, 400_000);
 }
 
+/** The words a write carried (a note's content, an edit's text), which the answer may describe. */
+function wroteText(args) {
+  if (args === null || typeof args !== "object") return "";
+  const inner = args.args && typeof args.args === "object" ? args.args : {};
+  return [args.content, args.text, args.body, args.new_text, inner.content, inner.text, inner.body]
+    .filter((part) => typeof part === "string")
+    .join("\n")
+    .slice(0, 200_000);
+}
+
 /**
  * The check `claimCheck.js` runs: `read` every tool result (`web: true` for a
- * page or a search), and `check` an answer once a turn that used the web.
+ * page or a search, `args` the call's own), and `check` an answer. Figures are
+ * checked once a turn that used the web; what a page or note is said to hold,
+ * once a turn, whatever it read (`readClaims.js`).
  */
 export function figureCheck({ question = "", history = [], pictures = false } = {}) {
   const read = [];
   const pages = [];
+  const claims = readClaimCheck({ question, history, pictures });
   let usedWeb = false;
   let noticed = false;
   return {
-    read(result, { web = false } = {}) {
+    read(result, { web = false, args = null } = {}) {
+      claims.read(result, { web, wrote: wroteText(args) });
       if (web) usedWeb = true;
       if (result?.isError === true) return;
       const text = resultText(result);
@@ -183,6 +199,8 @@ export function figureCheck({ question = "", history = [], pictures = false } = 
       if (web) pages.push(text);
     },
     check(answer) {
+      const unread = claims.check(answer);
+      if (unread !== null) return unread;
       if (noticed || pictures || !usedWeb) return null;
       if (deniesWhatAPageSays(answer, pages)) {
         noticed = true;

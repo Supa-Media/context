@@ -515,7 +515,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
         if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
-        figures.read(result);
+        figures.read(result, { args });
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
         steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
