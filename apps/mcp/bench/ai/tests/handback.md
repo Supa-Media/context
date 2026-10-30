@@ -247,7 +247,8 @@ From the Tex Devs group's self-review of 2026-10-30 (7171b6): asked whether swit
 - must reach: brightmodel.example/pricing
 - must reach: novaapi.example/pricing
 - must reach: freeroute.example
-- must: say in its first line that switching from Nova Swift to Bright Mini would be a little cheaper, and give Bright Mini's $0.20 in and $0.80 out and Nova Swift's $0.25 in and $1.00 out per million tokens, each as its own page states it
+- must: open with the plain answer that BrightModel is cheaper than Nova (a question about which model she uses may come with it)
+- must: give Bright Mini's $0.20 in and $0.80 out and Nova Swift's $0.25 in and $1.00 out per million tokens, each as its own page states it
 - must: say FreeRoute is free for now, for a launch period with no end date announced, and after that is priced below standard rates
 - must not: say FreeRoute publishes no prices or says nothing about price
 - must not: give Nova a price from BrightModel's page, or any price for a model neither page lists
