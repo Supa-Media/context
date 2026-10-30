@@ -228,6 +228,16 @@ export async function runAgentBuiltinChecks(check) {
         report?.cacheReadTokens === 0 &&
         report?.cacheWriteTokens === 0,
     );
+    check("a turn the texting Worker did not time logs no wait", logged !== undefined && !("waitMs" in logged));
+
+    // The texting Worker says when the text came in; the row says how long it waited for the turn (the owner, 2026-10-30).
+    ai.install([chat("Friday.", [], { prompt_tokens: 100, completion_tokens: 5 })]);
+    const waited = await ask(env, TOKEN, { question: "When is the launch?", arrivedAt: Date.now() - 240_000 });
+    const waitedLog = controlPlane.turnReports.at(-1);
+    check(
+      "a text that waited four minutes before its turn is logged with that wait, apart from the turn's own time",
+      waited.status === 200 && waitedLog?.waitMs >= 240_000 && waitedLog.waitMs < 260_000 && waitedLog.ms < 60_000,
+    );
 
     ai.install([{ throws: true }]);
     const broken = await ask(env, TOKEN, { question: "When is the launch?" });

@@ -289,6 +289,7 @@ export async function askAgent(
     chat,
     told = [],
     texStyle,
+    arrivedAt,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -310,6 +311,8 @@ export async function askAgent(
     told?: readonly string[];
     /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
     texStyle?: TexStyle;
+    /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
+    arrivedAt?: number;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -331,6 +334,7 @@ export async function askAgent(
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),
+    ...(arrivedAt !== undefined ? { arrivedAt } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };

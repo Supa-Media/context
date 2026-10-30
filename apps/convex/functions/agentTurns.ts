@@ -29,6 +29,8 @@ const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const PROVIDER = /^[a-z][a-z0-9_-]{0,31}$/;
 const MODEL = /^[\w@./:-]{1,128}$/;
 const MAX_MS = 15 * 60 * 1000;
+/** A text's wait before its turn, clamped at a day like the gateway's own cut (`apps/mcp/src/agent/turnLog.js`). */
+const MAX_WAIT_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKENS = 2_000_000;
 
 const count = (n: number, max: number) => (Number.isFinite(n) ? Math.min(max, Math.max(0, Math.floor(n))) : 0);
@@ -73,6 +75,7 @@ export const recordAgentTurn = internalMutation({
     model: v.string(),
     outcome: v.union(v.literal("answered"), v.literal("exhausted"), v.literal("failed")),
     ms: v.number(),
+    waitMs: v.optional(v.number()),
     modelMs: v.number(),
     toolMs: v.number(),
     rounds: v.number(),
@@ -125,6 +128,7 @@ export const recordAgentTurn = internalMutation({
       outcome: args.outcome,
       at: Date.now(),
       ms: count(args.ms, MAX_MS),
+      ...(args.waitMs === undefined ? {} : { waitMs: count(args.waitMs, MAX_WAIT_MS) }),
       modelMs: count(args.modelMs, MAX_MS),
       toolMs: count(args.toolMs, MAX_MS),
       rounds: count(args.rounds, 64),

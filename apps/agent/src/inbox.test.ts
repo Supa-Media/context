@@ -20,6 +20,8 @@ function deps(opts: {
   linqStatus?: () => number;
   sent?: Sent[];
   asks?: string[];
+  /** Every `/agent` body, whole. */
+  bodies?: Record<string, unknown>[];
   now?: number;
   unlinked?: boolean;
   events?: string[];
@@ -63,6 +65,7 @@ function deps(opts: {
     }
     if (path === "/agent") {
       opts.asks?.push(body.question);
+      opts.bodies?.push(body);
       if (opts.agentMs) await new Promise((resolve) => setTimeout(resolve, opts.agentMs));
       const status = opts.agentStatus?.() ?? 200;
       if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
@@ -122,6 +125,15 @@ describe("inbox", () => {
     await drain(storage, deps({ asks }));
     expect(await accept(storage, msg("e1"), 2_000)).toBe("duplicate");
     expect(asks).toEqual(["hi"]);
+  });
+
+  it("tells the gateway when the first text of a turn came in, so the turn log shows how long it waited", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "hey"), 1_000);
+    const bodies: Record<string, unknown>[] = [];
+    await drain(storage, deps({ bodies, now: 241_000 }));
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].arrivedAt).toBe(1_000);
   });
 
   it("forgets seen ids after a day, but only then", async () => {

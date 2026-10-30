@@ -52,8 +52,13 @@ async function once(storage: InboxStorage, part: string, send: () => Promise<voi
 }
 
 /** One line per outcome, never a number, a name or the words. */
-function log(outcome: string, reason?: string): void {
+export function log(outcome: string, reason?: string): void {
   console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}) }));
+}
+
+/** Where an answered group turn's time went, from its first message in to its last bubble out: milliseconds only. */
+export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: number; asking: number; answered: number; sent: number }): void {
+  console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
 }
 
 /**
