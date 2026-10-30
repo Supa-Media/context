@@ -157,7 +157,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // An owed update keeps the pass that wrote it, so the inbox takes it as that pass's word again.
   const pass = run.owed?.pass ?? crypto.randomUUID();
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
-    const ok = await deps.report(run.inbox, { id: run.id, pass, ...update, first: sent }).catch(() => false);
+    // Words for the chat go to its own turn with who asked and what, so that turn can start the job again (`jobTexts.ts`).
+    const asked = update.texts?.length ? { asked: run.origin.kind === "phone" ? { from: run.origin.phone, text: run.origin.question } : { from: run.origin.message.from, text: run.origin.message.text } } : {};
+    const ok = await deps.report(run.inbox, { id: run.id, pass, ...asked, ...update, first: sent }).catch(() => false);
     const count = (update.pictures?.length ?? 0) + (update.texts?.length ?? 0);
     // Counted only while this pass holds the job: a pass overtaken never writes the run back.
     if (ok && count > 0 && (await storage.get<string>(PASS_KEY)) === pass) {

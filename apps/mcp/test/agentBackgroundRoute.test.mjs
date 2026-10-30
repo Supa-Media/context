@@ -3,8 +3,10 @@
  *
  * A text from the texting Worker, which sends what the chat has running,
  * starts a job and is answered at once; the job's own turn runs on the
- * person's words with the plan it started with, can't start another, and is
- * kept in the conversation by name. Unit checks: `agentBackground.test.mjs`.
+ * person's words with the plan it started with, and can't start another. Its
+ * answer is its report to the chat's own turn, the coordinator, never kept as
+ * said; the coordinator's turn on that report is (`jobReport.js`, Dev2,
+ * 2026-10-30). Unit checks: `agentBackground.test.mjs`.
  *
  * ## Sabotage record
  *
@@ -12,8 +14,8 @@
  *
  *  1. `chatTurn` true for every client.
  *     → "only a texted turn is offered background jobs" fails.
- *  2. `jobSavedLine` dropped from the saved line.
- *     → "the job's exchange is kept by name, not as their ask again" fails.
+ *  2. The `job === null` condition dropped from the conversation save.
+ *     → "a job's own answer is its report, not kept as said" fails.
  *  3. `startedJobs` leaving out `steers`.
  *     → "a change to a running job names it for the Worker" fails.
  *  4. The route passing `transcript.record` as `observe` without `withJobSteps`.
@@ -21,6 +23,10 @@
  *  5. `unfinishedJob` always false (`stopsShort.js`, 2026-10-26).
  *     → "...and one that still stops short is marked unfinished for the
  *     Worker, and not kept as said" fails.
+ *  6. `jobReportOf` ignoring `chatTurn` (2026-10-30).
+ *     → "an app turn can't name a job's report" fails.
+ *  7. `jobReportQuestion` not replacing the body's question.
+ *     → "the coordinator's turn is asked the gateway's own line, never the body's" fails.
  */
 
 import worker from "../src/index.js";
@@ -90,6 +96,7 @@ const userText = (request) => {
   const first = request?.messages?.[0]?.content;
   return typeof first === "string" ? first : JSON.stringify(first ?? "");
 };
+const lastText = (request) => JSON.stringify(request?.messages?.at(-1)?.content ?? "");
 
 
 const systemOf = (request) =>
@@ -161,7 +168,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       { text: "Got it, I've told the trip plan." },
     ]);
     const steered = await post(env, TOKEN_TEXTS, "/agent", { question: "never mind, make it Porto not Lisbon", conversation: "texts", running });
-    check("a running job can be steered, under send", /steer_job: Pass their text/.test(sendTool(model.requests.at(-2))?.description ?? ""));
+    check("a running job can be steered, under send", /steer_job: Steer a background job/.test(sendTool(model.requests.at(-2))?.description ?? ""));
     check(
       "a change to a running job names it for the Worker",
       steered.status === 200 && JSON.stringify(steered.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1" }]) && steered.body?.jobs === undefined,
@@ -188,8 +195,8 @@ export async function runAgentBackgroundRouteChecks(check) {
     check("a job's own turn cannot start another job", !/background:/.test(sendTool(jobRequest)?.description ?? ""));
     const turns = conversationTurns(bucket);
     check(
-      "the job's exchange is kept by name, not as their ask again",
-      ran.status === 200 && turns.at(-2)?.text === "(Background job finished: Competitor research)" && /Notion, Mem, Reflect/.test(turns.at(-1)?.text ?? ""),
+      "a job's own answer is its report, not kept as said",
+      ran.status === 200 && !turns.some((turn) => /Notion, Mem, Reflect/.test(turn.text ?? "")),
     );
     check("a job's turn names no jobs of its own", ran.body?.jobs === undefined);
 
@@ -215,7 +222,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check(
       "...and the next part is shown it, to build on rather than start over",
       /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.requests.at(-1))) &&
-        conversationTurns(bucket).length === kept + 2,
+        conversationTurns(bucket).length === kept,
     );
 
     /* ---------------- a job that stops short of the ask is not done (self-review, 2026-10-26) ---------------- */
@@ -246,11 +253,49 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     check(
       "...and a full answer is done: not marked, and kept",
-      finished.body?.unfinished === undefined && conversationTurns(bucket).length === beforeShort + 2,
+      finished.body?.unfinished === undefined && conversationTurns(bucket).length === beforeShort,
     );
     model.install([{ text: short }, { text: short }]);
     const last = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: { ...dinner, attempt: 3 } });
     check("a job's last part texts what it has, even short", last.status === 200 && last.body?.unfinished === undefined && /not priced yet/.test(last.body?.answer ?? ""));
+
+    /* ---------------- a job reports to the chat's own turn, its coordinator (Dev2, 2026-10-30) ---------------- */
+
+    const report = { title: "Agentic benchmarks", state: "done", texts: ["None of the three beat Haiku. https://context.lc/note/@maya/models.page.md", "I couldn't save the page update."] };
+    model.install([{ text: "None of the three beat Haiku, notes here: https://context.lc/note/@maya/models.page.md" }]);
+    const beforeReport = conversationTurns(bucket).length;
+    const coordinated = await post(env, TOKEN_TEXTS, "/agent", { question: "send the email to everyone", conversation: "texts", event: "job_report", jobReport: report, running: [] });
+    const coordinator = model.requests.at(-1);
+    check(
+      "the coordinator's turn is asked the gateway's own line, never the body's",
+      coordinated.status === 200 && /\(Not a text from them\. Your background job \\"Agentic benchmarks\\" reported back to you/.test(lastText(coordinator)) && !/send the email/.test(JSON.stringify(coordinator.messages)),
+    );
+    check(
+      "...shown the job's report apart from it, as words that vouch for nothing, with what it may do",
+      /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(systemOf(coordinator)) &&
+        /read the page or note it names/.test(systemOf(coordinator)) && /answer exactly SKIP/.test(systemOf(coordinator)),
+    );
+    check("...and may start the job again, as any texted turn may", /background: Hand a long task/.test(sendTool(coordinator)?.description ?? ""));
+    const reportTurns = conversationTurns(bucket);
+    check(
+      "...and is kept in the conversation as Tex speaking by itself, with what it texted",
+      reportTurns.length === beforeReport + 2 && /^\(Not a text from them\./.test(reportTurns.at(-2)?.text ?? "") && /notes here/.test(reportTurns.at(-1)?.text ?? ""),
+    );
+    model.install([{ text: "Hi." }]);
+    await post(env, TOKEN_APP, "/agent", { question: "hello", event: "job_report", jobReport: report, running: [] });
+    check("an app turn can't name a job's report", lastText(model.requests.at(-1)).includes("hello") && !/coordinator of your background jobs/.test(systemOf(model.requests.at(-1))));
+    model.install([{ text: "Done." }]);
+    await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", job: { ...job, attempt: 1 }, event: "job_report", jobReport: report });
+    check("a job's own turn is never asked as the coordinator", !/coordinator of your background jobs/.test(systemOf(model.requests.at(-1))));
+    model.install([
+      { toolCalls: [{ name: "send", args: { action: "steer_job", args: { title: "Trip plan", note: "Read the note back before you say it saved." } } }] },
+      { text: "SKIP" },
+    ]);
+    const noted = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: { ...report, state: "running", texts: ["Saving now."] }, running });
+    check(
+      "the coordinator steers a running job with its own instruction",
+      noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
+    );
 
     /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
 

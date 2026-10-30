@@ -19,6 +19,7 @@
 import type { GatewayAttachment } from "./attachments";
 import { readTexStyle, type TexStyle } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
+import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
@@ -283,6 +284,7 @@ export async function askAgent(
     job,
     onStep,
     event,
+    jobReport,
     covers,
     chat,
     told = [],
@@ -298,7 +300,9 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved";
+    event?: "vault_saved" | "job_report";
+    /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
+    jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
     covers?: string[];
     chat?: string;
@@ -323,6 +327,7 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
+    ...(jobReport ? { jobReport } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),

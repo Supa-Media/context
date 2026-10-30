@@ -61,7 +61,7 @@ import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is n
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
-import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
+import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -145,7 +145,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   if (isGroupSession(session) && group === null) return json({ error: "invalid_request", error_description: "A group chat's turn names its chat." }, 400);
   // Background jobs (`background.js`): a texted turn may start them, and a job's own turn names itself.
   const chatTurn = !runner && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const job = chatTurn ? jobOf(body.job) : null;
+  const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
@@ -157,8 +157,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let runs = [];
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
   let supervision = null;
-  // A saved login's turn (`vaultSaved.js`) is asked the gateway's own line, never the body's.
-  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (typeof body.question === "string" ? body.question.trim() : "");
+  // A saved login's turn (`vaultSaved.js`) and a job's report are asked the gateway's own line, never the body's.
+  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
   if (runner) {
     try {
       routine = await loadRoutine(dispatch, routinePathFrom(body.routine));
@@ -291,7 +291,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const { conversation, history } = await turnHistory(store, session, body, { runner, group, dispatch });
   const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId });
   const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
-  if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
+  if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
@@ -533,7 +533,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       },
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
-      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(texting ? outgoing.knows(await readTexNotes(dispatch, { controlPlane, session })) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
@@ -630,10 +630,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
-    if (group !== null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
-    if (conversation !== null && !turn.exhausted && !replaced) {
+    if (group !== null && job === null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
+    if (conversation !== null && job === null && !turn.exhausted && !replaced) { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
-        const saved = [reactedLine(reacted), jobSavedLine(job) || tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),

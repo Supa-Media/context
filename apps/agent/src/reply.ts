@@ -26,6 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
+import { saysSkip } from "./groupRoutines";
 import {
   askAgent,
   askLine,
@@ -269,7 +270,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
     );
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
@@ -284,7 +285,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
       const after = notStarted ? [notStarted] : [];
-      if (!answer.text) return after;
+      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`).
+      if (!answer.text || (message.event === "job_report" && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0)) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
