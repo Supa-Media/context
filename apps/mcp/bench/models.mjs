@@ -90,9 +90,45 @@ export function claudeTransport(env, fetchImpl = realFetch) {
   return send;
 }
 
-/** The world's gateway calls, sent the way `claudeTransport` chose. */
-export function anthropicGateway(send) {
-  return async (_url, init) => send(init.body);
+/**
+ * The world's gateway calls, sent the way `claudeTransport` chose. A refused
+ * call is logged with the provider's own words (`refusalLine`): the gateway's
+ * turn log keeps only the status, by design, and a refusal that makes a setup
+ * fall back is otherwise unexplained. These are the bench's invented
+ * conversations, so their words can go in a job log.
+ */
+export function anthropicGateway(send, log = (line) => process.stderr.write(`${line}\n`)) {
+  return async (_url, init) => {
+    const response = await send(init.body);
+    if (response.status !== 200) log(refusalLine(response.status, response.headers.get("content-type"), await response.clone().text().catch(() => null)));
+    return response;
+  };
+}
+
+/** Longest refusal kept in a log line: enough for Anthropic's sentence on what it refused. */
+const REFUSAL_CHARS = 300;
+
+/**
+ * `Claude refused a call: 400 invalid_request_error: …`, from Anthropic's
+ * `{ error: { type, message } }`, the AI gateway's `{ errors: [{ code,
+ * message }] }`, or the start of whatever else the body was.
+ */
+export function refusalLine(status, type, text) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text ?? "");
+  } catch {
+    // Not JSON: the start of the body is all there is to go on.
+  }
+  const listed = [parsed?.errors, parsed?.error].find(Array.isArray);
+  const said = listed
+    ? listed.map((entry) => [entry?.code, entry?.message].filter((part) => part !== undefined && part !== null && part !== "").join(": ")).filter(Boolean).join("; ")
+    : typeof parsed?.error?.message === "string"
+      ? [parsed.error.type, parsed.error.message].filter((part) => typeof part === "string" && part).join(": ")
+      : text ?? "";
+  const line = said.replace(/\s+/g, " ").trim();
+  const words = line === "" ? `${text === null ? "no body read" : "empty body"} (${type ?? "no content-type"})` : line.length > REFUSAL_CHARS ? `${line.slice(0, REFUSAL_CHARS - 1)}…` : line;
+  return `Claude refused a call: ${status} ${words}`;
 }
 
 /**

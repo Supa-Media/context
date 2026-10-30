@@ -154,28 +154,3 @@ test("a turn carrying a picture never falls back to a model that cannot see it",
   assert.equal(pictureFallback(null, [HAIKU, OPUS], picture), null);
   assert.equal(pictureFallback(blindSpare, ["@cf/acme/main-model"], picture), blindSpare);
 });
-
-test("a provider's refusal travels on the fallback's trace entry for a benchmark, and never onto the turn log", async () => {
-  const { aiGatewayConfig, resetCreditState } = await import("../src/agent/aiGateway.js");
-  const { wireTraceEntry } = await import("../src/agent/turnLog.js");
-  resetCreditState();
-  const HAIKU = "anthropic/claude-haiku-5-5";
-  const refused = { type: "error", error: { type: "invalid_request_error", message: "messages.4.content.0: a refusal that quotes the question" } };
-  const fetchImpl = async () => new Response(JSON.stringify(refused), { status: 400, headers: { "content-type": "application/json" } });
-  const ai = binding();
-  const result = await turn(ai, {
-    builtinModelOverride: HAIKU,
-    env: { AI: ai, AGENT_BUILTIN_MODEL: HAIKU },
-    providerOptions: {
-      ai,
-      gateway: aiGatewayConfig({ AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "context-gw", AI_GATEWAY_TOKEN: `gw-token-${"a".repeat(20)}` }),
-      fetchImpl,
-    },
-    fallback: FALLBACK,
-  });
-  assert.equal(result.answer, "From the spare model.");
-  const fell = result.timing.trace.find((entry) => entry.kind === "fallback");
-  assert.equal(fell.status, 400);
-  assert.equal(fell.detail, "invalid_request_error: messages.4.content.0: a refusal that quotes the question");
-  assert.ok(!JSON.stringify(wireTraceEntry(fell)).includes("quotes the question"), "the turn log keeps the status only");
-});

@@ -453,7 +453,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                 // `router: main (think 0.4)`, so a result shows the near misses.
                 { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
               : entry.kind === "fallback"
-                ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}${entry.detail ? ` (${entry.detail})` : ""}`, ok: true }
+                ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
                 : entry.kind === "model" && entry.cut && !entry.retried
                   ? { tool: "cut off at the output cap", ok: true }
                   : entry.kind === "model"
