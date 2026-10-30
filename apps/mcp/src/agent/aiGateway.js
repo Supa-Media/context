@@ -285,6 +285,29 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
   return { ...(await send(config, body, options, fetchImpl)), retried: { status: first.status } };
 }
 
+/** Longest `providerDetail` kept: enough for Anthropic's sentence on what it refused. */
+const DETAIL_CHARS = 300;
+
+/**
+ * Why the provider refused a request, in its own words (`{ error: { type,
+ * message } }`), cut to `DETAIL_CHARS`; null when the body says nothing
+ * readable. These words can quote the request, so `ProviderError.detail`
+ * keeps them off every log (see there).
+ */
+export function providerDetail(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text ?? "");
+  } catch {
+    return null;
+  }
+  const error = parsed?.error;
+  const message = typeof error?.message === "string" ? error.message.replace(/\s+/g, " ").trim() : "";
+  if (!message) return null;
+  const said = typeof error.type === "string" && error.type ? `${error.type}: ${message}` : message;
+  return said.length > DETAIL_CHARS ? `${said.slice(0, DETAIL_CHARS - 1)}…` : said;
+}
+
 /**
  * One round through the gateway, in the shape `providers.js` describes,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
@@ -316,14 +339,14 @@ export async function requestViaGateway(call, config, options = {}) {
       // without it, so a broken key costs a slower answer, never no answer.
       answer = null;
     } else {
-      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
+      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, providerDetail(answer.text));
     }
   }
   if (!answer) {
     answer = await sendWithRetry(config, body, { withKey: false, metadata: options.metadata }, fetchImpl, wait);
   }
   if (answer.status !== 200) {
-    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
+    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, providerDetail(answer.text));
   }
 
   const text = answer.text;

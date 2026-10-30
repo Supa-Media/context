@@ -22,6 +22,7 @@ import {
   aiGatewayConfig,
   gatewayBody,
   isGatewayModel,
+  providerDetail,
   requestViaGateway,
   resetCreditState,
 } from "../src/agent/aiGateway.js";
@@ -297,6 +298,19 @@ export async function runAgentGatewayChecks(check) {
       badRequest400.calls.length === 1 &&
       badRequest400.calls[0].headers["x-api-key"] === CREDIT &&
       !String(refused400.message).includes("SECRET-QUESTION-MARKER"),
+  );
+  check(
+    "a refused request keeps the provider's own words apart, on detail, for a benchmark's trace and never the message",
+    refused400.detail === `invalid request quoting ${QUESTION}` &&
+      !String(refused400.reason).includes("SECRET-QUESTION-MARKER") &&
+      !JSON.stringify({ ...refused400 }).includes("SECRET-QUESTION-MARKER"),
+  );
+  check(
+    "the provider's words are read from its error shape, typed, on one line and cut short",
+    providerDetail('{"type":"error","error":{"type":"invalid_request_error","message":"messages.3:\\n  bad"}}') === "invalid_request_error: messages.3: bad" &&
+      providerDetail(JSON.stringify({ error: { message: "x".repeat(500) } })).length === 300 &&
+      providerDetail("<html>busy</html>") === null &&
+      providerDetail(null) === null,
   );
 
   resetCreditState();

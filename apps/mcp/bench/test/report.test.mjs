@@ -569,6 +569,12 @@ test("a setup with a fallback gets a line saying how often it was used, and a re
   assert.ok(md.includes("Fell back: haiku-spare went on to @cf/zai-org/glm-4.7-flash in 1 of 3 answers after anthropic/claude-haiku-5-5 failed (529)."), md);
   assert.ok(md.includes("Retried: haiku-spare had the gateway retry a round in 1 of 3 answers."), md);
   assert.ok(md.includes("Tools: fallback: @cf/zai-org/glm-4.7-flash after 529, search_notes"), "the fallback is on the answer's tools line");
+
+  spare.runs[1].tools = [{ tool: "fallback: @cf/zai-org/glm-4.7-flash after 400 (invalid_request_error: messages.4: bad block)", ok: true }];
+  assert.ok(
+    resultMarkdown(spare).includes("in 2 of 3 answers after anthropic/claude-haiku-5-5 failed (529, 400: invalid_request_error: messages.4: bad block)."),
+    "the provider's own words say why, where it gave them",
+  );
 });
 
 test("an answer with a round cut off at the output cap is counted", () => {
