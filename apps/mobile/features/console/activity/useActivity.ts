@@ -32,6 +32,9 @@ export type { ActivityView } from "./activity";
  */
 
 
+/** `MAX_ENTRIES` in `packages/shared/src/activity.cjs`: everything `activity.md` keeps. */
+const ACTIVITY_LINES = 400;
+
 export function useActivity(
   workspaceId: Id<"workspaces"> | null,
   /**
@@ -80,7 +83,10 @@ export function useActivity(
   useEffect(() => {
     if (workspaceId === null) return;
     let live = true;
-    void list({ workspaceId })
+    // Every line the file keeps, not the server's default fifty: the phone's
+    // Notes page dates what you wrote by them, and fifty lines of agents' work
+    // is a day or two (owner, 2026-10-30: "why don't i see previous 30 days?").
+    void list({ workspaceId, limit: ACTIVITY_LINES })
       .then((result) => {
         // The guard is the switch, not the unmount: an answer for the context
         // somebody just left must not be painted into the one they are in.
