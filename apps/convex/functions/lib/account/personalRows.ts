@@ -203,6 +203,13 @@ export async function deletePersonalRows(
     await ctx.db.delete(grant._id);
   }
 
+  // Whether they ever used an AI client: one row, the invite card's answer.
+  const agentUse = await ctx.db
+    .query("agentUse")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of agentUse) await ctx.db.delete(row._id);
+
   // Parked authorization requests the person approved. `userId` here is a
   // field, not an index — the table is keyed by request id and code — but
   // rows live ten minutes and are swept hourly (see crons.ts), so the

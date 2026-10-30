@@ -65,6 +65,29 @@ describe("nodes: read back", () => {
   });
 });
 
+describe("nodes: a folder's listing stays in the folder", () => {
+  /**
+   * A folder List read the rows after the folder's name to the page's cap,
+   * through the rest of the tree, and dropped what lay outside: most of
+   * `listLive`'s database reads (Convex invoice, owner 2026-10-30). With
+   * `root`, the walk ends at the folder's last row. Sabotage: walk "" again
+   * and the rows after `inbox/` come back.
+   */
+  test("root keeps the walk beneath one folder, and ends there", async () => {
+    const t = convexTest(schema, modules);
+    const ws = await workspace(t, "rooted");
+    await seedTreeRows(t, ws, ["areas/x.md", "inbox/a.md", "inbox/sub/b.md", "projects/c.md", "z.md"].map((path) => ({ path, etag: path })));
+
+    const inbox = await t.query(internal.functions.nodes.listLive, { workspaceId: ws, limit: 100, root: "inbox" });
+    expect(rowsOf(inbox)).toEqual(["inbox/a.md", "inbox/sub/b.md"]);
+    expect(inbox.cursor).toBeNull();
+    const after = await t.query(internal.functions.nodes.listLive, { workspaceId: ws, limit: 100, root: "inbox", after: "inbox/a.md" });
+    expect(rowsOf(after)).toEqual(["inbox/sub/b.md"]);
+    const missing = await t.query(internal.functions.nodes.listLive, { workspaceId: ws, limit: 100, root: "nowhere" });
+    expect(rowsOf(missing)).toEqual([]);
+  });
+});
+
 describe("nodes: tenant isolation", () => {
   test("one workspace's rows, privacy and served marker are never another's", async () => {
     const t = convexTest(schema, modules);

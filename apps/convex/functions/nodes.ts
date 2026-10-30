@@ -94,15 +94,18 @@ export const listChangedSince = internalQuery({
 
 /**
  * Live file rows in the tree's order (`TreePaths.walk`), from just after `after`. Capped at
- * `LIST_CAP`; `cursor` is the last path returned when there may be more.
+ * `LIST_CAP`; `cursor` is the last path returned when there may be more. `root` keeps the walk
+ * inside one folder: a folder's listing used to read on past its last row to the cap, through
+ * the rest of the tree, which was most of this query's database reads (Convex invoice, owner
+ * 2026-10-30).
  */
 export const listLive = internalQuery({
-  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), limit: v.number() },
+  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), limit: v.number(), root: v.optional(v.string()) },
   returns: v.object({
     rows: v.array(rowValidator),
     cursor: v.union(v.string(), v.null()),
   }),
-  handler: async (ctx, { workspaceId, after, limit }) => {
+  handler: async (ctx, { workspaceId, after, limit, root }) => {
     const size = Math.max(1, Math.min(Math.floor(limit), LIST_CAP));
     const rows: {
       path: string;
@@ -113,7 +116,7 @@ export const listLive = internalQuery({
     }[] = [];
     await (
       await nodePaths(ctx.db, workspaceId)
-    ).walk("", after, (doc) => {
+    ).walk(root ?? "", after, (doc) => {
       if (doc.kind !== "file" || doc.goneAt !== undefined) return;
       rows.push({
         path: doc.path,

@@ -19,6 +19,7 @@ import {
   redirectUriMatches,
 } from "../gatewayAuth";
 import { recordAudit } from "../audit";
+import { noteAgentUse } from "../agentUse";
 import { getMembership } from "../workspaceAuth";
 
 /**
@@ -281,6 +282,7 @@ export async function rotateGrantHandler(
     scopes,
     lastUsedAt: Date.now(),
   });
+  await noteAgentUse(ctx.db, grant, Date.now());
 
   return {
     grantId: grant._id,

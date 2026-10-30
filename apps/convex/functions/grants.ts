@@ -29,6 +29,8 @@ import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { isDesktopShellClient } from "./lib/machineGrant";
 import { recordAudit } from "./lib/audit";
+import { noteAgentUse } from "./lib/agentUse";
+import { grantsNewestFirst } from "./lib/grants/newestFirst";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
 import {
@@ -144,7 +146,9 @@ const grantSummary = v.object({
  * `hashedRefreshToken` is never in the response under any role.
  */
 export const listGrants = query({
-  args: { workspaceId: v.id("workspaces") },
+  // `activeOnly`: only live connections, read by index, for the console's
+  // always-open subscriptions; without it revoked rows come too, the record.
+  args: { workspaceId: v.id("workspaces"), activeOnly: v.optional(v.boolean()) },
   returns: v.array(grantSummary),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
@@ -165,17 +169,10 @@ export const listGrants = query({
     // means the rows below the cap already arrive newest-first, so nothing
     // downstream has to re-sort them back into that order.
     const seesAll = membership.role === "owner";
-    const newestFirst = seesAll
-      ? ctx.db
-          .query("oauthGrants")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-          .order("desc")
-      : ctx.db
-          .query("oauthGrants")
-          .withIndex("by_workspace_user", (q) =>
-            q.eq("workspaceId", args.workspaceId).eq("userId", userId),
-          )
-          .order("desc");
+    const newestFirst = grantsNewestFirst(ctx, args.workspaceId, userId, {
+      seesAll,
+      activeOnly: args.activeOnly === true,
+    });
 
     // A walk rather than a `.take()`, so the console's extra rows
     // (`MAX_CONSOLE_GRANTS_RETURNED`) can be stepped over instead of spending
@@ -675,6 +672,7 @@ export const touchGrant = internalMutation({
     const now = Date.now();
     if (grant.lastUsedAt !== undefined && now - grant.lastUsedAt < TOUCH_GRANT_EVERY_MS) return null;
     await ctx.db.patch(args.grantId, { lastUsedAt: now });
+    await noteAgentUse(ctx.db, grant, now);
     return null;
   },
 });

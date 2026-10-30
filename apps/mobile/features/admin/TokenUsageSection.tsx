@@ -9,7 +9,7 @@
  */
 import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import { useQuery } from "convex/react";
+import { useReportOnce } from "./useReportOnce";
 import { api } from "@context/convex/_generated/api";
 import { Text, leading, space, useThemedStyles, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
@@ -26,7 +26,7 @@ export function TokenUsageSection({ days }: { days: number }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
   const colors = useSeriesColors();
-  const usage = useQuery(api.functions.admin.usageReport, {
+  const usage = useReportOnce(api.functions.admin.usageReport, {
     days: Math.min(days * 2, MAX_REPORT_DAYS),
   });
   const report = useMemo(() => (usage ? tokenReport(usage.series, days) : null), [usage, days]);
