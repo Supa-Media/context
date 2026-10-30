@@ -2,7 +2,8 @@
 // ids and tokens are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeTransport, workersAi } from "../models.mjs";
+import { cachedEmbeddings, claudeTransport, workersAi } from "../models.mjs";
+import { MEANING_MODEL } from "../../src/search/meaning/embed.js";
 
 const GATEWAY = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
@@ -99,4 +100,34 @@ test("a catalog model goes through Cloudflare's chat API on the runner's own gat
   assert.equal(calls[1].headers["cf-aig-gateway-id"], undefined);
 
   await assert.rejects(() => workersAi(GATEWAY.AI_GATEWAY_ACCOUNT_ID, "t", null, fetchImpl).run("dynamic/texts", {}, { gateway: {} }), /AI_GATEWAY_ID/);
+});
+
+test("a failed embedding call is tried again after a wait, and the last failure is logged before it is thrown", async () => {
+  const waited = [];
+  const logged = [];
+  let calls = 0;
+  const flaky = {
+    async run(_model, input) {
+      calls += 1;
+      if (calls < 3) throw new Error("workers ai status 503");
+      return { data: input.text.map(() => [1]) };
+    },
+  };
+  const ai = cachedEmbeddings(flaky, { sleep: async (ms) => waited.push(ms), log: (line) => logged.push(line) });
+  const answer = await ai.run(MEANING_MODEL, { text: ["a", "b"] });
+  assert.equal(answer.data.length, 2);
+  assert.equal(calls, 3);
+  assert.deepEqual(waited, [1_000, 4_000]);
+  assert.deepEqual(logged, []);
+
+  const down = cachedEmbeddings({ run: async () => { throw new Error("workers ai status 429"); } }, { sleep: async () => {}, log: (line) => logged.push(line) });
+  await assert.rejects(() => down.run(MEANING_MODEL, { text: ["c"] }), /status 429/);
+  assert.deepEqual(logged, ["embedding failed after 3 tries: workers ai status 429"]);
+});
+
+test("a setup's own model call is never retried by the embedding cache", async () => {
+  let calls = 0;
+  const ai = cachedEmbeddings({ run: async () => { calls += 1; throw new Error("workers ai status 503"); } }, { sleep: async () => {}, log: () => {} });
+  await assert.rejects(() => ai.run("@cf/zai-org/glm-4.7-flash", { messages: [] }), /503/);
+  assert.equal(calls, 1);
 });
