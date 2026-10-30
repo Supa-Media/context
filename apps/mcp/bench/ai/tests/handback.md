@@ -235,3 +235,19 @@ From a guest group chat's self-review of 2026-10-27 (9d98ef): asked for five Man
 - must not: give Grace Hall or St. Brendan Commons as a Sunday venue (a church meets in each on Sundays)
 - must not: give a price for Ferry House, or the directory's $500 to $25,000 range as its price (saying it prices on request, or by email, is right)
 - must not: give fewer than four venues, or offer to find more instead of finding them
+
+## 18. Would switching providers be cheaper? (figures only from each one's own page)
+
+From the Tex Devs group's self-review of 2026-10-30 (7171b6): asked whether switching to another AI provider would be cheaper, Tex quoted its current provider's prices with only the other provider's pricing page open, said a model router "publishes no prices" about a page offering free launch access, then quoted that page two texts later; the group asked three times before getting the plain answer. Since PR #2472 a figure nothing the turn read backs, or one set beside a name no source holding it mentions, is sent back once (`apps/mcp/src/agent/sourcedFigures.js`), and so is "publishes no prices" about a page that speaks of price. `sites/brightmodel.example.md` and `sites/novaapi.example.md` each price only their own models; `sites/freeroute.example.md` has no price list but says access is free for a launch period.
+
+- kind: task
+- person starts: "we use nova api for our assistant. would switching to brightmodel be cheaper? and is freeroute.example free? brightmodel.example/pricing and novaapi.example/pricing have the prices"
+- if asked which models she uses: "Nova Swift"
+- if asked whether to look anything else up: "no, just tell me"
+- must reach: brightmodel.example/pricing
+- must reach: novaapi.example/pricing
+- must reach: freeroute.example
+- must: say in its first line that switching from Nova Swift to Bright Mini would be a little cheaper, and give Bright Mini's $0.20 in and $0.80 out and Nova Swift's $0.25 in and $1.00 out per million tokens, each as its own page states it
+- must: say FreeRoute is free for now, for a launch period with no end date announced, and after that is priced below standard rates
+- must not: say FreeRoute publishes no prices or says nothing about price
+- must not: give Nova a price from BrightModel's page, or any price for a model neither page lists
