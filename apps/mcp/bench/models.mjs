@@ -191,20 +191,47 @@ export function fakeEmbedding(text) {
   return Array.from(vector, (value) => value / norm);
 }
 
+/** Waits before each new try of a failed embedding call. */
+const EMBED_RETRY_WAITS_MS = [1_000, 4_000];
+
 /**
  * The same `run` with the embedding model's answers remembered by text: the
  * warm pass embeds every note once, and every conversation's searches embed
  * the same few queries, so a round pays for each passage and each query once.
  */
-export function cachedEmbeddings(ai) {
+export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const known = new Map();
+  /*
+    THE EMBEDDING CALL, TRIED AGAIN. gh-125 to gh-127 (2026-10-30) each lost a
+    whole round before any answer: one Workers AI embedding call failed during
+    the warm pass, `bindingEmbedder` turned it into "search by meaning
+    unavailable", and the shard died. Embeddings are the bench's own plumbing,
+    not the product under test, so a failed one is tried again after a wait;
+    the model calls a setup makes are never retried here, because how the
+    gateway copes with those is what a round measures. The last error is
+    logged with its own words (`workersAi`'s status line), which the
+    embedder's error drops.
+  */
+  async function embedOnce(model, texts, options) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await ai.run(model, { text: texts }, options);
+      } catch (error) {
+        if (attempt >= waits.length) {
+          log(`embedding failed after ${attempt + 1} tries: ${String(error?.message ?? error).slice(0, 120)}`);
+          throw error;
+        }
+        await sleep(waits[attempt]);
+      }
+    }
+  }
   return {
     async run(model, input, options) {
       if (model !== MEANING_MODEL) return ai.run(model, input, options);
       const texts = Array.isArray(input?.text) ? input.text : [];
       const missing = [...new Set(texts.filter((text) => !known.has(text)))];
       if (missing.length > 0) {
-        const answer = await ai.run(model, { text: missing }, options);
+        const answer = await embedOnce(model, missing, options);
         const data = Array.isArray(answer?.data) ? answer.data : [];
         if (data.length !== missing.length) throw new Error("the embedding model answered with the wrong count");
         missing.forEach((text, index) => known.set(text, data[index]));
