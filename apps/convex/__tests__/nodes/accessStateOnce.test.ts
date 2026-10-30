@@ -17,7 +17,7 @@ function stubCtx(writable: boolean) {
   const empty = { withIndex: () => empty, collect: async () => [], unique: async () => null, first: async () => null, take: async () => [] };
   const db: Record<string, unknown> = {
     query: (table: string) => {
-      if (table !== "nodeAccessState") return { withIndex: () => empty, ...empty };
+      if (table !== "nodeAccessState") return empty;
       return {
         withIndex: () => ({
           unique: async () => {
