@@ -215,7 +215,7 @@ describe("background jobs", () => {
     expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0, pass: expect.any(String) }]);
   });
 
-  it("texts the result under the ask it came from, and an update offered again repeats no text", async () => {
+  it("hands the result to the chat's own turn under the ask it came from, never texting it, and queues an update offered again once", async () => {
     const storage = new MemoryStorage();
     await startJobs(storage, [{ title: "Competitor research", brief: "b" }], {
       now: NOW,
@@ -238,11 +238,14 @@ describe("background jobs", () => {
       gatewayOrigin: "",
       now: () => NOW + 1,
     };
-    const update: JobUpdate = { id, state: "done", status: "Wrote it.", texts: ["Wrote it.", "https://context.lc/n/abc"], first: 0 };
+    const update: JobUpdate = { id, state: "done", status: "Wrote it.", texts: ["Wrote it.", "https://context.lc/n/abc"], first: 0, asked: { from: PHONE, text: "q" } };
     expect(await jobUpdate(storage, deps, update)).toBe(true);
     expect(await jobUpdate(storage, deps, update)).toBe(true);
-    expect(sent.map((entry) => entry.text)).toEqual(["Wrote it.", "https://context.lc/n/abc"]);
-    expect(sent[0].key).toBe(`job:${id}:0`);
+    expect(sent).toEqual([]);
+    const queued = [...(await storage.list<{ message: Message }>({ prefix: "pending:" })).values()].map((item) => item.message);
+    expect(queued).toEqual([
+      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
+    ]);
     const [listed] = await chatJobs(storage, NOW + 1);
     expect(listed).toMatchObject({ state: "done", status: "Wrote it.", finishedAt: NOW + 1 });
     expect(await jobUpdate(storage, deps, { id: "someone-elses", state: "done" })).toBe(false);

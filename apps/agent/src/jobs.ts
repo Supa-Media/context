@@ -37,8 +37,10 @@ export type RunningJob = { id: string; title: string; state: JobState; startedAt
 export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 export type JobSteer = { id: string; text: string; stop?: true };
-/** What a turn asked of a running job: the job, and whether to stop it. */
-export type JobSteerAsk = { id: string; stop?: true };
+/** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
+export type JobSteerAsk = { id: string; stop?: true; note?: string };
+/** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
+export type JobReport = { title: string; state: JobState; texts: string[] };
 export type JobState = "running" | "done" | "failed";
 
 /** Where a job came from: a person's own chat, or a group. Kept only in the job's object. */
@@ -55,8 +57,9 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
+/** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string; pass?: string };
+export type JobUpdate = { id: string; state: JobState; status?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; vaultWatch?: string; pass?: string; asked?: { from: string; text: string } };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -94,6 +97,8 @@ const MAX_SHOWN = 6;
 /** Steps kept per job: what "what is it doing?" is answered from. The whole record is the person's Tex transcript. */
 export const MAX_STEPS_KEPT = 5;
 const MAX_STATUS = 280;
+/** The asker's words a report carries, as long as a text they could send. */
+const MAX_ASKED = 8_000;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const JOB_LINES = {
@@ -123,8 +128,9 @@ export function readSteers(value: unknown): JobSteerAsk[] {
   if (!Array.isArray(value)) return [];
   return value
     .flatMap((entry) => {
-      const { id, stop } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
-      return typeof id === "string" && ID.test(id) ? [{ id, ...(stop === true ? { stop: true as const } : {}) }] : [];
+      const { id, stop, note } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const said = typeof note === "string" ? note.trim().slice(0, 4_000) : "";
+      return typeof id === "string" && ID.test(id) ? [{ id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }] : [];
     })
     .slice(0, MAX_RUNNING_JOBS);
 }
@@ -149,10 +155,13 @@ export async function steerJobs(
   now: number,
 ): Promise<number> {
   let count = 0;
-  for (const { id, stop } of asks) {
+  for (const { id, stop, note } of asks) {
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry?.state !== "running") continue;
-    const ok = await send(id, { ...steer, ...(stop ? { stop } : {}) }).catch(() => false);
+    // The coordinating turn's own instruction goes as its, never as their words; a turn with no text of theirs passes only that, or a stop.
+    const text = note ? `(From your coordinator, the chat's own turn, not their words: ${note})` : steer.text || (stop ? "(Stopped by your coordinator.)" : "");
+    if (text === "") continue;
+    const ok = await send(id, { ...steer, text, ...(stop ? { stop } : {}) }).catch(() => false);
     if (ok) count += 1;
     // A stopped job reads as stopped at once; it says nothing more.
     if (ok && stop) await storage.put<JobEntry>(entryKey(id), { ...entry, state: "failed", status: "Stopped when they asked", finishedAt: now, stopped: true });
@@ -286,7 +295,8 @@ export async function noteJobSent(storage: InboxStorage, id: string, sent: numbe
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, vaultWatch, pass } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, vaultWatch, pass, asked } = value as Record<string, unknown>;
+  const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || (state !== "running" && state !== "done" && state !== "failed")) return null;
   return {
@@ -296,6 +306,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(typeof step === "string" ? { step } : {}),
     ...(typeof vaultWatch === "string" && vaultWatch !== "" ? { vaultWatch } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
+    ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),

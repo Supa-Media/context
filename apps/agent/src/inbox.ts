@@ -161,7 +161,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
   return pictures;
 }
 
-
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -232,25 +231,20 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (chat === undefined) return logVaultWatch("no_chat");
   if (chat.at > saved.savedAt) return logVaultWatch("texted_since");
-  const eventId = `vault-saved:${saved.savedAt}`;
-  if ((await storage.get<number>(seenKey(eventId))) !== undefined) return;
-  const now = deps.now();
+  const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
+  const message: Message = { kind: "message", eventId: `vault-saved:${saved.savedAt}`, chatId: chat.chatId, from: saved.phone, messageId: "", text: "", event: "vault_saved", ...channel };
+  if (await queueByCode(storage, message, deps.now())) logVaultWatch("queued");
+}
+
+/** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
+export async function queueByCode(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
+  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return false;
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
-  await storage.put(seenKey(eventId), now);
-  const message: Message = {
-    kind: "message",
-    eventId,
-    chatId: chat.chatId,
-    from: saved.phone,
-    messageId: "",
-    text: "",
-    event: "vault_saved",
-    ...(chat.channel === "simulator" ? { channel: "simulator" as const } : {}),
-  };
+  await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await storage.setAlarm(now);
-  logVaultWatch("queued");
+  return true;
 }
 
 /** What became of a tapback, without its words: enough to tell a 👍 that reached nothing from one never sent. */
@@ -610,7 +604,7 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
       })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
-      if (deps.steerJob && message.text.trim() !== "") await steerJobs(storage, asks, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
+      if (deps.steerJob) await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
     },
   };
 }

@@ -7,6 +7,7 @@
  *  1. `groupTurn` not reading the members again → "holds the result when somebody joined while it ran".
  *  2. `answerGroup` not starting `answer.jobs` → "a tagged message can start a job beside the chat".
  *  3. `groupTurn` dropping `mail` from the job's group → "a job is told the mail shared with the chat".
+ *  4. `groupTurn` not passing `jobReport` (2026-10-30) → "runs the job with a grant issued again, and hands the result to the chat's own turn".
  */
 
 import { describe, expect, it } from "vitest";
@@ -99,7 +100,7 @@ describe("background jobs in a group chat", () => {
     expect((await chatJobs(storage, NOW))[0]).toMatchObject({ title: "Competitor research", state: "running" });
   });
 
-  it("runs the job with a grant issued again, and posts the result under the ask", async () => {
+  it("runs the job with a grant issued again, and hands the result to the chat's own turn, which posts its word under the ask", async () => {
     const storage = new MemoryStorage();
     const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
     const d = deps(world, { answer: "Wrote @band 1-projects/competitors.md." });
@@ -116,7 +117,23 @@ describe("background jobs in a group chat", () => {
     await drainGroup(inbox, { ...local, fetch: deps(world, { answer: "On it.", jobs: [{ title: "Competitor research", brief: "b" }] }).fetch });
     const [entry] = await chatJobs(inbox, NOW);
     expect(await jobUpdate(inbox, { ...local, linqApiKey: "" }, { ...reports.at(-1)!, id: entry.id })).toBe(true);
-    expect(world.sends.at(-1)).toMatchObject({ content: "Wrote @band 1-projects/competitors.md.", reply_to: { message_handle: "h_ask" } });
+    // The job says nothing to the chat itself (Dev2, 2026-10-30): its report is a turn of the chat, run as its asker's tag.
+    expect(world.sends.at(-1)?.content).toBe("On it.");
+    const before = world.asks.length;
+    await drainGroup(inbox, deps(world, { answer: "Competitors are up in @band 1-projects/competitors.md." }));
+    expect(world.asks[before]).toMatchObject({
+      question: tagged.text,
+      event: "job_report",
+      jobReport: { title: "Competitor research", state: "done", texts: ["Wrote @band 1-projects/competitors.md."] },
+    });
+    expect(world.sends.at(-1)).toMatchObject({ content: "Competitors are up in @band 1-projects/competitors.md.", reply_to: { message_handle: "h_ask" } });
+
+    // A report the coordinator finds nothing new in is said to nobody.
+    expect(await jobUpdate(inbox, { ...local, linqApiKey: "" }, { ...reports.at(-1)!, id: entry.id, first: 5, texts: ["Same again."] })).toBe(true);
+    const sends = world.sends.length;
+    await drainGroup(inbox, deps(world, { answer: "SKIP" }));
+    expect(world.asks.at(-1)).toMatchObject({ event: "job_report", jobReport: { texts: ["Same again."] } });
+    expect(world.sends.length).toBe(sends);
   });
 
   it("a job is told the mail shared with the chat, as the chat's own turn is", async () => {

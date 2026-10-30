@@ -19,6 +19,7 @@ import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
 import { holdsAsYes, takesBackYes } from "./thumbs";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
+import type { JobReport } from "./jobs";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -55,6 +56,8 @@ export type GroupMessage = {
   attachments?: InboundAttachment[];
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
   routine?: { runId: string; path: string };
+  /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
+  jobReport?: JobReport;
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

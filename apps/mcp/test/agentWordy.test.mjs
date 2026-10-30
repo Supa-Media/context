@@ -20,7 +20,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { jobPrompt } from "../src/agent/background.js";
+import { jobPrompt, jobReportPrompt } from "../src/agent/background.js";
 import { BRIEF_LINE } from "../src/agent/chatVoice.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { systemPrompt } from "../src/agent/prompt.js";
@@ -81,11 +81,12 @@ test("a page written with no cover drawn still counts as the result", async () =
   assert.equal(watch.check(DESCRIBES_THE_PAGE.replace("\n[picture 1]", "")), RESULT_NOTICE);
 });
 
-test("a background job ends with one line and the link, never the page retold", () => {
+test("a background job's result reaches them as one line and the link, never the page retold", () => {
+  // Since 2026-10-30 a job reports to the chat's own turn, which texts it (`jobReport.js`).
   const prompt = jobPrompt({ title: "Frameworks", brief: "compare four", doneWhen: "", attempt: 1, followUps: [], draft: "", unfinished: false });
-  assert.match(prompt, /End with ONE casual line/);
-  assert.match(prompt, /Never describe what's on the page/);
+  assert.match(prompt, /your report to the chat's own turn/);
   assert.doesNotMatch(prompt, /in a few lines/);
+  assert.match(jobReportPrompt({ title: "Frameworks", state: "done", texts: ["Wrote it."] }), /one casual line with your take and the link/);
 });
 
 test("every texted turn is told to keep it short, a production setup's words included", () => {

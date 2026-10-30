@@ -11,7 +11,7 @@
  *
  * Sabotage record (applied, suite run, named test observed failing, reverted):
  *  1. `runJob` without the lease check after the turn → "a pass overtaken by a newer one texts nothing and re-arms nothing".
- *  2. `noteJobUpdate` without the `finalPass` check → "the chat texts one result per job: a second pass's is dropped, the same pass's retry is not".
+ *  2. `noteJobUpdate` without the `finalPass` check → "the chat gets one result per job: a second pass's is dropped, the same pass's retry is not".
  */
 
 import { describe, expect, it } from "vitest";
@@ -94,7 +94,7 @@ describe("one result per background job", () => {
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Saved it."], pass: expect.any(String) });
   });
 
-  it("the chat texts one result per job: a second pass's is dropped, the same pass's retry is not", async () => {
+  it("the chat gets one result per job: a second pass's is dropped, the same pass's retry is not", async () => {
     const storage = new MemoryStorage();
     await startJobs(storage, [{ title: "Agentic benchmarks", brief: "b" }], {
       now: NOW,
@@ -116,14 +116,18 @@ describe("one result per background job", () => {
       gatewayOrigin: "",
       now: () => NOW + 1,
     };
-    const first: JobUpdate = { id, pass: "pass-aaaaaaaa", state: "done", status: "Couldn't save.", texts: ["I couldn't save the page."], first: 0 };
+    const asked = { from: PHONE, text: "q" };
+    const first: JobUpdate = { id, pass: "pass-aaaaaaaa", state: "done", status: "Couldn't save.", texts: ["I couldn't save the page."], first: 0, asked };
     expect(await jobUpdate(storage, deps, first)).toBe(true);
     // The same pass offering its last word again (the inbox's answer was lost) repeats nothing and is not refused.
     expect(await jobUpdate(storage, deps, first)).toBe(true);
     // Another pass of the same job, finishing later, is not texted, and its steps don't reopen the job.
     expect(await jobUpdate(storage, deps, { id, pass: "pass-bbbbbbbb", state: "running", step: "write_note" })).toBe(true);
-    expect(await jobUpdate(storage, deps, { id, pass: "pass-bbbbbbbb", state: "done", status: "Saved after all.", texts: ["The save went through after all."], first: 0 })).toBe(true);
-    expect(sent).toEqual(["I couldn't save the page."]);
+    expect(await jobUpdate(storage, deps, { id, pass: "pass-bbbbbbbb", state: "done", status: "Saved after all.", texts: ["The save went through after all."], first: 0, asked })).toBe(true);
+    // Nothing is texted straight in: the one result goes to the chat's own turn, once (`jobTexts.ts`).
+    expect(sent).toEqual([]);
+    const reports = [...(await storage.list<{ message: { jobReport?: { texts: string[] } } }>({ prefix: "pending:" })).values()].map((item) => item.message.jobReport?.texts);
+    expect(reports).toEqual([["I couldn't save the page."]]);
     const [listed] = await chatJobs(storage, NOW + 1);
     expect(listed).toMatchObject({ state: "done", status: "Couldn't save." });
   });

@@ -231,14 +231,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   return await enqueue(storage, message, extra, repliesToTex, seen, now);
 }
 
-async function enqueue(
-  storage: InboxStorage,
-  message: GroupMessage,
-  extra: Partial<Pending>,
-  repliesToTex: boolean,
-  seen: string,
-  now: number,
-): Promise<"queued" | "full"> {
+async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Partial<Pending>, repliesToTex: boolean, seen: string, now: number): Promise<"queued" | "full"> {
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
@@ -253,13 +246,18 @@ async function enqueue(
 
 /** A chat routine's run (`groupRoutines.ts`): queued as its writer's tag, answered now. */
 export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutineRun, now: number): Promise<"queued" | "full"> {
-  const seen = seenKey(`routine:${run.runId}`, ""); // One run, one turn: handed here again, it is already queued or answered.
+  return await queueGroupByCode(storage, chatRoutineMessage(run), now);
+}
+
+/** Queue a turn this Worker asks for itself (a routine's run, a job's report: `jobTexts.ts`), as its writer's tag; once per event. */
+export async function queueGroupByCode(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "full"> {
+  const seen = seenKey(message.eventId, ""); // One run, one turn: handed here again, it is already queued or answered.
   if ((await storage.get<number>(seen)) !== undefined) return "queued";
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
   await storage.put("gseq", seq);
-  await storage.put<Pending>(pendingKey(seq), { message: chatRoutineMessage(run), attempts: 0, at: now, byCode: true });
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, byCode: true });
   await storage.put(seen, now);
   await storage.setAlarm(now);
   return "queued";
@@ -269,6 +267,7 @@ export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutine
 async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
+  if (message.jobReport !== undefined) return; // a job's report runs as a routine's turn does, but no run waits on it
   await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 
@@ -596,7 +595,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}),
+        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -671,7 +670,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */

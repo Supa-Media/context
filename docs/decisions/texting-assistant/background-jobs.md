@@ -158,3 +158,24 @@ the log), and the chat's inbox texts one finishing word per job, from the
 pass that sent it first (`jobs.ts` `finalPass`; the same pass offering it
 again is still taken). Dropping the lease brings back two answers that
 disagree. Tests: `apps/agent/src/jobPass.test.ts`.
+
+**Every job reports to the chat's own turn, never to the chat** (Dev2,
+2026-10-30: "if something is going in a background task it should always
+report to the coordinator, no exceptions, the coordinator should have
+complete authority over the background processes, provide steering etc").
+Whatever a job would have said (its result, the line saying it couldn't
+finish, a sign-in link on its way) is queued by the chat's inbox as a turn
+of the chat itself (`apps/agent/src/jobTexts.ts`: `event: "job_report"`,
+the words as `jobReport`; in a 1:1 chat a turn the Worker asks for, in a
+group its asker's tag run the way a chat routine's is). That turn, the
+coordinator, is asked the gateway's own line and shown the report as the
+job's words, which vouch for nothing (`apps/mcp/src/agent/jobReport.js`;
+the turn counts as having read from outside). It checks the report against
+the chat and the notes it names, then texts it in its own words with the
+page's cover, fixes it, starts the job again on the person's own words,
+steers a running job with its own note (`steer_job` `note`, passed to the
+job marked as the coordinator's, never as theirs), or answers SKIP. A job's
+own answer is no longer kept in the conversation as said; only the
+coordinator's turn is. Texting a job's words straight in again, for any
+kind of update, breaks the rule. Tests: `apps/agent/src/jobReports.test.ts`,
+`groupJobs.test.ts`, `apps/mcp/test/agentBackgroundRoute.test.mjs`.
