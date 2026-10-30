@@ -184,6 +184,10 @@ export const ACTIONS_LINE =
  * meet in on Sundays, dropped to three and offered "Want me to find two
  * more?", and set a directory's $50-to-$25,000 range beside a venue with no
  * published price.
+ *
+ * The Tex Devs group (self-review 7171b6, 2026-10-30): Claude prices quoted
+ * off OpenAI's pricing page, and "Flovia publishes no prices" about a page
+ * that offered free launch access (`sourcedFigures.js` checks both).
  */
 export const RESEARCH_LINE =
   "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), your whole first reply is that one question: no options, no pick (not even \"I'd cook it\"), no guess from their notes. A town they name is enough to search on: never ask which state first. " +
@@ -192,6 +196,8 @@ export const RESEARCH_LINE =
   "Asked for a number, give that many: replace any you drop, never offer to find more. " +
   "Check each fits its use on its own page (a Sunday-service venue isn't where a church already meets on Sundays). " +
   "A price is the place's own, never a directory's general range: else say it isn't published. " +
+  "Quote a price or score only from a page you opened that gives it for that very thing (OpenAI's page has no Claude prices), and say what a page you opened does say, never that it says nothing. " +
+  "Asked yes or no, or which is cheaper, your first line is that answer. " +
   "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
 
 /**
