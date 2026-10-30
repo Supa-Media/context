@@ -79,6 +79,9 @@
   // (src/attachments.ts). Without it, such a photo is described, not shown.
   "images": { "binding": "IMAGES" },
   "observability": { "enabled": true },
+  // Group reply timings as rows (src/groupSay.ts), readable with the account's
+  // read-only analytics token through the Analytics Engine SQL API.
+  "analytics_engine_datasets": [{ "binding": "TEX_TIMING", "dataset": "tex_timing" }],
   "env": {
     "staging": {
       "name": "context-agent-staging",
@@ -93,6 +96,7 @@
       ],
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
+      "analytics_engine_datasets": [{ "binding": "TEX_TIMING", "dataset": "tex_timing_staging" }],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on",

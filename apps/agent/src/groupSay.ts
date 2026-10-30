@@ -56,9 +56,29 @@ export function log(outcome: string, reason?: string): void {
   console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}) }));
 }
 
+/**
+ * Where timings also go as rows anyone with the account's read-only analytics token can query
+ * (Workers Analytics Engine, `TEX_TIMING`; set by the chat's object, `index.ts`), since Workers
+ * logs need a wider grant. Numbers and a path name only, never words, numbers or names; unset, the log line alone.
+ */
+export type TimingSink = { writeDataPoint(point: { indexes?: string[]; blobs?: string[]; doubles?: number[] }): void };
+let timingSink: TimingSink | undefined;
+export function setTimingSink(sink: TimingSink | undefined): void {
+  timingSink = sink;
+}
+function writeTiming(index: string, blobs: string[], doubles: number[]): void {
+  try {
+    timingSink?.writeDataPoint({ indexes: [index], blobs, doubles });
+  } catch {
+    // A lost timing row never costs a reply.
+  }
+}
+
 /** Where an answered group turn's time went, from its first message in to its last bubble out: milliseconds only. */
 export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: number; asking: number; answered: number; sent: number }): void {
-  console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
+  const timing = { waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt };
+  console.log(JSON.stringify({ event: "group_turn_timing", ...timing }));
+  writeTiming("group_turn", [], [timing.waitMs, timing.gatewayMs, timing.sendMs, timing.totalMs]);
 }
 
 /** Marks inside one group reply (`answerGroup`): after the app's member list, after the control plane's check, and which fixed path answered. */
@@ -79,8 +99,11 @@ export async function timedReply<T>(arrivedAt: number, handedAt: number | undefi
     const stages: Record<string, number> = {};
     let from = started;
     for (const [name, at] of [["membersMs", marks.members], ["controlMs", marks.control]] as const) if (at !== undefined) (stages[name] = at - from), (from = at);
-    const start = handedAt === undefined ? {} : { startMs: started - handedAt };
-    console.log(JSON.stringify({ event: "group_reply_timing", path, outcome, queueMs: (handedAt ?? started) - arrivedAt, ...start, ...stages, replyMs: end - from, totalMs: end - arrivedAt }));
+    const start: { startMs?: number } = handedAt === undefined ? {} : { startMs: started - handedAt };
+    const queueMs = (handedAt ?? started) - arrivedAt;
+    console.log(JSON.stringify({ event: "group_reply_timing", path, outcome, queueMs, ...start, ...stages, replyMs: end - from, totalMs: end - arrivedAt }));
+    // A stage the reply never reached is -1.
+    writeTiming("group_reply", [path, outcome], [queueMs, start.startMs ?? -1, stages.membersMs ?? -1, stages.controlMs ?? -1, end - from, end - arrivedAt]);
   };
   try {
     const result = await answer({ mark: (stage) => void (marks[stage] = now()), path: (name) => void (path = name) });

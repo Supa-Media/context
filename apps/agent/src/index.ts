@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { setTimingSink } from "./groupSay";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
@@ -97,6 +98,8 @@ export interface Env {
   APP_CARD_EXTENSION_ID?: string;
   APPLE_TEAM_ID?: string;
   APP_STORE_ID?: string;
+  /** Group reply timings as queryable rows (`groupSay.ts` `setTimingSink`); absent, they are only logged. */
+  TEX_TIMING?: AnalyticsEngineDataset;
 }
 
 /** Linq's payloads are small; anything this big is not one of them. */
@@ -466,7 +469,9 @@ export class SenderInbox implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: Env,
-  ) {}
+  ) {
+    setTimingSink(env.TEX_TIMING);
+  }
 
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;

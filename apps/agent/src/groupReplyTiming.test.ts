@@ -7,7 +7,8 @@
  *  - `clock?.mark("control")` removed from `answerGroup`: the control plane's
  *    four minutes land in `replyMs` and "a settings reply handed to its
  *    workflow" fails;
- *  - `timedReply` dropped from `answerHanded`: no line, the same test fails.
+ *  - `timedReply` dropped from `answerHanded`: no line, the same test fails;
+ *  - `writeTiming` left out of `timedReply`: "the same stages as a queryable row" fails.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,8 +16,12 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, setup } from "./groupWorld.testing";
 import { answerHanded, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { setTimingSink } from "./groupSay";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  setTimingSink(undefined);
+});
 
 function timings(spy: { mock: { calls: unknown[][] } }): Record<string, unknown>[] {
   return spy.mock.calls.map(([line]) => (typeof line === "string" && line.startsWith("{") ? JSON.parse(line) : {})).filter((line) => line.event === "group_reply_timing");
@@ -42,6 +47,29 @@ describe("a group reply's timing", () => {
     expect(timings(spy)).toEqual([{ event: "group_reply_timing", path: "settings", outcome: "done", queueMs: 2_000, startMs: 8_000, membersMs: 0, controlMs: 230_000, replyMs: 0, totalMs: 240_000 }]);
     // Numbers and a path name only: never the words or who sent them.
     expect(JSON.stringify(timings(spy))).not.toMatch(/settings here|Tex, settings|\+1/);
+  });
+
+  it("the same stages as a queryable row (Analytics Engine), numbers and the path only", async () => {
+    let t = 0;
+    const rows: unknown[] = [];
+    setTimingSink({ writeDataPoint: (point) => void rows.push(point) });
+    const storage = new MemoryStorage();
+    const w = setup(groupId, { controlFor: () => void (t += 230_000) });
+    const deps = { ...w.deps, now: () => t };
+    await acceptGroup(storage, w.message("Tex, settings"), 0);
+    t = 2_000;
+    await drainGroup(storage, deps);
+    // Answered here: no workflow start, so that stage is -1.
+    expect(rows).toEqual([{ indexes: ["group_reply"], blobs: ["settings", "done"], doubles: [2_000, -1, 0, 230_000, 0, 232_000] }]);
+  });
+
+  it("a sink that throws never costs the reply", async () => {
+    setTimingSink({ writeDataPoint: () => { throw new Error("down"); } });
+    const storage = new MemoryStorage();
+    const w = setup(groupId);
+    await acceptGroup(storage, w.message("Tex, settings"), 0);
+    await drainGroup(storage, w.deps);
+    expect(w.texts[0]).toMatch(/^My settings here:/);
   });
 
   it("a reply answered here has no workflow start, and a model turn is a turn", async () => {
