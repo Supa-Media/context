@@ -65,6 +65,7 @@ import { noteStep, saveAccountCheck } from "./saveAccount.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
+import { figureCheck } from "./sourcedFigures.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -481,6 +482,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
   let keptRead = false;
   let keptNoticed = false;
+  const figures = figureCheck({ question, history, pictures }); // A figure nothing read backs, or "no prices" about a page that has some.
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -496,6 +498,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         call: async (name, args) => {
           triedWeb = true;
           const result = await web.call(name, args);
+          figures.read(result, { web: true });
           steps.push({ name, ok: result?.isError !== true });
           if (BROWSER_TOOLS.has(name)) {
             browserTried = true;
@@ -512,6 +515,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
         if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
+        figures.read(result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
         steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
@@ -606,6 +610,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       lookNoticed = true;
       return LOOK_ON_SITE_NOTICE;
     }
+    const unsourced = figures.check(answer);
+    if (unsourced !== null) return unsourced;
     if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
       return finishNotice({ job: job !== null });

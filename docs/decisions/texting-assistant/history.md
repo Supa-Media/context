@@ -170,3 +170,24 @@ Tests: "...with the notes it read kept beside it, by path"
 Same day, a group chat: asked to roast Seyi, Tex called Seyi "her". Every turn
 now carries `PRONOUNS_LINE` (`prompt.js`): the name or they/them unless they or
 their notes say otherwise. Test: "every turn is told never to guess pronouns".
+
+### A figure is quoted only from what the turn read (2026-10-30)
+
+Two research answers in a group chat (self-review, 2026-10-29 and 2026-10-30)
+quoted figures nothing backed: benchmark scores with no source, then Claude
+Haiku and Sonnet prices set beside OpenAI's with only OpenAI's pricing page
+open. The same chat was told "Flovia publishes no prices" about a page that
+offered free launch access, which Tex quoted two texts later. The ground rule
+already said to state only numbers read in a tool result; the model still did.
+
+So a turn that used the web has its answer checked against everything it read
+(`sourcedFigures.js`, from `claimCheck.js`): a price, percentage or score in
+no tool result, their words or an earlier text, or a figure in the same
+sentence as a name no source holding it mentions, gets one more round naming
+them; so does "publishes no prices" when a page it read speaks of price. A
+total worked out in the sentence stands on its parts. A turn carrying their
+pictures is not checked, since the model reads those itself. `RESEARCH_LINE`
+also says a figure comes from that very thing's own page and that a yes/no or
+which-is-cheaper answer leads. What a "simplification" costs: dropping the name
+check lets one company's prices be quoted as another's again. Tests:
+`agentSourcedFigures.test.mjs`.
