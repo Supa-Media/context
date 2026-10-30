@@ -22,10 +22,13 @@
  *     app sends it, once, and not as a check` fails.
  *  5. `sendGoogleChat` answering ok without Google's ids. → `a send Google
  *     does not confirm is never told as sent` fails.
+ *  6. The reply calling a setup "a new direct message". → `a send that asked
+ *     for the direct conversation says so, and never calls it new` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { readChatMessage } from "../src/tools/googleChat.js";
+import { readChatMessage, toolGoogleChat } from "../src/tools/googleChat.js";
+import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
 
 const DM = { to: "sayo@example.com", text: "Hey Sayo, I'm testing Google Chat with my assistant. Ignore this." };
 
@@ -137,4 +140,15 @@ export async function runGoogleChatGateChecks(check) {
   } finally {
     world.restore();
   }
+
+  // Setup can answer a direct message that already existed, so the reply says setup was asked, never that one was made.
+  const methods = createGoogleChatMethods({
+    post: async () => ({ ok: true, from: "seyi@work.example", place: { person: "sayo@example.com" }, space: "spaces/OLD", message: "spaces/OLD/messages/m1", setupUsed: true }),
+  });
+  const setupReply = textOf(await toolGoogleChat({ googleChat: { send: (message) => methods.sendGoogleChat("t", "w", message) } }, DM));
+  check(
+    "a send that asked for the direct conversation says so, and never calls it new",
+    /Sent on Google Chat from seyi@work\.example to sayo@example\.com \(Google's message spaces\/OLD\/messages\/m1 in spaces\/OLD; Google found no conversation by that address, so direct-conversation setup was requested\)/.test(setupReply) &&
+      !/\bnew\b|created|started/i.test(setupReply),
+  );
 }

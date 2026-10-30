@@ -35,7 +35,10 @@ export const READ_REFUSED = {
   ai_access_needed: `AI access isn't allowed yet for their Google account, so its Chat can't be read. ${AI_ACCESS_STEP}`,
   hourly_limit: "Too many Google Chat reads this hour. Try again later.",
   space_not_found: "They are in no Google Chat space with that id. fetch chat: lists their spaces with their ids.",
-  person_not_found: "They have no direct message with that address in Google Chat yet, so there is nothing to read.",
+  person_not_found:
+    "Google Chat did not find a conversation with them by that address, which does not mean they have none: a direct message " +
+    "with someone outside their organization can be missed this way. If the conversation's spaces/… id is known (from a send's " +
+    "answer or fetch chat:), read it by that id.",
   chat_not_enabled: "Google Chat isn't turned on for Context's Google project yet, which is ours to fix, not theirs.",
   reconnect_required:
     "Their Google account needs reconnecting, because Google stopped honouring its sign-in. Get the link from manage connect_google (kind gmail) and give it to them.",

@@ -127,8 +127,9 @@ export async function toolGoogleChat(store, args) {
   if (answer?.ok === true) {
     const where = typeof answer.place?.space === "string" ? `in ${answer.place.space}` : `to ${placeName(answer.place)}`;
     // The ids Google gave, so anyone can read back exactly where it went.
-    const started = answer.started === true ? ", a new direct message" : "";
-    return toolText(`Sent on Google Chat from ${answer.from} ${where} (Google's message ${answer.message} in ${answer.space}${started}).`);
+    // Setup can answer a direct message that already existed, so it is never called new.
+    const setup = answer.setupUsed === true ? "; Google found no conversation by that address, so direct-conversation setup was requested" : "";
+    return toolText(`Sent on Google Chat from ${answer.from} ${where} (Google's message ${answer.message} in ${answer.space}${setup}).`);
   }
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
 }
