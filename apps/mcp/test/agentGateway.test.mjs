@@ -309,7 +309,10 @@ export async function runAgentGatewayChecks(check) {
     "the provider's words are read from its error shape, typed, on one line and cut short",
     providerDetail('{"type":"error","error":{"type":"invalid_request_error","message":"messages.3:\\n  bad"}}') === "invalid_request_error: messages.3: bad" &&
       providerDetail(JSON.stringify({ error: { message: "x".repeat(500) } })).length === 300 &&
-      providerDetail("<html>busy</html>") === null &&
+      providerDetail('{"success":false,"errors":[{"code":2003,"message":"Insufficient   balance"}]}') === "2003: Insufficient balance" &&
+      providerDetail('{"error":[{"message":"Bad input"}]}') === "Bad input" &&
+      providerDetail("<html>busy</html>") === "<html>busy</html>" &&
+      providerDetail("  ") === null &&
       providerDetail(null) === null,
   );
 

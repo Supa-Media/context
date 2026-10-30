@@ -289,23 +289,30 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
 const DETAIL_CHARS = 300;
 
 /**
- * Why the provider refused a request, in its own words (`{ error: { type,
- * message } }`), cut to `DETAIL_CHARS`; null when the body says nothing
- * readable. These words can quote the request, so `ProviderError.detail`
- * keeps them off every log (see there).
+ * Why the provider refused a request, in its own words, cut to
+ * `DETAIL_CHARS`: Anthropic's `{ error: { type, message } }`, the AI
+ * gateway's own `{ errors: [{ code, message }] }` (or `error` as that list),
+ * else the start of whatever the body was; null for no body. These words can
+ * quote the request, so `ProviderError.detail` keeps them off every log (see
+ * there).
  */
 export function providerDetail(text) {
-  let parsed;
+  if (typeof text !== "string" || text.trim() === "") return null;
+  let parsed = null;
   try {
-    parsed = JSON.parse(text ?? "");
+    parsed = JSON.parse(text);
   } catch {
-    return null;
+    // Not JSON: the start of the body is all there is to go on.
   }
-  const error = parsed?.error;
-  const message = typeof error?.message === "string" ? error.message.replace(/\s+/g, " ").trim() : "";
-  if (!message) return null;
-  const said = typeof error.type === "string" && error.type ? `${error.type}: ${message}` : message;
-  return said.length > DETAIL_CHARS ? `${said.slice(0, DETAIL_CHARS - 1)}…` : said;
+  const listed = [parsed?.errors, parsed?.error].find(Array.isArray);
+  const said = listed
+    ? listed.map((entry) => [entry?.code, entry?.message].filter((part) => part !== undefined && part !== null && part !== "").join(": ")).filter(Boolean).join("; ")
+    : typeof parsed?.error?.message === "string"
+      ? [parsed.error.type, parsed.error.message].filter((part) => typeof part === "string" && part).join(": ")
+      : text;
+  const line = said.replace(/\s+/g, " ").trim();
+  if (!line) return null;
+  return line.length > DETAIL_CHARS ? `${line.slice(0, DETAIL_CHARS - 1)}…` : line;
 }
 
 /**
