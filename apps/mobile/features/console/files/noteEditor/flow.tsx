@@ -68,8 +68,9 @@ export function noteFlow(view: NoteView) {
     noteHeadingSource(state.draft, state.path) === "filename";
   return (
   <>
-    {compact ? pathBar : null}
-    {compact ? notices : null}
+    {/* A page opens as nothing but the page: no notice about the workspace, no presence row over its cover (owner, 2026-10-28). */}
+    {compact && !view.pageView ? pathBar : null}
+    {compact && !view.pageView ? notices : null}
     {/*
       A passphrase note gets `LockedNoteView` below instead of the raw
       envelope, and `LockedNoteView` says everything `EncryptedNotice`

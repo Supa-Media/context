@@ -86,15 +86,16 @@ person.
 
 Decided by the owner on 2026-10-17 ("Wait for Gmail"): an email is sent from
 the person's own connected Gmail, never from a context.lc address, so replies
-land in their mailbox and their name is on it. Sending needs Gmail's
-`gmail.send` scope, which every Gmail connect asks for (`WRITE_SCOPES`;
+land in their mailbox and their name is on it. Sending needs one of
+Gmail's two write scopes, `gmail.compose` or `gmail.send` (`canSendEmail`);
+every Gmail connect asks for `gmail.compose` (`WRITE_SCOPES`;
 decided by the owner on 2026-10-23, "Yes, everyone", reversing the
 testers-only rule of 2026-10-17 once a texter's connected Google refused Tex:
 see [calendar-writes](./calendar-writes.md)). A connection made before that
 reads only and reconnects once; a send refuses with `no_sender`, and Tex sends
 the reconnect link, never the email to send themselves, and never says Gmail
 isn't connected. Nothing in the gate changes when Google's review clears:
-a connection whose granted `scopes` include `gmail.send` becomes a sender,
+a connection whose granted `scopes` include either write scope becomes a sender,
 and the `from` an email names must be one of the person's own such
 connections.
 
@@ -132,23 +133,36 @@ draft, then "yes" to building it). `send` action `email_draft`
 (`save_email_draft`) saves one email in the person's own Gmail Drafts and
 sends nothing, so it runs at once: nothing reaches anyone until the person
 opens Gmail and sends it themselves, which is the yes. It needs Gmail's
-`gmail.compose` scope, asked beside `gmail.send` (`WRITE_SCOPES`); a
-connection made before reconnects once to grant it. Google
-has no drafts-only scope and `gmail.compose` can also send, so the control
-plane sends only through a connection that granted `gmail.send`, and uses
-`gmail.compose` for drafts alone (`claimPersonEmail` with `draft: true`,
-`POST /gateway/email/draft`). Drafts spend none of the sending limits and
+`gmail.compose` scope (`WRITE_SCOPES`); a connection that granted only
+`gmail.send` reconnects once to grant it (`claimPersonEmail` with
+`draft: true`, `POST /gateway/email/draft`). Drafts spend none of the sending limits and
 have their own: ten an hour, fifty a day, no per-recipient limit since
 nobody receives one. Audit says `save_email_draft` with the recipient count,
 never who or what. Gmail sync skips the `DRAFT` label, so a saved draft never
 comes back as a mail note.
 
+### One Gmail write scope: compose (2026-10-28)
+
+Until 2026-10-28 every connect asked for both `gmail.send` and `gmail.compose`,
+and the control plane sent only through `gmail.send`, keeping `gmail.compose`
+for drafts. Google's `users.messages.send` accepts either scope, and Google's
+consent screen names `gmail.compose` as "manage drafts and send emails", so
+asking for both was a redundant scope in the verification and CASA review
+while limiting nothing Google-side. A connect now asks for `gmail.compose`
+alone, and either scope sends (`canSendEmail` in `lib/googleOAuth.ts`), so a
+connection that granted `gmail.send` before keeps sending. What may be sent
+was never decided by the scope: it is the person's yes to the exact copy,
+checked by the gateway on the send path, and that is unchanged.
+
 **What a simplification would cost.** Holding drafts for a yes asks the person
-to approve something that does nothing. Sending through a `gmail.compose`
-connection would let the draft permission become a send permission the
-person never granted as one. `apps/convex/__tests__/personEmailDraft.test.ts`
-fails if a send-only connection saves a draft, a draft hits the send
-endpoint, or a draft spends the sending limits; `apps/mcp/test/emailDraft.test.mjs`
+to approve something that does nothing. Asking for `gmail.send` again adds a
+scope Google's review asks to justify for nothing. Dropping `gmail.send` from
+`canSendEmail` stops every connection made before 2026-10-28 from sending.
+`apps/convex/__tests__/personEmailDraft.test.ts` fails if a read-only or
+send-only connection saves a draft, a compose-only connection cannot send, a
+draft hits the send endpoint, or a draft spends the sending limits;
+`apps/convex/__tests__/googleConnect/writeScopes.test.ts` fails if a connect
+asks for `gmail.send` or a send-only grant stops sending; `apps/mcp/test/emailDraft.test.mjs`
 fails if a draft is held or routed to the send route.
 
 ### A reply joins the thread of the email it answers (2026-10-20)

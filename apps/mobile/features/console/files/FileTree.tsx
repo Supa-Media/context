@@ -1,4 +1,5 @@
 import { useMapFolderCount } from "../map/live/mapCounts";
+import { useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -6,6 +7,7 @@ import { Reveal } from "../../design/components/Reveal";
 import { useArrivals } from "../../design/useArrivals";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
+import { useHoverTitle } from "../../design/useHoverTitle";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
@@ -18,14 +20,13 @@ import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { DropZone } from "./treeDrop";
-import { type Visibility, visibilityLabel } from "./types";
+import { visibilityLabel } from "./types";
 
 /**
  * The folder tree.
  *
  * `.tnode` from `docs/design/console-mockup.html`: a 13px indent per level, a
- * quiet trailing marker, the selected row washed in accent. What is new is the
- * trailing marker being **pressable**, which is where visibility is changed.
+ * quiet trailing marker, the selected row washed in accent.
  *
  * ## Why the markers look the way they do
  *
@@ -51,9 +52,14 @@ import { type Visibility, visibilityLabel } from "./types";
  *    row whether or not it is marked, and it is reachable by right-click on a
  *    pointer and a long press under a thumb.
  *
- * A marker that *is* drawn is still pressable for an owner, because a label
- * that states a fact you may change is a control, and one press is a cheaper
- * route than a long press to a menu.
+ * **A marker is a label, never a button** (Dev2, 2026-10-28). It used to flip
+ * the row between `private` and `team` on one press, and that press was the
+ * worst kind of control: it changed who could read a note, said nothing, and
+ * then the word vanished, because the row now matched its folder and the rule
+ * above draws nothing for that. Somebody clicking a word to find out what it
+ * meant unshared a note and lost the only sign that it had been shared.
+ * Visibility is changed where it is spelled out: the row's menu and the share
+ * dialog. Hovering the word says what it means.
  *
  * ## Where the operations live now
  *
@@ -88,10 +94,8 @@ import { type Visibility, visibilityLabel } from "./types";
  */
 export function FileTree({
   rows,
-  canSetVisibility,
   onSelect,
   onToggle,
-  onCycleVisibility,
   onMenu,
   onPick,
   drag,
@@ -120,16 +124,8 @@ export function FileTree({
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /** The pointer is on a folder's icon: start what its picker will ask for. */
   onIconIntent?: (path: string) => void;
-  /**
-   * Whether the visibility markers are pressable. Owner-only — an editor
-   * changing visibility is an editor deciding their own clearance, which is
-   * the live breach this prop's rename records. The marker still RENDERS for
-   * everyone; what a non-owner loses is the press.
-   */
-  canSetVisibility: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
-  onCycleVisibility: (row: TreeRow) => void;
   /** Raise the row's menu. Absent where there is nothing to offer. */
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   /**
@@ -198,10 +194,8 @@ export function FileTree({
     return (
       <FileRow
         row={row}
-        canSetVisibility={canSetVisibility}
         onSelect={onSelect}
         onToggle={onToggle}
-        onCycleVisibility={onCycleVisibility}
         onMenu={onMenu}
         onPick={onPick}
         drag={drag}
@@ -240,10 +234,8 @@ export interface TreeDragHandlers {
  */
 function FileRow({
   row,
-  canSetVisibility,
   onSelect,
   onToggle,
-  onCycleVisibility,
   onMenu,
   onPick,
   drag,
@@ -267,16 +259,8 @@ function FileRow({
   folderIcon: string | null;
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   onIconIntent?: (path: string) => void;
-  /**
-   * Whether the visibility markers are pressable. Owner-only — an editor
-   * changing visibility is an editor deciding their own clearance, which is
-   * the live breach this prop's rename records. The marker still RENDERS for
-   * everyone; what a non-owner loses is the press.
-   */
-  canSetVisibility: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
-  onCycleVisibility: (row: TreeRow) => void;
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   onPick?: (path: string, gesture: PickGesture) => void;
   drag?: TreeDragHandlers;
@@ -428,11 +412,7 @@ function FileRow({
         )}
       </PressRow>
 
-      <VisibilityControl
-        row={row}
-        canSetVisibility={canSetVisibility}
-        onPress={() => onCycleVisibility(row)}
-      />
+      <VisibilityMarker row={row} />
     </View>
   );
 }
@@ -451,22 +431,11 @@ function noopPath(_path: string): void {}
 function noopDrop(_path: string, _modifiers: readonly DragModifier[]): void {}
 function noopVoid(): void {}
 
-function VisibilityControl({
-  row,
-  canSetVisibility,
-  onPress,
-}: {
-  row: TreeRow;
-  /**
-   * Whether the visibility markers are pressable. Owner-only — an editor
-   * changing visibility is an editor deciding their own clearance, which is
-   * the live breach this prop's rename records. The marker still RENDERS for
-   * everyone; what a non-owner loses is the press.
-   */
-  canSetVisibility: boolean;
-  onPress: () => void;
-}) {
+function VisibilityMarker({ row }: { row: TreeRow }) {
   const styles = useThemedStyles(makeStyles);
+  const ref = useRef<View>(null);
+  // Hovering the word is how a person asks what it means.
+  useHoverTitle(ref, row.marker === undefined || row.readOnly ? null : describeVisibility(row));
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
   // says what it is rather than offering a control that would have nothing to
   // do.
@@ -519,38 +488,27 @@ function VisibilityControl({
     </Text>
   );
 
-  if (!canSetVisibility) {
-    return (
-      <View style={styles.marker} accessibilityLabel={describeVisibility(row)}>
-        {body}
-      </View>
-    );
-  }
-
   return (
-    <PressRow
-      accessibilityLabel={describeVisibility(row)}
-      onPress={onPress}
-      radius={radii.sm}
-      style={styles.marker}
-      hoverStyle={styles.markerHover}
-    >
+    <View ref={ref} style={styles.marker} accessibilityLabel={describeVisibility(row)}>
       {body}
-    </PressRow>
+    </View>
   );
 }
 
-/** What a screen reader hears. Says the state *and* what pressing would do. */
+/**
+ * What the marker means, for a screen reader and the hover title. It states
+ * the fact and where to change it; the marker itself changes nothing.
+ */
 export function describeVisibility(row: TreeRow): string {
-  const next: Visibility = row.marker === "team" ? "private" : "team";
   const word = row.marker === undefined ? undefined : visibilityLabel(row.marker);
   if (row.kind === "folder") {
-    return `${row.label} folder default is ${word}. Change it to ${next}.`;
+    return `${row.label} folder default is ${word}. Change it from the folder's menu.`;
   }
-  if (row.marker === undefined) {
-    return `${row.label} follows its folder. Give it its own visibility.`;
+  if (row.marker === undefined) return `${row.label} follows its folder.`;
+  if (row.marker === "team") {
+    return `${row.label} is shared with the team, unlike its folder. Change it from the note's menu.`;
   }
-  return `${row.label} is ${word}, unlike its folder. Change it to ${next}.`;
+  return `${row.label} is ${word}, unlike its folder. Change it from the note's menu.`;
 }
 
 /*
@@ -650,9 +608,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
    * The trailing metadata's box.
    *
-   * No fill, no border, no minimum width: it is a word, and the only reason it
-   * is a `PressRow` at all is that the fact it states is one an owner may
-   * change. See the file comment for what used to be here.
+   * No fill, no border, no minimum width, no hover: it is a word, not a
+   * button. See the file comment for what used to be here.
    */
   marker: {
     flexGrow: 0,
@@ -663,7 +620,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "center",
   },
-  markerHover: { backgroundColor: colors.surface3 },
   markerLabel: { color: colors.muted },
   markerTeam: { color: colors.markTeam },
 });

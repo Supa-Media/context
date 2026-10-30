@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { GrantRefresh } from "../agent/consoleGrantCache";
 import { useConsoleGrant } from "../agent/useConsoleGrant";
+import { onReturnToApp } from "../app/returnToApp";
 import { decisionNotice } from "./copy";
 import {
   GONE_SENTENCE,
@@ -42,6 +43,9 @@ interface State {
   busyId: string | null;
   notice: ApprovalsView["notice"];
 }
+
+/** How often an open console asks again, so an approval raised after it opened shows up. */
+export const RELIST_MS = 60_000;
 
 const EMPTY: State = { phase: "idle", loading: false, items: [], error: null, busyId: null, notice: null };
 
@@ -146,7 +150,8 @@ export function useApprovals(options: {
     [mint, route],
   );
 
-  const list = useCallback(async () => {
+  /** `quiet`: a background re-list, which leaves what is shown alone when no answer comes back. */
+  const list = useCallback(async (quiet = false) => {
     const mark = epoch.current;
     const mine = ++listing.current;
     setState((s) => ({ ...s, loading: true }));
@@ -160,7 +165,7 @@ export function useApprovals(options: {
         : readListing(answer.status, answer.body),
     );
     // One workspace that cannot be read leaves the others' approvals showing;
-    // only when none can is the listing a failure.
+    // when none can, or when nothing was listed beside one that could not be, the listing failed.
     const items: Approval[] = [];
     const held = new Map<string, string>();
     let listed = false;
@@ -173,10 +178,17 @@ export function useApprovals(options: {
         items.push(item);
       }
     });
-    heldIn.current = held;
     const failure = reads.find((read) => read.kind !== "listed");
+    // Nothing listed while a workspace could not be read is not "nothing waiting":
+    // that workspace may be the one holding it, and an empty list hides the tab.
+    const shown = listed && !(failure !== undefined && items.length === 0);
+    if (!shown && quiet) {
+      setState((s) => ({ ...s, loading: false }));
+      return;
+    }
+    heldIn.current = held;
     setState((s) =>
-      listed
+      shown
         ? {
             ...s,
             phase: "listed",
@@ -210,9 +222,29 @@ export function useApprovals(options: {
     settled.current = new Set();
     heldIn.current = new Map();
     setState(EMPTY);
-    if (scope !== null) void listRef.current();
+    if (scope === null) {
+      return () => {
+        epoch.current += 1;
+      };
+    }
+    void listRef.current();
+    /*
+      Asked again when somebody comes back to the app, and every minute while
+      it is in view. The tab is drawn only when something is waiting, and
+      pressing it was the only other refresh, so an approval raised after the
+      console opened stayed invisible until a reload (2026-10-28: a connected
+      AI's held calendar change never showed).
+    */
+    const again = () => void listRef.current(true);
+    const stopReturn = onReturnToApp(again, ["focus", "visibilitychange"]);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      again();
+    }, RELIST_MS);
     return () => {
       epoch.current += 1;
+      stopReturn();
+      clearInterval(timer);
     };
   }, [scope]);
 

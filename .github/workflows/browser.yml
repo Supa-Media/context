@@ -81,8 +81,8 @@ jobs:
             apps/mobile/features/console/files/LiveEditor.web.tsx
             apps/mobile/features/console/files/LiveEditor.tsx
             apps/mobile/features/console/files/webview/entry.ts
-          # The editor tests, the harness they share, and the fixture route
-          # they open.
+          # The per-push browser tests (the editor's, and the CSP candidate's
+          # own), the harness they share, and the fixture route they open.
           paths: |
             apps/mobile/e2e/webkit/editor.spec.ts
             apps/mobile/e2e/webkit/editorFormatting.spec.ts
@@ -90,15 +90,39 @@ jobs:
             apps/mobile/e2e/webkit/tables.spec.ts
             apps/mobile/e2e/webkit/comments.spec.ts
             apps/mobile/e2e/webkit/pasting.spec.ts
+            apps/mobile/e2e/webkit/drawingFonts.spec.ts
+            apps/mobile/e2e/webkit/mermaid.spec.ts
+            apps/mobile/e2e/webkit/htmlPreview.spec.ts
+            apps/mobile/e2e/webkit/cspCandidateRules.spec.ts
+            apps/mobile/e2e/webkit/cspOpaqueSelf.spec.ts
+            apps/mobile/e2e/webkit/cspDiagramFrame.spec.ts
+            apps/mobile/e2e/webkit/cspNegativeProbe.spec.ts
+            apps/mobile/e2e/webkit/cspStyleNonce.spec.ts
+            apps/mobile/e2e/webkit/offlineStyleNonce.spec.ts
+            apps/mobile/e2e/webkit/cspDiagramStyle.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
             apps/mobile/e2e/webkit/ci-workers.cjs
+            apps/mobile/e2e/webkit/csp-candidate.ts
+            apps/mobile/e2e/webkit/csp-candidate-check.mjs
+            apps/mobile/e2e/webkit/csp-report-log.mjs
+            apps/mobile/e2e/webkit/csp-candidate-check.selftest.mjs
+            apps/mobile/e2e/webkit/csp-style-nonce.mjs
+            apps/mobile/e2e/webkit/csp-style-nonce.selftest.mjs
+            infra/router/src/cspReport.ts
+            infra/router/src/securityHeaders.ts
+            infra/router/src/pluginSandbox.ts
+            infra/router/src/styleNonce.ts
+            apps/mobile/public/sw.js
             apps/mobile/app/e2e-fixture.tsx
             apps/mobile/features/console/E2EFixtureScreen.tsx
             apps/mobile/features/console/e2eFixtureData.ts
             apps/mobile/features/console/e2eEncryptionFixture.ts
             scripts/webkit-ci-workers.test.mjs
+            scripts/build-drawing-editor.mjs
+            scripts/excalidraw-font-fallback.mjs
+            scripts/excalidraw-font-fallback.test.mjs
             .github/workflows/browser.yml
 
       - uses: pnpm/action-setup@v4
@@ -277,6 +301,195 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The script half of the router's report-only policy, enforced, under the
+  # specs that use the documents it would govern: the note editor, the drawing
+  # editor, diagrams and the html preview per push, and the plugin panels with
+  # real community plugins once a day. (The sandbox's own specs fulfil every
+  # request themselves and never see these headers; `plugin_sandbox_webkit`
+  # runs them.)
+  # Quiet production reports only cover what somebody happened to use; this
+  # runs those paths on purpose. The specs have to pass and the report log
+  # must hold no enforced `script-src` violation, because a blocked script can
+  # fail quietly (the shell's appearance script does) while every spec stays
+  # green. See `docs/decisions/testing/csp-candidate.md` for what this does
+  # and does not prove, and why the style half runs only with a proposed style nonce.
+  webkit_csp_script:
+    name: Script policy enforced in WebKit
+    needs: webkit_build
+    if: needs.webkit_build.outputs.affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: webkit-fixture
+          path: apps/mobile
+      - name: The evidence check fails every log that says nothing
+        working-directory: apps/mobile
+        run: node --test e2e/webkit/csp-candidate-check.selftest.mjs e2e/webkit/csp-style-nonce.selftest.mjs
+      # Over HTTPS, as production is (`E2E_HTTPS=1`: a self-signed certificate
+      # made for this run and trusted only by these browsers, in these steps).
+      # WebKit refuses an opaque-origin frame's own script under any enforcing
+      # `'self'` on plain HTTP and runs it on HTTPS, so on HTTP the diagram
+      # renderer cannot work at all; `cspDiagramFrame.spec.ts` keeps exactly
+      # which frames each engine blocks on each scheme as asserted controls.
+      # First the baseline, exactly the router's headers with nothing extra
+      # enforced, so a failure the candidate causes is told apart from one
+      # production has.
+      - name: Diagram specs under production's headers alone
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: production
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-production \
+            e2e/webkit/mermaid.spec.ts e2e/webkit/cspDiagramFrame.spec.ts e2e/webkit/cspNegativeProbe.spec.ts
+      - name: What production's headers reported
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/production-https/csp-candidate-reports.jsonl script-src
+      # A proposal, not production: the whole policy enforced, style-src
+      # included, with a style nonce minted per shell response the way the
+      # router would have to (`csp-style-nonce.mjs`). The editor's specs must
+      # pass with it, and `cspStyleNonce.spec.ts` checks the nonce agrees in
+      # header, document and editor, is new every time, and still blocks and
+      # reports a style without it. Those reports stay in the spec, so the
+      # log holds only what the editor specs caused: an empty one is the
+      # result, and anything in it fails on style-src or script-src.
+      - name: Editor specs with the whole policy enforced and a style nonce per response
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The nonce's own checks first, in a run of their own: the log restarts
+          # with each run, so the editor run's log holds only what it caused.
+          # Both run whatever the first does, and either failing fails the step.
+          status=0
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-nonce-checks e2e/webkit/cspStyleNonce.spec.ts || status=$?
+          # What the checks' deliberate refusals looked like as reports, before the editor run resets the log.
+          where=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl.where
+          if [ -s "$where" ]; then sort "$where" | uniq -c | sort -rn | head -20; fi
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-nonce \
+            e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts \
+            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts || status=$?
+          exit "$status"
+      # Offline, the service worker replays the one shell it holds; it must mint a
+      # new nonce for every replay, in the header and the document alike, from the
+      # browser's own cache. Chromium, plain HTTP: Playwright's WebKit driver cannot
+      # reload offline (`offlineShell.spec.ts`), and a worker needs no certificate on
+      # 127.0.0.1. Its log is its own (`full`, not `full-https`).
+      - name: Offline replays mint a new style nonce (Chromium)
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=chromium --reporter=list --output e2e/webkit/test-results-nonce-offline e2e/webkit/offlineStyleNonce.spec.ts
+      - name: The editor specs reported nothing under the nonce
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          log=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl
+          # Where each refusal came from, under the nonce only (static-server.mjs).
+          if [ -s "$log.where" ]; then sort "$log.where" | uniq -c | sort -rn | head -20; fi
+          if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src; fi
+      # The diagram page has a policy of its own (`DIAGRAM_POLICY`), the one its
+      # meta already enforces: inline style for Mermaid, nothing from the network.
+      # Enforced whole, with the shell nonced so the note it is drawn in reports
+      # nothing either. The control (the page refuses a remote picture, an inline
+      # script, a stylesheet by URL and a fetch, and allows an inline style) runs
+      # first, on its own, so its refusals never reach the log checked after.
+      - name: The diagram page's own policy, enforced, with Mermaid's styles applied
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-diagram-checks e2e/webkit/cspDiagramStyle.spec.ts --grep-invert "drawn in a note" || status=$?
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-diagram e2e/webkit/cspDiagramStyle.spec.ts e2e/webkit/mermaid.spec.ts \
+            --grep "drawn in a note|mermaid fence|cannot reach the console|gives the source back" || status=$?
+          log=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl
+          if [ -s "$log.where" ]; then sort "$log.where" | uniq -c | sort -rn | head -20; fi
+          if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src || status=$?; fi
+          exit "$status"
+      - name: Editor, drawing and diagram specs (plus plugins daily) with script-src enforced
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: script
+          DAILY: ${{ needs.webkit_build.outputs.daily }}
+        # The Playwright image's default `sh` has no `pipefail`.
+        shell: bash
+        run: |
+          set -euo pipefail
+          specs="e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
+            e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts
+            e2e/webkit/drawingFonts.spec.ts e2e/webkit/mermaid.spec.ts e2e/webkit/htmlPreview.spec.ts
+            e2e/webkit/cspCandidateRules.spec.ts e2e/webkit/cspOpaqueSelf.spec.ts e2e/webkit/cspDiagramFrame.spec.ts
+            e2e/webkit/cspNegativeProbe.spec.ts"
+          # Per push the browser tests the editor and what it draws; the plugin
+          # panels join once a day, with the community releases fetched.
+          if [ "$DAILY" = true ]; then
+            specs="$specs e2e/webkit/pluginBundles.spec.ts e2e/webkit/pluginModalPickReal.spec.ts
+              e2e/webkit/pluginNetwork.spec.ts e2e/webkit/pluginSettings.spec.ts
+              e2e/webkit/pluginSuggestReal.spec.ts e2e/webkit/pluginsInstalled.spec.ts"
+          fi
+          # shellcheck disable=SC2086
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list $specs
+      - name: No enforced script-src violation was reported
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        run: node e2e/webkit/csp-candidate-check.mjs e2e/webkit/csp-candidate/script-https/csp-candidate-reports.jsonl script-src
+      - name: Keep candidate failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-csp-script-results
+          path: |
+            apps/mobile/e2e/webkit/test-results/
+            apps/mobile/e2e/webkit/test-results-production/
+            apps/mobile/e2e/webkit/test-results-nonce/
+            apps/mobile/e2e/webkit/test-results-nonce-checks/
+            apps/mobile/e2e/webkit/test-results-nonce-offline/
+            apps/mobile/e2e/webkit/test-results-diagram-checks/
+            apps/mobile/e2e/webkit/test-results-diagram/
+            apps/mobile/e2e/webkit/csp-candidate/
+          retention-days: 7
+          if-no-files-found: ignore
+
   webkit_offline:
     name: Offline shell in Chromium
     needs: webkit_build
@@ -311,9 +524,74 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The plugin sandbox's boundary in a real engine, per push, but only when
+  # the sandbox itself changed. It is a security boundary rather than a
+  # screen, which is the kind of "super critical" the per-push rule above keeps
+  # in the browser: the page the router serves, loaded by URL into an
+  # opaque-origin frame, its handshake, and the tripwire for a frame that
+  # reloads or navigates itself (`pluginSandboxPage.spec.ts`). Every request
+  # is fulfilled by `page.route`, so it needs no web export and no network.
+  plugin_sandbox_scope:
+    name: Does this touch the plugin sandbox?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.scope.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          push-diff: "true"
+          paths: |
+            packages/obsidian-runtime/**
+            infra/router/src/pluginSandbox.ts
+            infra/router/src/securityHeaders.ts
+            infra/router/src/cspReport.ts
+            apps/mobile/features/console/plugins/PluginSandbox.web.tsx
+            scripts/build-plugin-sandbox.mjs
+            apps/mobile/e2e/webkit/pluginSandbox.spec.ts
+            apps/mobile/e2e/webkit/pluginSandboxPage.spec.ts
+            apps/mobile/e2e/webkit/playwright.config.ts
+            .github/workflows/browser.yml
+
+  plugin_sandbox_webkit:
+    name: Plugin sandbox in WebKit
+    needs: plugin_sandbox_scope
+    if: needs.plugin_sandbox_scope.outputs.affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - name: The sandbox boundary, srcdoc and by URL
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_WEB_EXPORT_DIR: /tmp/no-export
+        run: >-
+          mkdir -p /tmp/no-export &&
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list
+          e2e/webkit/pluginSandbox.spec.ts e2e/webkit/pluginSandboxPage.spec.ts
+      - name: Keep sandbox failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-sandbox-results
+          path: apps/mobile/e2e/webkit/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   editor_webkit:
     name: Editor in WebKit
-    needs: [webkit_build, webkit_full, webkit_editor, webkit_offline]
+    needs: [webkit_build, webkit_full, webkit_editor, webkit_offline, webkit_csp_script]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -365,6 +643,7 @@ jobs:
           FULL_RESULT: ${{ needs.webkit_full.result }}
           EDITOR_RESULT: ${{ needs.webkit_editor.result }}
           OFFLINE_RESULT: ${{ needs.webkit_offline.result }}
+          CSP_SCRIPT_RESULT: ${{ needs.webkit_csp_script.result }}
         run: |
           set -euo pipefail
           [ "$BUILD_RESULT" = success ] || { echo "Fixture build: $BUILD_RESULT"; exit 1; }
@@ -372,6 +651,7 @@ jobs:
             echo "Nothing the note editor is built from changed."
             exit 0
           fi
+          [ "$CSP_SCRIPT_RESULT" = success ] || { echo "Script policy enforced in WebKit: $CSP_SCRIPT_RESULT"; exit 1; }
           if [ "$DAILY" = true ]; then
             [ "$FULL_RESULT" = success ] || { echo "Full WebKit suite: $FULL_RESULT"; exit 1; }
             [ "$OFFLINE_RESULT" = success ] || { echo "Offline shell: $OFFLINE_RESULT"; exit 1; }

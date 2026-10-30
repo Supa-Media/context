@@ -6,7 +6,13 @@
  * second later) are joined by decide's `covers` into one turn, which is what
  * `fold`/`sameBurst` in `inbox.ts` did by rule. In a person's own chat Tex
  * stays silent only on a pure acknowledgement (a tapback, "ok", "thanks"),
- * whatever decide says: anything else is answered. Decide unreachable or slower
+ * whatever decide says: anything else is answered. A like or love held as
+ * the yes to an ask (`askYes`, `thumbs.ts`) is never put to decide at all:
+ * it is answered on its own, intact, and the gateway checks it against what
+ * is armed (`thumbsUpIsYes`). Decide used to see it as a tapback that asks
+ * nothing and could leave it silent, so the yes reached nothing (2026-10-28,
+ * a controlled test's 👍 on an email ask), as a group's never could
+ * (`groupInbox.ts` queues it `byCode`). Decide unreachable or slower
  * than `IDLE_DECIDE_MS`, and in the simulator, the texts are joined as they
  * were before decide (`fallbackTurn`).
  *
@@ -65,14 +71,28 @@ export async function logInbound(storage: InboxStorage, message: Message, now: n
   });
 }
 
-/** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn. */
+/** Texts that are code's to answer, never the model's to choose: LINK, UNLINK, an SMS, a saved login's turn, a 👍 held as an ask's yes. */
 export function decidedByCode(message: Message): boolean {
-  return message.sms === true || message.event !== undefined || linkCode(message.text) !== null || UNLINK.test(message.text);
+  return (
+    message.sms === true ||
+    message.event !== undefined ||
+    message.setting === true ||
+    message.askYes === true ||
+    linkCode(message.text) !== null ||
+    UNLINK.test(message.text)
+  );
 }
 
-/** A tapback, "ok", "thanks": the only texts a person's own chat may leave unanswered. */
+/**
+ * A tapback, "ok", "thanks": the only texts a person's own chat may leave
+ * unanswered. A 👍 or 👎 on a text that asked something (`reactions.ts`
+ * `answers`, which is what gives it its quoted words) is not one: Tex invites
+ * that tapback as the yes or no to its question (a new tester, 2026-10-30), so
+ * leaving it silent would be ignoring the answer.
+ */
 export function pureAck(message: Message): boolean {
-  return message.tapback !== undefined || ((message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text));
+  if (message.tapback !== undefined) return !((message.tapback === "Liked" || message.tapback === "Disliked") && Boolean(message.quoted));
+  return (message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text);
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: Message, candidates: string[], running: boolean): Promise<Decision> {
@@ -94,6 +114,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
     running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS,
   );
   if (decision.ok) await markStale(storage, decision.stale);
+  // A 1:1 never waits on a burst: the texts already wait for each other (`sameBurst`), so wait is an answer to the newest.
+  if (decision.ok && decision.act === "wait") return { ...decision, act: "answer", covers: candidates.slice(-1) };
   return decision;
 }
 
@@ -124,7 +146,8 @@ export function fallbackTurn(burst: Entry[]): Entry[] {
   return turn;
 }
 
-export type Choice = { answer: Entry[]; react?: Message; drop: Entry[] };
+/** `emoji`: decide's choice for `react` (`reactionFor` checks it). */
+export type Choice = { answer: Entry[]; react?: Message; emoji?: string; drop: Entry[] };
 
 /**
  * What the next turn answers, from the waiting texts in the first one's chat,
@@ -150,7 +173,7 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   if (decision.act !== "answer") {
     if (must.length > 0) return { answer: must, drop: burst.filter((entry) => !must.includes(entry)) };
     const newest = burst.at(-1)![1].message;
-    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest } : {}) };
+    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   // An older text it left out that still needs an answer goes first, on its own, so answers keep the order texts came in.
@@ -208,7 +231,7 @@ export async function decideWhileRunning(
   key: string,
   item: Pending,
   now: () => number,
-  acknowledge: (message: Message) => Promise<void>,
+  acknowledge: (message: Message, emoji?: string) => Promise<void>,
 ): Promise<void> {
   const running = runningTurn(storage, item.message.chatId);
   // An SMS (its sender can be faked), LINK, UNLINK or a saved login's turn is never put into a running turn: it waits and is answered on its own.
@@ -235,5 +258,5 @@ export async function decideWhileRunning(
   }
   if (how === "queue" || !pureAck(item.message)) return void (await keep({ force: true }));
   await storage.delete(key);
-  if (decision.act === "react") await acknowledge(item.message);
+  if (decision.act === "react") await acknowledge(item.message, decision.emoji);
 }

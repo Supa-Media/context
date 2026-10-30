@@ -17,10 +17,23 @@
  * dozen lines this needs, and `node:http`/`node:fs` are already there.
  *
  * Usage: `node static-server.mjs <export-dir> <port>`
+ *
+ * With `E2E_CSP_RULES` set (`csp-candidate.ts` writes it, only when
+ * `E2E_CSP_CANDIDATE` names a mode), every response carries the headers of the
+ * longest matching rule, with as much of the router's report-only policy
+ * enforced as the mode asks, and `POST /_csp-report` appends one line per
+ * violation to `E2E_CSP_REPORTS`, bounded by `csp-report-log.mjs` to the same
+ * schema the router logs. With `E2E_CSP_NONCE=1` too, every shell document
+ * gets a fresh style nonce (`csp-style-nonce.mjs`). Without rules the server
+ * sends no security headers at all, as before.
  */
-import { createReadStream, existsSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { appendFileSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { extname, join, normalize, sep } from "node:path";
+import { gzipSync } from "node:zlib";
+import { reportLines } from "./csp-report-log.mjs";
+import { freshNonce, policyWithNonce, withStyleNonce } from "./csp-style-nonce.mjs";
 
 const [, , rootArg, portArg] = process.argv;
 if (rootArg === undefined || portArg === undefined) {
@@ -55,18 +68,140 @@ function fileFor(pathname) {
   return null;
 }
 
-const server = createServer((req, res) => {
+const rules = process.env.E2E_CSP_RULES
+  ? JSON.parse(readFileSync(process.env.E2E_CSP_RULES, "utf8")).sort((a, b) => b.prefix.length - a.prefix.length)
+  : null;
+const reportLog = process.env.E2E_CSP_REPORTS ?? null;
+// A fresh style nonce on every shell document (`csp-style-nonce.mjs`); only with rules.
+const nonceShell = rules !== null && process.env.E2E_CSP_NONCE === "1";
+
+function ruleFor(pathname) {
+  return rules?.find((rule) => pathname.startsWith(rule.prefix)) ?? null;
+}
+
+/** Each violation as `csp-report-log.mjs` bounds it: classes, keywords and origins only. */
+function recordReports(text, disposition) {
+  const classify = (pathname) => ruleFor(pathname)?.document ?? "unmatched";
+  for (const line of reportLines(text, classify, disposition)) appendFileSync(reportLog, `${JSON.stringify(line)}\n`);
+  if (nonceShell) recordWhere(text, disposition);
+}
+
+/**
+ * Under the style nonce only, and only in this fixture: where each refusal
+ * came from (the source file's path, line and column, and the first 40
+ * characters of the sample), so a refusal the shell's own nonce did not cover
+ * can be found. Every page here is the E2E export and its fixture notes; the
+ * router never logs this.
+ */
+function recordWhere(text, disposition) {
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return;
+  }
+  for (const entry of Array.isArray(body) ? body.map((item) => item?.body) : [body?.["csp-report"]]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const path = (value) => {
+      try {
+        return new URL(String(value)).pathname;
+      } catch {
+        return String(value ?? "").slice(0, 20);
+      }
+    };
+    const where = {
+      disposition,
+      directive: String(entry["effective-directive"] ?? entry.effectiveDirective ?? entry["violated-directive"] ?? ""),
+      document: path(entry["document-uri"] ?? entry.documentURL),
+      source: path(entry["source-file"] ?? entry.sourceFile),
+      line: Number(entry["line-number"] ?? entry.lineNumber ?? 0),
+      column: Number(entry["column-number"] ?? entry.columnNumber ?? 0),
+      sample: String(entry["script-sample"] ?? entry.sample ?? "").slice(0, 40),
+    };
+    appendFileSync(`${reportLog}.where`, `${JSON.stringify(where)}\n`);
+  }
+}
+
+/** Where each policy reports (`csp-candidate.ts`): the router's report-only one, and the candidate's enforced copy. */
+const REPORT_ADDRESSES = { "/_csp-report": "report", "/_csp-report/enforce": "enforce" };
+
+/*
+  With `E2E_TLS_KEY` and `E2E_TLS_CERT` (a throwaway self-signed pair the
+  Playwright config makes for one run, `E2E_HTTPS=1`), the same server
+  answers over HTTPS, so a spec sees the app on a secure origin as
+  production does.
+*/
+const tls =
+  process.env.E2E_TLS_KEY && process.env.E2E_TLS_CERT
+    ? { key: readFileSync(process.env.E2E_TLS_KEY), cert: readFileSync(process.env.E2E_TLS_CERT) }
+    : null;
+
+/*
+  Under the style nonce only: a switch that makes the shell document's address
+  unreachable, so a service worker's own fetch fails as it does on a train.
+  Playwright's offline emulation does not reach a worker's requests in
+  Chromium, so a spec that set it would see the worker fetch a fresh shell from
+  here and never replay the one it holds (`offlineStyleNonce.spec.ts`).
+*/
+let shellUnreachable = false;
+
+const handle = (req, res) => {
+  const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (nonceShell && req.method === "POST" && pathname === "/_e2e-shell-unreachable") {
+    shellUnreachable = req.headers["x-unreachable"] === "1";
+    res.writeHead(204).end();
+    return;
+  }
+  if (reportLog !== null && req.method === "POST" && Object.hasOwn(REPORT_ADDRESSES, pathname)) {
+    let text = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      if (text.length < 16 * 1024) text += chunk;
+    });
+    req.on("end", () => {
+      recordReports(text, REPORT_ADDRESSES[pathname]);
+      res.writeHead(204).end();
+    });
+    return;
+  }
+  const rule = ruleFor(pathname);
   const direct = fileFor(req.url ?? "/");
   const file = direct ?? join(root, "index.html");
   if (!existsSync(file)) {
+    for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
     res.writeHead(404).end("not found");
     return;
   }
+  if (nonceShell && rule?.document === "shell" && file === join(root, "index.html")) {
+    if (shellUnreachable) {
+      req.socket.destroy();
+      return;
+    }
+    const nonce = freshNonce();
+    for (const [name, value] of Object.entries(rule.headers)) {
+      const policy = (one) => (/^content-security-policy/i.test(name) ? policyWithNonce(one, nonce) : one);
+      res.setHeader(name, Array.isArray(value) ? value.map(policy) : policy(value));
+    }
+    const html = withStyleNonce(readFileSync(file, "utf8"), nonce);
+    // Compressed when the browser asks, as the edge serves it, so a worker that holds it holds a response
+    // still marked `Content-Encoding` over a body it reads decoded (`offlineStyleNonce.spec.ts`).
+    const gzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    res.writeHead(200, {
+      "Content-Type": CONTENT_TYPES[".html"],
+      "Cache-Control": "no-cache",
+      ...(gzip ? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" } : {}),
+    });
+    res.end(gzip ? gzipSync(html) : html);
+    return;
+  }
+  for (const [name, value] of Object.entries(rule?.headers ?? {})) res.setHeader(name, value);
   const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
   res.writeHead(200, { "Content-Type": type });
   createReadStream(file).pipe(res);
-});
+};
+
+const server = tls === null ? createHttpServer(handle) : createHttpsServer(tls, handle);
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`static export served: http://127.0.0.1:${port}`);
+  console.log(`static export served: ${tls === null ? "http" : "https"}://127.0.0.1:${port}`);
 });

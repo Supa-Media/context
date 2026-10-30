@@ -62,6 +62,10 @@ export const notesLandingColors = {
   /** The example workspaces' badges, beside `tint`. */
   sage: "#CFE3D5",
   peach: "#F4D9C6",
+  /** More grounds for the example people's drawn faces (`sketchFaces.web`). */
+  butter: "#F3E6B8",
+  lilac: "#E7D7E9",
+  sky: "#D3E5EE",
 } as const;
 
 /**

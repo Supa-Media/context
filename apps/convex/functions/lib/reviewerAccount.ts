@@ -1,3 +1,4 @@
+import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 
 /**
@@ -74,4 +75,64 @@ export async function appReviewUser(ctx: QueryCtx) {
   // Fail closed if the reserved alias was assigned elsewhere, including an unverified claim.
   if (phones.some(user => user._id !== users[0]!._id) || (link && link.userId !== users[0]!._id)) return null;
   return users[0]!._id;
+}
+
+/**
+ * The sign-in for Google's own verification reviewer, or none.
+ *
+ * Google's reviewer has to press Connect Google and see the consent screen, so
+ * this account, unlike the one above, may hold a Google connection: the
+ * reviewer's own test Google account. That is why it is a separate principal
+ * with a code of its own (`GOOGLE_REVIEW_SIGNIN_CODE`), given only through
+ * Google's private review form, and never the public App Store code: a code
+ * anyone could read must not open an account holding Google tokens. A value
+ * equal to any other fixed code turns it off rather than sharing one, and with
+ * no valid code no provider exists, the same as the others.
+ */
+export const GOOGLE_REVIEW_EMAIL = "google-review@supa.media";
+export const GOOGLE_REVIEW_PROVIDER_ID = "test-email-google-review";
+
+export function googleReviewTestEmail(
+  env: Environment = process.env,
+): Array<{ email: string; code: string; id: string }> {
+  const code = env.GOOGLE_REVIEW_SIGNIN_CODE?.trim() ?? "";
+  if (code === "") return [];
+  const others = [env.REVIEWER_SIGNIN_CODE, env.APP_REVIEW_SIGNIN_CODE, env.TEST_ACCOUNT_SIGNIN_CODE].map((other) => other?.trim());
+  if (!/^\d{6}$/.test(code) || code === "000000" || others.includes(code)) {
+    console.error("GOOGLE_REVIEW_SIGNIN_CODE is not a six-digit code of its own; the Google review sign-in is off.");
+    return [];
+  }
+  return [{ email: GOOGLE_REVIEW_EMAIL, code, id: GOOGLE_REVIEW_PROVIDER_ID }];
+}
+
+async function emailOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | undefined> {
+  return (await ctx.db.get(userId))?.email?.trim().toLowerCase();
+}
+
+/**
+ * Is this one of the accounts a fixed code opens for an outside reviewer: the
+ * directory and App Store one, or Google's?
+ *
+ * Those codes are held by people outside the company, and the App Store
+ * phone's was public in this repository's history (kept on purpose by the
+ * owner, 2026-10-25). So both accounts are held to their own workspace: they
+ * never join another workspace by invitation or email domain
+ * (`invitations/join.ts`, `workspaceDomains.ts`), read nothing through a grant
+ * or a share in a workspace they are not members of (`grants/outsider.ts`,
+ * `shares/standing.ts`), and keep the one address that names them
+ * (`signInEmails.ts`). A row naming one grants nothing rather than erroring,
+ * the same answer as for a stranger.
+ */
+export async function isReservedReviewer(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  const email = await emailOf(ctx, userId);
+  return email === REVIEWER_EMAIL || email === GOOGLE_REVIEW_EMAIL;
+}
+
+/**
+ * May this account start a Google connection? Every account but the one the
+ * directory and App Store codes open (`googleConnect/attempts.ts`). Google's
+ * reviewer may: that is what its review is of.
+ */
+export async function mayHoldGoogleConnection(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  return (await emailOf(ctx, userId)) !== REVIEWER_EMAIL;
 }

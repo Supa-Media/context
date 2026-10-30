@@ -128,6 +128,23 @@ jobs:
           # cannot start the OAuth flow.
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          # The client AI reads Google through, and its switch
+          # (`docs/decisions/communications/google-clients.md`). Absent or
+          # not `true`: AI stays on the standard grant, as before.
+          GOOGLE_AGENT_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_AGENT_OAUTH_CLIENT_ID }}
+          GOOGLE_AGENT_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_AGENT_OAUTH_CLIENT_SECRET }}
+          GOOGLE_AGENT_CLIENT_ACTIVE: ${{ secrets.GOOGLE_AGENT_CLIENT_ACTIVE }}
+          # `required` closes the staff console to staff with no authenticator
+          # (`docs/decisions/identity-and-access/staff-second-factor.md`).
+          # Absent: enrolled staff step up, the rest are offered enrollment.
+          STAFF_SECOND_FACTOR: ${{ secrets.STAFF_SECOND_FACTOR }}
+          # `owned` narrows Calendar's consent to the calendars the person owns
+          # (`docs/decisions/communications/google-clients.md`). Absent: the
+          # broader pair, as before; grants of either pair work either way.
+          GOOGLE_CALENDAR_SCOPE: ${{ secrets.GOOGLE_CALENDAR_SCOPE }}
+          # Up to three workspace ids that run as though both cutover settings
+          # above were on (`cutoverCanary`, google-clients.md). Absent or `none`: nobody.
+          GOOGLE_CUTOVER_CANARY_WORKSPACES: ${{ secrets.GOOGLE_CUTOVER_CANARY_WORKSPACES }}
           # The Slack connector's app (`docs/decisions/connectors.md`). Absent: off.
           SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
           SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
@@ -226,6 +243,13 @@ jobs:
           # working state: the tab says PostHog isn't connected.
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          # Tex's saved browser profiles (`functions/browserProfiles.ts`): the
+          # same Browserbase key the screenshot Worker drives browsers with,
+          # here to make each profile and delete it with its account,
+          # workspace or "sign Tex out". Absent is a working state: Tex's
+          # browser keeps its sign-ins in the sealed jar alone.
+          BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+          BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
           # The gateway's mover: whole-bucket moves copy bucket to bucket there,
           # never through this deployment (`functions/lib/storageMover.ts`). A
           # public origin rather than a secret; unset runs them here, as a
@@ -257,6 +281,8 @@ jobs:
             TWILIO_API_KEY_SECRET \
             TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET LINQ_API_KEY TEX_LINE_NUMBERS \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET SLACK_CLIENT_ID SLACK_CLIENT_SECRET \
+            GOOGLE_AGENT_OAUTH_CLIENT_ID GOOGLE_AGENT_OAUTH_CLIENT_SECRET GOOGLE_AGENT_CLIENT_ACTIVE \
+            STAFF_SECOND_FACTOR GOOGLE_CALENDAR_SCOPE GOOGLE_CUTOVER_CANARY_WORKSPACES \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
             GOOGLE_PUSH_TOPIC GOOGLE_PUSH_SERVICE_ACCOUNT \
             GOOGLE_PUSH_AUDIENCE GOOGLE_PUSH \
@@ -269,6 +295,7 @@ jobs:
             REVIEWER_SIGNIN_CODE APP_REVIEW_SIGNIN_CODE TEST_ACCOUNT_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
+            BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or

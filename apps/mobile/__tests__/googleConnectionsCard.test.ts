@@ -25,7 +25,7 @@
  *     all, rather than controls that are disabled.
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -53,6 +53,7 @@ const SYNCING: GoogleSyncSchedule = {
 
 const mockStartCalls: unknown[] = [];
 const mockNavigations: string[] = [];
+let mockAiAccess: Array<{ connectionId: string; address: string; aiAccess: string }> = [];
 
 jest.mock("convex/react", () => ({
   useAction: () => (args: unknown) => {
@@ -62,6 +63,7 @@ jest.mock("convex/react", () => ({
       completionSecret: "completion-secret",
     });
   },
+  useQuery: () => mockAiAccess,
 }));
 
 jest.mock("../features/console/google/leaveForGoogle", () => ({
@@ -194,11 +196,13 @@ describe("nothing is copied, so nothing is behind", () => {
     screen.unmount();
   });
 
-  test("the card says nothing is copied into notes", () => {
+  // The card's promise matches the privacy policy (#2427): Google content is
+  // read live and never copied in automatically, but what Tex says back, the
+  // quotes it uses and notes the person keeps do stay.
+  test("the card says nothing is copied in automatically, and what is kept", () => {
     const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
-    expect(screen.text()).toContain(
-      "Your AI reads mail, calendar and chat from Google when you ask. Nothing is copied into your notes.",
-    );
+    expect(screen.text()).toContain("Your AI reads mail, calendar and chat from Google when you ask, and during check-ins and routines you allow. Nothing is copied into your notes in bulk; Tex's replies, the quotes and sources they use, check-in records and any note you save stay until you delete them.");
+    expect(screen.text()).not.toContain("Nothing is copied into your notes.");
     expect(screen.text()).not.toContain("land in your inbox folder");
     screen.unmount();
   });
@@ -325,6 +329,56 @@ describe("reconnect is on the broken row", () => {
     }));
     expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
     screen.unmount();
+  });
+});
+
+describe("allowing AI access", () => {
+  /*
+    Once AI reads Google through its own client, an account the person
+    connected for themselves still needs that second yes before Tex or any AI
+    can read it (functions/googleClients.ts). The row says so and carries it.
+  */
+  afterEach(() => {
+    mockAiAccess = [];
+  });
+
+  test("an account AI cannot read yet says so, and its Allow goes to the agent consent for that account", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "needed" }];
+    mockStartCalls.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).toContain("Your AI can't read it until you allow it.");
+    await screen.click("allow-ai-google-google_1");
+    expect(mockStartCalls).toEqual([
+      { workspaceId: "ws_1", connectionId: "google_1", redirectUri: "https://context.lc/connect/google" },
+    ]);
+    screen.unmount();
+  });
+
+  test("before the switch, allowing AI access is offered in the menu, not as a problem on the row", async () => {
+    mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess: "available" }];
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    expect(screen.text()).not.toContain("allow it");
+    await screen.click("google-account-google_1");
+    expect(document.querySelector('[data-testid="menu-allow-ai-google_1"]')).not.toBeNull();
+    screen.unmount();
+  });
+
+  test("disconnecting says Google ends Context's access to the account", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
+    expect(screen.text()).toContain("Google ends Context's access to this account, for you and your AI.");
+    screen.unmount();
+  });
+
+  test("an account AI already reads, or with no agent client, says nothing about it", () => {
+    for (const aiAccess of ["granted", "not_needed"]) {
+      mockAiAccess = [{ connectionId: "google_1", address: "person@example.invalid", aiAccess }];
+      const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()], actions }));
+      expect(screen.text()).not.toContain("allow it");
+      expect(screen.container.querySelector('[data-testid^="allow-ai-google-"]')).toBeNull();
+      screen.unmount();
+    }
   });
 });
 

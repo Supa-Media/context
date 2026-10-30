@@ -282,6 +282,37 @@ a move no longer carries them, and the rename gap and the
 `COLLABORATION_RENAME_MAX` gap above apply only to heads the backfill has not
 filed yet.
 
+## A move that has landed answers as landed
+
+*Found 2026-10-29* (Dev2: renaming "seems to be slow and breaks at times").
+Once `nodeRowMoves.rowMove` has changed the rows, the move has happened. Every
+later step is a derivative with its own repair: the version handed back, the
+forwarding record, the link repair queue, folder icons, the search index, the
+activity line, and the heading following a renamed note
+(`fileOps/followHeading.ts`). None of them may fail the call. Before, a bucket
+request dropped in any of them answered "Your bucket did not complete that
+request", and the app drew the note back at a name that no longer existed, so
+its next save could make a second note there. Each step now logs a failure by
+name (never a path) and the move answers with what it did; a heading that did
+not follow is linked again by the next title edit.
+
+The same steps run side by side, and the heading's own read hands back the
+note's version (`handOut: false`), so a rename loads the note's history twice
+(read, then write) rather than four times. Rethrowing in `followHeading`, or
+loading the history before `replaceText` in `writeFile`, fails
+`__tests__/files/renameLanded.test.ts`.
+
+A note nobody has opened has no collaboration document, so its heading follows
+as a plain conditional write of its Markdown (`readFile` and `writeFile` with
+`startsNoDocument`): no editor or device holds a copy to merge with, and its
+first open starts the document from that Markdown. Starting one only to change
+a heading was most of a never-opened note's rename (2.6 s to 0.6 s with 80 ms
+per bucket request, 2026-10-29). If somebody opens the note in the instant
+between the check and the write, the document's next load puts its own text
+back, so the heading simply did not follow; nothing typed is lost. Reading
+through the document in `followHeading` fails the never-opened case of
+`renameLanded.test.ts`.
+
 ## A move into another workspace, when either end is keyed
 
 *Built 2026-10-17, after a move from @seyi into @supa failed with "this

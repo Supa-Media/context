@@ -57,6 +57,8 @@ export const UNTRUSTED_READS = new Set([
   "read_image",
   "slack_api",
   "google_chat",
+  // A Chat conversation: every word in it is somebody else's.
+  "read_google_chat",
   "app_read",
   "app_change",
   "read_proposal",

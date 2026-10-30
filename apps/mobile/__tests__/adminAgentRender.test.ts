@@ -27,6 +27,12 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 const mockAnswers = new Map<string, unknown>();
 const mockArgs = new Map<string, unknown>();
 
+// The admin reports are read once (`useReportOnce`); here they answer like every other query.
+jest.mock("../features/admin/useReportOnce", () => ({
+  useReportOnce: (query: never, args: never) =>
+    (jest.requireMock("convex/react") as { useQuery: (q: never, a: never) => unknown }).useQuery(query, args),
+}));
+
 jest.mock("convex/react", () => {
   const { getFunctionName } = jest.requireActual<typeof import("convex/server")>("convex/server");
   return {

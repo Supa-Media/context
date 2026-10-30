@@ -35,6 +35,14 @@ defaults below on 2026-10-27 ("build with your default recs").
   invited it (`lib/invitations/join.ts` `acceptPhoneInvitations`). Somebody
   who already has an account with that number joins at the next tag in the
   chat. Never an invitation from somebody they blocked.
+- **An invitation sent from Members counts too** (the owner, 2026-10-29:
+  "it shouldn't even be guest mode, everyone was invited to the
+  workspace"). Somebody whose number is linked, holding a pending invitation
+  by their name or email that `resolveAddressedUser` says is theirs and that
+  comes from nobody they blocked, joins at the next tag in the chat, as a
+  phone invitation's holder does. A guest chat whose people now all count
+  leaves guest mode. "an invitation by name from Members counts", "or from
+  somebody they blocked" (`textGroupInvited.test.ts`).
 - **An invited person can ask for anything, and acts as nobody.** Their tag
   runs on the grant of the owner or editor who bound the chat (who must be
   in the chat), clamped to the invitation's role and never an owner's tools.

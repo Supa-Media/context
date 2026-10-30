@@ -31,7 +31,12 @@ const MAX_WORDS = 500;
 /** A tapback by its English name, as the gateway reads it. */
 export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasized" | "Questioned" | "Reacted";
 /** `removed`: taken back ("Removed a like from …"), only ever for a yes being held (`thumbs.ts`). */
-export type Reaction = { how: Tapback; words: string; removed?: true };
+/**
+ * `onOther`: the message this was on was read and is not a text of Tex's in
+ * this chat, so empty `words` mean "on somebody else's message", not "we
+ * could not tell" (`thumbs.ts` `onTheAsk`).
+ */
+export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true };
 type Kept = Reaction & { at: number };
 
 const NAMES: [RegExp, Tapback][] = [

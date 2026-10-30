@@ -15,7 +15,7 @@
 
 import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import { useQuery } from "convex/react";
+import { useReportOnce } from "./useReportOnce";
 import { api } from "@context/convex/_generated/api";
 import { Card, Text, leading, space, useThemedStyles, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
@@ -47,7 +47,7 @@ import {
 export function ActivitySection({ days }: { days: number }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
-  const report = useQuery(api.functions.admin.usageReport, { days });
+  const report = useReportOnce(api.functions.admin.usageReport, { days });
   // The per-agent token counters are the Token usage panel's, never Events rows.
   const series = useMemo(
     () => (report ? orderSeries(report.series.filter((entry) => !isTokenMetric(entry.metric))) : []),

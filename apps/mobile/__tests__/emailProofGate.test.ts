@@ -3,6 +3,7 @@
  * the one dialog and runs the call again exactly once, and only once a code
  * was confirmed. Every other failure passes straight through.
  */
+import { describe, expect, test } from "@jest/globals";
 import {
   installEmailProofRetry,
   needsEmailProof,

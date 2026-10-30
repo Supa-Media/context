@@ -360,3 +360,48 @@ describe("the note link Tex texts unfurls as a note", () => {
     expect(await response.text()).toBe("<html>app</html>");
   });
 });
+
+/**
+ * A linked page's card is its cover (owner, 2026-10-27: "Team links too";
+ * `docs/decisions/privacy-and-sharing/page-covers.md`). The control plane says
+ * when, by a version; the edge points at the share's own card address with it
+ * and says the cover's portrait size.
+ *
+ * Sabotage record (applied, suite run, named test observed failing, reverted):
+ *  1. `noteTitle` dropping `cover` → "a team-linked page unfurls with its cover, drawn portrait".
+ *  2. `coverOf` and `coverPreview` both without the shape check → "a cover version that is not one is ignored".
+ */
+describe("a linked page unfurls with its cover", () => {
+  const PAGE_TOKEN = "b".repeat(64);
+
+  it("a team-linked page unfurls with its cover, drawn portrait", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan", cardToken: PAGE_TOKEN, children: [], cover: "0a1b2c3d" }));
+    const html = await (await get("/note/@seyi/1-projects/trip.page.md", CRAWLER_UAS.Slackbot)).text();
+    expect(html).toContain(`<meta property="og:image" content="https://context.lc/og/s/${PAGE_TOKEN}.png?v=0a1b2c3d">`);
+    expect(html).toContain('<meta property="og:image:width" content="1080">');
+    expect(html).toContain('<meta property="og:image:height" content="1350">');
+  });
+
+  it("a link with a token unfurls with the cover too", async () => {
+    fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan", openToAnyone: true, cover: "0a1b2c3d" }));
+    const html = await (await get(`/s/${PAGE_TOKEN}`, CRAWLER_UAS.Slackbot)).text();
+    expect(html).toContain(`content="https://context.lc/og/s/${PAGE_TOKEN}.png?v=0a1b2c3d"`);
+    expect(html).toContain('<meta property="og:image:height" content="1350">');
+  });
+
+  it("a cover version that is not one is ignored", async () => {
+    for (const cover of ["../../x", "0A1B2C3D", 12345678, "0a1b2c3d?x=1"]) {
+      fetchSpy.mockImplementation(async () => Response.json({ title: "Trip plan", cardToken: PAGE_TOKEN, children: [], cover }));
+      const html = await (await get("/note/@seyi/1-projects/trip.page.md", CRAWLER_UAS.Slackbot)).text();
+      expect(html).not.toContain("1350");
+      expect(html).not.toContain("x=1");
+      expect(html).toContain('<meta property="og:image:width" content="1200">');
+    }
+  });
+
+  it("a short link to a page says the cover's size", async () => {
+    const { previewForShortLink } = await import("./preview");
+    expect(previewForShortLink("Trip plan", "seyi", "trip", "0a1b2c3d", true).imageSize).toEqual({ width: 1080, height: 1350 });
+    expect(previewForShortLink("Trip plan", "seyi", "trip", "0a1b2c3d").imageSize).toBeUndefined();
+  });
+});

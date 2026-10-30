@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 21, 2026",
+  updated: "October 29, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -11,16 +11,19 @@ export const privacyContent: LegalPageContent = {
       title: "Information we collect",
       body: [
         "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
-        "If you record a meeting, the audio is sent to Context.lc to be transcribed and is not kept once the words are written into your note. The transcript and its summary are saved in your workspace like any other note.",
+        "If you record a meeting, and only after you allow AI for meeting notes, the audio is sent through Context.lc to an AI provider, today Cloudflare Workers AI, to be turned into text, and the transcript and your typed notes are sent to Anthropic to write a summary. The transcript and its summary are saved in your workspace like any other note. See \"Meeting transcripts and summaries\" below.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
-        "When you connect Google, Context.lc may receive your Google account identity, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve and the sync features you enable.",
+        "When you connect Google, Context.lc receives your Google account identity and, at the moment it is asked for, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve.",
       ],
     },
     {
       title: "How we use Google data",
       body: [
-        "We use Google data only to provide the integration you requested: connecting your Google accounts to your personal Context.lc workspace and syncing selected communications or calendar information into your context.",
-        "Email and chat sync are forward-only unless the product explicitly offers a user-initiated import. Calendar sync is used to keep current and upcoming calendar context available to you.",
+        "When you connect Google, Context.lc and its assistant, Tex, use the permissions you approve to read Gmail messages, Calendar events and Google Chat spaces and messages from Google when they are needed: when you ask, when an AI assistant you connected asks for you, or during a check-in or routine Tex runs for you, which you can pause or turn off. Your mail, calendar and chat are not copied into your notes in bulk, and no background job syncs them into your workspace.",
+        "Where you turn the matching features on, we also use those permissions to act for you: to create Gmail drafts, to send email you approve, to create or change events on your calendar (asking you first when a change would notify a guest), and to create Google Chat spaces or send Chat messages you approve. Read-only permissions cannot do any of these.",
+        "Some Google data is kept in your personal workspace as part of your conversations with Tex. What you asked, Tex's answers, and the quotes, summaries and source names (such as a sender, a subject or an event title) those answers use are saved in Tex's transcripts and conversation history, and check-ins keep a record of what they looked at and texted. Anything you, Tex or an assistant you connected save as a note is kept the same way. These notes stay until you delete them.",
+        "Before October 21, 2026, Context.lc copied Gmail, Calendar and Google Chat into notes in your workspace. Those historical copies are hidden from search and from AI, are included when you download your workspace, and stay until you delete them, which you can do from Settings.",
+        "Google data may be processed by Tex and by AI assistants you connect, within the access you grant them. Disconnecting a Google account stops all future access to it. It does not delete notes already in your workspace, such as saved conversations and historical copies; deleting those is a separate step. Revoking Google access and deleting saved notes are separate controls.",
         "We do not sell Google user data, use it for advertising, or use it to train third-party AI models.",
       ],
     },
@@ -28,7 +31,7 @@ export const privacyContent: LegalPageContent = {
       title: "Where your data is stored",
       body: [
         "Context.lc stores context as files and folders in the storage connected to your account or in Context-managed storage when you choose that option.",
-        "Synced communication and calendar notes are private to your personal workspace by default. Email, chat, and iMessage-style communication sync is not intended for shared workspaces.",
+        "Notes that hold Google data, such as saved Tex conversations and historical copies, are private to your personal workspace by default. Your mail, calendar and chat are read for your personal workspace only, never for a shared workspace.",
         "OAuth tokens are encrypted server-side and are used only to maintain the connection you authorized.",
       ],
     },
@@ -52,17 +55,26 @@ export const privacyContent: LegalPageContent = {
       ],
     },
     {
+      title: "Meeting transcripts and summaries",
+      body: [
+        "Recording a meeting or sending a voice message to the assistant you text turns speech into text with an AI provider. Today that is Whisper, a speech recognition model made by OpenAI that runs on Cloudflare Workers AI. The audio goes to Cloudflare, not to OpenAI. A meeting's summary is written from its transcript and your typed notes by Anthropic's Claude, reached through Cloudflare. The recording can include your voice, other people's voices, and anything personal said during it.",
+        "Nothing is sent until you allow it. The first time you start a meeting, Context.lc asks once whether to use AI for meeting notes, which covers both transcripts and summaries. The question names Cloudflare for transcripts and Anthropic for summaries before you choose. If you choose Not now, no audio is recorded or sent, no summary is written, and you can still type notes. Your answer is kept on your account, so another person's answer never covers you. We ask again if the provider or what the AI is used for changes. The providers can change; this section always names the ones in use. A voice message you send to the assistant you text is different: sending it is asking the assistant to listen, so it is transcribed without this question, the same way a typed message is read without one.",
+        "You can turn it off at any time in Settings, under Meetings. The device you turn it off on stops sending straight away, including from a recording that is already running, and audio still waiting on it to be sent is deleted. No new summaries are written once it is off. Your other devices and our servers stop once the change reaches them, which takes moments when they are online. A piece of audio that was already on its way when you turned it off cannot be called back.",
+        "Context.lc does not store the audio: it is passed to Cloudflare for transcription and discarded once the words are in your note. Audio recorded without a connection waits on your device until it can be sent, or until you turn transcription off. Cloudflare states that it does not use content sent to Workers AI to train AI models.",
+      ],
+    },
+    {
       title: "AI built into Context.lc",
       body: [
         "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.",
-        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it.",
+        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it. Tex makes pictures with Google's Gemini image model, which receives the description of the picture.",
       ],
     },
     {
       title: "Sharing",
       body: [
         "Your private context is not shared with other users unless you explicitly share it, invite someone, publish a note, or move information into a workspace with broader access.",
-        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic (AI), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
+        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic and Google (AI), Browserbase (the web browser Tex uses when you ask it to visit a site), Brave Search (Tex's web searches), Sendblue, Linq and Whapi (carrying your texts with Tex over iMessage, SMS and WhatsApp), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
       ],
     },
     {
@@ -75,8 +87,8 @@ export const privacyContent: LegalPageContent = {
     {
       title: "Retention and deletion",
       body: [
-        "We retain synced files and account records while your account, context, or connected integration remains active, unless you delete them sooner.",
-        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
+        "We retain your notes, including saved Tex conversations and historical Google copies, and your account records while your account or workspace remains active, unless you delete them sooner.",
+        "You can disconnect an integration, delete saved notes from your workspace, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
       ],
     },
     {
@@ -98,7 +110,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "October 15, 2026",
+  updated: "October 29, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -119,8 +131,8 @@ export const termsContent: LegalPageContent = {
     {
       title: "Google integrations",
       body: [
-        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the approved scopes only to sync the information you enabled into your personal context.",
-        "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any synced content you later share is appropriate to share.",
+        "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the scopes you approve to read the information you enabled from Google when you, an assistant you connected, or a check-in or routine you allowed asks for it, and, where you turn those features on, to create drafts, send the email and Chat messages you approve, and create or change your calendar events at your request.",
+        "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any Google content you save and later share is appropriate to share.",
       ],
     },
     {

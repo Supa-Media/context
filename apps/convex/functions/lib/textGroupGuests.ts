@@ -19,6 +19,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { MAX_GROUPS_PER_WORKSPACE } from "../groups";
 import { phoneSignInPaused } from "./emailProof";
 import { recordAudit } from "./audit";
+import { clearChatPhones } from "./guestPhones";
 import { hashToken } from "./crypto";
 import { buildGroupName } from "./names";
 import { newNoteId } from "./nodes/noteIds";
@@ -43,6 +44,21 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 export async function mayOpenToGuests(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<boolean> {
   const membership = await getMembership(ctx, workspaceId, userId);
   return membership !== null && (membership.role === "owner" || membership.role === "editor");
+}
+
+/**
+ * A tag from an owner or editor of the workspace a chat is bound to, when not everyone in the chat is a member
+ * there: guest mode on for it, as "Tex use @slug" from them would (Dev2's Crystal Care chat, 2026-10-29: the chat
+ * was bound, the family hadn't joined yet, and Tex refused a research question). The chat hears the guest
+ * introduction once, so it knows Tex now reads only what is shared with its group. Null when the tagger may not,
+ * and the chat is refused as before. The chat row as it is now, else.
+ */
+export async function guestsOnTag(ctx: MutationCtx, chat: Doc<"textGroups">, userId: Id<"users">): Promise<Doc<"textGroups"> | null> {
+  const workspace = chat.workspaceId === undefined ? null : await ctx.db.get(chat.workspaceId);
+  if (workspace === null || workspace.kind !== "shared") return null;
+  if ((await bindGuestChat(ctx, chat, userId, workspace.slug)) === null) return null;
+  await ctx.db.patch(chat._id, { introducedAt: undefined });
+  return await ctx.db.get(chat._id);
 }
 
 /**
@@ -140,6 +156,7 @@ export async function clearGuests(ctx: MutationCtx, chat: Doc<"textGroups">): Pr
   if (chat.guestGroupId === undefined && chat.guestFolder === undefined && chat.guestToken === undefined) return;
   // What the chat added for its people goes with it (`textGroupGuestSync.ts`).
   await unsyncChatPeople(ctx, chat);
+  await clearChatPhones(ctx, chat._id);
   await ctx.db.patch(chat._id, {
     guestGroupId: undefined,
     guestFolder: undefined,

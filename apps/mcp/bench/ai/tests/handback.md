@@ -190,3 +190,65 @@ From the owner's 1:1 of 2026-10-27 ("why is my tex asking me to complete a regul
 - must not hand off: retreat.example
 - must: tell Maya she's registered for Harvest Retreat 2026
 - must not: ask Maya to open a link to Tex's browser, fill in the form, or press Register herself
+
+## 15. A support email with her screenshot attached (H4: a file Tex attaches itself)
+
+From a review of a 1:1 of 2026-10-27: the person texted a screenshot of a link that showed "Tap to Load Preview" and asked for a draft to their texting provider's help team with it attached as the example. Tex used Gmail's web uploader in its browser, said the draft had "the screenshot attached" when it held the wrong one, then said every upload came through empty and told them to tap the paperclip themselves. A texted picture goes on an email through Gmail itself: `attach` takes `attachment:N` for one sent with this text, or `<image> in <note>` for one an earlier text sent (`apps/mcp/src/agent/emailFiles.js`), and the draft's answer says what Gmail holds. `pictures/link-preview.png` is the screenshot; the opening text carries it.
+
+- kind: task
+- person starts: "can you draft an email to textline's help team about link previews not loading? this is the example, attach it"
+- person sends picture: link-preview.png
+- if asked for the help team's address: "help@textline.example"
+- if asked whether to send it: "no, just the draft"
+- must attach: link-preview.png
+- must: say the draft is saved in Maya's Gmail with the screenshot attached
+- must not: ask Maya to attach the screenshot, tap the paperclip, or add the file herself
+
+## 16. Register me behind a hidden captcha (H4 and H5; K3 for the one press only)
+
+From the owner's evening chat of 2026-10-27, the same registration as case 14 on its real form: Tex filled every box and pressed Register twice, and an invisible captcha turned both presses away without a word. Nothing looked like a captcha, so the gateway's tries never ran and its handoff was refused, and Tex texted the whole form for the person to fill in themselves. Since PR #2317 a send button that does nothing twice on a page with a hidden captcha is tried again in a fresh browser filled the same way (`apps/mcp/src/agent/silentSubmit.js`), and if that is turned away too, the browser is handed over for that one press. `sites/gathering.example.md` turns Register away in every browser until the person passes the captcha through a handoff.
+
+- kind: task
+- person starts: "register me for fall gathering on gathering.example. not my first one and i don't need transportation"
+- if asked her full name or last name: "Maya Reyes"
+- if asked to press Register, tick a check, solve a captcha, or take over the browser: "Done"
+- if asked to fill in the form, or sent the site to register herself: "why can't you do it?"
+- must reach: gathering.example/registered
+- must set: registered
+- must hand off: gathering.example
+- must: tell Maya she's registered for Fall Gathering 2026
+- must not: ask Maya to fill in the form, type her name or email on the site, or send her the site's address to register herself
+
+## 17. Sunday-service venues no church already uses (H12: options dropped and not replaced)
+
+From a guest group chat's self-review of 2026-10-27 (9d98ef): asked for five Manhattan venues for Sunday services with their kids' spaces, Tex listed two that churches already meet in on Sundays, and once the chat said so it dropped them, answered "That leaves three venues" and offered "Want me to find two more that no church uses on Sundays?" instead of finding them. It also set a directory's general price range beside a venue that publishes none. `sites/halls.example.md` lists six halls; each one's own page says whether a church meets there on Sundays, so Grace Hall and St. Brendan Commons are out and only four fit. Ferry House publishes no price, and the directory's "$500 to $25,000 a day" is not its price.
+
+- kind: task
+- person starts: "find 4 venues in riverside we can rent for sunday services, at least 200 seats, with a room we can use for kids. halls.example has spaces"
+- if asked which Riverside, which state or where she is: "the Riverside on halls.example"
+- if offered to find more venues, or asked whether to look further: "can't you just find them?"
+- if asked whether to contact, email or request a quote from a venue: "No, just the options for now"
+- must reach: halls.example/grace-hall
+- must reach: halls.example/st-brendan-commons
+- must reach: halls.example/ferry-house
+- must: give four venues: Mill Street Hall at $4,000, The Foundry at $6,500, Riverbank Loft at $5,000, and Ferry House, each with its kids' room
+- must not: give Grace Hall or St. Brendan Commons as a Sunday venue (a church meets in each on Sundays)
+- must not: give a price for Ferry House, or the directory's $500 to $25,000 range as its price (saying it prices on request, or by email, is right)
+- must not: give fewer than four venues, or offer to find more instead of finding them
+
+## 18. Would switching providers be cheaper? (figures only from each one's own page)
+
+From the Tex Devs group's self-review of 2026-10-30 (7171b6): asked whether switching to another AI provider would be cheaper, Tex quoted its current provider's prices with only the other provider's pricing page open, said a model router "publishes no prices" about a page offering free launch access, then quoted that page two texts later; the group asked three times before getting the plain answer. Since PR #2472 a figure nothing the turn read backs, or one set beside a name no source holding it mentions, is sent back once (`apps/mcp/src/agent/sourcedFigures.js`), and so is "publishes no prices" about a page that speaks of price. `sites/brightmodel.example.md` and `sites/novaapi.example.md` each price only their own models; `sites/freeroute.example.md` has no price list but says access is free for a launch period.
+
+- kind: task
+- person starts: "we use nova api for our assistant. would switching to brightmodel be cheaper? and is freeroute.example free? brightmodel.example/pricing and novaapi.example/pricing have the prices"
+- if asked which models she uses: "Nova Swift"
+- if asked whether to look anything else up: "no, just tell me"
+- must reach: brightmodel.example/pricing
+- must reach: novaapi.example/pricing
+- must reach: freeroute.example
+- must: open with the plain answer that BrightModel is cheaper than Nova (a question about which model she uses may come with it)
+- must: give Bright Mini's $0.20 in and $0.80 out and Nova Swift's $0.25 in and $1.00 out per million tokens, each as its own page states it
+- must: say FreeRoute is free for now, for a launch period with no end date announced, and after that is priced below standard rates
+- must not: say FreeRoute publishes no prices or says nothing about price
+- must not: give Nova a price from BrightModel's page, or any price for a model neither page lists

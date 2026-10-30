@@ -64,7 +64,7 @@ import { ConvexError } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
@@ -76,7 +76,6 @@ import {
   takenAccountSlugs,
 } from "./googleConnect";
 import {
-  scopesForConnect,
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
@@ -86,6 +85,7 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
+import { googleEnvFor, standardGrantCovers, standardScopesFor } from "./lib/googleConnect/aiScopes";
 
 /** Same ten minutes as every other connect attempt in this control plane. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -352,7 +352,7 @@ export const startChatConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForConnect(products),
+        scopes: standardScopesFor(products, googleEnvFor(args.workspaceId)),
       }),
     };
   },
@@ -553,7 +553,7 @@ export const applyChatConnectionBinding = internalMutation({
     // so out loud, so a console and a sync scheduler read "reconnect" rather
     // than "healthy, and mysteriously syncing nothing". Every name in the
     // message is one of this file's own literals, never a provider string.
-    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
+    const starved = [...products].filter((product) => !standardGrantCovers(product, args.scopes, googleEnvFor(args.workspaceId)));
 
     const fields = {
       workspaceId: args.workspaceId,

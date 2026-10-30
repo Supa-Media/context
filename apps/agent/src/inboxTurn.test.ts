@@ -59,12 +59,14 @@ const msg = (chatId: string, eventId: string, text: string, extra: Partial<Messa
 
 type Decided = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; sender?: string };
 
-function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean; agentTakes?: number } = {}) {
+function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?: boolean; agentTakes?: number; decideTakes?: number } = {}) {
   const decided: Decided[] = [];
   const asks: { question: string; covers?: string[]; chat?: string }[] = [];
   const agentBodies: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
+  /** Each "Tex, settings" save (`texStyle.ts`). */
+  const styles: unknown[] = [];
   /** The message each tapback went on: Sendblue's handle, or Whapi's id in the path. */
   const reactedOn: string[] = [];
   /** The order of what the person can see and what was asked: read, typing, decide, agent. */
@@ -76,10 +78,12 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     if (path === "/api/mark-read" || (parsed.host === "gate.whapi.cloud" && init?.method === "PUT" && path.startsWith("/messages/") && !path.endsWith("/reaction"))) calls.push("read");
     if (/typing|presences/.test(path)) calls.push("typing");
     if (path === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "tok" });
+    if (path === "/agent-texts/style") return (styles.push(body.style), Response.json({ ok: true, style: body.style }));
     if (path === "/agent-texts/decide") {
       calls.push("decide");
       decided.push(body);
       // A decide that never answers: only the caller's timeout ends the wait.
+      if (opts.decideTakes) await new Promise((resolve) => setTimeout(resolve, opts.decideTakes));
       if (opts.decideNeverAnswers) {
         await new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
       }
@@ -114,11 +118,25 @@ function world(decision: (body: Decided) => unknown, opts: { decideNeverAnswers?
     whapi: { token: "wt", line: LINE },
     now: () => 5_000,
   };
-  return { deps, decided, asks, agentBodies, texts, reactions, reactedOn, calls };
+  return { deps, decided, asks, agentBodies, texts, reactions, reactedOn, calls, styles };
 }
 
 const all = (body: Decided) => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 const act = (what: "silent" | "react") => () => ({ ok: true, act: what, covers: [], stale: [], movedOn: false, confidence: 0.9 });
+
+
+/**
+ * Advance fake time until `work` settles. One big advance raced on slow CI runners (2026-10-28,
+ * production deploy): a timer scheduled after the advance finished never fired, and the test hung.
+ */
+async function drainedUnderFakeTimers(work: Promise<unknown>): Promise<void> {
+  let done = false;
+  const settled = work.finally(() => {
+    done = true;
+  });
+  for (let step = 0; step < 600 && !done; step++) await vi.advanceTimersByTimeAsync(100);
+  await settled;
+}
 
 describe("decide in a person's own chat", () => {
   for (const line of LINES) {
@@ -147,6 +165,19 @@ describe("decide in a person's own chat", () => {
       expect(w.reactions).toHaveLength(1);
       expect(w.asks).toEqual([]);
       expect(w.texts).toEqual([]);
+    });
+
+    it(`react sends decide's emoji when it is one of the 64; wait is answered at once (${line.name})`, async () => {
+      const storage = new MemoryStorage();
+      const w = world(() => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.9, emoji: "🙏" }));
+      await accept(storage, msg(line.chatId, "e1", "thanks"), 1_000);
+      await drain(storage, w.deps);
+      expect(w.reactions).toEqual(["🙏"]);
+      const waited = new MemoryStorage();
+      const v = world(() => ({ ok: true, act: "wait", covers: [], stale: [], movedOn: false, confidence: 0.9 }));
+      await accept(waited, msg(line.chatId, "e1", "what's on today"), 1_000);
+      await drain(waited, v.deps);
+      expect(v.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
     });
 
     it(`silent on "ok" sends nothing at all (${line.name})`, async () => {
@@ -188,9 +219,7 @@ describe("decide in a person's own chat", () => {
         const w = world(() => ({ ok: false, reason: "unavailable" }), { decideNeverAnswers: true });
         await accept(storage, msg(line.chatId, "e1", "what's on"), 1_000);
         await accept(storage, msg(line.chatId, "e2", "today"), 1_000);
-        const draining = drain(storage, w.deps);
-        await vi.advanceTimersByTimeAsync(IDLE_DECIDE_MS + 100);
-        await draining;
+        await drainedUnderFakeTimers(drain(storage, w.deps));
         const first = (name: string) => w.calls.findIndex((call) => call === name);
         expect(first("decide")).toBeGreaterThan(first("read"));
         expect(first("decide")).toBeGreaterThan(first("typing"));
@@ -226,9 +255,23 @@ describe("decide in a person's own chat", () => {
       const w = world(act("react"), { agentTakes: 12_000 });
       await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
       await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
-      const draining = drain(storage, w.deps);
-      await vi.advanceTimersByTimeAsync(15_000);
-      await draining;
+      await drainedUnderFakeTimers(drain(storage, w.deps));
+      expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
+      expect(w.reactedOn).toEqual(["m_e2"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("decide slower than the tapback timer: the one tapback still lands on the text being answered, never the first waiting", async () => {
+    // CI 2026-10-28: on a slow runner the 10s timer fired before decide aimed it, and tapped "thanks" (m_e1).
+    vi.useFakeTimers();
+    try {
+      const storage = new MemoryStorage();
+      const w = world(act("react"), { decideTakes: ACKNOWLEDGE_AFTER_MS + 2_000, agentTakes: 1_000 });
+      await accept(storage, msg(LINES[0].chatId, "e1", "thanks"), 1_000);
+      await accept(storage, msg(LINES[0].chatId, "e2", "what's on today", { quoted: "x" }), 1_000);
+      await drainedUnderFakeTimers(drain(storage, w.deps));
       expect(w.asks.map((ask) => ask.question)).toEqual(["what's on today"]);
       expect(w.reactedOn).toEqual(["m_e2"]);
     } finally {
@@ -315,5 +358,24 @@ describe("decide in a person's own chat", () => {
       new URL(url).pathname === "/agent-texts/link" ? Response.json({ status: "linked", handle: "ada" }) : w.deps.fetch(url, init)) as unknown as Fetch;
     await drain(storage, { ...w.deps, fetch: linked });
     expect(w.decided).toEqual([]);
+  });
+});
+
+// Dev2, 2026-10-28: a reply to the open settings menu is answered by code, never put to decide (`texStyle.ts`).
+describe("\"Tex, settings\" in a person's own chat", () => {
+  it("a bare number, then a choice, changes the setting even when decide would say silent", async () => {
+    const storage = new MemoryStorage();
+    const w = world(act("silent"));
+    const chat = LINES[0].chatId;
+    for (const [n, text] of ["Tex, settings", "3", "1"].entries()) {
+      await accept(storage, msg(chat, `s${n}`, text), 1_000 + n);
+      await drain(storage, w.deps);
+    }
+    expect(w.decided).toEqual([]);
+    expect(w.asks).toEqual([]);
+    expect(w.texts[0]).toMatch(/^My settings here:/);
+    expect(w.texts[1]).toMatch(/^Warmth \(now Default\)/);
+    expect(w.styles).toEqual([{ warmth: "more" }]);
+    expect(w.texts[2]).toBe("Warmth set to More.");
   });
 });

@@ -67,9 +67,14 @@ jobs:
           packages: "@context/router"
           # homeSite.test.ts reads the app's APP_SEGMENTS, so a new app route
           # has to run the router's tests (#1866 reached staging without).
+          # cspReport.test.ts hashes the web shell's inline scripts, so an
+          # edit to one has to run them too, and cspReportFixtureParity.test.ts
+          # holds the browser suite's CSP log to the router's bounds.
           paths: |
             .github/workflows/workers.yml
             apps/mobile/features/home/homeSite.ts
+            apps/mobile/public/index.html
+            apps/mobile/e2e/webkit/csp-report-log.mjs
 
       # Browser checks still report on every pull request, but their expensive
       # steps belong only to changes in the dependency graph they execute.

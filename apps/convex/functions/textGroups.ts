@@ -5,12 +5,14 @@ import { phoneSignInPaused } from "./lib/emailProof";
 import { recordAudit } from "./lib/audit";
 import { SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "./lib/consentScopes";
 import { hashToken } from "./lib/crypto";
+import { hasTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
 import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
-import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { syncChatPhones } from "./lib/guestPhones";
+import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, guestsOnTag, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
@@ -66,9 +68,10 @@ export const ENGAGEMENT_STYLES = ["quiet", "attentive", "followAlong", "helpful"
 export type Engagement = (typeof ENGAGEMENT_STYLES)[number];
 const engagementValidator = v.union(v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
 
-/** What the Worker is told about a chat's style: the choice, and whether anyone made one. */
-function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean } {
-  return chat.engagement === undefined ? { engagementChosen: false } : { engagement: chat.engagement, engagementChosen: true };
+/** What the Worker is told about a chat's style: the choice, whether anyone made one, and how Tex talks there (`lib/texStyle.ts`). */
+function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engagementChosen: boolean; texStyle?: TexStyle } {
+  const talk = hasTexStyle(chat.texStyle) ? { texStyle: chat.texStyle } : {};
+  return chat.engagement === undefined ? { engagementChosen: false, ...talk } : { engagement: chat.engagement, engagementChosen: true, ...talk };
 }
 
 const commandValidator = v.union(
@@ -123,6 +126,7 @@ export const groupAnswerValidator = v.union(
     /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
     engagement: v.optional(engagementValidator),
     engagementChosen: v.boolean(),
+    texStyle: v.optional(texStyleValidator),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
     mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
   }),
@@ -152,6 +156,7 @@ export type GroupAnswer =
       guestTagger?: string;
       engagement?: Engagement;
       engagementChosen: boolean;
+      texStyle?: TexStyle;
     };
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */
@@ -228,13 +233,17 @@ export const applyGroupTurn = internalMutation({
       return { status: "invited", slug: added.workspace.slug, count: added.count, role };
     }
 
-    // A guest chat answers whoever tags it, accounts or not, until "use" names a workspace everyone shares.
-    if (args.command?.kind !== "use" && group.guestGroupId !== undefined) return await guestTurn(ctx, args, group, senderUser, others);
-
-    // A chat whose people are all members or invited there by number works on the whole workspace (`textGroupInvited.ts`).
+    // A chat whose people are all members or invited there works on the whole workspace (`textGroupInvited.ts`).
     const usingSlug = args.command?.kind === "use" ? cleanSlug(args.command.slug) : null;
     const counted = usingSlug !== null ? await workspaceBySlug(ctx, usingSlug) : group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
     const invited = counted === null ? null : await invitedChat(ctx, counted, others, now);
+    // A guest chat answers whoever tags it, accounts or not, until all of them count there or "use" names another.
+    if (args.command?.kind !== "use" && group.guestGroupId !== undefined) {
+      const answer = invited === null || invited.invited.size === 0 ? null : await invitedTurn(ctx, args, group, invited, false);
+      if (invited === null || (answer === null && invited.invited.size > 0)) return await guestTurn(ctx, args, group, senderUser, others);
+      await clearGuests(ctx, group);
+      if (answer !== null) return answer;
+    }
     if (invited !== null && invited.invited.size > 0) {
       const fresh = (await ctx.db.get(group._id)) ?? group;
       const answer = await invitedTurn(ctx, args, fresh, invited, usingSlug !== null);
@@ -286,7 +295,9 @@ export const applyGroupTurn = internalMutation({
       await clearGuests(ctx, group);
       workspace = chosen;
     } else if (!everyone || shared.length === 0) {
-      return { status: "no_shared" };
+      // Bound here, and its owner or editor tags Tex: the chat goes on as their guests (`lib/textGroupGuests.ts`).
+      const opened = args.routine === true ? null : await guestsOnTag(ctx, group, senderUser);
+      return opened === null ? { status: "no_shared" } : await guestTurn(ctx, args, opened, senderUser, others, true);
     } else if (workspace === null) {
       if (shared.length > 1) return { status: "choose", slugs: shared.map((entry) => entry.slug).sort() };
       workspace = shared[0];
@@ -316,8 +327,7 @@ export const applyGroupTurn = internalMutation({
     const names: { phone: string; handle: string }[] = [];
     for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
     const handle = await handleOf(ctx, senderUser);
-    const mail = await mailSharesNamed(ctx, (await ctx.db.get(group._id)) ?? group);
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(mail.length > 0 ? { mail } : {}) };
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)) };
   },
 });
 
@@ -349,7 +359,11 @@ export const syncGuestPeople = internalMutation({
       else people.outsiders.push(userId);
     }
     const current = await ctx.db.get(chat._id);
-    if (current !== null) await syncChatPeople(ctx, current, binder, people);
+    if (current !== null) {
+      await syncChatPeople(ctx, current, binder, people);
+      // Their numbers too, hashed, so who may open the chat's notes by code moves with them (`lib/guestPhones.ts`).
+      await syncChatPhones(ctx, current, args.participants.filter((entry) => entry !== args.line));
+    }
     return null;
   },
 });
@@ -403,7 +417,11 @@ async function guestTurn(
   }
   // Who is here now, in the chat's group and on its folder (`lib/textGroupGuestSync.ts`).
   const current = await ctx.db.get(chat._id);
-  if (current !== null) await syncChatPeople(ctx, current, binder, people);
+  if (current !== null) {
+    await syncChatPeople(ctx, current, binder, people);
+    // And by number, hashed, so a guest can open what the chat reads with a texted code (`lib/guestPhones.ts`).
+    await syncChatPhones(ctx, current, others);
+  }
   const actor = taggerMember && senderUser !== null ? senderUser : binder;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -425,7 +443,7 @@ async function guestTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const tagger = taggerMember ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
   const handle = taggerMember ? await handleOf(ctx, actor) : "";
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -491,8 +509,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  const mail = await mailSharesNamed(ctx, (await ctx.db.get(chat._id)) ?? chat);
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(mail.length > 0 ? { mail } : {}) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 /** A person's handle: their personal workspace's slug, or "" when they have none. */

@@ -113,3 +113,69 @@ person already changed; texting what a stopped job says on its way out
 ignores the stop. Tests: `apps/agent/src/jobSteer.test.ts`, and the steer and
 step checks in `apps/mcp/test/agentBackground.test.mjs`,
 `agentBackgroundRoute.test.mjs` and `agentSteer.test.mjs`.
+
+### The live view of what's running (2026-10-29)
+
+Dev2 asked for a card that shows the running threads, each tapped to see
+what it is doing, so iMessage works more like an agent chat, and for it to
+work in groups too. When Tex starts a job, or is asked what it is working on,
+it adds `[card threads]` (`background.js` tells it to, and `DATA_CARDS_LINE`
+says when). The texting Worker then mints a link to the chat's live view
+(`apps/agent/src/jobs.ts` `mintThreadsLink`): a one-to-one chat with Context
+cards gets a card that the Messages extension opens (`/tex/threads` →
+`/messages/threads`), and anyone else, every group included, gets the link
+in words, because Sendblue App Cards are one-to-one only. The page
+(`infra/router/src/messagesThreads.ts`) reads the chat's jobs through the
+router's `TEXTS` binding to the texting Worker. It lists each job's title,
+state, status line and last steps, opens the running ones, and reloads every
+ten seconds while one runs.
+
+The link is a bearer link, and that was the decision: 256 random bits per
+link, kept in the chat's own object for six hours, the newest four per chat,
+with the same "this view has ended" page for every miss. It shows only what
+every texted turn of that chat is already told about its jobs (titles,
+status, steps as tool and target, never a note's text, never the ask), so a
+forwarded link reveals what anyone in the chat could ask Tex for, and stops
+working within hours. The page has no script and sets its own policy. A
+self-hosted router without the binding shows the ended page. Simplifying
+the token check away exposes every chat's jobs to anyone who guesses an
+object id. Tests: `apps/agent/src/threadsView.test.ts`,
+`infra/router/src/messagesThreads.test.ts` (sabotage records in each header).
+
+The 3-job limit is told when it bites. The gateway refuses a fourth job with
+words for Tex to say, and since 2026-10-29 a job lost to two texts racing
+past the limit, or one that could not be handed off, gets a line in the
+answer (`notStartedText`) instead of a silent "on it".
+
+**One job texts one result** (2026-10-29, Tex Devs review c95b1e). A job's
+Durable Object was reset under its pass, the workflow retried the step, and
+two turns of the same job ran side by side: one texted "I couldn't save the
+page update" with a bug report, the other, after re-arming the finished job,
+"the save went through after all". Each pass now takes the job's lease
+(`jobRun.ts` `PASS_KEY`) when its turn starts; a pass that finds the lease
+taken or gone when its turn returns says and stores nothing (`stale_pass` in
+the log), and the chat's inbox texts one finishing word per job, from the
+pass that sent it first (`jobs.ts` `finalPass`; the same pass offering it
+again is still taken). Dropping the lease brings back two answers that
+disagree. Tests: `apps/agent/src/jobPass.test.ts`.
+
+**Every job reports to the chat's own turn, never to the chat** (Dev2,
+2026-10-30: "if something is going in a background task it should always
+report to the coordinator, no exceptions, the coordinator should have
+complete authority over the background processes, provide steering etc").
+Whatever a job would have said (its result, the line saying it couldn't
+finish, a sign-in link on its way) is queued by the chat's inbox as a turn
+of the chat itself (`apps/agent/src/jobTexts.ts`: `event: "job_report"`,
+the words as `jobReport`; in a 1:1 chat a turn the Worker asks for, in a
+group its asker's tag run the way a chat routine's is). That turn, the
+coordinator, is asked the gateway's own line and shown the report as the
+job's words, which vouch for nothing (`apps/mcp/src/agent/jobReport.js`;
+the turn counts as having read from outside). It checks the report against
+the chat and the notes it names, then texts it in its own words with the
+page's cover, fixes it, starts the job again on the person's own words,
+steers a running job with its own note (`steer_job` `note`, passed to the
+job marked as the coordinator's, never as theirs), or answers SKIP. A job's
+own answer is no longer kept in the conversation as said; only the
+coordinator's turn is. Texting a job's words straight in again, for any
+kind of update, breaks the rule. Tests: `apps/agent/src/jobReports.test.ts`,
+`groupJobs.test.ts`, `apps/mcp/test/agentBackgroundRoute.test.mjs`.

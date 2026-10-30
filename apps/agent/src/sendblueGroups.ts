@@ -16,9 +16,10 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
 import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
-import { holdsAsYes, takesBackYes } from "./thumbs";
+import { holdsAsAnswer, takesBackYes } from "./thumbs";
 import { call, E164, getJson, handleOf, isLinkPreview, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
 import type { InboundAttachment } from "./inbound";
+import type { JobReport } from "./jobs";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
 const MAX_GROUP_ID = 200;
@@ -55,6 +56,8 @@ export type GroupMessage = {
   attachments?: InboundAttachment[];
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
   routine?: { runId: string; path: string };
+  /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
+  jobReport?: JobReport;
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };
@@ -90,7 +93,7 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
   if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
   // A like on an ask, or one taken back off it, is read: it may be the asker's yes (`thumbs.ts`). Any other tapback is not.
   const reaction = TAPBACK.test(text) ? (readTapback(text) ?? readRemovedTapback(text)) : null;
-  if (TAPBACK.test(text) && (reaction === null || !(holdsAsYes(reaction) || takesBackYes(reaction)))) return { kind: "ignored", reason: "reaction" };
+  if (TAPBACK.test(text) && (reaction === null || !(holdsAsAnswer(reaction) || takesBackYes(reaction)))) return { kind: "ignored", reason: "reaction" };
   const replyTo = handleOf(payload.reply_to);
   return {
     kind: "group-message",

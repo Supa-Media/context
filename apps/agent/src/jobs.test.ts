@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LINES, JOB_STALE_MS, MAX_JOB_ATTEMPTS, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LINES, JOB_STALE_MS, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -88,8 +88,8 @@ describe("background jobs", () => {
       place: { chatId: "chat_1", messageId: "m1" },
       spawn: async (_id: string, job: JobRun) => void spawned.push(job),
     };
-    expect(await startJobs(storage, [{ title: "Competitor research", brief: "b" }, { title: "competitor  research!", brief: "b" }], context)).toBe(1);
-    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toBe(2);
+    expect(await startJobs(storage, [{ title: "Competitor research", brief: "b" }, { title: "competitor  research!", brief: "b" }], context)).toEqual({ started: 1, notStarted: [] });
+    expect(await startJobs(storage, [{ title: "Trip plan", brief: "b" }, { title: "Gift ideas", brief: "b" }, { title: "Fourth one", brief: "b" }], context)).toEqual({ started: 2, notStarted: ["Fourth one"] });
     expect(spawned.map((job) => job.title)).toEqual(["Competitor research", "Trip plan", "Gift ideas"]);
     expect(spawned[0]).toMatchObject({ inbox: PHONE, attempt: 1, origin: { kind: "phone", question: "q" } });
     const listed = await chatJobs(storage, NOW);
@@ -98,8 +98,16 @@ describe("background jobs", () => {
 
     const failing = { ...context, spawn: async () => Promise.reject(new Error("no")) };
     const other = new MemoryStorage();
-    expect(await startJobs(other, [{ title: "x y", brief: "b" }], failing)).toBe(0);
+    expect(await startJobs(other, [{ title: "x y", brief: "b" }], failing)).toEqual({ started: 0, notStarted: ["x y"] });
     expect(await chatJobs(other, NOW)).toEqual([]);
+  });
+
+  it("tells them about a job it said it started that never did, and says nothing when every one started", () => {
+    expect(notStartedText([])).toBeUndefined();
+    const said = notStartedText(["Fourth one"]);
+    expect(said).toContain('"Fourth one"');
+    expect(said).toContain(`${MAX_RUNNING_JOBS} jobs at once`);
+    expect(notStartedText(["A", "B"])).toContain('"A" and "B"');
   });
 
   it("forgets finished jobs after a while, and marks one that died as stopped", async () => {
@@ -191,8 +199,8 @@ describe("background jobs", () => {
     await acceptJob(storage, run(), NOW);
     const busy = { status: 503, body: { error: "model_unavailable" } };
     const { deps, reports } = jobDeps([busy, busy, busy]);
-    await runJob(storage, deps);
-    expect(storage.alarms.at(-1)).toBeGreaterThan(NOW);
+    // The pass says when to try again; its driver (workflow or alarm, `armJobNext`) waits.
+    expect(await runJob(storage, deps)).toMatchObject({ kind: "after" });
     await runJob(storage, deps);
     await runJob(storage, deps);
     expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [JOB_LINES.failed("Competitor research")] });
@@ -204,10 +212,10 @@ describe("background jobs", () => {
     const { deps, asked, reports } = jobDeps([], { linked: false });
     await runJob(storage, deps);
     expect(asked).toEqual([]);
-    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0 }]);
+    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0, pass: expect.any(String) }]);
   });
 
-  it("texts the result under the ask it came from, and an update offered again repeats no text", async () => {
+  it("hands the result to the chat's own turn under the ask it came from, never texting it, and queues an update offered again once", async () => {
     const storage = new MemoryStorage();
     await startJobs(storage, [{ title: "Competitor research", brief: "b" }], {
       now: NOW,
@@ -230,11 +238,14 @@ describe("background jobs", () => {
       gatewayOrigin: "",
       now: () => NOW + 1,
     };
-    const update: JobUpdate = { id, state: "done", status: "Wrote it.", texts: ["Wrote it.", "https://context.lc/n/abc"], first: 0 };
+    const update: JobUpdate = { id, state: "done", status: "Wrote it.", texts: ["Wrote it.", "https://context.lc/n/abc"], first: 0, asked: { from: PHONE, text: "q" } };
     expect(await jobUpdate(storage, deps, update)).toBe(true);
     expect(await jobUpdate(storage, deps, update)).toBe(true);
-    expect(sent.map((entry) => entry.text)).toEqual(["Wrote it.", "https://context.lc/n/abc"]);
-    expect(sent[0].key).toBe(`job:${id}:0`);
+    expect(sent).toEqual([]);
+    const queued = [...(await storage.list<{ message: Message }>({ prefix: "pending:" })).values()].map((item) => item.message);
+    expect(queued).toEqual([
+      expect.objectContaining({ chatId: "chat_1", from: PHONE, messageId: "m_ask", text: "q", event: "job_report", jobReport: { title: "Competitor research", state: "done", texts: ["Wrote it.", "https://context.lc/n/abc"] } }),
+    ]);
     const [listed] = await chatJobs(storage, NOW + 1);
     expect(listed).toMatchObject({ state: "done", status: "Wrote it.", finishedAt: NOW + 1 });
     expect(await jobUpdate(storage, deps, { id: "someone-elses", state: "done" })).toBe(false);

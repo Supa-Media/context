@@ -19,9 +19,12 @@ import { isolateForDisplay } from "../../../shared/src/displayText.cjs";
  * party vouching for itself.
  *
  * What the host *can* see is the `load` event, and that is exact rather than a
- * heuristic. `srcdoc` is written once, from a `useMemo` constant, and is never
- * re-set for the life of the element — so the first load is the document we
- * wrote and any later one is a document somebody else chose.
+ * heuristic. On the web the frame's `src` is set once, to the sandbox page
+ * the build writes from `pluginSandboxDocument()`, and is never re-set for the
+ * life of the element — so the first load is that document and any later one
+ * is a document somebody else chose. (The router answers that path only with
+ * the sandbox page itself, never the console's fallback; see
+ * `infra/router/src/pluginSandbox.ts`.)
  *
  * A frame that is no longer ours must be handed nothing further: not the
  * sandbox nonce, not the bundle, and no answer to an `rpc` it sends. After a

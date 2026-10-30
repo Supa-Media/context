@@ -42,3 +42,29 @@ being two questions; replies, tapbacks and photos never being steered or
 folded ([runtime](./runtime.md)); code alone deciding when an ask stops
 listening ([thumbs-up](./thumbs-up.md)); corrections judged on the person's
 words, never the model's ([honest answers](./honest-answers.md)).
+
+## Decide picks the reaction and may wait (Dev2, 2026-10-27)
+
+When decide says react, it also picks the emoji, from a curated 64 (one
+typed question offers at most 64 options): `apps/convex/functions/lib/reactEmoji.ts`,
+with the same list kept as the texting Worker's allowlist
+(`apps/agent/src/reactEmoji.ts`) and pinned by a test in each app. An emoji
+outside the 64 is never sent; the one picked from the words (`ackEmoji.ts`)
+goes instead. A react goes out at once.
+
+Decide may also say `wait`: the newest message is part of a burst still being
+typed. In a group, the untagged messages wait until 20 seconds after the
+newest, then decide is asked again; after three waits in a row Tex answers. A
+message addressed to Tex is never delayed by a wait. A 1:1 treats wait as an
+answer, since its texts already wait for each other. An answer keeps today's
+flow: an ack tapback at once, the reply when it is ready.
+
+Shortened by Dev2, 2026-10-28, after a single untagged text waited about 24
+seconds: a wait is believed only on a real burst (the sender sent another
+message within 20 seconds, or the newest one looks unfinished: a trailing
+comma, "and", "but", "so", "or", an ellipsis, or a fragment under four words
+with no end punctuation), so a single complete message is never held. A wait
+lasts 8 seconds, counted from when it was decided (or from the sender's
+newest message, which starts it again), and happens at most once. Counting it
+from the newest message alone let a wait decided late end before it began,
+which made three decides run within two seconds.

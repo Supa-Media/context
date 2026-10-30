@@ -8,8 +8,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import {
   IN_APP_MESSAGES,
   MESSAGE_VARIANT_PATTERN,

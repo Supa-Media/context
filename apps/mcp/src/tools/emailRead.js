@@ -2,11 +2,10 @@
  * `search_email` and `read_email`: the person's mail, read live from Gmail
  * (`docs/decisions/communications/reading-mail.md`).
  *
- * Each connected mailbox still keeps the person's notes current (the sync,
- * pushed by Google), but a search asks Gmail first, over all of the mail: the
- * synced day notes are too long for note search to find a message in them
- * (2026-10-20, reversing "synced first" of 2026-10-18). The notes answer only
- * for a mailbox Gmail could not: one whose sign-in stopped working, one that
+ * A search asks Gmail, over all of the mail, at the moment of the call. No
+ * mailbox is copied into the person's notes any more (owner, 2026-10-21,
+ * `docs/decisions/communications/live-not-copied.md`); mail notes left under
+ * the Inbox from before then answer only for a mailbox Gmail could not: one whose sign-in stopped working, one that
  * did not answer, or every one once the hour's reads are spent. A mailbox
  * whose sign-in stopped working is named, so the person is told to reconnect
  * it. Opening a result reads that one message from Gmail. Nothing read from
@@ -16,6 +15,7 @@
 import { searchOne } from "./search.js";
 import { fileWords, QUOTATION, typeOfFile } from "./readFile.js";
 import { toolError, toolText } from "./results.js";
+import { AI_ACCESS_STEP, aiAccessLine } from "./googleAiAccess.js";
 import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { inboxFolders, underInbox } from "../communications/inboxFolders.js";
 
@@ -49,6 +49,7 @@ export const REFUSED = {
   no_mailbox: "The person has no Gmail connected. They can connect one with manage connect_google.",
   rate_limited: "Too many email reads this hour. Try again later, or look in their synced mail notes by date.",
   reconnect_required: "Their Gmail sign-in stopped working, so it cannot be read and its mail has stopped syncing. They need to reconnect it with manage connect_google.",
+  ai_access_needed: `AI access isn't allowed yet for their Gmail, so it can't be read. ${AI_ACCESS_STEP}`,
   not_found: "Gmail no longer has that email, or that attachment.",
   too_large: "That attachment is over the 10 MB a file is read at.",
   unavailable: "Gmail did not answer just now.",
@@ -77,6 +78,7 @@ export async function toolSearchEmail(store, scope, rules, overrides, args) {
   } catch {
     answer = { ok: false, refused: "unavailable" };
   }
+  if (answer?.refused === "ai_access_needed") return toolError(aiAccessLine(answer.aiAccess, "mail") ?? REFUSED.ai_access_needed);
   if (!answer?.ok && !FALLS_BACK.has(answer?.refused)) return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
   // Gmail matches only mail holding every word, so a long list of them finds
   // nothing, and Tex said a thread it later opened was not in Gmail
@@ -152,6 +154,8 @@ export async function toolSearchEmail(store, scope, rules, overrides, args) {
         "its sign-in, so its mail is not being searched and has stopped syncing. They reconnect it with manage connect_google.",
     );
   }
+  const allow = aiAccessLine(answer?.aiAccess, "mail");
+  if (allow !== null) lines.push("", allow);
   if (answer?.ok && unanswered.size > 0) {
     lines.push("", `Gmail did not answer for ${[...unanswered].join(", ")} just now, so its synced notes were searched instead.`);
   }

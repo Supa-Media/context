@@ -234,7 +234,20 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 14,500 when they were told when to answer with a designed card and keep the words to one line (visuals/index.js, VISUALS_LINE, 2026-10-26; 15,189 then).
   // and from 15,500 when asked-for options carry the fact that decides each, and a card that won't draw leaves the words (RESEARCH_LINE, VISUALS_LINE, 2026-10-26; 15,576 then).
   // and from 16,000 when they were told one name can be two people and where a lesson for Tex goes (SAME_NAME_LINE, LESSONS_LINE, 2026-10-26; 16,120 then).
-  assert.ok(system.length < 16_500, `system was ${system.length} characters`);
+  // and from 16,500 when every new note became a designed page unless they ask for a plain one (prompt.js, PAGES_LINE, 2026-10-27; 16,6xx then).
+  // and from 17,000 when asked-for options keep their number, fit their use and carry only their own price (RESEARCH_LINE, 2026-10-28; 17,2xx then).
+  // and from 17,500 when they were told to look before asking, and what "fix yourself" asks (lookFirst.js, LOOK_FIRST_LINE, 2026-10-28; 17,7xx then).
+  // and from 18,000 when they were told to offer a card on their own week or inbox (outgoingPictures.js, DATA_CARDS_LINE, 2026-10-29; 18,2xx then).
+  // and from 18,500 when a drawn card was said to arrive as a Context card, and a time to meet names open slots (PICTURES_LINE, SYNCED_PLACES_LINE, 2026-10-29; 18,6xx then).
+  // and from 19,000 when a yes-or-no question was told to invite a 👍 or 👎, never "say yes" (chatVoice.js, YES_NO_LINE, 2026-10-30; 19,0xx then).
+  assert.ok(system.length < 19_500, `system was ${system.length} characters`);
+});
+
+test("every new note a texted turn makes is a designed page (owner, 2026-10-27)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /Every new note you make is a page: a note named <name>\.page\.md, never a plain \.md, unless they ask for a plain note/);
+  assert.match(system, /orient about: "pages"/);
 });
 
 test("a texted turn does the reorganizing it's asked for itself (owner, 2026-10-25)", async () => {

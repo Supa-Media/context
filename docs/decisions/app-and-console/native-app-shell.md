@@ -1,5 +1,16 @@
 # App and console — native app shell
 
+### Native menu gesture containers do not group their actions (2026-10-28)
+
+On the installed release runtime, opening the account menu exposed only
+"Close menu" to iOS accessibility; Settings and Meetings were visible but not
+separate targets. A native Pressable is accessible by default, so the scrim
+and the inner gesture-swallowing wrapper grouped all descendant rows. Both
+containers use `accessible={false}`; each action and the visible Cancel row
+remain independently accessible. Removing either flag fails
+`menuRender/nativeAccessibility.test.ts`, whose harness models iOS grouping
+because react-native-web does not. The change ships as JavaScript through OTA.
+
 ### The note count is measured, stamped, and allowed to be a floor
 
 For two issues running (#20, #25) the console printed facts about somebody's
@@ -339,3 +350,19 @@ and Android. Removing the native plan guard makes both rendering cases fail.
 Apple guideline 3.1.3(f) is the intended free-companion route; this is not an
 approval guarantee. The full audit and the separate notification-registration
 limits are in [App Store readiness](../../app-store-readiness.md).
+
+
+### Messages uses Xcode's Messages product type
+
+The Context Messages target must use `com.apple.product-type.app-extension.messages`,
+as Apple's native Messages extension template does. Creating it through
+node-xcode's generic `app_extension` helper still handles embedding, but the
+plugin then sets the Messages product type, including when repairing an
+already generated target. A generic extension makes actool reject the
+`.stickersiconset` as having no applicable content, even though Swift compiles.
+The marketing icon also declares `platform: ios`, matching Apple's catalog
+slot; otherwise the 1024 × 768 image is unassigned.
+
+The plugin regression exercises both a new target and an existing generic
+target. CI compiles the icon catalog as well as type-checking Swift, so a
+catalog failure is caught before the separate production native build.

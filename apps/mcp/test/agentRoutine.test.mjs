@@ -458,7 +458,7 @@ export async function runAgentRoutineChecks(check) {
       },
       { text: "Done." },
     ]);
-    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips" });
+    const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips in a plain note" });
     const madeRequest = model.requests.at(-2);
     const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write");
     check(

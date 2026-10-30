@@ -218,6 +218,6 @@ export function slowestStep(
 }
 
 /** The tiny strip on a recent row: each step's share of the turn, in order. */
-export function stepStrip(turn: Pick<AgentTurnRow, "ms" | "trace">): { kind: "model" | "tool"; ok: boolean; width: number }[] {
+export function stepStrip(turn: Pick<AgentTurnRow, "ms" | "trace">): { kind: WaterfallStep["kind"]; ok: boolean; width: number }[] {
   return waterfall(turn).map((step) => ({ kind: step.kind, ok: step.ok, width: step.width }));
 }

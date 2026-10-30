@@ -38,6 +38,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Tex's saved Browserbase profile (`agent/browserProfile.js`), filed under
+  // this session's workspace; the control plane makes and releases it.
+  Object.defineProperty(store, "browserProfiles", {
+    value: {
+      get: (owner, chat) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, chat }),
+      forget: (owner) => controlPlane.browserProfile(session.accessToken, session.workspaceId, { owner, forget: true }),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
   // read back only by the grant that joined.
   Object.defineProperty(store, "mail", {
@@ -87,6 +98,8 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       spaces: () => controlPlane.googleChatSpaces(session.accessToken, session.workspaceId),
       // What was written to them lately, for a check-in (`agent/checkInSources.js`).
       recent: (request) => controlPlane.googleChatRecent(session.accessToken, session.workspaceId, request),
+      // One conversation the person named, read live (`tools/googleChatRead.js`).
+      conversation: (request) => controlPlane.googleChatConversation(session.accessToken, session.workspaceId, request),
     },
     enumerable: false,
     writable: false,
@@ -185,7 +198,7 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // The Convex tree, for the agent tools that list (`tree/served.js`). The
   // control plane picks the workspace and clearance off this token's grant.
   Object.defineProperty(store, "treeManifest", {
-    value: (page) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page),
+    value: (page, options) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page, options),
     enumerable: false,
     writable: false,
     configurable: true,

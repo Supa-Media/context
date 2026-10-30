@@ -20,7 +20,7 @@
  */
 
 import { v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "./lib/signedIn";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { MAX_BLOCKS, insertBlock, removeBlock } from "./lib/blocks";

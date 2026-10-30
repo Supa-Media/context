@@ -372,6 +372,28 @@ describe("coming back from Stripe with a managed bucket", () => {
     expect(harness.current().finished).toBe(false);
     harness.unmount();
   });
+
+  test("but not once the bucket exists with its folders on the way", async () => {
+    /*
+      The wait somebody signing up was left looking at: a new key propagating,
+      up to two minutes. The control plane now writes the folders from that
+      same check and stamps the binding when it is made, so the console — which
+      draws the folders arriving — is where those seconds are spent, and the
+      app asks for no layout of its own.
+    */
+    const deployment = settledManagedDeployment("unverified");
+    const harness = mountOnboarding(
+      {
+        ...deployment,
+        "functions/storage:getStorageBinding": { status: "unverified", scaffoldQueuedAt: Date.now() },
+      },
+      { resume: "storage", checkout: "done" },
+    );
+    await harness.notify();
+    expect(harness.current().finished).toBe(true);
+    expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
+    harness.unmount();
+  });
 });
 
 /*

@@ -20,8 +20,9 @@
  *   in a 1:1 chat, taken as `quoted` (they are the person's own chat); in a
  *   group only the id is kept (`replyTo`), and the words are read only when
  *   Tex sent that message (`groupLine.ts`);
- * - an @mention of Tex's own number reads as its name, so "@Tex what's on
- *   today" is a tag (`groupInbox.ts`).
+ * - an @mention of Tex reads as its name, so "@Tex what's on today" is a
+ *   tag (`groupInbox.ts`), whether the words carry Tex's number or a `@lid`
+ *   that `context.mentions` says is Tex (`namingTex`).
  */
 
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
@@ -192,9 +193,7 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
     return { ...base, text: emoji, reaction, reactionOn: action.target } satisfies GroupMessage;
   }
   const media = MEDIA_TYPES.has(type) ? rec(message[type]) : null;
-  // Tex is named by its own number in a mention; it reads as its name, and the digits never reach the gateway.
-  const digits = line.slice(1);
-  const text = wordsOf(message, media).replace(new RegExp(`@${digits}(?!\\d)`, "g"), "Tex").trim().slice(0, MAX_INBOUND_TEXT);
+  const text = namingTex(wordsOf(message, media), rec(message.context)?.mentions, line).trim().slice(0, MAX_INBOUND_TEXT);
   const attachment = media === null ? null : attachmentOf(media);
   if (text === "" && attachment === null) return { kind: "ignored", reason: "empty" };
   const quotedId = rec(message.context)?.quoted_id;
@@ -205,6 +204,35 @@ function groupEvent(message: Rec, id: string, chatId: string, line: string, type
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(attachment !== null ? { attachments: [attachment] } : {}),
   };
+}
+
+/**
+ * A group text with each @mention of Tex read as its name, so "@Tex where is
+ * the page" is a tag (`groupInbox.ts`) and the digits never reach the gateway.
+ *
+ * WhatsApp writes a mention into the words as `@<digits>` and lists who it
+ * names in `context.mentions`, in the same order. In a group the digits are
+ * usually the person's private group id (a `@lid`), not their number, while
+ * the list names Tex by its phone (seen 2026-10-27), so the list says which
+ * `@<digits>` is Tex. Tex's own number written out reads as Tex too. When the
+ * list names Tex but the words hold no matching mention, the text is read as
+ * addressed to Tex all the same.
+ */
+export function namingTex(words: string, mentions: unknown, line: string): string {
+  const digits = line.slice(1);
+  const listed = Array.isArray(mentions) ? mentions.slice(0, 50).map((id) => (typeof id === "string" ? phoneOfJid(id) : null)) : [];
+  const texListed = listed.includes(line);
+  let index = 0;
+  let named = false;
+  const text = words.replace(/@(\d{5,20})(?!\d)/g, (whole, found: string) => {
+    const at = index++;
+    if (found === digits || (listed.length > at && listed[at] === line)) {
+      named = true;
+      return "Tex";
+    }
+    return whole;
+  });
+  return texListed && !named ? `Tex ${text}` : text;
 }
 
 /** A 1:1 reaction: an empty emoji takes the tapback back; any other emoji names one. */

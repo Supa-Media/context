@@ -26,6 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
+import { saysSkip } from "./groupRoutines";
 import {
   askAgent,
   askLine,
@@ -41,7 +42,11 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import type { Steer } from "./steer";
 import { textsFromAnswer, textsWithExact } from "./format";
+import { saveTextsStyle, textSettings, type MenuState, type SettingStep, type TexStyle } from "./texStyle";
+import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
+import type { Choice } from "./pickCard";
+import type { Offer } from "./dataCards";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
@@ -50,7 +55,9 @@ import type { Inbound } from "./inbound";
  * replies are written to its log instead of sent (simulator.ts); a Linq
  * delivery never carries it.
  */
-export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator" };
+/** `setting`: a "Tex, settings" text or a reply to its menu, answered by code and never put to decide (`texStyle.ts`). */
+/** `askYes`: a like, love or dislike held as the answer to an ask (`thumbs.ts`), set only by `react`; answered by code, never put to decide. */
+export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
   fetch: Fetch;
@@ -80,7 +87,9 @@ export type ReplyDeps = {
   /** Told when the turn texted a link to save a login (`vaultWatch.ts`); absent, nothing watches for the save. */
   onVaultLink?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
-  onPictures?: (pictures: OutgoingPicture[]) => void;
+  onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
+  /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
+  onOffers?: (offers: Offer[]) => void;
   /**
    * Not the last try (`inbox.ts`): a text that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -103,9 +112,19 @@ export type ReplyDeps = {
    * started (`jobs.ts`). Absent, the turn is offered none.
    */
   running?: RunningJob[];
-  onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
+  onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
   onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  /**
+   * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
+   * the person's style each session so the quick tapback can follow it.
+   * Absent, settings texts go to the model like any other.
+   */
+  settings?: { state: () => Promise<MenuState | undefined>; open: (step?: SettingStep) => Promise<void>; close: () => Promise<void> };
+  onTexStyle?: (style: TexStyle | undefined) => Promise<void>;
+  /** A texted yes to sharing with the devs: file what this chat keeps, once (`reviewWatch.ts` `watchShared`). */
+  onShared?: () => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -218,6 +237,20 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
 
     if (message.sms) return COPY.sms;
+    await deps.onTexStyle?.(session.texStyle);
+    // "Tex, settings", a reply to its menu, or "less emoji": set by the person, never the model (`texStyle.ts`).
+    const settings = deps.settings && !message.event
+      ? await textSettings(message.text, session.texStyle ?? {}, deps.settings, (patch) => saveTextsStyle(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, patch))
+      : null;
+    if (settings !== null) return settings;
+    // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
+    const sharing = message.event ? null : sharingWords(message.text);
+    if (sharing !== null) {
+      const answer = await saveReviewSharing(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, sharing);
+      const backfill = sharing === "on" && answer?.status === "ok" && answer.changed && deps.onShared !== undefined;
+      if (backfill) await deps.onShared?.();
+      return sharingReply(sharing, answer, { backfill });
+    }
 
     // Files are fetched only for a linked phone, and only now: an unlinked
     // stranger's photo is never downloaded.
@@ -237,7 +270,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, covers: deps.covers, chat: message.chatId, told: deps.told },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
     );
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
@@ -246,15 +279,18 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
-      if (answer.jobs) await deps.onJobs?.(answer.jobs);
+      const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
       if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
-      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
-      if (!answer.text) return [];
+      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
+      if (answer.offers) deps.onOffers?.(answer.offers);
+      const after = notStarted ? [notStarted] : [];
+      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`).
+      if (!answer.text || (message.event === "job_report" && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0)) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      return textsWithExact(answer.text, answer.verbatim);
+      return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.

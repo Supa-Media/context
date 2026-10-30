@@ -197,9 +197,11 @@ module.exports = [
       exist. `URL` earns its place rather than being convenience: `assetPath.js`
       builds the font base from `document.baseURI` with it, because the relative
       string it replaced was silently resolved against the origin instead.
-      The Mermaid frame (`diagram-frame/`) is a page of the same kind.
+      The Mermaid frame (`diagram-frame/`) and the page runtime
+      (`page-frame/`) are pages of the same kind; the runtime also measures
+      itself, hence `ResizeObserver`.
     */
-    files: ["drawing-editor/**/*.{js,jsx}", "diagram-frame/**/*.js"],
+    files: ["drawing-editor/**/*.{js,jsx}", "diagram-frame/**/*.js", "page-frame/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -209,6 +211,21 @@ module.exports = [
         document: "readonly",
         console: "readonly",
         URL: "readonly",
+        ResizeObserver: "readonly",
+      },
+    },
+  },
+  {
+    /*
+      The page runtime walks text with a TreeWalker and debounces its saves,
+      which the pages above never needed.
+    */
+    files: ["page-frame/**/*.js"],
+    languageOptions: {
+      globals: {
+        NodeFilter: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
       },
     },
   },
@@ -254,6 +271,10 @@ module.exports = [
         fetch: "readonly",
         Response: "readonly",
         URL: "readonly",
+        // A held shell's style nonce is minted again on every offline replay (`renonced`).
+        Headers: "readonly",
+        crypto: "readonly",
+        btoa: "readonly",
       },
     },
   },

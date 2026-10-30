@@ -24,6 +24,7 @@
 import { esc, list } from "./kit.js";
 import { kmBetween } from "./distance.js";
 import { downloadPhoto, names } from "./photos.js";
+import { lengthWords, routeThrough } from "./route.js";
 
 export const MAP_WIDTH = 536;
 /** The strip above a places card's rows, and the map of the `map` template. */
@@ -91,12 +92,14 @@ function whole(street, near) {
  * names its street part as whole words.
  */
 export function vouchedAddress(street, { locates = null, read = "" } = {}) {
-  if (typeof locates === "function") return locates(street) === true || locates(street.split(",")[0]) === true;
-  return typeof read === "string" && names(read, street.split(",")[0]);
+  // "360 E 55th St (at 1st Ave), New York": the street part is what a page writes the same way.
+  const part = street.replace(/\([^)]*\)/g, " ").split(",")[0].replace(/\s+/g, " ").trim();
+  if (typeof locates === "function") return locates(street) === true || locates(part) === true;
+  return typeof read === "string" && names(read, part);
 }
 
 /** Google's map of the stops: one picture, pins numbered and coloured like the card's rows. */
-export function googleMapUrl(stops, { key, width = MAP_WIDTH, height = MAP_HEIGHT, route = false }) {
+export function googleMapUrl(stops, { key, width = MAP_WIDTH, height = MAP_HEIGHT, route = false, path = null }) {
   const url = new URL(GOOGLE_STATIC);
   url.searchParams.set("size", `${width}x${height}`);
   url.searchParams.set("scale", "2");
@@ -110,7 +113,9 @@ export function googleMapUrl(stops, { key, width = MAP_WIDTH, height = MAP_HEIGH
   url.searchParams.append("style", "feature:water|element:geometry|color:0xdfe3ea");
   url.searchParams.append("style", "element:labels.text.fill|color:0x635c52");
   for (const stop of stops) url.searchParams.append("markers", `size:mid|color:0x${stop.color.slice(1)}|label:${stop.n}|${stop.address}`);
-  if (route && stops.length > 1) url.searchParams.append("path", `color:0x1A1714CC|weight:4|${stops.map((stop) => stop.address).join("|")}`);
+  // The way along streets when the router found it (`./route.js`), else a straight line between the stops.
+  if (typeof path === "string" && path !== "") url.searchParams.append("path", `color:0x2A45CFE6|weight:5|enc:${path}`);
+  else if (route && stops.length > 1) url.searchParams.append("path", `color:0x1A1714CC|weight:4|${stops.map((stop) => stop.address).join("|")}`);
   if (stops.length === 1) url.searchParams.set("zoom", "15");
   url.searchParams.set("key", key);
   return url.toString();
@@ -127,12 +132,14 @@ export function worldPixel(lat, lng, zoom) {
  * The tiles and pin spots for points on a `width` x `height` map: the closest
  * zoom that keeps every pin inside, centred on them.
  */
-export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT } = {}) {
+export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT, path = [] } = {}) {
   const roomX = width - PAD.left - PAD.right;
+  // The path is fitted too: a loop that runs past its stops stays on the map.
+  const all = [...points, ...path];
   const roomY = height - PAD.top - PAD.bottom;
   let zoom = MIN_ZOOM;
   for (let z = MAX_ZOOM; z >= MIN_ZOOM; z--) {
-    const px = points.map((p) => worldPixel(p.lat, p.lng, z));
+    const px = all.map((p) => worldPixel(p.lat, p.lng, z));
     const spanX = Math.max(...px.map((p) => p.x)) - Math.min(...px.map((p) => p.x));
     const spanY = Math.max(...px.map((p) => p.y)) - Math.min(...px.map((p) => p.y));
     if (spanX <= roomX && spanY <= roomY) {
@@ -140,8 +147,8 @@ export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT } = 
       break;
     }
   }
-  if (points.length === 1) zoom = Math.min(zoom, 15);
-  const px = points.map((p) => worldPixel(p.lat, p.lng, zoom));
+  if (all.length === 1) zoom = Math.min(zoom, 15);
+  const px = all.map((p) => worldPixel(p.lat, p.lng, zoom));
   const midX = (Math.max(...px.map((p) => p.x)) + Math.min(...px.map((p) => p.x))) / 2;
   const midY = (Math.max(...px.map((p) => p.y)) + Math.min(...px.map((p) => p.y))) / 2;
   // Centre the room the pins have, not the strip: a pin's head sits above its point.
@@ -157,7 +164,8 @@ export function tileLayout(points, { width = MAP_WIDTH, height = MAP_HEIGHT } = 
     }
   }
   const pins = points.map((p, i) => ({ n: p.n, color: p.color, left: Math.round(px[i].x - left), top: Math.round(px[i].y - top) }));
-  return { zoom, tiles, pins };
+  const line = px.slice(points.length).map((p) => [Math.round(p.x - left), Math.round(p.y - top)]);
+  return { zoom, tiles, pins, line };
 }
 
 /**
@@ -176,25 +184,43 @@ function none(reason, said = null) {
   return { map: null, reason: said };
 }
 
+/** No card at all: drawing it without the map would answer a different question. */
+function refused(reason, said) {
+  logMap("refused", { reason });
+  return { map: null, reason: said, refuse: true };
+}
+
 export async function drawMap(template, data, { key = "", geocode = null, locates = null, read = "", fetchImpl = fetch, offset = 0, height = MAP_HEIGHT } = {}) {
   const all = mapStops(template, data);
   if (all.length === 0) return none("no_address", template === "map" ? "No stop had an address, so the map was left off." : null);
   const stops = all.filter((stop) => vouchedAddress(stop.street, { locates, read }));
-  if (stops.length === 0) return none("unseen", "Map left off: put each place's street address as you read it.");
+  // A map card missing a stop answers a different question (a loop with one pin): it is not drawn until every stop's address was looked up.
+  const unseen = all.filter((stop) => !stops.includes(stop));
+  if (template === "map" && unseen.length > 0) {
+    const which = unseen.map((stop) => stop.n).join(", ");
+    return refused("unseen_stop", `Not drawn: stop ${which} has an address you didn't read this turn, so it can't go on the map. Look each one up (search_web '<place> address'), put the street address you read, and draw again.`);
+  }
+  if (stops.length === 0) return none("unseen", `Map left off: no address on the card was in anything you read this turn. Look each place up (search_web '<place> address'), put the street address as the page writes it, and draw again.`);
+  const route = template === "map" && (data.route === true || data.loop === true);
   // A bare street with no town anywhere on the card could be in any city: its pin is left off, the rest still drawn.
   const placed = stops.filter((stop) => stop.address !== stop.street || stop.street.includes(","));
   if (placed.length === 0) return none("no_town", "Map left off: give near (the town or neighbourhood, 'Long Island City, NY') so each pin lands in the right place.");
-  const route = template === "map" && data.route === true;
   const token = (i) => `card-photo:${offset + i + 1}`;
-  if (typeof key === "string" && key !== "") {
-    const url = googleMapUrl(placed, { key, height, route });
+  const google = typeof key === "string" && key !== "";
+  // A route is found along streets from the stops' points, so it needs the geocoder whichever map draws it.
+  const found = (route || !google) && typeof geocode === "function" ? await Promise.all(placed.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null))) : [];
+  const way = route ? await routeThrough(placed.map((stop, i) => ({ lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng })), { loop: data.loop === true, travel: data.travel, fetchImpl }) : null;
+  const length = way ? lengthWords(way.meters, townOf(placed[0].address) !== "") : null;
+  const partly = unseen.length > 0 ? `No pin for place ${unseen.map((stop) => stop.n).join(", ")}: its address wasn't in anything you read this turn. Look it up and draw again, or say which ones the map lacks.` : null;
+  const measured = way ? `The ${data.loop === true ? "loop" : "route"} measures ${length} along streets; say that length.` : route ? "The way along streets could not be found, so the line is straight between stops; don't claim a length you didn't measure." : null;
+  if (google) {
+    const url = googleMapUrl(placed, { key, height, route, path: way?.polyline ?? null });
     const image = await downloadPhoto(url, fetchImpl);
     if (image === null) return none("google_failed");
-    logMap("drawn", { provider: "google", pins: placed.length });
-    return { map: { kind: "google", image: token(0), height }, pictures: [["google-static-map", image]] };
+    logMap("drawn", { provider: "google", pins: placed.length, routed: way !== null });
+    return { map: { kind: "google", image: token(0), height, length }, pictures: [["google-static-map", image]], reason: [measured, partly].filter(Boolean).join(" ") || null };
   }
   if (typeof geocode !== "function") return none("no_geocoder");
-  const found = await Promise.all(placed.map((stop) => Promise.resolve(geocode(stop.address)).catch(() => null)));
   // The geocoder (`./distance.js`) answers { lat, lon }.
   const points = placed
     .map((stop, i) => ({ ...stop, lat: found[i]?.lat, lng: found[i]?.lon ?? found[i]?.lng }))
@@ -203,14 +229,15 @@ export async function drawMap(template, data, { key = "", geocode = null, locate
   const near50 = (a) => points.filter((b) => kmBetween(a, { lat: b.lat, lon: b.lng }) <= 50);
   const kept = points.map((p) => near50({ lat: p.lat, lon: p.lng })).sort((a, b) => b.length - a.length)[0] ?? [];
   if (kept.length === 0) return none("geocode_failed");
-  const layout = tileLayout(kept, { height });
+  const layout = tileLayout(kept, { height, path: way?.coords ?? [] });
   if (layout.tiles.length === 0 || layout.tiles.length > MAX_TILES) return none("no_tiles");
   const images = await Promise.all(layout.tiles.map((tile) => downloadPhoto(tile.url, fetchImpl, TILE_FETCH)));
   if (images.some((image) => image === null)) return none("tiles_failed");
-  logMap("drawn", { provider: "osm", pins: kept.length });
+  logMap("drawn", { provider: "osm", pins: kept.length, routed: way !== null });
   return {
-    map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route },
+    map: { kind: "tiles", height, tiles: layout.tiles.map((tile, i) => ({ ...tile, image: token(i) })), pins: layout.pins, route, line: layout.line, length },
     pictures: layout.tiles.map((tile, i) => [tile.url, images[i]]),
+    reason: [measured, partly].filter(Boolean).join(" ") || null,
   };
 }
 
@@ -227,8 +254,10 @@ function pin(p) {
 export function mapBlock(c, map) {
   if (!map || typeof map !== "object") return "";
   const height = Number(map.height) || MAP_HEIGHT;
+  // The length the router measured, on the map itself (`./route.js`): the gateway's own words, never the model's.
+  const tag = typeof map.length === "string" && /^\d+\.\d (?:mi|km)$/.test(map.length) ? `<div style="position: absolute; left: 10px; top: 10px; font-size: 14px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: rgba(255,253,249,0.94); color: #1A1714; box-shadow: 0 1px 3px rgba(16,16,28,0.18)">${esc(map.length, 10)}</div>` : "";
   const frame = (inner) =>
-    `<div style="position: relative; flex-shrink: 0; width: ${MAP_WIDTH}px; height: ${height}px; border-radius: 10px; overflow: hidden; border: 1px solid ${c.line}; background: ${c.track}">${inner}</div>`;
+    `<div style="position: relative; flex-shrink: 0; width: ${MAP_WIDTH}px; height: ${height}px; border-radius: 10px; overflow: hidden; border: 1px solid ${c.line}; background: ${c.track}">${inner}${tag}</div>`;
   if (map.kind === "google" && /^card-photo:\d{1,2}$/.test(map.image)) {
     return frame(`<div style="position: absolute; inset: 0; background: url('${map.image}') center / cover no-repeat"></div>`);
   }
@@ -238,8 +267,11 @@ export function mapBlock(c, map) {
     .map((tile) => `<div style="position: absolute; left: ${Number(tile.left)}px; top: ${Number(tile.top)}px; width: ${TILE}px; height: ${TILE}px; background: url('${tile.image}') 0 0 / ${TILE}px ${TILE}px no-repeat"></div>`)
     .join("");
   const pins = Array.isArray(map.pins) ? map.pins.filter((p) => Number.isFinite(p.left) && Number.isFinite(p.top)) : [];
+  const way = Array.isArray(map.line) ? map.line.filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) : [];
   const line =
-    map.route && pins.length > 1
+    way.length > 1
+      ? `<svg width="${MAP_WIDTH}" height="${height}" style="position: absolute; left: 0; top: 0"><polyline points="${way.map((p) => `${p[0]},${p[1]}`).join(" ")}" fill="none" stroke="#2A45CF" stroke-opacity="0.9" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+      : map.route && pins.length > 1
       ? `<svg width="${MAP_WIDTH}" height="${height}" style="position: absolute; left: 0; top: 0"><polyline points="${pins.map((p) => `${p.left},${p.top}`).join(" ")}" fill="none" stroke="#2A45CF" stroke-opacity="0.85" stroke-width="3" stroke-linejoin="round" stroke-dasharray="2 8" stroke-linecap="round"/></svg>`
       : "";
   // OpenStreetMap's licence asks for its credit on every map drawn from its tiles.

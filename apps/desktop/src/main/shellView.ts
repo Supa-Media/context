@@ -10,6 +10,7 @@ import type { TrayCommand } from "@context/desktop-bridge";
 import { episodeKey } from "../core/consent/gate.ts";
 import { MEETING_TIER_REFUSAL, grantCoversMeetings } from "../core/sync/connection.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
+import { menuBarTitle, nextUp } from "../core/calendar/upcoming.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import type { DesktopSettings } from "../core/settings.ts";
 import { CHANNELS } from "./ipc.ts";
@@ -136,7 +137,9 @@ export function createShellView(ctx: MainContext): Pick<MainActions, "pressed" |
 
   function push(): void {
     const state = uiState();
+    const next = nextUp(ctx.upcoming, Date.now());
     tray.setMenuState({
+      nextMeeting: next === null ? null : { title: next.title, hasCall: next.conferenceUrl !== null },
       recording: controller.recording,
       detectionEnabled: ctx.settings.detectionEnabled,
       imessageEnabled: ctx.settings.imessageEnabled,
@@ -150,6 +153,7 @@ export function createShellView(ctx: MainContext): Pick<MainActions, "pressed" |
         title: state.session?.title ?? state.detection?.suggestedTitle ?? null,
         pending: state.pending,
         degraded: ctx.lastUpdate?.degraded ?? [],
+        nextUp: next === null ? null : menuBarTitle(next, Date.now()),
       }),
     );
     for (const window of [panel, notepad]) {

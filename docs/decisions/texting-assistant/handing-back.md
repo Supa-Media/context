@@ -280,10 +280,23 @@ only that question (`picksBeforeAsking`). The owner set the bar the same day
 with another assistant's answer to the real chat: three named caterers, each
 with its menu link and a price for 30, and one useful question.
 
+A guest group chat (self-review 9d98ef, 2026-10-27) asked for five Manhattan
+venues for Sunday services. Guest chats already run every check above and the
+open-web search cap, but the checks missed this answer: two venues were
+churches' Sunday homes, and once the chat said so Tex answered "That leaves
+three venues ... Want me to find two more?" and later "I'd still need to look
+up the rest". Options dropped and not replaced are stopping short too, so an
+offer to find more, "I'd still need to look up", and an answer that says it is
+left with fewer than the number asked for (`fewerThanAsked`) each get the same
+one round. The prompt says to keep the number asked, check each option fits
+its use on its own page, and never set a directory's general price range
+beside a place that publishes none.
+
 **Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
-`apps/agent/src/jobs.test.ts`; hand-back bench case 9
-(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`).
+`apps/agent/src/jobs.test.ts`; hand-back bench cases 9 and 17
+(`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`,
+`sites/halls.example.md`).
 Sabotage records in the tests' headers.
 
 ## Published text is Tex's to find (owner, 2026-10-27)
@@ -338,3 +351,35 @@ never handed over and no link is texted; zip and promo codes are not sign-in
 codes; each fair ask still is; sabotage record in its header) and hand-back
 bench case 14 (`bench/ai/tests/handback.md`, `sites/retreat.example.md`,
 `bench/test/handback.test.mjs`).
+
+**A hidden captcha (2026-10-27, the evening try).** On the real form, Tex
+filled every box and pressed Register twice, and an invisible captcha turned
+both presses away with nothing on the page. Nothing looked like a captcha,
+so the tries never ran and the check above refused the handoff, and Tex
+texted the person the whole form to fill in. The screenshot Worker now
+reports a captcha that shows nothing until a form is sent
+(`invisibleCaptcha`, `infra/site-shots/src/captcha.ts`), and a send button
+that leaves such a page exactly as it was twice running is that captcha
+saying no (`apps/mcp/src/agent/silentSubmit.js`). The gateway then fills the
+same form in a fresh browser and presses once more. If that is turned away
+too, the captcha counts as stuck, the handoff goes ahead for that one press
+with the form already filled, and the reading says so. Tests:
+`apps/mcp/test/agentSilentSubmit.test.mjs` (sabotage record in its header)
+and hand-back bench case 16 (`sites/gathering.example.md`).
+
+**Looking before asking, and "fix yourself" (2026-10-28).** Three reviewed
+chats asked the person what Tex could have found: which email addresses two
+caterers use (one turned up a turn later with no word that it corrected the
+earlier "no email"), when a work block started and stopped (its log said),
+and, right after a group chat's failed page saves, "Tell me what's broken"
+in answer to "Tex please fix yourself". Every turn is now told to look first
+in the chat's earlier texts, its own earlier turns and logs, notes, email,
+calendar and the web, to say where a correction came from, and that "fix
+yourself" means naming the failure from the chat, retrying it once and
+filing it with `report_problem` (`LOOK_FIRST_LINE`). The hand-back judge
+counts the chat and Tex's own logs as places to look (H9), and a "fix
+yourself" turn answered by asking what's wrong, or with no tool run, gets
+one more round (`selfRepairNotice`, both in
+`apps/mcp/src/agent/lookFirst.js`). Removing either brings back the
+question the chat already answered. Tests:
+`apps/mcp/test/agentLookFirst.test.mjs` (sabotage record in its header).

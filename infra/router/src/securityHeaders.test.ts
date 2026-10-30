@@ -7,7 +7,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { SECURITY_HEADERS, withSecurityHeaders } from "./securityHeaders";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { ENFORCED_POLICY, SECURITY_HEADERS, withSecurityHeaders } from "./securityHeaders";
+import { reportOnlyPolicyFor } from "./cspReport";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
@@ -35,10 +38,11 @@ function get(url: string, userAgent = BROWSER_UA): Promise<Response> {
   return worker.fetch(new Request(url, { headers: { "User-Agent": userAgent } }), ENV, CTX) as Promise<Response>;
 }
 
-function expectHardened(response: Response) {
+function expectHardened(response: Response, url: string) {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     if (name === "Referrer-Policy") continue;
-    expect(response.headers.get(name), name).toBe(value);
+    const expected = name === "Content-Security-Policy-Report-Only" ? reportOnlyPolicyFor(new URL(url).pathname, ENV.CONVEX_ORIGIN) : value;
+    expect(response.headers.get(name), name).toBe(expected);
   }
   expect(response.headers.get("Referrer-Policy")).not.toBeNull();
 }
@@ -51,7 +55,7 @@ describe("platform responses are hardened", () => {
     ["the auth routes proxied to Convex", "https://context.lc/api/auth/callback/github?code=abc"],
     ["robots.txt", "https://context.lc/robots.txt"],
   ])("%s", async (_name, url) => {
-    expectHardened(await get(url));
+    expectHardened(await get(url), url);
   });
 
   it("the app document keeps its body", async () => {
@@ -78,5 +82,53 @@ describe("withSecurityHeaders", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("https://context.lc/");
     expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+  });
+});
+
+/** Every handwritten web source of the app and the router, skipping built bundles and dependencies. */
+function sources(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (name === "node_modules" || name === "drawing-assets" || name.startsWith(".")) continue;
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) sources(path, out);
+    else if (/\.(?:tsx?|html)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(path);
+  }
+  return out;
+}
+
+describe("the enforced policy", () => {
+  const repo = join(__dirname, "..", "..", "..");
+  const app = [join(repo, "apps", "mobile", "app"), join(repo, "apps", "mobile", "features"), join(repo, "apps", "mobile", "components"), join(repo, "apps", "mobile", "public")]
+    .flatMap((dir) => {
+      try {
+        return sources(dir);
+      } catch {
+        return [];
+      }
+    })
+    .map((path) => [path, readFileSync(path, "utf8")] as const);
+
+  it("defines every directive with no default-src fallback, and nothing that blocks script or style", () => {
+    const directives = ENFORCED_POLICY.split(";").map((part) => part.trim().split(/\s+/)[0]);
+    expect(directives).toEqual(["frame-ancestors", "form-action", "object-src", "base-uri"]);
+    expect(ENFORCED_POLICY).not.toMatch(/default-src|script-src|style-src|connect-src|img-src|font-src/);
+  });
+
+  it("form-action 'self' holds because every form in the app submits by script, never by navigation", () => {
+    const forms = app.filter(([, text]) => /<form\b/.test(text));
+    expect(forms.length).toBeGreaterThan(0);
+    for (const [path, text] of forms) {
+      const opened = (text.match(/<form\b/g) ?? []).length;
+      const prevented = (text.match(/event\.preventDefault\(\)/g) ?? []).length;
+      expect(prevented, path).toBeGreaterThanOrEqual(opened);
+      expect(text, path).not.toMatch(/<form\b[^>]*\baction=/);
+    }
+  });
+
+  it("object-src 'none' and base-uri 'self' hold because nothing in the app makes an object, an embed or a base", () => {
+    for (const [path, text] of app) {
+      // A tag that does anything has an attribute (`href`, `data`, `src`), which keeps out `<base>` in prose.
+      expect(text, path).not.toMatch(/<(?:object|embed|base)\s+[a-zA-Z-]+=|createElement\(["'](?:object|embed|base)["']\)/);
+    }
   });
 });

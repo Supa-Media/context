@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { getMembership } from "../workspaceAuth";

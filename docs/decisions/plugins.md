@@ -92,6 +92,10 @@ Moved to [The editor is cached by a worker scoped to its own directory](./plugin
 
 Moved to [The message check is an identity check, not an origin check](./plugins/message-checks-and-shim.md#the-message-check-is-an-identity-check-not-an-origin-check).
 
+## The sandbox is a page of its own, and is public on purpose
+
+Moved to [The sandbox is a page of its own, and is public on purpose](./plugins/message-checks-and-shim.md#the-sandbox-is-a-page-of-its-own-and-is-public-on-purpose).
+
 ## A list of what the shim is missing cannot be written by hand
 
 Moved to [A list of what the shim is missing cannot be written by hand](./plugins/message-checks-and-shim.md#a-list-of-what-the-shim-is-missing-cannot-be-written-by-hand).

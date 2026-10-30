@@ -118,10 +118,12 @@ describe("the notes people wrote by hand", () => {
       recents: [
         { path: "projects/moved-twice.md", at: new Date(2026, 9, 2).getTime(), kind: "edited" },
         { path: "projects/dc-chapter.md", at: NOW, kind: "opened" },
+        // Edited on the 3rd, opened since: still dated by the edit (owner, 2026-10-30).
+        { path: "inbox/sermon.md", at: NOW, kind: "opened", editedAt: new Date(2026, 9, 3).getTime() },
       ],
     });
     expect(groups.map((group) => [group.label, group.notes.map((row) => row.title)])).toEqual([
-      ["Previous 30 Days", ["Moved twice"]],
+      ["Previous 30 Days", ["Sermon thoughts", "Moved twice"]],
     ]);
   });
 

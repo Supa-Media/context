@@ -33,6 +33,14 @@
  *     waits longer than a lookup" fails.
  * 10. Dropping "Judge Tex's answers themselves" from `SCORING` (2026-10-26).
  *     → "answers are judged themselves, not only the person's mood" fails.
+ * 11. `whole` reading from the mark, or moving it (2026-10-29). → "a texted
+ *     yes files the history Tex keeps once, past the mark, without moving it"
+ *     fails.
+ * 12. `whole` filing on the scores tier. → same test fails: a scores row for
+ *     turns already scored.
+ * 13. `REVIEW_MAX_TOKENS` back at 200 / 960, or a `max_tokens` stop reported
+ *     as `no_score` (2026-10-29). → "a review leaves the model room to think
+ *     before it answers…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -40,7 +48,7 @@ import { test } from "node:test";
 
 import { appendConversation } from "../src/agent/conversation.js";
 import { createFeedbackMethods, TEX_REVIEW_FILE_TIMEOUT_MS } from "../src/controlPlane/feedback.js";
-import { handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
+import { failedOf, handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, reviewOutcome, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
 
 const ENV = { TEX_REVIEW: "on", AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "gw-fake", AI_GATEWAY_TOKEN: "fake-token-0123456789abcdef" };
 const SCORES = { goal: 4, independence: 3, turns: 5, friendly: 6, calm: 2 };
@@ -272,7 +280,58 @@ test("only Tex's own texting grants may ask for a review, and a group names its 
   const store = memoryStore();
   await texted(store, ["find my avocado note", "Here it is."]);
   const answered = await handleReview(request({ conversation: "texts" }), { ...ENV }, store, SESSION, { ...plane("scores"), texReviewTier: async () => null });
-  assert.deepEqual(await answered.json(), { filed: null });
+  assert.deepEqual(await answered.json(), { filed: null, why: "no_tier" });
+});
+
+test("asked is not filed: each review that files nothing says why", async () => {
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  assert.deepEqual(await reviewOutcome({ ...args, env: { TEX_REVIEW: "off" }, controlPlane: plane("scores") }), { filed: null, why: "off" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road("no idea").request }), { filed: null, why: "no_score" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: { ...plane("scores"), fileTexReview: async () => null }, request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "not_filed" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: "scores", why: null });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: null, why: "nothing_new" });
+});
+
+test("a review leaves the model room to think before it answers, and says when the answer still ran out of room", async () => {
+  // 2026-10-29: Haiku 5.5 thinks by default, and at 200 tokens its thinking
+  // used them all: 8 of 10 reviews came back empty and filed nothing.
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  const asked = [];
+  const cut = async (body) => (asked.push(body), { text: "", stop: "max_tokens" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: cut }), { filed: null, why: "cut_off" });
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("full"), request: cut }), { filed: null, why: "cut_off" });
+  assert.ok(asked[0].maxTokens >= 2000, `scores review asks for ${asked[0].maxTokens} tokens`);
+  assert.ok(asked[1].maxTokens >= 4000, `full review asks for ${asked[1].maxTokens} tokens`);
+  const thrown = async () => {
+    throw new Error("status 529");
+  };
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: thrown }), { filed: null, why: "model_failed" });
+  // A miss gives the turns back: the next review reads them.
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request }), { filed: "scores", why: null });
+});
+
+test("a conversation whose every ask failed is reviewed from the lines the Worker sent, and moves no mark", async () => {
+  // Tex Devs, 2026-10-29: every reply failed, nothing was kept, and nothing was scored.
+  const store = memoryStore();
+  const history = await texted(store, ["find my avocado note", "Here it is."]);
+  const args = { env: ENV, store, session: SESSION, history, key: "texts", reason: "ended", log: () => {} };
+  await reviewConversation({ ...args, controlPlane: plane("scores"), request: road(JSON.stringify({ scores: SCORES })).request });
+  const marks = () => [...store.objects.entries()].filter(([key]) => key.startsWith(".context/agent/reviews/"));
+  const before = marks();
+  const lines = failedOf([{ tex: false, text: "Tex what's on tonight" }, { tex: true, text: "I couldn't answer that one. Try again in a bit." }, { text: 7 }, "junk", null]);
+  assert.equal(lines.length, 2, "anything that is not a line is left out");
+  const control = plane("full");
+  const model = road(FULL_ANSWER);
+  assert.equal(await reviewConversation({ ...args, controlPlane: control, failed: lines, request: model.request }), "full");
+  assert.match(model.asked[0].messages[0].text, /Them: Tex what's on tonight\n\nTex \(could not answer, sent instead\): I couldn't answer that one/);
+  assert.equal(control.filed[0].texts, 1);
+  assert.deepEqual(marks(), before, "no kept turn was read, so no mark moved");
+  // Without a line Tex sent instead, there is nothing new to review.
+  assert.deepEqual(await reviewOutcome({ ...args, controlPlane: control, failed: lines.slice(0, 1), request: model.request }), { filed: null, why: "nothing_new" });
 });
 
 test("after a turn, only 'fix this' or frustration reviews at once", async () => {
@@ -285,4 +344,41 @@ test("after a turn, only 'fix this' or frustration reviews at once", async () =>
   assert.equal(asked, 0);
   await reviewAfterTurn({ env: ENV, store, session: SESSION, controlPlane: control, question: "Tex fix this", group: null, saved: true });
   assert.equal(asked, 1);
+});
+
+test("a texted yes files the history Tex keeps once, past the mark, without moving it", async () => {
+  // Dev2, 2026-10-29: "share my chats with the devs" (`apps/agent/src/reviewSharing.ts`).
+  const store = memoryStore();
+  let history = await texted(store, ["find my avocado note", "Here it is."]);
+  const scored = road(JSON.stringify({ scores: SCORES }));
+  await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: plane("scores"), history, key: "texts", reason: "ended", request: scored.request, log: () => {} });
+  history = [...history, { role: "user", text: "and the banana one?" }, { role: "assistant", text: "Found it too." }];
+  const marks = () => [...store.objects.entries()].filter(([key]) => key.startsWith(".context/agent/reviews/"));
+  const before = marks();
+
+  // Not shared after all (the yes was taken back before the review ran): nothing filed, no scores row.
+  const refused = plane("scores");
+  assert.deepEqual(await reviewOutcome({ env: ENV, store, session: SESSION, controlPlane: refused, history, key: "texts", reason: "shared", whole: true, request: road(FULL_ANSWER).request, log: () => {} }), { filed: null, why: "not_shared" });
+  assert.equal(refused.filed.length, 0);
+
+  const control = plane("full");
+  const model = road(FULL_ANSWER);
+  const shared = await reviewOutcome({ env: ENV, store, session: SESSION, controlPlane: control, history, key: "texts", reason: "shared", whole: true, request: model.request, log: () => {} });
+  assert.deepEqual(shared, { filed: "full", why: null });
+  assert.equal(control.filed[0].reason, "shared");
+  assert.match(control.filed[0].words.transcript, /avocado/, "the turns reviewed before are in it");
+  assert.match(control.filed[0].words.transcript, /banana/);
+  assert.deepEqual(marks(), before, "the mark is where it was: the banana turns are still the next review's");
+  const next = road(JSON.stringify({ scores: SCORES }));
+  await reviewConversation({ env: ENV, store, session: SESSION, controlPlane: plane("scores"), history, key: "texts", reason: "ended", request: next.request, log: () => {} });
+  assert.match(next.asked[0].messages[0].text, /banana/);
+  assert.doesNotMatch(next.asked[0].messages[0].text, /avocado/);
+});
+
+test("a shared history reads far more than one conversation's window", async () => {
+  const many = [];
+  for (let i = 0; i < 120; i += 1) many.push({ role: "user", text: `question ${i}` }, { role: "assistant", text: `answer ${i}` });
+  assert.equal((await sinceReviewed(many, null)).length, 40);
+  assert.equal((await sinceReviewed(many, null, 300)).length, 240);
+  assert.ok(transcriptOf(await sinceReviewed(many, null, 300), [], [], 110_000).includes("question 0"));
 });

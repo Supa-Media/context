@@ -19,7 +19,7 @@
 
 import { ConvexError, v } from "convex/values";
 import type { ObjectType } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";

@@ -74,13 +74,25 @@ call that would let more people see something, as `privacy/widening.js` names
 it: a link, a website publish, an image fetched from an address the model
 chose, a visibility change where the manifest reads narrower now, people named
 on a note, a move asked to publish. The judge
-(`privacy/judge.js`) is shown two things only: the gateway's own one-line
-summary of the call, and the person's words, fenced as data it must never
-follow. It answers with a boolean. Yes runs the call (writing
+(`privacy/judge.js`) is shown three things only: the gateway's own one-line
+summary of the call, the person's words, fenced as data it must never
+follow, and what the call acts on: the one note or folder's path and, for a
+note, its title from the tree's facts (front matter `title`, else its first
+heading), cut to a line and fenced the same way. Never its body. The title
+was added by the owner on 2026-10-28, after "make the coordination channel
+visible to the team" was refused for a note titled that because the judge
+saw only `projects/…/sync.md` (`privacy/judgeSubject.js`). The audience is
+still judged from the words alone. It answers with a boolean. Yes runs the call (writing
 `confirm_team_publish` for a publication, since their words were the yes) and
 leaves a `judge_allow` audit row; anything else (no, an error, a non-boolean,
 no words) is "not done", and the model is told to ask in the chat and call
 again. `judgedGate` in `apps/mcp/src/tools/session.js`.
+
+A website has no smaller Publish: it puts every saved change of the site live
+at once, so the judge is told that words asking to publish a page, a
+stylesheet or a change of the website ask for publishing the website. Without
+it, "yes" to "Should I publish the rolled-back stylesheet?" was refused as
+narrower (2026-10-28).
 
 **Where the words come from.** A turn this gateway runs itself (`/agent`: the
 texting thread, the app's panel, a routine) has the person's real message,

@@ -2,63 +2,259 @@ const { describe, expect, test } = require("@jest/globals");
 const plugin = require("../plugins/with-context-messages");
 const fs = require("node:fs");
 const path = require("node:path");
+const { URL } = require("node:url");
 
-const target = (...parts) => path.join(__dirname, "..", "targets", "context-messages", ...parts);
+const target = (...parts) =>
+  path.join(__dirname, "..", "targets", "context-messages", ...parts);
 
 describe("Context Messages extension config plugin", () => {
   test("its bundle id is the one the texting Worker names on each card", () => {
-    expect(plugin.identifiers({ ios: { bundleIdentifier: "lc.context.mobile" } })).toEqual({
+    expect(
+      plugin.identifiers({ ios: { bundleIdentifier: "lc.context.mobile" } }),
+    ).toEqual({
+      appGroup: "group.lc.context.mobile",
       extensionBundleIdentifier: "lc.context.mobile.messages",
     });
-    const wrangler = fs.readFileSync(path.join(__dirname, "..", "..", "agent", "wrangler.jsonc"), "utf8");
-    expect(wrangler).toContain('"APP_CARD_EXTENSION_ID": "lc.context.mobile.messages"');
-    expect(wrangler).toContain('"APP_CARD_EXTENSION_ID": "lc.context.staging.messages"');
+    const wrangler = fs.readFileSync(
+      path.join(__dirname, "..", "..", "agent", "wrangler.jsonc"),
+      "utf8",
+    );
+    expect(wrangler).toContain(
+      '"APP_CARD_EXTENSION_ID": "lc.context.mobile.messages"',
+    );
+    expect(wrangler).toContain(
+      '"APP_CARD_EXTENSION_ID": "lc.context.staging.messages"',
+    );
+  });
+
+  test("Xcode receives a Messages target, including when repairing an existing generic extension", () => {
+    for (const existing of [false, true]) {
+      const targets = existing
+        ? {
+            messages: {
+              name: "ContextMessages",
+              productType: '"com.apple.product-type.app-extension"',
+            },
+          }
+        : {};
+      const project = {
+        hash: { project: { objects: {} } },
+        pbxNativeTargetSection: () => targets,
+        addTarget: () => {
+          targets.messages = {
+            name: "ContextMessages",
+            productType: '"com.apple.product-type.app-extension"',
+          };
+          return { uuid: "messages", pbxNativeTarget: targets.messages };
+        },
+        addBuildPhase: jest.fn(),
+        pbxXCBuildConfigurationSection: () => ({}),
+      };
+      expect(
+        plugin.addMessagesTarget(project, {
+          extensionBundleIdentifier: "example.messages",
+        }),
+      ).toBe("messages");
+      expect(targets.messages.productType).toBe(
+        '"com.apple.product-type.app-extension.messages"',
+      );
+    }
   });
 
   test("extension declaration is deterministic and keeps the widgets", () => {
     const config = {
       ios: { bundleIdentifier: "lc.context.mobile" },
-      extra: { eas: { build: { experimental: { ios: { appExtensions: [{ targetName: "ContextWidgets", bundleIdentifier: "lc.context.mobile.widgets" }] } } } } },
+      extra: {
+        eas: {
+          build: {
+            experimental: {
+              ios: {
+                appExtensions: [
+                  {
+                    targetName: "ContextWidgets",
+                    bundleIdentifier: "lc.context.mobile.widgets",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
     };
     const ids = plugin.identifiers(config);
     plugin.declareEasExtension(config, ids);
     plugin.declareEasExtension(config, ids);
     expect(config.extra.eas.build.experimental.ios.appExtensions).toEqual([
-      { targetName: "ContextWidgets", bundleIdentifier: "lc.context.mobile.widgets" },
-      { targetName: "ContextMessages", bundleIdentifier: "lc.context.mobile.messages" },
+      {
+        targetName: "ContextWidgets",
+        bundleIdentifier: "lc.context.mobile.widgets",
+      },
+      {
+        targetName: "ContextMessages",
+        bundleIdentifier: "lc.context.mobile.messages",
+        entitlements: {
+          "com.apple.security.application-groups": ["group.lc.context.mobile"],
+        },
+      },
     ]);
   });
 
   test("the plist declares an iMessage extension with its view controller", () => {
     const plist = fs.readFileSync(target("ContextMessages-Info.plist"), "utf8");
-    expect(plist).toMatch(/<key>NSExtensionPointIdentifier<\/key>\s*<string>com\.apple\.message-payload-provider<\/string>/);
-    expect(plist).toMatch(/<key>NSExtensionPrincipalClass<\/key>\s*<string>\$\(PRODUCT_MODULE_NAME\)\.MessagesViewController<\/string>/);
-    expect(plist).toMatch(/<key>CFBundleName<\/key>\s*<string>\$\(PRODUCT_NAME\)<\/string>/);
+    expect(plist).toMatch(
+      /<key>NSExtensionPointIdentifier<\/key>\s*<string>com\.apple\.message-payload-provider<\/string>/,
+    );
+    expect(plist).toMatch(
+      /<key>NSExtensionPrincipalClass<\/key>\s*<string>\$\(PRODUCT_MODULE_NAME\)\.MessagesViewController<\/string>/,
+    );
+    expect(plist).toMatch(
+      /<key>CFBundleName<\/key>\s*<string>\$\(PRODUCT_NAME\)<\/string>/,
+    );
   });
 
   test("the iMessage icon set has every file it lists, the App Store size included", () => {
     const set = target("Assets.xcassets", "iMessage App Icon.stickersiconset");
-    const { images } = JSON.parse(fs.readFileSync(path.join(set, "Contents.json"), "utf8"));
-    expect(images.some((image) => image.idiom === "ios-marketing" && image.size === "1024x768")).toBe(true);
-    for (const image of images) expect(fs.existsSync(path.join(set, image.filename))).toBe(true);
-    const source = fs.readFileSync(path.join(__dirname, "..", "plugins", "with-context-messages.js"), "utf8");
+    const { images } = JSON.parse(
+      fs.readFileSync(path.join(set, "Contents.json"), "utf8"),
+    );
+    expect(
+      images.some(
+        (image) => image.idiom === "ios-marketing" && image.size === "1024x768",
+      ),
+    ).toBe(true);
+    expect(
+      images.find((image) => image.idiom === "ios-marketing").platform,
+    ).toBe("ios");
+    for (const image of images)
+      expect(fs.existsSync(path.join(set, image.filename))).toBe(true);
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "plugins", "with-context-messages.js"),
+      "utf8",
+    );
     expect(source).toContain('const ICON_SET = "iMessage App Icon"');
   });
 
+  test("the shell bakes in what card pages may use, words for every permission included", () => {
+    // Card formats ship as context.lc pages with a deploy; anything they need from the phone has to be here first.
+    const plist = fs.readFileSync(target("ContextMessages-Info.plist"), "utf8");
+    for (const key of [
+      "NSCameraUsageDescription",
+      "NSMicrophoneUsageDescription",
+      "NSPhotoLibraryUsageDescription",
+      "NSLocationWhenInUseUsageDescription",
+    ]) {
+      expect(plist).toMatch(
+        new RegExp(`<key>${key}</key>\\s*<string>[^<]{10,}</string>`),
+      );
+    }
+    const plugin = fs.readFileSync(
+      path.join(__dirname, "..", "plugins", "with-context-messages.js"),
+      "utf8",
+    );
+    expect(plugin).toContain('"CardShell.swift"');
+    const shell = fs.readFileSync(target("CardShell.swift"), "utf8");
+    for (const ability of [
+      "haptic",
+      "copy",
+      "insertText",
+      "share",
+      "close",
+      "open",
+    ])
+      expect(shell).toContain(`case "${ability}"`);
+    const controller = fs.readFileSync(
+      target("MessagesViewController.swift"),
+      "utf8",
+    );
+    // Any kind of card opens its page, not a fixed list.
+    expect(controller).toContain("isCardKind(kind)");
+    expect(controller).not.toMatch(/\["pick", "ask", "hello"\]\.contains/);
+  });
+
+  test("a card's page reads the person's data through the app's key, which it never sees", () => {
+    // The owner chose the app's sign-in (2026-10-29): the key sits in the app group's keychain, read only here.
+    const entitlements = fs.readFileSync(
+      target("ContextMessages.entitlements"),
+      "utf8",
+    );
+    expect(entitlements).toMatch(
+      /<key>com\.apple\.security\.application-groups<\/key>\s*<array>\s*<string>\$\(CONTEXT_APP_GROUP\)<\/string>/,
+    );
+    expect(
+      fs.readFileSync(target("ContextMessages-Info.plist"), "utf8"),
+    ).toMatch(
+      /<key>ContextAppGroup<\/key>\s*<string>\$\(CONTEXT_APP_GROUP\)<\/string>/,
+    );
+    const grant = fs.readFileSync(target("CardGrant.swift"), "utf8");
+    expect(grant).toContain('guard path.hasPrefix("/cards/")');
+    expect(grant).toContain('!path.contains("..")');
+    expect(grant).toContain("kSecAttrAccessGroup");
+    // The bearer is added in Swift; the page only ever gets a status and a body.
+    const shell = fs.readFileSync(target("CardShell.swift"), "utf8");
+    expect(shell).not.toMatch(/accessToken|refreshToken/);
+    expect(shell).toContain("[id, status, text]");
+  });
+
+  /*
+    The fence has to mean the same thing on both ends. Swift rejects a literal
+    `..`; the gateway resolves the path with the WHATWG URL parser, which
+    treats `%2e%2e` (and `.%2e`) as a dot segment, so an encoded climb reads
+    as `/cards/...` to the phone and as something else entirely to the
+    gateway, carrying the person's bearer with it.
+  */
+  test("a path that climbs out of /cards/ once the gateway parses it is refused", () => {
+    const grant = fs.readFileSync(target("CardGrant.swift"), "utf8");
+    const climbs = [
+      "/cards/%2e%2e/admin",
+      "/cards/%2E%2E/admin",
+      "/cards/.%2e/admin",
+      "/cards/a/%2e%2e/%2e%2e/tokens",
+    ];
+
+    for (const climb of climbs) {
+      // What the gateway makes of it: no longer under /cards/.
+      expect(
+        new URL(`https://gateway.example.com${climb}`).pathname,
+      ).not.toMatch(/^\/cards\//);
+    }
+    // So the phone must not send one: a percent escape has no place in a route
+    // name. Asserted against the source, as its neighbours are, because CI has
+    // no Swift; the lines above are the half that can be run.
+    expect(grant).toContain("percentInPath");
+    // Applied to the route, not the whole path: a query value may be escaped.
+    expect(grant).toContain('let route = path.prefix { $0 != "?" }');
+    expect(grant).toContain(
+      "guard !percentInPath(route) else { return false }",
+    );
+  });
+
   test("a card opens only a context.lc link", () => {
-    const source = fs.readFileSync(target("MessagesViewController.swift"), "utf8");
+    const source = fs.readFileSync(
+      target("MessagesViewController.swift"),
+      "utf8",
+    );
     expect(source).toContain('url.scheme == "https"');
-    expect(source).toContain('host == "context.lc" || host.hasSuffix(".context.lc")');
+    expect(source).toContain(
+      'host == "context.lc" || host.hasSuffix(".context.lc")',
+    );
     expect(source).toContain("extensionContext?.open(url)");
   });
 
   test("the generated prebuild embeds the extension with its icon and sources", () => {
-    const project = path.join(__dirname, "..", "ios", "Context.xcodeproj", "project.pbxproj");
+    const project = path.join(
+      __dirname,
+      "..",
+      "ios",
+      "Context.xcodeproj",
+      "project.pbxproj",
+    );
     if (!fs.existsSync(project)) return;
     const body = fs.readFileSync(project, "utf8");
     expect(body).toMatch(/ContextMessages\.appex in Copy Files/);
     expect(body).toMatch(/MessagesViewController\.swift in Sources/);
     expect(body).toMatch(/Assets\.xcassets in Resources/);
-    expect(body).toContain('ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon"');
+    expect(body).toContain(
+      'ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon"',
+    );
   });
 });

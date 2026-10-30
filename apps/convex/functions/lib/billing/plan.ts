@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { pricingIsOn, stripePriceId, type Entitlements, type PlanStatus } from "../premium";

@@ -486,8 +486,8 @@ export function tabLabel(state: TabsState, path: string): string {
  *
  * An earlier version of this sentence called `loadedFolders` "the one worth
  * naming individually" because it "feeds `SettingsPane`'s folder visibility
- * list". There is no such list: folder visibility is set from the tree, through
- * `cycleVisibility` behind `canSetVisibility`, and `SettingsPane` has no
+ * list". There is no such list: folder visibility is set from the row's menu,
+ * behind `canSetVisibility`, and `SettingsPane` has no
  * visibility control at all. That claim came from a review note and was written
  * in as fact without being checked — **a fabricated access-control consequence,
  * in a public repository, inside a commit about comments the code contradicts.**

@@ -125,6 +125,14 @@ export const nodeTables = {
      * when something is archived into it (`lib/nodes/archiveTwins.ts`), kept by the row through every move.
      */
     archiveOf: v.optional(v.string()),
+    /**
+     * On a `.page.md` note: the leaf, in `.context/assets/images/`, of its
+     * cover, the first screen Tex last drew of it (`draw_visual` template
+     * `page`, reported through `/gateway/page-cover`). A linked page's card
+     * shows it (`lib/shares/pageCover.ts`, owner 2026-10-27). A pointer to the
+     * customer's own bytes, never the note's text.
+     */
+    pageCover: v.optional(v.string()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_role", ["workspaceId", "role"])

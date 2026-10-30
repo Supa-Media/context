@@ -27,7 +27,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../src/agent/outgoingPictures.js";
+import { DATA_CARDS_LINE, MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../src/agent/outgoingPictures.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 // A 1x1 PNG.
@@ -103,7 +103,7 @@ test("a picture read from their notes is texted back", async () => {
       },
       { text: "Saved." },
     ]);
-    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save a frog", conversation: "texts" });
+    const saved = await request(world.env, TOKEN_TEXTS, "/agent", { question: "save a frog as a plain note", conversation: "texts" });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const leaf = world.objectsUnder(".context/assets/images/")[0].split("/").at(-1);
 
@@ -181,6 +181,28 @@ test("an address read before the model used it stays vouched when a tool repeats
   assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
 });
 
+test("option cards sent together carry their choices, so the person can pick with one tap", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "places", data: { title: "Near you" } });
+  await draw("draw_visual", { template: "option", data: { index: 1, of: 2, name: "  Via\nCarota ", price: "$$", pick: true } });
+  await draw("draw_visual", { template: "option", data: { index: 2, of: 2, name: "Bar Pitti" } });
+  const { choices } = outgoing.take("Two good ones.\n[picture 2]\n[picture 3]\n[picture 1]");
+  assert.deepEqual(choices, [
+    { name: "Via Carota", price: "$$", pick: true, picture: 0 },
+    { name: "Bar Pitti", picture: 1 },
+  ]);
+});
+
+test("one option card, or option cards never sent, offer no choice", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "option", data: { name: "Via Carota" } });
+  await draw("draw_visual", { template: "option", data: { name: "Bar Pitti" } });
+  assert.deepEqual(outgoing.take("Just this one.\n[picture 1]").choices, []);
+  assert.deepEqual(outgoingPictures({ enabled: false }).take("x").choices, undefined);
+});
+
 // Tex Devs group, 2026-10-26: draw_visual worked, the answer said "Here's the one-pager" and named no
 // [picture N], so the card never went. A card the turn drew goes even when the answer forgot to name it.
 test("a drawn card the answer forgot to name still goes; a redrawn one replaces it; option cards go as a set", async () => {
@@ -206,4 +228,59 @@ test("a drawn card the answer forgot to name still goes; a redrawn one replaces 
   await named.wrap(image("a"))("draw_visual", { template: "board", data: {} });
   await named.wrap(image("b"))("draw_visual", { template: "board", data: {} });
   assert.deepEqual(named.take("Here.\n[picture 1]").pictures.map((p) => p.data), ["a"]);
+});
+
+// Dev2, 2026-10-29: a drawn card went as a bare picture and Tex said iMessage cards can only be pictures.
+// A drawn card carries its title, so a chat with Context cards gets it as one; an option card does not.
+test("a drawn card carries its title for a Context card; an option card and a read picture carry none", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const draw = outgoing.wrap(async () => ({ content: [image()] }));
+  await draw("draw_visual", { template: "day", data: { title: "  Team\nlunch " } });
+  await draw("draw_visual", { template: "board", data: { kicker: "This week" } });
+  await draw("draw_visual", { template: "option", data: { title: "Pick", name: "Via Carota" } });
+  await draw("read_image", { path: "a.png" });
+  const { pictures } = outgoing.take("[picture 1]\n[picture 2]\n[picture 3]\n[picture 4]");
+  assert.deepEqual(pictures.map((p) => p.title), ["Team lunch", "This week", undefined, undefined]);
+  assert.match(PICTURES_LINE, /arrives as a Context card on a phone with the Context app/);
+  assert.match(PICTURES_LINE, /never tell them a card can only be a picture/);
+});
+
+test("an option set the answer forgot to name still carries its choices", async () => {
+  const set = outgoingPictures({ enabled: true });
+  for (const [i, name] of ["Lugo's", "Blend"].entries()) {
+    await set.wrap(async () => ({ content: [image()] }))("draw_visual", { template: "option", data: { index: i + 1, of: 2, name } });
+  }
+  assert.deepEqual(set.take("Lugo's is my pick.").choices, [{ name: "Lugo's", picture: 0 }, { name: "Blend", picture: 1 }]);
+});
+
+test("a card line offers a card on their own data, and never reaches them as words", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.model.install([{ text: "When are you free next week?\n[card times]\n[card times] [card inbox]\n[card pick]" }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "find a lunch slot with Ana", conversation: "texts" });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(asked.body.offers, ["times", "inbox"]);
+    assert.doesNotMatch(asked.body.answer, /\[card (times|inbox)\]/);
+    assert.match(asked.body.answer, /^When are you free next week\?/);
+    assert.ok(JSON.stringify(world.model.requests.at(-1).system).includes(DATA_CARDS_LINE.slice(0, 60)), "the prompt says how to offer one");
+
+    world.model.install([{ text: "Done." }]);
+    const plain = await request(world.env, TOKEN_TEXTS, "/agent", { question: "thanks", conversation: "texts" });
+    assert.ok(!("offers" in plain.body));
+  } finally {
+    world.restore();
+  }
+});
+
+// Dev2, 2026-10-29: a card showing the running jobs, tapped for each one's steps (apps/agent/src/jobs.ts).
+test("a threads line offers the live view of the chat's jobs, and never reaches them as words", () => {
+  const taken = outgoingPictures({ enabled: true }).take("On it, I'll text you when it's done.\n[card threads]");
+  assert.deepEqual(taken.offers, ["threads"]);
+  assert.equal(taken.answer, "On it, I'll text you when it's done.");
+  assert.match(DATA_CARDS_LINE, /\[card threads\]/);
+});
+
+test("a turn not from a phone keeps a card line as written", () => {
+  const off = outgoingPictures({ enabled: false });
+  assert.deepEqual(off.take("[card times]"), { answer: "[card times]", pictures: [] });
 });

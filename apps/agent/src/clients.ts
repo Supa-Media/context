@@ -17,8 +17,12 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
+import { readTexStyle, type TexStyle } from "./texStyle";
 import type { Reaction, Tapback } from "./reactions";
+import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import { readChoices, type Choice } from "./pickCard";
+import { readOffers, type Offer } from "./dataCards";
 import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
@@ -169,7 +173,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 // ── Control plane ─────────────────────────────────────────────────────────
 
 /** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
-export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string } | { status: "unlinked" };
+/** `texStyle`: how their own Tex talks to them (`texStyle.ts`), only what they changed. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string; texStyle?: TexStyle } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -184,7 +189,8 @@ export async function openSession(
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
     const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
-    return { status: "linked", accessToken: body.accessToken, ...zone };
+    const texStyle = readTexStyle(body.texStyle);
+    return { status: "linked", accessToken: body.accessToken, ...zone, ...(texStyle ? { texStyle } : {}) };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -224,7 +230,7 @@ export type AgentAnswer =
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -278,9 +284,11 @@ export async function askAgent(
     job,
     onStep,
     event,
+    jobReport,
     covers,
     chat,
     told = [],
+    texStyle,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -292,12 +300,16 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved";
+    event?: "vault_saved" | "job_report";
+    /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
+    jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
     covers?: string[];
     chat?: string;
     /** The fixed texts sent since the last turn, by name, for its history (`told.ts`), sent beside the events that carry them too. */
     told?: readonly string[];
+    /** How this chat asked Tex to talk (`texStyle.ts`), said to the model by the gateway. */
+    texStyle?: TexStyle;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -315,8 +327,10 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
+    ...(jobReport ? { jobReport } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
+    ...(texStyle ? { texStyle } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -359,6 +373,8 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       kind: "answer",
       text: body.answer.trim(),
       pictures,
+      ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
+      ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers) } : {}),
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),

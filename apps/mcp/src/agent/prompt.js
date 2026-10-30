@@ -5,11 +5,13 @@
  * the pinned `@context-lc` workspace, which take their place when present.
  */
 
-import { PICTURES_LINE } from "./outgoingPictures.js";
+import { DATA_CARDS_LINE, PICTURES_LINE } from "./outgoingPictures.js";
 import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
+import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
+import { LOOK_FIRST_LINE } from "./lookFirst.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -33,7 +35,7 @@ const TEXTING_STYLE = [
   "Write the way a thoughtful friend texts: plain words, short sentences, the answer first.",
   "No Markdown at all. No asterisks or bold, no headings, no tables, no [text](link) links, no code formatting: iMessage shows those characters as they are.",
   "Don't name note paths or say which note something came from unless they ask where it's written.",
-  "Keep it short: usually one to three short paragraphs. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
+  "Keep it short: most answers are one or two short sentences, and three short texts is the most. Never recap what they asked or what a page or picture you sent shows. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
   "Put a web link on its own line, as the bare URL.",
   "If their notes don't say, tell them so in one sentence.",
   "Be quick. For most questions one search call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
@@ -111,6 +113,8 @@ const GROUND_RULES = [
   // day before: "Tex should never suggest the user should do something
   // themselves that Tex has the access and capability to do."
   DO_IT_YOURSELF_LINE,
+  // Self-review, 2026-10-27/28: asked which caterer emails to use, when a routine started, and "what's broken" after its own failed saves (`lookFirst.js`).
+  LOOK_FIRST_LINE,
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
   // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
   PRONOUNS_LINE,
@@ -124,13 +128,18 @@ const GROUND_RULES = [
  * about. The owner then removed every copy of mail, calendar and chat from
  * the notes (2026-10-21), so `calendar:` (`tools/calendarRead.js`) asks Google
  * at that moment, and no folder is named here. A fact about this build, so a
- * production setup's own words keep it too, as `NOTE_LINK_LINE` is.
+ * production setup's own words keep it too, as `NOTE_LINK_LINE` is. Asked for
+ * a time to meet someone (Dev2, 2026-10-29), Tex said they were free all
+ * afternoon and then that it couldn't tell what worked for the other person,
+ * with no time offered: it names open times from their own calendar instead.
  */
 export const SYNCED_PLACES_LINE =
   "Once they connect Google, you read their calendar and email from Google itself when they ask; none of it is copied into their notes. " +
-  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar. ' +
+  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar, or only account: "<address>" when they ask about one. ' +
   "For their email, search with args { email: true }. " +
-  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says.";
+  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says. " +
+  "Asked to find a time with someone, name two or three specific open times from that fetch, say which you'd pick, and offer to put it on their calendar with that person invited; " +
+  "their calendar is all you need, so never end on not seeing the other person's.";
 
 /**
  * How to find a call (owner's report, 2026-10-21). Asked for the to-dos from
@@ -169,11 +178,26 @@ export const ACTIONS_LINE =
  * cooking menus nobody asked for, priced only the mains, and after "catering
  * only" offered "I can write these up if you want" instead of opening the
  * caterers' price pages. `stopsShort.js` sends such an answer back.
+ *
+ * A guest group chat (self-review 9d98ef, 2026-10-27) asked for five
+ * Manhattan venues for Sunday services: Tex listed two that churches already
+ * meet in on Sundays, dropped to three and offered "Want me to find two
+ * more?", and set a directory's $50-to-$25,000 range beside a venue with no
+ * published price.
+ *
+ * The Tex Devs group (self-review 7171b6, 2026-10-30): Claude prices quoted
+ * off OpenAI's pricing page, and "Flovia publishes no prices" about a page
+ * that offered free launch access (`sourcedFigures.js` checks both).
  */
 export const RESEARCH_LINE =
   "Asked to find options or prices, if their words leave open the one thing that changes the search (cook it or have it catered? which town?), your whole first reply is that one question: no options, no pick (not even \"I'd cook it\"), no guess from their notes. A town they name is enough to search on: never ask which state first. " +
   "Once they answer, open the pages with the figures and give the whole figure asked for (a cost per person counts sides and drinks), each place with its page link, and don't ask what those pages settle (where they deliver) or tell them to confirm the figures. " +
   "Asked for options, give each one found with the fact that decides it (open tonight till when, price), then your pick. " +
+  "Asked for a number, give that many: replace any you drop, never offer to find more. " +
+  "Check each fits its use on its own page (a Sunday-service venue isn't where a church already meets on Sundays). " +
+  "A price is the place's own, never a directory's general range: else say it isn't published. " +
+  "Quote a price or score only from a page you opened that gives it for that very thing (OpenAI's page has no Claude prices), and say what a page you opened does say, never that it says nothing. " +
+  "Asked yes or no, or which is cheaper, your first line is that answer. " +
   "Never stop at part of it, name a next step or offer to look further: that's yours. Only contacting someone waits for their yes.";
 
 /**
@@ -226,6 +250,19 @@ export const REORGANIZE_LINE =
   "When they ask you to move, rename, archive or reorganize notes or folders, in their own workspace or a shared one they can write in, " +
   "do it yourself in this turn: a move keeps who can see each note, so you don't ask first. Several notes go in one move_notes. " +
   "If a move is refused, read why and fix the call rather than telling them it needs their OK.";
+
+/**
+ * Every new note Tex makes is a designed page (the owner, 2026-10-27, after
+ * "a detailed plan for putting on a 100 person concert in nyc" came back as a
+ * plain checklist: "THIS SHOULD HAVE BEEN A WELL DESIGNED PAGE", then "by
+ * default every note that tex produces should be a page, and only ever a
+ * regular note when the user explicitly asks"). Only background jobs had been
+ * told about pages (`PAGE_JOB_LINE`); `pageNotice.js` sends a plain new note back.
+ */
+export const PAGES_LINE =
+  "Every new note you make is a page: a note named <name>.page.md, never a plain .md, unless they ask for a plain note. " +
+  "Read the page design skill first (orient about: \"pages\") and follow it. A change to a note they already have keeps its form, and your own tex/ notes, " +
+  "about-me and todo.md stay plain; what you make for a chat in tex/chats/ is a page too. Then draw the page's cover (send action draw_visual, template page, data { path }) and text it with one line; the link goes with it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
@@ -366,7 +403,7 @@ export function systemPrompt(
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
         // A fact about this build, so a production setup's own words keep it too.
-        ...(pictures ? [PICTURES_LINE, VISUALS_LINE] : []),
+        ...(pictures ? [PICTURES_LINE, VISUALS_LINE, DATA_CARDS_LINE] : []),
         NOTE_LINK_LINE,
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
@@ -374,7 +411,14 @@ export function systemPrompt(
         RESEARCH_LINE,
         // The owner, 2026-10-25: a coworker who pushes back, not "you're so right" (`pushback.js`).
         OPINION_LINE,
-        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE] : []),
+        // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
+        MIRROR_LINE,
+        LANGUAGE_LINE,
+        // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
+        BRIEF_LINE,
+        // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
+        YES_NO_LINE,
+        ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

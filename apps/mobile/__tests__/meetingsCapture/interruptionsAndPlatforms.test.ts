@@ -1,3 +1,4 @@
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION } from "@context/shared";
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { createRecorder } from "../../features/meetings/capture";
 /**
@@ -14,7 +15,7 @@ import { createRecorder } from "../../features/meetings/capture";
  */
 import { audioRecorder as ambiguouslyResolvedAudioRecorder } from "../../features/meetings/capture/audio";
 import { SEGMENT_MS } from "../../features/meetings/capture/segments";
-import { fakeTranscriber, setTranscriber } from "../../features/meetings/capture/transcriber";
+import { fakeTranscriber, setTranscriber, setTranscriptionConsent } from "../../features/meetings/capture/transcriber";
 import type { RecorderError } from "../../features/meetings/capture";
 import {
   TEST_MEETING_ID,
@@ -324,6 +325,7 @@ describe("android", () => {
   test("the foreground-only warning reaches the controller that subscribes after start", async () => {
     captureState.refuseBackgroundSession = true;
     setTranscriber(fakeTranscriber());
+    setTranscriptionConsent(CLOUD_TRANSCRIPTION_CONSENT_VERSION);
     const recorder = audioRecorder("ios");
     await recorder.start({ sessionId: TEST_MEETING_ID, systemAudio: false });
     const errors: RecorderError[] = [];

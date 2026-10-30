@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { browseOnBrowserbase } from "./browserbaseRoute";
-import { IDLE_MS, IdleTimer, RETRY_MS, touchIdle, type IdleNamespace, type IdleStorage } from "./idle";
+import { HOLD_MS, IDLE_MS, IdleTimer, RETRY_MS, touchIdle, type IdleNamespace, type IdleStorage } from "./idle";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
@@ -184,6 +184,65 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     };
     await expect(touchIdle(broken, OWNER)).resolves.toBeUndefined();
     await expect(touchIdle(undefined, OWNER)).resolves.toBeUndefined();
+  });
+});
+
+describe("a browser is held fifteen minutes while Tex waits on the person", () => {
+  const recording = () => {
+    const touched: Array<{ owner: string; ms: number | undefined }> = [];
+    const namespace: IdleNamespace = {
+      idFromName: (name) => ({ name }) as unknown as DurableObjectId,
+      get: () => ({ touch: async (owner, ms) => void touched.push({ owner, ms }) }),
+    };
+    return { touched, namespace };
+  };
+
+  it("holds to fifteen minutes, and a step or a look during the hold never brings the end closer", async () => {
+    const store = fakeStorage();
+    let now = 1_000_000;
+    const timer = new IdleTimer(store.storage, ENV, fakeApi([]).fetcher, () => now);
+    await timer.touch(OWNER, HOLD_MS);
+    expect(store.alarm()).toBe(1_000_000 + HOLD_MS);
+    now += 60 * 1000;
+    await timer.touch(OWNER);
+    expect(store.alarm()).toBe(1_000_000 + HOLD_MS);
+    // Past the hold, a step is five minutes again.
+    now = 1_000_000 + HOLD_MS + 1;
+    await timer.touch(OWNER);
+    expect(store.alarm()).toBe(now + IDLE_MS);
+    expect(HOLD_MS).toBe(15 * 60 * 1000);
+  });
+
+  it("holds the owner's running browser on /browse/hold", async () => {
+    const { touched, namespace } = recording();
+    const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);
+    const response = await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse/hold", { owner: OWNER }, api.fetcher);
+    expect(await response.json()).toEqual({ held: true });
+    expect(touched).toEqual([{ owner: OWNER, ms: HOLD_MS }]);
+    expect(released(api.calls)).toEqual([]);
+  });
+
+  it("holds nothing, and arms no timer, when the owner has no browser running", async () => {
+    const { touched, namespace } = recording();
+    const api = fakeApi([{ id: "theirs", connectUrl: "wss://c/theirs", userMetadata: { owner: OTHER } }]);
+    const response = await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse/hold", { owner: OWNER }, api.fetcher);
+    expect(await response.json()).toEqual({ held: false });
+    expect(touched).toEqual([]);
+  });
+
+  it("refuses a hold with no owner tag", async () => {
+    const { touched, namespace } = recording();
+    const response = await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse/hold", {}, fakeApi([]).fetcher);
+    expect(response.status).toBe(400);
+    expect(touched).toEqual([]);
+  });
+
+  it("holds a browser being handed to the person, and only five minutes for an ordinary step", async () => {
+    const { touched, namespace } = recording();
+    const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);
+    await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse", { owner: OWNER, steps: [{ do: "read" }], handoff: true }, api.fetcher);
+    await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse", { owner: OWNER, steps: [{ do: "read" }] }, api.fetcher);
+    expect(touched.map((t) => t.ms)).toEqual([HOLD_MS, IDLE_MS]);
   });
 });
 

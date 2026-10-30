@@ -1,5 +1,6 @@
 /** `move_notes` — a batch of moves, and the audit entry for one that stops part-way. */
 
+import { versionMatches } from "../../notes/version.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
   archiveRoots,
@@ -122,8 +123,8 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
         }
       }
     }
-    if (move.expectedSourceEtag && sourceObject.etag !== move.expectedSourceEtag &&
-        collaborationBase?.etag !== move.expectedSourceEtag) {
+    if (move.expectedSourceEtag &&
+        !versionMatches(move.expectedSourceEtag, { document: collaborationBase, rawEtag: sourceObject.etag })) {
       return toolError(
         `conflict: ${move.source} changed since it was read (current etag ${collaborationBase?.etag ?? sourceObject.etag})`
       );

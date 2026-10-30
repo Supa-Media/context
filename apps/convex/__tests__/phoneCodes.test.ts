@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 import { codeText, newCode } from "../functions/phoneCodes";
 import { smsKeysWithSender } from "../functions/lib/adminFns/signInTexts";
+import { withSession } from "./session.helpers";
 
 /**
  * SIGN-IN CODES IN CONTEXT'S OWN WORDS.
@@ -184,7 +185,7 @@ describe("the sender staff set in the admin console (Dev2, 2026-10-09)", () => {
   async function staff(t: TestConvex) {
     vi.stubEnv("ADMIN_EMAILS", STAFF);
     const id = await t.run((ctx) => ctx.db.insert("users", { email: STAFF, emailVerificationTime: Date.now() } as never));
-    return t.withIdentity({ subject: id });
+    return withSession(t, id);
   }
 
   test("texts in Context's words through the stored Messaging Service when the deployment names none", async () => {

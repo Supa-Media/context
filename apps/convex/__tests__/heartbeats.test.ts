@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
 import { HEARTBEAT_CLIENT_ID, QUIET_WAIT_MS, nextBeatAfter } from "../functions/lib/heartbeats/model";
 import { RETRY_AFTER_MS } from "../functions/lib/attention/model";
+import { MAX_LOOK_RETRIES } from "../functions/lib/heartbeats/runs";
 import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 
 /**
@@ -235,25 +236,57 @@ describe("hearing back", () => {
     expect(after!.nextBeatAt!).toBe(nextBeatAfter("America/New_York", claimed!.claimedAt!));
   });
 
-  test("a check-in that failed is tried again soon, once, and reads the same changes again", async () => {
+  test("a check-in that failed is tried again soon, a few times, and reads the same changes again", async () => {
     const t = setupTest();
     const { userId } = await linked(t);
     await text(t);
+    for (let attempt = 1; attempt <= MAX_LOOK_RETRIES; attempt += 1) {
+      await makeDue(t, userId);
+      const [beat] = await due(t);
+      const claimed = await row(t, userId);
+      const before = Date.now();
+      await result(t, beat!.runId, "failed");
+      const after = await row(t, userId);
+      expect(after!.lastBeatAt).toBeUndefined();
+      expect(after!.failedLooks).toBe(attempt);
+      expect(after!.nextBeatAt!).toBeGreaterThan(before);
+      expect(after!.nextBeatAt!).toBeLessThanOrEqual(Math.min(Date.now() + RETRY_AFTER_MS, claimed!.nextBeatAt!));
+    }
+    // Failing once more waits for the slot.
+    await makeDue(t, userId);
+    const [again] = await due(t);
+    const reclaimed = await row(t, userId);
+    await result(t, again!.runId, "failed");
+    expect((await row(t, userId))!.nextBeatAt).toBe(reclaimed!.nextBeatAt);
+  });
+
+  test("failures that run on into the next slot are tried again there too", async () => {
+    // 2026-10-28: a look that failed after a failed one never retried, so a slow tree silenced every slot.
+    const t = setupTest();
+    const { userId } = await linked(t);
+    await text(t);
+    const failing = await row(t, userId);
+    // Out of retries for an earlier slot.
+    await t.run((ctx) =>
+      ctx.db.patch(failing!._id, { lastOutcome: "failed", failedLooks: MAX_LOOK_RETRIES + 1, failedFor: Date.now() - 4 * 3_600_000 }),
+    );
     await makeDue(t, userId);
     const [beat] = await due(t);
     const claimed = await row(t, userId);
     const before = Date.now();
     await result(t, beat!.runId, "failed");
     const after = await row(t, userId);
-    expect(after!.lastBeatAt).toBeUndefined();
+    expect(after!.failedLooks).toBe(1);
+    expect(after!.failedFor).toBe(claimed!.nextBeatAt);
     expect(after!.nextBeatAt!).toBeGreaterThan(before);
     expect(after!.nextBeatAt!).toBeLessThanOrEqual(Math.min(Date.now() + RETRY_AFTER_MS, claimed!.nextBeatAt!));
-    // Failing again waits for the slot.
+    // A look that goes through clears the count.
     await makeDue(t, userId);
-    const [again] = await due(t);
-    const reclaimed = await row(t, userId);
-    await result(t, again!.runId, "failed");
-    expect((await row(t, userId))!.nextBeatAt).toBe(reclaimed!.nextBeatAt);
+    const [next] = await due(t);
+    await result(t, next!.runId, "quiet");
+    const cleared = await row(t, userId);
+    expect(cleared!.failedLooks).toBeUndefined();
+    expect(cleared!.failedFor).toBeUndefined();
   });
 
   test("a check-in that found them mid-conversation looks again once the chat has been quiet, every time", async () => {

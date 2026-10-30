@@ -40,10 +40,12 @@ export async function rowNoteId(store, path) {
   return await noteIdOf(store, path);
 }
 
-async function initialize(store, path, note, head, noteId = null) {
+async function initialize(store, path, note, head, noteId = null, stateRead = null) {
   if (head) {
     if (head.status !== "active") throw fail("GENERATION_MISMATCH", "document generation is unavailable");
-    let stored = await readState(store, head);
+    // `stateRead` is this head's state, already asked for beside the note (`load`); it is a read, and it is
+    // decided here exactly as a read made now would be.
+    let stored = await (stateRead ?? readState(store, head));
     if (!stored) {
       if (typeof head.initialEtag !== "string" || typeof head.initialText !== "string" || typeof head.initialSnapshot !== "string") {
         throw fail("CORRUPT_STATE", "collaboration initialization seed is missing");
@@ -130,8 +132,21 @@ async function recreateGeneration(store, path, note, tombstone, noteId = null) {
   return initialize(store, path, note, { ...candidate, etag: written.etag }, noteId);
 }
 
-async function load(store, path) {
-  const head = await readHead(store, path);
+async function load(store, path, headRead = null) {
+  // A caller that has just read the head to learn whether there is one (`readDocumentIfStarted`) hands it in.
+  const head = headRead ?? (await readHead(store, path));
+  /*
+    The reads the ordinary load makes next, asked together rather than one bucket round trip after another:
+    the row's note id, the Markdown, and an active head's state. Each is only a read, and each is used below
+    exactly where it was read before; a branch that has to read the note again after changing something
+    reads it afresh. Every write that follows is still conditional on what it read.
+  */
+  const early = (promise) => {
+    promise.catch(() => {});
+    return promise;
+  };
+  const noteRead = early(readObject(store, path));
+  const stateRead = head?.status === "active" ? early(readState(store, head)) : null;
   const noteId = await rowNoteId(store, path);
   // An active head made for another note: the name's row is a different note now (the one the head was
   // made for was trashed, and its head was not carried with it). That head is not this note's, so the
@@ -183,11 +198,11 @@ async function load(store, path) {
     }
     return load(store, path);
   }
-  const note = await readObject(store, path);
+  const note = await noteRead;
   if (!note) throw fail("DOCUMENT_MISSING", "collaboration requires an existing Markdown note");
   assertEligible(path, note.text);
   assertTextSize(note.text);
-  const initialized = await initialize(store, path, note, head, noteId);
+  const initialized = await initialize(store, path, note, head, noteId, stateRead);
   if (initialized) return initialized;
   return load(store, path);
 }
@@ -234,9 +249,14 @@ export async function finalizePending(store, path, loaded) {
   let current = loaded;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     const { state, stateEtag, head } = current;
+    // The accepted revisions and the Markdown are independent reads, asked together.
+    const noteRead = readObject(store, path);
+    noteRead.catch(() => {});
+    const pendingRead = state.pending ? readRevision(store, state.documentId, state.pending.revision) : null;
+    pendingRead?.catch(() => {});
     const revision = await readRevision(store, state.documentId, state.revision);
     if (!state.pending) {
-      const note = await readObject(store, path);
+      const note = await noteRead;
       if (!note) throw fail("DOCUMENT_MISSING", "Markdown note disappeared during materialization");
       if (note.etag === state.rawMarkdownEtag) {
         if (note.text !== revision.value.text || note.text !== state.text) throw fail("MATERIALIZATION_CONFLICT", "Markdown changed outside collaboration");
@@ -261,8 +281,8 @@ export async function finalizePending(store, path, loaded) {
     }
 
     const pending = state.pending;
-    const pendingRevision = await readRevision(store, state.documentId, pending.revision);
-    const note = await readObject(store, path);
+    const pendingRevision = await pendingRead;
+    const note = await noteRead;
     if (!note) throw fail("DOCUMENT_MISSING", "Markdown note disappeared during materialization");
     let materialized = note;
     if (note.etag === pending.previousRawEtag) {
@@ -300,8 +320,8 @@ export async function finalizePending(store, path, loaded) {
   throw fail("MATERIALIZATION_PENDING", "accepted collaboration state is durable and still awaiting Markdown materialization");
 }
 
-export async function ready(store, path) {
-  let current = await load(store, path);
+export async function ready(store, path, headRead = null) {
+  let current = await load(store, path, headRead);
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     if (current.state.structural) {
       await recoverStructural(store, current.state.structural.operationId);

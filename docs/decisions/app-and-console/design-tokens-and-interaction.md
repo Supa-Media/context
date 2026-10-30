@@ -47,8 +47,9 @@ to drift. Three things follow, and each is a test:
   `ensureFontsLoaded` looks for. Without it that function cannot see the link
   already in the head and appends a second one on every web load.
 
-The accepted cost is that a render-blocking stylesheet on a third-party host is
-now on the critical path: if Google Fonts is slow, the app's mount waits on it.
+The accepted cost was that a render-blocking stylesheet on a third-party host
+was on the critical path: if Google Fonts was slow, the app's mount waited on
+it. Since 2026-10-29 the stylesheet is our own (see the last section).
 That was the original intent — type at first paint rather than a swap — and the
 shell's ground still paints immediately either way, so the failure mode is a
 late app on the right colour rather than a flash of the wrong one.
@@ -474,3 +475,43 @@ in its place by `useDepartures` (`features/design/useDepartures.ts`) while its
 three at once. Reversing it costs the jumps back;
 `__tests__/folderPageMotion.test.ts` fails if `Settle` stops following its
 content or a deleted row vanishes in one frame.
+
+### The app's type comes from our own origin, and the enforced policy defines what has no fallback (2026-10-29)
+
+The CASA passive ZAP scan of five public pages (`/`, `/login`, `/privacy`,
+`/terms`, `/support`) reported, among others, a missing Subresource Integrity
+attribute on the Google Fonts stylesheet, and an enforced
+Content-Security-Policy without `form-action`. Both are fixed at the source,
+and nothing is suppressed:
+
+- **Instrument Sans and JetBrains Mono are served from the app's root**
+  (`public/context-fonts.css`, `public/InstrumentSans-*.woff2`,
+  `public/JetBrainsMono-*.woff2`, each OFL beside them), as Libron already
+  was. An integrity hash on Google's CSS was never an option: Google answers
+  each browser with different CSS, so any fixed hash breaks someone. The
+  files are Fontsource's variable-weight woff2 subsets, unmodified (neither
+  family has a Reserved Font Name), upright only, as the old request asked
+  for. Instrument Serif, the heading face every published website page draws
+  in, is ours the same way since the same day (`public/context-site-serif.css`,
+  `public/InstrumentSerif-*.woff2`, the OFL beside them; `siteFonts.ts`), the
+  latin and latin-ext upright subsets of `@fontsource/instrument-serif` 5.3.0,
+  unmodified, as the Google request asked for. A designed site's chosen faces
+  still come from Google Fonts (`packages/shared` site design): an owner's
+  font choice is theirs. `websitePage.test.ts` fails if a page links Google
+  for the serif or a face it names is missing.
+- **The enforcing header now also says `form-action 'self'; object-src
+  'none'; base-uri 'self'`** (`infra/router/src/securityHeaders.ts`), the
+  directives with no `default-src` fallback that nothing here needs more of.
+  `securityHeaders.test.ts` reads the app's source and fails if a `<form>`
+  could submit by navigation or anything makes an `<object>`, `<embed>` or
+  `<base>`.
+- **Script and style are not enforced yet**, so the scan's "wildcard or
+  undefined directives" and both `'unsafe-inline'` findings stand, and are
+  said to stand. Script waits on the plugin sandbox and the drawing editor
+  (`cspReport.ts`; `cspReport.test.ts` fails if it enforces first). Style
+  needs `'unsafe-inline'` for as long as react-native-web creates its
+  `<style>` element at runtime with text in it
+  (`StyleSheet/dom/createCSSStyleSheet.js`) and screens such as the landing
+  render their CSS in `<style>` elements, text no fixed hash can cover; it is
+  never removed to quiet a scanner.
+

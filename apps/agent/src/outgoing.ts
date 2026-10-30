@@ -11,18 +11,21 @@
  * saying so, never a failed answer.
  */
 
+import type { AppCard } from "./appCards";
 import type { ImagesLike } from "./attachments";
 import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 
-export type OutgoingPicture = { name: string; mediaType: string; data: string } | { url: string };
+/** `title`: a card Tex drew names what it shows, so a chat with Context cards gets it as one (`sendParts.ts`). */
+export type OutgoingPicture = { name: string; mediaType: string; data: string; title?: string } | { url: string };
 
 /** A picture ready to send: an attachment uploaded to Linq, or an address the line fetches. */
 export type Media = { attachment_id: string } | { url: string };
 
-/** What the inbox sends after the words: a text, or a media part ready for the line. */
-export type SendPart = string | { media: Media };
+/** What the inbox sends after the words: a text, a media part ready for the line, or a Context card (`pickCard.ts`). */
+export type SendPart = string | { media: Media; title?: string } | { card: AppCard; fallback?: Media };
 
 export const MAX_OUTGOING_PICTURES = 8;
+const MAX_TITLE = 100;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
@@ -82,7 +85,8 @@ export function readPictures(raw: unknown): OutgoingPicture[] {
       SENDABLE.has(value.mediaType)
     ) {
       const name = typeof value.name === "string" && /^[\w.-]{1,80}$/.test(value.name) ? value.name : "picture";
-      out.push({ name, mediaType: value.mediaType, data: value.data });
+      const title = typeof value.title === "string" ? value.title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) : "";
+      out.push({ name, mediaType: value.mediaType, data: value.data, ...(title ? { title } : {}) });
     }
   }
   return out;
@@ -151,7 +155,7 @@ export async function partsFor(
       continue;
     }
     try {
-      parts.push({ media: await upload(picture) });
+      parts.push({ media: await upload(picture), ...(picture.title ? { title: picture.title } : {}) });
     } catch {
       failed = true;
     }
@@ -185,5 +189,6 @@ export async function sendLinqMedia(
 /** What the simulator's log shows for a picture. */
 export function describePart(part: SendPart): string {
   if (typeof part === "string") return part.slice(0, MAX_REPLY_TEXT);
+  if ("card" in part) return `[card: ${part.card.layout.caption}]`;
   return "url" in part.media ? `[picture: ${part.media.url}]` : "[picture]";
 }

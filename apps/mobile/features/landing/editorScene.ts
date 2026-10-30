@@ -27,19 +27,19 @@ The beta opens on **Oct 14**. Everything for the launch lives here, and every AI
 
 \`\`\`cast
 pace: fast
-@maya joins
-@maya types: Welcome email draft is next. Claude, can you check it against the brand notes?
-@maya's Claude reads: areas/brand
-@maya's Claude adds note: projects/launch/Welcome email
+@ines joins
+@ines types: Welcome email draft is next. Claude, can you check it against the brand notes?
+@ines's Claude reads: areas/brand
+@ines's Claude adds note: projects/launch/Welcome email
   # Welcome email
   You're in. Here's the 90-second tour.
-@maya's Claude writes: Drafted [[welcome-email]] in the brand voice. Two lines need a date.
+@ines's Claude writes: Drafted [[welcome-email]] in the brand voice. Two lines need a date.
 @jon joins
 @jon adds a line below: - [ ] Line up three customers to quote
 @jon's ChatGPT reads: resources/customer-interviews
 @jon's ChatGPT writes: Dana, Priya and Sam all said yes in their interviews. Quotes are in [[customer-interviews]].
 @sam's Codex writes: Sign-up page is built and passing. Preview link is in [[website-refresh]].
-@maya types: Perfect. Locking Oct 14.
+@ines types: Perfect. Locking Oct 14.
 wait 3s
 \`\`\`
 `;

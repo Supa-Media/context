@@ -59,6 +59,8 @@ export interface HomeRecent {
   at: number;
   /** What they did last; absent on rows from before the row said. */
   kind?: "opened" | "edited";
+  /** When their own hand last changed it, kept through later opens; absent if they never did. */
+  editedAt?: number;
 }
 
 export interface HomeInput {

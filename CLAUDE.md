@@ -34,8 +34,11 @@ breaking one, stop and say so rather than working around it.
    URLs, or on a device: encrypted at rest, decrypted only in the gateway at
    request time. The one exception is the texting assistant's autofill vault,
    sealed in the person's own bucket with the key held outside it and never
-   shown to a model, and its browser's sign-ins kept the same way (decided by
-   the owner, 2026-10-06 and 2026-10-20;
+   shown to a model, and its browser's sign-ins kept the same way and, first,
+   in one saved Browserbase profile per person or group chat, which the
+   control plane deletes there with the account, the workspace or "sign Tex
+   out"; export carries the sealed copy (decided by the owner, 2026-10-06,
+   2026-10-20 and 2026-10-29;
    [texting-assistant](./docs/decisions/texting-assistant.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
@@ -99,7 +102,10 @@ breaking one, stop and say so rather than working around it.
    a group are all absent through it. It publishes what the folder already
    published to the workspace and never more, which is why this is a wider
    *locator* and not a wider *tier*. The whole context is never the subject of
-   one. See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
+   one. A page (`.page.md`) linked for the team or for anyone previews its
+   cover, its first screen (decided by the owner, 2026-10-27;
+   [page-covers](./docs/decisions/privacy-and-sharing/page-covers.md)).
+   See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
    A workspace's **website** is this exception for `website/` and the folders
    its pages name with `folder:`: turning it on is the owner minting that
    locator, and every page, referenced notes included, resolves the same way,

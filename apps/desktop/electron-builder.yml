@@ -100,6 +100,12 @@ mac:
   # electron-builder looks for and which provisioning rules apply. It says
   # nothing about the Dock or the menu bar in either direction.
   type: distribution
+  # Electron 38 and later run on macOS 12 Monterey or newer, and the Electron
+  # this app ships (44, for its security fixes) is one of them. Stated here so
+  # Info.plist says it; the release workflow also writes the matching Darwin
+  # version into latest-mac.yml, which is what stops an installed copy on an
+  # older Mac from downloading a build it could not open.
+  minimumSystemVersion: "12.0"
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist

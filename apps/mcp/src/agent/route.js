@@ -30,9 +30,10 @@ import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach, meterParts } from "./modelPlan.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
-import { withoutFlattery } from "./pushback.js";
+import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
@@ -54,12 +55,13 @@ import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quot
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
-import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
+import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
+import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
-import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
+import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -143,7 +145,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   if (isGroupSession(session) && group === null) return json({ error: "invalid_request", error_description: "A group chat's turn names its chat." }, 400);
   // Background jobs (`background.js`): a texted turn may start them, and a job's own turn names itself.
   const chatTurn = !runner && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const job = chatTurn ? jobOf(body.job) : null;
+  const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
@@ -155,8 +157,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let runs = [];
   // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
   let supervision = null;
-  // A saved login's turn (`vaultSaved.js`) is asked the gateway's own line, never the body's.
-  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (typeof body.question === "string" ? body.question.trim() : "");
+  // A saved login's turn (`vaultSaved.js`) and a job's report are asked the gateway's own line, never the body's.
+  let question = vaultSavedQuestion(body, { texting: session.actorClientId === TEXTS_CLIENT_ID && group === null, job }) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
   if (runner) {
     try {
       routine = await loadRoutine(dispatch, routinePathFrom(body.routine));
@@ -204,12 +206,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   let thumbsUp = false;
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
-    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null });
+    thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null }); // a 👍 on the ask is that yes
+    const thumbsDown = !thumbsUp && (await thumbsDownIsNo(store, session, quoted, { who: group?.from || null })); // and a 👎 the no
     const settled = await settleTextedText(store, session, {
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
-      question: thumbsUp ? "yes" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
+      question: thumbsUp ? "yes" : thumbsDown ? "no" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
       keep: group !== null ? keepGroupSettled(store, group, dispatch) : null,
       hasAttachments: sent.length > 0,
       now: received,
@@ -245,9 +247,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         409,
       );
     }
-    // A control plane that could not be reached is not a refusal, and telling
-    // somebody the assistant is not theirs when it is is worse than telling
-    // them nothing.
+    // A control plane that could not be reached is not a refusal, and telling somebody
+    // the assistant is not theirs when it is is worse than telling them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
@@ -290,7 +291,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const { conversation, history } = await turnHistory(store, session, body, { runner, group, dispatch });
   const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId });
   const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
-  if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
+  if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
@@ -484,13 +485,17 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await standingForwardTools(store, routine.path, offered)), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
-  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: readTexStyle(body.texStyle)?.length === "detailed", visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
+  // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
+  const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
+  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover });
+  const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
+  maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
   try {
     await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     const turn = await runTurn({
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
-      question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
@@ -508,7 +513,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
-          withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group, question }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch })))),
+          withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(dispatch, groupWriting, { store, group, question }) : textingAwareCallTool(dispatch, textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))))),
         ))),
       )))))),
       pictures: texted || group !== null,
@@ -526,9 +531,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
           ...(production !== null ? { setup: production.version } : {}),
         },
       },
-      web: steer?.trackWeb(claims?.wrapWeb(web) ?? web) ?? claims?.wrapWeb(web) ?? web, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
+      web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
-      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + (texted && job === null ? await googleOfferLine(store, shown) : ""), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(texting ? outgoing.knows(await readTexNotes(dispatch, { controlPlane, session })) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
@@ -549,13 +554,13 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // A card's boxes are filled one browser call each, after the person's yes (`fillCard.js`).
       // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email;
       // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
-      toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 40_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
+      toolTimeouts: { browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
       // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
       planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
-    // The question's browser, if it opened one, is not left running.
-    if (opened !== null) await afterAnswer(opened.close());
+    // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).
+    if (opened !== null) await afterAnswer(opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
     await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
     outcome.clean = ledger.untrusted !== true;
@@ -603,7 +608,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: told, pictures, captions } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
+    const { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -625,10 +630,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
-    if (group !== null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
-    if (conversation !== null && !turn.exhausted && !replaced) {
+    if (group !== null && job === null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
+    if (conversation !== null && job === null && !turn.exhausted && !replaced) { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
-        const saved = [reactedLine(reacted), jobSavedLine(job) || tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
@@ -653,7 +658,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
       ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
       ...startedJobs(background, ledger.untrusted === true), // the Worker runs these (`background.js`)
-      ...(pictures.length > 0 ? { pictures } : {}),
+      ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers } : {}), // choices, offers: `outgoingPictures.js`
       ...(ledger.vaultLink === true && group === null ? { vaultWatch: true } : {}), // the Worker watches for the save (`vaultSaved.js`)
       provider: turn.provider,
       model: turn.model,

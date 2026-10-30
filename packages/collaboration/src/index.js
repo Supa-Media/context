@@ -10,7 +10,7 @@
  * operation and never kept past it.
  */
 
-import { readDocument as read, readDocumentIfStarted as readIfStarted, commitUpdate as commit } from "./commit.js";
+import { readDocument as read, readDocumentIfStarted as readIfStarted, documentStarted as started, commitUpdate as commit } from "./commit.js";
 import { replaceText as replace } from "./replace.js";
 import { sealDocument as seal, moveDocument as move, tombstoneDocument as tombstone, restoreDocument as restore } from "./lifecycle.js";
 import { renameDocument as rename } from "./rename.js";
@@ -25,6 +25,7 @@ export { eligible } from "./eligibility.js";
 export { CollaborationError, supported } from "./storage.js";
 export const readDocument = scopedEntry(read);
 export const readDocumentIfStarted = scopedEntry(readIfStarted);
+export const documentStarted = scopedEntry(started);
 export const commitUpdate = scopedEntry(commit);
 export const replaceText = scopedEntry(replace);
 export const sealDocument = scopedEntry(seal);
@@ -37,3 +38,4 @@ export const eraseDocument = scopedEntry(erase);
 export const noteOfDocument = scopedEntry(documentNote);
 export const fileHeadsByNote = scopedEntry(fileHeads);
 export { pathHeadLive };
+export { isCurrentEtag } from "./records.js";

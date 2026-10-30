@@ -60,12 +60,18 @@
     "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
   },
   "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+  // Each group turn is one instance, retried by Workflows (src/groupTurnWorkflow.ts).
+  "workflows": [
+    { "name": "group-turn", "binding": "GROUP_TURN", "class_name": "GroupTurnWorkflow" },
+    { "name": "job-run", "binding": "JOB_RUN", "class_name": "JobRunWorkflow" }
+  ],
   "vars": {
     "GATEWAY_ORIGIN": "https://mcp.context.lc",
-    // A link to a note goes as a Context card when "on" (src/appCards.ts);
-    // the team id is the APPLE_TEAM_ID secret. Off until the Messages
-    // extension ships, so a tap opens the note.
-    "APP_CARDS": "off",
+    // Context cards (src/appCards.ts, src/cardChats.ts): "on" for every
+    // chat, "app" only for chats whose person has shown they have the
+    // Context app (a card from its Messages extension reached Tex), "off".
+    // The team id is the APPLE_TEAM_ID secret.
+    "APP_CARDS": "app",
     "APP_CARD_EXTENSION_ID": "lc.context.mobile.messages"
   },
   "triggers": { "crons": ["* * * * *"] },
@@ -81,12 +87,16 @@
         "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
       },
       "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "workflows": [
+        { "name": "group-turn-staging", "binding": "GROUP_TURN", "class_name": "GroupTurnWorkflow" },
+        { "name": "job-run-staging", "binding": "JOB_RUN", "class_name": "JobRunWorkflow" }
+      ],
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on",
-        "APP_CARDS": "off",
+        "APP_CARDS": "app",
         "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
       }
     }

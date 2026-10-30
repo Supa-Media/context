@@ -145,6 +145,183 @@ an https link on context.lc and nothing else. The IPA check
 extension point and the host's exact version. It reaches people with the next
 native build and App Store release, which stay separate explicit actions.
 
+### Choosing with one tap: the pick card (2026-10-26, built switched off)
+
+The owner, on App Cards: "if you come up with UX that utilizes both, great".
+The carousel is for looking and a card is for deciding: after a set of option
+cards (two or more `option` draws sent together), one Context card follows
+that names Tex's pick, with that option's own card as its picture, and says
+"Tap to choose, or reply 1–3" (`apps/agent/src/pickCard.ts`). The gateway
+hands the options over as `choices` (`outgoingPictures.js`): names and prices
+from the option cards' own data, never anything else the turn read.
+
+The options travel in the card's URL (`https://context.lc/tex/pick?p=1&o=…`),
+so nothing is kept on our side. The extension lists them; choosing one sends
+the card back from their phone with `&c=2`, and that reaches Tex as the text
+"I pick 2: Lugo's" (`pickedText`). A card that comes back is untrusted input:
+only a card from our own extension, on context.lc's `/tex/pick`, naming one
+of its own options, becomes words, and those words are never more than the
+person could have typed. Any other card is not a message.
+
+The card goes only where note cards go (`APP_CARDS` on, a Sendblue one-to-one
+chat), and a line that refuses it sends nothing in its place: every option
+card already says "Reply 2 for more". Reverting it costs the one-tap choice,
+and the carousel and numbered replies stay. A CI job (`messages-extension`)
+type-checks the extension against the iOS SDK on every pull request that
+touches it, because otherwise only the hand-run native release compiles it.
+
+### A drawn card goes as a Context card (2026-10-29)
+
+Asked by the owner to test native iMessage cards, Tex
+sent its card as a photo and said a card can only be a picture in iMessage,
+in a chat where Context cards were already on (owner, 2026-10-29). Now a card
+Tex drew with `draw_visual` carries its title (or kicker) out of the gateway
+(`outgoingPictures.js` `titleOf`), and where cards go (`cardsOn`, a Sendblue
+one-to-one chat) the worker sends it as a Context card: the drawing is the
+card's picture, the title its caption, and a tap opens `/messages/card`, which
+names it and says to reply in the chat to change it (`apps/agent/src/sendParts.ts`
+`withDrawnCards`, `infra/router/src/messagesCards.ts`). Option cards carry no
+title, so a set still goes as a carousel with its pick card. The photo rides
+along with the card and goes instead when the line refuses it, so the drawing
+always arrives. The texting prompt says a drawn card arrives as a Context card
+on a phone with the app and as a photo elsewhere, and never to say a card can
+only be a picture (`PICTURES_LINE`). Simplifying the fallback away loses the
+drawing on any line without cards. Tests: `apps/agent/src/drawnCards.test.ts`
+(sabotage record in its header), `agentOutgoingPictures.test.mjs` "a drawn
+card carries its title", `messagesCards.test.ts` "a drawn card's page".
+
+### Cards where the app is, and Yes with a tap (2026-10-28)
+
+The owner, opening the Context app in the Messages drawer and finding only
+"Tap a Context card to open it.": "can we send more interactive cards when
+people have the app?" Nothing on our side records who installed the app, so
+the chat says so: any card from our own extension that reaches Tex marks that
+inbox (`apps/agent/src/cardChats.ts`). Opened from the drawer with no card
+selected, the extension offers "Turn on cards with Tex", which puts a hello
+card in the text field for them to send; a pick chosen or an ask answered
+marks it too. `APP_CARDS` "app" sends cards only to a marked chat, "on" to
+every chat; without the app a card is a bubble that only offers the App
+Store, which is why production runs "app".
+
+Under a reply that carries one of the gateway's asks (the same words a 👍
+is held for, `thumbs.ts`), an ask card follows: "Go ahead?", with Yes, go
+ahead and Not now in the extension. Sent back, they are the words "yes" and
+"no", and the gateway checks them exactly as typed ones, so the card can
+never approve anything a typed yes could not. The card carries a short key
+of the ask's words; a Yes tapped after a newer reply (a different ask, or
+none) reaches Tex as "I tapped Yes on an older card, not on your last ask.",
+which no approval reads as a yes. Not now is always a no. Reverting the key
+check lets a Yes tapped on yesterday's card approve today's ask. Test:
+`apps/agent/src/cardChats.test.ts`.
+
+### The extension shows context.lc's page for each card (2026-10-29)
+
+The owner: "the message extension can't get ota updates?" It cannot: an
+over-the-air update swaps the app's JavaScript, and the Messages extension is
+compiled Swift, which only an App Store build changes. So the extension is
+now a thin shell. For a pick, ask or hello card, and for the drawer, it shows
+`https://context.lc/messages/<kind>` with the card's own query
+(`infra/router/src/messagesCards.ts`), and does what that page asks through
+one bridge: send a card back in the card's session, put the hello card in the
+text field, or resize. The page decides what a card offers and how it looks,
+so that ships with a deploy.
+
+The phone still checks every request: only from context.lc's top frame on a
+`/messages/` page, only a `https://context.lc/tex/…` card with short words.
+The page is a function of its address (no session, no storage, one constant
+script allowed by its hash), and every name in it is escaped, because the
+address is the card's URL, which anyone in a chat could write. When the page
+cannot load, the native screens draw the same choices, so offline still
+works. Reverting it puts every card change behind an App Store build. Tests:
+`infra/router/src/messagesCards.test.ts`, and the `messages-extension` CI job
+for the Swift.
+
+Later that night the owner saw mocks of richer cards (sorting an inbox, picking
+meeting times on a week grid, editing a draft, adjusting a cart) and asked to
+"play around" with formats "on the fly without asking for a new update all
+the time". So before the shell's first native build it opens any
+`/tex/<kind>` (lowercase letters, digits and dashes, at most 32) as
+`/messages/<kind>` rather than a fixed list, and the bridge also takes
+`open` (a context.lc link, in the app), `haptic` and `close`. A new format is
+then a new page and a deploy; a kind with no page 404s and falls back to
+opening the card's link. Narrowing the kinds back to a list puts every new
+format behind an App Store build.
+
+The owner then asked to "package everything we think we might need ... baked
+into the permissions" so the shell needs no build for a while
+(`CardShell.swift`). The bridge also takes `copy`, `insertText` (words in the
+text field, still sent by the person), `share` (the share sheet) and haptic
+styles. A card sent with `live: true` goes out as a live bubble: in the
+transcript the extension draws the card's page with `bubble=1`, at the card's
+`bh` height (60 to 400 points), with taps passing through to open the panel;
+phones without the app see the template. The camera, microphone, photos and
+location are the web's own APIs in the page, each behind iOS's prompt, which
+the extension's Info.plist words. A page reads `window.contextShell` (version
+and abilities) before its script runs. None of these reach another person
+without the person's own tap on Send, and none reads anything back to the
+page. Test: `apps/mobile/__tests__/contextMessagesPlugin.test.js`.
+
+Cards that show the person's own data (their inbox, their week) prove who it
+is with the Context app's sign-in, not a key in each card's link (the owner's
+choice, 2026-10-29), so the data opens only on the signed-in phone. The app
+leaves one gateway OAuth grant (its own revocable client and scopes, never the
+app's session) in its keychain under the app group, which only the app and the
+extension can read (`CardGrant.swift`). The extension alone refreshes it, with
+the token endpoint's rotation, and deletes it when refused, so the app mints
+another when it next opens. A page asks the bridge to `fetch` a path under
+`/cards/` on the grant's gateway, live bubbles included, and gets back only a
+status and a body; the bearer is added in Swift. Since anyone can write a
+card's link, a page that shows fetched data must never send it back on its
+own: only the person's tap does, with words the page chose. Minting the grant
+(Convex), writing it (the app's JavaScript) and the `/cards/` routes (the
+gateway) ship by deploy and over the air after the native build.
+
+The key is minted by `functions/cardsKey.ts` (client `context_cards`, read
+and private scopes clamped by role, the person's own personal workspace only,
+one per phone keyed on a device id the app keeps, with a real refresh token
+the extension rotates) and written by `features/cards/useCardKey.ts` on iOS,
+only where no key for this workspace is stored, checked again whenever the app
+comes to the front, and deleted at sign-out. Another account's key on the same
+phone is deleted rather than reused. Tests: `apps/convex/__tests__/cardsKey.test.ts`,
+`apps/mobile/__tests__/cardKey.test.ts`.
+
+The gateway answers it at `/cards/inbox` (the newest mail in their inbox from
+the last two weeks, or `?view=unread`, live from Gmail: sender, subject,
+snippet, ten at most) and `/cards/week?from=&days=` (up to seven days of
+every connected calendar's timed events as start and end instants only, no
+title, place or guest, merged), in `apps/mcp/src/http/cards.js`. Only the
+card key's client is answered: an MCP client already reads mail and the
+calendar through its tools, as words for a model, and these answer as data
+for a page the app owns. A page picks a view and never writes a Gmail query.
+`cards` is reserved as a first path segment and a name, or `/cards/inbox`
+would read as a workspace called `cards` at the capture route. The control
+plane's live reads already clear the card key: the owner of a personal
+workspace with private access, no write (`personalOwnerReadClearance`).
+Tests: `apps/mcp/test/cards.test.mjs`, and `calendarRead.test.mjs` for the
+busy times.
+
+The pages are `/messages/inbox` (tap the emails Tex should take care of; the
+card back is `/tex/inbox?m=<address>/<id>&…` and reaches Tex as "Please take
+care of these emails: email:…") and `/messages/times` (the next five days,
+9 to 6 on the phone's clock, busy times left out, 30 minutes or an hour; up to
+five picked go back as `/tex/times?d=&z=&s=…` and read as the times written
+out on that clock), in `infra/router/src/messagesData.ts`, linked from the
+drawer. They run one constant script allowed by its hash, have no
+`connect-src`, set every fetched word with `textContent`, and send only what
+the person tapped. A card that came back shows what was chosen, read from its
+own address, and fetches nothing, so a friend tapping a times card in their
+chat sees the times, never their own week. The agent reads them in
+`apps/agent/src/dataCards.ts`. Tests: `infra/router/src/messagesData.test.ts`,
+`apps/agent/src/cardChats.test.ts`.
+
+Tex offers either card itself with a line of its answer, `[card times]` when
+it asks when they're free and `[card inbox]` when asked to go through their
+email (`DATA_CARDS_LINE`). The gateway strips the line into the answer's
+`offers` (`outgoingPictures.js`), and the Worker sends the card after the
+words only where cards go (`apps/agent/src/dataCards.ts` `withDataCards`), so
+Tex's words must stand without it. Tests: `agentOutgoingPictures.test.mjs`,
+`apps/agent/src/dataCards.test.ts`.
+
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
 Dev2's lunch question ("show me some lunch options around me, average prices
@@ -316,3 +493,133 @@ mockups: "this is ok for now. will work on better design elements later".
 What it does not change: any template's fields, what the model is told, or
 the copy on a card. Reverting is `kit.js`'s palettes and fonts plus the
 inline styles; `agentVisuals.test.mjs` still draws every template.
+
+## A route shows its path, and Tex looks at every picture before it goes (2026-10-27)
+
+Dev2's "3 mile run loop from my house in LIC" came back as a map card with
+one pin, no line and a cut-off "1.7 miles o…": "what even is this? does Tex
+think critically at all and ask itself if it answered the question? and if
+the visual helps? i don't even see the path". Then: "Tex should always look
+at a card before sending it, and self approve whatever it's about to send",
+and "it should critique itself and think".
+
+- **A route is drawn along streets.** A `map` card with `route` or `loop`
+  (back to stop 1) asks OpenStreetMap's router (FOSSGIS
+  `routing.openstreetmap.de`, foot by default, `travel` bike or drive) for
+  the way through its stops, sending the stops' points only. Google Static
+  Maps draws that polyline (`enc:`); the tiles draw it as a line the map is
+  fitted to. The router's length goes on the map ("3.1 mi") and to the model
+  ("say that length"); without the router the line is straight and the model
+  is told not to claim a length (`apps/mcp/src/agent/visuals/route.js`).
+- **A map card missing a stop is not drawn.** Dropping a stop the turn never
+  looked up turned a three-stop loop into one pin. The tool now refuses and
+  tells the model which stops to look up; the rule that only an address the
+  turn saw goes to a map service is unchanged.
+- **Every picture is looked at before it may go** (`apps/mcp/src/agent/cardCheck.js`).
+  Each picture a texted turn makes, in a 1:1 chat or a group, is shown with
+  the person's text to Haiku, which thinks (effort medium) and critiques it:
+  what was asked, does this answer it at a glance, what is missing or wrong,
+  can every word be read, would a sentence do better. A picture it would not
+  send comes back to Tex as the critique, without the picture, so it is
+  never sent, even unnamed; Tex redraws it or answers in words. After two
+  held pictures in one turn the critique rides along instead, so a turn
+  always ends. It reads the person's text and the picture, never a tool
+  result; when it can't run, the picture goes. `CARD_CHECK=off` turns it off.
+
+Tests: `apps/mcp/test/agentRouteCheck.test.mjs`.
+
+## The count asked for, a map from addresses spelled either way, and no empty band (2026-10-27)
+
+Dev2 asked "show me the top 5 ice cream shops in manhattan" and got four,
+then "couldn't show it to me in a map?" and got "the map wouldn't draw
+pins", on cards with a wide empty band under the rows.
+
+- **The count asked for.** A places card holds up to six rows, and the tool
+  description says to give as many as were asked ("top 5" is five).
+- **Addresses spelled either way.** Only an address the turn saw may go to a
+  map service (`outgoingPictures.locates`). That stays, but the comparison
+  now forgives spelling: "48 E 7th St" is found in "48 East Seventh Street",
+  "6th Ave" in "Avenue of the Americas". It also matches whole words only, so
+  "8 E 7th St" is no longer found inside "48 E 7th St". A parenthetical
+  ("(at 1st Ave)") is dropped from the street part. When no pin can be
+  drawn, or some are missing, the model is told which places to look up, not
+  just that the map was left off.
+- **Cards as tall as their rows.** Places and map cards ask the screenshot
+  Worker to `fit`: the page is taken from a short viewport as a whole-page
+  picture, so it is exactly as tall as what it holds, up to the height asked
+  (a longer page is taken at that height, as before). The height sent is a
+  close estimate, so a Worker without `fit` still draws it with little band.
+  Pages the model writes itself are never fitted.
+
+Reverting the spelling map or the whole-word match fails "an address the
+turn read is found however its street words are spelled" in
+`agentDistance.test.mjs`; dropping `fit` fails the places checks in
+`agentVisuals.test.mjs` and the `render fit` checks in site-shots.
+
+## A comparison shows each thing, and the gateway goes and gets it (2026-10-27, night)
+
+The owner, 21:49: "it's super important that when Tex is showing comparisons,
+for food, locations, countries etc, that we are visual, we need to show
+screenshots of the things PLEASE, Tex needs to stop quitting so soon, it has
+a whole computer."
+
+Two causes, both fixed:
+
+- **The web tools were never read.** A turn's web tools (`turnWeb.js`) run
+  beside the dispatcher, not through it, and `outgoingPictures` watched only
+  the dispatcher. So no page or picture search a texted turn read ever counted
+  as read: every web photo the model put on a card was dropped as unread, and
+  `fillPictures` had nothing to match names in. `outgoing.wrapWeb` now reads
+  them like any tool result; `route.js` passes the turn's web through it.
+- **Missing pictures were the model's to go and find, and it didn't.** A note
+  in the draw result saying "search and draw again" was ignored. Now, before
+  an `option`, `gallery`, `versus`, `places` or `compare` card is drawn, every
+  thing still without a photo is hunted for side by side
+  (`agent/visuals/hunt.js`): a picture search for its name through the turn's
+  own `search_web` (so counted against its searches, and read like any
+  result), the first picture that downloads, described by the name first; and
+  if none comes, a screenshot of its own page (a search result titled with
+  it, else one more web search) by the screenshot Worker at desktop width.
+  At most six things, 24 seconds each; `draw_visual`'s limit went from 40 s to
+  75 s. What is still missing is named in the result.
+
+`VISUALS_LINE` and the page design skill now say a compared option always
+shows a real picture, and that one failed try is not a reason to answer in
+words. A wrong photo is still worse than none, which the card self-check
+(`cardCheck.js`) is there to catch.
+
+**Reversing it costs** the blank comparisons the owner asked to end. Tests:
+`apps/mcp/test/agentPhotoHunt.test.mjs`.
+
+### Pages too (2026-10-27, night)
+
+Every new note Tex makes is a page, so a comparison page gets the same hunt.
+A texted turn's `.page.md` write passes through the picture tools
+(`pictureMaker.js` `pageWrite`, `agent/visuals/pagePhotos.js`): each option in
+a `places`, `vote`, `prices` or `itinerary` block with no `photo:` or
+`photos:` field is hunted for side by side (a place searched with its
+address), at most eight, within 14 seconds so the write never looks slow
+enough to be retried. Each found picture goes in the write's `images` as
+bytes and a `photo:` field naming it is added under the option; nothing else
+in the page's words changes, and a page with nothing found is saved exactly
+as written. Tests: `apps/mcp/test/agentPagePictures.test.mjs`.
+
+A found picture never costs the save (2026-10-28). The first night, a WhatsApp
+guest chat's research page failed four times: a picture found for one venue
+was an AVIF, which a note write refuses (only PNG, JPEG, GIF, WebP and HEIC
+are stored), so the whole page was refused and every retry hunted the same
+picture again. Each found picture is now checked the way the write checks it
+(`notes/uploadedImages.js` `storableImage`) and left out if it would be
+refused or the pictures would pass half the write's size limit; its type comes
+from its bytes, never the address's header. And a page write refused with
+found pictures in it is written again exactly as the writer sent it.
+Simplifying either away brings back a page that cannot be saved for a reason
+the writer cannot see or fix. Tests: `agentPagePictures.test.mjs`, and
+`agentGroupGuests.test.mjs` "a guest chat saves its research as a page".
+
+Then converted, not dropped (owner, 2026-10-28: "can't we convert it? cant we
+screenshot it?"). A page's picture is asked for as JPEG, PNG, WebP or GIF
+only, so a site that negotiates sends one of those; one that still comes as
+AVIF or SVG is opened in the browser (site-shots) and photographed as a JPEG
+(`pagePhotos.js` `storableDownload`); only when that fails too does the hunt
+move to its next picture, then to a screenshot of the option's own page.

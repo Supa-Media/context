@@ -39,6 +39,12 @@ import {
   type ProviderCredentialRekeyCandidates,
 } from "./rekeyColumns";
 
+/**
+ * How long before a temporary credential's expiry the gateway stops being
+ * handed it: a request signed a moment before expiry must not land after it.
+ */
+export const TEMPORARY_CREDENTIAL_MARGIN_MS = 5 * 60 * 1000;
+
 // Same inference cycle as `bindStorage`: annotated, not inferred.
 export const getBindingForGatewayHandler = async (
   ctx: ActionCtx,
@@ -75,13 +81,41 @@ export const getBindingForGatewayHandler = async (
   // this call was made *for* — rather than one carried inside the row — is
   // what makes a future id-confusion bug in the gateway a decrypt failure
   // instead of a cross-tenant credential handout.
+  /*
+    A new managed bucket is served on a temporary credential until its own
+    key answers (see the schema), and only while R2 still honours it: an
+    expired one falls back to the bucket's own key, which has long since
+    propagated by then.
+  */
+  const temporary =
+    binding.temporaryAccessKeyId !== undefined &&
+    binding.encryptedTemporarySecretAccessKey !== undefined &&
+    binding.encryptedSessionToken !== undefined &&
+    binding.temporaryUntil !== undefined &&
+    Date.now() < binding.temporaryUntil - TEMPORARY_CREDENTIAL_MARGIN_MS
+      ? {
+          accessKeyId: binding.temporaryAccessKeyId,
+          encryptedSecretAccessKey: binding.encryptedTemporarySecretAccessKey,
+          encryptedSessionToken: binding.encryptedSessionToken,
+        }
+      : null;
+
+  let accessKeyId = binding.accessKeyId;
   let secretAccessKey: string;
+  let sessionToken: string | undefined;
   try {
+    // Sealed under the same workspace either way, for the same reason.
     secretAccessKey = await decryptSecret(
-      binding.encryptedSecretAccessKey,
+      temporary?.encryptedSecretAccessKey ?? binding.encryptedSecretAccessKey,
       requireKeyset(),
       { workspaceId: args.workspaceId },
     );
+    if (temporary !== null) {
+      sessionToken = await decryptSecret(temporary.encryptedSessionToken, requireKeyset(), {
+        workspaceId: args.workspaceId,
+      });
+      accessKeyId = temporary.accessKeyId;
+    }
   } catch (error) {
     // A `CredentialCryptoError` is a plain `Error`, which a caller sees as an
     // unhelpful "Server Error". Re-throw with a code so the gateway can tell
@@ -104,8 +138,9 @@ export const getBindingForGatewayHandler = async (
     region: binding.region,
     bucket: binding.bucket,
     rootPrefix: binding.rootPrefix,
-    accessKeyId: binding.accessKeyId,
+    accessKeyId,
     secretAccessKey,
+    ...(sessionToken === undefined ? {} : { sessionToken }),
     forcePathStyle: binding.forcePathStyle,
     capabilities: binding.capabilities,
     status: binding.status,

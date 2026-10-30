@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 import { isProductionTestAccount, TEST_ACCOUNT_EMAIL, testAccountEmail } from "../functions/lib/testAccount";
-import { appReviewPhoneCodeMatches, REVIEWER_EMAIL, reviewerTestEmail } from "../functions/lib/reviewerAccount";
+import {
+  appReviewPhoneCodeMatches,
+  GOOGLE_REVIEW_EMAIL,
+  googleReviewTestEmail,
+  REVIEWER_EMAIL,
+  reviewerTestEmail,
+} from "../functions/lib/reviewerAccount";
 
 describe("the directory reviewer's sign-in", () => {
   test("is off unless the deployment holds a code", () => {
@@ -26,6 +32,27 @@ describe("the directory reviewer's sign-in", () => {
 
   test("carries none of the CUJ account's privileges", () => {
     expect(isProductionTestAccount({ email: REVIEWER_EMAIL, emailVerificationTime: 1 })).toBe(false);
+  });
+});
+
+describe("Google's verification reviewer's sign-in", () => {
+  test("is off unless the deployment holds a code", () => {
+    expect(googleReviewTestEmail({})).toEqual([]);
+    for (const code of ["12345", "abcdef", "000000"]) {
+      expect(googleReviewTestEmail({ GOOGLE_REVIEW_SIGNIN_CODE: code })).toEqual([]);
+    }
+  });
+
+  test("never shares a code with another fixed sign-in, the public App Store one above all", () => {
+    for (const other of ["REVIEWER_SIGNIN_CODE", "APP_REVIEW_SIGNIN_CODE", "TEST_ACCOUNT_SIGNIN_CODE"]) {
+      expect(googleReviewTestEmail({ GOOGLE_REVIEW_SIGNIN_CODE: "731905", [other]: " 731905 " })).toEqual([]);
+    }
+  });
+
+  test("registers a provider of its own for its own address", () => {
+    const env = { GOOGLE_REVIEW_SIGNIN_CODE: "731905", REVIEWER_SIGNIN_CODE: "482913" };
+    expect(googleReviewTestEmail(env)).toEqual([{ email: GOOGLE_REVIEW_EMAIL, code: "731905", id: "test-email-google-review" }]);
+    expect(isProductionTestAccount({ email: GOOGLE_REVIEW_EMAIL, emailVerificationTime: 1 })).toBe(false);
   });
 });
 

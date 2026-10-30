@@ -10,8 +10,10 @@
  * mail from me@work.example here"), optionally narrowed by a Gmail search:
  *
  * - Only the account that owns the mailbox can share it, and only into a
- *   chat bound to a shared workspace where they are an owner or editor; never
- *   a guest chat, which reads only a corner of the workspace.
+ *   chat bound to a shared workspace where they are an owner or editor. A
+ *   guest chat too (Dev2, 2026-10-29: "it should work even in guest mode if
+ *   I'm sharing my email explicitly"): the sharer chose to show it to whoever
+ *   is in that chat. A guest chat reads it when asked; its looks stay off.
  * - It is read live, for one chat's turns, while the chat is bound to that
  *   workspace, not muted, and the sharer still writes there; every read is
  *   narrowed by the share's search. Nothing of a message is kept.
@@ -75,7 +77,7 @@ async function ownGmail(ctx: QueryCtx, userId: Id<"users">, address: string): Pr
 
 /** The shared workspace this chat is bound to, when `userId` may share mail into it. */
 async function sharingWorkspace(ctx: QueryCtx, group: Doc<"textGroups">, userId: Id<"users">): Promise<Doc<"workspaces"> | null> {
-  if (group.workspaceId === undefined || group.guestGroupId !== undefined || group.mutedAt !== undefined) return null;
+  if (group.workspaceId === undefined || group.mutedAt !== undefined) return null;
   const workspace = await ctx.db.get(group.workspaceId);
   if (workspace === null || workspace.kind !== "shared") return null;
   return (await writingRole(ctx, workspace._id, userId)) === null ? null : workspace;
@@ -150,7 +152,7 @@ export async function unshareMail(ctx: MutationCtx, group: Doc<"textGroups">, us
  * Gmail they still have connected. Asked at every read, never cached.
  */
 export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): Promise<LiveMailShare[]> {
-  if (group.workspaceId === undefined || group.guestGroupId !== undefined || group.mutedAt !== undefined) return [];
+  if (group.workspaceId === undefined || group.mutedAt !== undefined) return [];
   const rows = await ctx.db
     .query("chatMailShares")
     .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
@@ -165,20 +167,21 @@ export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): P
   return live;
 }
 
-/** Who shares which mailbox here, by handle, for the chat's turn to be told. */
-export async function mailSharesNamed(ctx: QueryCtx, group: Doc<"textGroups">): Promise<{ handle: string; address: string }[]> {
+/** Who shares which mailbox here, by handle, for the chat's turn to be told: `{ mail }` on a turn's answer, or `{}`. */
+export async function mailSharesNamed(ctx: QueryCtx, groupId: Id<"textGroups">): Promise<{ mail?: { handle: string; address: string }[] }> {
+  const group = await ctx.db.get(groupId);
   const named: { handle: string; address: string }[] = [];
-  for (const { share } of await liveMailShares(ctx, group)) {
+  for (const { share } of group === null ? [] : await liveMailShares(ctx, group)) {
     const personal = await personalWorkspaceOf(ctx, share.userId);
     if (personal !== null) named.push({ handle: personal.slug, address: share.address });
   }
-  return named;
+  return named.length > 0 ? { mail: named } : {};
 }
 
 /**
  * The shared mailboxes a group chat's grant may read now, for a live read of
  * the person's mail (`functions/personMail.ts`), or null when this is no chat's
- * grant. Never a guest chat's, and only the workspace the chat is bound to.
+ * grant, a guest chat's included, and only the workspace the chat is bound to.
  */
 export async function chatMailClearance(
   ctx: QueryCtx,
@@ -186,7 +189,7 @@ export async function chatMailClearance(
 ): Promise<LiveMailShare[] | null> {
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   const chat = live?.grant.texGroup;
-  if (live === null || chat === undefined || chat.guestGroupId !== undefined) return null;
+  if (live === null || chat === undefined) return null;
   if (live.grant.workspaceId !== args.expectedWorkspaceId) return null;
   const group = await ctx.db.get(chat.groupId);
   if (group === null || group.workspaceId !== live.grant.workspaceId) return null;
@@ -201,6 +204,7 @@ export async function chatsWatching(ctx: QueryCtx, userId: Id<"users">, address:
   const slugs = new Set<string>();
   for (const share of shares) {
     const group = (await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", share.groupKey)).first()) ?? null;
+    // A guest chat reads it only when asked, never on its own, so it watches nothing for the person's check-in.
     if (group === null || group.workspaceId !== share.workspaceId || group.mutedAt !== undefined || group.guestGroupId !== undefined) continue;
     const workspace = await ctx.db.get(share.workspaceId);
     if (workspace !== null) slugs.add(workspace.slug);

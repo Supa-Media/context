@@ -1,5 +1,7 @@
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from "expo-audio";
+import { NO_TRANSCRIPTION_CONSENT } from "@context/shared";
 import { currentEpoch } from "../../../offline/epoch";
+import { blockedByConsent } from "../transcriber";
 import type { CaptureOptions, MeetingRecorder, RecorderError } from "../index";
 import type { RecorderInternals } from "./internals";
 import { configureAudioSession } from "./audioSession";
@@ -61,6 +63,8 @@ export function createLifecycle(
       // refused must not have taken ownership of the meeting already running,
       // or the first meeting's in-flight sends would be folded into nobody.
       // See `owner`.
+      // No yes to cloud transcription: the microphone is not even asked for.
+      if (blockedByConsent()) throw new Error(NO_TRANSCRIPTION_CONSENT);
       rec.owner = meetingId;
       rec.epoch = currentEpoch();
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);

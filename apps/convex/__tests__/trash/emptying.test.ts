@@ -27,6 +27,7 @@ import { TRASH_KEEP_MS } from "../../functions/lib/trash/bin";
 import { OWNER, fixture, type Fixture } from "../nodes/moveFixture.helpers";
 import { keyedFixture, liveAt, rowOf } from "../nodes/keyedFixture.helpers";
 import { nodeAt as treeNodeAt } from "../../functions/lib/nodes/paths";
+import { withSession } from "../session.helpers";
 
 const DAY = 24 * 60 * 60 * 1000;
 type Moved = { kind: "moved"; from: string; to: string };
@@ -130,7 +131,7 @@ describe("the Trash page lists what is in the trash", () => {
   test("a stranger is refused", async () => {
     const f = await keyedFixture();
     const stranger = await f.t.run(async (ctx) => await ctx.db.insert("users", { email: "x@example.test" } as never));
-    await expect(f.t.withIdentity({ subject: stranger }).query(api.functions.trash.listTrash, { workspaceId: f.ws })).rejects.toThrow();
+    await expect(withSession(f.t, stranger).query(api.functions.trash.listTrash, { workspaceId: f.ws })).rejects.toThrow();
   });
 });
 

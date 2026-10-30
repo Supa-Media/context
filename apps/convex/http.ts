@@ -113,12 +113,15 @@ import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as googleChat from "./functions/lib/gatewayRoutes/googleChat";
 import * as googleChatRead from "./functions/lib/gatewayRoutes/googleChatRead";
 import * as site from "./functions/lib/gatewayRoutes/site";
+import { gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES } from "./functions/lib/gatewayRoutes/pageCover";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as texReview from "./functions/lib/gatewayRoutes/texReview";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as textDecide from "./functions/lib/gatewayRoutes/textDecide";
+import * as texStyleRoutes from "./functions/lib/gatewayRoutes/texStyle";
+import * as texReviewSharing from "./functions/lib/gatewayRoutes/texReviewSharing";
 import * as noteCard from "./functions/lib/gatewayRoutes/noteCard";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
@@ -127,6 +130,7 @@ import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
 import * as texIdentity from "./functions/lib/gatewayRoutes/texIdentity";
+import { gatewayTranscriptionConsentHandler } from "./functions/lib/gatewayRoutes/transcriptionConsent";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
 import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import * as mailHealth from "./functions/lib/gatewayRoutes/mailHealth";
@@ -143,11 +147,12 @@ import {
   pubsubPushRoute,
 } from "./functions/lib/googlePush/routes";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
+import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
 
 const http = httpRouter();
 
-// Auth routes (handles OTP verification callbacks)
-auth.addHttpRoutes(http);
+// Auth routes (OTP callbacks, the JWKS and OpenID discovery), with the security headers.
+addAuthHttpRoutes(http, auth.addHttpRoutes);
 
 /**
  * Wrap a control-plane handler so it cannot be reached without the gateway
@@ -169,10 +174,9 @@ function gatewayRoute(
   maxBytes?: number,
 ) {
   return httpAction(async (ctx, request) => {
-    if (!(await requestIsFromGateway(request))) return unauthorized();
+    if (!(await requestIsFromGateway(request))) return withSecurityHeaders(unauthorized());
     const body = await readJsonBody(request, maxBytes);
-    if (body === null) return badRequest();
-    return await handler(ctx, body);
+    return withSecurityHeaders(body === null ? badRequest() : await handler(ctx, body));
   });
 }
 
@@ -343,6 +347,7 @@ export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler)
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+export const gatewayPageCover = gatewayRoute(gatewayPageCoverHandler, MAX_COVER_REQUEST_BYTES); // a page's cover, for its link's card
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
@@ -808,6 +813,7 @@ http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
+http.route({ path: "/gateway/page-cover", method: "POST", handler: gatewayPageCover });
 http.route({ path: "/gateway/note-ids/lookup", method: "POST", handler: gatewayNoteIdsLookup });
 http.route({ path: "/gateway/note-ids/wrote", method: "POST", handler: gatewayNoteIdsWrote });
 http.route({ path: "/gateway/note-ids/resolve", method: "POST", handler: gatewayNoteIdsResolve });
@@ -852,6 +858,7 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+http.route({ path: "/gateway/browser-profile", method: "POST", handler: gatewayRoute(vault.gatewayBrowserProfileHandler) });
 
 // A connector: a link for the person to connect an app, and one call through it.
 export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);
@@ -931,6 +938,8 @@ http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDrea
 /* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
 export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
+export const gatewayTranscriptionConsent = gatewayRoute(gatewayTranscriptionConsentHandler);
+http.route({ path: "/gateway/transcription/consent", method: "POST", handler: gatewayTranscriptionConsent });
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
 export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
 http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
@@ -960,6 +969,10 @@ http.route({ path: "/agent-texts/group/people", method: "POST", handler: agentWo
 /* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
 http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
 http.route({ path: "/agent-texts/group/engagement", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsGroupEngagementHandler) });
+http.route({ path: "/agent-texts/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsStyleHandler) });
+http.route({ path: "/agent-texts/group/style", method: "POST", handler: agentWorkerRoute(texStyleRoutes.agentTextsGroupStyleHandler) });
+/* "Tex, share my chats with the devs", or stop (`functions/texReviews.ts` `setTextsReviewSharing`). */
+http.route({ path: "/agent-texts/review-sharing", method: "POST", handler: agentWorkerRoute(texReviewSharing.agentTextsReviewSharingHandler) });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });

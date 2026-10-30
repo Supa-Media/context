@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -103,6 +103,25 @@ describe("a quiet chat's conversation is scored once", () => {
     expect(group.from).toBe("alice-handle");
     expect(group.key).toMatch(/^[0-9a-f]{64}$/);
     expect(group.members).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("the log says whether an asked review was filed, or why not", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+    for (const answer of [{ filed: "scores" }, { filed: null, why: "nothing_new" }]) {
+      const storage = new MemoryStorage();
+      await watchConversation(storage, { kind: "one", phone: PHONE }, 0);
+      const d = deps(() => REVIEW_QUIET_MS, { reviews: [] });
+      const fetcher = d.fetch;
+      d.fetch = (async (url: string, init: RequestInit) => (new URL(url).pathname === "/agent/review" ? Response.json(answer) : fetcher(url, init))) as unknown as Fetch;
+      expect(await checkReview(storage, d)).toBe(true);
+    }
+    spy.mockRestore();
+    const outcomes = lines.map((line) => JSON.parse(line)).filter((line) => line.event === "review_watch");
+    expect(outcomes).toEqual([
+      { event: "review_watch", outcome: "asked", filed: "scores" },
+      { event: "review_watch", outcome: "asked", why: "nothing_new" },
+    ]);
   });
 
   it("a group that is no longer ready is not reviewed", async () => {

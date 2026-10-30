@@ -6,7 +6,7 @@
  * and see `getWorkspace`'s own doc comment there for the not-a-member refusal.
  */
 
-import { requireAuthId } from "@supa-media/convex/auth";
+import { requireAuthId } from "../signedIn";
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { requireWorkspaceAccess } from "../workspaceAuth";

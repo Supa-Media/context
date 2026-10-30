@@ -91,6 +91,34 @@ export async function deletePersonalRows(
     .collect();
   for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
+  // That they skipped the phone step: a time.
+  const phoneCheckSkips = await ctx.db
+    .query("phoneCheckSkips")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of phoneCheckSkips) await ctx.db.delete(row._id);
+
+  // How their own Tex talks: a few closed choices and a number.
+  const texStylePreferences = await ctx.db
+    .query("texStylePreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of texStylePreferences) await ctx.db.delete(row._id);
+
+  // Joining from the calendar: addresses switched off and when to ask.
+  const meetingJoinPreferences = await ctx.db
+    .query("meetingJoinPreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of meetingJoinPreferences) await ctx.db.delete(row._id);
+
+  // Cloud transcription consent: a version and two times.
+  const transcriptionConsents = await ctx.db
+    .query("transcriptionConsents")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of transcriptionConsents) await ctx.db.delete(row._id);
+
   // Spelling: on or off, a language, and the words they added.
   const spellingPreferences = await ctx.db
     .query("spellingPreferences")
@@ -174,6 +202,13 @@ export async function deletePersonalRows(
   for (const grant of grants) {
     await ctx.db.delete(grant._id);
   }
+
+  // Whether they ever used an AI client: one row, the invite card's answer.
+  const agentUse = await ctx.db
+    .query("agentUse")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of agentUse) await ctx.db.delete(row._id);
 
   // Parked authorization requests the person approved. `userId` here is a
   // field, not an index — the table is keyed by request id and code — but

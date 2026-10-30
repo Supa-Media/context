@@ -20,11 +20,10 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { WORKSPACE_ICON_CONTENT_TYPES, WORKSPACE_ICON_MAX_BYTES } from "@context/shared";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { requireAuthId } from "@supa-media/convex/auth";
 import { action, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
 import type { OperationResult } from "./lib/filesFns/operationTypes";

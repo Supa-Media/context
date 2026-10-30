@@ -213,7 +213,7 @@ describe("“You're set up.”", () => {
     // No Download button: there is no whole-workspace download to wire it to.
     expect(done.byId("setup-done-exit")?.textContent).toMatch(/downloads as a \.zip from Files/);
     expect(done.container.textContent).not.toMatch(/\bDownload\b/);
-    await done.press("setup-done-close");
+    await done.press("setup-done-dismiss");
     expect(closed).toBe(1);
     done.unmount();
   });
@@ -232,6 +232,22 @@ describe("it always fits the window and always closes", () => {
       expect(60 + doneCardMaxHeight(height)).toBeLessThanOrEqual(height - 16);
       expect(doneCardMaxHeight(height)).toBeGreaterThan(0);
     }
+  });
+
+  /*
+    Dev2, 2026-10-29: in the console the card's layer sits under the top bar
+    and above the status line, so a cap taken from the window still let the
+    foot ("Bootstrap what your AI already knows") run past the layer's bottom
+    and be cut off. The cap follows the layer it is drawn in.
+  */
+  test("the card is capped by the layer it is drawn in, not the window", () => {
+    const done = mount(
+      createElement(SetupDone, { onClose: () => {}, onCopyBootstrap: async () => true, areaHeight: 500 }),
+    );
+    const card = done.byId("setup-done") as HTMLElement | null;
+    expect(card).not.toBeNull();
+    expect(getComputedStyle(card!).maxHeight).toBe(`${doneCardMaxHeight(500)}px`);
+    done.unmount();
   });
 
   test("the widget's header stays on screen above a long checklist", () => {

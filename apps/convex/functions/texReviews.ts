@@ -21,10 +21,9 @@
  */
 
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { userIsStaff } from "./lib/admin";
 import { usernameOf } from "./lib/adminFns/people";
 import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
@@ -35,7 +34,8 @@ import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { guestNamesIn } from "./lib/pinnedReaders";
 import { getMembership } from "./lib/workspaceAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { MAX_GROUP_PARTICIPANTS, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
+import { isPhoneNumber } from "./textLinks";
 
 /** A busy hour of texting ends a few conversations; this only stops a loop. */
 const REVIEWS_PER_HOUR = 30;
@@ -47,6 +47,9 @@ export const MAX_SCORES_PER_DAY = 500;
 export const SCORES_KEPT_MS = 90 * 24 * REVIEW_WINDOW_MS;
 const SWEEP_PER_WRITE = 20;
 const SWITCH_WRITES_PER_HOUR = 30;
+/** A shared history filed per person per day (`claimSharedReview`). */
+const SHARED_REVIEWS_PER_DAY = 3;
+const SHARED_REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** An account younger than this is `new` on the dashboard. */
 const NEW_ACCOUNT_MS = 7 * 24 * REVIEW_WINDOW_MS;
 /** A conversation's turns are its grant's newest, and never older than this. */
@@ -228,16 +231,83 @@ export const setMyTexReviewSharing = mutation({
   returns: v.boolean(),
   handler: async (ctx, { share }) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await consumeRateLimit(ctx, { key: `tex.review.sharing:${userId}`, limit: SWITCH_WRITES_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
-    const rows = await ctx.db
-      .query("texReviewSharing")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    if (!share) {
-      for (const row of rows) await ctx.db.delete(row._id);
-      return false;
+    await setSharing(ctx, userId, share);
+    return share;
+  },
+});
+
+/** The switch, the same from the app and from a text. True when it changed. */
+async function setSharing(ctx: MutationCtx, userId: Id<"users">, share: boolean): Promise<boolean> {
+  await consumeRateLimit(ctx, { key: `tex.review.sharing:${userId}`, limit: SWITCH_WRITES_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
+  const rows = await ctx.db
+    .query("texReviewSharing")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  if (!share) {
+    for (const row of rows) await ctx.db.delete(row._id);
+    return rows.length > 0;
+  }
+  if (rows.length > 0) return false;
+  await ctx.db.insert("texReviewSharing", { userId, sharedAt: Date.now() });
+  return true;
+}
+
+/**
+ * The same switch, texted ("Tex, share my chats with the devs", "stop sharing
+ * with the devs", "am I sharing with the devs?"; `apps/agent/src/
+ * reviewSharing.ts`), keyed by the phone that texted it, as `setTextsStyle`.
+ * The words decide it and never a model, so it is the person's own yes.
+ *
+ * `share` absent only asks. `participants`, for a group chat: everyone in it
+ * but Tex, so the answer can say whether the whole chat now counts, since a
+ * group's words are kept only once everybody in it is on the team or said yes
+ * (`reviewSetup`). Answered as one yes or no, naming nobody.
+ */
+export const setTextsReviewSharing = internalMutation({
+  args: { phone: v.string(), share: v.optional(v.boolean()), participants: v.optional(v.array(v.string())) },
+  returns: v.union(
+    v.object({ status: v.literal("unlinked") }),
+    v.object({ status: v.literal("ok"), sharing: v.boolean(), changed: v.boolean(), team: v.boolean(), chatShared: v.optional(v.boolean()) }),
+  ),
+  handler: async (ctx, { phone, share, participants }) => {
+    const userId = await linkedUser(ctx, phone);
+    if (userId === null) return { status: "unlinked" as const };
+    const changed = share === undefined ? false : await setSharing(ctx, userId, share);
+    const pinned = (await pinnedContextWorkspace(ctx))?._id ?? null;
+    const team = await onTheTeam(ctx, pinned, userId);
+    const sharing = await sharesReviews(ctx, userId);
+    if (participants === undefined) return { status: "ok" as const, sharing, changed, team };
+    let chatShared = true;
+    for (const other of [...new Set(participants)].slice(0, MAX_GROUP_PARTICIPANTS)) {
+      const user = await linkedUser(ctx, other);
+      if (user === null || !((await onTheTeam(ctx, pinned, user)) || (await sharesReviews(ctx, user)))) {
+        chatShared = false;
+        break;
+      }
     }
-    if (rows.length === 0) await ctx.db.insert("texReviewSharing", { userId, sharedAt: Date.now() });
-    return true;
+    return { status: "ok" as const, sharing, changed, team, chatShared };
+  },
+});
+
+async function linkedUser(ctx: Pick<QueryCtx, "db">, phone: string): Promise<Id<"users"> | null> {
+  if (!isPhoneNumber(phone)) return null;
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .first();
+  return link?.userId ?? null;
+}
+
+/**
+ * A texted yes files the history Tex keeps of that chat once
+ * (`gatewayRoutes/texReview.ts`); a few a day, so switching on and off cannot
+ * file it over and over.
+ */
+export const claimSharedReview = internalMutation({
+  args: { userId: v.id("users") },
+  returns: v.null(),
+  handler: async (ctx, { userId }) => {
+    await consumeRateLimit(ctx, { key: `tex.review.shared:${userId}`, limit: SHARED_REVIEWS_PER_DAY, windowMs: SHARED_REVIEW_WINDOW_MS });
+    return null;
   },
 });

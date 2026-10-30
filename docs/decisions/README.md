@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
+- [A new managed bucket is served on a temporary credential until its own key answers](./storage-and-credentials.md#a-new-managed-bucket-is-served-on-a-temporary-credential-until-its-own-key-answers) (2026-10-29)
 - One managed account per deployment, never shared
 - A migration pass is walked in waves, and an unchanged object is read twice
 - Leaving never deletes a file the customer already had
@@ -108,6 +109,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain
+- [Signing out ends a token at once: the session is checked on every call](./identity-and-access/session-checked-every-call.md)
+- [The staff console takes a second factor: an authenticator code per session](./identity-and-access/staff-second-factor.md)
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 
@@ -147,6 +150,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Sharing runs when the person's own words ask for it, read by a judge](./privacy-and-sharing/agent-egress.md) (2026-10-18)
 - [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 - [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md) (2026-10-19, superseding the morning's "`team` is shown as All Context users")
+- [A linked page's card is its cover, for team links too](./privacy-and-sharing/page-covers.md) (2026-10-27)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -187,11 +191,16 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A new argument reaches a client that a new tool cannot
 - [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
 - [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
+- [Open CORS on the gateway, and HSTS with nosniff on the control plane](./gateway-protocol/cors-and-headers.md)
+- [URL tokens are counted, then retired route by route](./gateway-protocol/token-transport.md)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
+- [A note has one version tag, and every tool accepts it](./gateway-protocol/one-version-tag.md)
+- [Every change ends with its outcome, as data](./gateway-protocol/change-outcomes.md)
+- [Orient again with `since`, and only what changed comes back](./gateway-protocol/orient-since.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
@@ -298,6 +307,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The homepage is the console's frame, never a copy of it
 - A page's emoji travel with the page
 - [A website's design is code notes](./websites/code-notes.md)
+- [A lagging row is read before a page is left out](./websites/lagging-facts.md)
 - [Every website is also at `<handle>.ctxlc.site`](./websites/sites-domain.md)
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
@@ -358,6 +368,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note count is measured, stamped, and allowed to be a floor
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build
+- [Messages uses Xcode's Messages product type](./app-and-console/native-app-shell.md#messages-uses-xcodes-messages-product-type)
 - The iOS editor is the web editor, in a WebView, from a committed bundle
 - Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
@@ -393,6 +404,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A public list block reads its rows from the facts, and the facts carry the website flags](./app-and-console/convex-facts.md) (2026-10-15)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - [No full-tree reread on a timer, and no write per save to a row every listing reads](./app-and-console/convex-cost.md) (2026-10-19)
+- [A page is a Markdown note named `<name>.page.md`, with blocks and sealed code boxes](./app-and-console/pages.md) (2026-10-27)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -407,6 +419,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Connecting an AI is a guide that checks itself
 - An action row is primary first, and the way out sits beside it
 - What arrives in the flow eases in, and one curve serves the whole console
+- The app's type comes from our own origin, and the enforced policy defines what has no fallback (2026-10-29)
 - Two name fields for a shared workspace, one for a personal one
 - The layout presets are business-shaped, and PARA is not the default
 - A new workspace is asked for its image
@@ -437,6 +450,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note is a measured column, and the demo note stopped faking one
 - On a touch screen, a tap on a heading does not reveal its `#`
 - [Spelling is Context's own checker, and the fix is under the word](./app-and-console/spelling.md)
+- [No red line: the fixes wait for a right-click](./app-and-console/spelling.md)
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count
@@ -461,6 +475,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates
 - The tree is drawn from the press, and `privacy.md` is what it may not guess
+- The tree's visibility word is a label, not a button (2026-10-28)
 - What the sidebar can do to a folder, the listing can do to it too
 - Nothing is named before it is written, and the phone's `+` is the only key
 - A phone can ask its context a question, and could not before
@@ -526,6 +541,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A meeting summary is plain Markdown the model never writes ([summaries](./meetings/summaries.md))
 - Same for all plans, under a daily ceiling
 - A summary is started by opening the note, never by a timer
+- Join and take notes is one press, never none ([joining-from-the-calendar](./meetings/joining-from-the-calendar.md))
+- No audio goes to cloud transcription without the account's current yes ([transcription-consent](./meetings/transcription-consent.md))
 
 ## [Communications](./communications.md)
 
@@ -573,6 +590,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A mailbox recovers by itself unless the person has to give a permission (owner, 2026-10-20)
 - Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes (owner, 2026-10-21)
 - The Mac backs up Messages into the person's bucket, as records, never as notes (owner, 2026-10-26)
+- AI reads Google through its own OAuth client, and never falls back to the person's (2026-10-28)
 
 ## [The desktop shell](./desktop.md)
 
@@ -652,6 +670,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A file that does not exist yet is scaffolded, once, and edited ever after
 - The editor is cached by a worker scoped to its own directory
 - The message check is an identity check, not an origin check
+- The sandbox is a page of its own, and is public on purpose
 - A list of what the shim is missing cannot be written by hand
 - A base class has to be real, and a real dialog is text in one direction
 - The only check that has ever caught a plugin not loading
@@ -683,6 +702,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The gateway suite runs as two jobs, and its slow file in shards](./testing/ci-pipelines.md)
 - [Per push, a real browser tests only the note editor](./testing/ci-pipelines.md)
 - [A pull request runs the Convex tests its change reaches](./testing/convex-test-impact.md)
+- [The report-only policy is enforced against the browser specs before production](./testing/csp-candidate.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
@@ -728,6 +748,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./texting-assistant/group-guests.md)
+- [A guest in a group chat opens a shared note with a texted code (2026-10-27)](./texting-assistant/guest-phone-pass.md)
 - [Tex is on WhatsApp through Whapi.Cloud, a linked-device account; iMessage stays home (2026-10-27)](./texting-assistant/whatsapp.md)
 - [A family chat counts invited numbers as members (2026-10-27)](./texting-assistant/invited-family.md)
 - [A workspace keeps one playbook its group chats follow (2026-10-27)](./texting-assistant/group-playbook.md)
@@ -736,6 +757,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A group chat checks in on its own, like a person's Tex (2026-10-27)](./texting-assistant/chat-mail.md#the-chat-checks-in-on-its-own)
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
+- [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
+- [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
+- [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
@@ -753,7 +777,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
 - [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
 - [A saved login carries Tex's task on, with no "done" from them](./texting-assistant/vault.md)
-- [Browserbase Contexts stay off; the jar is how Tex stays signed in](./texting-assistant/vault.md)
+- [Tex's sign-ins live in a saved Browserbase profile, the sealed jar beside it](./texting-assistant/vault.md)
 - [A card pays only on the person's yes, once a purchase](./texting-assistant/vault.md)
 - The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
@@ -762,6 +786,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
 - [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [A failed browser run is debugged from Browserbase's session log (2026-10-22)](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22)
+- [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)

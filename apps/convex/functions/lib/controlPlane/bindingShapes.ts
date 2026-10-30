@@ -55,6 +55,8 @@ export interface S3GatewayBinding {
   accessKeyId: string;
   /** Radioactive: sign with it, never log it, never cache it. */
   secretAccessKey: string;
+  /** A temporary credential's third part, as radioactive as the secret. */
+  sessionToken?: string;
   /**
    * `binding.forcePathStyle` in the contract. Absent means "let `S3Store`
    * decide", which is what the gateway's `nativeStore` already passes through.
@@ -215,6 +217,7 @@ export const s3BindingValidator = v.object({
   rootPrefix: v.optional(v.string()),
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
+  sessionToken: v.optional(v.string()),
   forcePathStyle: v.optional(v.boolean()),
   capabilities: capabilitiesValidator,
   status: v.string(),

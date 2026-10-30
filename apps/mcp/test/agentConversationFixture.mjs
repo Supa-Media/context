@@ -3,7 +3,7 @@
  * (`src/agent/events.js`), oldest first, after the old file's turns when it
  * was copied in, else the old file. `bucket` is a Map of key to `{ body }`.
  */
-import { EVENTS_PREFIX } from "../src/agent/events.js";
+import { EVENTS_PREFIX, idOfKey } from "../src/agent/events.js";
 
 export const OLD_CONVERSATION = ".context/agent/conversations/texts.json";
 
@@ -18,6 +18,12 @@ export function conversationTurns(bucket) {
       { role: "assistant", text: entry.answer, ...(entry.tainted ? { tainted: true } : {}), ...(entry.tools ? { tools: entry.tools } : {}), ...(entry.sources ? { sources: entry.sources } : {}) },
     ];
   });
+}
+
+/** The id of the newest exchange in the log, or null. */
+export function newestExchangeId(bucket) {
+  const key = [...bucket.keys()].filter((name) => name.startsWith(EVENTS_PREFIX)).sort()[0];
+  return key === undefined ? null : idOfKey(key);
 }
 
 /** The conversation as one string, for a check that it holds, or never holds, some words. */

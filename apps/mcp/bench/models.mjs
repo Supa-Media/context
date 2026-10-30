@@ -90,9 +90,45 @@ export function claudeTransport(env, fetchImpl = realFetch) {
   return send;
 }
 
-/** The world's gateway calls, sent the way `claudeTransport` chose. */
-export function anthropicGateway(send) {
-  return async (_url, init) => send(init.body);
+/**
+ * The world's gateway calls, sent the way `claudeTransport` chose. A refused
+ * call is logged with the provider's own words (`refusalLine`): the gateway's
+ * turn log keeps only the status, by design, and a refusal that makes a setup
+ * fall back is otherwise unexplained. These are the bench's invented
+ * conversations, so their words can go in a job log.
+ */
+export function anthropicGateway(send, log = (line) => process.stderr.write(`${line}\n`)) {
+  return async (_url, init) => {
+    const response = await send(init.body);
+    if (response.status !== 200) log(refusalLine(response.status, response.headers.get("content-type"), await response.clone().text().catch(() => null)));
+    return response;
+  };
+}
+
+/** Longest refusal kept in a log line: enough for Anthropic's sentence on what it refused. */
+const REFUSAL_CHARS = 300;
+
+/**
+ * `Claude refused a call: 400 invalid_request_error: …`, from Anthropic's
+ * `{ error: { type, message } }`, the AI gateway's `{ errors: [{ code,
+ * message }] }`, or the start of whatever else the body was.
+ */
+export function refusalLine(status, type, text) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text ?? "");
+  } catch {
+    // Not JSON: the start of the body is all there is to go on.
+  }
+  const listed = [parsed?.errors, parsed?.error].find(Array.isArray);
+  const said = listed
+    ? listed.map((entry) => [entry?.code, entry?.message].filter((part) => part !== undefined && part !== null && part !== "").join(": ")).filter(Boolean).join("; ")
+    : typeof parsed?.error?.message === "string"
+      ? [parsed.error.type, parsed.error.message].filter((part) => typeof part === "string" && part).join(": ")
+      : text ?? "";
+  const line = said.replace(/\s+/g, " ").trim();
+  const words = line === "" ? `${text === null ? "no body read" : "empty body"} (${type ?? "no content-type"})` : line.length > REFUSAL_CHARS ? `${line.slice(0, REFUSAL_CHARS - 1)}…` : line;
+  return `Claude refused a call: ${status} ${words}`;
 }
 
 /**
@@ -191,20 +227,47 @@ export function fakeEmbedding(text) {
   return Array.from(vector, (value) => value / norm);
 }
 
+/** Waits before each new try of a failed embedding call. */
+const EMBED_RETRY_WAITS_MS = [1_000, 4_000];
+
 /**
  * The same `run` with the embedding model's answers remembered by text: the
  * warm pass embeds every note once, and every conversation's searches embed
  * the same few queries, so a round pays for each passage and each query once.
  */
-export function cachedEmbeddings(ai) {
+export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), log = (line) => process.stderr.write(`${line}\n`) } = {}) {
   const known = new Map();
+  /*
+    THE EMBEDDING CALL, TRIED AGAIN. gh-125 to gh-127 (2026-10-30) each lost a
+    whole round before any answer: one Workers AI embedding call failed during
+    the warm pass, `bindingEmbedder` turned it into "search by meaning
+    unavailable", and the shard died. Embeddings are the bench's own plumbing,
+    not the product under test, so a failed one is tried again after a wait;
+    the model calls a setup makes are never retried here, because how the
+    gateway copes with those is what a round measures. The last error is
+    logged with its own words (`workersAi`'s status line), which the
+    embedder's error drops.
+  */
+  async function embedOnce(model, texts, options) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await ai.run(model, { text: texts }, options);
+      } catch (error) {
+        if (attempt >= waits.length) {
+          log(`embedding failed after ${attempt + 1} tries: ${String(error?.message ?? error).slice(0, 120)}`);
+          throw error;
+        }
+        await sleep(waits[attempt]);
+      }
+    }
+  }
   return {
     async run(model, input, options) {
       if (model !== MEANING_MODEL) return ai.run(model, input, options);
       const texts = Array.isArray(input?.text) ? input.text : [];
       const missing = [...new Set(texts.filter((text) => !known.has(text)))];
       if (missing.length > 0) {
-        const answer = await ai.run(model, { text: missing }, options);
+        const answer = await embedOnce(model, missing, options);
         const data = Array.isArray(answer?.data) ? answer.data : [];
         if (data.length !== missing.length) throw new Error("the embedding model answered with the wrong count");
         missing.forEach((text, index) => known.set(text, data[index]));

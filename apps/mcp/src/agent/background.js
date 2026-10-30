@@ -43,6 +43,9 @@
  * grant a text would get, re-issued when it runs.
  */
 
+import { PAGE_JOB_LINE } from "../pages.js";
+export { jobReportOf, jobReportPrompt, jobReportQuestion } from "./jobReport.js";
+
 export const START_JOB_TOOL = "start_background_job";
 export const STEER_JOB_TOOL = "steer_background_job";
 /** Their later texts a job's turn is shown, newest last. */
@@ -193,7 +196,7 @@ const TOOL = {
   description:
     "Hand a long task to a background job, so you stay free for their other texts and several things run at once: research " +
     "across many sources, a multi-step task on a site, anything that takes more than a handful of tool calls. The job runs on its " +
-    "own with the same access as you, writes the result where it belongs and texts it to them when done. Never for a quick " +
+    "own with the same access as you, writes the result where it belongs and reports back to you when done: you decide what they get. Never for a quick " +
     "answer or a single note you can write now, and never for something already in the background list. When one fact only they " +
     "know would change what the job does (do they want to cook, or have it catered? which city?), ask that one question first and " +
     "start the job on their answer; anything you can find or safely assume goes in the brief instead.",
@@ -219,14 +222,18 @@ const TOOL = {
 const STEER_TOOL = {
   name: STEER_JOB_TOOL,
   description:
-    "Pass their text to a background job that is still running, when it changes or adds to that job (\"never mind, make it " +
-    "yellow not green\", \"add Lisbon too\"). The job is handed their own words and takes them in before its next step. Name the " +
+    "Steer a background job that is still running: you coordinate it. Pass their text when it changes or adds to that job (\"never mind, make it " +
+    "yellow not green\", \"add Lisbon too\"), or give it your own instruction as note. The job takes it in before its next step. Name the " +
     "job by its title from your background list. Not for a job that already finished: do the change yourself, or start a new job.",
   inputSchema: {
     type: "object",
     properties: {
       title: { type: "string", description: "The running job's title, as your background list shows it." },
-      stop: { type: "boolean", description: "True when they want it stopped: it texts nothing more and stops at its next step." },
+      stop: { type: "boolean", description: "True when they want it stopped, or you do: it says nothing more and stops at its next step." },
+      note: {
+        type: "string",
+        description: "Your own instruction to it, as its coordinator, when the change is yours rather than their text (\"check the save landed before you report\").",
+      },
     },
     required: ["title"],
   },
@@ -266,8 +273,8 @@ export function backgroundSession({ running, job, now }) {
     }
     started.push({ title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now });
     return text(
-      `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result; ` +
-        "don't do the work in this turn.",
+      `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
+        "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
     );
   };
   const live = running.filter((entry) => entry.state === "running");
@@ -286,11 +293,14 @@ export function backgroundSession({ running, job, now }) {
       );
     }
     const stop = args?.stop === true;
+    // The coordinator's own words for the job (`jobReport.js`): passed as its, never as theirs.
+    const note = typeof args?.note === "string" ? args.note.trim().slice(0, MAX_FOLLOW_UP) : "";
     const kept = steered.find((entry) => entry.id === target.id);
     if (kept) {
       if (stop) kept.stop = true;
+      if (note) kept.note = note;
     }
-    else steered.push({ id: target.id, ...(stop ? { stop: true } : {}) });
+    else steered.push({ id: target.id, ...(stop ? { stop: true } : {}), ...(note ? { note } : {}) });
     return text(
       stop
         ? `Stopping "${target.title}": it texts nothing more and stops at its next step. Tell them in one short line it's stopped, ` +
@@ -361,8 +371,11 @@ export function jobPrompt(job) {
     "sides and drinks included), not part of it with a next step named. Looking up published menus and prices is yours to do; only " +
     "contacting someone waits for their yes." +
     "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
-    "before you finish, even if some of it is unfinished, and say what's missing in it. End with the result in a few lines and the " +
-    "note's link: that is what gets texted to them. No progress texts unless something needs them, like a sign-in link."
+    "before you finish, even if some of it is unfinished, and say what's missing in it. " +
+    `${PAGE_JOB_LINE} ` +
+    "Your answer is your report to the chat's own turn, which coordinates you, not a text to them: only what it texts reaches them. " +
+    "Report plainly what you did and where (the page's or note's link), your bottom line, and anything that failed or is missing; " +
+    "say a save worked only after reading the note back. No progress reports unless something needs one, like a sign-in link."
   );
 }
 

@@ -435,6 +435,7 @@ export const openStorageBinding = internalAction({
         rootPrefix: credential.rootPrefix,
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
+        ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
         forcePathStyle: credential.forcePathStyle,
         capabilities: credential.capabilities,
         // The contract's vocabulary, not the row's. `connected` is our word for
@@ -594,6 +595,7 @@ export const openGatewayJob = internalAction({
         rootPrefix: credential.rootPrefix,
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
+        ...(credential.sessionToken === undefined ? {} : { sessionToken: credential.sessionToken }),
         forcePathStyle: credential.forcePathStyle,
         capabilities: credential.capabilities,
         status: "active",

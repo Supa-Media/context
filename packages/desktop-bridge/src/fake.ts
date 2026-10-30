@@ -47,6 +47,7 @@ import {
   type TranscriptSegment,
   type TrayCommand,
   type Unsubscribe,
+  type UpcomingMeetings,
 } from "./contract.ts";
 
 export interface FakeDesktopBridge {
@@ -66,6 +67,8 @@ export interface FakeDesktopBridge {
   imessageFullDiskAccessRequests: number;
   /** Every question the page sent the local agent, in order. */
   agentAsks: LocalAgentAsk[];
+  /** Every `calendar.setUpcoming` the page made, in order. */
+  upcomingPushes: UpcomingMeetings[];
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -140,6 +143,8 @@ export interface FakeBridgeOptions {
   spelling?: (word: string) => SpellingCheck;
   /** Answer no `spelling` member — a **version-7** shell, from before it existed. */
   noSpelling?: boolean;
+  /** Answer no `calendar` member — a **version-8** shell, from before it existed. */
+  noCalendar?: boolean;
   /**
    * Answer no `imessage` member at all — a shell older than **version 5**,
    * which is every shell in anybody's Applications folder today.
@@ -187,6 +192,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const imessageListeners = new Set<(status: ImessageStatus) => void>();
   let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
   const agentAsks: LocalAgentAsk[] = [];
+  const upcomingPushes: UpcomingMeetings[] = [];
   let imessageStatus: ImessageStatus = options.imessage ?? {
     enabled: false,
     permission: "unknown",
@@ -222,7 +228,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
             ? 4
             : options.noSpelling === true
               ? 7
-              : BRIDGE_VERSION),
+              : options.noCalendar === true
+                ? 8
+                : BRIDGE_VERSION),
     shell:
       options.shell === undefined
         ? { app: "Context", version: "0.0.0-test", platform: "macos" as const }
@@ -441,6 +449,16 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
             },
           }),
         }),
+    ...(options.noCalendar === true
+      ? {}
+      : {
+          calendar: Object.freeze({
+            setUpcoming(upcoming: UpcomingMeetings): void {
+              calls.push("calendar.setUpcoming");
+              upcomingPushes.push(upcoming);
+            },
+          }),
+        }),
   });
 
   return {
@@ -450,6 +468,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     approvals,
     imessageSetEnabledCalls,
     agentAsks,
+    upcomingPushes,
     get imessageFullDiskAccessRequests() {
       return imessageFullDiskAccessRequests;
     },

@@ -40,6 +40,27 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-29",
+    text:
+      'fetch id "chat:" lists the person\'s Google Chat spaces with their spaces/… ids; "chat:<spaces/…>" reads that one conversation live, ' +
+      "its newest messages, both sides, oldest first (`limit`, at most 50); and \"chat:\" with args `{ to }`, a work email, reads the direct " +
+      "message with that person. Only their own personal workspace, with private access, through an account whose AI access reads Chat.",
+  },
+  {
+    date: "2026-10-28",
+    text:
+      'fetch id "calendar:" (read_calendar) takes `account`: one connected Google address, and only that calendar is read. ' +
+      "An address that isn't connected is refused (other_calendar) and no other calendar is read instead; left out, every calendar is read.",
+  },
+  {
+    date: "2026-10-28",
+    text:
+      "orient with `since` (the `orient_mark` an earlier orient ended with) answers with only what changed since then: much shorter " +
+      "and faster than the overview, for orienting again in one session. And every change's answer now ends with an " +
+      "`outcome: {applied, path, visibility, etag}` line, or `{applied: false, error}` with a code such as CONFLICT; any etag a tool " +
+      "hands out works with every other tool.",
+  },
+  {
     date: "2026-10-26",
     text:
       "search with `args: { texts: true, with?, since? }` searches the person's own texts (iMessage and SMS), from the backup their Mac keeps " +
@@ -211,7 +232,7 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
-      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must reply YES, " +
+      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must give it a 👍 or say yes, " +
       "and only then do your last few texts with them go to the Context team with it. Every report by text waits for that YES.",
   },
   {
@@ -343,7 +364,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "27fc8e9e";
+export const TOOL_SHAPE = "354a901b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

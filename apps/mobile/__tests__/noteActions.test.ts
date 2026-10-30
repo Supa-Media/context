@@ -121,4 +121,19 @@ describe("the note actions sheet", () => {
       ids(noteActionItems({ entry: folder, canEdit: true, canShare: true, visitor: false, reading: false })),
     ).not.toContain("read");
   });
+
+  /*
+    A page opens as nothing but the page (owner, 2026-10-27: "no properties,
+    no floating buttons, nothing but the page please, maybe 1 menu"). Its
+    Page | Text switch moved into this sheet; Add property has no use there.
+    SABOTAGE: drop the `page` branch in `noteActionItems` and this fails.
+  */
+  test("a page swaps reading mode for Edit as text, and drops Add property", () => {
+    const page = note({ path: "1-projects/concert/plan.page.md", name: "plan.page.md" });
+    const shown = noteActionItems({ entry: page, canEdit: true, canShare: true, visitor: false, reading: false, pageAsText: false });
+    expect(ids(shown)).toEqual(["pageText", "share", "rename", "moveTo", "copyLink", "archive"]);
+    expect(shown[0]!.label).toBe("Edit as text");
+    const asText = noteActionItems({ entry: page, canEdit: true, canShare: true, visitor: false, reading: false, pageAsText: true });
+    expect(asText[0]!.label).toBe("View as page");
+  });
 });

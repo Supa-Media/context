@@ -60,6 +60,10 @@ const SET_ELSEWHERE: Record<string, string> = {
     "directory on pushes to main to record the Convex test map; no deployed function reads it",
   CONVEX_CLOUD_URL: "set by Convex itself on every deployment; used to verify the staging selector",
   CONVEX_SITE_URL: "set by Convex itself on every deployment; nothing to push",
+  JWKS:
+    "the public half of the auth signing key pair, set once with JWT_PRIVATE_KEY when a deployment is " +
+    "set up (staging syncs both through scripts/staging-env.mjs); served by lib/httpSecurityHeaders.ts as " +
+    "@convex-dev/auth serves it, and a deploy must not be able to swap the key that verifies every session",
   INGESTION_RECEIVER:
     "flipped by hand once, when Email Routing is actually pointed at the Worker — " +
     "a deploy must not be able to turn ingestion live",

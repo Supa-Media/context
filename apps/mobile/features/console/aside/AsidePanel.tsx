@@ -9,6 +9,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import type { CalendarEvent } from "../../meetings/protocol";
 import {
   ASIDE_TABS,
   DEFAULT_ASIDE_TAB,
@@ -47,6 +48,7 @@ export function AsidePanel({
   started,
   onOpenNote,
   approvals,
+  onJoin = null,
 }: {
   /**
    * When somebody last asked for a meeting, from the console's + menu.
@@ -72,6 +74,8 @@ export function AsidePanel({
    * the Meetings tab without opening it.
    */
   approvals?: ApprovalsView;
+  /** Join and take notes, for today's meetings in the Meetings tab. `null` where there is no calendar. */
+  onJoin?: ((meeting: CalendarEvent) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
@@ -83,6 +87,7 @@ export function AsidePanel({
     approvals: approvalsAvailable,
     waiting,
     answered: wanted === "approvals" && approvals?.notice != null,
+    failed: approvals?.phase === "failed",
   });
   const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
 
@@ -158,7 +163,7 @@ export function AsidePanel({
           <ApprovalsPanel view={approvals} />
         </View>
       ) : (
-        <MeetingsTab onOpenNote={onOpenNote} />
+        <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} />
       )}
     </View>
   );

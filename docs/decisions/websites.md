@@ -91,7 +91,8 @@ tree learns of it: at the next sweep, or at the product's own write touch
 (`websiteRouteIndex.test.ts` pins this). That is the owner's rule that nothing
 outside the app writing into the bucket is picked up, and it is why the
 five-minute bound on a served copy (see "Edits wait for Publish") is the only
-thing that limits such a page's visibility between sweeps.
+thing that limits such a page's visibility between sweeps. A row whose facts
+lag its note is read first ([lagging-facts](./websites/lagging-facts.md)).
 
 The serving side does **not** fall back to a moved page's old key. A page a
 queued move carries away is off its old address at once, as it is after a move

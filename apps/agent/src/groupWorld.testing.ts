@@ -18,7 +18,7 @@ export const LINES = [
 ];
 
 export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[] };
-export type Answer = { ok: true; act: "silent" | "react" | "answer"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number } | { ok: false; reason: string };
+export type Answer = { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number; emoji?: string } | { ok: false; reason: string };
 
 export const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });
 export const silent = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
@@ -42,6 +42,11 @@ export function setup(
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
+  /** Each `/agent-texts/group/style` set, and the group's style as the control plane keeps it (`texStyle.ts`). */
+  const styles: Record<string, unknown>[] = [];
+  let groupStyle: Record<string, unknown> = {};
+  /** Each `/agent-texts/review-sharing` asked (`reviewSharing.ts`). */
+  const sharing: Record<string, unknown>[] = [];
   const people: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
@@ -91,6 +96,15 @@ export function setup(
       people.push(body);
       return Response.json({ ok: true });
     }
+    if (path === "/agent-texts/group/style") {
+      styles.push(body);
+      groupStyle = { ...groupStyle, ...body.style };
+      return Response.json({ ok: true, style: groupStyle });
+    }
+    if (path === "/agent-texts/review-sharing") {
+      sharing.push(body);
+      return Response.json({ status: "ok", sharing: body.share === true, changed: true, team: false, chatShared: false });
+    }
     if (path === "/agent-texts/group/engagement") {
       engagement.push(body);
       return Response.json({ ok: true });
@@ -113,6 +127,7 @@ export function setup(
         ...(opts.control ?? {}),
         // Chosen once a member chose, as the control plane's row says.
         ...(engagement.length > 0 ? { engagementChosen: true } : {}),
+        ...(Object.keys(groupStyle).length > 0 ? { texStyle: groupStyle } : {}),
       });
     }
     if (path === "/agent/events") {
@@ -164,7 +179,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, asks, control, engagement, people, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, asks, control, engagement, styles, sharing, people, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */

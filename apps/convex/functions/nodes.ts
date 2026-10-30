@@ -22,6 +22,9 @@ import { nodePaths } from "./lib/nodes/paths";
 /** Rows one `listLive` call returns at most. */
 const LIST_CAP = 2_000;
 
+/** Rows observed since a check-in's last look that `listChangedSince` reads before it says "too many". */
+export const CHANGED_CAP = 1_000;
+
 const rowValidator = v.object({
   path: v.string(),
   etag: v.optional(v.string()),
@@ -53,16 +56,56 @@ export const bound = internalQuery({
 });
 
 /**
+ * Live notes written after `since`, each at its path now, in key order: what a check-in asks
+ * (`lib/nodes/gatewayManifest.ts`), read by the `observedAt` index rather than by walking the tree, so it
+ * costs the rows that changed and the folders above them, however big the workspace (2026-10-28: a whole
+ * built-path walk per look took longer than the gateway waits). Every row written is observed then, so
+ * none is missed; a row only re-observed is passed over by its `uploaded`. `complete` is false when more
+ * than `CHANGED_CAP` rows were observed since, and the caller walks the whole tree instead.
+ */
+export const listChangedSince = internalQuery({
+  args: { workspaceId: v.id("workspaces"), since: v.number() },
+  returns: v.object({ rows: v.array(rowValidator), complete: v.boolean() }),
+  handler: async (ctx, { workspaceId, since }) => {
+    const observed = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).gt("observedAt", since))
+      .take(CHANGED_CAP + 1);
+    if (observed.length > CHANGED_CAP) return { rows: [], complete: false };
+    const paths = await nodePaths(ctx.db, workspaceId);
+    const rows: { path: string; etag?: string; size?: number; uploaded?: number; noteId?: string }[] = [];
+    for (const doc of observed) {
+      if (doc.kind !== "file" || doc.goneAt !== undefined) continue;
+      if (doc.uploaded === undefined || doc.uploaded <= since) continue;
+      const path = await paths.pathOf(doc);
+      if (path === null) continue;
+      rows.push({
+        path,
+        etag: doc.etag,
+        size: doc.size,
+        uploaded: doc.uploaded,
+        ...(doc.noteId === undefined ? {} : { noteId: doc.noteId }),
+      });
+    }
+    rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return { rows, complete: true };
+  },
+});
+
+/**
  * Live file rows in the tree's order (`TreePaths.walk`), from just after `after`. Capped at
- * `LIST_CAP`; `cursor` is the last path returned when there may be more.
+ * `LIST_CAP`; `cursor` is the last path returned when there may be more. `root` keeps the walk
+ * inside one folder: a folder's listing used to read on past its last row to the cap, through
+ * the rest of the tree, which was most of this query's database reads (Convex invoice, owner
+ * 2026-10-30).
  */
 export const listLive = internalQuery({
-  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), limit: v.number() },
+  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), limit: v.number(), root: v.optional(v.string()) },
   returns: v.object({
     rows: v.array(rowValidator),
     cursor: v.union(v.string(), v.null()),
   }),
-  handler: async (ctx, { workspaceId, after, limit }) => {
+  handler: async (ctx, { workspaceId, after, limit, root }) => {
     const size = Math.max(1, Math.min(Math.floor(limit), LIST_CAP));
     const rows: {
       path: string;
@@ -73,7 +116,7 @@ export const listLive = internalQuery({
     }[] = [];
     await (
       await nodePaths(ctx.db, workspaceId)
-    ).walk("", after, (doc) => {
+    ).walk(root ?? "", after, (doc) => {
       if (doc.kind !== "file" || doc.goneAt !== undefined) return;
       rows.push({
         path: doc.path,

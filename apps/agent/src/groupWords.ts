@@ -4,6 +4,9 @@
  * ("Tex use @name", "Tex, stop"). Answered in `groupInbox.ts`.
  */
 
+import { sharingWords, type Sharing } from "./reviewSharing";
+import { styleWords, type TexStyle } from "./texStyle";
+
 export type Command =
   | { kind: "stop" }
   | { kind: "start" }
@@ -12,7 +15,11 @@ export type Command =
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string }
   | { kind: "status" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  /** "Tex, share my chats with the devs", or stop, or ask: the sender's own switch (`reviewSharing.ts`). */
+  | { kind: "review_sharing"; sharing: Sharing }
+  /** Plain words for one of Tex's settings ("Tex, less emoji", "Tex, humor 60%"; `texStyle.ts`). */
+  | { kind: "style"; patch: TexStyle };
 
 const NAME = "(?:tex|context)";
 /** The name, not "Tex-Mex" or "Texas". */
@@ -62,8 +69,10 @@ export function unquoted(text: string): string {
 
 /** "Tex, share my mail from me@work.example here", optionally "matching <a Gmail search>" (`chat-mail.md`). */
 const MAILBOX = "(?:my )?(?:work )?(?:mail|email|emails|inbox|gmail)";
-const HERE = "(?: (?:here|in here|with (?:this|the) (?:chat|group)|with everyone here|with us))?";
-const SHARE_MAIL = new RegExp(`^share ${MAILBOX} (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190})(?: (?:matching|that matches|filtered by|only) (.{1,300}?))?${HERE}$`);
+const HERE = "(?: (?:here|in here|(?:with|to|for|into) (?:this|the) (?:group )?(?:chat|group)|with everyone here|with us))?";
+/** "Add my mail me@work.example to this group" means the same (the Crystal Care chat, 2026-10-29): "my" makes it the inbox, never an invitation. */
+const SHARED_BY = `(?:share ${MAILBOX} |(?:add|connect) my (?:(?:work )?(?:mail|email|emails|inbox|gmail) )?)`;
+const SHARE_MAIL = new RegExp(`^${SHARED_BY}(?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190})(?: (?:mail|email|inbox|gmail|account))?(?: (?:matching|that matches|filtered by|only) (.{1,300}?))?${HERE}$`);
 const UNSHARE_MAIL = new RegExp(`^(?:stop sharing|unshare) ${MAILBOX}(?: (?:from |at |in )?([^\\s@]{1,64}@[^\\s@]{1,190}))?${HERE}$`);
 
 /**
@@ -87,6 +96,10 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   const invite = /^(?:add|invite) (?:everyone|everybody|all of us|us all|the group|this chat|this group)(?: (?:here|in here|in this chat|in this group))? (?:to|into) @?([a-z0-9][a-z0-9-]{0,63})(?: as (?:an? )?(editors?|members?))?$/.exec(rest);
   if (invite) return { kind: "invite", slug: invite[1], ...(invite[2] ? { role: invite[2].startsWith("member") ? "member" : "editor" } : {}) };
   if (/^settings\??$/.test(rest)) return { kind: "settings" };
+  const patch = styleWords(rest);
+  if (patch) return { kind: "style", patch };
+  const sharing = sharingWords(rest);
+  if (sharing) return { kind: "review_sharing", sharing };
   const shared = SHARE_MAIL.exec(rest);
   if (shared) return { kind: "share_mail", address: shared[1]!, ...(shared[2] ? { query: shared[2] } : {}) };
   const unshared = UNSHARE_MAIL.exec(rest);

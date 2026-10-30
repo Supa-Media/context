@@ -22,8 +22,12 @@ import { setupNeeded, type SetupAnswer } from "../../features/auth/accountSetupM
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
+import { useTranscriptionConsentSync } from "../../features/meetings/useTranscriptionConsent";
+import { useScheduledMeetingsSource } from "../../features/meetings/scheduled";
+import { useMeetingJoinPreferencesSource } from "../../features/meetings/joinPreferences";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
+import { useCardKey } from "../../features/cards/useCardKey";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
 import {
@@ -171,6 +175,9 @@ export default function AppLayout() {
   // job is to gate, and a hook that ran only on the happy path would install
   // transcription a render late on a cold start into a running meeting.
   useTranscriptionClient();
+  // And the account's yes to cloud transcription beside it: without it the
+  // client above is never used (docs/decisions/meetings/transcription-consent.md).
+  useTranscriptionConsentSync(authed);
   /*
     And the setup beside it, for the same reason and now one more.
 
@@ -191,6 +198,9 @@ export default function AppLayout() {
     must wait for a session is the *subscription*, not the hook.
   */
   useMeetingsSetup({ enabled: authed });
+  // Today's meetings from the person's own calendars, for Join and take notes.
+  useScheduledMeetingsSource({ enabled: authed });
+  useMeetingJoinPreferencesSource({ enabled: authed });
 
   const spec = useMemo<RequestForQueries>(() => {
     if (!authed) return EMPTY_QUERY_SPEC;
@@ -228,6 +238,8 @@ export default function AppLayout() {
   const asked = resumeAsked() || resumeOnAccount === true;
   const entry = authed ? sessionEntry(pathname) : null;
   const ownId = ownPersonalWorkspace(rows)?.workspaceId;
+  // The Messages extension's key for cards that show this person's own data (features/cards/useCardKey.ts).
+  useCardKey({ workspaceId: ownId, signedOut: !auth.isLoading && !auth.isAuthenticated });
   // Not before the account has said whether it was asked: a gate that cannot
   // answer renders rather than redirects.
   const askBinding =
@@ -253,8 +265,8 @@ export default function AppLayout() {
     server answers "required" only when the check is switched on, has its
     keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
   */
-  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean }>(results.phoneCheck);
-  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen />;
+  const phoneAnswer = usable<{ required: boolean; needsEmail?: boolean; canSkip?: boolean }>(results.phoneCheck);
+  if (blocksForPhone(phoneAnswer)) return <PhoneCheckScreen canSkip={phoneAnswer?.canSkip === true} />;
 
   /*
     An account a phone made (a number staff let in from the waitlist) has no

@@ -38,6 +38,7 @@ import { isDrawingPath, parseDrawing } from "../../../../../packages/drawings/sr
 import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
 import { parseFormBlocks } from "../../forms.js";
+import { isPagePath, pageProblems, pageSkillMissing } from "../../pages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
@@ -116,6 +117,11 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         "Fix it or remove it — a note is not saved with a form that cannot be used."
     );
   }
+  // A `.page.md` note is checked the same way: a block an agent got wrong (a
+  // chart with no numbers, a choice of one) is told while the text is in hand.
+  // And a page is written only by a caller who read the page design skill as it is now (`pageSkill.js`).
+  const pageRefusal = isPagePath(path) ? pageSkillMissing(content) ?? pageProblems(content) : null;
+  if (pageRefusal) return toolError(pageRefusal);
   // Any override that is not `team` is a destination a team connection may not
   // write, and `!== "team"` rather than `=== "private"` is the whole of it.
   // With only two tiers those were the same test; with a group rule they are
@@ -334,20 +340,30 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   let collaborationResult = null;
   if (collaborationEligibleExisting) {
     try {
-      const base = await readCollaborationDocument(store, path);
-      // The opaque etag is the version the caller actually read. A retained
-      // older version can be merged; deriving a fresh base here would silently
-      // turn an agent's stale full-body replacement into an overwrite of an
-      // unseen human edit.
+      // The opaque etag is the version the caller actually read, and it must
+      // still be the note's version. Merging a whole-note write from an older
+      // one kept the merge's own rules, not the person's edit: on 2026-10-28
+      // an agent's rewrite from before the owner's save took the owner's words
+      // out of the lines both had touched, and said it had succeeded.
       if (desiredVisibility === "private") {
         await persistExactVisibility(store, path, "private", rules);
       }
+      // The replacement loads the document itself and holds the etag to its generation; reading it here
+      // first only to name that generation was a second whole load per write.
       collaborationResult = await replaceCollaborationText(store, path, {
-        documentId: base.documentId,
         expectedEtag,
+        onlyCurrent: true,
         text: content,
       });
     } catch (error) {
+      if (error?.code === "CONFLICT") {
+        const current = await readCollaborationDocument(store, path).catch(() => null);
+        if (current === null) return toolError("conflict: note changed since you read it; re-read and try again");
+        return toolError(
+          `conflict: note changed since you read it (current etag ${current.etag}). ` +
+            `Re-read, merge your change into the current content below, and write again.\n\n${current.text}`
+        );
+      }
       // A supported ordinary note has one write authority: the collaboration
       // engine. Do not fall back to the legacy raw put after a merge failure.
       const message = (() => {

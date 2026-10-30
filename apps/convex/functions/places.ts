@@ -9,14 +9,14 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuthId } from "@supa-media/convex/auth";
-import type { Id } from "../_generated/dataModel";
-import { internalMutation, mutation, query, type QueryCtx } from "../_generated/server";
+import { getAuthUserId, requireAuthId } from "./lib/signedIn";
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { normalizePath } from "./lib/fileOps/paths";
 import {
   OPEN_ROWS_PER_WORKSPACE,
   PINS_PER_WORKSPACE,
+  EDITED_ROWS_PER_WORKSPACE,
   RECENT_ROWS_PER_WORKSPACE,
   daysInWindow,
   dayOf,
@@ -222,12 +222,22 @@ export const mostOpened = query({
 });
 
 const recentKind = v.union(v.literal("opened"), v.literal("edited"));
-const recentValidator = v.object({ path: v.string(), at: v.number(), kind: v.optional(recentKind) });
+const recentValidator = v.object({
+  path: v.string(),
+  at: v.number(),
+  kind: v.optional(recentKind),
+  editedAt: v.optional(v.number()),
+});
+
+/** When their own hand last changed the row's note; a row from before `editedAt` that says edited, at its time. */
+const editedOf = (row: Doc<"placeRecents">) => row.editedAt ?? (row.kind === "edited" ? row.at : undefined);
 
 /**
  * This note was just opened or edited by the caller: it goes to the top of
  * their Recent. One row per note, so opening it again only moves it up, and
  * the row says what they did last ("You edited 9:12", owner, 2026-10-17).
+ * The last edit is kept apart in `editedAt`, so opening a note afterwards does
+ * not forget that they wrote in it (owner, 2026-10-30).
  * Only the app calls this, for the person's own taps and typing; no AI
  * connection reaches it.
  */
@@ -245,22 +255,51 @@ export const recordRecent = mutation({
         q.eq("userId", userId).eq("workspaceId", args.workspaceId).eq("path", path),
       )
       .first();
+    const editedAt = kind === "edited" ? now : row === null ? undefined : editedOf(row);
     if (row !== null) {
-      await ctx.db.patch(row._id, { at: now, kind });
+      await ctx.db.patch(row._id, { at: now, kind, ...(editedAt === undefined ? {} : { editedAt }) });
+      if (editedOf(row) === undefined && editedAt !== undefined) await trimRecents(ctx, userId, args.workspaceId, true);
       return null;
     }
-    const rows = await ctx.db
-      .query("placeRecents")
-      .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", args.workspaceId))
-      .collect();
-    if (rows.length >= RECENT_ROWS_PER_WORKSPACE) {
-      const oldest = rows.sort((a, b) => a.at - b.at).slice(0, rows.length - RECENT_ROWS_PER_WORKSPACE + 1);
-      for (const old of oldest) await ctx.db.delete(old._id);
-    }
-    await ctx.db.insert("placeRecents", { userId, workspaceId: args.workspaceId, path, at: now, kind });
+    await trimRecents(ctx, userId, args.workspaceId, editedAt !== undefined, 1);
+    await ctx.db.insert("placeRecents", {
+      userId,
+      workspaceId: args.workspaceId,
+      path,
+      at: now,
+      kind,
+      ...(editedAt === undefined ? {} : { editedAt }),
+    });
     return null;
   },
 });
+
+/**
+ * Two ceilings, so opening fifty notes never pushes out one they wrote: rows
+ * only opened keep `RECENT_ROWS_PER_WORKSPACE`, by when; rows edited keep
+ * `EDITED_ROWS_PER_WORKSPACE`, by the edit. `room` is the rows about to be added.
+ */
+async function trimRecents(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  workspaceId: Id<"workspaces">,
+  edited: boolean,
+  room = 0,
+) {
+  const rows = await ctx.db
+    .query("placeRecents")
+    .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", workspaceId))
+    .collect();
+  const kept = edited ? EDITED_ROWS_PER_WORKSPACE : RECENT_ROWS_PER_WORKSPACE;
+  const same = rows
+    .flatMap((row) => {
+      const at = editedOf(row);
+      return (at !== undefined) === edited ? [{ row, at: at ?? row.at }] : [];
+    })
+    .sort((a, b) => a.at - b.at);
+  const over = same.length + room - kept;
+  for (const { row } of same.slice(0, Math.max(0, over))) await ctx.db.delete(row._id);
+}
 
 /** The notes the caller opened or edited last, newest first; empty when signed out. */
 export const recentNotes = query({
@@ -275,7 +314,15 @@ export const recentNotes = query({
       .collect();
     return rows
       .sort((a, b) => b.at - a.at)
-      .map(({ path, at, kind }) => (kind === undefined ? { path, at } : { path, at, kind }));
+      .map((row) => {
+        const editedAt = editedOf(row);
+        return {
+          path: row.path,
+          at: row.at,
+          ...(row.kind === undefined ? {} : { kind: row.kind }),
+          ...(editedAt === undefined ? {} : { editedAt }),
+        };
+      });
   },
 });
 

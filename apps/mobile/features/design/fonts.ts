@@ -1,8 +1,8 @@
 /**
  * Font loading — native.
  *
- * Web is the shipping surface today and pulls Instrument Sans and JetBrains
- * Mono from Google Fonts, and Libron for note text from our own origin (see
+ * Web is the shipping surface today and loads Instrument Sans, JetBrains
+ * Mono and Libron for note text, all from our own origin (see
  * `fonts.web.ts`). Native has no bundled
  * font binaries yet, so it renders in the platform default and this is a no-op
  * rather than a lie about having loaded something.
@@ -13,9 +13,8 @@
  */
 export const FONT_STYLESHEET_ID = "context-fonts";
 
-export const FONT_STYLESHEET_HREF =
-  "https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600" +
-  "&family=JetBrains+Mono:wght@400;500&display=swap";
+/** Instrument Sans and JetBrains Mono, from our own origin (`public/context-fonts.css`). */
+export const FONT_STYLESHEET_HREF = "/context-fonts.css";
 
 /**
  * Libron, the face note text is read in (`fonts.reading`), is not on Google

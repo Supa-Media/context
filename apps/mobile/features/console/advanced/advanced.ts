@@ -128,6 +128,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "grant.revoked": "Revoked an AI app",
   "agent.session.opened": "Signed in the in-app agent",
   "agent.session.renewed": "Renewed the in-app agent's sign-in",
+  "cards.key.issued": "Gave Context cards in Messages a key on a phone",
+  "cards.key.renewed": "Renewed Context cards' key on a phone",
   "oauth.authorized": "Authorised an AI app",
   "privacy.reset": "Reset the privacy manifest",
   "search.fast_enabled": "Turned fast search on",

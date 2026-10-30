@@ -3,6 +3,7 @@
  * on every message Tex acts on (moved out of `groupInbox.ts` whole).
  */
 
+import { readTexStyle, type TexStyle } from "./texStyle";
 import { post, record, ServiceError } from "./clients";
 import { GROUP_STYLES, type GroupStyle } from "./decide";
 import type { GroupDeps, Command } from "./groupInbox";
@@ -34,6 +35,8 @@ export type ControlAnswer =
       /** When Tex speaks up here (`groupStyle.ts`); absent from a control plane that has none. */
       engagement?: GroupStyle;
       engagementChosen?: boolean;
+      /** How Tex talks in this chat (`texStyle.ts`): the group's own, never a member's personal one. */
+      texStyle?: TexStyle;
     };
 
 /** A guest chat's group, three words and folder (`apps/convex/functions/lib/textGroupGuests.ts`). */
@@ -51,7 +54,7 @@ function guestInfoOf(value: unknown): GuestInfo | undefined {
 }
 
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
-  const wire = command === null || command.kind === "status" || command.kind === "settings" ? undefined : command;
+  const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" || command.kind === "review_sharing" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
     groupId: message.groupId,
@@ -117,6 +120,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ),
         ...(GROUP_STYLES.includes(body.engagement as GroupStyle) ? { engagement: body.engagement as GroupStyle } : {}),
         ...(typeof body.engagementChosen === "boolean" ? { engagementChosen: body.engagementChosen } : {}),
+        ...(readTexStyle(body.texStyle) ? { texStyle: readTexStyle(body.texStyle) } : {}),
       };
     default:
       throw new ServiceError("control_plane", status);

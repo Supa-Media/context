@@ -9,7 +9,7 @@
 
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "../signedIn";
 import { grantedScopesFor } from "../googleOAuth";
 
 /** How long a started connect stays answerable. Ten minutes, as every connect flow. */

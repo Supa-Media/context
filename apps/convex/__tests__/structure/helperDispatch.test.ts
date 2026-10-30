@@ -126,6 +126,10 @@ import { run } from "./lib/runner";`,
     );
   });
 
+  // Five programs over the whole functions tree, where its neighbours build one
+  // or two: ~25s locally, and it timed out at 31s on main once #2379 added a
+  // function file. The cost grows with the tree, so it gets its own margin
+  // rather than sitting just under the 30s default.
   test("a dispatch method taken off the context", () => {
     const destructured = callerOf(
       "destructured",
@@ -176,7 +180,7 @@ import { run } from "./lib/runner";`,
     expect(refusalsFor(bracketed)).toEqual(
       expect.arrayContaining([expect.stringMatching(/names "runAction" as a string/)]),
     );
-  });
+  }, 120_000);
 
   test("a computed target hidden behind a type argument, which the text pattern misses", () => {
     const caller = callerOf(

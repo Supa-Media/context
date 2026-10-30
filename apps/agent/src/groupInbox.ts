@@ -45,10 +45,10 @@
  */
 
 import { askAgentStream, askLine, reportRoutineResult, ServiceError, type AgentAnswer, type Fetch, type RoutineOutcome } from "./clients";
-import { chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { CHAT_LOOK_PATH, chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { noteGuestChat } from "./groupGuestPeople";
-import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
+import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
 export type { Command };
@@ -57,6 +57,7 @@ import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { textsWithExact } from "./format";
+import { groupSettingReply, groupSettings } from "./groupSettings";
 import { tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
@@ -67,14 +68,16 @@ import { groupLineFor } from "./groupLine";
 import type { NoteCardDrawer } from "./noteCards";
 import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
-import { watchConversation } from "./reviewWatch";
+import { watchConversation, watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
-import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import { chatJobs, startJobs, steerJobs, threadsLines, type JobRun, type JobSteer } from "./jobs";
+import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import { reactionFor } from "./reactEmoji";
 import { staleAsks } from "./decide";
 import { runningTurn, startTurn } from "./steer";
-import { chooseGroupTurn, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseGroupTurn, WAIT_MS, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
+import { handedTurnWaits, handOff } from "./groupTurnRun";
 import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
 
 export type GroupDeps = {
@@ -87,8 +90,8 @@ export type GroupDeps = {
   whapi?: WhapiKeys | null;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
-  /** Serves a picture Tex sends at a short-lived address Sendblue fetches (`media.ts`); absent, pictures aren't sent. */
-  hostPicture?: (picture: Picture) => Promise<string>;
+  hostPicture?: (picture: Picture) => Promise<string>; // a picture Tex sends, at a short-lived address Sendblue fetches (`media.ts`); absent, none go
+  threadsLink?: () => Promise<string>; // a new link to the chat's live view of its jobs (`jobs.ts` `mintThreadsLink`)
   /** Draws a note link's picture, sent before the link (`noteCards.ts`); absent, the link goes alone. */
   noteCardPicture?: NoteCardDrawer;
   now: () => number;
@@ -96,6 +99,8 @@ export type GroupDeps = {
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
   /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
   steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
+  /** Starts the workflow that answers a chosen turn (`groupTurnWorkflow.ts`); absent, the turn is answered here. */
+  startTurn?: (turn: string) => Promise<void>;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
@@ -111,6 +116,8 @@ const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
 /** The workspace names Tex last asked this chat to pick from, never text: a bare "supa" then answers it. */
 const CHOICE_KEY = "gchoice";
+/** Until when decide said to wait on a burst still being typed (`WAIT_MS`). */
+const WAIT_KEY = "gwaituntil";
 const CHOICE_FOR_MS = 24 * 60 * 60 * 1000;
 type Choice = { slugs: string[]; at: number };
 const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
@@ -121,9 +128,9 @@ type Recent = { h: string; at: number };
 /**
  * How long a tag waits before it is answered, so a picture sent just after it
  * ("Tex, file this screenshot", then the screenshot) is read with it, as a
- * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`).
+ * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`). 2s since Dev2, 2026-10-28 (was 4s): Tex felt slow.
  */
-export const GROUP_TEXT_WAIT_MS = 4_000;
+export const GROUP_TEXT_WAIT_MS = 2_000;
 /** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
@@ -155,12 +162,14 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const yes = await answersOpenAsk(storage, message, now);
   // An SMS never sets the style: anyone can send one that shows a member's number.
   const engagement = !message.sms && (await questionOpen(storage, now)) ? engagementChoice(message.text) : null;
-  const addressed = addressesTex(message.text, repliesToTex) || offeredName(message.text, choices) !== null;
-  const tagged = addressed || yes || engagement !== null;
+  const setting = !message.sms && engagement === null ? await groupSettingReply(storage, message.text, now) : null;
+  // A reply in Tex's thread is not addressed by itself: decide judges it, as any untagged text (Dev2, 2026-10-27).
+  const addressed = addressesTex(message.text, false) || offeredName(message.text, choices) !== null;
+  const tagged = addressed || yes || engagement !== null || setting !== null;
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
   // Never the model's: an SMS (anyone can fake its sender), the asker's yes, a style choice, a command.
-  const byCode = message.sms === true || yes || engagement !== null || (addressed && groupCommand(message.text, choices) !== null);
+  const byCode = message.sms === true || yes || engagement !== null || setting !== null || (addressed && groupCommand(message.text, choices) !== null);
   const running = runningTurn(storage, message.groupId);
   // Untagged and idle: kept as chat if bound, and to decide as the style says. `ev` given: it was logged already.
   const idleUntagged = async (logged?: string): Promise<"kept" | "queued" | "ignored"> => {
@@ -171,7 +180,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     if (!kept && !follows) return log("untagged_ignored", "unbound"), "ignored";
     await storage.put(seen, now);
     const ev = logged ?? (await logGroupInbound(storage, message, now));
-    const reaches = follows || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
+    // A reply to Tex that says more than thanks always reaches decide, whatever the style.
+    const reaches = follows || addressesTex(message.text, repliesToTex) || (await reachesDecide(storage, (await groupStyle(storage)).style, await isAsker(storage, message, now)));
     if (reaches) await enqueue(storage, message, { ev, soft: true, ...(follows ? { joins: true as const } : {}) }, repliesToTex, seen, now);
     log(reaches ? "untagged_to_decide" : "untagged_kept", reaches ? undefined : "style");
     return kept ? "kept" : "queued";
@@ -181,15 +191,15 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   if (!tagged && !(await isBound(storage, message)) && !(await followsOwnTag(storage, message, now))) return "ignored";
   // Nothing of an SMS group is logged: its sender vouches for nothing.
   const ev = message.sms ? undefined : await logGroupInbound(storage, message, now);
-  const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}) };
+  const extra: Partial<Pending> = { ...(ev ? { ev } : {}), ...(byCode ? { byCode: true as const } : {}), ...(engagement ? { engagement } : {}), ...(setting ? { setting } : {}) };
 
   if (running !== undefined && ev !== undefined && !byCode) {
     // Seen before decide is asked: a webhook redelivered while decide is slow is a duplicate, never decided twice.
     await storage.put(seen, now);
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
-      how = await whileRunning(storage, message, ev, running, tagged, () => now, () =>
-        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, ackEmoji(message.text)),
+      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
+        groupLineFor(running.deps as GroupDeps, message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, reactionFor(emoji, ackEmoji(message.text))),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -221,14 +231,7 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   return await enqueue(storage, message, extra, repliesToTex, seen, now);
 }
 
-async function enqueue(
-  storage: InboxStorage,
-  message: GroupMessage,
-  extra: Partial<Pending>,
-  repliesToTex: boolean,
-  seen: string,
-  now: number,
-): Promise<"queued" | "full"> {
+async function enqueue(storage: InboxStorage, message: GroupMessage, extra: Partial<Pending>, repliesToTex: boolean, seen: string, now: number): Promise<"queued" | "full"> {
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
@@ -243,11 +246,19 @@ async function enqueue(
 
 /** A chat routine's run (`groupRoutines.ts`): queued as its writer's tag, answered now. */
 export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutineRun, now: number): Promise<"queued" | "full"> {
+  return await queueGroupByCode(storage, chatRoutineMessage(run), now);
+}
+
+/** Queue a turn this Worker asks for itself (a routine's run, a job's report: `jobTexts.ts`), as its writer's tag; once per event. */
+export async function queueGroupByCode(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "full"> {
+  const seen = seenKey(message.eventId, ""); // One run, one turn: handed here again, it is already queued or answered.
+  if ((await storage.get<number>(seen)) !== undefined) return "queued";
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
   await storage.put("gseq", seq);
-  await storage.put<Pending>(pendingKey(seq), { message: chatRoutineMessage(run), attempts: 0, at: now, byCode: true });
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, byCode: true });
+  await storage.put(seen, now);
   await storage.setAlarm(now);
   return "queued";
 }
@@ -256,6 +267,7 @@ export async function acceptGroupRoutine(storage: InboxStorage, run: ChatRoutine
 async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
+  if (message.jobReport !== undefined) return; // a job's report runs as a routine's turn does, but no run waits on it
   await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 
@@ -351,6 +363,8 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
   }
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
+    // One turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`).
+    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) return;
     const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
@@ -360,7 +374,21 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         if (entry[1].byCode) break;
         burst.push(entry);
       }
+      // While a burst waits, a new message to it starts the wait again: it ends WAIT_MS after the newest, if that is later.
+      const waitUntil = Math.max((await storage.get<number>(WAIT_KEY)) ?? 0, burst.some(([, item]) => item.waits) ? Math.max(...burst.map(([, item]) => item.at ?? 0)) + WAIT_MS : 0);
+      if (deps.now() < waitUntil && burst.every(([, item]) => item.soft === true && item.force !== true)) { // An addressed one never waits.
+        await armBy(storage, waitUntil, deps.now());
+        break;
+      }
       const choice = await chooseGroupTurn(storage, deps, burst);
+      if (choice.wait !== undefined && choice.wait.length > 0) {
+        for (const [key, item] of choice.wait) await storage.put<Pending>(key, { ...item, waits: (item.waits ?? 0) + 1 });
+        const until = Math.max(deps.now(), ...choice.wait.map(([, item]) => item.at ?? 0)) + WAIT_MS; // From now: a wait decided late still waits
+        await storage.put(WAIT_KEY, until);
+        await armBy(storage, until, deps.now());
+        log("waiting");
+        if (choice.answer.length === 0) break;
+      }
       // Left as chat: an untagged one is already one of the chat's lines (`acceptGroup`); an addressed one becomes one.
       for (const [key, item] of choice.chat) {
         if (!item.soft) await keepChatLine(storage, item.message, item.at ?? deps.now());
@@ -368,39 +396,51 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       }
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.react) {
-        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, ackEmoji(choice.react.text));
+        await groupLineFor(deps, choice.react.groupId).react({ line: choice.react.line, groupId: choice.react.groupId }, choice.react.messageId, reactionFor(choice.emoji, ackEmoji(choice.react.text)));
       }
       entries = ownTurn(choice.answer);
       if (entries.length === 0) continue;
     }
-    const [key, item] = entries.at(-1)!;
-    try {
-      const outcome = await answerGroup(storage, entries, deps);
-      // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
-      if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
-    } catch (error) {
-      const attempts = item.attempts + 1;
-      const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
-      log("failed", reason);
-      if (attempts < MAX_ATTEMPTS) {
-        // Retried as the same turn: the others it covered go with it.
-        for (const [other] of entries.slice(0, -1)) await storage.delete(other);
-        await storage.put<Pending>(key, { ...item, message: mergedGroup(entries.map(([, entry]) => entry.message)), attempts, byCode: true, covers: coversOf(entries) });
-        await storage.setAlarm(deps.now() + RETRY_MS);
-        return;
-      }
-      for (const [done] of entries) await storage.delete(done);
-      const timedOut = error instanceof ServiceError && error.status === 504;
-      // A routine nobody asked for just now fails quietly: the chat didn't ask, so it is told nothing.
-      if (item.message.routine !== undefined) await routineDone(deps, item.message, "failed");
-      else await say(storage, deps, item.message, GROUP_LINES.failed, { system: true, reason: timedOut ? "timed_out" : "failed" }).catch(() => {});
-    }
+    if (deps.startTurn !== undefined) return void (await handOff(storage, deps, entries)); // No Workflows binding: answered here.
+    if (await answerInline(storage, entries, deps)) return;
   }
   await pruneSeen(storage, deps.now());
 }
 
+/** One turn answered here, as before workflows: retried by the alarm, then given up on. True when the drain stops for the retry. */
+export async function answerInline(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<boolean> {
+  const [key, item] = entries.at(-1)!;
+  // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
+  if (item.attempts === 0) log("inline");
+  try {
+    const outcome = await answerGroup(storage, entries, deps);
+    // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
+    if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
+  } catch (error) {
+    const attempts = item.attempts + 1;
+    const reason = error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : "error";
+    log("failed", reason);
+    if (attempts < MAX_ATTEMPTS) {
+      // Retried as the same turn: the others it covered go with it.
+      for (const [other] of entries.slice(0, -1)) await storage.delete(other);
+      await storage.put<Pending>(key, { ...item, message: mergedGroup(entries.map(([, entry]) => entry.message)), attempts, byCode: true, covers: coversOf(entries) });
+      await storage.setAlarm(deps.now() + RETRY_MS);
+      return true;
+    }
+    for (const [done] of entries) await storage.delete(done);
+    await turnFailed(storage, deps, item.message, error instanceof ServiceError ? `${error.service}:${error.status ?? "unreachable"}` : undefined);
+  }
+  return false;
+}
+
+/** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
+export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
+  if (message.routine !== undefined) await routineDone(deps, message, "failed");
+  else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
+}
+
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */
-async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
+export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<"cancelled" | void> {
   const item = entries.at(-1)![1];
   const message = mergedGroup(entries.map(([, entry]) => entry.message));
   // What the chat said before the first message it answers is its context; the rest it answers.
@@ -411,11 +451,11 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
-  const command = item.engagement || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
-
-  // The app's own list too: more people only ever narrows what Tex may use.
+  const command = item.engagement || item.setting || routine ? null : groupCommand(message.text, await openChoice(storage, deps.now()));
+  // The app's own list too: more people only ever narrows what Tex may use. Unread where the webhook names only the sender, it's retried (`groupLine.ts`).
   const members = await app.readMembers(chat);
   if (members === null) log("members_unread");
+  if (members === null && !routine && app.senderOnlyWebhook) throw new ServiceError("whapi", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.
   if (routine && (members === null || !members.includes(message.from))) return void (await routineDone(deps, message, "no_chat"));
   const people = peopleOf(message.line, message.participants, members);
@@ -428,7 +468,7 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // Read from the words alone, the same for every tagger linked or not, so it says nothing about who they are (`ackEmoji.ts`).
-  if (command === null && message.reaction === undefined && !item.engagement && !routine) await app.react(chat, message.messageId, ackEmoji(message.text));
+  if (command === null && message.reaction === undefined && !item.engagement && !item.setting && !routine && !("texStyle" in asked && asked.texStyle?.emoji === "less")) await app.react(chat, message.messageId, ackEmoji(message.text));
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_shared") return void (await fixed(GROUP_LINES.notShared(asked.slugs)));
@@ -453,19 +493,20 @@ async function answerGroup(storage: InboxStorage, entries: GroupEntry[], deps: G
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
-  await setChatBound(storage, message);
-  // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
-  await noteGuestChat(storage, message, asked.guest !== undefined);
+  // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
+  // and every untagged text after it would be dropped as said in front of other people.
+  if (!routine) {
+    await setChatBound(storage, message);
+    // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
+    await noteGuestChat(storage, message, asked.guest !== undefined);
+  }
   await keepNames(storage, asked.names ?? []);
   if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
   const guest = asked.guest;
   if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
-  // "Tex, settings": the style question again (`groupStyle.ts`).
-  if (command?.kind === "settings") {
-    await openQuestion(storage, deps.now());
-    return void (await fixed(ENGAGEMENT_QUESTION));
-  }
+  // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).
+  if (command?.kind === "settings" || command?.kind === "style" || command?.kind === "review_sharing" || item.setting) return await groupSettings(storage, deps, message, command, item.setting, asked);
   if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   // The chat's events reach its log before the turn reads it, written with the chat's own grant.
@@ -554,6 +595,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
+        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -573,10 +615,11 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";
   }
-  if (routine && answer.kind !== "answer") return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : answer.kind === "no_model" ? "no_provider" : "failed"));
+  // A routine the gateway couldn't run throws below like any turn, so its workflow retries it; failing every try reports it quietly.
+  if (routine && (answer.kind === "daily_limit" || answer.kind === "no_model")) return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : "no_provider"));
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
-  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "unavailable" && answer.timedOut ? 504 : null);
+  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
@@ -595,7 +638,8 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
   if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
-  const texts = textsWithExact(answer.text, answer.verbatim);
+  const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
+  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
   const now = await app.readMembers(chat);
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -606,8 +650,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   }
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   for (const text of texts) await say(storage, deps, message, text, meta);
-  // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
-  for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture, meta);
+  for (const picture of checkIn ? [] : answer.pictures) await sendPicture(storage, deps, message, picture, meta); // After the words, as in a 1:1.
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
@@ -627,7 +670,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
     });
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
@@ -637,20 +680,6 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
     if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
     await storage.delete(key);
   }
-}
-
-/** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
-export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
-  const entry = await noteJobUpdate(storage, update, deps.now());
-  if (entry === null || entry.quiet || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
-  const where = { line: entry.line, groupId: entry.groupId, messageId: entry.messageId };
-  for (const [i, text] of (update.texts ?? []).entries()) {
-    const index = (update.first ?? 0) + i;
-    if (index < (entry.sent ?? 0)) continue;
-    await say(storage, deps, where, text);
-    await noteJobSent(storage, update.id, index + 1);
-  }
-  return true;
 }
 
 /** The names this chat was asked to pick from, while that question is still open. */

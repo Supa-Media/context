@@ -47,6 +47,11 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
+import { sendCardPart } from "./sendParts";
+import type { Choice } from "./pickCard";
+import { settleCard, withCardsHere } from "./cardChats";
+import type { Offer } from "./dataCards";
+import { withAnswerCards } from "./answerCards";
 import { textsFromAnswer } from "./format";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
@@ -63,15 +68,17 @@ import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
+import { reactionFor } from "./reactEmoji";
+import { closeMenu, isSettingsText, keepTexStyle, keptTexStyle, menuState, openMenu } from "./texStyle";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
+import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
-import { watchConversation } from "./reviewWatch";
+import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -154,7 +161,6 @@ async function isLatePreview(storage: InboxStorage, message: Message, now: numbe
   return pictures;
 }
 
-
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -169,6 +175,7 @@ export async function accept(
     return "preview";
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
+  message = await settleCard(storage, message, now);
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
@@ -176,6 +183,8 @@ export async function accept(
   // A plain text after a quiet spell starts a topic (`threadFor`).
   const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
   if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
+  // A settings text, or a reply the open menu reads, is answered by code before decide (Dev2, 2026-10-28; `texStyle.ts`).
+  if (!message.sms && !message.tapback && (await isSettingsText(storage, message.text, now))) message = { ...message, setting: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
@@ -198,10 +207,10 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text) => {
+    await decideWhileRunning(storage, pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, ackEmoji(text.text));
+        await lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, reactionFor(emoji, ackEmoji(text.text)));
       }
     });
   } catch {
@@ -222,25 +231,20 @@ export async function carryOnAfterSave(storage: InboxStorage, deps: Pick<InboxDe
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (chat === undefined) return logVaultWatch("no_chat");
   if (chat.at > saved.savedAt) return logVaultWatch("texted_since");
-  const eventId = `vault-saved:${saved.savedAt}`;
-  if ((await storage.get<number>(seenKey(eventId))) !== undefined) return;
-  const now = deps.now();
+  const channel = chat.channel === "simulator" ? { channel: "simulator" as const } : {};
+  const message: Message = { kind: "message", eventId: `vault-saved:${saved.savedAt}`, chatId: chat.chatId, from: saved.phone, messageId: "", text: "", event: "vault_saved", ...channel };
+  if (await queueByCode(storage, message, deps.now())) logVaultWatch("queued");
+}
+
+/** Queue a turn this Worker asks for itself (a saved login's, a job's report), never a webhook; false when that event was queued already. */
+export async function queueByCode(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
+  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return false;
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
-  await storage.put(seenKey(eventId), now);
-  const message: Message = {
-    kind: "message",
-    eventId,
-    chatId: chat.chatId,
-    from: saved.phone,
-    messageId: "",
-    text: "",
-    event: "vault_saved",
-    ...(chat.channel === "simulator" ? { channel: "simulator" as const } : {}),
-  };
+  await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await storage.setAlarm(now);
-  logVaultWatch("queued");
+  return true;
 }
 
 /** What became of a tapback, without its words: enough to tell a 👍 that reached nothing from one never sent. */
@@ -258,12 +262,13 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  // A 👍 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
+  // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
-  if (holdsAsYes(onAsk)) {
-    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how };
+  if (holdsAsAnswer(onAsk)) {
+    // Marked so decide can never silence, fold, drop or stale it: the gateway alone says whether it is the yes (`inboxTurn.ts` `decidedByCode`).
+    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how, askYes: true };
     await holdThumb(storage, asked, reaction.words, now);
     logTapback(reaction, "held", onAsk !== reaction);
     return "held";
@@ -280,6 +285,7 @@ export async function react(
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+  deps = await withCardsHere(storage, deps);
   // A 👍 on an ask joins the queue as the tapback it is.
   const thumb = await dueThumb<Message>(storage, deps.now());
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
@@ -298,14 +304,16 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     // Only "ok", "thanks", tapbacks: read, and no bubble until decide picks an answer (`answerTexts` starts it then).
     const acksOnly = pending.every(([, item]) => item.message.chatId !== first.chatId || (!item.force && pureAck(item.message)));
     if (acksOnly) await line?.markRead(first.chatId, first.messageId);
-    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first);
+    const presence = line === undefined || acksOnly ? undefined : await startPresence(line, first, { aimLater: true });
+    // Emoji: less (`texStyle.ts`): no quick tapback, the answer is the only sign.
+    if ((await keptTexStyle(storage)).emoji === "less") presence?.dropTapback();
     try {
       const choice = await chooseTurn(storage, deps, pending);
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
       // One tapback per text: decide's, or else presence's on the text being answered.
       if (choice.react !== undefined) {
-        await acknowledgeText(deps, choice.react);
+        await acknowledgeText(deps, choice.react, choice.emoji);
         presence?.dropTapback();
       }
       if (choice.answer.length > 0) presence?.aim(choice.answer.at(-1)![1].message);
@@ -319,10 +327,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   await pruneEvents(storage, deps.now());
 }
 
-/** A tapback on the person's text, picked from its words (`ackEmoji.ts`): decide's `react`. */
-async function acknowledgeText(deps: InboxDeps, message: Message): Promise<void> {
+/** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
+async function acknowledgeText(deps: InboxDeps, message: Message, emoji?: string): Promise<void> {
   if (message.channel === "simulator" || !message.messageId || message.tapback) return;
-  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, ackEmoji(message.text));
+  await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, reactionFor(emoji, ackEmoji(message.text)));
 }
 
 /**
@@ -414,6 +422,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
         await out(partEvent(part));
+      } else if ("card" in part) {
+        await sendCardPart(line, item.message.chatId, part, thread, idempotency);
       } else {
         const went = await sendPicture(deps, item.message.chatId, part.media, idempotency, thread);
         await out(went ? partEvent(part) : { kind: "picture", delivered: false, reason: "send_refused" });
@@ -445,6 +455,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
 /** The event for one part Tex sent: a picture it could not upload is one that never went. */
 function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
   if (part === PICTURE_FAILED) return { kind: "picture", delivered: false, reason: "upload_failed" };
+  if (typeof part !== "string" && "card" in part) return { kind: "text", text: part.card.fallbackText, delivered: true };
   if (typeof part !== "string") return { kind: "picture", delivered: true, ...("url" in part.media ? { text: part.media.url } : {}) };
   return { kind: kindOf(part), text: part, delivered: true };
 }
@@ -500,6 +511,8 @@ type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: str
 
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
+  let choices: Choice[] = [];
+  let offers: Offer[] = [];
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
@@ -540,8 +553,13 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onTold: (sent) => noteTold(storage, sent, message.chatId, deps.now()),
       // A link to save a login went: watch for the save, to carry the task on (`vaultWatch.ts`).
       onVaultLink: () => watchForSave(storage, message.from, deps.now()),
-      onPictures: (sent) => void (pictures = sent),
+      onPictures: (sent, offered) => void ((pictures = sent), (choices = offered)),
+      onOffers: (offered) => void (offers = offered),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
+      // "Tex, settings" and the style it keeps (`texStyle.ts`).
+      settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
+      onTexStyle: (style) => keepTexStyle(storage, style),
+      onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },
     storage,
@@ -558,14 +576,15 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
-  if (pictures.length === 0) return done(texts);
+  const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, deps.threadsLink));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await partsFor(texts, pictures, upload));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, deps.threadsLink));
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
@@ -575,18 +594,17 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now()),
-    onJobs: async (jobs) => {
-      await startJobs(storage, jobs, {
+    onJobs: async (jobs) =>
+      notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),
         inbox: message.from,
         origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
-      });
-    },
+      })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
-      if (deps.steerJob && message.text.trim() !== "") await steerJobs(storage, asks, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
+      if (deps.steerJob) await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
     },
   };
 }

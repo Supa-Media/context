@@ -48,7 +48,7 @@
 
 import { requireEmailProof } from "./lib/emailProof";
 import { ConvexError, v, type ObjectType } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
@@ -332,6 +332,12 @@ export const applyBinding = internalMutation({
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
       forcePathStyle: args.forcePathStyle,
+      // Set for a new managed bucket only; every other write clears them, so a
+      // rebind never carries a temporary credential to a different bucket.
+      temporaryAccessKeyId: args.temporary?.accessKeyId,
+      encryptedTemporarySecretAccessKey: args.temporary?.encryptedSecretAccessKey,
+      encryptedSessionToken: args.temporary?.encryptedSessionToken,
+      temporaryUntil: args.temporary?.until,
       capabilities: initialCapabilities(),
       status: "unverified" as const,
       // A rebind invalidates whatever we knew about the old bucket. Carrying
@@ -403,6 +409,8 @@ export const applyBinding = internalMutation({
     if (existing === null) {
       bindingId = await ctx.db.insert("storageBindings", {
         ...fields,
+        // Cleared by the verification that answers it, as after `applyStructure`.
+        ...(args.firstStructure === undefined ? {} : { scaffoldQueuedAt: now }),
         createdAt: now,
       });
       // A first binding starts keyed, never on path keys: a managed bucket is new and empty, and files
@@ -453,6 +461,8 @@ export const applyBinding = internalMutation({
         workspaceId: args.workspaceId,
         actorUserId: args.actorUserId,
         retryUntil: args.verificationRetryUntil,
+        // A first binding only: a rebind points at a bucket nobody chose a layout for.
+        ...(args.firstStructure === undefined || existing !== null ? {} : { structure: args.firstStructure }),
       },
     );
 

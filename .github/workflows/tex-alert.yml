@@ -1,0 +1,53 @@
+# Every 15 minutes, check Tex's group path in production and keep one open
+# issue labelled tex-alert while it is failing (Dev2, 2026-10-27). The rules
+# and the report live in scripts/tex-alert.mjs; the report holds codes and
+# counts only, never anyone's words, number or chat id, since this repository
+# is public.
+name: Tex group alert
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tex-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check Tex's group path
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the last 15 minutes
+        id: read
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: "15"
+        run: |
+          set -euo pipefail
+          node scripts/tex-alert.mjs > report.md
+          if [ -s report.md ]; then echo "failing=true" >> "$GITHUB_OUTPUT"; cat report.md; else echo "Healthy."; fi
+
+      - name: Open or update the alert issue
+        if: steps.read.outputs.failing == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create tex-alert --color B60205 --description "Tex's group path is failing in production" 2>/dev/null || true
+          open=$(gh issue list --label tex-alert --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file report.md
+          else
+            gh issue create --title "Tex group path failing in production" --label tex-alert --body-file report.md
+          fi

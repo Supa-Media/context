@@ -98,10 +98,10 @@ export function chatLookQuestion(since: number | undefined, lastRan: string | nu
   const after = since === undefined ? "" : ` (search it with after:${Math.floor(since / 1000)})`;
   return (
     `(Time for this chat's check-in: look on your own at what is new${lastRan === null ? "" : ` since ${lastRan}`}, ` +
-    "the way a good assistant glances over the shared work. Read this workspace's recent activity (fetch activity:) " +
-    `and any mail shared with this chat${after}, and connect it to what you know of the work. ` +
-    "Post here only what someone in this chat needs to act on or know now, in one short message: " +
-    "what happened, who should handle it, and one next step you can take for them. " +
+    `in two places only: mail shared with this chat${after}, and what was asked of you in this chat that you said you would follow up on. ` +
+    "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
+    "Post here only what someone in this chat needs to act on or know now, in one short line: " +
+    "what happened and who should handle it. " +
     "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
     "Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, " +
     "and neither is anything you already posted here. If nothing needs the chat, answer exactly SKIP.)"

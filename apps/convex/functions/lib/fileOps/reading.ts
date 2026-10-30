@@ -12,6 +12,7 @@ import { forwardPath, readForwarding } from "../../../../mcp/src/forwarding.js";
 import {
   eligible as collaborationEligible,
   readDocument as readCollaborationDocument,
+  readDocumentIfStarted as readCollaborationDocumentIfStarted,
   supported as collaborationSupported,
 } from "@context/collaboration";
 import { MAX_NOTE_BYTES, type FileStore } from "./store";
@@ -58,7 +59,11 @@ export interface FileContents {
 
 export async function readFile(
   store: FileStore,
-  options: { path: string; clearance: Clearance; forward?: "never" | "onMiss" },
+  /**
+   * `startsNoDocument`: a note that has no collaboration document yet is read as its Markdown, with the
+   * Markdown's own version and no `documentId`, instead of starting one (as `readDocumentIfStarted`).
+   */
+  options: { path: string; clearance: Clearance; forward?: "never" | "onMiss"; startsNoDocument?: boolean },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
   /*
@@ -73,7 +78,7 @@ export async function readFile(
   const early = store.get(path).catch(() => undefined);
   const state = await loadPrivacyState(store);
   if (options.forward !== "onMiss") {
-    return await readVisibleFile(store, state, path, options.clearance, false, early);
+    return await readVisibleFile(store, state, path, options.clearance, false, early, options.startsNoDocument === true);
   }
 
   /*
@@ -116,6 +121,7 @@ async function readVisibleFile(
   plain = false,
   /** The same `store.get(path)`, already asked; `undefined` if it failed. */
   early?: Promise<Awaited<ReturnType<FileStore["get"]>> | undefined>,
+  startsNoDocument = false,
 ): Promise<FileContents> {
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
 
@@ -134,7 +140,9 @@ async function readVisibleFile(
   let collaboration: { documentId: string; update: string; text: string; etag: string; rawEtag: string } | null = null;
   if (!plain && !encrypted && collaborationSupported(store) && collaborationEligible(path, text)) {
     try {
-      collaboration = await readCollaborationDocument(store, path);
+      collaboration = startsNoDocument
+        ? await readCollaborationDocumentIfStarted(store, path)
+        : await readCollaborationDocument(store, path);
     } catch {
       throw new FileOpError(
         "STORAGE_UNSAFE",

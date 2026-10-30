@@ -15,7 +15,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { appendMail, parseMail, stripMail } from "@context/shared/src/mail.cjs";
 import { applyChanges } from "@context/shared/src/comments.cjs";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";

@@ -34,6 +34,7 @@ import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
 import { createDreamRoutes } from "./dreams.mjs";
+import { createTranscriptionRoutes } from "./transcription.mjs";
 import { createMoveRoutes } from "./moves.mjs";
 import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
 
@@ -138,7 +139,7 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → when the gateway last said that context changed */
   const activityStamps = new Map();
 
-  const { clearedOwner, clearedEditor, clearedOwnAccount } = createClearances(grantForAccessToken, coveredContexts);
+  const { clearedOwner, clearedEditor, clearedOwnAccount, clearedRead } = createClearances(grantForAccessToken, coveredContexts);
 
   /** One row as the real route reports it: URLs, and never the token. */
   function describeStubLink(row) {
@@ -296,13 +297,14 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
-  const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
-  const calendar = createCalendarRoute(clearedOwnAccount, flags);
+  const email = createEmailRoute(clearedOwnAccount, flags, clearedRead);
+  const calendar = createCalendarRoute(clearedOwnAccount, flags, clearedRead);
   const googleChat = createGoogleChatRoute(clearedOwnAccount);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);
   const moves = createMoveRoutes(grantForAccessToken, coveredContexts);
+  const transcription = createTranscriptionRoutes(grantForAccessToken, coveredContexts);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -881,7 +883,7 @@ export function createControlPlaneStub(options = {}) {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
           (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
-          (await moves.handle(path, body));
+          (await moves.handle(path, body)) ?? (await transcription.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -943,6 +945,7 @@ export function createControlPlaneStub(options = {}) {
     mailboxes: mail.mailboxes,
     dreams,
     moves,
+    transcription,
     issueCode,
     setBuiltinVerdict,
     holdRules,

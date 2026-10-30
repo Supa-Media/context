@@ -73,6 +73,8 @@ export const INDEX_ON_CHANGE = new Map([
   ["archive_note", "moved"],
   ["move_notes", "movedPairs"],
   ["move_folder", "folderMoved"],
+  ["set_visibility", "retiered"],
+  ["set_folder_visibility", "retiered"],
 ]);
 
 /**
@@ -115,6 +117,10 @@ export function searchChangeOf(action, paths, details) {
       follow: PROJECTED_BY_WRITER.has(action) ? null : { written: named },
     };
   }
+  // Access changed and text did not: fast search moves the rows to the new
+  // tier with no read, and the bucket's index, which filters every hit through
+  // `canSee`, has nothing to redo.
+  if (kind === "retiered") return { notes: [], follow: { retiered: named } };
   if (kind === "moved") {
     const [source, destination] = named;
     if (!destination) return null;

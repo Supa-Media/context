@@ -270,13 +270,37 @@ export const oauthTables = {
      * nothing about what was listed.
      */
     toolsListedAt: v.optional(v.number()),
+    /**
+     * When this grant's token last came in a URL (`/t/<token>/...`) rather
+     * than an Authorization header, at most hourly, and the coarse route it
+     * came on (`mcp`, `presence`, ...). What says whether removing the URL
+     * form would break a connection (`functions/tokenTransport.ts`).
+     */
+    pathTokenSeenAt: v.optional(v.number()),
+    pathTokenRoute: v.optional(v.string()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"])
+    // The live connections alone, so a list of them never reads the revoked
+    // rows nothing sweeps (`grants.listGrants` with `activeOnly`).
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workspace_user_status", ["workspaceId", "userId", "status"])
     .index("by_refresh_token", ["hashedRefreshToken"])
     .index("by_access_token", ["hashedAccessToken"])
-    .index("by_previous_refresh_token", ["previousHashedRefreshToken"]),
+    .index("by_previous_refresh_token", ["previousHashedRefreshToken"])
+    .index("by_path_token_seen", ["pathTokenSeenAt"]),
+
+  /**
+   * One row per person who has used an AI client other than this app, written
+   * the first time a grant of theirs is stamped and never patched
+   * (`lib/agentUse.ts`): the invite card's question, asked without reading
+   * and re-reading every grant they hold.
+   */
+  agentUse: defineTable({
+    userId: v.id("users"),
+    firstAt: v.number(),
+  }).index("by_user", ["userId"]),
 };

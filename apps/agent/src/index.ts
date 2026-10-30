@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
@@ -45,8 +46,9 @@ import { syncGuestPeople } from "./groupGuestPeople";
 import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
-import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, runJob, steerJob } from "./jobRun";
+import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { acceptJob, armJobNext, failJob, runJob, steerJob } from "./jobRun";
+import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -55,10 +57,17 @@ import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiK
 import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
-import { holdsAsYes, takesBackYes } from "./thumbs";
+import { holdsAsAnswer, takesBackYes } from "./thumbs";
+import { answerHanded, failHanded } from "./groupTurnRun";
+import type { GroupTurnParams } from "./groupTurnWorkflow";
+export { GroupTurnWorkflow } from "./groupTurnWorkflow";
+export { JobRunWorkflow } from "./jobWorkflow";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
+  /** Sees each group turn through, with retries (`groupTurnWorkflow.ts`); absent, group turns are answered in their object. */
+  GROUP_TURN?: Workflow<GroupTurnParams>;
+  JOB_RUN?: Workflow<JobRunParams>;
   /** Linq's `whsec_…` webhook signing secret. */
   LINQ_WEBHOOK_SECRET: string;
   /** Linq Partner API key, used to send replies. */
@@ -83,7 +92,7 @@ export interface Env {
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
-  /** "on" sends a link to a note as a Context card, with the extension's bundle id and the Apple team id (`appCards.ts`). */
+  /** "on" sends Context cards to every chat, "app" only to chats that have shown the app (`appCards.ts`, `cardChats.ts`). */
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
   APPLE_TEAM_ID?: string;
@@ -119,12 +128,16 @@ function health(env: Env): Record<string, unknown> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    // First, before any route reads a header, a secret or a body (httpsOnly.ts).
+    const plain = plainHttpResponse(request, url);
+    if (plain !== null) return plain;
     if (url.pathname === "/health" && request.method === "GET") return Response.json(health(env));
     if (url.pathname === SIMULATOR_PATH || url.pathname.startsWith(`${SIMULATOR_PATH}/`)) {
       if (!simulatorEnabled(env.SIMULATOR)) return new Response(null, { status: 404 });
       return handleSimulator(request, env, SIMULATOR_PAGE);
     }
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
+    if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
@@ -322,7 +335,7 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
         event.reactionOn,
       );
       const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500) };
-      if (words === null || !(holdsAsYes(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
+      if (words === null || !(holdsAsAnswer(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
       const { reactionOn: _on, ...message } = event;
       return groupWebhook(env, { ...message, reaction }, origin, "whapi");
     }
@@ -338,7 +351,8 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       // Named, not quoted: the words are read now, and only from Tex's own text in this person's chat.
       const read = await readWhapiMessage((input, init) => fetch(input, init), keys, event.on);
       const own = read !== null && read.fromMe && phoneOfJid(read.chatId) === event.from;
-      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "" };
+      // Read and not Tex's is not the same as unread: only the second may be taken for the ask (`thumbs.ts`).
+      event.reaction = { ...event.reaction, words: own ? read.text.slice(0, 500) : "", ...(read !== null && !own ? { onOther: true as const } : {}) };
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
@@ -368,6 +382,24 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
     return new Response(null, { status: 404 });
   }
   return env.SENDER_INBOX.get(id).fetch(`https://inbox/media/${match[2]}`);
+}
+
+/**
+ * `GET /threads/<object id>/<token>`: a chat's live view of its jobs, as JSON,
+ * read by the router's page through its binding to this Worker (`jobs.ts`
+ * `serveThreads`). Every miss is the same 404.
+ */
+async function threads(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
+  if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
+  let id: DurableObjectId;
+  try {
+    id = env.SENDER_INBOX.idFromString(match[1]);
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  return env.SENDER_INBOX.get(id).fetch(`https://inbox/threads/${match[2]}`);
 }
 
 /**
@@ -488,6 +520,13 @@ export class SenderInbox implements DurableObject {
       await syncGuestPeople(this.state.storage, this.deps(), message);
       return Response.json({ outcome });
     }
+    // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
+    if (path === "/group-answer" || path === "/group-failed") {
+      const { turn } = (await request.json()) as { turn?: unknown };
+      if (typeof turn !== "string") return new Response(null, { status: 400 });
+      const deps = this.deps();
+      return Response.json({ outcome: await (path === "/group-answer" ? answerHanded : failHanded)(this.state.storage, deps, turn) });
+    }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());
       if (run === null) return new Response(null, { status: 400 });
@@ -503,9 +542,14 @@ export class SenderInbox implements DurableObject {
     }
     // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
     if (path === "/job-start") {
-      await acceptJob(this.state.storage, (await request.json()) as JobRun, Date.now());
+      const run = (await request.json()) as JobRun;
+      const flow = this.env.JOB_RUN;
+      await acceptJob(this.state.storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
       return Response.json({ ok: true });
     }
+    // The job's workflow runs each pass here, and ends it here when every try failed (`jobWorkflow.ts`).
+    if (path === "/job-pass") return Response.json({ next: await runJob(this.state.storage, this.jobDeps()) });
+    if (path === "/job-failed") return Response.json({ next: await failJob(this.state.storage, this.jobDeps()) });
     if (path === "/job-steer") {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
@@ -519,6 +563,10 @@ export class SenderInbox implements DurableObject {
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
+    }
+    if (path.startsWith("/threads/")) {
+      if (request.method !== "GET") return new Response(null, { status: 405 });
+      return serveThreads(this.state.storage, path.slice("/threads/".length), Date.now());
     }
     if (path.startsWith("/media/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });
@@ -539,8 +587,16 @@ export class SenderInbox implements DurableObject {
     await carryOnAfterSave(this.state.storage, this.deps());
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) });
-    // A job's object has only `jobrun`; every other object finds nothing to run.
-    await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
+    // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
+    // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
+    const flow = this.env.JOB_RUN;
+    if (!(flow && (await handOverJob(this.state.storage, flow)))) {
+      await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
+    }
+  }
+
+  private jobDeps() {
+    return { ...this.deps(), report: (inbox: string, update: JobUpdate) => this.reportJob(inbox, update) };
   }
 
   /** A group's token for its review, minted as a tagged turn's is; null unless the chat is ready. */
@@ -575,8 +631,10 @@ export class SenderInbox implements DurableObject {
     }
   }
 
-  private deps(): InboxDeps {
+  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void> } {
+    const workflow = this.env.GROUP_TURN;
     return {
+      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn) } : {}),
       fetch: (input, init) => fetch(input, init),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
@@ -594,6 +652,7 @@ export class SenderInbox implements DurableObject {
           picture,
           Date.now(),
         ),
+      threadsLink: () => mintThreadsLink(this.state.storage, this.state.id.toString(), Date.now()),
       images: this.env.IMAGES,
       now: () => Date.now(),
       spawnJob: async (id: string, run: JobRun) => {
@@ -607,5 +666,16 @@ export class SenderInbox implements DurableObject {
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
     };
+  }
+}
+
+/** Start the workflow for one group turn; one already started under this id counts as started. */
+async function startGroupTurn(workflow: Workflow<GroupTurnParams>, inbox: string, turn: string): Promise<void> {
+  try {
+    await workflow.create({ id: turn, params: { inbox, turn } });
+  } catch (error) {
+    await workflow.get(turn).catch(() => {
+      throw error;
+    });
   }
 }

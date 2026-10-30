@@ -123,3 +123,77 @@ words ("Updated your list") and missed "Sure, Bo it is".
 Reverse it and "a correction the model does not
 act on leaves nothing a yes can send" (`apps/mcp/test/agentSupersededAsk.test.mjs`)
 fails.
+
+### A check-in promised for a set time is set in the same turn, or not promised (2026-10-27)
+
+Two self-reviews in 18 hours (@context-lc
+`areas/tex-reviews/themes/promised-checkin-not-set.md`): "I'll check with you
+tonight" and "I'll check the log at 4:30 and text you", each with only
+`read_note` and `write_note` in the turn. The first never says "text you"; in
+the second, "4:30" was not a word to `PROMISE`, so neither reached
+`LATER_NOTICE`. `otherRoutes.js` now lets a promise's words carry a clock
+time, and `checksInAt` counts a check-in, follow-up or reminder ("I'll check
+with you", "I'll remind you", "I'll look") with a set time ("tonight", "at
+4:30", "tomorrow", "after lunch") as a promise. Its notice, `CHECK_IN_NOTICE`,
+asks for a one-off under `tex/routines/once/` with `at:` at that time, or the
+promise taken out; an untimed later keeps the hourly routine. A routine
+written in the turn keeps either. Tests: `agentCheckInPromise.test.mjs`.
+
+## Their sleep lines and check-in answers are their data, and get logged
+
+Tex's self-review, 2026-10-28 and 2026-10-29 (@context-lc
+`areas/tex-reviews/themes/sleep-log-wrong.md`, `time-audit-drops-plans.md`).
+Tex took the sleep totals a person's phone Shortcut sent ("You have slept for
+a total of: …") for texts it had sent itself, and apologised for them. It
+quoted a watch email's night as real when the total could not fit between its
+own asleep and up times, and answered a time-audit check-in's plan with "Will
+do." and saved nothing. `agent/timeLog.js` reads a sleep line in their text
+before the model sees it (`sleepLineNote`, also on texts steered in mid-turn,
+never written into the conversation). The note says whose the line is and
+whether it is one night: not over 16 hours, a total its own times can hold,
+not blank. Three answer checks in `replyChecks.js` catch a figure only they
+sent being taken back as Tex's, a quoted night its own times contradict, and a
+bare acknowledgement of a check-in plan (within Tex's last three texts) with
+no write. A routine run is told to stay quiet while they asked not to be
+bothered. Simplifying it away brings back the apology for their own data and
+an empty log. Tests: `agentTimeLog.test.mjs`.
+
+### A check's note is never the person's text, and a "no" changes the approach (2026-10-29)
+
+In a tester's chat, Tex's browser stopped on a passkey page. Tex kept asking
+for an approval that, the person said, never arrived. One draft said Google
+"refused" the sign-in, and `claimsCalendarTry` counted "Google" as a calendar
+word. The resulting notice reached the model as the next user message after
+the unsent draft, and Tex answered the notice as if the person had sent it,
+with a denial about a calendar nobody had mentioned.
+
+- `recheck.js`: every recheck notice now opens with `RECHECK_FROM`. It says
+  the note is Context's own check, that the person has not seen the draft,
+  and that their newest text is still the one being answered.
+- `CALENDAR_WORDS` now holds calendar words only.
+- `stuckAsks.js`: if they say a prompt or code never came, the answer may
+  not ask for it again. If they turn down a method, the answer may not drop
+  the goal.
+- `pageWalls.js`: a passkey page's reading says to try another way. A Google
+  Form editor or responses address built from the published `1FAIpQL…` id is
+  refused.
+- `LATER_NOTICE` now says to set nothing when they didn't ask to be told
+  later, or when the work is blocked on a step only they can take.
+- A check-in sent as an iMessage reply under an earlier text is kept in
+  that text's thread (`heartbeat.js`, `threadView.js` `threadOf`), and a
+  reply in a thread always sees the message it replied to. Before this, a
+  "yes" typed under a check-in's question was shown the thread without the
+  check-in, and Tex asked what the yes was for.
+
+Tests: `agentLosesTrack.test.mjs`.
+
+## One checked account of a save, and no made-up cause (2026-10-29)
+
+From the same Tex Devs review: after its texts disagreed about a page save,
+Tex said it had "signed in anyway with the code", though nothing in the chat
+had signed in. `saveAccount.js`, beside the confession check, sends an answer
+back once when it says a note didn't save while the turn's last failed save
+of it was never read back (read it, then tell it either way; a later save
+that worked is told as saved), and once when it gives a sign-in or a code as
+the cause with no browser, login or code step on the record of the turn or
+the last six texts. Tests: `apps/mcp/test/agentSaveAccount.test.mjs`.

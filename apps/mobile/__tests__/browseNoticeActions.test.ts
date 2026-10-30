@@ -266,7 +266,8 @@ describe("Dismiss, on a move into another context", () => {
           destination: "@supa",
           status: "complete",
           objects: 1,
-          skipped: [],
+          // Something left behind: a clean finished move draws no line at all.
+          skipped: [{ path: "a.md", reason: "encrypted" }],
         },
       ],
     } as unknown as Partial<FileBrowser>);

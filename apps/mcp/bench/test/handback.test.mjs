@@ -186,3 +186,65 @@ test("case 14: a handoff on a plain registration form is refused, and Tex presse
     world.close();
   }
 });
+
+test("case 15: a texted screenshot goes on the draft through Gmail itself, by attachment:N", async () => {
+  const model = scripted([
+    {
+      name: "save_email_draft",
+      input: { to: ["help@textline.example"], subject: "Link previews not loading", body: "Hi, links I send show Tap to Load Preview. Example below.", attach: ["attachment:1"] },
+    },
+    { text: "Saved the draft to help@textline.example in your Gmail, with your screenshot attached." },
+  ]);
+  // A Gmail that may keep drafts (`world.mjs`): one email in it is enough to connect it.
+  const inbox = { address: "maya@example.invalid", id: "m1", threadId: "m1", date: "2026-10-10T12:00:00.000Z", from: "x@example.invalid", to: "maya@example.invalid", subject: "Hi", body: "Hi", attachments: [], snippet: "Hi" };
+  const withMail = { ...bench, workspaces: { maya: { ...bench.workspaces.maya, mail: [inbox] } } };
+  const world = await createWorld(withMail, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const fifteen = await handbackCase(15);
+    assert.equal(fifteen.sendsPicture, "link-preview.png");
+    const data = (await readFile(join(AI, "pictures", fifteen.sendsPicture))).toString("base64");
+    const turn = await world.text(fifteen.personStarts, [{ name: fifteen.sendsPicture, mediaType: "image/png", data }]);
+    assert.match(model.results[0], /^Saved as a draft/);
+    const [email] = world.emails();
+    assert.equal(email.draft, true);
+    assert.equal(Buffer.from(email.files[0].data, "base64").toString("base64"), data, "the bytes texted are the bytes attached");
+    assert.deepEqual(checkVerdicts(fifteen, { tools: turn.tools.map((c) => c.tool), browser: world.browser(), emails: world.emails() }).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});
+
+test("case 16: a Register a hidden captcha turns away is tried in a fresh browser, then only that press is handed over", async () => {
+  const fill = [
+    { do: "type", ref: 1, text: "Maya Reyes" },
+    { do: "type", ref: 2, text: "maya@example.invalid" },
+    { do: "select", ref: 3, option: "No" },
+    { do: "select", ref: 4, option: "No" },
+    { do: "click", ref: 5 },
+  ];
+  const model = scripted([
+    browse({ do: "goto", url: "https://gathering.example/register" }, ...fill),
+    browse({ do: "click", ref: 5 }),
+    browse({ do: "handoff" }),
+    { text: "A hidden captcha keeps turning my Register press away. The form's filled in: tap the link, press Register, and text me." },
+    browse({ do: "click", ref: 5 }),
+    { text: "You're registered for Fall Gathering 2026." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: model.fetch, sites: await sites() });
+  try {
+    const first = await world.text("register me for fall gathering on gathering.example. not my first one and i don't need transportation");
+    assert.match(model.results[1], /only that one press is the person's now/);
+    assert.ok(!model.results[2].includes("Not handed over"), "the handoff for that press went through");
+    const events = world.browser();
+    assert.ok(events.includes("fresh browser"));
+    assert.equal(events.filter((e) => e.startsWith("turned away gathering.example/register")).length, 3, "twice here, once in the fresh browser");
+    assert.ok(events.includes("handoff gathering.example"));
+    const second = await world.text("Done");
+    assert.match(model.results.at(-1), /You're registered/);
+    const sixteen = await handbackCase(16);
+    const record = { tools: [...first.tools, ...second.tools].map((c) => c.tool), browser: world.browser() };
+    assert.deepEqual(checkVerdicts(sixteen, record).filter((v) => !v.pass), []);
+  } finally {
+    world.close();
+  }
+});

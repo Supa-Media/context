@@ -17,7 +17,7 @@
  */
 
 /** The Gmail permissions a connection must have granted before it sends, or saves a draft. */
-export { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE } from "./googleOAuth";
+export { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, canSendEmail } from "./googleOAuth";
 
 /** Most emails one person's AIs may send in a day, and in an hour. */
 export const PERSON_EMAIL_DAILY_LIMIT = 100;

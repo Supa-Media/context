@@ -55,12 +55,17 @@
 import { READ_FAILED_NOTICE, aPageReadFailed, asksForPublishedText, publishedTextNotice } from "./publishedText.js";
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
+import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
+import { noteWrite, pageNotice, wantsAPage } from "./pageNotice.js";
 import { replyChecks } from "./replyChecks.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
-import { ASK_FIRST_NOTICE, announcesNextStep, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
-import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
+import { confessionNotice, contradictedConfession } from "./confession.js";
+import { noteStep, saveAccountCheck } from "./saveAccount.js";
+import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
+import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
+import { figureCheck } from "./sourcedFigures.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -205,6 +210,9 @@ const FILE_HANDBACK = [
   /\b(?:can't|cannot|can not)\s+(?:put|attach|add|include)\b[^.?!\n]{0,80}?\b(?:into|in|to|on)\s+(?:an?|the|your|that)\s+(?:email|draft|message|reply)\b/i,
   /\b(?:tap|click|press|hit)\s+(?:the|its|that)\s+(?:\w+\s+)?download\b/i,
   /(?:^|,\s*|\b(?:and|then|please|just)\s+)attach (?:it|them|the \w+|that \w+|this \w+)\s+(?:to|in|on)\s+(?:the|your|that|a)\s+(?:\w+\s+)?(?:email|draft|message|reply)\b/i,
+  // A texted screenshot handed back (2026-10-27): "Open the draft, tap the paperclip, and add that screenshot".
+  /\b(?:tap|click|press|hit|use)\s+(?:the|its|gmail's)\s+(?:paper ?clip|attach(?:ment)?\s+(?:button|icon))\b/i,
+  /\b(?:couldn't|could not|wasn't able to|was unable to)\s+(?:attach|add|include|upload)\b[^.?!\n]{0,60}?\b(?:it|them|files?|pdfs?|screenshots?|photos?|pictures?|images?|attachments?)\b/i,
 ];
 /*
   A CHANGE TEX CAN MAKE, HANDED BACK (2026-10-22 and 23): "Move it to 9:00 pm
@@ -423,9 +431,9 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyChecks({ question, waiting, pictures });
+  const shape = replyChecks({ question, waiting, pictures, history, detailed });
   let wrote = false;
   let keptWish = false;
   let held = false;
@@ -460,12 +468,21 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let cardNoticed = false;
   let owedNoticed = false;
   let notePictureNoticed = false;
+  // A plan or research saved as a plain note instead of a page (`pageNotice.js`), and the turn's note writes.
+  let pageNoticed = false;
+  const noteWrites = [];
   let bugNoticed = false;
+  let repairNoticed = false;
   // A waiting ask the answer said had changed, with nothing held again (rule 6).
   let supersedeNoticed = false;
+  // A confession the turn's own record contradicts (`confession.js`).
+  let confessNoticed = false;
+  // A save told as failed before the note was read back, or a sign-in given as the cause with none on record (`saveAccount.js`).
+  const saveAccount = saveAccountCheck();
   // A kept file in reach (`keptClaims.js`): whether this turn read it, and whether Tex was told to.
   let keptRead = false;
   let keptNoticed = false;
+  const figures = figureCheck({ question, history, pictures }); // A figure nothing read backs, or "no prices" about a page that has some.
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -481,6 +498,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         call: async (name, args) => {
           triedWeb = true;
           const result = await web.call(name, args);
+          figures.read(result, { web: true });
           steps.push({ name, ok: result?.isError !== true });
           if (BROWSER_TOOLS.has(name)) {
             browserTried = true;
@@ -497,14 +515,17 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
         if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
+        figures.read(result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}) });
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...noteStep(name, args, isWrite(name)) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
+          const written = noteWrite(name, args, result);
+          if (written !== null) noteWrites.push(written);
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;
           if (/^(?:tex\/)?routines\//.test(path)) keptPromise = true;
@@ -535,6 +556,14 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   function firstNotice(answer) {
     const shaped = shape(answer, steps);
     if (shaped !== null) return shaped;
+    // "I hadn't checked your calendar" when it had: check the reads before agreeing.
+    const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
+    if (confessed !== null) {
+      confessNoticed = true;
+      return confessionNotice(confessed);
+    }
+    const accounted = saveAccount(answer, { history, steps });
+    if (accounted !== null) return accounted;
     // "The PDF won't load" or "paste its text" with the file kept and unread this turn: read it.
     if (!keptNoticed && kept.length > 0 && !keptRead && givesUpOnAFile(answer)) {
       keptNoticed = true;
@@ -581,7 +610,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       lookNoticed = true;
       return LOOK_ON_SITE_NOTICE;
     }
-    if (!shortNoticed && (stopsShort(answer) || (job !== null && !held && announcesNextStep(answer)))) {
+    const unsourced = figures.check(answer);
+    if (unsourced !== null) return unsourced;
+    if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
       return finishNotice({ job: job !== null });
     }
@@ -593,9 +624,11 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       captchaNoticed = true;
       return CAPTCHA_NOTICE;
     }
-    if (!laterNoticed && !keptPromise && promisesLater(answer)) {
+    // A promise to text later, or to check in at a set time, that nothing in the turn keeps.
+    const later = !laterNoticed && !keptPromise ? laterNotice(answer) : null;
+    if (later !== null) {
       laterNoticed = true;
-      return LATER_NOTICE;
+      return later;
     }
     // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
     // An answer asking them something ("Who should it go to?") waits on them instead.
@@ -608,10 +641,23 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       bugNoticed = true;
       return BUG_NOTICE;
     }
+    // "Fix yourself" answered with "what's broken?" or nothing tried (`lookFirst.js`).
+    const repair = repairNoticed ? null : selfRepairNotice(question, answer, steps);
+    if (repair !== null) {
+      repairNoticed = true;
+      return repair;
+    }
     // "The note now has a picture" with no write that carried one.
     if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
       notePictureNoticed = true;
       return NOTE_PICTURE_NOTICE;
+    }
+    // A plan, research or itinerary saved as a plain note: write it as a page.
+    const plain = pageNoticed || held ? null : wantsAPage(noteWrites, question);
+    if (plain !== null) {
+      pageNoticed = true;
+      cardNoticed = true;
+      return pageNotice(plain);
     }
     // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
     if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {

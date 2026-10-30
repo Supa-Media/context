@@ -131,6 +131,7 @@
 
 import { afterEach, vi } from "vitest";
 import { api } from "../../_generated/api";
+import { CLOUD_TRANSCRIPTION_CONSENT_VERSION, CLOUD_TRANSCRIPTION_DISCLOSURE } from "@context/shared";
 import schema from "../../schema";
 import {
   asUser,
@@ -238,8 +239,29 @@ export function configureWorker() {
   vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
 }
 
+/**
+ * An account that has said yes to cloud transcription, as the dialog does.
+ *
+ * Every test here that expects audio to reach the worker starts from one:
+ * without the yes, `transcribeChunk` refuses before the worker is asked
+ * (`consent.test.ts`).
+ */
+export async function createConsentingUser(t: TestConvex, email: string) {
+  const userId = await createUser(t, email);
+  await t.run((ctx) =>
+    ctx.db.insert("transcriptionConsents", {
+      userId,
+      version: CLOUD_TRANSCRIPTION_CONSENT_VERSION,
+      provider: CLOUD_TRANSCRIPTION_DISCLOSURE.provider,
+      grantedAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
+  return userId;
+}
+
 export async function signedIn(t: TestConvex) {
-  const userId = await createUser(t, "recorder@example.invalid");
+  const userId = await createConsentingUser(t, "recorder@example.invalid");
   // Signed in now rather than on the first call, so a test that counts rows
   // before and after a call counts only what the call wrote.
   await provenSessionFor(t, userId);

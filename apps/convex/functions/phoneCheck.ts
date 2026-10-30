@@ -1,6 +1,6 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, query } from "../_generated/server";
+import { action, internalMutation, mutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
@@ -16,6 +16,7 @@ import { attachedEmailsOf } from "./lib/signInEmails";
 import { joinOnPhone, phoneJoinFor } from "./lib/account/phoneJoin";
 import { currentPhoneOf, requireEmailProof } from "./lib/emailProof";
 import { admittedRowOf } from "./waitlistTex";
+import { joinedThroughDomain } from "./lib/accountSetup";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 /**
@@ -79,19 +80,53 @@ export const myPhoneCheck = query({
     required: v.boolean(),
     confirmed: v.boolean(),
     needsEmail: v.boolean(),
+    /** Whether the phone step shows "Skip for now": asked, and not a domain joiner. */
+    canSkip: v.boolean(),
     /** The phone this account signs in with, for Account settings. Its own, so not a lookup. */
     phone: v.optional(v.string()),
   }),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) return { required: false, confirmed: false, needsEmail: false };
+    const none: { required: boolean; confirmed: boolean; needsEmail: boolean; canSkip: boolean; phone?: string } = {
+      required: false,
+      confirmed: false,
+      needsEmail: false,
+      canSkip: false,
+    };
+    if (userId === null) return none;
     const user = await ctx.db.get(userId);
-    if (user === null) return { required: false, confirmed: false, needsEmail: false };
+    if (user === null) return none;
     const confirmed = await hasConfirmedPhone(ctx, user);
-    const required = phoneCheckRequired() && !isExemptEmail(user.email) && !confirmed;
+    const asked = phoneCheckRequired() && !isExemptEmail(user.email) && !confirmed;
+    const mustHave = asked && (await joinedThroughDomain(ctx, userId));
+    const required = asked && (mustHave || !(await hasSkipped(ctx, userId)));
     const needsEmail = user.email === undefined && (await attachedEmailsOf(ctx, userId)).length === 0;
     const phone = await currentPhoneOf(ctx, user);
-    return { required, confirmed, needsEmail, ...(phone === null ? {} : { phone }) };
+    return { required, confirmed, needsEmail, canSkip: required && !mustHave, ...(phone === null ? {} : { phone }) };
+  },
+});
+
+async function hasSkipped(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  const row = await ctx.db
+    .query("phoneCheckSkips")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  return row !== null;
+}
+
+/**
+ * "Skip for now" on the phone step: saved on the account so it is not asked
+ * again anywhere. Refused for someone who joined through a work domain, who
+ * needs a phone to keep their account if they leave it (`accountSetup.ts`).
+ */
+export const skipPhoneCheck = mutation({
+  args: {},
+  returns: v.object({ status: v.union(v.literal("skipped"), v.literal("not_allowed")) }),
+  handler: async (ctx) => {
+    const userId = requireSignedIn(await getAuthUserId(ctx));
+    if (await joinedThroughDomain(ctx, userId)) return { status: "not_allowed" as const };
+    if (!(await hasSkipped(ctx, userId))) await ctx.db.insert("phoneCheckSkips", { userId, skippedAt: Date.now() });
+    return { status: "skipped" as const };
   },
 });
 

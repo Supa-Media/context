@@ -3,6 +3,7 @@ import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
+import { PageView } from "../pageView/PageView";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { ACTIVITY_PATH } from "../../activity/activity";
 import { lastChangeOf } from "../../activity/lastChange";
@@ -55,6 +56,8 @@ export function noteDocument(view: NoteView) {
     activityEditable,
     onOpenNote,
     drawing,
+    pageView,
+    padding,
     canEdit,
     onChange,
     drawingCollaboration,
@@ -205,11 +208,17 @@ export function noteDocument(view: NoteView) {
           Properties and body (`communications/ContactHeader.tsx`). Nothing
           for any other note.
         */}
-        {passphraseLocked || drawing || activityList ? null : (
+        {/*
+          A page opens as nothing but the page (owner, 2026-10-27: "no
+          properties, no floating buttons, nothing but the page please"): no
+          contact header, Properties or routine bar over it. "Edit as text" is
+          a row in the ••• sheet (`pageView/pageText.ts`).
+        */}
+        {passphraseLocked || drawing || activityList || pageView ? null : (
           <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
         )}
-        <Reveal open={!passphraseLocked && (frontmatter !== "" || adding)}>
-        {!passphraseLocked && (frontmatter !== "" || adding) ? (
+        <Reveal open={!passphraseLocked && !pageView && (frontmatter !== "" || adding)}>
+        {!passphraseLocked && !pageView && (frontmatter !== "" || adding) ? (
           <Properties
             frontmatter={frontmatter}
             addAsked={addAsked}
@@ -242,7 +251,7 @@ export function noteDocument(view: NoteView) {
           Pause writes `paused: yes` through `wholeEdit`, the Properties
           panel's own path, so the file stays the whole truth.
         */}
-        {passphraseLocked || drawing || activityList ? null : (
+        {passphraseLocked || drawing || activityList || pageView ? null : (
           <>
             <NoteRoutineBar text={presence?.collaboration?.text ?? state.draft} onEdit={wholeEdit} gutter={gutter} />
             <RecentRunsSection where="top" gutter={gutter} />
@@ -275,6 +284,25 @@ export function noteDocument(view: NoteView) {
             source={state.draft}
             editable={activityEditable}
             onOpen={onOpenNote ?? (() => {})}
+          />
+        ) : pageView ? (
+          /*
+            A `.page.md` note, drawn as the page it is written to be, in the
+            sealed page runtime (`pageView/`). Its edits go through `wholeEdit`,
+            the Properties panel's path, so a word typed on the page merges into
+            a collaborator's typing and saves exactly as if it were typed in the
+            editor. The ••• sheet's "Edit as text" swaps in the editor over the same file.
+          */
+          <PageView
+            source={presence?.collaboration?.text ?? state.draft}
+            editable={wholeEdit !== undefined}
+            author={commenter ?? null}
+            onEdit={wholeEdit}
+            onOpenNote={onOpenLink === undefined ? undefined : (target) => onOpenLink(target, "foreground")}
+            onLoadImage={onLoadImage}
+            scrolls={!compact}
+            // A phone's page runs up under the floating ‹ and •••; the page keeps its words clear of them (`noteEditor/scroller.tsx`).
+            topInset={compact ? padding.content.top : 0}
           />
         ) : drawing ? (
           /*

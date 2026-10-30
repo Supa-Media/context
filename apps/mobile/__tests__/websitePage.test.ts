@@ -25,6 +25,9 @@ import type { ResolvedWebsitePage } from "@context/shared";
 import { NoteBody } from "../features/share/NoteBody";
 import { parseNote } from "../features/share/markdown";
 import { WebsitePage, type WebsiteView } from "../features/site/website/WebsitePage";
+import { SITE_SERIF_STYLESHEET_HREF, SITE_SERIF_STYLESHEET_ID } from "../features/site/siteFonts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -164,5 +167,40 @@ describe("a heading's words", () => {
       // cascade, so an inheriting run reads as empty here).
       expect(size(run)).toBe("");
     }
+  });
+});
+
+describe("the heading face", () => {
+  /*
+    Every website page draws its headings in Instrument Serif, which came from
+    Google Fonts' CSS, and that can never carry an integrity hash (the CASA
+    scan, 2026-10-29). It is ours now: a page links our stylesheet once, and
+    every face it names is an unmodified woff2 at the root, where a customer's
+    domain serves it too.
+  */
+  test("a page links our own Instrument Serif stylesheet, once, and nothing from Google", () => {
+    document.getElementById(SITE_SERIF_STYLESHEET_ID)?.remove();
+    mount(page);
+    mount({ ...page, routePath: "/", title: "Home" });
+    const links = [...document.head.querySelectorAll<HTMLLinkElement>(`link#${SITE_SERIF_STYLESHEET_ID}`)];
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/context-site-serif.css");
+    expect(links[0].rel).toBe("stylesheet");
+    expect(document.head.innerHTML).not.toMatch(/fonts\.(?:googleapis|gstatic)\.com/);
+  });
+
+  test("every face it names is a woff2 in public/, with the licence beside it", () => {
+    const publicDir = join(__dirname, "..", "public");
+    const css = readFileSync(join(publicDir, SITE_SERIF_STYLESHEET_HREF.slice(1)), "utf8");
+    const faces = [...css.matchAll(/font-family: "([^"]+)";\s*src: url\("([^"]+)"\)/g)].map((m) => [m[1], m[2]]);
+    expect(faces).toEqual([
+      ["Instrument Serif", "/InstrumentSerif-latin-ext.woff2"],
+      ["Instrument Serif", "/InstrumentSerif-latin.woff2"],
+    ]);
+    for (const [, url] of faces) {
+      expect(readFileSync(join(publicDir, url.slice(1))).subarray(0, 4).toString("latin1")).toBe("wOF2");
+    }
+    expect(css).not.toMatch(/https?:/);
+    expect(readFileSync(join(publicDir, "InstrumentSerif-OFL.txt"), "utf8")).toContain("SIL Open Font License");
   });
 });

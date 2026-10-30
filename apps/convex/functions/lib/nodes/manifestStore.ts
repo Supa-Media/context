@@ -39,7 +39,18 @@ export const NO_BUCKET: FileStore = {
 } as unknown as FileStore;
 
 /** One page of live file rows in key order, from just after `after`. */
-export type NodePage = (after: string | undefined, limit: number) => Promise<{ rows: NodeRow[]; cursor: string | null }>;
+export type NodePage = (
+  after: string | undefined,
+  limit: number,
+  /** The folder the rows must lie beneath, when the caller wants only that subtree. A page may ignore it. */
+  root?: string,
+) => Promise<{ rows: NodeRow[]; cursor: string | null }>;
+
+/** The folder every key under `prefix` lies beneath: `a/b/` and `a/b/c` are both under `a/b`. */
+export function rootOfPrefix(prefix: string): string {
+  const slash = prefix.lastIndexOf("/");
+  return slash === -1 ? "" : prefix.slice(0, slash);
+}
 
 /**
  * A store whose listings page the tree's rows and whose `privacy.md` is the
@@ -75,7 +86,8 @@ export function nodesPagedStore(
     // Start at the prefix itself rather than at the top of the tree.
     if (prefix !== "" && (after === undefined || after < prefix)) after = prefix;
     const limit = options?.limit !== undefined && options.limit > 0 ? options.limit : 1000;
-    const { rows, cursor: next } = await page(after, limit);
+    const root = rootOfPrefix(prefix);
+    const { rows, cursor: next } = await page(after, limit, root === "" ? undefined : root);
     const inside = rows.filter((row) => row.path.startsWith(prefix));
     // A row past the prefix means the rest of the tree is past it too.
     const done = next === null || inside.length < rows.length;
@@ -179,11 +191,12 @@ export async function servedNodesStore(
 ): Promise<FileStore | null> {
   const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId, audience });
   if (served === null) return null;
-  const listed: NodePage = async (after, limit) => {
+  const listed: NodePage = async (after, limit, root) => {
     const result = await ctx.runQuery(internal.functions.nodes.listLive, {
       workspaceId,
       limit,
       ...(after === undefined ? {} : { after }),
+      ...(root === undefined ? {} : { root }),
     });
     return {
       rows: result.rows.map((row) => ({
@@ -198,6 +211,37 @@ export async function servedNodesStore(
   };
   const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
   return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror, moves);
+}
+
+/**
+ * Like `servedNodesStore`, over only the live notes written after `since`: a check-in's "what changed",
+ * read from the change index (`nodes.listChangedSince`) and judged by the same rules. `null` where the
+ * tree does not serve, too much changed to list that way, or moves are being drawn over the rows: the
+ * caller walks the whole tree, as before.
+ */
+export async function changedNodesStore(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  since: number,
+  audience: Audience = "member",
+): Promise<FileStore | null> {
+  const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId, audience });
+  if (served === null) return null;
+  const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
+  if (moves.length > 0) return null;
+  const changed = await ctx.runQuery(internal.functions.nodes.listChangedSince, { workspaceId, since });
+  if (!changed.complete) return null;
+  return nodesPagedStore(NO_BUCKET, pagesOf(changed.rows), served.mirror);
+}
+
+/** `rows`, already in key order, as pages. */
+function pagesOf(rows: readonly NodeRow[]): NodePage {
+  return async (after, limit) => {
+    const from = after === undefined ? 0 : rows.findIndex((row) => row.path > after);
+    const start = from === -1 ? rows.length : from;
+    const page = rows.slice(start, start + limit);
+    return { rows: page, cursor: start + limit < rows.length ? page[page.length - 1]!.path : null };
+  };
 }
 
 /** Rows one read of the whole tree takes per page while moves are pending. */

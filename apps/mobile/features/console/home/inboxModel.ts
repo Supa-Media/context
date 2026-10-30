@@ -121,7 +121,8 @@ const WRITES = new Set(["added", "revised"]);
  * own console is a person) signed by the looker (`isMe`), never a teammate's,
  * read oldest first so a later move
  * carries the date to the note's new name; and the looker's own Recent rows the
- * app marked `edited`, which reach further back than the feed's last 400 lines.
+ * app marked edited (`editedAt`, kept through later opens), which reach further
+ * back than the feed's last 400 lines.
  */
 export function humanEdits(
   entries: readonly InboxActivity[],
@@ -147,7 +148,11 @@ export function humanEdits(
     if (!WRITES.has(entry.kind) || entry.by === null || !isMe(entry.by) || clientOf(entry.via) !== null) continue;
     for (const path of entry.paths ?? []) note(path, at);
   }
-  for (const recent of recents) if (recent.kind === "edited") note(recent.path, recent.at);
+  for (const recent of recents) {
+    // `editedAt` survives a later open; a row from before it says edited at its time.
+    const edited = recent.editedAt ?? (recent.kind === "edited" ? recent.at : undefined);
+    if (edited !== undefined) note(recent.path, edited);
+  }
   return edits;
 }
 

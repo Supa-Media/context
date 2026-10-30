@@ -20,6 +20,7 @@ import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
 import { toolListTexts, toolReadTexts, toolSearchTexts } from "./texts.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
 import { toolGoogleChat } from "./googleChat.js";
+import { toolReadGoogleChat } from "./googleChatRead.js";
 import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
@@ -114,7 +115,7 @@ async function runTool(name, args, store, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(store, scope, rules, overrides, { about: args.about, tools: args.tools === true });
+      return toolOrient(store, scope, rules, overrides, { about: args.about, since: args.since, tools: args.tools === true });
     case "scope_info":
       return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":
@@ -251,6 +252,8 @@ async function runTool(name, args, store, scope) {
       return toolReadTexts(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
+    case "read_google_chat":
+      return toolReadGoogleChat(store, args);
     case "google_chat":
       return toolGoogleChat(store, args);
     case "forward_rule":

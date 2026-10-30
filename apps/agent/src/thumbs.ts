@@ -37,9 +37,30 @@ export const GROUP_THUMB_KEY = "gthumb";
  */
 const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
 
+/** Whether a text of Tex's is one of the gateway's asks. */
+export function isAsk(text: string): boolean {
+  return ASK.test(text);
+}
+
 /** Whether a tapback is a yes to hold: a like or a love on an ask. */
 export function holdsAsYes(reaction: Reaction): boolean {
   return !reaction.removed && (reaction.how === "Liked" || reaction.how === "Loved") && ASK.test(reaction.words);
+}
+
+/**
+ * Whether a tapback is a no to hold: a dislike on an ask. A 👎 is the no to
+ * an ask as a 👍 is its yes (a new tester, 2026-10-30: Tex said "say yes"
+ * where a 👍 or 👎 would do). Before, a 👎 reached the model as a bare emoji
+ * and the ask stayed armed, so a later "yes" could still send it. The gateway
+ * checks the words as it does a 👍's (`thumbsDownIsNo`).
+ */
+export function holdsAsNo(reaction: Reaction): boolean {
+  return !reaction.removed && reaction.how === "Disliked" && ASK.test(reaction.words);
+}
+
+/** Whether a tapback goes as the answer to an ask: a 👍, ❤️ or 👎 on one. */
+export function holdsAsAnswer(reaction: Reaction): boolean {
+  return holdsAsYes(reaction) || holdsAsNo(reaction);
 }
 
 /** Whether a taken-back tapback could be one being held. */
@@ -114,18 +135,25 @@ function quotesText(text: string, quoted: string): boolean {
 }
 
 /**
- * A like or love on a text of the last reply that carried an ask, the ask
- * itself included, as a like on that ask in the words it was sent in;
+ * A like, love or dislike on a text of the last reply that carried an ask,
+ * the ask itself included, as a like on that ask in the words it was sent in;
  * anything else as it was. The gateway compares the words exactly, so the
  * copy kept here is what it gets, never the quote as the line returned it.
  */
 export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
-  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved")) return reaction;
+  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved" && reaction.how !== "Disliked")) return reaction;
   const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
   if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
-  // On a message whose words Sendblue could not give (`sendblueTapbacks.ts`): the ask is the one waiting; the gateway still checks it is armed.
-  if (reaction.words === "") return { ...reaction, words: kept.ask };
+  // On a message whose words could not be given (`sendblueTapbacks.ts`): the ask is the one waiting; the gateway still checks it is armed.
+  // One read and found not to be Tex's is not that case: it was on somebody else's message, so it names no ask (`reactions.ts` `onOther`).
+  if (reaction.words === "") return reaction.onOther === true ? reaction : { ...reaction, words: kept.ask };
   return kept.texts.some((text) => quotesText(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
+}
+
+/** The ask of the last reply, while it can still be answered; undefined when that reply carried none. */
+export async function keptAsk(storage: InboxStorage, now: number): Promise<string | undefined> {
+  const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
+  return kept === undefined || now - kept.at > ASK_REPLY_FOR_MS ? undefined : kept.ask;
 }
 
 /** Hand a tapback to the next alarm, `THUMB_HOLD_MS` from now; a newer one replaces it. */

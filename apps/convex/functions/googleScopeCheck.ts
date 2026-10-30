@@ -16,8 +16,10 @@ import { internalAction, internalMutation, internalQuery } from "../_generated/s
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
-import { CALENDAR_WRITE_SCOPE } from "./lib/googleOAuth";
+import { canWriteCalendar } from "./lib/googleOAuth";
 import { grantedScopes } from "./lib/googleWriteAccess";
+import { aiScopesOf } from "./lib/googleConnect/aiScopes";
+import { googleEnvFor, grantFor } from "./lib/googleConnect/clients";
 
 /** The person's live calendar connections that, by their stored scopes, can only be read. */
 export const calendarReaders = internalQuery({
@@ -31,7 +33,7 @@ export const calendarReaders = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.personal._id))
       .take(20);
     return rows
-      .filter((row) => row.disconnectedAt === undefined && row.products.includes("calendar") && !row.scopes.includes(CALENDAR_WRITE_SCOPE))
+      .filter((row) => row.disconnectedAt === undefined && row.products.includes("calendar") && !canWriteCalendar(aiScopesOf(row)))
       .map((row) => ({ connectionId: row._id, address: row.address }));
   },
 });
@@ -43,6 +45,13 @@ export const recordGrantedScopes = internalMutation({
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.connectionId);
     if (row === null) return null;
+    // Onto the grant the check minted from: the agent one when AI reads through it.
+    if (grantFor("agent", row.agentGrant !== undefined, googleEnvFor(row.workspaceId)) === "agent") {
+      if (row.agentGrant === undefined) return null;
+      const scopes = [...new Set([...row.agentGrant.scopes, ...args.scopes])];
+      await ctx.db.patch(args.connectionId, { agentGrant: { ...row.agentGrant, scopes } });
+      return null;
+    }
     await ctx.db.patch(args.connectionId, { scopes: [...new Set([...row.scopes, ...args.scopes])] });
     return null;
   },
@@ -65,12 +74,12 @@ export const recheckCalendarWrite = internalAction({
     const readOnly: string[] = [];
     for (const reader of readers) {
       // A fresh token, so the answer is the grant as it stands now.
-      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, {
+      const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, { role: "agent" as const,
         connectionId: reader.connectionId,
         forceRefresh: true,
       });
       const scopes = minted.kind === "minted" ? await grantedScopes(minted.accessToken) : null;
-      if (scopes?.includes(CALENDAR_WRITE_SCOPE)) {
+      if (scopes !== null && canWriteCalendar(scopes)) {
         await ctx.runMutation(internal.functions.googleScopeCheck.recordGrantedScopes, { connectionId: reader.connectionId, scopes });
         writable = true;
       } else {
@@ -79,7 +88,7 @@ export const recheckCalendarWrite = internalAction({
       console.log(
         JSON.stringify({
           event: "calendar_scope_recheck",
-          outcome: scopes === null ? "unanswered" : scopes.includes(CALENDAR_WRITE_SCOPE) ? "writable" : "read_only",
+          outcome: scopes === null ? "unanswered" : canWriteCalendar(scopes) ? "writable" : "read_only",
         }),
       );
     }

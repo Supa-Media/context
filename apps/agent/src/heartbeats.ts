@@ -43,7 +43,15 @@ export type DueHeartbeat = {
 };
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
-export type Looked = { outcome: "speak"; answer: string; continues?: string } | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat"> };
+export type Looked =
+  | { outcome: "speak"; answer: string; continues?: string }
+  | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat">; reason?: string };
+
+/** Why a look failed, for the log: the gateway's own code when it gave one, else the status. Never its words. */
+function failedBecause(status: number, body: Record<string, unknown>): string {
+  const codeish = (value: unknown): value is string => typeof value === "string" && /^[a-z_]{1,40}$/.test(value);
+  return codeish(body.reason) ? body.reason : codeish(body.error) ? body.error : `status_${status}`;
+}
 
 /** A look reads a few notes and may take several rounds; the gateway bounds each one. */
 const HEARTBEAT_TIMEOUT_MS = 180_000;
@@ -95,7 +103,7 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
       HEARTBEAT_TIMEOUT_MS,
     );
   } catch {
-    return { outcome: "failed" };
+    return { outcome: "failed", reason: "unreachable" };
   }
   const body = record(result.json);
   if (result.status === 200) {
@@ -104,16 +112,20 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
       return continues === undefined ? { outcome: "speak", answer: body.answer } : { outcome: "speak", answer: body.answer, continues };
     }
     if (typeof body.outcome === "string" && SILENT.has(body.outcome)) return { outcome: body.outcome as "quiet" };
-    return { outcome: "failed" };
+    return { outcome: "failed", reason: "unreadable" };
   }
   if (result.status === 409) return { outcome: "no_provider" };
   if (result.status === 429) return { outcome: "daily_limit" };
-  return { outcome: "failed" };
+  return { outcome: "failed", reason: failedBecause(result.status, body) };
 }
 
-async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string): Promise<{ outcome: HeartbeatOutcome; texted: number }> {
+type Ran = { outcome: HeartbeatOutcome; texted: number; reason?: string };
+
+async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string): Promise<Ran> {
   const looked = await runHeartbeat(deps.fetch, gateway, beat);
-  if (looked.outcome !== "speak") return { outcome: looked.outcome, texted: 0 };
+  if (looked.outcome !== "speak") {
+    return looked.reason === undefined ? { outcome: looked.outcome, texted: 0 } : { outcome: looked.outcome, texted: 0, reason: looked.reason };
+  }
   const results: PhoneTexted[] = [];
   for (const phone of beat.phones) {
     try {
@@ -124,7 +136,7 @@ async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string):
   }
   const texted = results.filter((result) => result === "texted").length;
   if (texted > 0) return { outcome: "texted", texted };
-  return { outcome: results.includes("failed") ? "failed" : "no_chat", texted: 0 };
+  return results.includes("failed") ? { outcome: "failed", texted: 0, reason: "text_failed" } : { outcome: "no_chat", texted: 0 };
 }
 
 /** One tick: check in for everyone due, a couple at a time. Never throws. */
@@ -150,13 +162,20 @@ export async function runDueHeartbeats(deps: HeartbeatDeps): Promise<void> {
     while (next < due.length) {
       const beat = due[next++]!;
       const started = Date.now();
-      let ran: { outcome: HeartbeatOutcome; texted: number } = { outcome: "failed", texted: 0 };
+      let ran: Ran = { outcome: "failed", texted: 0, reason: "threw" };
       try {
         ran = await runOne(beat, deps, gateway);
       } catch {
         // `runOne` does not throw; a surprise is still owed an outcome.
       }
-      deps.log({ event: "heartbeat_run", run: beat.runId, outcome: ran.outcome, texted: ran.texted, ms: Date.now() - started });
+      deps.log({
+        event: "heartbeat_run",
+        run: beat.runId,
+        outcome: ran.outcome,
+        texted: ran.texted,
+        ...(ran.reason === undefined ? {} : { reason: ran.reason }),
+        ms: Date.now() - started,
+      });
       try {
         const { status } = await post(deps.fetch, "control_plane", `${origin}/agent-texts/heartbeats/result`, secret, {
           runId: beat.runId,

@@ -75,6 +75,7 @@ import {
   type StartCaptureRequest,
   type TranscriptSegment,
   type TrayCommand,
+  type UpcomingMeetings,
   type Unsubscribe,
 } from "@context/desktop-bridge";
 import { shouldExposeBridge } from "./console.ts";
@@ -647,6 +648,18 @@ export function desktopBridge(ipc: PreloadIpc, speller?: PreloadSpeller): Deskto
     */
     spelling: Object.freeze({
       check: async (word: string): Promise<SpellingCheck> => checkSpelling(speller, word),
+    }),
+    /*
+      Version 9. Sent as it was given: the main process rebuilds it field by
+      field (`core/calendar/upcoming.ts`), and a field repaired here, in the
+      renderer, is one the guard over there never gets to refuse.
+    */
+    calendar: Object.freeze({
+      setUpcoming: (upcoming: UpcomingMeetings): void => {
+        void ipc.invoke(BRIDGE_CHANNELS.calendarSetUpcoming, upcoming).catch(() => {
+          // Fire and forget, like `tell`: the menu bar is where the answer shows.
+        });
+      },
     }),
   });
 }

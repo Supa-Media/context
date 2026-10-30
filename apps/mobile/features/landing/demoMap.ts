@@ -43,7 +43,7 @@ type DemoWorkspace = {
 const WORKSPACES: readonly DemoWorkspace[] = [
   {
     id: DEMO_IDS.personal,
-    slug: "maya",
+    slug: "ines",
     name: "Personal",
     kind: "personal",
     folders: {
@@ -55,9 +55,9 @@ const WORKSPACES: readonly DemoWorkspace[] = [
     },
     links: [["Lisbon trip", "Money"], ["Garden beds", "Recipes"], ["Lisbon trip", "Book list"], ["Health", "Groceries"], ["Half marathon", "Running routes"]],
     actors: [
-      { id: "u:maya", kind: "person", name: "Maya", start: 0.4, steps: [["edit", "Lisbon trip", 6], ["read", "Money", 2.5], ["edit", "Garden beds", 6], ["read", "Recipes", 2.5]] },
-      { id: "a:maya-context", kind: "agent", name: "Context", start: 1.5, steps: [["edit", "Groceries", 4], ["wait", null, 1], ["create", "Dentist, Tuesday 3pm", 5], ["wait", null, 2]] },
-      { id: "a:maya-claude", kind: "agent", name: "Maya's Claude", start: 0.8, steps: [["read", "Lisbon trip", 1.6], ["read", "Money", 1.6], ["read", "Book list", 1.6], ["create", "Packing list", 6], ["wait", null, 2]] },
+      { id: "u:ines", kind: "person", name: "Ines", start: 0.4, steps: [["edit", "Lisbon trip", 6], ["read", "Money", 2.5], ["edit", "Garden beds", 6], ["read", "Recipes", 2.5]] },
+      { id: "a:ines-context", kind: "agent", name: "Context", start: 1.5, steps: [["edit", "Groceries", 4], ["wait", null, 1], ["create", "Dentist, Tuesday 3pm", 5], ["wait", null, 2]] },
+      { id: "a:ines-claude", kind: "agent", name: "Ines's Claude", start: 0.8, steps: [["read", "Lisbon trip", 1.6], ["read", "Money", 1.6], ["read", "Book list", 1.6], ["create", "Packing list", 6], ["wait", null, 2]] },
     ],
   },
   {

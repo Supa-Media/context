@@ -97,7 +97,7 @@ async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: s
 }
 
 async function tokenFor(ctx: ActionCtx, mailbox: Mailbox): Promise<string | null> {
-  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+  const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "agent" as const,
     connectionId: mailbox.connectionId,
   });
   return minted?.accessToken ?? null;
@@ -154,8 +154,9 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     return json({
       ok: false,
       refused: claimed.refused,
-      ...(claimed.mailboxes ? { mailboxes: claimed.mailboxes } : {}),
-      ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}),
+      ...("mailboxes" in claimed && claimed.mailboxes ? { mailboxes: claimed.mailboxes } : {}),
+      ...("reconnect" in claimed && claimed.reconnect ? { reconnect: claimed.reconnect } : {}),
+      ...("aiAccess" in claimed && claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
     });
   }
   // Every mailbox is searched, each for its share of the results, and the
@@ -223,6 +224,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     mailboxes,
     ...(unanswered.length > 0 ? { incomplete: true, unanswered } : {}),
     ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}),
+    ...("aiAccess" in claimed && claimed.aiAccess ? { aiAccess: claimed.aiAccess } : {}),
   });
 }
 

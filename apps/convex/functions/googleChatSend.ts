@@ -14,12 +14,14 @@ import { internalMutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
+import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { CHAT_SEND_SCOPES, chatSendPolicies } from "./lib/googleChatSend";
 import { CHAT_READ_SCOPES } from "./lib/googleOAuth";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
+import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 
-const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("hourly_limit"), v.literal("daily_limit"));
+const refusal = v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("ai_access_needed"), v.literal("hourly_limit"), v.literal("daily_limit"));
 
 /** Whether this key has room for one more, without spending it. */
 async function hasRoom(ctx: MutationCtx, policy: RateLimitPolicy): Promise<boolean> {
@@ -58,9 +60,14 @@ export const claimChatSend = internalMutation({
       .take(20);
     // Every scope sending needs, granted on one live connection.
     const sender = connections.find(
-      (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => row.scopes.includes(scope)),
+      (row) => row.disconnectedAt === undefined && CHAT_SEND_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
-    if (sender === undefined) return { ok: false as const, refused: "no_chat" as const };
+    if (sender === undefined) {
+      // A Chat account AI may not use until its owner allows AI access is
+      // not one a reconnect sets up (`aiAccessNeeded`).
+      const waiting = connections.some((row) => row.disconnectedAt === undefined && row.products.includes("chat") && aiAccessNeeded(row));
+      return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_chat" as const) };
+    }
     const policies = chatSendPolicies(cleared.actorUserId);
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };
@@ -105,12 +112,58 @@ export const claimChatRead = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.personal._id))
       .take(20);
     const reader = connections.find(
-      (row) => row.disconnectedAt === undefined && CHAT_READ_SCOPES.every((scope) => row.scopes.includes(scope)),
+      (row) => row.disconnectedAt === undefined && CHAT_READ_SCOPES.every((scope) => aiScopesOf(row).includes(scope)),
     );
     if (reader === undefined) return { ok: false as const, refused: "no_chat" as const };
     const room = await tryConsumeRateLimit(ctx, {
       key: `chat_read.hour:${cleared.actorUserId}`,
       limit: CHAT_READ_HOURLY_LIMIT,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!room) return { ok: false as const, refused: "hourly_limit" as const };
+    return { ok: true as const, address: reader.address, connectionId: reader._id };
+  },
+});
+
+/** Reads of one named Chat conversation an hour, per person (`lib/gatewayRoutes/googleChatSpaceRead.ts`). */
+export const CHAT_SPACE_READ_HOURLY_LIMIT = 60;
+
+/**
+ * Which of a person's Google connections reads one Chat conversation they
+ * named, for their own AI: the clearance their live mail reads have
+ * (`personMail.ts`), never a send's. The owner of their own personal
+ * workspace, on a grant with private access: a Tex group chat's grant, or an
+ * editor of somebody's personal workspace, never reads their Chat
+ * (owner, 2026-10-21, of group chats: "write only not read"). The connection
+ * is one whose AI grant reads Chat; one that waits for its owner to allow AI
+ * access says so, since a reconnect would not mend it.
+ */
+export const claimChatSpaceRead = internalMutation({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(
+    v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections") }),
+    v.object({
+      ok: v.literal(false),
+      refused: v.union(v.literal("not_allowed"), v.literal("no_chat"), v.literal("ai_access_needed"), v.literal("hourly_limit")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const cleared = await personalOwnerReadClearance(ctx, args);
+    if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
+    const connections = await ctx.db
+      .query("googleConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", cleared.workspace._id))
+      .take(20);
+    const live = connections.filter((row) => row.disconnectedAt === undefined);
+    const reader = live.find((row) => canReadProduct("chat", aiScopesOf(row)));
+    if (reader === undefined) {
+      // Chat comes with a Gmail connect as well as its own, so any account still waiting may be the one.
+      const waiting = live.some((row) => aiAccessNeeded(row));
+      return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_chat" as const) };
+    }
+    const room = await tryConsumeRateLimit(ctx, {
+      key: `chat_space_read.hour:${cleared.userId}`,
+      limit: CHAT_SPACE_READ_HOURLY_LIMIT,
       windowMs: 60 * 60 * 1000,
     });
     if (!room) return { ok: false as const, refused: "hourly_limit" as const };

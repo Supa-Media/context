@@ -9,7 +9,7 @@
  * to a group reaches exactly the people a note pointed at that group does.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getAuthUserId } from "./lib/signedIn";
 import { v } from "convex/values";
 import { internalQuery, query, type QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";

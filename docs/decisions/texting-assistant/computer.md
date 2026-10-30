@@ -261,3 +261,25 @@ every browser on a plan without stealth; stepping down on any error hides a
 billing or capacity problem behind a weaker browser. Tests:
 `browserbase.test.ts` ("what a new browser is asked for"; sabotaged by
 dropping the refusal check and the remembered tier).
+
+### A browser waiting on the person is held fifteen minutes (2026-10-28)
+
+A Browserbase browser is released five minutes after its last use (the owner,
+2026-10-15). When Tex texts "what's the code Instacart just sent?" and the
+answer comes at minute eight, the page asking for it is gone and Tex signs in
+again from the start. The owner chose (2026-10-28) to hold the browser fifteen
+minutes, only while Tex waits on the person: a turn whose answer asks for a
+code, a captcha, a password or a sign-in, or that sent a save-a-login link,
+calls `/browse/hold` (`apps/mcp/src/agent/browserHold.js`), and a browser
+handed to the person is held the same way. A step or a look during the hold
+never brings its end closer; past it, five minutes again. Browserbase's
+hosted "pause and resume agent runs" (`pauseWhen`) was looked at on
+2026-10-24 and not adopted: it drives the page with Browserbase's own model,
+which would hand it the person's vault logins and drop the model split, and
+Tex's own browser already carries on in the same session by the owner tag.
+**What a simplification would cost:** holding every browser fifteen minutes
+bills ten idle minutes after every question; holding none sends slow code
+replies back to a fresh sign-in. Tests: `idle.test.ts` ("a browser is held
+fifteen minutes while Tex waits on the person") and
+`agentBrowserHold.test.mjs` (sabotaged by dropping the "never closer" check
+and by `waitsOnThem` answering yes to everything).

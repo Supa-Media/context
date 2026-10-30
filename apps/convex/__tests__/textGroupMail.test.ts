@@ -9,9 +9,10 @@
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - drop `ownGmail` from `shareMail`: "only the mailbox's own person" fails;
- *  - drop the `guestGroupId` check in `chatMailClearance`: covered by
- *    `sharingWorkspace` refusing a guest chat, "never into a guest chat" fails
- *    when both are dropped;
+ *  - a guest chat refused again (`sharingWorkspace`, `liveMailShares` or
+ *    `chatMailClearance`): "a guest chat reads it too" fails (the owner,
+ *    2026-10-29: "it should work even in guest mode if I'm sharing my email
+ *    explicitly");
  *  - drop `withinShare` from the search: "every search is narrowed" fails;
  *  - keep the query's brackets in `withinShare`: "a search is narrowed" fails;
  *  - drop `insideShare` from the read: "a message outside the share" fails;
@@ -177,6 +178,22 @@ describe("sharing a mailbox with the chat", () => {
       for (const row of await ctx.db.query("textGroups").collect()) await ctx.db.patch(row._id, { workspaceId: seyi.workspaceId });
     });
     expect(await turn(t, SEYI, share(WORK))).toEqual({ status: "mail_refused" });
+  });
+
+  test("a guest chat reads it too, when its owner shares it there", async () => {
+    gmail();
+    const t = setupTest();
+    const { care, dad } = await family(t);
+    // Dad leaves the workspace but not the chat: Seyi's next tag runs the chat as Seyi's guests.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", care).eq("userId", dad.userId)).unique();
+      await ctx.db.delete(row!._id);
+    });
+    expect(await turn(t, SEYI)).toMatchObject({ status: "ready", guest: expect.anything() });
+    expect(await turn(t, SEYI, share(WORK))).toEqual({ status: "mail_shared", address: WORK, narrowed: false });
+    const asked = await turn(t, DAD);
+    expect(asked).toMatchObject({ status: "ready", guest: expect.anything(), mail: [{ handle: "seyi", address: WORK }] });
+    expect(await search(t, asked.accessToken as string, care)).toMatchObject({ ok: true, results: [expect.objectContaining({ id: "m1" })] });
   });
 
   test("a message outside the share is not found, one inside is read", async () => {
