@@ -25,7 +25,10 @@ const REFUSALS = new Set([
   "chat_not_enabled",
   "reconnect_required",
   "unavailable",
+  "unconfirmed",
 ]);
+
+const SPACE_ID = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
 
 /** Finding a direct message, then starting one and sending, is several Google calls. */
 const TIMEOUT_MS = 25_000;
@@ -45,8 +48,13 @@ export function createGoogleChatMethods({ post }) {
     async sendGoogleChat(accessToken, expectedWorkspaceId, message, { check = false } = {}) {
       const answer = await post("/gateway/chat/send", { accessToken, expectedWorkspaceId, message, check }, { timeoutMs: TIMEOUT_MS });
       const place = placeOf(answer?.place);
-      if (answer?.ok === true && typeof answer.from === "string" && place !== null) return { ok: true, from: answer.from, place };
-      return refusedOf(answer);
+      if (answer?.ok !== true || typeof answer.from !== "string" || place === null) return refusedOf(answer);
+      if (check) return { ok: true, from: answer.from, place };
+      // A send is sent only with the ids Google gave the message and its conversation.
+      const space = typeof answer.space === "string" && SPACE_ID.test(answer.space) ? answer.space : null;
+      const made = space !== null && typeof answer.message === "string" && answer.message.startsWith(`${space}/messages/`) ? answer.message : null;
+      if (made === null) return { ok: false, refused: "unconfirmed" };
+      return { ok: true, from: answer.from, place, space, message: made, started: answer.started === true };
     },
     async googleChatSpaces(accessToken, expectedWorkspaceId) {
       const answer = await post("/gateway/chat/spaces", { accessToken, expectedWorkspaceId }, { timeoutMs: TIMEOUT_MS });

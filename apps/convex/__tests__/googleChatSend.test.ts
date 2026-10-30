@@ -14,6 +14,10 @@
  *     spaces share sends to neither" fails.
  *  3. Spending on a check. → "a check sends nothing and spends nothing; an
  *     hour holds ten" fails.
+ *  4. Answering ok on any 2xx from messages.create, name or none. → "a send
+ *     Google does not confirm is never called sent" fails.
+ *  5. Taking any space spaces.setup answers. → "a first direct message goes
+ *     only into the direct message Google made" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -33,7 +37,13 @@ afterEach(() => {
 type Space = { name: string; displayName?: string; spaceType: string };
 
 /** Google Chat, answered here. `dm` is the direct message findDirectMessage finds (null: none yet). Each request, recorded. */
-function chatApi({ dm = "spaces/DM1" as string | null, spaces = [] as Space[], status = 200 } = {}) {
+function chatApi({
+  dm = "spaces/DM1" as string | null,
+  spaces = [] as Space[],
+  status = 200,
+  setup = { name: "spaces/NEWDM", spaceType: "DIRECT_MESSAGE" } as Record<string, unknown>,
+  created = undefined as ((space: string) => unknown) | undefined,
+} = {}) {
   const calls: Array<{ method: string; url: string; auth: string | null; body: unknown }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -44,10 +54,12 @@ function chatApi({ dm = "spaces/DM1" as string | null, spaces = [] as Space[], s
     if (path === "/v1/spaces:findDirectMessage") {
       return dm ? Response.json({ name: dm, spaceType: "DIRECT_MESSAGE" }) : Response.json({ error: { code: 404, status: "NOT_FOUND" } }, { status: 404 });
     }
-    if (path === "/v1/spaces:setup") return Response.json({ name: "spaces/NEWDM", spaceType: "DIRECT_MESSAGE" });
+    if (path === "/v1/spaces:setup") return Response.json(setup);
     if (path === "/v1/spaces" && method === "GET") return Response.json({ spaces });
     if (path.endsWith("/messages")) {
-      return status === 200 ? Response.json({ name: `${path.slice(4)}/m1` }) : Response.json({ error: { code: status } }, { status });
+      const space = path.slice(4, -"/messages".length);
+      if (status !== 200) return Response.json({ error: { code: status } }, { status });
+      return Response.json(created ? created(space) : { name: `${space}/messages/m1` });
     }
     const found = spaces.find((space) => `/v1/${space.name}` === path);
     return found ? Response.json(found) : Response.json({ error: { code: 404 } }, { status: 404 });
@@ -90,7 +102,14 @@ describe("sending a Google Chat message as the person", () => {
   test("a direct message goes to the one person named, from their own account, nothing of it kept", async () => {
     const calls = chatApi();
     const { t, aliceWs } = await connected();
-    expect(await send(t, ACCESS_A, aliceWs, DM)).toEqual({ ok: true, from: "alice@work.example", place: { person: "jo@example.com" } });
+    expect(await send(t, ACCESS_A, aliceWs, DM)).toEqual({
+      ok: true,
+      from: "alice@work.example",
+      place: { person: "jo@example.com" },
+      space: "spaces/DM1",
+      message: "spaces/DM1/messages/m1",
+      started: false,
+    });
     expect(calls[0]!.url).toBe("https://chat.googleapis.com/v1/spaces:findDirectMessage?name=users%2Fjo%40example.com");
     expect(posts(calls)).toHaveLength(1);
     expect(posts(calls)[0]!.url).toBe("https://chat.googleapis.com/v1/spaces/DM1/messages");
@@ -107,7 +126,7 @@ describe("sending a Google Chat message as the person", () => {
     const { t, aliceWs } = await connected();
     expect(await send(t, ACCESS_A, aliceWs, DM, { check: true })).toEqual({ ok: true, from: "alice@work.example", place: { person: "jo@example.com" } });
     expect(calls.some((call) => call.url.includes("spaces:setup"))).toBe(false);
-    expect((await send(t, ACCESS_A, aliceWs, DM)).ok).toBe(true);
+    expect(await send(t, ACCESS_A, aliceWs, DM)).toMatchObject({ ok: true, space: "spaces/NEWDM", message: "spaces/NEWDM/messages/m1", started: true });
     const setup = calls.find((call) => call.url.endsWith("/v1/spaces:setup"))!;
     expect(setup.body).toEqual({ space: { spaceType: "DIRECT_MESSAGE" }, memberships: [{ member: { name: "users/jo@example.com", type: "HUMAN" } }] });
     expect(posts(calls)[0]!.url).toBe("https://chat.googleapis.com/v1/spaces/NEWDM/messages");
@@ -116,7 +135,14 @@ describe("sending a Google Chat message as the person", () => {
   test("a space is found by its name in Chat and named as Chat names it", async () => {
     const calls = chatApi({ spaces: [{ name: "spaces/AAA", displayName: "Portal Team", spaceType: "SPACE" }, { name: "spaces/BBB", displayName: "Other", spaceType: "SPACE" }] });
     const { t, aliceWs } = await connected();
-    expect(await send(t, ACCESS_A, aliceWs, { ...SPACE, space: "portal team" })).toEqual({ ok: true, from: "alice@work.example", place: { space: "Portal Team" } });
+    expect(await send(t, ACCESS_A, aliceWs, { ...SPACE, space: "portal team" })).toEqual({
+      ok: true,
+      from: "alice@work.example",
+      place: { space: "Portal Team" },
+      space: "spaces/AAA",
+      message: "spaces/AAA/messages/m1",
+      started: false,
+    });
     expect(posts(calls)[0]!.url).toBe("https://chat.googleapis.com/v1/spaces/AAA/messages");
   });
 
@@ -164,6 +190,24 @@ describe("sending a Google Chat message as the person", () => {
     chatApi({ status: 500 });
     const { t, aliceWs } = await connected();
     expect(await send(t, ACCESS_A, aliceWs, DM)).toEqual({ ok: false, refused: "unavailable" });
+  });
+
+  test("a send Google does not confirm is never called sent", async () => {
+    // A 2xx with no message, or one naming another conversation, says nothing about where these words went.
+    for (const created of [() => ({}), () => ({ name: "spaces/OTHER/messages/m1" }), (space: string) => ({ name: space })]) {
+      chatApi({ created });
+      const { t, aliceWs } = await connected();
+      expect(await send(t, ACCESS_A, aliceWs, DM)).toEqual({ ok: false, refused: "unconfirmed" });
+    }
+  });
+
+  test("a first direct message goes only into the direct message Google made", async () => {
+    for (const setup of [{ name: "spaces/GROUP", spaceType: "SPACE" }, { spaceType: "DIRECT_MESSAGE" }, { name: "not-a-space", spaceType: "DIRECT_MESSAGE" }]) {
+      const calls = chatApi({ dm: null, setup });
+      const { t, aliceWs } = await connected();
+      expect((await send(t, ACCESS_A, aliceWs, DM)).ok).toBe(false);
+      expect(posts(calls)).toHaveLength(0);
+    }
   });
 
   test("their spaces are listed by name, direct messages marked as such", async () => {

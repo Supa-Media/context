@@ -88,6 +88,9 @@ export const REFUSED = {
     "Get the link from manage connect_google (kind gmail) and give it to them.",
   not_configured: "Not sent: this Context deployment does not send Google Chat messages.",
   unavailable: "Not sent: Google Chat did not take the message just now. Nothing was sent; it can be asked for again.",
+  unconfirmed:
+    "Not confirmed: Google Chat did not say it made the message, so whether it went is not known. Don't call it sent and don't " +
+    "send it again: ask the person to look in their Google Chat, or read the conversation with fetch chat:<the space or their email>, first.",
 };
 
 function listSpaces(answer) {
@@ -123,7 +126,9 @@ export async function toolGoogleChat(store, args) {
   }
   if (answer?.ok === true) {
     const where = typeof answer.place?.space === "string" ? `in ${answer.place.space}` : `to ${placeName(answer.place)}`;
-    return toolText(`Sent on Google Chat from ${answer.from} ${where}.`);
+    // The ids Google gave, so anyone can read back exactly where it went.
+    const started = answer.started === true ? ", a new direct message" : "";
+    return toolText(`Sent on Google Chat from ${answer.from} ${where} (Google's message ${answer.message} in ${answer.space}${started}).`);
   }
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
 }
