@@ -83,9 +83,16 @@ export function decidedByCode(message: Message): boolean {
   );
 }
 
-/** A tapback, "ok", "thanks": the only texts a person's own chat may leave unanswered. */
+/**
+ * A tapback, "ok", "thanks": the only texts a person's own chat may leave
+ * unanswered. A 👍 or 👎 on a text that asked something (`reactions.ts`
+ * `answers`, which is what gives it its quoted words) is not one: Tex invites
+ * that tapback as the yes or no to its question (a new tester, 2026-10-30), so
+ * leaving it silent would be ignoring the answer.
+ */
 export function pureAck(message: Message): boolean {
-  return message.tapback !== undefined || ((message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text));
+  if (message.tapback !== undefined) return !((message.tapback === "Liked" || message.tapback === "Disliked") && Boolean(message.quoted));
+  return (message.attachments?.length ?? 0) === 0 && PURE_ACK.test(message.text);
 }
 
 async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: Message, candidates: string[], running: boolean): Promise<Decision> {

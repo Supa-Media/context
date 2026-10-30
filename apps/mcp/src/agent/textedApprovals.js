@@ -43,7 +43,7 @@ export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|k|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y|sounds good|looks good|perfect|lgtm|\u{1F44C})\s*[.!]*\s*$/iu;
-const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
+const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n|\u{1F44E}[\u{1F3FB}-\u{1F3FF}]?)\s*[.!]*\s*$/iu;
 
 /*
   A yes said the way people say it (Dev, 2026-10-19: "yes, send it, yes, file
@@ -155,15 +155,30 @@ const MIN_QUOTED = 24;
  */
 export async function thumbsUpIsYes(store, session, quoted, { who = null } = {}) {
   if (quoted?.tapback !== "Liked" && quoted?.tapback !== "Loved") return false;
-  const words = folded(quoted.words);
+  return await onArmedAsk(store, session, quoted.words, { who, event: "thumbs_up" });
+}
+
+/**
+ * Whether a 👎 tapback is a no to what is waiting, on the same terms as a 👍's
+ * yes (a new tester, 2026-10-30: a 👍 or 👎 should answer a yes-or-no). Left
+ * to the model, a 👎 dropped nothing, and a later "yes" still sent the email.
+ */
+export async function thumbsDownIsNo(store, session, quoted, { who = null } = {}) {
+  if (quoted?.tapback !== "Disliked") return false;
+  return await onArmedAsk(store, session, quoted.words, { who, event: "thumbs_down" });
+}
+
+/** Whether these quoted words are the ask shown for exactly what is armed now. */
+async function onArmedAsk(store, session, quotedWords, { who, event }) {
+  const words = folded(quotedWords);
   if (words.length < MIN_QUOTED) return false;
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
   const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
     const shown = folded(askLine(order, { who }));
     return shown === words || shown.startsWith(words);
   });
-  // Without its words: enough to tell a 👍 on nothing armed from one on other words (2026-10-22).
-  console.log(JSON.stringify({ event: "thumbs_up", armed: armed.length, matched, length: words.length }));
+  // Without its words: enough to tell a tapback on nothing armed from one on other words (2026-10-22).
+  console.log(JSON.stringify({ event, armed: armed.length, matched, length: words.length }));
   return matched;
 }
 

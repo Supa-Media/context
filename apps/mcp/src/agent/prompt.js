@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
@@ -410,6 +410,8 @@ export function systemPrompt(
         LANGUAGE_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,
+        // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
+        YES_NO_LINE,
         ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]

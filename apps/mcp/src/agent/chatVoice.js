@@ -36,6 +36,14 @@ export const BRIEF_LINE =
   "Most replies are a sentence or two. With a page or card you made, text one casual line, your take, never what it shows.";
 
 /**
+ * A yes-or-no question invites a tapback (a new tester, 2026-10-30: Tex said
+ * "say yes" where a 👍 or 👎 would do). A 👍 or 👎 on a question is answered,
+ * never left silent (`apps/agent/src/inboxTurn.ts` `pureAck`), and on a held
+ * ask it is the yes or the no itself (`textedApprovals.js`).
+ */
+export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never "say yes": a 👍 on it is their yes, a 👎 their no.';
+
+/**
  * A line that is the fence `voicePrompt` quotes the note in.
  *
  * The note's words are the chat's: Tex writes them from what people say, and

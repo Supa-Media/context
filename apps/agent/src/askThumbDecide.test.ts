@@ -145,11 +145,40 @@ describe("while a turn runs", () => {
   });
 });
 
+describe("a dislike held as the no to an ask", () => {
+  for (const decision of ["silent", "react", "omit"] as const) {
+    it(`reaches the gateway intact, never decided, when decide would say ${decision}`, async () => {
+      const storage = new MemoryStorage();
+      const w = world(decision);
+      expect(await react(storage, tapback("t1", "Disliked", ASK), NOW)).toBe("held");
+      await drain(storage, w.deps);
+      expect(w.decided).toEqual([]);
+      expect(tapbacksAsked(w)).toEqual([expect.objectContaining({ question: "👎", quoted: ASK, tapback: "Disliked" })]);
+    });
+  }
+});
+
+describe("a 👍 or 👎 on a question Tex asked", () => {
+  // Tex invites a 👍 or 👎 as the answer to a yes-or-no (a new tester, 2026-10-30), so decide may not leave it silent.
+  const QUESTION = "Dinner is booked for 7. Want me to add it to your calendar?";
+  for (const how of ["Liked", "Disliked"] as const) {
+    it(`is answered when decide would leave a ${how} silent`, async () => {
+      const storage = new MemoryStorage();
+      const w = world("silent");
+      expect(await react(storage, tapback("t1", how, QUESTION), NOW)).toBe("queued");
+      await drain(storage, w.deps);
+      expect(tapbacksAsked(w)).toEqual([expect.objectContaining({ quoted: QUESTION, tapback: how })]);
+      // Answered as a question's answer, never held as an ask's yes or no.
+      expect(tapbacksAsked(w)[0].askYes).toBeUndefined();
+    });
+  }
+});
+
 describe("an ordinary tapback is still decide's", () => {
-  it("a like on other words, a dislike or a take-back is never marked the yes", async () => {
+  it("a love on a question, a like on a text that asked nothing or a take-back is never marked the answer", async () => {
     for (const reaction of [
-      tapback("t1", "Liked", "Dinner is booked for 7. Want me to add it to your calendar?"),
-      tapback("t2", "Disliked", ASK),
+      tapback("t1", "Loved", "Dinner is booked for 7. Want me to add it to your calendar?"),
+      tapback("t2", "Liked", "Dinner is booked for 7."),
       tapback("t3", "Liked", ASK, true),
     ]) {
       const storage = new MemoryStorage();

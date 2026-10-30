@@ -57,7 +57,7 @@ import { phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKeys, type WhapiK
 import { parseWhapiWebhook } from "./whapiInbound";
 import { groupLineFor } from "./groupLine";
 import { noteCardDrawer } from "./noteCards";
-import { holdsAsYes, takesBackYes } from "./thumbs";
+import { holdsAsAnswer, takesBackYes } from "./thumbs";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
@@ -335,7 +335,7 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
         event.reactionOn,
       );
       const reaction = { ...event.reaction, words: (words ?? "").slice(0, 500) };
-      if (words === null || !(holdsAsYes(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
+      if (words === null || !(holdsAsAnswer(reaction) || takesBackYes(reaction))) return groupWebhook(env, { kind: "ignored", reason: "reaction" }, origin, "whapi");
       const { reactionOn: _on, ...message } = event;
       return groupWebhook(env, { ...message, reaction }, origin, "whapi");
     }

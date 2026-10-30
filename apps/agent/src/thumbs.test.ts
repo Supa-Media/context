@@ -223,6 +223,31 @@ describe("a thumbs up on an ask, in a group", () => {
     });
   });
 
+  it("reads a dislike on an ask from the group webhook, as the asker's no", async () => {
+    const parsed = parseSendblueGroup({
+      message_handle: "h4",
+      is_outbound: false,
+      from_number: ADA,
+      sendblue_number: LINE,
+      service: "iMessage",
+      content: `Disliked “${groupAsk}”`,
+      group_id: GROUP,
+      participants: [ADA, BO],
+    });
+    expect(parsed).toMatchObject({ kind: "group-message", reaction: { how: "Disliked", words: groupAsk } });
+    const storage = new MemoryStorage();
+    const asks: Record<string, unknown>[] = [];
+    const clock = { now: 0 };
+    await acceptGroup(storage, msg("Tex, email Jo that Thursday works"), 0);
+    await drainGroup(storage, groupDeps(asks, clock, { answer: groupAsk, verbatim: [groupAsk] }));
+    const dislike = (from: string, id: string) => msg(`Disliked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Disliked", words: groupAsk } });
+    expect(await acceptGroup(storage, dislike(BO, "bo"), 1_000)).toBe("ignored");
+    expect(await acceptGroup(storage, dislike(ADA, "ada"), 1_000)).toBe("queued");
+    clock.now = 1_000;
+    await drainGroup(storage, groupDeps(asks, clock, { answer: "OK, dropped." }));
+    expect(asks[1]).toMatchObject({ question: "👎", quoted: groupAsk, tapback: "Disliked" });
+  });
+
   it("only the asker's like goes, at once, with the ask's words", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];

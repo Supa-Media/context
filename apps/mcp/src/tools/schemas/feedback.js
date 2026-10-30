@@ -10,7 +10,7 @@ export function feedbackToolDefinitions() {
         "Never include note contents, note or folder paths, names, email addresses or anything else from the person's workspace: say 'a note in a team folder', not its path or text. " +
         "Not for problems with the person's own notes or requests for help; answer those yourself. Counts toward the person's limit of 10 reports a day. " +
         "By text, when the person wants to report a bug: write what went wrong in a few plain sentences as the message, and pass share_texts true so your recent texts with them go too. " +
-        "They are shown the exact report and must reply YES before anything is sent; nothing goes to the team without it.",
+        "They are shown the exact report and must give it a 👍 or say yes before anything is sent; nothing goes to the team without it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -21,7 +21,7 @@ export function feedbackToolDefinitions() {
           share_texts: {
             type: "boolean",
             description:
-              "By text with Tex only: also send the last few messages between you and the person, once they reply YES to the report. Refused from any other AI.",
+              "By text with Tex only: also send the last few messages between you and the person, once they give the report a 👍 or say yes. Refused from any other AI.",
           },
         },
         required: ["message"],
