@@ -24,7 +24,7 @@ export function createGoogleChatRoute(clearedOwnAccount) {
       const place = typeof message.to === "string" ? { person: message.to } : { space: flags.spaceName ?? message.space };
       answer = { ok: true, from: flags.from, place };
       // A send answers with the ids Google gave, as the real route does; `unnamed` leaves them out.
-      if (body.check !== true && !flags.unnamed) Object.assign(answer, { space: "spaces/AAA", message: `spaces/AAA/messages/m${calls.length + 1}`, started: false });
+      if (body.check !== true && !flags.unnamed) Object.assign(answer, { space: "spaces/AAA", message: `spaces/AAA/messages/m${calls.length + 1}`, setupUsed: false });
     }
     calls.push({ message: body.message, check: body.check === true, answer });
     return answer;

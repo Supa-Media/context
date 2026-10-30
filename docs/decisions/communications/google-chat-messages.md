@@ -47,14 +47,31 @@ answer could not say where it went, because it echoed the address that was
 asked for. Now a send is sent only when `messages.create` names a message
 inside the conversation it was posted to, and `spaces.setup` counts only
 when it answers a `DIRECT_MESSAGE` space. The answer carries Google's ids
-(`space`, `message`, `started` for a new direct message) and Tex's reply
-names them, so anyone can read back exactly that conversation. A 2xx without
+(`space`, `message`, and `setupUsed` when the lookup by address found
+nothing and the direct conversation was asked of `spaces.setup`) and Tex's
+reply names them, so anyone can read back exactly that conversation. A 2xx without
 them, or a connection lost while the message was being made, is
 `unconfirmed`: never told as sent, never as "nothing was sent", and never
 retried by itself. Tests: `googleChatSend.test.ts` ("a send Google does not
 confirm is never called sent", "a first direct message goes only into the
 direct message Google made") and `googleChatGate.test.mjs` ("approving it in
 the app sends it, once, and not as a check").
+
+**A lookup by address is not proof of none (2026-10-30).** The live case
+resolved: the first message did arrive, in a direct message Google set up
+that day, but `spaces.findDirectMessage` by the outside person's email and
+`spaces.list` both missed it afterwards. Google documents that
+`spaces.setup` may answer a direct message that already exists, so
+`setupUsed` means only that setup was asked, and no reply says a
+conversation was created or is new. A read by address that finds nothing
+says Google did not find one by that address, never that they have none,
+and points at the `spaces/…` id a send answered. The privacy policy says
+Tex starts a direct conversation for an approved first message, the one
+thing `chat.spaces.create` is used for; nothing creates a named space or a
+group chat. Tests: `googleChatSend.test.ts` ("a lookup by address that
+misses a direct message Google already has…"), `googleChatGate.test.mjs`
+("a send that asked for the direct conversation says so, and never calls it
+new") and `googleChatConversation.test.mjs`.
 
 Not built: replies in a thread, reading a space's messages live, and group
 chats sending as their tagger. The browser stays the fallback only when the

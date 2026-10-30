@@ -8,8 +8,9 @@
  * `{ ok: true, from, place }`, where `place` is `{ person }` or `{ space }` as
  * Chat names it (with `check`, nothing is sent), or `{ ok: false, refused }`.
  * A send also answers `space` and `message`, the ids Google gave the
- * conversation and the message it made, and `started` when it began that
- * direct message: "sent" is what Google answered, never what was asked for,
+ * conversation and the message it went into, and `setupUsed` when looking
+ * the person up by address found nothing and the direct conversation was
+ * asked of `spaces.setup`, which may answer one that already existed: "sent" is what Google answered, never what was asked for,
  * so the person can be shown, and anyone can read back, where it went.
  *
  * The gateway calls this only for a message the person said yes to, word for
@@ -68,8 +69,9 @@ async function allSpaces(accessToken: string): Promise<{ ok: true; items: unknow
 }
 
 /**
- * Where the message goes: the direct message with a person (null when there
- * is none yet, which sending starts), or exactly one space.
+ * Where the message goes: the direct message with a person (null when Google
+ * finds none by their address, and sending then asks `spaces.setup` for it),
+ * or exactly one space.
  */
 async function resolvePlace(accessToken: string, message: ChatMessage): Promise<Resolved> {
   if (message.to !== null) {
@@ -101,7 +103,12 @@ async function resolvePlace(accessToken: string, message: ChatMessage): Promise<
   return { ok: true, space: matches[0]!.name, place: { space: matches[0]!.displayName } };
 }
 
-/** The direct message with a person, started now: they had none with the person yet. */
+/**
+ * The direct message with a person, asked of `spaces.setup` because looking it
+ * up by their address found none. Google may answer a direct message that
+ * already existed (a lookup by address can miss one, an outside person's for
+ * one), so this never says a new one was made.
+ */
 async function startDirectMessage(accessToken: string, to: string): Promise<{ ok: true; space: string } | { ok: false; refused: ChatRefusal }> {
   const made = await chatCall(accessToken, "spaces:setup", {
     method: "POST",
@@ -159,7 +166,7 @@ export async function gatewayChatSendHandler(ctx: ActionCtx, body: Record<string
     const spent = await claim(true);
     if (!spent.ok) return json({ ok: false, refused: spent.refused });
     let space = resolved.space;
-    const started = space === null;
+    const setupUsed = space === null;
     if (space === null) {
       const dm = await startDirectMessage(minted.accessToken, message.to!);
       if (!dm.ok) return json({ ok: false, refused: dm.refused });
@@ -173,11 +180,11 @@ export async function gatewayChatSendHandler(ctx: ActionCtx, body: Record<string
     }
     const made = typeof sent.body?.name === "string" && sent.body.name.startsWith(`${space}/messages/`) ? sent.body.name : null;
     if (made === null) {
-      log({ outcome: "unconfirmed", to, started });
+      log({ outcome: "unconfirmed", to, setupUsed });
       return json({ ok: false, refused: "unconfirmed" });
     }
-    log({ outcome: "sent", to, started });
-    return json({ ok: true, from: room.address, place: resolved.place, space, message: made, started });
+    log({ outcome: "sent", to, setupUsed });
+    return json({ ok: true, from: room.address, place: resolved.place, space, message: made, setupUsed });
   } catch {
     // Lost while the message was being made, Google may have made it: not known, so never "nothing was sent".
     log({ outcome: "transport_error", to, check, posting });

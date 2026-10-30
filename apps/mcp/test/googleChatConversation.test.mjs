@@ -95,7 +95,7 @@ describe("fetch chat:", () => {
     for (const [refused, words] of [
       ["not_allowed", /only their own personal workspace's, with private access/],
       ["ai_access_needed", /AI access isn't allowed yet/],
-      ["person_not_found", /no direct message with that address/],
+      ["person_not_found", /did not find a conversation with them by that address, which does not mean they have none.*read it by that id/s],
       ["space_not_found", /fetch chat: lists their spaces/],
       ["something new", /did not answer just now/],
     ]) {

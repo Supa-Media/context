@@ -54,7 +54,7 @@ export function createGoogleChatMethods({ post }) {
       const space = typeof answer.space === "string" && SPACE_ID.test(answer.space) ? answer.space : null;
       const made = space !== null && typeof answer.message === "string" && answer.message.startsWith(`${space}/messages/`) ? answer.message : null;
       if (made === null) return { ok: false, refused: "unconfirmed" };
-      return { ok: true, from: answer.from, place, space, message: made, started: answer.started === true };
+      return { ok: true, from: answer.from, place, space, message: made, setupUsed: answer.setupUsed === true };
     },
     async googleChatSpaces(accessToken, expectedWorkspaceId) {
       const answer = await post("/gateway/chat/spaces", { accessToken, expectedWorkspaceId }, { timeoutMs: TIMEOUT_MS });

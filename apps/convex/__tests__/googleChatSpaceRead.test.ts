@@ -123,7 +123,7 @@ describe("reading one Google Chat conversation the person named", () => {
     ]);
   });
 
-  test("a person with no direct message yet is not one to start", async () => {
+  test("a person Google finds no direct message with by address is not one to start", async () => {
     const calls = chatApi(READ_SCOPES);
     const { t, aliceWs } = await connected();
     const answer = await read(t, ACCESS_A, aliceWs, { to: "nobody@work.example" });

@@ -18,6 +18,8 @@
  *     Google does not confirm is never called sent" fails.
  *  5. Taking any space spaces.setup answers. → "a first direct message goes
  *     only into the direct message Google made" fails.
+ *  6. Answering `started` beside `setupUsed`. → "a lookup by address that
+ *     misses a direct message Google already has…" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -108,7 +110,7 @@ describe("sending a Google Chat message as the person", () => {
       place: { person: "jo@example.com" },
       space: "spaces/DM1",
       message: "spaces/DM1/messages/m1",
-      started: false,
+      setupUsed: false,
     });
     expect(calls[0]!.url).toBe("https://chat.googleapis.com/v1/spaces:findDirectMessage?name=users%2Fjo%40example.com");
     expect(posts(calls)).toHaveLength(1);
@@ -126,7 +128,7 @@ describe("sending a Google Chat message as the person", () => {
     const { t, aliceWs } = await connected();
     expect(await send(t, ACCESS_A, aliceWs, DM, { check: true })).toEqual({ ok: true, from: "alice@work.example", place: { person: "jo@example.com" } });
     expect(calls.some((call) => call.url.includes("spaces:setup"))).toBe(false);
-    expect(await send(t, ACCESS_A, aliceWs, DM)).toMatchObject({ ok: true, space: "spaces/NEWDM", message: "spaces/NEWDM/messages/m1", started: true });
+    expect(await send(t, ACCESS_A, aliceWs, DM)).toMatchObject({ ok: true, space: "spaces/NEWDM", message: "spaces/NEWDM/messages/m1", setupUsed: true });
     const setup = calls.find((call) => call.url.endsWith("/v1/spaces:setup"))!;
     expect(setup.body).toEqual({ space: { spaceType: "DIRECT_MESSAGE" }, memberships: [{ member: { name: "users/jo@example.com", type: "HUMAN" } }] });
     expect(posts(calls)[0]!.url).toBe("https://chat.googleapis.com/v1/spaces/NEWDM/messages");
@@ -141,7 +143,7 @@ describe("sending a Google Chat message as the person", () => {
       place: { space: "Portal Team" },
       space: "spaces/AAA",
       message: "spaces/AAA/messages/m1",
-      started: false,
+      setupUsed: false,
     });
     expect(posts(calls)[0]!.url).toBe("https://chat.googleapis.com/v1/spaces/AAA/messages");
   });
@@ -190,6 +192,24 @@ describe("sending a Google Chat message as the person", () => {
     chatApi({ status: 500 });
     const { t, aliceWs } = await connected();
     expect(await send(t, ACCESS_A, aliceWs, DM)).toEqual({ ok: false, refused: "unavailable" });
+  });
+
+  test("a lookup by address that misses a direct message Google already has goes into that one, and says only setup was asked", async () => {
+    // Google's spaces.setup may answer an existing direct message, as it did for an outside person live.
+    const calls = chatApi({ dm: null, setup: { name: "spaces/OLDDM", spaceType: "DIRECT_MESSAGE", createTime: "2026-01-01T00:00:00Z" } });
+    const { t, aliceWs } = await connected();
+    const answer = await send(t, ACCESS_A, aliceWs, DM);
+    expect(answer).toEqual({
+      ok: true,
+      from: "alice@work.example",
+      place: { person: "jo@example.com" },
+      space: "spaces/OLDDM",
+      message: "spaces/OLDDM/messages/m1",
+      setupUsed: true,
+    });
+    // Nothing in the answer claims a new conversation was made.
+    expect(JSON.stringify(answer)).not.toMatch(/started|created|new/i);
+    expect(posts(calls).map((call) => call.url)).toEqual(["https://chat.googleapis.com/v1/spaces/OLDDM/messages"]);
   });
 
   test("a send Google does not confirm is never called sent", async () => {
