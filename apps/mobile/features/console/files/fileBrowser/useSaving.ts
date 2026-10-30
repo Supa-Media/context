@@ -14,6 +14,7 @@ import { trackEvent } from "../../../observability/client";
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback, useRef } from "react";
+import { isDrawingPath, mergeDrawings } from "@context/drawings";
 import { toFileError } from "../browser";
 import { SAVE_TIMEOUT_MS, autosaves } from "../editor";
 import { parentPath } from "../paths";
@@ -22,6 +23,7 @@ import { isBlankNewNote } from "./unsentNotes";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
+import type { NoteReadsValues } from "./useNoteReads";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { TrashedNoteValues } from "./useTrashedNote";
 
@@ -43,16 +45,27 @@ type SavingDeps =
   >
   & Pick<OfflineQueueValues, "announceSaved" | "offlineRef">
   & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
+  & Pick<NoteReadsValues, "readRaw">
   & Pick<TrashedNoteValues, "trashedRef">;
+
+/** Refused saves of one drawing merged in a row before the person is asked. */
+const MAX_DRAWING_MERGES = 5;
 
 export function useSaving(deps: SavingDeps) {
   const {
     announceSaved, autosave, autosaveNowRef, collaborationPaths, dispatch, editorRef, offlineRef,
     refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote, trashedRef,
-    setSelectedPath, unsentCreates,
+    setSelectedPath, unsentCreates, readRaw,
   } = deps;
   // For the one retry below that saves again under another name.
   const performSaveRef = useRef<(path: string, text: string, expectedEtag: string | null) => void>(() => {});
+  /*
+    Refused drawing saves merged in a row, per note. Two people drawing race
+    to the bucket and each refusal is merged and written again; a run that
+    keeps losing past this many is handed to the person as the conflict it is
+    rather than retried for ever. Cleared by any save that lands.
+  */
+  const drawingMerges = useRef(new Map<string, number>());
 
   /**
    * One conditional write, whatever asked for it.
@@ -194,6 +207,7 @@ export function useSaving(deps: SavingDeps) {
             read of this note shows what the person saved rather than what they
             opened.
           */
+          drawingMerges.current.delete(path);
           offlineRef.current.forgetDraft(path);
           offlineRef.current.rememberBody({ path, text, etag: result.etag });
           // A new note's first save was its create: it is an ordinary note now.
@@ -233,6 +247,7 @@ export function useSaving(deps: SavingDeps) {
               type: "saveSucceeded",
               etag: result.etag,
               conflictCheck: result.conflictCheck,
+              text,
             });
           }
           void refresh([parentPath(path)]).catch(reportRefreshFailure);
@@ -284,10 +299,58 @@ export function useSaving(deps: SavingDeps) {
             );
             return;
           }
+          /*
+            **Two people drawing together is not a conflict.**
+
+            Their canvases already hold each other's shapes (the room), but
+            both still save, and a canvas changes on every stroke — so the
+            slower save is refused every few seconds and used to put the
+            "changed in your bucket" page in front of someone whose canvas
+            had both people's work on it. A drawing merges by element, so
+            the refusal is answered the way a text note's shared saving
+            answers it: read the version that won, merge this draft into it
+            (`mergeDrawings`), and write again against its etag. Anything
+            that cannot be merged — a file that is not a drawing any more, a
+            read that fails, a run of refusals — still reaches the person.
+          */
+          if (failure.code === "CONFLICT" && expectedEtag !== null && isDrawingPath(path)) {
+            const tries = (drawingMerges.current.get(path) ?? 0) + 1;
+            if (tries <= MAX_DRAWING_MERGES) {
+              drawingMerges.current.set(path, tries);
+              const refused = failure;
+              // `readRaw` is bounded, and null for every way a read can fail.
+              // The path is the bucket's: a note renamed here saves through
+              // the queue above and never reaches this write.
+              void readRaw(path)
+                .then((theirs) => {
+                  const now = editorRef.current;
+                  if (now.path !== path || now.status === "conflict") return;
+                  if (theirs === null) {
+                    dispatch({ type: "saveFailed", error: refused });
+                    return;
+                  }
+                  // The newest draft, not the refused text: strokes made
+                  // during the read are in it and must not be dropped.
+                  const merged = mergeDrawings(now.draft, theirs.text);
+                  if (merged === null) {
+                    dispatch({ type: "saveFailed", error: refused });
+                    return;
+                  }
+                  dispatch({ type: "drawingMerged", path, text: merged, etag: theirs.etag });
+                  editorRef.current = { ...now, draft: merged, etag: theirs.etag };
+                  performSaveRef.current(path, merged, theirs.etag);
+                })
+                .catch(() => {
+                  if (editorRef.current.path === path) dispatch({ type: "saveFailed", error: refused });
+                });
+              return;
+            }
+            drawingMerges.current.delete(path);
+          }
           dispatch({ type: "saveFailed", error: failure });
         });
     },
-    [announceSaved, autosave, refresh, reportRefreshFailure, workspaceId, writeNote],
+    [announceSaved, autosave, readRaw, refresh, reportRefreshFailure, workspaceId, writeNote],
   );
   performSaveRef.current = performSave;
 

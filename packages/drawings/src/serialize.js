@@ -115,6 +115,20 @@ export function canSerializeDrawing(original) {
   return serializeDrawing(original, []) !== null;
 }
 
+/**
+ * The scene object in a drawing file, deleted elements included, or null.
+ *
+ * `parseDrawing` drops deleted elements because a reader has no use for them;
+ * a merge does — a deletion is an element at a higher version with
+ * `isDeleted` set, and a merge that cannot see it brings the shape back.
+ * Null whenever `serializeDrawing` would refuse the same text.
+ */
+export function readDrawingScene(text) {
+  if (typeof text !== "string") return null;
+  const payload = findPayloadSpan(text);
+  return payload ? readScene(text, payload) : null;
+}
+
 /* -------------------------------- the spans ------------------------------- */
 
 /**
