@@ -76,6 +76,13 @@ export interface HomeInput {
    * which then sorts by what its name says.
    */
   folderFacts?: ReadonlyMap<string, FolderFacts>;
+  /**
+   * The top-level folders the root's listing names (`useHomeSource`), when it
+   * is whole. Given, no other folder is drawn at the top, whatever the
+   * device's copy still holds. Absent (offline, nothing listed yet), the copy
+   * decides.
+   */
+  topFolders?: ReadonlySet<string>;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
   /**
@@ -165,6 +172,7 @@ export function buildHome(input: HomeInput): Home {
   for (const note of notes) {
     for (let at = parentPath(note.path); at !== ""; at = parentPath(at)) folderSet.add(at);
   }
+  for (const folder of input.topFolders ?? []) if (!isPlumbing(folder)) folderSet.add(folder);
   const folders = [...folderSet].sort((a, b) => a.localeCompare(b));
 
   // Archived notes are out of every section, so a tag's count leaves them out too.
@@ -244,7 +252,7 @@ export function buildHome(input: HomeInput): Home {
   */
   const asEntry = (path: string) => ({ kind: "folder", name: path, ...input.folderFacts?.get(path) });
   const topLevel = folders
-    .filter((folder) => !folder.includes("/"))
+    .filter((folder) => !folder.includes("/") && (input.topFolders?.has(folder) ?? true))
     .sort((a, b) => compareListingEntries("", asEntry(a), asEntry(b)));
   return {
     totals: { folders: topLevel.length, notes: notes.length },

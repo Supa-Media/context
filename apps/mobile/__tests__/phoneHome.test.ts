@@ -21,6 +21,7 @@ import { buildHome, countLabel, openedLabel, whenLabel, type HomeInput } from ".
  *  9. Archived notes counted under a tag.         → "a tagged Home lists every note carrying the tag…"
  * 10. Recent from updatedAt when the person has rows. → "with an account, recent is the notes this person was in…"
  * 11. Recent rows not intersected with the tree.   → "a recent note that is gone, archived or hidden is not drawn"
+ * 12. Top folders taken from the copy, not the root's listing. → "the root's listing decides the folders at the top"
  */
 
 const HOUR = 60 * 60 * 1000;
@@ -68,6 +69,30 @@ describe("folders and counts", () => {
     expect(home.folders.map((f) => f.path)).not.toContain(".context");
     expect(home.recent.map((n) => n.path)).not.toContain("privacy.md");
     expect(home.recent.map((n) => n.path)).not.toContain(".context/collaboration/x.md");
+  });
+
+  test("the root's listing decides the folders at the top", () => {
+    // The device's copy still holds `website/` after the folder moved under
+    // Areas (Dev2, 2026-10-30); the root's listing, as the sidebar draws it,
+    // has no `website`, and a folder made online that the copy has not
+    // heard of yet is there.
+    const home = buildHome(
+      input({
+        notes: [
+          ...input().notes,
+          { path: "website/index.md", updatedAt: NOW - HOUR, title: "Home", lede: null, tags: [] },
+        ],
+        folders: [...input().folders, "website"],
+        topFolders: new Set(["0-inbox", "1-projects", "clients", "brand", "reading"]),
+      }),
+    );
+    expect(home.folders.map((f) => f.path)).toEqual(["0-inbox", "1-projects", "clients", "brand", "reading"]);
+    expect(home.totals.folders).toBe(5);
+  });
+
+  test("with no listing of the root, the copy decides the folders at the top", () => {
+    const home = buildHome(input({ folders: [...input().folders, "website"] }));
+    expect(home.folders.map((f) => f.path)).toContain("website");
   });
 
   test("a shared folder says so", () => {
