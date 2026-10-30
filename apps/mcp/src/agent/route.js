@@ -12,7 +12,7 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
-import { turnKind, turnReport, waitBefore } from "./turnLog.js";
+import { groupTimingLine, turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
@@ -630,7 +630,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
-    if (group !== null && job === null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
+    if (group !== null && job === null && !turn.exhausted && !replaced) await keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {}); // with its cards' words (`sentPicturesLine`)
     if (conversation !== null && job === null && !turn.exhausted && !replaced) { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes

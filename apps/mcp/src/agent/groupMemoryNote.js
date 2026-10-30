@@ -34,6 +34,8 @@ const GUEST_INTRO = INTRO.replace("Everyone in this workspace", "Everyone in thi
 const RULE = "---";
 const TEX = "**Tex:**";
 const META = /^<!--\s*tex used:(.*)-->$/;
+const TIMING = /^<!--\s*tex timing:(.*)-->$/;
+const MAX_TIMING = 1_200;
 
 /** The chat's note, from the same hash its plumbing file is named by; a guest chat's is in its own folder (`groupGuests.js`). */
 export function groupNotePath(hash, folder = GROUP_NOTES_FOLDER) {
@@ -65,6 +67,17 @@ function metaLine(turn) {
   return `<!-- tex used: ${tools.join(", ")}|${sources.join(" ")}${turn.tainted === true ? " tainted" : ""} -->`;
 }
 
+/**
+ * An answer's timing (`turnLog.js` `groupTimingLine`), kept on the turn so the
+ * note keeps it each time it is written again: one line of times and
+ * durations, shown hidden under the answer, never read by the model.
+ */
+export function timedTurn(role, timing) {
+  if (role !== "assistant" || typeof timing !== "string") return {};
+  const line = timing.trim();
+  return line && line.length <= MAX_TIMING && !line.includes("--") && !/[\u0000-\u001f]/.test(line) ? { timing: line } : {};
+}
+
 /** The kept turns as the note's text. */
 export function renderGroupNote(turns, { guests = false } = {}) {
   const blocks = [];
@@ -75,7 +88,8 @@ export function renderGroupNote(turns, { guests = false } = {}) {
       continue;
     }
     const meta = metaLine(turn);
-    blocks.push(`${TEX} ${escaped(turn.text)}${meta ? `\n${meta}` : ""}`);
+    const timing = timedTurn(turn.role, turn.timing).timing;
+    blocks.push(`${TEX} ${escaped(turn.text)}${meta ? `\n${meta}` : ""}${timing ? `\n<!-- tex timing: ${timing} -->` : ""}`);
     if (i < turns.length - 1) blocks.push(RULE);
   }
   return `${HEADING}\n\n${guests ? GUEST_INTRO : INTRO}\n\n${RULE}\n\n${blocks.join("\n\n")}\n`;
@@ -125,7 +139,12 @@ export function parseGroupNote(text) {
     }
     const meta = answer !== null ? META.exec(line.trim()) : null;
     if (meta) {
-      answer.meta = readMeta(meta[1]);
+      answer.meta = { ...answer.meta, ...readMeta(meta[1]) };
+      continue;
+    }
+    const timing = answer !== null ? TIMING.exec(line.trim()) : null;
+    if (timing) {
+      answer.meta = { ...answer.meta, ...timedTurn("assistant", timing[1]) };
       continue;
     }
     (answer === null ? asked : answer.lines).push(line);

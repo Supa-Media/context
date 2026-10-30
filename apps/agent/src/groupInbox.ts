@@ -51,7 +51,7 @@ import { noteGuestChat } from "./groupGuestPeople";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer, GuestInfo };
-import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, timedReply, type ReplyClock, type SayMeta } from "./groupSay";
+import { fixedTimings, log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, timedReply, type ReplyClock, type SayMeta } from "./groupSay";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
@@ -412,7 +412,7 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
   // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
   if (item.attempts === 0) log("inline");
   try {
-    const outcome = await timedReply(entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
+    const outcome = await timedReply(storage, entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
   } catch (error) {
@@ -595,7 +595,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
-        arrivedAt,
+        arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
