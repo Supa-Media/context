@@ -271,7 +271,15 @@ function resilienceLines(setups, runs) {
     const reran = mine.filter((r) => r.reran);
     if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
     if (setup.fallback) {
-      lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed.`, "");
+      // The status each failed call answered, and the provider's words where it
+      // gave them (`fallback: <model> after 400 (invalid_request_error: …)`):
+      // why it fell back, readable without the answers.
+      const statuses = fellBack.map((r) => {
+        const said = /\bafter (\d{3})(?: \((.*)\))?$/.exec(calls(r).find((name) => name.startsWith("fallback: ")) ?? "");
+        return said ? (said[2] ? `${said[1]}: ${said[2]}` : said[1]) : "no status";
+      });
+      const why = statuses.length ? ` (${statuses.join(", ")})` : "";
+      lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed${why}.`, "");
     }
   }
   return lines;
