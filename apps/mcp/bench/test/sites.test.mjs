@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { LIVE_VIEW_ORIGIN, createWeb, parseSite } from "../sites.mjs";
+import { LIVE_VIEW_ORIGIN, blankPng, createWeb, parseSite } from "../sites.mjs";
 import { checkVerdicts, readCheck } from "../checks.mjs";
 import { readBenchFolder } from "../load.mjs";
 
@@ -233,4 +233,9 @@ test("a card drawn in the bench comes back as a picture, so draw_visual is not s
   assert.equal(drawn.status, 200);
   assert.equal(typeof drawn.body.png, "string");
   assert.equal(drawn.body.width, 600);
+  // Anthropic refused the 1x1 stand-in ("Could not process image"): the picture is the size asked for.
+  const png = Buffer.from(drawn.body.png, "base64");
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [600, 800]);
+  assert.deepEqual([blankPng(0, 99999)].map((b) => { const p = Buffer.from(b, "base64"); return [p.readUInt32BE(16), p.readUInt32BE(20)]; })[0], [1, 2400]);
 });

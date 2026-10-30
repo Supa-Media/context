@@ -259,8 +259,7 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
       throw new ProviderError(timedOut ? "gateway timed out" : "gateway request failed");
     }
     const status = response?.status ?? null;
-    // The body's type rides along for `refusalDetail`: a refusal with no words still says who sent it.
-    return { status, text: response ? await readCapped(response) : null, type: response?.headers?.get?.("content-type") ?? null };
+    return { status, text: response ? await readCapped(response) : null };
   } finally {
     clearTimeout(timer);
   }
@@ -284,41 +283,6 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
   if (!RETRY_BUSY.has(first.status)) return { ...first, retried: null };
   await wait(RETRY_WAIT_MS);
   return { ...(await send(config, body, options, fetchImpl)), retried: { status: first.status } };
-}
-
-/** Longest `providerDetail` kept: enough for Anthropic's sentence on what it refused. */
-const DETAIL_CHARS = 300;
-
-/**
- * Why the provider refused a request, in its own words, cut to
- * `DETAIL_CHARS`: Anthropic's `{ error: { type, message } }`, the AI
- * gateway's own `{ errors: [{ code, message }] }` (or `error` as that list),
- * else the start of whatever the body was; null for no body. These words can
- * quote the request, so `ProviderError.detail` keeps them off every log (see
- * there).
- */
-export function providerDetail(text) {
-  if (typeof text !== "string" || text.trim() === "") return null;
-  let parsed = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Not JSON: the start of the body is all there is to go on.
-  }
-  const listed = [parsed?.errors, parsed?.error].find(Array.isArray);
-  const said = listed
-    ? listed.map((entry) => [entry?.code, entry?.message].filter((part) => part !== undefined && part !== null && part !== "").join(": ")).filter(Boolean).join("; ")
-    : typeof parsed?.error?.message === "string"
-      ? [parsed.error.type, parsed.error.message].filter((part) => typeof part === "string" && part).join(": ")
-      : text;
-  const line = said.replace(/\s+/g, " ").trim();
-  if (!line) return null;
-  return line.length > DETAIL_CHARS ? `${line.slice(0, DETAIL_CHARS - 1)}…` : line;
-}
-
-/** `providerDetail`, or what can be said of a refusal with no readable body. */
-function refusalDetail(answer) {
-  return providerDetail(answer.text) ?? `${answer.text === null ? "no body read" : "empty body"} (${answer.type ?? "no content-type"})`;
 }
 
 /**
@@ -352,14 +316,14 @@ export async function requestViaGateway(call, config, options = {}) {
       // without it, so a broken key costs a slower answer, never no answer.
       answer = null;
     } else {
-      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, refusalDetail(answer));
+      throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
     }
   }
   if (!answer) {
     answer = await sendWithRetry(config, body, { withKey: false, metadata: options.metadata }, fetchImpl, wait);
   }
   if (answer.status !== 200) {
-    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status, refusalDetail(answer));
+    throw new ProviderError(`status ${answer.status ?? "none"}`, answer.status);
   }
 
   const text = answer.text;

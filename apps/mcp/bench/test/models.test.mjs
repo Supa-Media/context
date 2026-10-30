@@ -2,7 +2,7 @@
 // ids and tokens are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cachedEmbeddings, claudeTransport, workersAi } from "../models.mjs";
+import { anthropicGateway, cachedEmbeddings, claudeTransport, refusalLine, workersAi } from "../models.mjs";
 import { MEANING_MODEL } from "../../src/search/meaning/embed.js";
 
 const GATEWAY = {
@@ -130,4 +130,26 @@ test("a setup's own model call is never retried by the embedding cache", async (
   const ai = cachedEmbeddings({ run: async () => { calls += 1; throw new Error("workers ai status 503"); } }, { sleep: async () => {}, log: () => {} });
   await assert.rejects(() => ai.run("@cf/zai-org/glm-4.7-flash", { messages: [] }), /503/);
   assert.equal(calls, 1);
+});
+
+test("a refused Claude call is logged with the provider's words, and the response still reaches the gateway", async () => {
+  const logged = [];
+  const refusal = { type: "error", error: { type: "invalid_request_error", message: "messages.4.content.1:\n  bad image" } };
+  const fetchImpl = anthropicGateway(async () => new Response(JSON.stringify(refusal), { status: 400, headers: { "content-type": "application/json" } }), (line) => logged.push(line));
+  const response = await fetchImpl("https://gateway.example/v1/messages", { body: BODY });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.type, "invalid_request_error", "the body is still readable by the gateway");
+  assert.deepEqual(logged, ["Claude refused a call: 400 invalid_request_error: messages.4.content.1: bad image"]);
+
+  const fine = anthropicGateway(async () => new Response("{}", { status: 200 }), (line) => logged.push(line));
+  await fine("https://gateway.example/v1/messages", { body: BODY });
+  assert.equal(logged.length, 1, "an answered call is not logged");
+});
+
+test("a refusal's words are read from the gateway's own shape too, and an empty body says so", () => {
+  assert.equal(refusalLine(400, "application/json", '{"success":false,"errors":[{"code":2003,"message":"Insufficient   balance"}]}'), "Claude refused a call: 400 2003: Insufficient balance");
+  assert.equal(refusalLine(400, "text/html", "<html>busy</html>"), "Claude refused a call: 400 <html>busy</html>");
+  assert.equal(refusalLine(400, "application/json", ""), "Claude refused a call: 400 empty body (application/json)");
+  assert.equal(refusalLine(400, null, null), "Claude refused a call: 400 no body read (no content-type)");
+  assert.equal(refusalLine(400, null, JSON.stringify({ error: { message: "x".repeat(500) } })).length, "Claude refused a call: 400 ".length + 300);
 });

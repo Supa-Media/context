@@ -511,7 +511,7 @@ export async function runTurn(options) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ...(error.detail ? { detail: error.detail } : {}), ok: true, ms });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, ms });
         tell({ kind: "model", model: next, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;

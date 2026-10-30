@@ -29,18 +29,12 @@ export class ProviderError extends Error {
    * @param {string} reason a short phrase written for an operator's log, never
    *   for the caller and never carrying the key or the customer's question
    * @param {number|null} status the HTTP status, where there was one
-   * @param {string|null} detail the provider's own words on a refused request
-   *   (`providerDetail`, `aiGateway.js`): they can quote the request, so they
-   *   stay on the turn's in-process trace, for a benchmark, and never reach a
-   *   log, the turn log or the caller
    */
-  constructor(reason, status = null, detail = null) {
+  constructor(reason, status = null) {
     super(`model provider: ${reason}`);
     this.name = "ProviderError";
     this.reason = reason;
     this.status = status;
-    // Not enumerable, so a logger that spreads or serializes the error leaves it out.
-    Object.defineProperty(this, "detail", { value: detail, enumerable: false });
   }
 }
 
