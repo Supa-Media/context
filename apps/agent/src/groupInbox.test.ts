@@ -346,10 +346,10 @@ describe("a group's queue", () => {
     await drainGroup(storage, deps(w));
     expect(w.sends).toEqual([{ from_number: LINE, group_id: GROUP, content: "The opener.", reply_to: { message_handle: "h_in" } }]);
     expect(w.control[0]).toMatchObject({ line: LINE, groupId: GROUP, sender: ADA, participants: [ADA, BO], mint: true });
-    const asked = w.asks[0] as { group: { key: string; members: string; from: string }; conversation?: string };
+    const asked = w.asks[0] as { group: { key: string; members: string; from: string }; conversation?: string; arrivedAt?: number };
     expect(asked.group.from).toBe("ada");
     expect(asked.group.key).toMatch(/^[0-9a-f]{64}$/);
-    expect(asked.conversation).toBeUndefined();
+    expect([asked.conversation, asked.arrivedAt]).toEqual([undefined, 0]); // when the message came in (0), not when the turn ran (1,000)
     expect(JSON.stringify(asked)).not.toContain(ADA.slice(1));
     expect(w.reactions).toBe(1);
     // The tapback fits the words, as in a 1:1, not 👀 on every tag (Dev2, 2026-10-25).

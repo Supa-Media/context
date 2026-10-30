@@ -12,7 +12,7 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
-import { turnKind, turnReport } from "./turnLog.js";
+import { turnKind, turnReport, waitBefore } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
@@ -445,7 +445,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     person their answer.
   */
   const logTurn = (outcome, model, timing, usage, parts = null) => {
-    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received });
+    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received, waitMs: waitBefore(body.arrivedAt, received) });
     console.log(
       JSON.stringify({
         event: "agent_turn",

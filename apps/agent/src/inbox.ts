@@ -190,7 +190,7 @@ export async function accept(
   await storage.put(seenKey(message.eventId), now);
   // An SMS is never logged as the person's words: anyone can send one that shows their number.
   const ev = message.sms ? undefined : await logInbound(storage, message, now);
-  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, ...(ev ? { ev } : {}) });
+  await storage.put<Pending>(pendingKey(seq), { message, attempts: 0, at: now, ...(ev ? { ev } : {}) });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && !isWhapiChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -333,6 +333,12 @@ async function acknowledgeText(deps: InboxDeps, message: Message, emoji?: string
   await lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, reactionFor(emoji, ackEmoji(message.text)));
 }
 
+/** When the oldest of `entries` came in; nothing for texts queued before this was kept. */
+function arrivedAt(entries: Entry[]): number | undefined {
+  const times = entries.flatMap(([, entry]) => (entry.at === undefined ? [] : [entry.at]));
+  return times.length === 0 ? undefined : Math.min(...times);
+}
+
 /**
  * One turn answering `entries` as one text (`merged`), its reply kept on the
  * newest and then sent; the others are answered by it and go. False when it
@@ -345,7 +351,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const tries = (item.tries ?? 0) + 1;
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage, covers, presence);
+    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: arrivedAt(entries) }, storage, covers, presence);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.

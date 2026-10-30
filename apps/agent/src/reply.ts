@@ -105,6 +105,8 @@ export type ReplyDeps = {
   steer?: Steer;
   /** The chat's event ids this turn answers (`events.ts`), sent to `/agent` as `covers` with the chat's key. */
   covers?: string[];
+  /** When the first text this turn answers came in, sent to `/agent` so the turn log shows how long it waited. */
+  arrivedAt?: number;
   /** Handed the approval records the turn armed and the ask line shown for them, so each is logged as an ask (`events.ts`). */
   onAsks?: (askIds: string[], askText: string) => void;
   /**
@@ -270,7 +272,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt },
     );
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];

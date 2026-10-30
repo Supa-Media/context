@@ -100,6 +100,7 @@ export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<strin
     model,
     outcome,
     ms: num("ms"),
+    ...(typeof body.waitMs === "number" ? { waitMs: body.waitMs } : {}),
     modelMs: num("modelMs"),
     toolMs: num("toolMs"),
     rounds: num("rounds"),

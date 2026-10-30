@@ -52,7 +52,7 @@ import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { ControlAnswer, GuestInfo };
 export type { Command };
-import { MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
+import { log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, type SayMeta } from "./groupSay";
 import type { Picture } from "./line";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
@@ -522,7 +522,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   }
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, covers, people, asked, accessToken: asked.accessToken });
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
 }
@@ -532,6 +532,7 @@ type TurnInput = {
   /** The messages it answers, one by one. */
   covered: GroupMessage[];
   acceptedAt: number;
+  arrivedAt: number; // when the first message it answers came in, for the turn log's wait (`apps/mcp/src/agent/turnLog.js`)
   covers: string[];
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
@@ -539,7 +540,7 @@ type TurnInput = {
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const guest = asked.guest;
@@ -583,6 +584,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
     await say(storage, deps, message, text, meta);
   };
   let answer: AgentAnswer;
+  const asking = deps.now();
   try {
     answer = await askAgentStream(
       deps.fetch,
@@ -592,6 +594,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
+        arrivedAt,
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
@@ -610,6 +613,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   } finally {
     end();
   }
+  const answered = deps.now();
   if (live.cancelled || answer.kind === "cancelled") {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -656,6 +660,7 @@ async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, cove
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
   await texSpoke(storage);
   log("answered");
+  logTiming({ arrivedAt, asking, answered, sent: deps.now() });
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());
@@ -691,9 +696,4 @@ async function openChoice(storage: InboxStorage, now: number): Promise<string[]>
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
   const seen = await storage.list<number>({ prefix: "gseen:" });
   for (const [key, at] of seen) if (now - at > SEEN_FOR_MS) await storage.delete(key);
-}
-
-/** One line per outcome, never a number, a name or the words. */
-function log(outcome: string, reason?: string): void {
-  console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}) }));
 }

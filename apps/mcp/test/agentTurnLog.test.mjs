@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { meterParts } from "../src/agent/modelPlan.js";
-import { turnKind, turnReport } from "../src/agent/turnLog.js";
+import { MAX_WAIT_MS, turnKind, turnReport, waitBefore } from "../src/agent/turnLog.js";
 
 test("a turn's kind follows what started it, a routine before a job before a group", () => {
   assert.equal(turnKind({ runner: true, job: { id: "j" }, group: { id: "g" }, texting: true }), "routine");
@@ -58,4 +58,24 @@ test("nothing on the row is text a person or a model wrote", () => {
   });
   assert.equal(JSON.stringify(report).includes("the words the router wrote"), false);
   assert.equal(JSON.stringify(report).includes("should not travel"), false);
+});
+
+test("a text's wait before its turn is measured from when the Worker took it in, and only a believable time counts", () => {
+  const received = 1_800_000_000_000;
+  assert.equal(waitBefore(received - 240_000, received), 240_000);
+  assert.equal(waitBefore(received, received), 0);
+  // A Worker clock a little ahead of ours is no wait, not a negative one.
+  assert.equal(waitBefore(received + 2_000, received), 0);
+  // Anything else is no measurement at all: missing, a string, far ahead, or a replayed day-old text.
+  assert.equal(waitBefore(undefined, received), undefined);
+  assert.equal(waitBefore(String(received - 1_000), received), undefined);
+  assert.equal(waitBefore(Number.NaN, received), undefined);
+  assert.equal(waitBefore(received + 120_000, received), undefined);
+  assert.equal(waitBefore(received - MAX_WAIT_MS - 1, received), undefined);
+});
+
+test("the row carries the wait only when there is one", () => {
+  const base = { provider: "builtin", outcome: "answered", model: "m", timing: null, usage: null, parts: null, kind: "group", ms: 3_000 };
+  assert.equal(turnReport({ ...base, waitMs: 12_000 }).waitMs, 12_000);
+  assert.equal("waitMs" in turnReport(base), false);
 });

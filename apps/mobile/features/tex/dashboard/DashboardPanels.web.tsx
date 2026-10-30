@@ -126,6 +126,16 @@ export function ModelsPanel({ report }: { report: TexReport }) {
             <span><span className="td-dot" style={{ background: C.hair }} />Everything else {Math.round(share(Math.max(0, time.totalMs - spent)) * 100)}%</span>
           </div>
           <span className="td-meta">
+            {performance.wait.turns === 0 ? (
+              <>Waiting before Tex starts: not timed yet</>
+            ) : (
+              <>
+                Waiting before Tex starts (pause, decision, queue): typical <b className="num">{formatSeconds(performance.wait.p50)}</b>, slowest 1 in 20{" "}
+                <b className="num">{formatSeconds(performance.wait.p95)}</b>, longest <b className="num">{formatSeconds(performance.wait.max)}</b> over {performance.wait.turns} timed turns
+              </>
+            )}
+          </span>
+          <span className="td-meta">
             Stuck or failed turns: <b className="num">{(stuck * 100).toFixed(1)}%</b> ({turns.exhausted} ran out of steps, {turns.failed} failed)
           </span>
         </div>

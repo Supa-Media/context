@@ -87,6 +87,17 @@ describe("the turn log", () => {
     });
   });
 
+  test("a turn keeps how long its text waited before it started, apart from its own time, clamped at a day", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    expect((await report(t, accessToken, { kind: "group", waitMs: 238_000 })).recorded).toBe(true);
+    expect((await report(t, accessToken, { waitMs: 9 * 24 * 60 * 60 * 1000 })).recorded).toBe(true);
+    expect((await report(t, accessToken, { waitMs: "four minutes" })).recorded).toBe(true);
+    const rows = await turns(t, workspaceId);
+    expect(rows.map((row) => row.waitMs)).toEqual([238_000, 24 * 60 * 60 * 1000, undefined]);
+    expect(rows[0]).toMatchObject({ ms: 9_400 });
+  });
+
   test("a turn keeps where it came from and what each model spent, priced at its own list price", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);

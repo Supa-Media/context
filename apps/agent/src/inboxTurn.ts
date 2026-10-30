@@ -43,6 +43,8 @@ export type Pending = {
   attempts: number;
   tries?: number;
   sent?: number;
+  /** When this Worker took the text in, so the gateway can log how long it waited (`reply.ts` `arrivedAt`). */
+  at?: number;
   ev?: string;
   force?: true;
   /** On a reply kept for a retry: the events it answers, and its turn, for the log. */
