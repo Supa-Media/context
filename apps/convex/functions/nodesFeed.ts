@@ -98,13 +98,12 @@ export const head = query({
     const moves = await feedMoves(ctx, workspaceId);
     const privacy = await feedPrivacy(ctx, workspaceId, mirror, moves);
     if (privacy === null) return null;
-    const newest = await ctx.db
+    const newestFirst = ctx.db
       .query("nodeLog")
       .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
-      .order("desc")
-      .take(NODE_HEAD_SCAN);
+      .order("desc");
     const skip = (path: string) => underPendingMove(path, moves);
-    const told = newestTold(newest, clearanceOf(scope, grantedNames), judged, skip);
+    const told = await newestTold(newestFirst, NODE_HEAD_SCAN, clearanceOf(scope, grantedNames), judged, skip);
     return { token: `${privacy}|${told ?? ""}` };
   },
 });
