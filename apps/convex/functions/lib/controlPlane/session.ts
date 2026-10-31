@@ -147,6 +147,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
         grantedNames: v.optional(v.array(v.string())),
         // A group chat's grant: the pin, opened only to read Tex's setup (`liveGrants.ts`).
         setupOnly: v.optional(v.literal(true)),
+        // And the chat's home there, the one folder that row may change (`lib/textGroupHome.ts`).
+        chatHome: v.optional(v.string()),
       }),
     ),
   }),
