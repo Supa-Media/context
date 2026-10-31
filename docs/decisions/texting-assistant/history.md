@@ -215,3 +215,15 @@ much of the page was read, so the rest can be read rather than guessed.
 `READ_CLAIMS_LINE` says the same in the prompt. What a "simplification" costs:
 taking their question as backing lets "does it have a memory section?" vouch
 for "yes, it's there". Tests: `agentReadClaims.test.mjs`.
+
+Follow-up the next morning (self-review 7ad738, 2026-10-31): sent an X post a
+second time, Tex called `open_page`, got X's sign-in wall back, and described
+the post. The link check had counted any web read as reading the link. Now a
+link counts as read only when a page result at that link's own address
+carried a body worth the name (`pageReads.js`): not "(no text)", not under
+`THIN_PAGE_CHARS`, not a short page of sign-in or script-wall words, and not a
+redirect to somewhere else. "Ashaya's post says…" counts as describing it
+beside "it's for GPT"; "I couldn't open it" is the honest answer and goes.
+What a "simplification" costs: counting the call rather than the body lets a
+wall vouch for a summary again. Tests: the X wall cases in
+`agentReadClaims.test.mjs`.
