@@ -86,7 +86,8 @@ export interface TurnReport {
  * Meter a finished call: the same figures go to `jevUsage` (through `addUsage`)
  * and, split by model, to `aiModelUsage`, so the two tables always agree.
  * `defaultModel` is the model the feature runs on, used for a missing or
- * malformed model name.
+ * malformed model name. Returns what `jevUsage` was charged, in micro-USD, so a
+ * caller can attribute the same cost to a person.
  */
 export async function recordTurn(
   ctx: MutationCtx,
@@ -95,7 +96,7 @@ export async function recordTurn(
   report: TurnReport,
   defaultModel: string,
   now: number,
-): Promise<void> {
+): Promise<number> {
   const usage = {
     input: clampTokens(report.inputTokens),
     output: clampTokens(report.outputTokens),
@@ -145,4 +146,6 @@ export async function recordTurn(
       now,
     );
   }
+  // What `addUsage` charged above: the written tokens at their own rates, plus the decision tokens at Clef's.
+  return writtenMicroUsd + costMicroUsd(decision);
 }

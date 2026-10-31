@@ -38,6 +38,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";
+import { recordGroupUsage, usageWho, type UsageWho } from "./lib/textGroupUsage";
 import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
@@ -73,26 +74,27 @@ const refusalValidator = v.union(
  * The workspace a texting or routine grant's turn is charged to: the grant's own default,
  * which the gateway's `/agent` route also answers in. Null for an unknown or
  * dead token, a grant for any other client, or an expected workspace the grant
- * cannot reach.
+ * cannot reach. A group chat's turn also names the chat and the person it is recorded against.
  */
 async function chargedWorkspace(
   ctx: MutationCtx,
   hashedAccessToken: string,
   expectedWorkspaceId: string | null,
   tryIt = false,
-): Promise<{ workspaceId: Id<"workspaces"> } | { refused: "not_texts" } | null> {
+): Promise<{ workspaceId: Id<"workspaces">; group?: { groupId: Id<"textGroups">; who: UsageWho } } | { refused: "not_texts" } | null> {
   const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
   if (turn === null) return null;
   if (BUILTIN_CLIENTS.has(turn.clientId)) return { workspaceId: turn.workspaceId };
-  // A group chat's turn answers in the chat's workspace and is charged to the
-  // person who tagged Tex: their personal workspace's plan, cap and meter.
+  // A group chat's turn is charged to the chat's sponsor, who brought Tex in: their personal workspace's plan, cap and
+  // meter (`mintGroupGrant`). Its cost is also recorded against the person who tagged Tex (`recordBuiltinUsage`).
   if (turn.clientId === TEXTS_GROUP_CLIENT_ID) {
     const grant = await ctx.db
       .query("oauthGrants")
       .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
       .unique();
     const charged = grant?.texGroup?.meterWorkspaceId;
-    return charged === undefined ? null : { workspaceId: charged };
+    if (grant === null || grant.texGroup === undefined || charged === undefined) return null;
+    return { workspaceId: charged, group: { groupId: grant.texGroup.groupId, who: usageWho(grant) } };
   }
   if (tryIt && turn.clientId === CONSOLE_CLIENT_ID && (await editsAiNotes(ctx, hashedAccessToken))) {
     return { workspaceId: turn.workspaceId };
@@ -160,7 +162,9 @@ export const recordBuiltinUsage = internalMutation({
   handler: async (ctx, args) => {
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
     if (charged === null || "refused" in charged) return false;
-    await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, args, GLM_MODEL, Date.now());
+    const now = Date.now();
+    const costMicroUsd = await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, args, GLM_MODEL, now);
+    if (charged.group !== undefined) await recordGroupUsage(ctx, charged.group.groupId, charged.group.who, costMicroUsd, now);
     return true;
   },
 });
