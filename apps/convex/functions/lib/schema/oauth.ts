@@ -311,6 +311,25 @@ export const oauthTables = {
     .index("by_path_token_seen", ["pathTokenSeenAt"]),
 
   /**
+   * A texting grant's access tokens that a newer mint replaced but that have
+   * not expired yet (`textLinks.applyTextsGrant`). Every text, job and review
+   * opens its own session, and one live texting grant per person used to mean
+   * each mint killed the token a turn already running was using: its next
+   * control-plane call (counting the turn) came back "no such grant" and the
+   * person was told "I can't answer right now" (2026-10-31, a question sent
+   * while a job started). Hashes only, honoured only while the grant itself is
+   * live (`liveGrants.resolveLiveGrant`), swept at the next mint, and deleted
+   * with the account.
+   */
+  textsEarlierTokens: defineTable({
+    grantId: v.id("oauthGrants"),
+    hashedAccessToken: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_access_token", ["hashedAccessToken"])
+    .index("by_grant", ["grantId"]),
+
+  /**
    * One row per person who has used an AI client other than this app, written
    * the first time a grant of theirs is stamped and never patched
    * (`lib/agentUse.ts`): the invite card's question, asked without reading

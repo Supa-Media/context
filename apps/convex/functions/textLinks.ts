@@ -11,7 +11,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import {
   SCOPE_PRIVATE,
@@ -470,6 +470,18 @@ export const consumeLinkCode = internalMutation({
   },
 });
 
+/** Keep the token a mint is about to replace, while it has time left, and sweep this grant's expired ones. */
+async function keepEarlierToken(ctx: MutationCtx, grant: Doc<"oauthGrants">): Promise<void> {
+  const now = Date.now();
+  const kept = await ctx.db
+    .query("textsEarlierTokens")
+    .withIndex("by_grant", (q) => q.eq("grantId", grant._id))
+    .collect();
+  for (const row of kept) if (row.expiresAt <= now) await ctx.db.delete(row._id);
+  if (grant.hashedAccessToken === undefined || grant.accessTokenExpiresAt === undefined || grant.accessTokenExpiresAt <= now) return;
+  await ctx.db.insert("textsEarlierTokens", { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken, expiresAt: grant.accessTokenExpiresAt });
+}
+
 /**
  * Mint a grant for whoever linked `phone`, on their personal workspace. The
  * token hashes come from the calling action; the plaintext never reaches here.
@@ -501,8 +513,9 @@ export const applyTextsGrant = internalMutation({
 
     await ensureTextsClient(ctx);
 
-    // One live texting grant per person: each mint replaces the last token,
-    // which revokes it in the same transaction.
+    // One live texting grant per person: each mint replaces the last token.
+    // The replaced one stays good until its own expiry (`textsEarlierTokens`),
+    // since a turn, a job or a review may be using it right now.
     const grants = await ctx.db
       .query("oauthGrants")
       .withIndex("by_workspace_user", (q) =>
@@ -526,6 +539,7 @@ export const applyTextsGrant = internalMutation({
         createdAt: Date.now(),
       });
     } else {
+      await keepEarlierToken(ctx, reusable);
       await ctx.db.patch(reusable._id, token);
     }
     // Tonight's dream reads this text (`lib/dreams/`), and a check-in that
