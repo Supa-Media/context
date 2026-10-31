@@ -395,9 +395,7 @@ export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
-/* -------------------------------------------------------------------------- */
 /* 2f. POST /gateway/mover/open, /gateway/tex-store/open — the control plane's tickets */
-/* -------------------------------------------------------------------------- */
 export const gatewayMoverOpen = gatewayRoute(jobs.gatewayMoverOpenHandler);
 export const gatewayTexStoreOpen = gatewayRoute(jobs.gatewayTexStoreOpenHandler);
 
