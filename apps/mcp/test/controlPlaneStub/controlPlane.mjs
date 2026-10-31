@@ -477,7 +477,7 @@ export function createControlPlaneStub(options = {}) {
           return ok({ recorded: Boolean(known) });
         }
         if (!known) return ok({ verdict: null });
-        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true });
+        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true, ...(body.background === true ? { background: true } : {}) });
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 

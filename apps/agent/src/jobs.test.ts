@@ -13,6 +13,7 @@
  *  7. `runJob` ending `waiting` as done → "a job waiting on them ends waiting, and one with no way forward ends stuck".
  *  8. `chatJobs` giving the advice without `results` → "keeps the advisor's call and the report for the chat's turns, never the live view".
  *  9. `noteJobUpdate` keeping an earlier part's verdict on a finished job → the same test.
+ * 10. `outcomeOf` mapping `daily_limit`/`no_model` to a silent stop (2026-10-31) → "a part the gateway refused ends waiting and says why".
  */
 
 import { describe, expect, it } from "vitest";
@@ -265,6 +266,20 @@ describe("background jobs", () => {
     await runJob(storage, deps);
     await runJob(storage, deps);
     expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [JOB_LINES.failed("Competitor research")] });
+  });
+
+  it("a part the gateway refused ends waiting and says why, never failing silently", async () => {
+    // Dev2, 2026-10-31: three restarted jobs used up the day's turns and every one after was refused about a second in.
+    for (const [status, why] of [[429, "daily_limit"], [409, "no_model"]] as const) {
+      const storage = new MemoryStorage();
+      await acceptJob(storage, run(), NOW);
+      const { deps, reports } = jobDeps([{ status, body: { error: why } }]);
+      expect(await runJob(storage, deps)).toEqual({ kind: "done" });
+      expect(reports.at(-1)).toMatchObject({ state: "waiting", status: JOB_LINES.refusedStatus[why], texts: [JOB_LINES.refused("Competitor research", why)] });
+      expect(await storage.get(RUN_KEY)).toBeUndefined();
+    }
+    expect(JOB_LINES.refused("Competitor research", "daily_limit")).toMatch(/"Competitor research".*today's limit/);
+    expect(JOB_LINES.refused("Competitor research", "no_model")).toMatch(/can't reach my model/);
   });
 
   it("ends silently for a phone that was unlinked meanwhile", async () => {

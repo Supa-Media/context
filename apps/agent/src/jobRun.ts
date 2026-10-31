@@ -99,7 +99,9 @@ type Outcome =
   /** It ran and broke: carry on in a new turn, if one is left. */
   | { kind: "broken" }
   /** Ends here, with this to say, or silently. */
-  | { kind: "stop"; text?: string };
+  | { kind: "stop"; text?: string }
+  /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
+  | { kind: "refused"; why: "daily_limit" | "no_model" };
 
 /** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
 export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number };
@@ -295,9 +297,11 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
           ...watch,
         }
-      : outcome.kind === "stop"
-        ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
-        : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
+      : outcome.kind === "refused"
+        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)] }
+        : outcome.kind === "stop"
+          ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
+          : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
   // What it had got to is what a restart starts on (`resumeJob`).
   const got = outcome.kind === "answer" && !changed ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) : "";
   return await finish(storage, { ...run, sent, ...(got ? { draft: got } : {}), ...(advice ? { advice } : {}) }, update, tell, deps.now(), pass);
@@ -378,6 +382,8 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
   }
   if (answer.kind === "not_started") return { kind: "retry" };
   if (answer.kind === "unavailable") return { kind: "broken" };
+  // Refused before anything ran: never a silent failure (Dev2, 2026-10-31, the day three jobs ran into the cap).
+  if (answer.kind === "daily_limit" || answer.kind === "no_model") return { kind: "refused", why: answer.kind };
   return { kind: "stop", text: undefined };
 }
 

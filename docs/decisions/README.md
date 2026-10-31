@@ -823,6 +823,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex hands a whole sub-project to another agent, and a supervisor loop keeps it on track (2026-10-17)](./texting-assistant/delegation.md)
 - [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
 - [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
+- [A job's turns are off the daily cap (2026-10-31)](./texting-assistant/background-jobs.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

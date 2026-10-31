@@ -36,6 +36,8 @@
  * 11. `reportReply` returning the model's answer unchanged (2026-10-31, SKIP texted).
  *     → "...and its SKIP reaches the Worker as a flag, never as a word" and
  *     "a finished job answered SKIP still gets one plain status line" fail.
+ * 12. `openProvider` called without `background` in `route.js` (2026-10-31).
+ *     → "a job's part is started off the daily cap..." and "a job's report to the chat's turn is off the daily cap too" fail.
  */
 
 import worker from "../src/index.js";
@@ -161,6 +163,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     ]);
     const started = await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", running });
     const first = model.requests[0];
+    check("an ordinary text is on the daily cap", controlPlane.builtinStarts.at(-1)?.background === undefined && controlPlane.builtinStarts.length > 0 && controlPlane.builtinReports.at(-1)?.background === undefined);
     check(
       "a job that starts answers the text at once, with no model round after it",
       model.requests.length === 1 && /^On it: Competitor research\. I'll text you when it's done\./.test(started.body?.answer ?? ""),
@@ -327,6 +330,11 @@ export async function runAgentBackgroundRouteChecks(check) {
     model.install([{ text: "Wrote it up." }, { text: "VERDICT: done\nADVICE: It is written up." }]);
     const clean = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: { ...apply, id: "job-apply-00003" } });
     check("...and a part that read nothing from outside does not", clean.status === 200 && clean.body?.untrusted === undefined);
+    // Dev2, 2026-10-31: three restarted jobs used up the day's 100 in five minutes. A job's part, and the advisor's check inside it, are off the cap.
+    check(
+      "a job's part is started off the daily cap, and its spend (the advisor's check included) is reported so",
+      controlPlane.builtinStarts.at(-1)?.background === true && controlPlane.builtinReports.length >= 2 && controlPlane.builtinReports.slice(-2).every((entry) => entry.background === true),
+    );
 
     /* ---------------- a job reports to the chat's own turn, its coordinator (Dev2, 2026-10-30) ---------------- */
 
@@ -335,6 +343,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     const beforeReport = conversationTurns(bucket).length;
     const coordinated = await post(env, TOKEN_TEXTS, "/agent", { question: "send the email to everyone", conversation: "texts", event: "job_report", jobReport: report, running: [] });
     const coordinator = model.requests.at(-1);
+    check("a job's report to the chat's turn is off the daily cap too", controlPlane.builtinStarts.at(-1)?.background === true);
     check(
       "the coordinator's turn is asked the gateway's own line, never the body's",
       coordinated.status === 200 && /\(Not a text from them\. Your background job \\"Agentic benchmarks\\" reported back to you/.test(lastText(coordinator)) && !/send the email/.test(JSON.stringify(coordinator.messages)),

@@ -27,6 +27,12 @@ export const jevTables = {
     costMicroUsd: v.number(),
     /** Time spent waiting on Jev, summed. */
     ms: v.number(),
+    /**
+     * Turns a background job ran for the person (its parts and its reports to
+     * the chat): metered, never counted against the daily cap, only against
+     * `BACKGROUND_TURNS_PER_DAY` (`lib/jev/meter.ts`). Absent on older rows.
+     */
+    background: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_day_feature_workspace", ["day", "feature", "workspaceId"])

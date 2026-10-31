@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { addMember, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { asUser } from "./fixtures.helpers";
 import { JEV_FEATURES } from "../functions/lib/jev/features";
-import { utcDay } from "../functions/lib/jev/meter";
+import { BACKGROUND_TURNS_PER_DAY, utcDay } from "../functions/lib/jev/meter";
 import { BUILTIN_FEATURE } from "../functions/builtinModel";
 import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, signal } from "./routines.helpers";
 
@@ -303,6 +303,84 @@ describe("a routine", () => {
     expect(await ask(f.t, run!.accessToken)).toEqual({ allowed: true, remaining: cap - 1 });
     expect(await report(f.t, run!.accessToken, { inputTokens: 10, outputTokens: 10, ms: 5 })).toBe(true);
     expect(await usage(f.t, f.workspaceId)).toMatchObject({ calls: 1, tokens: 20 });
+  }, 20_000);
+});
+
+/**
+ * A background job's turns are not counted against the person's cap (the
+ * owner, 2026-10-31: three restarted jobs used up the day's 100 in five
+ * minutes, and every text after was refused). Sabotage: drop `background`
+ * from `countTurn`'s call in `startBuiltinTurn` and "a job's part runs past
+ * the cap" fails; drop `charged.chat` and "a routine's grant can't claim it"
+ * fails; drop the ceiling in `gate` and "held to its own ceiling" fails.
+ */
+describe("a background job's turns", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function askBackground(t: T, accessToken: string) {
+    const response = await gatewayPost(t, "/gateway/builtin-model", { accessToken, expectedWorkspaceId: null, background: true });
+    return (JSON.parse(await response.text()) as { verdict: unknown }).verdict;
+  }
+
+  async function usedUp(t: T, workspaceId: Id<"workspaces">, fields: { calls?: number; background?: number }) {
+    await t.run((ctx) =>
+      ctx.db.insert("jevUsage", {
+        day: utcDay(Date.now()), feature: BUILTIN_FEATURE, workspaceId,
+        calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, costMicroUsd: 0, ms: 0, updatedAt: Date.now(), ...fields,
+      }),
+    );
+  }
+
+  test("a job's part runs past the cap, counted apart and never in calls", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    await usedUp(t, workspaceId, { calls: 100 });
+    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "daily_cap" });
+    expect(await askBackground(t, accessToken)).toMatchObject({ allowed: true });
+    expect(await usage(t, workspaceId)).toMatchObject({ calls: 100, background: 1, refused: 1 });
+  });
+
+  test("a job's turns leave the person's own cap where it was", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    for (let i = 0; i < 5; i++) await askBackground(t, accessToken);
+    expect(await ask(t, accessToken)).toEqual({ allowed: true, remaining: 99 });
+    expect(await usage(t, workspaceId)).toMatchObject({ calls: 1, background: 5 });
+  });
+
+  test("a failed job turn moves nothing on the cap, and is still priced", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    await askBackground(t, accessToken);
+    expect(await report(t, accessToken, { inputTokens: 1_000_000, outputTokens: 0, failed: true, ms: 5, background: true })).toBe(true);
+    expect(await usage(t, workspaceId)).toMatchObject({ calls: 0, failed: 0, background: 1, costMicroUsd: 60_000 });
+  });
+
+  test("held to its own ceiling", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    await usedUp(t, workspaceId, { background: BACKGROUND_TURNS_PER_DAY });
+    expect(await askBackground(t, accessToken)).toEqual({ allowed: false, reason: "daily_cap" });
+  });
+
+  test("the switch still stops it", async () => {
+    const t = setupTest();
+    const { accessToken } = await texter(t);
+    await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: BUILTIN_FEATURE, off: true, updatedAt: Date.now() }));
+    expect(await askBackground(t, accessToken)).toEqual({ allowed: false, reason: "switched_off" });
+  });
+
+  test("a routine's grant can't claim it: its turn is counted against the cap", async () => {
+    const f = await routineFixture();
+    f.backend.seed(DAILY, DAILY_TEXT);
+    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
+    await makeDue(f.t, f.workspaceId, DAILY);
+    const [run] = await due(f.t);
+    await askBackground(f.t, run!.accessToken);
+    expect(await usage(f.t, f.workspaceId)).toMatchObject({ calls: 1 });
+    expect((await usage(f.t, f.workspaceId))?.background).toBeUndefined();
   }, 20_000);
 });
 

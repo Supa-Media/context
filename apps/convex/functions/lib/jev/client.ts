@@ -69,7 +69,7 @@ export async function withJev<T>(
   work: (jev: JevSession | null, refusal: JevRefusal | "unconfigured" | null) => Promise<T>,
 ): Promise<T> {
   const { feature, workspaceId } = options;
-  const delta: Required<Omit<UsageDelta, "writtenMicroUsd" | "writtenTokens">> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0 };
+  const delta: Required<Omit<UsageDelta, "writtenMicroUsd" | "writtenTokens" | "background">> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0 };
   /** The same answered requests as `delta`, split by model. Failed and refused requests add nothing here. */
   const models = new Map<string, ModelTotals>();
   const flush = async () => {

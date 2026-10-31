@@ -213,10 +213,11 @@ function noModel() {
  * under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
-export async function openProvider(controlPlane, session, requested, env = {}) {
+export async function openProvider(controlPlane, session, requested, env = {}, { background = false } = {}) {
   if (requested !== undefined && requested !== null) throw noModel();
   if (!hasBuiltinModel(env)) throw noModel();
-  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId);
+  // A background job's part or report is never counted against the cap (`apps/convex/functions/builtinModel.ts`).
+  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId, background ? { background: true } : undefined);
   if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER };
   if (verdict?.reason === "daily_cap") {
     throw new AgentRefusal("daily_limit", "Today's questions are used up.");
