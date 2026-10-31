@@ -331,9 +331,14 @@ async function pinnedReach(store, session) {
  * @param {object} session the caller's session
  * @param {{texting: boolean}} options only a texted turn has a setup to read
  */
-export async function readProductionSetup(store, session, { texting }) {
+export async function readProductionSetup(store, session, { texting, warm = null }) {
   if (!texting) return null;
   try {
+    // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
+    if (warm !== null) {
+      const raw = await warm(async () => await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, (text) => text));
+      return typeof raw === "string" ? await parseSetup(raw) : null;
+    }
     return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
   } catch {
     return null;

@@ -42,8 +42,9 @@ export function mayAnswerAsk(question, quoted, hasAttachments) {
  * wait. `{ setAside }` or `{ dropped }` as `settleTextedText` returns them, or
  * null when none wait.
  */
-export async function waitingAsks(store, session, { conversation = null, told, now }) {
+export async function waitingAsks(store, session, { conversation = null, told, now, warm = null }) {
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
+  if (warm !== null && (await warm.noAsks())) return null; // a warm copy that knows none waited, and no turn since (`warmCopy.js`)
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
   if (asked.length === 0) return null;
   if (await askOvertaken(store, conversation, asked.map(({ record }) => record))) {

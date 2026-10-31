@@ -62,11 +62,18 @@ export function idOfKey(key) {
  */
 let lastAt = 0;
 
-export async function writeExchange(store, { at: asked = Date.now(), question, answer, tainted = false, tools = [], sources = [], thread = null, theirs = false }) {
+/** The time and tag an exchange will be written under, chosen before it is: a warm copy (`warmCopy.js`) holds it by the same id. */
+export function newExchange(asked = Date.now()) {
   // Two writes in one millisecond from one isolate keep the order they were made in.
   const at = Math.max(asked, lastAt + 1);
   lastAt = at;
-  const key = eventKey(at);
+  const tag = randomTag();
+  return { at, tag, id: idOfKey(eventKey(at, tag)) };
+}
+
+export async function writeExchange(store, { at: asked = Date.now(), tag: chosen = null, question, answer, tainted = false, tools = [], sources = [], thread = null, theirs = false }) {
+  const { at, tag } = chosen === null ? newExchange(asked) : { at: asked, tag: chosen };
+  const key = eventKey(at, tag);
   const entry = {
     v: 1,
     at,

@@ -37,7 +37,7 @@ import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { loggedTurn, recordedTurn, turnHistory } from "./loggedTurn.js";
+import { loggedTurn, recordedTurn, turnHistory } from "./loggedTurn.js"; import { newExchange } from "./events.js";
 import { deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
@@ -56,7 +56,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
-import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js";
+import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, warmTurn } from "./warmCopy.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
@@ -149,7 +149,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null }); // read beside what comes before it, not after
+  const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && report === null && !runner, now: received }); // what the Worker kept of the last turn's reads (`warmCopy.js`)
+  const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
   // A tool call through the client's own dispatcher, under this session.
@@ -201,11 +202,11 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   if (steer !== null) outcome.turn = body.turn; // only a texted turn the Worker named is recorded (`loggedTurn.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
-  let setAside = [], dropped = [], paid = [], thumbsUp = false; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
+  let setAside = [], dropped = [], paid = [], thumbsUp = false, asksRead = false; // dropped: asks Tex texted something else after by itself (`askOvertaken.js`)
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`); a guest's is nobody's (`groupGuests.js`).
   const front = env.TEX_FRONT_DOOR !== "off" && (await setupRead)?.frontDoor !== false; // Haiku as the front door (`frontDoor.js`): only a yes or no is matched before it, and no reply checks after
   const ownConversation = group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
-  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) ({ setAside = [], dropped = [] } = (await waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received })) ?? {});
+  if (front && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true && !mayAnswerAsk(group !== null ? withoutTexName(question) : question, quoted, sent.length > 0)) [{ setAside = [], dropped = [] }, asksRead] = [(await waitingAsks(store, session, { conversation: ownConversation, told: body.told, now: received, warm: hot })) ?? {}, true];
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
     thumbsUp = await thumbsUpIsYes(store, session, quoted, { who: group?.from || null }); // a 👍 on the ask is that yes
     const thumbsDown = !thumbsUp && (await thumbsDownIsNo(store, session, quoted, { who: group?.from || null })); // and a 👎 the no
@@ -288,9 +289,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     ...(group !== null ? { group: { from: group.from, people: group.people } } : {}), // who an email may be offered to (`offerFor.js`)
   };
 
-  const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts }).catch(() => null); // read beside the history, once the egress ledger is set
+  const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history }, logged] = await Promise.all([turnHistory(store, session, body, { runner, group, dispatch }), runner ? null : loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId })]); // side by side
+  const [{ conversation, history }, logged] = await Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm: hot }), runner ? null : loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId, warm: hot })]); // side by side
   const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
@@ -537,7 +538,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
       local: [...earlier, ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
-      ...(texting ? outgoing.knows(await readTexNotes(dispatch, { controlPlane, session })) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
+      ...(texting ? outgoing.knows(await hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },
       observe: withJobSteps(job, step, transcript?.record ?? null), // a job's steps also go to its chat (`background.js`)
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
@@ -632,15 +633,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     const behind = front ? afterAnswer : (work) => work; // on the front door the chat is saved after the reply has gone; best effort, as below: a memory that failed to save costs the chat some context, not this answer
     if (group !== null && job === null && !turn.exhausted && !replaced) await behind(keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
-    if (conversation !== null && job === null && !turn.exhausted && !replaced) await behind((async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
+    const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
+    const kept = { ...newExchange(), tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`); the same exchange is handed to the warm copy
+    if (saving) await behind((async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
-        await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), {
-          tainted: ledger.untrusted,
-          tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
-          sources: turn.steps.flatMap((step) => step.sources ?? []), // addresses only (`sources.js`)
-          thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID,
-        });
+        await appendConversation(store, conversation, history, saved, said, kept);
       } catch {
         // The answer is still owed. A history that failed to save costs the next turn some context, not this one its reply.
       }
@@ -664,6 +662,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       model: turn.model,
       steps: turn.steps,
       ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
+      ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0, asks: asksRead && setAside.length === 0 && ledger.asked.length === 0 && !ledger.offered ? "none" : null })) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
     });
   } catch (error) {
     outcome.clean = false;

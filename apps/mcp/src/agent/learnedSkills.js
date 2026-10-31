@@ -275,10 +275,11 @@ export function learnedSkillSession(index, dispatch) {
  * The turn's learned skills: read on a text from the person in their own
  * personal workspace, null on any other turn. Never throws.
  */
-export async function openLearnedSkills(dispatch, { texted, contexts }) {
+export async function openLearnedSkills(dispatch, { texted, contexts, warm = null }) {
   const personal = (Array.isArray(contexts) ? contexts : []).find((entry) => entry.current)?.kind === "personal";
   if (texted !== true || !personal) return null;
-  return learnedSkillSession(await readLearnedSkills(dispatch), dispatch);
+  const read = () => readLearnedSkills(dispatch);
+  return learnedSkillSession(await (warm === null ? read() : warm(read)), dispatch); // the index from a warm copy when it has one (`warmCopy.js`)
 }
 
 /**

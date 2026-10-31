@@ -24,6 +24,10 @@ import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
 import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
+import type { TexEvent } from "./events";
+
+/** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
+export const MAX_WARM_CHARS = 1_500_000;
 
 export type Fetch = typeof fetch;
 
@@ -230,7 +234,8 @@ export type AgentAnswer =
   /** `vaultWatch`: the turn texted a link to save a login, so the inbox watches for the save (`vaultWatch.ts`). */
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[] }
+  /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -290,6 +295,8 @@ export async function askAgent(
     told = [],
     texStyle,
     arrivedAt,
+    warm,
+    recent,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -313,6 +320,9 @@ export async function askAgent(
     texStyle?: TexStyle;
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
+    /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
+    warm?: string;
+    recent?: readonly TexEvent[];
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -335,6 +345,8 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
+    ...(warm ? { warm } : {}),
+    ...(recent && recent.length > 0 ? { recent } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -388,6 +400,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
+      ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };
