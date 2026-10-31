@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { COLUMNS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
+import { callsLine, COLUMNS, keyShape, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("the steps before the model, the model, the tools and the time after it add up, in columns", () => {
@@ -79,9 +79,21 @@ test("a texted turn writes one point, with a kind and numbers only, never their 
     assert.ok(point.doubles.every((value) => typeof value === "number" && value >= 0));
     assert.equal(STAGES.length + 9, COLUMNS.length);
     assert.doesNotMatch(JSON.stringify(point), /hi Tex|What do you need/);
+    // The bucket calls by stage: shapes and counts only, no id, workspace or name (`callsLine`).
+    assert.match(point.blobs[2], /^([bta]:(get|head|put|delete|list):[^ =]+=\d+ ?)+$/);
+    assert.match(point.blobs[2], /\bb:list:\.context\/approvals\/pending=\d/, "the calls before the model are counted by shape");
+    assert.doesNotMatch(point.blobs[2], /ws_|grant_|[0-9a-f]{8}-[0-9a-f]{4}/);
   } finally {
     world.restore();
   }
+});
+
+test("a key's shape blanks ids and names, and the line keeps the busiest first", () => {
+  assert.equal(keyShape(".context/agent/pending/0b8a7c1e-1111-2222-3333-444455556666.json"), ".context/agent/pending");
+  assert.equal(keyShape("notes/n_123abc.md"), "notes/*");
+  assert.equal(keyShape("tex/Seyi Smith/notes/x.md"), "tex/*/notes");
+  assert.equal(keyShape(undefined), "?");
+  assert.equal(callsLine({ "a:get:notes/*": 2, "b:list:.context/agent/pending": 31 }), "b:list:.context/agent/pending=31 a:get:notes/*=2");
 });
 
 test("both deployments bind TEX_TIMING, so the points are kept and can be read back", () => {

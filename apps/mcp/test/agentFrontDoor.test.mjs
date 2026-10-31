@@ -142,3 +142,13 @@ test("a reply that asks something disarms the older ask before it answers", asyn
   await textedAsk(slow, { actorUserId: "u1" }, [], "Sure, what time?", { defer: () => undefined });
   assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 0, "the older ask is still armed: a bare yes would release it");
 });
+
+test("a reply that asks something lists nothing when the turn already saw no ask waiting", async () => {
+  const kept = createMemoryStore();
+  let lists = 0;
+  const counted = { ...kept, list: async (...args) => ((lists += 1), kept.list(...args)) };
+  await textedAsk(counted, { actorUserId: "u1" }, [], "Sure, what time?", { noneWaiting: true });
+  assert.equal(lists, 0, "nothing was waiting before the model, so the reply's last seconds don't list the asks again");
+  await textedAsk(counted, { actorUserId: "u1" }, [], "Sure, what time?");
+  assert.ok(lists > 0, "without that knowledge the asks are listed and disarmed");
+});
