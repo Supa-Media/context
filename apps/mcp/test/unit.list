@@ -153,6 +153,7 @@ test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
 test/privacy/sealedChats.test.mjs
 test/chatHome.test.mjs
+test/homeOnlyChat.test.mjs
 test/chatMemoryRecord.test.mjs
 test/agentPictureMaker.test.mjs
 test/agentVisuals.test.mjs
