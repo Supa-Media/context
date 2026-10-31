@@ -45,23 +45,17 @@
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
-import { systemPromptParts } from "./prompt.js";
-import { localNowPrompt } from "./localNow.js";
-import { workspacesPrompt } from "./workspaces.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
+import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
-import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
-import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
-import { usedTools } from "./conversation.js";
+import { addModelUsage, failedCall, modelForRound, thinkRoundsFor } from "./modelPlan.js";
+import { PROGRESS_TOOL } from "./progress.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
-import { jobsPrompt } from "./jobs.js";
-import { TRANSCRIPTS_PROMPT } from "./transcript.js";
-import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { recheckNote } from "./recheck.js";
@@ -230,18 +224,6 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
   throw noModel();
 }
 
-/** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
-const PREAMBLE_LABEL = "Context for this text, not written by them:";
-
-/**
- * The per-text facts as one preamble (`providers.js` puts it before their words), or "" when there are none.
- * Each part is trimmed of the leading newlines its system-prompt wording carries.
- */
-function turnFacts(parts) {
-  const facts = parts.map((part) => (typeof part === "string" ? part.trim() : "")).filter((part) => part !== "");
-  return facts.length === 0 ? "" : [PREAMBLE_LABEL, ...facts].join("\n\n");
-}
-
 /**
  * Run one turn to completion.
  *
@@ -403,50 +385,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  /*
-    THE PROMPT, IN THREE PARTS, so the bytes the prompt cache reads stay the same from one text to the next.
-
-    - `system.stable`: who the assistant is and what it may do. The same every text.
-    - `system.context`: what changes slowly (the workspaces, the jobs, the about-me note, the
-      thread). The system prompt is sent with these two, each behind a cache breakpoint.
-    - `preamble`: what changes per text or per round: the time, the model answering, the note
-      open in front of them, what earlier texts used, the planner's or driver's words, and the
-      nudge. It is said in the person's turn, just before their words, after the last breakpoint,
-      so a changed minute or model never costs the cached prefix (`aiGateway.js`).
-  */
-  const promptFor = (answering) => {
-    const parts = systemPromptParts(place, {
-      texting,
-      pictures,
-      notes,
-      model: answering,
-      models: router !== null ? { main: mainModel, think: router.think } : null,
-      edits: tools.some((tool) => tool.name === "write_note"),
-      continued: history.length > 0,
-      used: usedTools(history),
-    });
-    return {
-      system: {
-        stable: parts.stable,
-        context:
-          threadNote +
-          webPrompt(webNames) +
-          (progress ? PROGRESS_PROMPT : "") +
-          (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
-          (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
-          (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
-          (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
-          (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
-          workspacesPrompt(workspaces),
-      },
-      preamble: turnFacts([
-        localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone),
-        parts.volatile,
-        plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT, // `modelPlan.js`
-        nudge, // said last, beside the question
-      ]),
-    };
-  };
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
