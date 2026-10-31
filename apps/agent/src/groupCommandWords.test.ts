@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { groupCommand } from "./groupWords";
+import { addressesTex, groupCommand } from "./groupWords";
 
 describe("exact commands by code, every other wording to the agent", () => {
   it("the short forms are commands, with or without the comma", () => {
@@ -22,5 +22,11 @@ describe("exact commands by code, every other wording to the agent", () => {
     for (const text of ["Tex why don't you listen to settings", "Tex, turn the humor up", "Tex can you be less wordy here", "Tex use fewer emoji"]) {
       expect(groupCommand(text), text).toBeNull();
     }
+  });
+
+  // 2026-11-01: "Tex settings" parsed as a command but was never addressed ("settings" read as a verb about Tex), so the chat never answered.
+  it("a command after the name is addressed to Tex, so it reaches the command path", () => {
+    for (const text of ["Tex settings", "tex settings", "Tex stop", "hey Tex settings"]) expect(addressesTex(text, false), text).toBe(true);
+    for (const text of ["settings", "Tex sucks", "Tex keeps forgetting"]) expect(addressesTex(text, false), text).toBe(false);
   });
 });
