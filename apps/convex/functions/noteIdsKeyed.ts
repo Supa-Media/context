@@ -78,7 +78,7 @@ export const notesFor = internalQuery({
       if (entry !== null) notes.push({ ...entry, path: asked });
       if (entry === null || entry.state === "gone") empty.push({ asked, path });
     }
-    const homes = await texHomesFor(ctx.db, workspaceId, empty.map(({ path }) => path));
+    const homes = await texHomesFor(ctx, workspaceId, empty.map(({ path }) => path));
     const texHomes = empty.flatMap(({ asked, path }) => (homes.has(path) ? [{ path: asked, owner: homes.get(path)! }] : []));
     return { keyed: true, notes, texHomes };
   },
@@ -151,7 +151,7 @@ export async function adoptKeyedRow(
   const path = await keyedPathOf(ctx.db, workspaceId, asked);
   if (!isNoteId(noteId) || isPlumbing(path)) return refused;
   // A bucket note's id key, or the Tex key of a note made in the Tex folder (`texHome.ts`).
-  if (key !== idKeyFor(noteId, path) && !(await isTexKeyFor(ctx.db, workspaceId, path, noteId, key))) return refused;
+  if (key !== idKeyFor(noteId, path) && !(await isTexKeyFor(ctx, workspaceId, path, noteId, key))) return refused;
   if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
 
   await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));

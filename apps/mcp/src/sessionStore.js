@@ -50,6 +50,15 @@ export async function storeForSession(session, env, controlPlane) {
   }
 }
 
+/**
+ * The group chat whose Tex notes this session's store may reach: its own chat's key and no other (`store/texRouting.js`).
+ * The key is the control plane's, read from the grant under the group client (`session.js` `normalizeSession`), so a
+ * person's turn, or another chat's, is built with none.
+ */
+function texChatsOf(session) {
+  return typeof session?.texChatId === "string" && /^[0-9a-f]{64}$/.test(session.texChatId) ? [session.texChatId] : [];
+}
+
 async function openSessionStore(session, env, controlPlane) {
   if (!session || typeof session.workspaceId !== "string" || !session.workspaceId) {
     throw new StorageUnavailable("no workspace");
@@ -127,6 +136,7 @@ async function openSessionStore(session, env, controlPlane) {
       managedEncryption: managedEncryptionForStore(opened, binding),
       idLayout: hooks,
       texStore: gatewayTexStore(env),
+      texChats: texChatsOf(session),
     }),
     authority,
   );

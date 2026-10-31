@@ -55,6 +55,7 @@ async function resolves(t: T, accessToken: string) {
     clientId: string;
     scopes: string[];
     defaultWorkspaceId: string;
+    texChatId?: string;
     workspaces: Array<{ workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true }>;
   };
 }
@@ -346,6 +347,9 @@ describe("Tex's setup in a group chat", () => {
     expect(session?.workspaces[1]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "editor", setupOnly: true });
     expect((session?.workspaces[1] as { chatHome?: string } | undefined)?.chatHome).toMatch(/^tex\/groups\/[a-z]+-[a-z]+-[a-z]+$/);
     expect(JSON.stringify(session?.workspaces)).not.toContain(String(ada.workspaceId));
+    // The chat's own Tex key, from its grant: the one object its turn may reach (`store/texRouting.js`).
+    const chat = await t.run(async (ctx) => await ctx.db.query("textGroups").first());
+    expect(session?.texChatId).toBe(chat?.groupKey);
   });
 
   test("the setup-only pin is never a mailbox's workspace", async () => {

@@ -18,6 +18,7 @@ import {
   addressable,
   contextsForGrant,
   resolveLiveGrant,
+  texChatIdOf,
   validateLiveGrantRecord,
 } from "./liveGrants";
 
@@ -131,6 +132,11 @@ export const resolveGrantByAccessTokenReturns = v.union(
      * since that was recorded. `orient` names the tool changes after it.
      */
     toolsListedAt: v.number(),
+    /**
+     * A group chat's own key (`textGroups.groupKey`), on a chat's grant only: the chat whose Tex notes this turn may
+     * reach (`store/texRouting.js`). Read from the grant, never from the request.
+     */
+    texChatId: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     role: v.string(),
@@ -185,6 +191,7 @@ export async function resolveGrantByAccessTokenHandler(
     .query("oauthClients")
     .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
     .unique();
+  const chatId = await texChatIdOf(ctx, live);
   return {
     grantId: live.grant._id,
     clientId: live.grant.clientId,
@@ -193,6 +200,7 @@ export async function resolveGrantByAccessTokenHandler(
     scopes: live.grant.scopes,
     expiresAt: live.grant.accessTokenExpiresAt as number,
     toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
+    ...(chatId === null ? {} : { texChatId: chatId }),
     workspaceId: live.grant.workspaceId,
     slug: live.workspace.slug,
     role: live.role,

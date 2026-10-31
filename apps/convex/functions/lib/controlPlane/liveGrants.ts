@@ -305,6 +305,17 @@ export async function contextsForGrant(
  * holds to edit, so the gateway's chat-home session (`sessionForChatHome`)
  * may change that folder and only read the rest. `chatHome` names the folder.
  */
+/**
+ * The group chat a grant is for, by its key (`textGroups.groupKey`), or null for any other grant. Read from the
+ * grant's own row, never from the request: the gateway keys a chat's Tex notes by it (`store/texRouting.js`), so
+ * this is the one place a turn learns which chat it is.
+ */
+export async function texChatIdOf(ctx: QueryCtx, live: LiveGrant): Promise<string | null> {
+  const groupId = live.grant.texGroup?.groupId;
+  if (groupId === undefined) return null;
+  return (await ctx.db.get(groupId))?.groupKey ?? null;
+}
+
 async function groupSetupRow(ctx: QueryCtx, live: LiveGrant, own: Id<"workspaces">) {
   const pinned = await pinnedContextRow(ctx, new Set([own]));
   if (pinned === null) return [];

@@ -44,6 +44,18 @@ Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
 
+## Which object a turn may reach
+
+A group chat's object is named by its key (`chat:<groupKey>`, the chat's
+`textGroups.groupKey`). The key reaches the gateway only on the chat's own
+grant, from the control plane, and only under the group client
+(`session.js` `normalizeSession` via `sessionPayload.js`). A store is built
+with the one key its session carries and no other (`sessionStore.js`
+`texChatsOf`), so a person's turn reaches no chat's object and one chat's turn
+reaches no other's. A new note under a chat's home in the pinned workspace is
+keyed to that chat, and nowhere else: the home is found by its three words and
+only in the pin (`lib/noteIds/texHome.ts`).
+
 ## What changes in the non-negotiables
 
 - **#1**: a note body lives in the workspace's bucket, *except* a note whose

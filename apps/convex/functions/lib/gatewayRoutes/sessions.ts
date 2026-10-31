@@ -83,6 +83,8 @@ export async function gatewaySessionHandler(
       // one. Reach, not permission: the role on each entry is what the gateway
       // clamps that context's scopes and visibility tier to.
       workspaces: session.workspaces,
+      // A group chat's own key, on its turn's grant only (`liveGrants.ts` `texChatIdOf`): the chat whose Tex notes it reaches.
+      ...(session.texChatId === undefined ? {} : { texChatId: session.texChatId }),
     },
   });
 }
