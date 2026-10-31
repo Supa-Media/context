@@ -157,6 +157,17 @@ describe("decide in a person's own chat", () => {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
     });
 
+    it(`one text with nothing waiting goes straight to Tex: decide is never asked (${line.name})`, async () => {
+      // Tex's front door (Seyi, 2026-10-31). Sabotage: drop the early return in `chooseTurn` and decided has one entry.
+      const storage = new MemoryStorage();
+      const w = world(act("react"));
+      await accept(storage, msg(line.chatId, "e1", "hi Tex"), 1_000);
+      expect(storage.alarms.at(-1)).toBe(1_000);
+      await drain(storage, w.deps);
+      expect(w.decided).toEqual([]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["hi Tex"]);
+    });
+
     it(`react sends a tapback picked from the words, and no answer (${line.name})`, async () => {
       const storage = new MemoryStorage();
       const w = world(act("react"));

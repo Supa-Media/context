@@ -698,3 +698,10 @@ Moved to [Tex invites people, and offers a shared workspace when work involves t
 every turn is told to offer one, once, for work done with at least one other
 person, by making the held `create_workspace` with `invite` itself, so one
 texted YES makes the workspace and invites them.
+
+### Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)
+
+Moved to [texting-assistant/front-door.md](./texting-assistant/front-door.md):
+on a chat turn only who's asking and Haiku run before the reply; a yes or no
+on a held change is still matched in code first; the reply checks are gone and
+the chat is saved after the reply.

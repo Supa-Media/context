@@ -439,6 +439,8 @@ export async function runEmailGateChecks(check) {
       attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
     };
     const RETRY = { ...FORWARD, body: "Forwarding the Anthropic receipt #2508-0278-2435 for the $212.00 Max plan, paid today." };
+    // Tex's own preview raised as the hold is the old turn's offer notice: front door off (`frontDoor.js`).
+    env.TEX_FRONT_DOOR = "off";
     model.install([
       {
         text:
@@ -493,6 +495,7 @@ export async function runEmailGateChecks(check) {
         sends().at(-1)?.email?.subject === "Re: Saturday" &&
         /^Done, I sent an email/.test(sentYes.body?.answer ?? ""),
     );
+    delete env.TEX_FRONT_DOOR;
 
   } finally {
     world.restore();
