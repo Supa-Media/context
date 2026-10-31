@@ -26,7 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
-import { saysSkip } from "./groupRoutines";
+import { isControlWord } from "./controlWords";
 import {
   askAgent,
   askLine,
@@ -295,8 +295,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
       const after = notStarted ? [notStarted] : [];
-      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`).
-      if (!answer.text || (message.event === "job_report" && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0)) return after;
+      // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
+      if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).

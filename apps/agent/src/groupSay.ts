@@ -13,6 +13,8 @@ import type { Picture } from "./line";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
+import { writeTextTiming, type TimingDataset } from "./textTiming";
+import { isControlWord } from "./controlWords";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -60,8 +62,9 @@ export function log(outcome: string, reason?: string): void {
 }
 
 /** Where an answered group turn's time went, from its first message in to its last bubble out: milliseconds only. */
-export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: number; asking: number; answered: number; sent: number }): void {
+export function logTiming({ arrivedAt, asking, answered, firstSent, sent, parts }: { arrivedAt: number; asking: number; answered: number; firstSent?: number; sent: number; parts: number }, dataset?: TimingDataset): void {
   console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
+  writeTextTiming(dataset, "group", { queueMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, toFirstTextMs: firstSent === undefined ? undefined : firstSent - arrivedAt, toLastTextMs: sent - arrivedAt, parts });
 }
 
 /**
@@ -127,6 +130,7 @@ export type SayMeta = { turn?: string; covers?: string[]; people?: string; syste
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
+  if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
 

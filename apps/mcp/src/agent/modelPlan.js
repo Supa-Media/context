@@ -48,6 +48,25 @@ export const DRIVER_PROMPT =
   "didn't work: a sign-in page can linger. When a step fails, try the next sensible way once, then say plainly what is blocked.";
 
 /**
+ * The router a turn runs with, from a setup this deployment can call: the
+ * setup's router (Clef picks each text's tier), or, with only a planner
+ * (`think` and `think_rounds`, no router; the owner, 2026-10-31: "Opus plans,
+ * Haiku executes" for jobs), one that never decides: `jobsOnly`, so a
+ * background job's turn plans on `think` and every other text stays on
+ * `main`. Null when the setup has neither or `think` can't be called.
+ *
+ * @param {{router: object|null, planner?: {think: string, thinkRounds: number}|null}} setup
+ * @param {(model: string) => boolean} canRun
+ * @param {() => Function} decide the decision engine, made only for a router
+ */
+export function turnRouter(setup, canRun, decide) {
+  const { router, planner = null } = setup;
+  if (router !== null && canRun(router.think)) return { decide: decide(), think: router.think, routeAt: router.routeAt, thinkRounds: router.thinkRounds };
+  if (router === null && planner !== null && canRun(planner.think)) return { decide: null, think: planner.think, thinkRounds: planner.thinkRounds, jobsOnly: true };
+  return null;
+}
+
+/**
  * The plan for one routed turn, or null when the whole turn stays on one model.
  *
  * @param {{think: string, thinkRounds?: number}|null} router the setup's router

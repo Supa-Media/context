@@ -33,7 +33,10 @@
  *     → "a turn with no job after two rounds of tools is told once to hand the rest to one" fails.
  * 10. The answer leaving out a job part's `untrusted`.
  *     → "a job's part that carries a read from outside says so, for the next part" fails.
- * 11. `openProvider` called without `background` in `route.js` (2026-10-31).
+ * 11. `reportReply` returning the model's answer unchanged (2026-10-31, SKIP texted).
+ *     → "...and its SKIP reaches the Worker as a flag, never as a word" and
+ *     "a finished job answered SKIP still gets one plain status line" fail.
+ * 12. `openProvider` called without `background` in `route.js` (2026-10-31).
  *     → "a job's part is started off the daily cap..." and "a job's report to the chat's turn is off the daily cap too" fail.
  */
 
@@ -348,7 +351,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     check(
       "...shown the job's report apart from it, as words that vouch for nothing, with what it may do",
       /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(systemOf(coordinator)) &&
-        /read the page or note it names/.test(systemOf(coordinator)) && /answer exactly SKIP/.test(systemOf(coordinator)),
+        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never answer SKIP/.test(systemOf(coordinator)) && !/answer exactly SKIP/.test(systemOf(coordinator)),
     );
     check("...and may start the job again, as any texted turn may", /background: Hand a long task/.test(sendTool(coordinator)?.description ?? ""));
     const reportTurns = conversationTurns(bucket);
@@ -371,6 +374,18 @@ export async function runAgentBackgroundRouteChecks(check) {
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
     );
+    check("...a running job's report may be met with nothing: offered as SKIP", /answer exactly SKIP: nothing is texted/.test(systemOf(model.turn())));
+    check("...and its SKIP reaches the Worker as a flag, never as a word", noted.body?.answer === "" && noted.body?.quiet === true);
+    check("...kept in the conversation as nothing texted, never as Tex saying SKIP", /^\(You texted them nothing/.test(conversationTurns(bucket).at(-1)?.text ?? "") && !conversationTurns(bucket).some((turn) => /^\W*SKIP\W*$/.test(turn.text ?? "")));
+    model.install([{ text: "SKIP" }]);
+    const ended = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: { title: "Toll totals", state: "done", texts: ["You paid $84.50 in tolls since August: 13 E-ZPass charges."] }, running: [] });
+    check(
+      "a finished job answered SKIP still gets one plain status line with its result (a0365e)",
+      ended.status === 200 && ended.body?.answer === "Done: Toll totals. You paid $84.50 in tolls since August: 13 E-ZPass charges." && ended.body?.quiet === undefined,
+    );
+    model.install([{ text: "Your tolls came to $84.50, mostly the Lincoln Tunnel. SKIP" }]);
+    const worded = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: { title: "Toll totals", state: "done", texts: ["$84.50."] }, running: [] });
+    check("...and its own words go without the control word", worded.body?.answer === "Your tolls came to $84.50, mostly the Lincoln Tunnel.");
 
     /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
 
