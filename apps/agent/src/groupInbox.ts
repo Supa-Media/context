@@ -46,11 +46,10 @@
 
 import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
-import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
-import { noteGuestChat } from "./groupGuestPeople";
+import { askControlPlane, type ControlAnswer } from "./groupControl";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
-export type { Command, ControlAnswer, GuestInfo };
+export type { Command, ControlAnswer };
 import { log, MAX_SENT, say, SENT_KEY, timedReply, type ReplyClock } from "./groupSay";
 import type { Picture } from "./line";
 import type { ImagesLike } from "./attachments";
@@ -478,7 +477,6 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "not_allowed") {
     return void (await fixed(command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug)));
   }
-  if (status === "guests_off" || status === "invited") await noteGuestChat(storage, message, false);
   if (status === "invited") {
     await storage.delete(CHOICE_KEY);
     await setChatBound(storage, message);
@@ -487,7 +485,6 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "mail_shared") return void (await fixed(GROUP_LINES.mailShared(asked.address, asked.narrowed)));
   if (status === "mail_unshared") return void (await fixed(GROUP_LINES.mailUnshared(asked.count)));
   if (status === "mail_refused") return void (await fixed(GROUP_LINES.mailRefused));
-  if (status === "guests_off") return void (await fixed(GROUP_LINES.guestsOff));
   if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
   if (status === "started") return void (await fixed(GROUP_LINES.started));
   if (status === "choose") {
@@ -500,14 +497,11 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // and every untagged text after it would be dropped as said in front of other people.
   if (!routine) {
     await setChatBound(storage, message);
-    // That turn synced the chat's people; later messages send them again only when they change (`groupGuestPeople.ts`).
-    await noteGuestChat(storage, message, asked.guest !== undefined);
   }
   await keepNames(storage, asked.names ?? []);
   if (asked.engagement !== undefined || asked.engagementChosen !== undefined) await keepStyle(storage, asked.engagement ?? "followAlong", asked.engagementChosen !== false);
-  const guest = asked.guest;
-  if (command?.kind === "use") return void (await fixed(guest ? GROUP_LINES.guestBound(asked.slug, guest) : GROUP_LINES.bound(asked.slug, asked.intro)));
-  if (command?.kind === "status") return void (await fixed(guest ? GROUP_LINES.guestStatus(asked.slug, guest) : GROUP_LINES.status(asked.slug)));
+  if (command?.kind === "use") return void (await fixed(GROUP_LINES.bound(asked.slug, asked.intro)));
+  if (command?.kind === "status") return void (await fixed(GROUP_LINES.status(asked.slug)));
   // "Tex, settings", a reply to its menu, or "Tex, less emoji" (`groupSettings.ts`).
   if (command?.kind === "settings" || command?.kind === "style" || command?.kind === "review_sharing" || item.setting) return clock?.path(command?.kind ?? "setting"), await groupSettings(storage, deps, message, command, item.setting, asked);
   if (item.engagement) return await chooseStyle(storage, deps, message, item.engagement, asked);
@@ -516,7 +510,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const conversation: Conversation = { group: message.groupId };
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   // The introduction is one-shot (the control plane marks it given), so it goes before anything else.
-  if (asked.intro) await fixed(guest ? GROUP_LINES.guestIntro(asked.slug, guest) : GROUP_LINES.intro(asked.slug));
+  if (asked.intro) await fixed(GROUP_LINES.intro(asked.slug));
   // The first time Tex is asked something in a group whose style nobody chose, it asks that first and holds the message.
   if (asked.engagementChosen === false && !item.styleAsked && !routine && message.reaction === undefined && !(await questionOpen(storage, deps.now()))) {
     await openQuestion<Pending>(storage, deps.now(), { ...item, message, covers });

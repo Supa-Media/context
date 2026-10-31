@@ -14,7 +14,6 @@ export type ControlAnswer =
   | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
-  | { status: "guests_off" }
   | { status: "mail_shared"; address: string; narrowed: boolean }
   | { status: "mail_unshared"; count: number }
   | { status: "mail_refused" }
@@ -28,7 +27,6 @@ export type ControlAnswer =
       handle?: string;
       accessToken?: string;
       names?: { phone: string; handle: string }[];
-      guest?: GuestInfo;
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
@@ -39,19 +37,8 @@ export type ControlAnswer =
       texStyle?: TexStyle;
     };
 
-/** A guest chat's group, three words and folder (`apps/convex/functions/lib/textGroupGuests.ts`). */
-export type GuestInfo = { group: string; words: string; folder: string };
-
 const LABEL = /^guest-[0-9a-f]{4}$/;
 const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
-const WORDS = /^[a-z]{2,12}-[a-z]{2,12}-[a-z]{2,12}$/;
-
-function guestInfoOf(value: unknown): GuestInfo | undefined {
-  const info = record(value);
-  if (typeof info.group !== "string" || !/^[a-z0-9][a-z0-9-]{1,99}$/.test(info.group)) return undefined;
-  if (typeof info.words !== "string" || !WORDS.test(info.words) || typeof info.folder !== "string") return undefined;
-  return { group: info.group, words: info.words, folder: info.folder };
-}
 
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" || command.kind === "settings" || command.kind === "style" || command.kind === "review_sharing" ? undefined : command;
@@ -82,8 +69,6 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     case "not_allowed":
       if (!slug(body.slug)) throw new ServiceError("control_plane", status);
       return { status: "not_allowed", slug: body.slug as string };
-    case "guests_off":
-      return { status: "guests_off" };
     case "mail_shared":
       if (typeof body.address !== "string" || !MAIL_ADDRESS.test(body.address)) throw new ServiceError("control_plane", status);
       return { status: "mail_shared", address: body.address, narrowed: body.narrowed === true };
@@ -111,7 +96,6 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         names: (Array.isArray(body.names) ? body.names : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && slug(entry.handle) ? [{ phone: entry.phone, handle: entry.handle as string }] : [],
         ),
-        ...(guestInfoOf(body.guest) ? { guest: guestInfoOf(body.guest) } : {}),
         guests: (Array.isArray(body.guests) ? body.guests : []).map(record).flatMap((entry) =>
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
         ),

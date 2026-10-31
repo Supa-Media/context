@@ -368,7 +368,6 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     // Who is here and what the chat may read, as its own turn is told (`groupInbox.ts`): a job that drops `mail`
     // can't open the inbox shared with the chat it is working for.
     people: [...new Set((asked.names ?? []).map(({ handle }) => handle))].filter(Boolean),
-    ...(asked.guest ? { guest: asked.guest } : {}),
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
     chat: [],
   };

@@ -3,7 +3,6 @@
  * (moved out of `groupInbox.ts` whole, so the queue stays under its size limit).
  */
 
-import type { GuestInfo } from "./groupControl";
 
 /** How a picture sent without words reads in the chat Tex is handed. */
 export const PICTURE_LINE = "(sent a picture or file)";
@@ -27,14 +26,6 @@ export const GROUP_LINES = {
         `"Tex, stop" mutes me and "Tex, start" brings me back.`
       : ""),
   status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
-  // Guest mode (`docs/decisions/texting-assistant/group-guests.md`): people here who aren't on Context are guests.
-  guestBound: (slug: string, guest: GuestInfo) =>
-    `Got it. Everyone here is a guest of @${slug} now, as the group @${guest.group}. I only see notes shared with that group, ` +
-    `and I keep what I make for this chat in ${guest.folder}. Anyone here can start a message with "Tex" to ask me something. "Tex, stop" mutes me.`,
-  guestIntro: (slug: string, guest: GuestInfo) =>
-    `Hi, I'm Tex. Anyone here can start a message with "Tex" and I'll answer, using only notes shared with @${guest.group} in @${slug}. ` +
-    `I keep what I make in ${guest.folder}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
-  guestStatus: (slug: string, guest: GuestInfo) => `In this chat I can see only notes shared with @${guest.group} in @${slug}.`,
   notAllowed: (slug: string) => `Only an owner or editor of @${slug} can bring it into this chat. One of them can say "Tex use @${slug}".`,
   // Invited family (`docs/decisions/texting-assistant/invited-family.md`): an owner adds everyone here by number.
   invited: (slug: string, count: number, role: string) =>
@@ -52,9 +43,6 @@ export const GROUP_LINES = {
     "I can only share a Gmail you've connected to Context yourself, in a chat that uses a workspace you can edit. " +
     "Text me on your own to connect it, then ask here again.",
   notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
-  guestsOff:
-    "The person who brought me into this chat can't share that workspace here anymore, so I'm stepping back. " +
-    'An owner or editor can say "Tex use @name" to start again.',
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
