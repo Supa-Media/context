@@ -76,7 +76,7 @@ jobs:
               const NUMERIC = new Set(["attempts", "ms", "status"]);
               const code = (v) => {
                 const t = String(v);
-                return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+                return (/^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t)) || /^\d{1,6}$/.test(t) ? t : "other";
               };
               const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
               const prefix = process.env.EVENT_PREFIX ?? "";
@@ -112,7 +112,7 @@ jobs:
           const NUMERIC = new Set(["attempts", "ms", "status"]);
           const code = (v) => {
             const t = String(v);
-            return /^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t) ? t : "other";
+            return (/^[a-z][a-z0-9_:-]{0,39}$/i.test(t) && !/\d{7}/.test(t)) || /^\d{1,6}$/.test(t) ? t : "other";
           };
           const show = (k, v) => (NUMERIC.has(k) && /^\d{1,9}(?:\.\d{1,3})?$/.test(String(v)) ? String(v) : code(v));
           const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`;
