@@ -41,7 +41,7 @@ Each tagged message is resolved again by the control plane
   the chat is still a member, nobody has paused texting and the chat isn't
   muted (`liveGrants.ts`), so removing someone from the workspace stops the
   next tool call. The tagger's role decides writes; the turn is metered on
-  the tagger's personal workspace; audit records the tagger.
+  the chat's sponsor's personal workspace (the owner, 2026-10-31, below); audit records the tagger.
 
 ## Tex follows the whole chat (the owner, 2026-10-21)
 
@@ -431,3 +431,7 @@ it was refused (the same cap had cut off the tree's manifest on 2026-10-13).
 control-plane refusal is logged by what went wrong (`response_too_large`,
 `timed_out`, a status). Test: `storageUnavailableLog.test.mjs` "a binding whose
 access rules are past 256 KB still opens".
+
+## Who pays for a group chat's turns (the owner, 2026-10-31)
+
+The person who brought Tex into a chat is its sponsor: the first account holder whose turn mints a grant there, set once and never overwritten (a row from before this rule reads its binder, then its tagger). Every turn in the chat is metered to the sponsor's personal workspace, whoever tagged Tex, guest chats included; if the sponsor has no personal workspace or texting is paused for them, the turn falls back to today's meter, the tagger's (a guest chat's binder's). Each finished turn's cost is also recorded per day against the person who tagged Tex, so the chat can show each person's share; a guest tagger's turn is recorded as `guest` until the gateway can name the number, and the owner's decision lets guests' numbers be stored when it does. Nothing reads these shares publicly yet. Code: `functions/lib/textGroupUsage.ts`, `functions/textGroupUsage.ts`; tests: `__tests__/textGroupUsage.test.ts`.

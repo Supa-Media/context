@@ -18,6 +18,7 @@ import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail 
 import { armChatLook } from "./lib/textGroupLooks";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
+import { sponsorOf } from "./lib/textGroupUsage";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -603,8 +604,14 @@ async function mintGroupGrant(
   const taggerRole = input.invited?.taggerRole;
   const scopes = clampScopes(clampScopes([SCOPE_READ, SCOPE_WRITE], membership.role), taggerRole ?? membership.role);
   if (!hasOperationScope(scopes)) return false;
-  // A guest chat counts against whoever opened it to guests (the owner, 2026-10-25), whoever tagged Tex.
-  const meterWorkspaceId = await personalWorkspaceOf(ctx, input.guest?.binder ?? input.tagger);
+  // Every turn in the chat is metered to its sponsor, who brought Tex in, whoever tagged it (the owner, 2026-10-31).
+  // The sponsor is set once, here, when the row has none (`lib/textGroupUsage.ts`).
+  const fresh = (await ctx.db.get(input.group._id)) ?? input.group;
+  const sponsor = sponsorOf(fresh, input.tagger);
+  const sponsorMeter = (await phoneSignInPaused(ctx, sponsor)) ? null : await personalWorkspaceOf(ctx, sponsor);
+  // The sponsor has no personal workspace, or texting is paused for them: keep today's meter, the tagger's (a guest chat's
+  // binder's, since a guest chat counts against whoever opened it to guests, the owner, 2026-10-25).
+  const meterWorkspaceId = sponsorMeter ?? (await personalWorkspaceOf(ctx, input.guest?.binder ?? input.tagger));
   if (meterWorkspaceId === null) return false;
   await ensureGroupClient(ctx, TEXTS_GROUP_CLIENT_ID, TEXTS_GROUP_CLIENT_NAME);
 
@@ -641,6 +648,7 @@ async function mintGroupGrant(
   } else {
     await ctx.db.patch(reusable._id, token);
   }
+  if (fresh.sponsorId === undefined) await ctx.db.patch(input.group._id, { sponsorId: sponsor });
   await ensureChatHome(ctx, input.group, input.people, input.tagger);
   await recordAudit(ctx, {
     workspaceId: input.workspaceId,

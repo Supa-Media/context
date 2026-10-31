@@ -20,6 +20,13 @@ export const textGroupTables = {
     /** The one shared workspace this chat reads, writes and remembers in, once chosen. */
     workspaceId: v.optional(v.id("workspaces")),
     boundBy: v.optional(v.id("users")),
+    /**
+     * The person who brought Tex into the chat (decided by the owner, 2026-10-31): set once, by the first account
+     * holder whose turn mints a grant here, and never overwritten. Every turn in the chat is metered to the sponsor's
+     * personal workspace, whoever tagged Tex. Absent on rows from before: read as `boundBy`, then the tagger
+     * (`lib/textGroupUsage.ts`), and written on the next turn that mints.
+     */
+    sponsorId: v.optional(v.id("users")),
     /** "Tex, stop": nothing but "Tex, start" is answered until it is lifted. */
     mutedAt: v.optional(v.number()),
     mutedBy: v.optional(v.id("users")),
@@ -78,6 +85,22 @@ export const textGroupTables = {
     .index("by_nextLookAt", ["nextLookAt"])
     .index("by_home_words", ["homeWords"])
     .index("by_look_run", ["lookRunId"]),
+  /**
+   * What each person spent in a group chat, per UTC day (`lib/textGroupUsage.ts`, decided by the owner, 2026-10-31):
+   * the cost of each finished turn, recorded against the person who tagged Tex. `who` is `user:<userId>` for an
+   * account holder, `phone:<E.164>` for a number, or `guest` for a guest tagger whose number is not known to the
+   * gateway yet. Counts and cost only, never a message.
+   */
+  textGroupUsage: defineTable({
+    groupId: v.id("textGroups"),
+    who: v.string(),
+    /** YYYY-MM-DD, UTC. */
+    day: v.string(),
+    turns: v.number(),
+    /** Micro-USD, priced as `addUsage` prices the same turn. */
+    costMicroUsd: v.number(),
+    updatedAt: v.number(),
+  }).index("by_group_day_who", ["groupId", "day", "who"]),
   /**
    * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
    * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):
