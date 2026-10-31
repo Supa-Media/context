@@ -21,6 +21,8 @@
  *  - render the rows for a member in `guestReach`: "only what the chat's group can see" fails (the team note opens);
  *  - drop `clearChatPhones` from `clearGuests`: "guest mode off ends a legacy pass" fails on the kept rows;
  *  - drop the delete loop in `syncChatPhones`: "someone who left the chat" fails.
+ *  - drop the `guestBinder` check in `enrol`: "a chat whose guest mode its binder may no longer open" fails
+ *    (an account is made and named on the folder under a role its binder no longer holds).
  */
 
 import { generateKeyPairSync } from "node:crypto";
@@ -204,6 +206,33 @@ describe("a guest in the chat with no account", () => {
     const [account] = await accountsWith(w, FRIEND);
     const chat = await w.t.run((ctx) => ctx.db.get(chatId));
     expect(chat?.guestFolderUsers).toEqual([account!._id]);
+  });
+
+  test("a chat whose guest mode its binder may no longer open makes no account and names nobody", async () => {
+    // `guestBinder` is the gate the chat's own turns pass: its group is there, and the person who turned guest
+    // mode on is still an owner or editor of the workspace, with texting not paused. An enrolment names that
+    // person's authority on the folder (`nameOutsider` asserts `role: "owner"` to `setAccessRow`), so it has to
+    // ask the same question the turn asks.
+    const w = await world();
+    const { chatId } = await guestChat(w);
+    await seedTreeRows(w.t, w.ws, [`${FOLDER}/flights.md`]);
+    await w.t.run(async (ctx) => {
+      await ensureChatFolderGrant(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">, w.owner);
+    });
+    // Taken off the workspace since: the chat row still says guest mode, and says they turned it on.
+    await w.t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) => q.eq("workspaceId", w.ws).eq("userId", w.owner))
+        .unique();
+      if (membership === null) throw new Error("the binder has no membership to take away");
+      await ctx.db.delete(membership._id);
+    });
+
+    expect(await w.t.action(api.functions.guestPass.start, { phone: FRIEND, slug: "@acme" })).toEqual({ status: "sent", phone: FRIEND });
+    expect(await w.t.action(api.functions.guestPass.verify, { phone: FRIEND, code: GOOD_CODE })).toEqual({ status: "unavailable" });
+    expect(await accountsWith(w, FRIEND)).toEqual([]);
+    expect((await w.t.run((ctx) => ctx.db.get(chatId)))?.guestFolderUsers).toBeUndefined();
   });
 
   test("a legacy pass still reads only what the chat's group can see: team, private and unshared notes stay shut", async () => {
