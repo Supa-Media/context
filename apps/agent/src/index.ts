@@ -31,6 +31,7 @@ import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
 import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
+import { TEX_ROUTINE_DUE_PATH, texRoutineDue } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
@@ -88,6 +89,12 @@ export interface Env {
   CONTROL_PLANE_ORIGIN: string;
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
+  /**
+   * The bearer the gateway's Tex store sends on `/tex/routine-due`, its alarm's
+   * call (`texRoutineDue.ts`). Unset, that route refuses everything, and the
+   * cron still runs every routine.
+   */
+  TEX_ALARM_SECRET?: string;
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
@@ -139,6 +146,10 @@ export default {
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
+    // A Tex store's alarm (`texRoutineDue.ts`), refused without its own bearer.
+    if (url.pathname === TEX_ROUTINE_DUE_PATH) {
+      return texRoutineDue(request, env, (phone, text, key) => textPhone(env, phone, text, key));
+    }
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });

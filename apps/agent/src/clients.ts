@@ -581,6 +581,8 @@ export type DueRoutine = {
   chat?: string;
   /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
   since?: number;
+  /** When this routine runs next after this run (`null` when paused). */
+  nextRunAt?: number | null;
 };
 
 /** Most runs one tick takes on; the rest are still due on the next. */
@@ -590,9 +592,9 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 const isSend = (value: unknown): value is RoutineSend => value === "text" || value === "note" || value === "both";
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
-/** The runs that are due now. A malformed one is dropped, never guessed at. */
-export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: string): Promise<DueRoutine[]> {
-  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/due`, secret, {});
+/** The runs due now (the cron's), or with `scope` the one routine an alarm asks for. A malformed run is dropped, never guessed at. */
+export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: string, scope?: { workspaceId: string; path: string }): Promise<DueRoutine[]> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/routines/due`, secret, scope ? { scope } : {});
   if (status !== 200) throw new ServiceError("control_plane", status);
   const runs = record(json).runs;
   if (!Array.isArray(runs)) throw new ServiceError("control_plane", status);
@@ -615,6 +617,7 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
       phones,
       ...(chat === undefined ? {} : { chat }),
       ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
+      ...(typeof run.nextRunAt === "number" || run.nextRunAt === null ? { nextRunAt: run.nextRunAt as number | null } : {}),
     });
   }
   return due;

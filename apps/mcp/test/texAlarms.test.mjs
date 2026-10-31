@@ -63,13 +63,16 @@ function reach(store) {
   return { fetch: (request) => store.fetch(request) };
 }
 
-/** A dispatcher that records each routine it ran; the ids in `refuse` throw until the set is cleared. */
+/**
+ * A dispatcher that records each routine it ran, and answers when it runs next
+ * (`null`: never again from here). The ids in `refuse` throw until the set is cleared.
+ */
 function dispatcher(refuse = new Set()) {
   const ran = [];
   const dispatch = async (routine) => {
     if (refuse.has(routine.id)) throw new Error("the place is down");
     ran.push(routine.id);
-    return true;
+    return { next: null };
   };
   return { ran, dispatch };
 }

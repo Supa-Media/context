@@ -148,6 +148,16 @@ new_sqlite_classes = ["TexStore"]
 binding = "SITE_SHOTS"
 service = "context-site-shots"
 
+# The texting Worker (apps/agent). A Tex store's alarm calls its
+# `/tex/routine-due` to run a routine on time (`src/texStore/dispatch.js`).
+# Reached only through this binding, and checked there by TEX_ALARM_SECRET,
+# which is set with `wrangler secret put` on this Worker and on context-agent.
+# Self-hosting without the texting Worker: delete this block; routines then
+# run on the minute's cron, as they always have.
+[[services]]
+binding = "TEXTING"
+service = "context-agent"
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
@@ -231,6 +241,10 @@ class_name = "TexStore"
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
+
+[[env.staging.services]]
+binding = "TEXTING"
+service = "context-agent-staging"
 
 [env.staging.ai]
 binding = "AI"

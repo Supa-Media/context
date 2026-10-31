@@ -17,27 +17,21 @@
  */
 
 import { cancel, due, nextAt, retry, schedule, settle } from "./texStore/alarms.js";
+import { routineDispatchFor } from "./texStore/dispatch.js";
 import { texObjects } from "./texStore/objects.js";
 import { serveTexStore } from "./texStore/wire.js";
 
-/** How long a routine that did not run waits before it is tried again. */
+/** How long a routine that could not be handed on waits before it is tried again. */
 export const RETRY_MS = 60 * 1000;
-
-/**
- * The default dispatch: nothing is wired, so no routine runs and every due one
- * waits for `RETRY_MS`. The place that runs routines is injected by whoever
- * builds the object, since `env` cannot carry a function; wiring it is the open
- * step in `docs/decisions/texting-assistant/tex-durable-objects.md`.
- */
-const unwired = async () => false;
 
 export class TexStore {
   /**
    * @param {object} state the Durable Object's state (`storage.sql`, `setAlarm`, `deleteAlarm`)
-   * @param {object} env the Worker's bindings
-   * @param {{dispatch?: (routine: {id: string, at: number, payload: unknown}) => Promise<boolean>, now?: () => number}} [options]
+   * @param {object} env the Worker's bindings (`TEXTING`, `TEX_ALARM_SECRET`: `texStore/dispatch.js`)
+   * @param {{dispatch?: (routine: {id: string, at: number, payload: unknown}) => Promise<{next: number | null}>, now?: () => number}} [options]
+   *   `dispatch` hands a due routine on and answers when it next runs, or throws to have it tried again.
    */
-  constructor(state, env, { dispatch = unwired, now = Date.now } = {}) {
+  constructor(state, env, { dispatch = routineDispatchFor(env), now = Date.now } = {}) {
     this.state = state;
     this.env = env;
     this.dispatch = dispatch;
@@ -76,23 +70,26 @@ export class TexStore {
   }
 
   /**
-   * The runtime alarm fired: hand each due routine on, one after another. A
-   * routine that ran is removed; one that did not waits `RETRY_MS`, so the
-   * alarm is never armed at a time that is already past and nothing is lost.
+   * The runtime alarm fired: hand each due routine on, one after another. One
+   * handed on answers when it next runs, and the routine is kept for that time;
+   * one that answers no next time is removed; one that could not be handed on
+   * waits `RETRY_MS`. Nothing is ever armed at a time already past, so nothing
+   * is lost and the alarm does not spin.
    */
   async alarm() {
     this.ready();
     const sql = this.state.storage.sql;
     const started = this.now();
     for (const routine of due(sql, started)) {
-      let ran = false;
+      let answer = null;
       try {
-        ran = (await this.dispatch(routine)) === true;
+        answer = await this.dispatch(routine);
       } catch {
-        ran = false;
+        answer = null;
       }
-      if (ran) settle(sql, routine.id, routine.at);
-      else retry(sql, routine, started + RETRY_MS);
+      if (answer === null) retry(sql, routine, started + RETRY_MS);
+      else if (typeof answer.next === "number") retry(sql, routine, answer.next);
+      else settle(sql, routine.id, routine.at);
     }
     this.arm();
   }

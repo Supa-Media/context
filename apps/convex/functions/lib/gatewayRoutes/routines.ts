@@ -10,10 +10,12 @@
  * None of them carries note text in either direction.
  */
 
+import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
+import { INVALID_SCOPE } from "../routines/runs";
 import { MAX_DUE_RUNS, isRoutineOutcome } from "../routines/model";
 
 /**
@@ -48,16 +50,20 @@ export async function gatewayRoutinesHandler(
 }
 
 /**
- * `POST /agent-texts/routines/due` — `{}` →
- * `{ runs: [{ runId, accessToken, path, timeZone, send, phones }] }`.
+ * `POST /agent-texts/routines/due` — `{}` → every run due now (the cron), or
+ * `{ scope: { workspaceId, path } }` → the one routine's run, if it is due now
+ * (an alarm). Both → `{ runs: [{ runId, accessToken, path, timeZone, send,
+ * phones, nextRunAt }] }`. A scope that does not name a workspace is a 400.
  *
  * The plaintext tokens are made here and returned once; only their hashes
  * reach the database, with a refresh hash nobody was given.
  */
 export async function agentRoutinesDueHandler(
   ctx: ActionCtx,
-  _body: Record<string, unknown>,
+  body: Record<string, unknown>,
 ): Promise<Response> {
+  const scope = dueScopeOf(body.scope);
+  if (scope === "invalid") return badRequest();
   const plaintext: string[] = [];
   const tokens: Array<{ hashedAccessToken: string; hashedRefreshToken: string }> = [];
   const runIds: string[] = [];
@@ -70,11 +76,32 @@ export async function agentRoutinesDueHandler(
     });
     runIds.push(`run_${randomOpaqueToken(16)}`);
   }
-  const claimed = await ctx.runMutation(internal.functions.routines.claimDueRoutines, { runIds, tokens });
+  let claimed;
+  try {
+    claimed = await ctx.runMutation(internal.functions.routines.claimDueRoutines, {
+      runIds,
+      tokens,
+      ...(scope === null ? {} : { scope }),
+    });
+  } catch (error) {
+    // Only a scope the table cannot read is a 400; anything else is the server's failure, as it always was.
+    if (scope !== null && error instanceof ConvexError && error.data === INVALID_SCOPE) return badRequest();
+    throw error;
+  }
   return json({
     // A chat routine's run carries no token: the chat's own turn mints one.
     runs: claimed.map(({ token, ...run }) => (token === undefined ? run : { ...run, accessToken: plaintext[token]! })),
   });
+}
+
+/** The scope a due call names: none (`null`, the cron's), one routine, or `"invalid"`. */
+function dueScopeOf(value: unknown): { workspaceId: string; path: string } | null | "invalid" {
+  if (value === undefined) return null;
+  if (typeof value !== "object" || value === null) return "invalid";
+  const { workspaceId, path } = value as Record<string, unknown>;
+  if (typeof workspaceId !== "string" || workspaceId.length === 0 || workspaceId.length > 128) return "invalid";
+  if (typeof path !== "string" || path.length === 0 || path.length > 1024 || path.includes("\0")) return "invalid";
+  return { workspaceId, path };
 }
 
 /**

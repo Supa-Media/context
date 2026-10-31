@@ -107,13 +107,35 @@ every change and every fire. When the alarm fires, each due row is handed on;
 one that ran is removed, one that did not waits a minute and is tried again,
 and no alarm is ever armed at a time already past. At most fifty go per fire.
 
-The payload never holds a grant or any other credential: a routine's run still
-reads its own grant where it is run, as it does today. Today routines are run
-by the texting Worker's once-a-minute cron (`apps/agent/src/routines.ts`), which
-pulls the due runs from the control plane; the object's alarm does not replace
-that until the place that runs a routine is wired in as the object's dispatch
-(`texStore.js`). Until then nothing schedules into the object in production,
-and an injected dispatch that is not set keeps every due routine waiting.
+The control plane's due list stays the source of truth, and the texting Worker's
+once-a-minute cron stays as the backstop. The alarm only makes a run happen on
+time instead of up to a minute late.
+
+**Dispatch.** An alarm calls the texting Worker through the gateway's `TEXTING`
+service binding (`texStore/dispatch.js`, `apps/agent/src/texRoutineDue.ts`):
+`POST /tex/routine-due` with `{owner, id}`, the owner being the person's
+workspace and the id the routine's path. The route needs `TEX_ALARM_SECRET` as
+its bearer, on both Workers, and refuses everything without it, a chat's owner
+included. It runs the routine through the cron's own path and answers when it
+next runs, and the object keeps the routine for that time. The object never
+holds a grant or any other credential: the texting Worker fetches the run and
+its token from the control plane itself.
+
+**Double fire.** The alarm and the cron can both ask. The control plane hands a
+run out once: a claim moves the routine's next time past now and holds a lease
+(`apps/convex/functions/lib/routines/runs.ts`), so the second ask finds nothing
+due. The alarm's ask is scoped to its one routine (`{scope: {workspaceId,
+path}}`) and never takes another routine's run.
+
+**Scheduling.** A write to a Tex routine's file sets its alarm, or cancels it when
+the file is gone or paused (`texStore/routineAlarm.js`, from `activity/record.js`).
+The time is computed from the file with the shared schedule module. That may not
+know the account's time zone, so an alarm can fire at a moment the control plane
+does not yet find due; then nothing runs and the cron runs it at its own time.
+Failure to schedule never fails the write.
+
+Not on alarms, for now: a routine in a group chat (its chat's own runs stay on
+the cron) and the routines under `routines/` (the cron runs them).
 
 ## Cost of reversing it
 

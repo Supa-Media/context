@@ -101,6 +101,36 @@ export async function runDueRoutines(deps: RoutineDeps): Promise<void> {
   await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, people.length) }, worker));
 }
 
+/**
+ * One routine, as an alarm asks for it (`texRoutineDue.ts`): its run if the
+ * control plane hands it out now, run exactly as the cron runs one, and the
+ * time it next runs. Nothing due is a `null` and runs nothing. Throws when the
+ * control plane cannot be asked, so the caller can ask again.
+ */
+export type RoutineScope = { workspaceId: string; path: string };
+
+export async function runScopedRoutine(deps: RoutineDeps, scope: RoutineScope): Promise<{ next: number | null }> {
+  if (!set(deps.controlPlaneOrigin) || !set(deps.workerSecret) || !set(deps.gatewayOrigin)) {
+    throw new Error("routines are not configured");
+  }
+  const origin = deps.controlPlaneOrigin;
+  const secret = deps.workerSecret;
+  const gateway = deps.gatewayOrigin;
+  const due = await fetchDueRoutines(deps.fetch, origin, secret, scope);
+  let next: number | null = null;
+  for (const run of due) {
+    try {
+      await runOne(run, deps, origin, secret, gateway);
+    } catch {
+      deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
+      await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(() => undefined);
+    }
+    next = run.nextRunAt ?? null;
+  }
+  deps.log({ event: "routine_alarm", runs: due.length });
+  return { next };
+}
+
 /** Due runs grouped by the phones they text, in the order they came. */
 export function byPerson(due: DueRoutine[]): DueRoutine[][] {
   const groups = new Map<string, DueRoutine[]>();

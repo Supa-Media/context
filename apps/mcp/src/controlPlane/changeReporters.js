@@ -5,6 +5,8 @@
  * through `reportTreeTouch`.
  */
 
+import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
+
 /**
  * The two reporters every write's `recordChange` reaches for, bound to the
  * workspace `store` reaches — the connection's own for the session store, the
@@ -18,7 +20,7 @@
  * on a host that cannot keep it alive — the line is in the customer's bucket
  * either way.
  */
-export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger } = {}) {
+export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger, env } = {}) {
   attachSmallData(store, workspaceId, controlPlane, readLedger);
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
@@ -28,6 +30,9 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     controlPlane.reportWebsiteChange(workspaceId, paths).catch(() => {});
   store.reportRoutineChange = (paths, userId) =>
     controlPlane.reportRoutineChange(workspaceId, userId, paths).catch(() => {});
+  // A person's own Tex routines run on their Tex store's alarm, set from the file (`texStore/routineAlarm.js`).
+  // Given the Worker's env only where the session's own workspace is the one written (never a cross-context store).
+  if (env !== undefined) store.syncRoutineAlarms = (paths) => syncRoutineAlarms(env, workspaceId, store, paths);
   // How long a search took and which index answered (`search/visibleNotes.js`),
   // for the admin console's search timing log. Behind the answer, like the rest.
   store.reportSearchTiming = (timing) => {
