@@ -133,6 +133,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // filing editing history by note id (`collaborationFiling.ts`, from `fileDue` and itself).
       "functions.trashEmptying.eraseWorkspace",
       "functions.collaborationFiling.fileWorkspace",
+      // Moves Tex's existing notes from a personal workspace's bucket into its Durable Object (`texMigration.ts`,
+      // `lib/texMigration/run.ts`), run by hand from the workflow. internalAction, reached only from that workflow's
+      // deploy key; it records counts and fixed codes, and paths only when a caller asks (the workflow never does). The tree side of the move
+      // (`texMigrationRows.ts`) reads no credential and stays out of this list.
+      "functions.texMigration.run",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

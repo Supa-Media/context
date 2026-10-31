@@ -17,7 +17,7 @@ import { idKeyFor } from "../nodes/noteIds";
 import { nodeAt } from "./state";
 
 /** The Tex folder's path in this workspace, or `null`: the folder with the `tex` job, else a root `tex` folder with none. */
-async function texFolderPath(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<string | null> {
+export async function texFolderPath(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<string | null> {
   const doing = await db
     .query("nodes")
     .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "tex"))

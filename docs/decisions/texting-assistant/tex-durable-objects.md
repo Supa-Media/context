@@ -70,6 +70,21 @@ wipe a group chat's object, retried with backoff. Nothing ends a Tex group
 chat today ("Tex, stop" only mutes it), so nothing calls `wipeOwner` for a
 chat yet; it is called when that event exists.
 
+## Notes Tex already had
+
+Tex's notes written before the move still sat in the bucket. A one-time job
+(`functions/texMigration.ts`, run by hand from the `Tex notes into their
+objects` workflow, dry run first) moves each live keyed row under the
+person's Tex folder that is still keyed at its bucket id key. In order: the
+body is copied to the person's object at the same id key, read back and
+compared, the row's key is switched to the Tex form under a compare-and-swap
+on the row's version, and only then is the bucket copy deleted. A crash
+before the switch leaves the bucket copy authoritative. A bucket copy left
+by a crash after the switch is removed on a later run, and only once the
+object holds the note.
+
+Not moved: a group chat's home in `@context-lc`, which is a separate change.
+
 ## Cost of reversing it
 
 Tex's state goes back to many bucket reads per turn (a second each through

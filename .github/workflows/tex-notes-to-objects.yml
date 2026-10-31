@@ -1,0 +1,66 @@
+# Move Tex's existing notes from the bucket into their person's Durable Object
+# (owner, 2026-10-31; `docs/decisions/texting-assistant/tex-durable-objects.md`).
+#
+# Manual only. Run it with `dry_run` first: that counts what would move and
+# changes nothing. It pages through `functions/texMigration:run`, which answers
+# with counts and a cursor, never a path, a key or a body: this repository is
+# public, and so is this job's log. Running it again moves nothing already
+# moved. A group chat's home in `@context-lc` is not moved by this job.
+name: Tex notes into their objects
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to move Tex's notes in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; move nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Move notes
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then
+              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            else
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+            fi
+            answer=$(npx convex run functions/texMigration:run "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 400 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
