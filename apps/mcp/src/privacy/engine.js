@@ -415,6 +415,27 @@ export function readsAsChat(names) {
 }
 
 /**
+ * The rule that seals a folder: what is under it is seen only through a row token a person was named on, never by
+ * a role, an owner's included. Mirrors `SEALED` in `apps/convex/functions/lib/privacy.ts`, where the reasoning is.
+ */
+export const SEALED = "@#sealed-chats";
+
+/** A row's token (`rowAccess.js` `ROW_TOKEN_PATTERN`): the only visibility that opens anything under a sealed rule. */
+const SEALED_TOKEN = /^@#[a-z0-9-]{8,64}$/;
+
+/** Whether `key` is under a sealed rule, compared folded. A sealed rule outranks scope in `canSee`. */
+export function sealedCovers(key, rules) {
+  let folded = null;
+  for (const rule of rules ?? []) {
+    if (rule.vis !== SEALED) continue;
+    folded ??= foldPath(key);
+    const prefix = foldPath(rule.prefix);
+    if (folded === prefix || folded.startsWith(`${prefix}/`)) return true;
+  }
+  return false;
+}
+
+/**
  * May this caller see this key at all?
  *
  * ## A group is reached by the grant, never by the role
@@ -432,8 +453,13 @@ export function readsAsChat(names) {
 export function canSee(key, scope, rules, overrides, grantedGroups) {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
-  if (scope === "private") return true;
+  const sealed = sealedCovers(key, rules);
+  if (scope === "private" && !sealed) return true;
   const visibility = effectiveVisibility(key, rules, overrides);
+  // A sealed folder opens to the row tokens its people hold, and to nothing a role gives (`sealedCovers`).
+  if (sealed) {
+    return visibility !== SEALED && SEALED_TOKEN.test(visibility) && grantedGroups !== undefined && grantedGroups !== null && grantedGroups.has(visibility);
+  }
   if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
   return grantedGroups !== undefined && grantedGroups.has(visibility);

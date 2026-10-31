@@ -4,6 +4,7 @@ import {
   effectiveVisibility,
   isPlumbing,
   type PrivacyRule,
+  sealedCovers,
   type Visibility,
 } from "./privacy";
 
@@ -47,6 +48,8 @@ export function treeAudiences(
   for (const raw of paths) {
     const path = raw.replace(/\/+$/, "");
     if (path === "" || isPlumbing(path)) continue;
+    // A sealed path has no audience a role is in, an owner's included; its people converge on the walk (`sealedChats.ts`).
+    if (sealedCovers(path, rules)) continue;
     audiences.add("private");
     reach(effectiveVisibility(path, rules, overrides));
     const under = `${path}/`;

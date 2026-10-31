@@ -15,6 +15,7 @@ import {
   isPlumbing,
   readsAsGuest,
   visibilityOf,
+  sealedCovers,
 } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
@@ -81,7 +82,9 @@ export function folderVisibleAtScope(
   overrides: ReadonlyMap<string, Visibility>,
 ): boolean {
   if (isPlumbing(folderPath)) return false;
-  if (clearance.scope === "private") return true;
+  // A sealed folder is reached by a name its reader holds, never by a role (`sealedChats.ts`).
+  const sealed = sealedCovers(folderPath, rules);
+  if (clearance.scope === "private" && !sealed) return true;
   // A name the caller answers to reaches a folder exactly as `team` does, and
   // every `=== "team"` below had to learn the same thing. Missing one of them
   // is the defect that made a group-named folder readable by direct path and
@@ -89,7 +92,7 @@ export function folderVisibleAtScope(
   // which is the failure `folderVisibleAtScope`'s own nested-rule scan exists
   // to prevent.
   // `team` is not a guest's, as in `canSee` (`READS_AS_GUEST`).
-  const team = !readsAsGuest(clearance.names);
+  const team = !readsAsGuest(clearance.names) && !sealed;
   const reaches = (visibility: Visibility) =>
     (visibility === "team" && team) || clearance.names.has(visibility);
   if (reaches(visibilityOf(folderPath, rules))) return true;

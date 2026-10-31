@@ -18,6 +18,7 @@ import { requireAuthId } from "./lib/signedIn";
 import { internalMutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
+import { sealsChatHomes, touchesChatHomes } from "./lib/nodes/sealedChats";
 import {
   getMembership,
   workspaceNotFound,
@@ -381,8 +382,12 @@ export const listEvents = query({
       .order("desc")
       .take(limit);
 
+    // In the pinned workspace, a row about group Tex's chat homes is its actor's alone: not its paths, and not who
+    // acted, since that names a customer to the people who run the workspace (`lib/nodes/sealedChats.ts`).
+    const seals = await sealsChatHomes(ctx, args.workspaceId);
     const rows = [];
     for (const event of events) {
+      if (seals && (event.paths ?? []).some(touchesChatHomes) && event.actorUserId !== userId) continue;
       // Resolve the actor to something a human recognizes. An audit line that
       // reads "j57f2… wrote 1-projects/foo.md" is not an answer to "who did
       // this?", which is the only question the trail exists to answer.
