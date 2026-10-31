@@ -12,30 +12,17 @@
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "../_generated/server";
 import { hashToken } from "./lib/crypto";
-import { consumeRateLimit } from "./lib/rateLimit";
-import { mergeTexStyle, readTexStyle, texStyleValidator, type TexStyle } from "./lib/texStyle";
+import { mergeTexStyle, readTexStyle, texStyleValidator } from "./lib/texStyle";
+import { setChatStyle, setPersonStyle } from "./lib/texChatRules";
 import { isPhoneNumber } from "./textLinks";
-
-/** Generous for someone trying every option, small for a client stuck in a loop. */
-const WRITES_PER_HOUR = 120;
-const TEX_STYLE_WINDOW_MS = 60 * 60 * 1000;
 
 async function rowOf(ctx: QueryCtx, userId: Id<"users">) {
   return await ctx.db
     .query("texStylePreferences")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .unique();
-}
-
-async function save(ctx: MutationCtx, userId: Id<"users">, texStyle: TexStyle): Promise<number> {
-  await consumeRateLimit(ctx, { key: `texstyle:${userId}`, limit: WRITES_PER_HOUR, windowMs: TEX_STYLE_WINDOW_MS });
-  const updatedAt = Date.now();
-  const row = await rowOf(ctx, userId);
-  if (row === null) await ctx.db.insert("texStylePreferences", { userId, texStyle, updatedAt });
-  else await ctx.db.patch(row._id, { texStyle, updatedAt });
-  return updatedAt;
 }
 
 /** The caller's own style (every default is `{}`), or null signed out. */
@@ -57,7 +44,8 @@ export const setMyTexStyle = mutation({
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     const texStyle = readTexStyle(args.texStyle);
     if (texStyle === null) throw new Error("That isn't a Tex setting.");
-    return await save(ctx, userId, mergeTexStyle({}, texStyle));
+    await setPersonStyle(ctx, userId, mergeTexStyle({}, texStyle), true);
+    return Date.now();
   },
 });
 
@@ -87,9 +75,7 @@ export const setTextsStyle = internalMutation({
   handler: async (ctx, args) => {
     const userId = await linkedUser(ctx, args.phone);
     if (userId === null) return null;
-    const texStyle = mergeTexStyle((await rowOf(ctx, userId))?.texStyle, args.patch);
-    await save(ctx, userId, texStyle);
-    return texStyle;
+    return await setPersonStyle(ctx, userId, args.patch);
   },
 });
 
@@ -103,10 +89,7 @@ export const setGroupTexStyle = internalMutation({
       .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
       .unique();
     if (chat === null) return null;
-    await consumeRateLimit(ctx, { key: `texstyle:group:${args.groupKey}`, limit: WRITES_PER_HOUR, windowMs: TEX_STYLE_WINDOW_MS });
-    const texStyle = mergeTexStyle(chat.texStyle, args.patch);
     const setBy = isPhoneNumber(args.setBy) ? await hashToken(`${args.groupKey}:${args.setBy}`) : args.setBy;
-    await ctx.db.patch(chat._id, { texStyle, texStyleSetBy: setBy, texStyleSetAt: Date.now() });
-    return texStyle;
+    return await setChatStyle(ctx, chat, args.patch, setBy);
   },
 });

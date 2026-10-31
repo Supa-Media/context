@@ -237,7 +237,7 @@ export const setMyTexReviewSharing = mutation({
 });
 
 /** The switch, the same from the app and from a text. True when it changed. */
-async function setSharing(ctx: MutationCtx, userId: Id<"users">, share: boolean): Promise<boolean> {
+export async function setSharing(ctx: MutationCtx, userId: Id<"users">, share: boolean): Promise<boolean> {
   await consumeRateLimit(ctx, { key: `tex.review.sharing:${userId}`, limit: SWITCH_WRITES_PER_HOUR, windowMs: REVIEW_WINDOW_MS });
   const rows = await ctx.db
     .query("texReviewSharing")
