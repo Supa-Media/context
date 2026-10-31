@@ -321,15 +321,25 @@ credit, and nothing that costs money is spent while it lasts:
 - Each call is labelled with ids only (feature, workspace, client), never
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
-- Prompt caching is on for the tool list, the system prompt and the
-  conversation so far, because a turn is several rounds over a growing
-  transcript.
+- Prompt caching is laid out least volatile first, because a turn is several
+  rounds over a growing transcript and the prefix must match text after text:
+  the tool list, the stable system prompt and the slow context (workspaces,
+  jobs, the about-me note) behind one-hour breakpoints, then the conversation
+  so far behind a five-minute one. What changes per text (the clock, the model
+  answering, the note open in front of them, what earlier texts used, the
+  planner's words, the nudge) is said in the person's own turn after the last
+  breakpoint, never in the system prompt (`turn.js`, `aiGateway.js`). A texted
+  turn sent about 58,000 tokens as new on every text before this (production,
+  2026-10-31).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside
 the customer's bucket; retrying without the key on every error would spend
 money while free credit remained; taking the gateway address from config text
 without the shape check would let a misconfiguration send our token anywhere.
+Putting the clock or the earlier-tools list back in the system prompt would
+pass every test but miss the cache on every text: `agentPromptCache.test.mjs`
+fails for it.
 The test that fails is `apps/mcp/test/agentGateway.test.mjs`.
 
 ### Other providers' models and routes go through the same gateway, Unified Billing only

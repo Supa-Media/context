@@ -45,6 +45,13 @@ import { ProviderError, anthropicMessages } from "./providers.js";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
+ * The beta the one-hour cache TTL (`ttl: "1h"`, `gatewayBody`'s texted-turn
+ * layout) is asked under. Sent on every call, so the gateway's pass-through
+ * of headers is the only thing it depends on.
+ */
+const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
+
+/**
  * How much one round may produce: the models' own ceiling (128K output on
  * every Claude 5.5 model). `max_tokens` caps the thinking *and* the answer
  * together, and tokens are billed as used, not as allowed, so a lower cap
@@ -158,10 +165,25 @@ export function metadataHeader(metadata) {
 }
 
 /**
- * The request body, with prompt caching on the parts every round repeats: the
- * tool list, the system prompt, and the conversation so far. A turn is several
- * rounds over a growing transcript, so each round reads the previous one's
- * prefix from cache at a tenth of the price.
+ * The request body, with prompt caching on the parts every round repeats.
+ *
+ * Two layouts. Without `cachedThrough` (every caller but a texted turn): the
+ * tool list, the system prompt and the last message, five minutes each. With
+ * it (`turn.js`): the prefix is laid out from the least to the most volatile,
+ * and a breakpoint closes each stretch that stays the same from one text to the
+ * next:
+ *
+ *   tools (1h) → system.stable (1h) → system.context (1h)
+ *     → history through message `cachedThrough` (5m) → the person's new text
+ *
+ * Everything after the history breakpoint (the new text, the per-turn facts
+ * carried in its `preamble`, and this turn's tool rounds) is uncached. That
+ * keeps the bytes the cache reads identical across texts: a changed clock, a
+ * changed model line or a longer "what you did" list no longer makes the whole
+ * prefix a miss. Four breakpoints at most, the API's limit.
+ *
+ * A turn is several rounds over a growing transcript, so each round reads the
+ * previous one's prefix from cache at a tenth of the price.
  */
 /**
  * The models that think by default (every Claude 5 model), where asking for
@@ -173,26 +195,52 @@ const THINKS_BY_DEFAULT = /^anthropic\/claude-(?:haiku|sonnet|opus|fable|mythos)
 /** `thinking.display`: "summarized" returns the thinking in words (`transcript.js`); the default leaves it empty. */
 const DISPLAYS = new Set(["summarized"]);
 
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display }) {
+/**
+ * `system` as the text blocks it becomes: a string, or `{ stable, context }`
+ * (`turn.js`). Each non-empty part carries its own breakpoint.
+ */
+function systemBlocks(system, mark) {
+  const parts = typeof system === "string" ? [system] : [system?.stable, system?.context];
+  return parts
+    .filter((text) => typeof text === "string" && text !== "")
+    .map((text) => ({ type: "text", text, cache_control: { ...mark } }));
+}
+
+/** Puts a breakpoint on the last block of message `index` of the API's message list. */
+function markLastBlock(wire, index) {
+  const message = wire[index];
+  if (!message || !Array.isArray(message.content) || message.content.length === 0) return;
+  const blocks = [...message.content];
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  wire[index] = { ...message, content: blocks };
+}
+
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, cachedThrough = null }) {
+  const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
+  // The texted-turn layout's tools and system stay put for an hour; a plain caller keeps five minutes.
+  const stableMark = layered ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.inputSchema || { type: "object" },
   }));
-  if (toolList.length > 0) toolList[toolList.length - 1].cache_control = { type: "ephemeral" };
+  if (toolList.length > 0) toolList[toolList.length - 1].cache_control = { ...stableMark };
   const wire = anthropicMessages(messages);
-  const last = wire[wire.length - 1];
-  if (last && Array.isArray(last.content) && last.content.length > 0) {
-    const blocks = [...last.content];
-    blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
-    wire[wire.length - 1] = { ...last, content: blocks };
+  if (layered) {
+    // Up to the history's last message, which is everything before the person's new text.
+    // The wire is built message by message, so the history's own wire is a prefix of the whole.
+    const historyEnd = anthropicMessages(messages.slice(0, cachedThrough)).length;
+    markLastBlock(wire, historyEnd - 1);
+  } else {
+    markLastBlock(wire, wire.length - 1);
   }
+  const systemText = systemBlocks(system, stableMark);
   return {
     model: model.slice("anthropic/".length),
     // A caller may ask for more room (a meeting summary is one long answer), never unbounded.
     max_tokens: Number.isInteger(maxTokens) && maxTokens > 0 ? Math.min(maxTokens, MAX_CALLER_OUTPUT_TOKENS) : MAX_OUTPUT_TOKENS,
     messages: wire,
-    ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
+    ...(systemText.length > 0 ? { system: systemText } : {}),
     ...(toolList.length > 0 ? { tools: toolList } : {}),
     // Only ever "call this one tool", and only a tool this request offers.
     ...(typeof toolChoice === "string" && toolList.some((tool) => tool.name === toolChoice)
@@ -242,6 +290,7 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
         headers: {
           "Content-Type": "application/json",
           "anthropic-version": ANTHROPIC_VERSION,
+          "anthropic-beta": EXTENDED_CACHE_TTL_BETA,
           "cf-aig-authorization": `Bearer ${config.token}`,
           "cf-aig-collect-log": "false",
           ...metadataHeader(metadata),

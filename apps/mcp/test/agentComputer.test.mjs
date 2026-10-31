@@ -200,7 +200,8 @@ export async function runAgentComputerChecks(check) {
     ]);
     await ask(env, TOKEN_TEXTS, { question: "What does example.com/pricing charge?", conversation: "texts" });
     await ask(env, TOKEN_TEXTS, { question: "where are you reading that from?", conversation: "texts" });
-    const nextSystem = JSON.stringify((ai.calls[2]?.input?.messages ?? []).filter((m) => m.role === "system"));
+    // What the earlier answers used is said in the person's turn, not the system prompt (`turn.js`), so the whole request is read.
+    const nextSystem = JSON.stringify(ai.calls[2]?.input?.messages ?? []);
     const kept = [...s3.bucketFor("tenant-computer").entries()]
       .filter(([key]) => key.startsWith(".context/agent/events/"))
       .map(([, value]) => String(value.body ?? value))
