@@ -116,9 +116,29 @@ spellings, `list_changes`). Both carry a sabotage record.
 Tests: `apps/convex/__tests__/textGroupHome.test.ts`,
 `apps/mcp/test/chatHome.test.mjs`, each with a sabotage record.
 
+## The chat's own notes, kept by the model (2026-10-31)
+
+Dev2 asked that every chat have the folders a person's Tex has. The first of
+them that work today:
+
+- **about-us.md** in the home: who the people are and what the chat is for,
+  kept by the model the way a person's Tex keeps `tex/about-me.md`, shown to
+  each turn bounded (`agent/chatHome.js` `readAboutUs`, `homePrompt`).
+- **The voice note** (`chatVoice.js`) moves into the home beside the memory
+  note.
+- **The model reaches the home by naming `@context-lc`** on a tool call
+  (`addressHome`). A chat's grant never addressed the pin, so the name meant
+  nothing in a group turn before; now it opens the home's session, whose rules
+  let it change the home and only read what every account reads. Every other
+  name is routed as it was.
+
 ## Still to build
 
-The chat's voice note and its workspace's playbook stay where the turn's own
-tools write them, until the model can write in the home. Next: the chat
-reads every workspace everyone in it shares instead of one bound workspace,
-and the chats that exist move in (old notes archived, never deleted).
+Routines, dreams and a heartbeat for a chat need their jobs moved too: a
+chat's routines are still written in its bound workspace's `tex/routines/`
+with `chat:` in their front matter, its check-in is a timer on the chat's
+row, and chats have no dreams yet. Empty folders for them are not made until
+something runs from them. The workspace's playbook stays the workspace's.
+Then: the chat reads every workspace everyone in it shares instead of one
+bound workspace, and the chats that exist move in (old notes archived, never
+deleted).
