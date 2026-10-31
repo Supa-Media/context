@@ -19,7 +19,7 @@ import { storeForBinding } from "../../mcp/src/store/factory.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
-import { consoleTexStore } from "./lib/texStore";
+import { consoleTexRouting } from "./lib/texStore";
 import { migrateTexNotes, type TexMigrationPage } from "./lib/texMigration/run";
 
 /** The bucket, as the console opens it for this workspace, with Tex keys routed to the person's object; `null` without a binding. */
@@ -27,7 +27,7 @@ async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">)
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  return storeForBinding(credential, undefined, { managedEncryption, texStore: consoleTexStore(ctx, workspaceId) }) as unknown as FileStore;
+  return storeForBinding(credential, undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId) }) as unknown as FileStore;
 }
 
 const countsValidator = v.object({

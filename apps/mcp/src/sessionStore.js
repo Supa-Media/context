@@ -336,7 +336,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding) });
+  const store = storeForBinding(binding, env, { managedEncryption: managedEncryptionForStore(opened, binding), texStore: gatewayTexStore(env) });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
   attachSearchIndexes(store, { searchIndex: opened?.searchIndex, meaningIndex: opened?.meaningIndex }, env?.AI);
   Object.defineProperty(store, "encryptionKey", {
