@@ -198,6 +198,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
 - [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
+- [The built-in model's yes is asked beside the turn, not before it](./gateway-protocol/allowed-beside-model.md)
 - [A note has one version tag, and every tool accepts it](./gateway-protocol/one-version-tag.md)
 - [Every change ends with its outcome, as data](./gateway-protocol/change-outcomes.md)
 - [Orient again with `since`, and only what changed comes back](./gateway-protocol/orient-since.md)

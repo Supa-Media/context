@@ -478,7 +478,8 @@ export function createControlPlaneStub(options = {}) {
         }
         if (!known) return ok({ verdict: null });
         builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true });
-        return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
+        // A test may set a promise, to answer late (`turnAllowed.js`: asked beside the model).
+        return ok({ verdict: (await builtinVerdicts.get(grant.workspaceId)) ?? { allowed: false, reason: "not_premium" } });
       }
 
       case "/gateway/meeting-summary":

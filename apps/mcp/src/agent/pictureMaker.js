@@ -60,6 +60,7 @@ import { fillDistances, geocoderFor } from "./visuals/distance.js";
 import { PAGE_TEMPLATE, coverPictures, pageCover } from "./visuals/page.js";
 import { readTexNote } from "./aboutMe.js";
 import { MAX_HELD, cardCheckFor } from "./cardCheck.js";
+import { deferred } from "./deferred.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -434,8 +435,9 @@ export async function turnPictures(env, { texted, question, attachments, store, 
         check: env?.CARD_CHECK === "off" ? null : cardCheckFor({ question, config: aiGatewayConfig(env), metadata: { workspace: String(workspaceId), client: "texts" } }),
       })
     : null;
-  // Kept before the turn runs, so a later "try again" has them whatever this turn does.
-  if (maker !== null && keep) await keepPhotos(store, attachments);
+  // Kept whatever this turn does, so a later "try again" has them: beside the model, not before it
+  // (2.4 s of a turn, 2026-10-31). Nothing this turn reads them: `earlier-photo:N` is [] when photos came with it.
+  if (maker !== null && keep) await deferred(store, keepPhotos(store, attachments));
   return { outgoing, maker };
 }
 

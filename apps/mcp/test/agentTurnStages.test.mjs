@@ -77,7 +77,7 @@ test("a texted turn writes one point, with a kind and numbers only, never their 
     const row = Object.fromEntries(COLUMNS.map((name, i) => [name, point.doubles[i]]));
     assert.equal(row.rounds, 1);
     assert.ok(point.doubles.every((value) => typeof value === "number" && value >= 0));
-    assert.equal(STAGES.length + 9, COLUMNS.length);
+    assert.equal(STAGES.length + 11, COLUMNS.length);
     assert.doesNotMatch(JSON.stringify(point), /hi Tex|What do you need/);
     // The bucket calls by stage: shapes and counts only, no id, workspace or name (`callsLine`).
     assert.match(point.blobs[2], /^([bta]:(get|head|put|delete|list):[^ =]+=\d+ ?)+$/);

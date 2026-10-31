@@ -21,9 +21,11 @@ export const STAGES = ["provider", "tools", "history", "web", "setup", "skills",
 /**
  * blobs: kind, outcome, the bucket calls by stage (`callsLine`). doubles, in order: waitMs, then one per `STAGES`
  * entry, then modelMs, toolMs, otherTurnMs (the turn's own time outside the
- * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs.
+ * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs,
+ * then allowedMs (the control plane's yes, asked beside the turn) and
+ * allowedHeldMs (how long a model's reply waited on it: `turnAllowed.js`).
  */
-export const COLUMNS = ["waitMs", ...STAGES.map((stage) => `${stage}Ms`), "modelMs", "toolMs", "otherTurnMs", "afterMs", "totalMs", "rounds", "retriedRounds", "slowestRoundMs"];
+export const COLUMNS = ["waitMs", ...STAGES.map((stage) => `${stage}Ms`), "modelMs", "toolMs", "otherTurnMs", "afterMs", "totalMs", "rounds", "retriedRounds", "slowestRoundMs", "allowedMs", "allowedHeldMs"];
 
 /**
  * @param {{ TEX_TIMING?: { writeDataPoint(point: object): void } }} env
@@ -32,7 +34,7 @@ export const COLUMNS = ["waitMs", ...STAGES.map((stage) => `${stage}Ms`), "model
 export function turnStages(env, now = Date.now) {
   const start = now();
   const marks = {};
-  let report = null;
+  let report = null, allowed = null;
   let flushed = false;
   const calls = {};
   return {
@@ -57,6 +59,10 @@ export function turnStages(env, now = Date.now) {
     mark(stage) {
       if (marks[stage] === undefined) marks[stage] = now();
     },
+    /** The control plane's answer, asked beside the turn (`turnAllowed.js`): read when the point is written. */
+    allowedBy(gate) {
+      allowed = gate;
+    },
     /** The turn is about to call the model. */
     ready() {
       this.mark("ready");
@@ -69,7 +75,7 @@ export function turnStages(env, now = Date.now) {
     flush() {
       if (flushed) return null;
       flushed = true;
-      const point = stagesOf({ start, marks, end: now(), report });
+      const point = stagesOf({ start, marks, end: now(), report, allowed });
       point.blobs.push(callsLine(calls));
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
@@ -85,7 +91,7 @@ export function turnStages(env, now = Date.now) {
   };
 }
 
-export function stagesOf({ start, marks, end, report }) {
+export function stagesOf({ start, marks, end, report, allowed = null }) {
   const answered = report && typeof report.ms === "number" ? start + report.ms : end;
   const gaps = [];
   let from = start;
@@ -116,6 +122,8 @@ export function stagesOf({ start, marks, end, report }) {
       report?.rounds ?? 0,
       rounds.filter((entry) => entry.retried).length,
       rounds.reduce((most, entry) => Math.max(most, entry.ms ?? 0), 0),
+      allowed?.ms ?? 0,
+      allowed?.heldMs ?? 0,
     ],
     indexes: [String(report?.kind ?? "unknown")],
   };
