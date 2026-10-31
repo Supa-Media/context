@@ -5,10 +5,11 @@
  *
  * `serveTexStore` is the object's side, `texBucket` the gateway's: an object
  * shaped like an R2 bucket binding, so `new R2Store(texBucket(stub))` is the
- * gateway's ordinary store over the Durable Object (`store/r2.js`).
+ * gateway's ordinary store over the Durable Object (`store/r2.js`). `texTimers`
+ * is the gateway's client for the routine alarms (`alarms.js`).
  */
 
-import { texObjects, TexObjectRefused } from "./objects.js";
+import { TexObjectRefused } from "./objects.js";
 import { R2Store } from "../store/r2.js";
 
 const CALL = "x-tex-call";
@@ -33,11 +34,15 @@ export function ownerName(owner) {
 const pack = (value) => encodeURIComponent(JSON.stringify(value ?? null));
 const unpack = (value) => (value ? JSON.parse(decodeURIComponent(value)) : null);
 
+const unknownOp = () => Response.json({ error: "unknown_op" }, { status: 400 });
+
 /**
  * The Durable Object's answer to one call. `objects` is `texObjects(sql)`,
- * built once per object.
+ * built once per object. `timers` is the object's routine alarms
+ * (`{schedule(alarm), cancel(id)}`, `texStore.js`); without it the alarm
+ * calls are unknown.
  */
-export async function serveTexStore(objects, request) {
+export async function serveTexStore(objects, request, timers = null) {
   let call;
   try {
     call = unpack(request.headers.get(CALL));
@@ -46,6 +51,22 @@ export async function serveTexStore(objects, request) {
   }
   try {
     switch (call?.op) {
+      case "schedule": {
+        if (!timers) return unknownOp();
+        // The alarm rides in the body, so a payload never has to fit a header.
+        let alarm;
+        try {
+          alarm = JSON.parse(await request.text());
+        } catch {
+          throw new TexObjectRefused("not an alarm");
+        }
+        await timers.schedule(alarm);
+        return Response.json({ ok: true });
+      }
+      case "cancel":
+        if (!timers) return unknownOp();
+        await timers.cancel(call.id);
+        return Response.json({ ok: true });
       case "head":
         return new Response(null, { headers: { [META]: pack(objects.head(call.key)) } });
       case "get": {
@@ -68,7 +89,7 @@ export async function serveTexStore(objects, request) {
         objects.wipe();
         return Response.json({ ok: true });
       default:
-        return Response.json({ error: "unknown_op" }, { status: 400 });
+        return unknownOp();
     }
   } catch (error) {
     if (error instanceof TexObjectRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
@@ -125,17 +146,7 @@ async function wholeBytes(value) {
  * @param {{fetch: (request: Request) => Promise<Response>}} stub
  */
 export function texBucket(stub) {
-  async function call(op, fields = {}, body = undefined) {
-    const response = await stub.fetch(
-      new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { [CALL]: pack({ op, ...fields }) }, body }),
-    );
-    if (response.status === 422) {
-      const { message } = await response.json();
-      throw new TexObjectRefused(message);
-    }
-    if (!response.ok) throw new Error(`Tex store ${op} failed (${response.status})`);
-    return response;
-  }
+  const call = (op, fields, body) => callTexStore(stub, op, fields, body);
   return {
     async head(key) {
       return r2Shaped(unpack((await call("head", { key })).headers.get(META)), undefined);
@@ -168,9 +179,33 @@ export function texBucket(stub) {
   };
 }
 
-/** The Durable Object's own state, built on first use. */
-export function texObjectsFor(state) {
-  return texObjects(state.storage.sql);
+/** One call to the object: its answer, or a refusal as `TexObjectRefused`. */
+async function callTexStore(stub, op, fields = {}, body = undefined) {
+  const response = await stub.fetch(
+    new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { [CALL]: pack({ op, ...fields }) }, body }),
+  );
+  if (response.status === 422) {
+    const { message } = await response.json();
+    throw new TexObjectRefused(message);
+  }
+  if (!response.ok) throw new Error(`Tex store ${op} failed (${response.status})`);
+  return response;
+}
+
+/**
+ * The gateway's client for a Tex store's routine alarms, over the same stub:
+ * `schedule({id, at, payload})` sets one (replacing the id's), `cancel(id)`
+ * removes one. Each re-arms the object's alarm (`texStore.js`).
+ */
+export function texTimers(stub) {
+  return {
+    async schedule(alarm) {
+      await callTexStore(stub, "schedule", {}, new TextEncoder().encode(JSON.stringify(alarm ?? null)));
+    },
+    async cancel(id) {
+      await callTexStore(stub, "cancel", { id });
+    },
+  };
 }
 
 /**

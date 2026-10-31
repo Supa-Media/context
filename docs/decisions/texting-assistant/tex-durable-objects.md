@@ -97,9 +97,27 @@ object holds the note.
 
 Not moved: a group chat's home in `@context-lc`, which is a separate change.
 
+## Routine alarms
+
+A routine's time is kept in the same object that keeps its notes
+(`texStore/alarms.js`): one row per routine, its id, the time it is due and a
+payload, which is what the place running it needs to find the run again. The
+object holds one runtime alarm, armed at the earliest row, and re-arms it after
+every change and every fire. When the alarm fires, each due row is handed on;
+one that ran is removed, one that did not waits a minute and is tried again,
+and no alarm is ever armed at a time already past. At most fifty go per fire.
+
+The payload never holds a grant or any other credential: a routine's run still
+reads its own grant where it is run, as it does today. Today routines are run
+by the texting Worker's once-a-minute cron (`apps/agent/src/routines.ts`), which
+pulls the due runs from the control plane; the object's alarm does not replace
+that until the place that runs a routine is wired in as the object's dispatch
+(`texStore.js`). Until then nothing schedules into the object in production,
+and an injected dispatch that is not set keeps every due routine waiting.
+
 ## Cost of reversing it
 
 Tex's state goes back to many bucket reads per turn (a second each through
 the adapter), which is what made "hi Tex" take a minute before the warm copy.
 
-Test: `apps/mcp/test/texStore.test.mjs`.
+Tests: `apps/mcp/test/texStore.test.mjs` and `apps/mcp/test/texAlarms.test.mjs`.
