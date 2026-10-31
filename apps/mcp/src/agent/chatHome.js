@@ -77,6 +77,11 @@ function folded(name) {
   return text.startsWith("@") ? text : `@${text}`;
 }
 
+/** Where a home keeps its about-us note. */
+export function aboutUsPath(home) {
+  return `${home.folder}/${ABOUT_US}`;
+}
+
 /**
  * The chat's about-us note, bounded; "" when there is none or it can't be read.
  *
@@ -85,9 +90,9 @@ function folded(name) {
  * once, it would otherwise be read as the gateway's own words for as long as it stood
  * (`promptFence.js`).
  */
-export async function readAboutUs(home) {
+export async function readAboutUs(home, held = null) {
   if (!home) return "";
-  const note = await readWithEtag(home.dispatch, `${home.folder}/${ABOUT_US}`);
+  const note = held ?? (await readWithEtag(home.dispatch, aboutUsPath(home))); // `held`: read straight from the chat's object (`groupDirectNotes.js`)
   const body = typeof note?.body === "string" ? withoutFence(FENCE, note.body).trim() : "";
   return body.length > MAX_ABOUT_US_CHARS ? body.slice(0, MAX_ABOUT_US_CHARS) : body;
 }
