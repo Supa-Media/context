@@ -1,0 +1,173 @@
+/**
+ * How the gateway talks to a Tex store Durable Object (`texStore.js`): one
+ * `fetch` per call, the call in a header and a body's bytes as the body, so a
+ * note is never base64'd or JSON-escaped on the way.
+ *
+ * `serveTexStore` is the object's side, `texBucket` the gateway's: an object
+ * shaped like an R2 bucket binding, so `new R2Store(texBucket(stub))` is the
+ * gateway's ordinary store over the Durable Object (`store/r2.js`).
+ */
+
+import { texObjects, TexObjectRefused } from "./objects.js";
+
+const CALL = "x-tex-call";
+const META = "x-tex-meta";
+const ORIGIN = "https://tex-store.internal";
+
+/** The Durable Object a person's (`person`: their workspace id) or a group chat's (`chat`: its id) Tex notes live in. `null` without the binding. */
+export function texStoreStub(env, owner) {
+  const namespace = env?.TEX_STORE;
+  if (!namespace || typeof namespace.idFromName !== "function") return null;
+  const name = ownerName(owner);
+  return namespace.get(namespace.idFromName(name));
+}
+
+/** The one name per owner. Exported so a test can pin that two owners never share one. */
+export function ownerName(owner) {
+  if (typeof owner?.person === "string" && owner.person !== "" && owner.chat === undefined) return `person:${owner.person}`;
+  if (typeof owner?.chat === "string" && owner.chat !== "" && owner.person === undefined) return `chat:${owner.chat}`;
+  throw new TypeError("a Tex store belongs to one person or one group chat");
+}
+
+const pack = (value) => encodeURIComponent(JSON.stringify(value ?? null));
+const unpack = (value) => (value ? JSON.parse(decodeURIComponent(value)) : null);
+
+/**
+ * The Durable Object's answer to one call. `objects` is `texObjects(sql)`,
+ * built once per object.
+ */
+export async function serveTexStore(objects, request) {
+  let call;
+  try {
+    call = unpack(request.headers.get(CALL));
+  } catch {
+    return Response.json({ error: "bad_call" }, { status: 400 });
+  }
+  try {
+    switch (call?.op) {
+      case "head":
+        return new Response(null, { headers: { [META]: pack(objects.head(call.key)) } });
+      case "get": {
+        const found = objects.get(call.key, call.options ?? {});
+        if (found === null || found.body === undefined) return new Response(null, { headers: { [META]: pack(found) } });
+        const { body, ...meta } = found;
+        // Said in the call, not read off the response: an empty note's response may carry no body at all.
+        return new Response(body, { headers: { [META]: pack({ ...meta, hasBody: true }) } });
+      }
+      case "put": {
+        const bytes = new Uint8Array(await request.arrayBuffer());
+        return new Response(null, { headers: { [META]: pack(await objects.put(call.key, bytes, call.options ?? {})) } });
+      }
+      case "delete":
+        objects.delete(call.keys);
+        return Response.json({ ok: true });
+      case "list":
+        return Response.json(objects.list(call.options ?? {}));
+      case "wipe":
+        objects.wipe();
+        return Response.json({ ok: true });
+      default:
+        return Response.json({ error: "unknown_op" }, { status: 400 });
+    }
+  } catch (error) {
+    if (error instanceof TexObjectRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    throw error;
+  }
+}
+
+/** A stored object as R2 hands one back: `uploaded` a Date, a quoted `httpEtag`, and the body readers when it has one. */
+function r2Shaped(meta, bytes) {
+  if (meta === null) return null;
+  const object = { ...meta, uploaded: new Date(meta.uploaded), httpEtag: `"${meta.etag}"`, version: meta.etag };
+  if (bytes === undefined) return object;
+  let used = false;
+  const take = () => {
+    if (used) throw new TypeError("body already read");
+    used = true;
+    return bytes;
+  };
+  // Defined, not assigned: assigning would read the `body` getter and spend the body.
+  Object.defineProperties(object, {
+    body: { enumerable: true, get: () => new Response(take()).body },
+    bodyUsed: { enumerable: true, get: () => used },
+  });
+  return Object.assign(object, {
+    async arrayBuffer() {
+      const view = take();
+      return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+    },
+    async text() {
+      return new TextDecoder().decode(take());
+    },
+    async json() {
+      return JSON.parse(new TextDecoder().decode(take()));
+    },
+    async blob() {
+      return new Blob([take()]);
+    },
+  });
+}
+
+async function wholeBytes(value) {
+  if (value === null || value === undefined) return new Uint8Array(0);
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  // A stream or a Blob: read once, whole, as the object keeps it.
+  return new Uint8Array(await new Response(value).arrayBuffer());
+}
+
+/**
+ * An R2-bucket-shaped client over a Tex store Durable Object's stub.
+ *
+ * @param {{fetch: (request: Request) => Promise<Response>}} stub
+ */
+export function texBucket(stub) {
+  async function call(op, fields = {}, body = undefined) {
+    const response = await stub.fetch(
+      new Request(`${ORIGIN}/${op}`, { method: "POST", headers: { [CALL]: pack({ op, ...fields }) }, body }),
+    );
+    if (response.status === 422) {
+      const { message } = await response.json();
+      throw new TexObjectRefused(message);
+    }
+    if (!response.ok) throw new Error(`Tex store ${op} failed (${response.status})`);
+    return response;
+  }
+  return {
+    async head(key) {
+      return r2Shaped(unpack((await call("head", { key })).headers.get(META)), undefined);
+    },
+    async get(key, options = {}) {
+      const response = await call("get", { key, options: { onlyIf: options.onlyIf, range: options.range } });
+      const answer = unpack(response.headers.get(META));
+      if (answer === null) return null;
+      const { hasBody, ...meta } = answer;
+      // A failed `onlyIf` answers metadata alone, as R2 does.
+      if (hasBody !== true) return r2Shaped(meta, undefined);
+      return r2Shaped(meta, new Uint8Array(await response.arrayBuffer()));
+    },
+    async put(key, value, options = {}) {
+      const bytes = await wholeBytes(value);
+      const fields = { key, options: { onlyIf: options.onlyIf, httpMetadata: options.httpMetadata, customMetadata: options.customMetadata } };
+      return r2Shaped(unpack((await call("put", fields, bytes)).headers.get(META)), undefined);
+    },
+    async delete(keys) {
+      await call("delete", { keys });
+    },
+    async list(options = {}) {
+      const page = await (await call("list", { options })).json();
+      return { ...page, objects: page.objects.map((meta) => r2Shaped(meta, undefined)) };
+    },
+    /** Everything in this Durable Object removed: an account, a phone link or a group chat ending. */
+    async wipe() {
+      await call("wipe");
+    },
+  };
+}
+
+/** The Durable Object's own state, built on first use. */
+export function texObjectsFor(state) {
+  return texObjects(state.storage.sql);
+}

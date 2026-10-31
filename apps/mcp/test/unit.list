@@ -289,3 +289,4 @@ test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
 test/agentFrontDoor.test.mjs
 test/agentWarmCopy.test.mjs
+test/texStore.test.mjs
