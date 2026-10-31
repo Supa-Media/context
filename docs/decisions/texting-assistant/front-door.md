@@ -48,3 +48,21 @@ reply puts its seconds back on every text. Tests: `agentFrontDoor.test.mjs`
 ("an answer that claims a change goes out as it is", "a yes still releases it
 with no model") and `inboxTurn.test.ts` ("one text with nothing waiting goes
 straight to Tex").
+
+## The advisor reads the whole turn (2026-10-31)
+
+Decided by the owner: "let's just use ours, but model it on the architecture
+they have" (Anthropic's advisor tool). The everyday model calls
+`send { action: "advisor" }` with no input, and the advisor is handed the
+turn as it stands (`turn.js` passes each local tool the turn's system prompt,
+tools and messages): Tex's instructions, its tool names, the conversation and
+every tool call and result, clipped to the newest part when long
+(`advisor.js` `advisorBrief`). It keeps its own instructions, holds no tools,
+answers only the everyday model, and may decline. Before, it saw the texts and
+a brief the everyday model wrote, never what the tools returned. A turn may
+ask up to ten times, and the everyday model is never told there is a limit.
+
+**What a simplification would cost:** going back to a written brief hides the
+tool results again, so the advisor can't catch a failed step or an unfinished
+task it was asked about. `agentAdvisor.test.mjs` ("the advisor reads the tool
+results") fails if the live turn stops reaching it.

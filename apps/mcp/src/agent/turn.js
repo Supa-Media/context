@@ -633,7 +633,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args)
+                ? localCalls.get(call.name)(call.args, { system, messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),
