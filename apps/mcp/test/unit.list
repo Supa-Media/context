@@ -302,4 +302,5 @@ test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
 test/chatReach.test.mjs
 test/agentJobCheck.test.mjs
+test/agentJobRestart.test.mjs
 test/jobReportReply.test.mjs

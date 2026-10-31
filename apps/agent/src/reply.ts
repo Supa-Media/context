@@ -120,7 +120,7 @@ export type ReplyDeps = {
   /** Resolves to a line for the answer when a job Tex said it started never did (`notStartedText`). */
   onJobs?: (jobs: StartedJob[]) => Promise<string | undefined | void>;
   /** Handed the running jobs this text was passed to (`jobs.ts`). */
-  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
+  onSteers?: (asks: JobSteerAsk[]) => Promise<string | undefined | void>;
   /**
    * "Tex, settings" (`texStyle.ts`): where the open menu is kept, and handed
    * the person's style each session so the quick tapback can follow it.
@@ -289,11 +289,11 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();
       const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs) : undefined;
-      if (answer.steers) await deps.onSteers?.(answer.steers);
+      const notResumed = answer.steers ? await deps.onSteers?.(answer.steers) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers);
-      const after = notStarted ? [notStarted] : [];
+      const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       if (!answer.text || answer.quiet || isControlWord(answer.text)) return after;
       // What the person is asked to approve goes out exactly as the gateway

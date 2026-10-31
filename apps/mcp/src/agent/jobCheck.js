@@ -147,5 +147,7 @@ export async function jobTurnFields(job, turn, { unfinished, untrusted = false, 
   const exhausted = turn.exhausted === true;
   if (job === null) return exhausted ? { exhausted: true } : unfinished ? { unfinished: true } : {};
   const check = await checkJob({ job, live: turn.live, answer: turn.answer, exhausted, model, effort: efforts?.[model], request, meter });
-  return jobFields(check, { exhausted, unfinished, untrusted });
+  // `idle`: this part called no tool at all. Two such parts in a row that still aren't done end the job stuck (`jobRun.ts`):
+  // three restarted jobs answered "it's running again" eight times each on 2026-10-31.
+  return { ...jobFields(check, { exhausted, unfinished, untrusted }), ...(!Array.isArray(turn.steps) || turn.steps.length === 0 ? { idle: true } : {}) };
 }
