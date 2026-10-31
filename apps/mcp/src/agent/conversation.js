@@ -231,7 +231,7 @@ export function historyIsTainted(history) {
  * says whether the old file still has to be copied in: a history read from it
  * has no ids. A store with no listing keeps the old whole file.
  */
-export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), theirs = false } = {}) {
+export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], sources = [], thread = null, at = Date.now(), tag = null, theirs = false } = {}) {
   const path = conversationPath(name);
   if (path === null) return null;
   const names = toolNames(tools);
@@ -240,7 +240,7 @@ export async function appendConversation(store, name, history, question, answer,
     if (history.length > 0 && !history.some((turn) => typeof turn.id === "string")) {
       await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used, sources: was }) => keptTurn({ role, text, tainted: marked, tools: used, sources: was })));
     }
-    return await writeExchange(store, { at, question, answer, tainted, tools: names, sources: read, thread, theirs });
+    return await writeExchange(store, { at, tag, question, answer, tainted, tools: names, sources: read, thread, theirs });
   }
   const turns = trimHistory([
     ...history,

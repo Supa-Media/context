@@ -74,7 +74,7 @@ import { answers, clearReactions, noteReaction, notedReactions, tapbackText, typ
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
@@ -542,7 +542,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
       sessions.set(storage, token);
-      await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from));
+      void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
   const texts = await answerTexts(
@@ -563,7 +563,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       // "Tex, settings" and the style it keeps (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
-      onTexStyle: (style) => keepTexStyle(storage, style),
+      onTexStyle: (style) => keepTexStyle(storage, style), warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },

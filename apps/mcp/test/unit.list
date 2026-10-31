@@ -288,3 +288,4 @@ test/googleChatConversation.test.mjs
 test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
 test/agentFrontDoor.test.mjs
+test/agentWarmCopy.test.mjs
