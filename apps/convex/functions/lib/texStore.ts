@@ -47,6 +47,20 @@ export function consoleTexStore(
 }
 
 /**
+ * The store options that route a console store's Tex keys: the way to the
+ * objects and the workspace they belong to. A control plane credential names
+ * no workspace, so the two travel together and a caller cannot pass one
+ * without the other.
+ */
+export function consoleTexRouting(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  options: Options = {},
+): { texStore: ((owner: string) => unknown) | null; texWorkspaceId: string } {
+  return { texStore: consoleTexStore(ctx, workspaceId, options), texWorkspaceId: workspaceId };
+}
+
+/**
  * The bucket-shaped client for each of this workspace's Tex objects, as
  * `texBucket` makes it (with `wipe`), or `null` without a way to the gateway.
  */
