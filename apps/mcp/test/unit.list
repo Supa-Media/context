@@ -220,6 +220,7 @@ test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
 test/agentAdvisorSetup.test.mjs
 test/agentAdvisor.test.mjs
+test/agentTurnStages.test.mjs
 test/groupTiming.test.mjs
 test/agentInstacartCheckout.test.mjs
 test/agentKeptCarry.test.mjs

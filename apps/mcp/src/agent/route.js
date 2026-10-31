@@ -28,7 +28,7 @@ import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
-import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js";
+import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
@@ -109,10 +109,10 @@ const CONSOLE_CLIENT_ID = "context_console";
  * the request that produced it — the customer's question and their notes.
  */
 export function handleAgent(request, env, store, session, controlPlane, options = {}) {
-  return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, options, outcome)); // every exit of a named turn is recorded (`loggedTurn.js`)
+  const stages = turnStages(env); return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, { ...options, stages }, outcome)).finally(() => stages.flush()); // every exit of a named turn is recorded (`loggedTurn.js`), with where its time went (`turnStages.js`)
 }
 
-async function agentTurn(request, env, store, session, controlPlane, { progress = null, step = null }, outcome) {
+async function agentTurn(request, env, store, session, controlPlane, { progress = null, step = null, stages = null }, outcome) {
   const received = Date.now();
   let body;
   try {
@@ -228,7 +228,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   }
 
   try {
-    await openProvider(controlPlane, session, body.provider, env);
+    await openProvider(controlPlane, session, body.provider, env); stages?.mark("provider");
   } catch (error) {
     outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
@@ -254,7 +254,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
   const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
-  const offered = await grantedToolsFor(session, store);
+  const offered = await grantedToolsFor(session, store); stages?.mark("tools");
 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
@@ -290,7 +290,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const { conversation, history } = await turnHistory(store, session, body, { runner, group, dispatch });
   const logged = runner ? null : await loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId });
-  const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))];
+  const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -355,7 +355,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const vouched = runner ? routine?.body ?? "" : [theirEarlierWords(history), chatLines(group), question].filter(Boolean).join("\n\n"); // their earlier texts too (`turnWeb.js`)
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
-  const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, history: runner ? [] : history, channel, store, dispatch, ledger });
+  const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, history: runner ? [] : history, channel, store, dispatch, ledger }); stages?.mark("web");
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
@@ -363,7 +363,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     its model is used only when this deployment can call it: an uncallable one
     falls back.
   */
-  const production = await readProductionSetup(store, session, { texting: texting || group !== null });
+  const production = await readProductionSetup(store, session, { texting: texting || group !== null }); stages?.mark("setup");
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
   const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
@@ -382,7 +382,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     onRead: (body) => opened?.vouch(body),
   });
   // Skills Tex wrote itself (`learnedSkills.js`): an index on a text, read on request, never vouched for.
-  const learned = await openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts });
+  const learned = await openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts }); stages?.mark("skills");
   // A text that can write may hand a sub-project to another agent (`delegate.js`), as the person.
   const home = store.contexts.find((entry) => entry.current)?.name ?? null;
   const delegation =
@@ -445,7 +445,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     person their answer.
   */
   const logTurn = (outcome, model, timing, usage, parts = null) => {
-    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received, waitMs: waitBefore(body.arrivedAt, received) });
+    const report = turnReport({ provider: BUILTIN_PROVIDER, outcome, model, timing, usage, parts, kind: turnKind({ runner, job, group, texting }), ms: Date.now() - received, waitMs: waitBefore(body.arrivedAt, received) }); stages?.ran(report);
     console.log(
       JSON.stringify({
         event: "agent_turn",
@@ -488,12 +488,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const claims = !runner && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: readTexStyle(body.texStyle)?.length === "detailed", visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
-  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover });
+  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover }); stages?.mark("pictures");
   const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
   maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
   try {
     await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
-    const turn = await runTurn({
+    stages?.ready(); const turn = await runTurn({
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
       question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
