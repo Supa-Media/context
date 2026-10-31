@@ -78,6 +78,7 @@ import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withIdLayout } from "./idLayout.js";
+import { withTexRouting } from "./texRouting.js";
 import { withNoteCap } from "./noteCap.js";
 import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
@@ -207,7 +208,11 @@ export function storeForBinding(binding, env, options = {}) {
   // The id layer (`idLayout.js`) sits inside the cap, so the cap still sees
   // the path a person wrote and counts it, and the keys the layer writes
   // underneath are never mistaken for notes of their own.
-  return withNoteCap(withNoteLayout(withLogicalDelete(probed), options.idLayout), options.noteCap, options.noteCount ?? null);
+  // Tex's notes (`texRouting.js`): a row's key of the Tex form goes to its
+  // Durable Object, under the id layer so every holder of a row's key reaches
+  // it, and refused when `options.texStore` cannot open one.
+  const routed = withTexRouting(withLogicalDelete(probed), { workspaceId: binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
 }
 
 /**

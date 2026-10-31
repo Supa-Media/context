@@ -9,6 +9,7 @@
  */
 
 import { texObjects, TexObjectRefused } from "./objects.js";
+import { R2Store } from "../store/r2.js";
 
 const CALL = "x-tex-call";
 const META = "x-tex-meta";
@@ -170,4 +171,18 @@ export function texBucket(stub) {
 /** The Durable Object's own state, built on first use. */
 export function texObjectsFor(state) {
   return texObjects(state.storage.sql);
+}
+
+/**
+ * The store over an owner's object, from inside the gateway: `owner` is
+ * `person:<workspaceId>` or `chat:<chatId>`, as a Tex key names it
+ * (`store/texRouting.js`, which has already checked it is this workspace's).
+ * `null` without the binding.
+ */
+export function gatewayTexStore(env) {
+  return (owner) => {
+    const cut = owner.indexOf(":");
+    const stub = texStoreStub(env, { [owner.slice(0, cut)]: owner.slice(cut + 1) });
+    return stub === null ? null : new R2Store(texBucket(stub));
+  };
 }

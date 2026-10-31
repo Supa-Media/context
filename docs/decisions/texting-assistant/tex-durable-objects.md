@@ -24,6 +24,15 @@ gateway reads and writes the note's text there instead of in the bucket. So
 the app shows it, search finds it, other AI clients read and edit it, and
 Download as folders includes it, through the same paths as any note.
 
+The mark is the row's key itself: `tex/<owner>/notes/<noteId>.md`, the
+owner `person:<workspaceId>` or `chat:<chatId>`, where a bucket note's is
+`notes/<noteId>.md`. Every store the gateway or the control plane builds
+routes a key of that form to its owner's object (`store/texRouting.js`), so
+whatever holds a row's key (the id layer, the trash's emptying, an export)
+reaches the right place without knowing about Tex. A key naming another
+workspace's owner is refused, and with no way to reach the object the key is
+refused rather than looked for in the bucket.
+
 Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
