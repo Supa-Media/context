@@ -81,6 +81,7 @@ import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
+import type { TimingDataset } from "./textTiming";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -96,6 +97,8 @@ export type InboxStorage = {
 export type InboxDeps = ReplyDeps &
   Omit<LineDeps, "fetch"> & {
     now: () => number;
+    /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
+    textTiming?: TimingDataset;
     /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
     spawnJob?: (id: string, run: JobRun) => Promise<void>;
     /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
@@ -351,10 +354,10 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const message = merged(entries.map(([, entry]) => entry.message));
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   const tries = (item.tries ?? 0) + 1;
-  const timing: TurnTiming = { started: deps.now() };
+  const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: arrivedAt(entries) }, storage, covers, presence, timing);
+    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -387,8 +390,10 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
 async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
-  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) =>
-    addEvent(storage, {
+  const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) => {
+    // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
+    if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
+    return addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
       from: { kind: item.system ? "system" : "tex" },
@@ -396,6 +401,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       ...(item.covers ? { covers: item.covers } : {}),
       ...part,
     });
+  };
   try {
     // Each text keeps its own idempotency key, so a retry after a partial
     // send repeats nothing Linq already accepted; `sent` does the same on

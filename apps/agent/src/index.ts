@@ -60,6 +60,7 @@ import { noteCardDrawer } from "./noteCards";
 import { holdsAsAnswer, takesBackYes } from "./thumbs";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
+import type { TimingDataset } from "./textTiming";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -92,6 +93,8 @@ export interface Env {
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
+  /** Each answered text's wait, arrival to first bubble (`textTiming.ts`); absent when self-hosting. */
+  TEX_TEXTS?: TimingDataset;
   /** "on" sends Context cards to every chat, "app" only to chats that have shown the app (`appCards.ts`, `cardChats.ts`). */
   APP_CARDS?: string;
   APP_CARD_EXTENSION_ID?: string;
@@ -627,6 +630,7 @@ export class SenderInbox implements DurableObject {
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.state.waitUntil(promise),
+      textTiming: this.env.TEX_TEXTS,
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(

@@ -157,14 +157,18 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
-  for (const text of texts) await say(storage, deps, message, text, meta);
+  let firstSent: number | undefined; // when the person's wait ended (`textTiming.ts`)
+  for (const text of texts) {
+    await say(storage, deps, message, text, meta);
+    firstSent ??= deps.now();
+  }
   for (const picture of checkIn ? [] : answer.pictures) await sendPicture(storage, deps, message, picture, meta); // After the words, as in a 1:1.
   // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
   const askedWho = await sha256Hex(asks ?? message.from);
   for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
   await texSpoke(storage);
   log("answered");
-  logTiming({ arrivedAt, asking, answered, sent: deps.now() });
+  logTiming({ arrivedAt, asking, answered, firstSent, sent: deps.now(), parts: texts.length }, deps.textTiming);
   await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   await watchConversation(storage, { kind: "group", message, people }, deps.now());

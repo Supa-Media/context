@@ -15,13 +15,16 @@
  *  - the bytes up to the history's breakpoint are the same from one text to the next;
  *  - the clock, the model line and the "what you did" list are said in the
  *    person's turn, never in the cached prefix, and the model still has the time;
- *  - there are at most four breakpoints, each where the layout says;
+ *  - there are at most four breakpoints, each where the layout says, the last
+ *    on the round's own end so the next tool round reads it;
  *  - the tools are offered in one fixed order, whatever order they were granted in;
  *  - every mark is the default five-minute one (a one-hour TTL is unproven through AI Gateway).
  *
  * Sabotage (run by hand while writing this): moving `localNowPrompt` back into
  * the system prompt, dropping `cachedThrough`, offering the tools reversed, and
- * adding a TTL each fail a check here.
+ * adding a TTL each fail a check here; so does dropping the round-end mark
+ * (`aiGateway.js` `gatewayBody`), which "each tool round reads the one before
+ * it" catches.
  */
 
 import assert from "node:assert/strict";
@@ -139,25 +142,63 @@ test("the clock, the model line and the list of earlier tools are said in the pe
   assert.equal(second.body.messages.at(-1).content.at(-1).text, "and what about Monday?", "the person's own words come last");
 });
 
-test("at most four breakpoints, each where the layout puts it, all of them one-hour except the history", async () => {
+test("at most four breakpoints, each where the layout puts it, all five-minute", async () => {
   const { body } = await sendText({ now: SECOND_TEXT, question: "and what about Monday?", history: HISTORY_LATER });
   const marks = JSON.stringify(body).split('"cache_control"').length - 1;
-  assert.ok(marks <= 4, `at most four breakpoints, got ${marks}`);
-  assert.equal(marks, 4, "tools, stable system, context system and history");
-  assert.deepEqual(body.tools.at(-1).cache_control, { type: "ephemeral" });
-  assert.equal(body.tools.slice(0, -1).some((entry) => entry.cache_control !== undefined), false);
+  assert.equal(marks, 4, "stable system (covering the tools before it), context system, history, and the round's end");
+  assert.equal(body.tools.some((entry) => entry.cache_control !== undefined), false, "the tools are cached by the stable part's mark");
   assert.equal(body.system.length, 2, "the stable and the context parts are each a block");
   for (const block of body.system) assert.deepEqual(block.cache_control, { type: "ephemeral" });
   const historyEnd = body.messages[HISTORY_LATER.length - 1];
   assert.deepEqual(historyEnd.content.at(-1).cache_control, { type: "ephemeral" }, "the history's last block, five minutes");
-  assert.equal(body.messages.at(-1).content.at(-1).cache_control, undefined, "the new text is uncached");
+  assert.deepEqual(body.messages.at(-1).content.at(-1).cache_control, { type: "ephemeral" }, "the round's end, for the next round to read");
 });
 
 test("the first text of a chat has no history breakpoint and still caches the tools and the system prompt", async () => {
   const { body } = await sendText({ now: FIRST_TEXT, question: "hello", history: [] });
   assert.equal(JSON.stringify(body).split('"cache_control"').length - 1, 3);
-  assert.equal(body.messages.at(-1).content.at(-1).cache_control, undefined);
   assert.equal(body.messages.at(-1).content.at(-1).text, "hello");
+});
+
+test("each tool round reads the one before it: the earlier round's whole request is a prefix of the next, up to its mark", async () => {
+  const sent = [];
+  let round = 0;
+  const fetchImpl = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    round += 1;
+    const reply =
+      round < 3
+        ? { id: `msg_${round}`, type: "message", role: "assistant", content: [{ type: "tool_use", id: `toolu_${round}`, name: "search", input: { query: `q${round}` } }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }
+        : answer("Tuesday.");
+    return new Response(JSON.stringify(reply), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  resetCreditState();
+  await runTurn({
+    question: "when is the dentist?",
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    history: HISTORY,
+    tools: TOOLS,
+    callTool: async () => ({ content: [{ type: "text", text: "a long result ".repeat(50) }] }),
+    env: { ...ENV, AGENT_BUILTIN_MODEL: HAIKU },
+    providerOptions: { gateway: aiGatewayConfig(ENV), fetchImpl },
+    builtinModelOverride: HAIKU,
+    texting: true,
+    aboutMe: ABOUT_ME,
+    localNow: { now: FIRST_TEXT, timeZone: TIME_ZONE },
+  });
+  assert.equal(sent.length, 3);
+  for (let i = 0; i < sent.length; i += 1) {
+    const marks = JSON.stringify(sent[i]).split('"cache_control"').length - 1;
+    assert.equal(marks, 4, `round ${i + 1}: four breakpoints, never more`);
+    assert.deepEqual(sent[i].messages.at(-1).content.at(-1).cache_control, { type: "ephemeral" }, `round ${i + 1} marks its own end`);
+  }
+  for (let i = 1; i < sent.length; i += 1) {
+    const before = unmarked(sent[i - 1].messages);
+    const after = unmarked(sent[i].messages);
+    assert.deepEqual(after.slice(0, before.length), before, `round ${i + 1} starts with round ${i}'s messages, byte for byte`);
+    assert.deepEqual(sent[i].system, sent[i - 1].system);
+    assert.deepEqual(sent[i].tools, sent[i - 1].tools);
+  }
 });
 
 test("the tools are offered in one fixed order, whatever order they were granted in", async () => {

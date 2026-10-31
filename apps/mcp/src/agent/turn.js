@@ -527,6 +527,8 @@ export async function runTurn(options) {
       // Stopped at the output cap (`aiGateway.js`): the round's thinking and
       // answer ran out of room, which the turn log and a benchmark count.
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
+      // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`.
+      ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}),
     });
     if (answer.usage) {
       usage.input += answer.usage.input;

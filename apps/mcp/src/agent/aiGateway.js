@@ -166,17 +166,18 @@ export function metadataHeader(metadata) {
  * and a breakpoint closes each stretch that stays the same from one text to the
  * next:
  *
- *   tools → system.stable → system.context (five-minute marks)
- *     → history through message `cachedThrough` (5m) → the person's new text
+ *   tools → system.stable (one mark, after both) → system.context
+ *     → history through message `cachedThrough` → this round's last block
  *
- * Everything after the history breakpoint (the new text, the per-turn facts
- * carried in its `preamble`, and this turn's tool rounds) is uncached. That
- * keeps the bytes the cache reads identical across texts: a changed clock, a
- * changed model line or a longer "what you did" list no longer makes the whole
- * prefix a miss. Four breakpoints at most, the API's limit.
- *
- * A turn is several rounds over a growing transcript, so each round reads the
- * previous one's prefix from cache at a tenth of the price.
+ * The history breakpoint is what the next text reads: everything after it
+ * (the new text, the per-turn facts carried in its `preamble`, this turn's
+ * tool rounds) differs from text to text, so a changed clock, a changed model
+ * line or a longer "what you did" list never makes the prefix a miss. The last
+ * mark is what the next round of the same turn reads: a turn is several rounds
+ * over a growing transcript, and without it each round sent every earlier
+ * round's tool results as new (production, 2026-10-31: up to 40,000 uncached
+ * input tokens a round). Four breakpoints, the API's limit; the tools need
+ * none of their own, since they change only with the stable part after them.
  */
 /**
  * The models that think by default (every Claude 5 model), where asking for
@@ -217,13 +218,16 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     description: tool.description,
     input_schema: tool.inputSchema || { type: "object" },
   }));
-  if (toolList.length > 0) toolList[toolList.length - 1].cache_control = { ...stableMark };
+  // A texted turn's tools are cached by the stable system part's mark, which follows them: its fourth mark is the round's own end.
+  if (toolList.length > 0 && !layered) toolList[toolList.length - 1].cache_control = { ...stableMark };
   const wire = anthropicMessages(messages);
   if (layered) {
     // Up to the history's last message, which is everything before the person's new text.
     // The wire is built message by message, so the history's own wire is a prefix of the whole.
     const historyEnd = anthropicMessages(messages.slice(0, cachedThrough)).length;
     markLastBlock(wire, historyEnd - 1);
+    // And the round's last block, so the next round reads this one's tool results instead of sending them as new.
+    if (wire.length > historyEnd) markLastBlock(wire, wire.length - 1);
   } else {
     markLastBlock(wire, wire.length - 1);
   }

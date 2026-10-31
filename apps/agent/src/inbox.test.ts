@@ -5,6 +5,7 @@ import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { READY_FIRST_MS, READY_KEY } from "./ready";
 import { afterRepliesSettled } from "./afterReply";
+import { TEXT_COLUMNS, textTimingPoint } from "./textTiming";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -498,5 +499,36 @@ describe("the work after a reply", () => {
     }
     expect(logs.join("\n")).not.toContain("secret words");
     expect(logs.join("\n")).not.toContain("5555550100");
+  });
+
+  it("writes each answered text's wait, from arrival to its first bubble, as numbers only", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "secret words"), 1_000);
+    const points: { blobs?: string[]; doubles?: number[] }[] = [];
+    const sent: Sent[] = [];
+    let clock = 5_000;
+    const run = { ...deps({ sent }), now: () => (clock += 100), textTiming: { writeDataPoint: (point: { blobs?: string[]; doubles?: number[] }) => void points.push(point) } };
+    await drain(storage, run);
+    await afterRepliesSettled(storage);
+    expect(sent).toHaveLength(1);
+    expect(points).toHaveLength(1);
+    expect(points[0].blobs).toEqual(["one"]);
+    const row = Object.fromEntries(TEXT_COLUMNS.map((name, i) => [name, points[0].doubles![i]]));
+    expect(row.parts).toBe(1);
+    expect(row.queueMs).toBeGreaterThan(4_000);
+    // The wait the person felt ends at the first bubble, before the last and before the work after it.
+    expect(row.toFirstTextMs).toBeGreaterThan(row.queueMs + row.gatewayMs - 1);
+    expect(row.toLastTextMs).toBeGreaterThanOrEqual(row.toFirstTextMs);
+    for (const value of points[0].doubles!) expect(value).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(points)).not.toMatch(/secret words|5555550100|chat_1/);
+  });
+
+  it("a step not reached, or an arrival not kept, is -1, never a made-up wait", () => {
+    const point = textTimingPoint("group", { gatewayMs: 2_400.4, toFirstTextMs: undefined, sendMs: -3 });
+    const row = Object.fromEntries(TEXT_COLUMNS.map((name, i) => [name, point.doubles[i]]));
+    expect(row.gatewayMs).toBe(2_400);
+    expect(row.toFirstTextMs).toBe(-1);
+    expect(row.sendMs).toBe(-1);
+    expect(point.blobs).toEqual(["group"]);
   });
 });
