@@ -168,6 +168,9 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   // The simulator is answered directly, as before decide.
   if (ids.length === 0 || first[1].message.channel === "simulator") return { answer: fallbackTurn(burst), drop: [] };
+  // Tex's front door (Seyi, 2026-10-31): one text goes straight to Tex. Decide is asked only when there is a choice: several texts waiting,
+  // a bare "thanks" a tapback may answer, or an ask of Tex's this text may leave behind (`markStale`), so "never mind that email" still disarms it.
+  if (burst.length === 1 && !pureAck(burst[0][1].message) && (await waitingAsks(storage, deps.now(), await sha256Hex(first[1].message.from))).length === 0) return { answer: burst, drop: [] };
   const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
   if (!decision.ok) return { answer: fallbackTurn(burst), drop: [] };
   // Code's rule over the model's: only a pure acknowledgement may go unanswered here.

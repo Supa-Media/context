@@ -80,6 +80,7 @@ import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
+import { readFrontDoor } from "./frontDoor.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
@@ -191,6 +192,10 @@ async function parse(raw) {
   const history = readHistoryTurns(front.history);
   if (history === null) return null;
 
+  // Haiku as the front door unless the setup says `front_door: off` (`frontDoor.js`).
+  const frontDoor = readFrontDoor(front.front_door);
+  if (frontDoor === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -215,6 +220,7 @@ async function parse(raw) {
     openWeb,
     tools,
     history: history ?? null,
+    frontDoor,
     maxSteps,
     prompt,
     version: await versionOf(raw),

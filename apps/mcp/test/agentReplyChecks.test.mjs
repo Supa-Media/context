@@ -82,6 +82,7 @@ test("a promise of work by a time is a promise to keep", () => {
 
 test("an empty answer gets one more round, and the second answer is the one sent", async () => {
   const world = await createEgressWorld();
+  world.env.TEX_FRONT_DOOR = "off"; // The old turn: the reply checks run only with the front door off (`frontDoor.js`).
   try {
     world.model.install([{ text: "" }, { text: "Still on it. Nothing's done yet." }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "are you working on this?", conversation: "texts" });
