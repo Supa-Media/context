@@ -418,7 +418,7 @@ test("parseSetup reads no router when the file names none", async () => {
 
 for (const [name, front] of [
   ["a router with no thinking model", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\""],
-  ["a thinking model with no router", "models:\n  main: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
+  ["a thinking model with no router and no think_rounds", "models:\n  main: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
   ["a router that is not Clef", "models:\n  main: anthropic/claude-haiku-5-5\n  router: anthropic/claude-haiku-5-5\n  think: anthropic/claude-opus-5-5"],
   ["a thinking model outside the accepted shapes", "models:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: evil/model-x"],
 ]) {
