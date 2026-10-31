@@ -28,7 +28,7 @@ import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
-import { meterEach, meterParts } from "./modelPlan.js";
+import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
@@ -534,7 +534,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
-      local: earlier,
+      local: [...earlier, ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(texting ? outgoing.knows(await readTexNotes(dispatch, { controlPlane, session })) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },

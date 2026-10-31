@@ -36,6 +36,10 @@
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
  *   models.think_effort optional, with `think`: the same for `think`
+ *   models.advisor optional: the model `main` may consult with the `send`
+ *                  action `advisor` (`advisor.js`, the Tex Devs meeting,
+ *                  2026-10-30); never `models.main`
+ *   models.advisor_effort optional, with `advisor`: the same for the advisor
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -145,10 +149,17 @@ async function parse(raw) {
     }
     router = { model: models.router, think: models.think, routeAt, ...(thinkRounds === null ? {} : { thinkRounds }) };
   } else if (models.route_at !== undefined || models.think_rounds !== undefined) return null;
+  // The advisor is independent of the router. An effort with no advisor names
+  // no model, so the loop below refuses it.
+  let advisor = null;
+  if (models.advisor !== undefined) {
+    if (typeof models.advisor !== "string" || !isBuiltinModelName(models.advisor) || models.advisor === models.main) return null;
+    advisor = models.advisor;
+  }
   // How hard each model thinks, by model name, so the turn looks it up for
   // whichever model the router picked. A word that isn't one refuses the file.
   const efforts = {};
-  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think]]) {
+  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think], ["advisor_effort", advisor]]) {
     if (models[key] === undefined) continue;
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
@@ -195,6 +206,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    advisor,
     efforts,
     fallback,
     search,
