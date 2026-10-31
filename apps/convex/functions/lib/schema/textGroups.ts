@@ -56,6 +56,12 @@ export const textGroupTables = {
     texStyle: v.optional(texStyleValidator),
     texStyleSetBy: v.optional(v.string()),
     texStyleSetAt: v.optional(v.number()),
+    /**
+     * The chat's home (`lib/textGroupHome.ts`, decided by the owner, 2026-10-31): `tex/groups/<words>/` in the pinned
+     * workspace, sealed to the chat's people, and the accounts its row names now, each to edit. Account ids only.
+     */
+    homeWords: v.optional(v.string()),
+    homeUsers: v.optional(v.array(v.id("users"))),
     lastSeenAt: v.number(),
     /**
      * The chat's own check-in (`lib/textGroupLooks.ts`, decided by the owner, 2026-10-27): when the next look is

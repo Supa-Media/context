@@ -85,9 +85,40 @@ role's grant beneath the seal opens nothing), and
 `apps/mcp/test/privacy/sealedChats.test.mjs` (the gateway's `canSee`, folded
 spellings, `list_changes`). Both carry a sabotage record.
 
+## How a chat gets its home, and writes there (2026-10-31)
+
+- **Made on the chat's first turn with a session** (`apps/convex/functions/lib/textGroupHome.ts`
+  `ensureChatHome`, called from `mintGroupGrant` in every mode: bound, guest
+  and invited): three words under the folder, the folders stood as rows, and
+  the home's row naming everyone in the chat with an account, each to edit,
+  under the homes' own client. Each later turn names exactly who is in the
+  chat now: somebody who leaves is taken off, somebody added is named. Only
+  account ids are kept (`textGroups.homeWords`, `homeUsers`), never a number.
+- **The chat's turn holds the home's token to edit, on the pin's setup row**
+  (`liveGrants.ts` `groupSetupRow`), beside the names every pin reader holds
+  and `READS_AS_CHAT`, at the editor role, with `chatHome` naming the folder.
+  Read as a chat reads (`lib/nodes/chatFolders.ts` `chatRules`), the rules it
+  gets open the home as `team`, list everything else it holds (the guides
+  every account reads, Tex's setup) as read only, and close the rest. The row
+  stays setup-only: no tool, URL or listing addresses it.
+- **Only the turn's own memory is written there.** The gateway opens the home
+  through a door of its own (`apps/mcp/src/http/pinnedDoors.js`,
+  `session.js` `sessionForChatHome`), which exists only for the group client's
+  setup row, a folder under `tex/groups/`, the chat marker and a grant that
+  may write. `agent/chatHome.js` hands the group turn a dispatcher on it, and
+  the chat's memory note (`chat-<id>.md`, named by the people in the chat as
+  before, so somebody added is never replayed what came before them) is read
+  and written there instead of in the bound workspace. A model's tool call
+  never reaches the home.
+- A chat bound to `@context-lc` itself gets no door (its setup is read where
+  it is bound), and keeps its memory in the plumbing copy alone.
+
+Tests: `apps/convex/__tests__/textGroupHome.test.ts`,
+`apps/mcp/test/chatHome.test.mjs`, each with a sabotage record.
+
 ## Still to build
 
-The seal ships first, on its own. Next: Tex makes a chat's home and names the
-chat's people on it, writes the chat's memory there (transcripts by day,
-about-us, voice, routines, skills), reads every workspace everyone in the chat
-shares instead of one bound workspace, and the chats that exist move in.
+The chat's voice note and its workspace's playbook stay where the turn's own
+tools write them, until the model can write in the home. Next: the chat
+reads every workspace everyone in it shares instead of one bound workspace,
+and the chats that exist move in (old notes archived, never deleted).

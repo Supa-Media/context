@@ -62,6 +62,8 @@ export { storeForOpenedBinding, storeForSession } from "./sessionStore.js";
 export const SCOPE_READ = "context:read";
 /** The group chat's client (`agent/groupTurn.js`); the one a setup-only pin is honoured for. */
 const TEXTS_GROUP_CLIENT = "context_texts_group";
+/** A group chat's home: `tex/groups/<words>` (`apps/convex/functions/lib/textGroupHome.ts`). */
+const CHAT_HOME_PATTERN = /^tex\/groups\/[a-z]+(?:-[a-z]+){1,4}$/;
 /** Create, update, move, and archive notes. Implies capture. */
 export const SCOPE_WRITE = "context:write";
 /** Drop a raw capture into inbox and nothing else. */
@@ -362,6 +364,33 @@ export function sessionForSetup(session) {
 }
 
 /**
+ * A group chat's session at its home in the pin (`chatHome`), or `null`. The setup row's names, read as a chat reads
+ * (`READS_AS_CHAT`), hold only the home to edit, so the rules refuse a write anywhere else there. Never reached
+ * through `sessionForContext`: only the group turn's own memory is written through it (`agent/chatHome.js`).
+ */
+export function sessionForChatHome(session) {
+  const setup = session?.setupReach;
+  if (!setup || typeof setup.workspaceId !== "string" || typeof setup.chatHome !== "string") return null;
+  if (!(setup.grantedNames || []).includes(READS_AS_CHAT.slice(1))) return null;
+  const scopes = effectiveScopes(session.grantScopes, setup.role).filter((scope) => scope === SCOPE_READ || scope === SCOPE_WRITE);
+  if (!scopes.includes(SCOPE_WRITE)) return null;
+  const sibling = {
+    ...session,
+    workspaceId: setup.workspaceId,
+    workspaceSlug: setup.slug,
+    workspaceKind: setup.kind,
+    role: setup.role,
+    scope: visibilityTierForGrant(scopes, setup.role),
+    scopes,
+    grantedGroups: grantedGroupsOf(setup.grantedNames),
+    setupReach: null,
+    chatHome: setup.chatHome,
+  };
+  Object.defineProperty(sibling, "accessToken", { value: session.accessToken, enumerable: false, writable: false });
+  return sibling;
+}
+
+/**
  * `@seyi`, `seyi` and `Seyi` are one name; anything the gateway would not read
  * out of a URL is not a name at all.
  *
@@ -417,7 +446,9 @@ function normalizeSession(raw) {
       if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName) && !ROW_NAME_PATTERN.test(normalizedName)) throw fail();
       return normalizedName;
     });
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true };
+    // A chat's home in the pin (`liveGrants.ts`): only on the setup row, and only a folder beneath the homes.
+    const chatHome = entry.setupOnly === true && typeof entry.chatHome === "string" && CHAT_HOME_PATTERN.test(entry.chatHome) ? entry.chatHome : null;
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(chatHome ? { chatHome } : {}) };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):
