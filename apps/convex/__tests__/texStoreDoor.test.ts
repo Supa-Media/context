@@ -156,6 +156,94 @@ describe("a deleted workspace's Tex notes", () => {
   });
 });
 
+describe("wiping one owner's Tex notes", () => {
+  const CHAT = "chat-Alpha_1";
+  const OTHER_CHAT = "chat-Beta_2";
+
+  /** The wipes still queued to retry, as their arguments. */
+  const pendingWipes = (t: Awaited<ReturnType<typeof world>>["t"]) =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter((job) => job.state.kind === "pending" && job.name.endsWith("wipeOwner"))
+        .map((job) => job.args[0]),
+    );
+
+  test("wipes the named chat's object and no other owner's", async () => {
+    const { t, workspaceId, otherId, objects, fetchImpl } = await world();
+    vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
+    vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const owners = [`chat:${CHAT}`, `chat:${OTHER_CHAT}`, `person:${workspaceId}`, `person:${otherId}`];
+      const held = new Map(owners.map((owner) => [owner, texObjects(durableSql())] as const));
+      for (const [owner, object] of held) {
+        objects.set(owner, object);
+        await object.put(`notes/${NOTE}.md`, `held by ${owner}`);
+      }
+      await t.action(internal.functions.texStoreWipe.wipeOwner, { owner: `chat:${CHAT}`, workspaceId, attempt: 0 });
+      expect(held.get(`chat:${CHAT}`)!.list({}).objects).toEqual([]);
+      expect(held.get(`chat:${OTHER_CHAT}`)!.list({}).objects).toHaveLength(1);
+      expect(held.get(`person:${workspaceId}`)!.list({}).objects).toHaveLength(1);
+      expect(held.get(`person:${otherId}`)!.list({}).objects).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("wipes the workspace's own person object, and calls nothing for another workspace's", async () => {
+    const { t, workspaceId, otherId, objects, fetchImpl } = await world();
+    vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
+    vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", (async (url: string, init: RequestInit) => {
+      calls.push(url);
+      return await fetchImpl(url, init);
+    }) as typeof fetch);
+    try {
+      const own = texObjects(durableSql());
+      const theirs = texObjects(durableSql());
+      objects.set(`person:${workspaceId}`, own);
+      objects.set(`person:${otherId}`, theirs);
+      await own.put(`notes/${NOTE}.md`, "mine");
+      await theirs.put(`notes/${NOTE}.md`, "theirs");
+      await t.action(internal.functions.texStoreWipe.wipeOwner, { owner: `person:${workspaceId}`, workspaceId, attempt: 0 });
+      expect(own.list({}).objects).toEqual([]);
+      const before = calls.length;
+      await t.action(internal.functions.texStoreWipe.wipeOwner, { owner: `person:${otherId}`, workspaceId, attempt: 0 });
+      // Nothing is called, and nothing is queued to retry: the owner is not this workspace's, so it is not touched at all.
+      expect(calls.length).toBe(before);
+      expect(await pendingWipes(t)).toEqual([]);
+      expect(theirs.list({}).objects).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a failed wipe is retried later, for the same owner, one attempt on", async () => {
+    const { t, workspaceId, objects, fetchImpl } = await world();
+    vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
+    vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
+    let failures = 1;
+    vi.stubGlobal("fetch", (async (url: string, init: RequestInit) => {
+      if (failures-- > 0) throw new Error("gateway unreachable");
+      return await fetchImpl(url, init);
+    }) as typeof fetch);
+    try {
+      const held = texObjects(durableSql());
+      objects.set(`chat:${CHAT}`, held);
+      await held.put(`notes/${NOTE}.md`, "still here");
+      await t.action(internal.functions.texStoreWipe.wipeOwner, { owner: `chat:${CHAT}`, workspaceId, attempt: 0 });
+      expect(held.list({}).objects).toHaveLength(1);
+      const retries = await pendingWipes(t);
+      expect(retries).toEqual([{ owner: `chat:${CHAT}`, workspaceId, attempt: 1 }]);
+      await t.action(internal.functions.texStoreWipe.wipeOwner, retries[0] as { owner: string; workspaceId: typeof workspaceId; attempt: number });
+      expect(held.list({}).objects).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the gateway's door", () => {
   async function call(env: object, controlPlane: Parameters<typeof handleTexStoreDoor>[2] extends infer D ? (D extends { controlPlane?: infer C } ? C : never) : never, headers: Record<string, string>) {
     return await handleTexStoreDoor(

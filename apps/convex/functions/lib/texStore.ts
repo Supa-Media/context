@@ -25,7 +25,12 @@ const TEX_STORE_PATH = "/internal/tex-store";
 /** One call to a Durable Object, as long as a slow note read may take. */
 const CALL_TIMEOUT_MS = 30_000;
 
-type Options = { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> };
+type Options = {
+  fetchImpl?: typeof fetch;
+  env?: Record<string, string | undefined>;
+  /** The owners the minted ticket names; the workspace's own person object when unset. */
+  ticketOwners?: string[];
+};
 
 /**
  * The `texStore` option for a console store of `workspaceId`, or `null` when
@@ -62,7 +67,7 @@ export function consoleTexBuckets(
       await ctx.runMutation(internal.functions.texStoreTickets.mint, {
         hashedTicket: await hashToken(minted),
         workspaceId,
-        owners: [`person:${workspaceId}`],
+        owners: options.ticketOwners ?? [`person:${workspaceId}`],
         now: Date.now(),
       });
       return minted;
