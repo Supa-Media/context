@@ -90,7 +90,7 @@ export async function handleStale(request, store, session) {
   if (!Array.isArray(asks) || asks.length > MAX_STALE || !asks.every((id) => typeof id === "string" && ASK_ID.test(id))) return invalid("asks");
   const named = new Set(asks);
   // This person's own texted asks only: another person's record is never listed here.
-  const entries = (await listPending(store, { userId: session.actorUserId, texting: true })).filter(({ record }) => named.has(record.id));
+  const entries = (await listPending(store, { userId: session.actorUserId, texting: true, ids: asks })).filter(({ record }) => named.has(record.id));
   const stuck = entries.length === 0 ? 0 : await disarmRecords(store, entries);
   return json({ disarmed: entries.length - stuck });
 }

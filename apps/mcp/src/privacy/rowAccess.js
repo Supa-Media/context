@@ -21,9 +21,18 @@
  *
  * `!edit` names a grant with edit role. The engine never reads roles, so an
  * edit grant also carries the view name.
+ *
+ * ## The seal
+ *
+ * A `sealed` row — the pinned workspace's chat homes
+ * (`apps/convex/functions/lib/nodes/sealedChats.ts` `withSealedChats`) —
+ * renders as `SEALED` for every audience, replacing any setting it carries,
+ * and is rendered even when it carries none. `canSee` answers a sealed path by
+ * name before it asks scope, so dropping the row here would hand every path
+ * under it to an owner's `private` scope.
  */
 
-import { PrivacyOverrides } from "./engine.js";
+import { PrivacyOverrides, SEALED } from "./engine.js";
 
 /**
  * @typedef {"member" | "guest"} Audience
@@ -35,6 +44,7 @@ import { PrivacyOverrides } from "./engine.js";
  *   kind: "file" | "folder",
  *   base?: "private" | "team",
  *   grantees: Grantee[],
+ *   sealed?: true,
  * }} AccessRow
  * @typedef {{ userId?: string, emails?: readonly string[], groupIds?: readonly string[], member?: boolean, account?: boolean }} Caller
  * @typedef {{ prefix: string, vis: string }} PrivacyRule
@@ -111,12 +121,12 @@ export function renderAccess(rows, audience) {
   const overrides = new PrivacyOverrides();
   const seen = new Set();
   for (const row of rows) {
-    if (row.base === undefined && row.grantees.length === 0) continue;
+    if (row.base === undefined && row.grantees.length === 0 && row.sealed !== true) continue;
     if (row.path === "") throw new Error("the root carries no access row");
     const key = `${row.kind}:${row.path}`;
     if (seen.has(key)) throw new Error(`two access rows for ${row.path}`);
     seen.add(key);
-    const vis = visibilityFor(row, audience);
+    const vis = row.sealed === true ? SEALED : visibilityFor(row, audience);
     if (row.kind === "folder") rules.push({ prefix: row.path, vis });
     else overrides.set(row.path, vis);
   }

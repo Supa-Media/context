@@ -118,6 +118,11 @@ export async function keptEvents(storage: InboxStorage, chat: string): Promise<T
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat);
 }
 
+/** This chat's kept events, oldest first, written or not: what a turn is handed beside the warm copy (`warm.ts`). */
+export async function recentEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
+  return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /** Whether the gateway has written it; kept for the window either way. */
 export async function unwritten(storage: InboxStorage): Promise<TexEvent[]> {
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].filter((kept) => !kept.w).map((kept) => kept.e);
@@ -228,7 +233,17 @@ async function owedStale(storage: InboxStorage): Promise<Owed[]> {
  * the buffered events, then the stale asks of `who` (the hash of the person
  * whose session it is), never anyone else's.
  */
-export async function flushChat(
+/** One flush at a time per object: a turn's flush runs beside it now (`warm.ts`), and two at once would send the same stale asks twice. */
+const flushing = new WeakMap<InboxStorage, Promise<void>>();
+
+export function flushChat(...args: Parameters<typeof flushChatNow>): Promise<void> {
+  const [storage] = args;
+  const next = (flushing.get(storage) ?? Promise.resolve()).catch(() => {}).then(() => flushChatNow(...args));
+  flushing.set(storage, next);
+  return next;
+}
+
+async function flushChatNow(
   storage: InboxStorage,
   deps: { fetch: Fetch; gatewayOrigin: string; now: () => number },
   accessToken: string,

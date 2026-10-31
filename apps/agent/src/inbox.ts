@@ -74,7 +74,7 @@ import { answers, clearReactions, noteReaction, notedReactions, tapbackText, typ
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
@@ -132,12 +132,11 @@ export type RememberedChat = { chatId: string; channel?: "simulator"; at: number
 export const MEDIA_WAIT_MS = 4_000;
 
 /**
- * How long words with no file wait for a photo sent just before them: Messages
- * sends the photo first, but its upload can make Linq deliver the words first
- * (2026-10-16, a photo then "and this one?" 0.4 s apart arrived words first and
- * got two answers).
+ * How long words with no file wait for a photo sent just before them: none since
+ * Tex's front door (Seyi, 2026-10-31: a "hi Tex" took minutes). It was 3 s, for a
+ * photo whose upload made Linq deliver the words first (2026-10-16).
  */
-export const TEXT_WAIT_MS = 3_000;
+export const TEXT_WAIT_MS = 0;
 
 /** When this sender last texted a web address, never the address: a link's preview can follow it as a text of its own. */
 export const LINK_AT_KEY = "link-at";
@@ -543,7 +542,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
       sessions.set(storage, token);
-      await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from));
+      void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
   const texts = await answerTexts(
@@ -564,7 +563,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       // "Tex, settings" and the style it keeps (`texStyle.ts`).
       settings: { state: () => menuState(storage, deps.now()), open: (step) => openMenu(storage, deps.now(), step), close: () => closeMenu(storage) },
-      onTexStyle: (style) => keepTexStyle(storage, style),
+      onTexStyle: (style) => keepTexStyle(storage, style), warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
     },

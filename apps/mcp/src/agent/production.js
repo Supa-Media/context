@@ -36,6 +36,10 @@
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
  *   models.think_effort optional, with `think`: the same for `think`
+ *   models.advisor optional: the model `main` may consult with the `send`
+ *                  action `advisor` (`advisor.js`, the Tex Devs meeting,
+ *                  2026-10-30); never `models.main`
+ *   models.advisor_effort optional, with `advisor`: the same for the advisor
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -76,6 +80,7 @@ import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
+import { readFrontDoor } from "./frontDoor.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
@@ -145,10 +150,17 @@ async function parse(raw) {
     }
     router = { model: models.router, think: models.think, routeAt, ...(thinkRounds === null ? {} : { thinkRounds }) };
   } else if (models.route_at !== undefined || models.think_rounds !== undefined) return null;
+  // The advisor is independent of the router. An effort with no advisor names
+  // no model, so the loop below refuses it.
+  let advisor = null;
+  if (models.advisor !== undefined) {
+    if (typeof models.advisor !== "string" || !isBuiltinModelName(models.advisor) || models.advisor === models.main) return null;
+    advisor = models.advisor;
+  }
   // How hard each model thinks, by model name, so the turn looks it up for
   // whichever model the router picked. A word that isn't one refuses the file.
   const efforts = {};
-  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think]]) {
+  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think], ["advisor_effort", advisor]]) {
     if (models[key] === undefined) continue;
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
@@ -180,6 +192,10 @@ async function parse(raw) {
   const history = readHistoryTurns(front.history);
   if (history === null) return null;
 
+  // Haiku as the front door unless the setup says `front_door: off` (`frontDoor.js`).
+  const frontDoor = readFrontDoor(front.front_door);
+  if (frontDoor === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -195,6 +211,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    advisor,
     efforts,
     fallback,
     search,
@@ -203,6 +220,7 @@ async function parse(raw) {
     openWeb,
     tools,
     history: history ?? null,
+    frontDoor,
     maxSteps,
     prompt,
     version: await versionOf(raw),
@@ -313,9 +331,14 @@ async function pinnedReach(store, session) {
  * @param {object} session the caller's session
  * @param {{texting: boolean}} options only a texted turn has a setup to read
  */
-export async function readProductionSetup(store, session, { texting }) {
+export async function readProductionSetup(store, session, { texting, warm = null }) {
   if (!texting) return null;
   try {
+    // With a warm copy (`warmCopy.js`), the note's text is read only when the copy hasn't it.
+    if (warm !== null) {
+      const raw = await warm(async () => await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, (text) => text));
+      return typeof raw === "string" ? await parseSetup(raw) : null;
+    }
     return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
   } catch {
     return null;

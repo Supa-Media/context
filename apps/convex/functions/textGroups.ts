@@ -16,6 +16,8 @@ import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLa
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
+import { ensureGroupClient } from "./lib/textGroupClient";
+import { ensureChatHome } from "./lib/textGroupHome";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -314,6 +316,7 @@ export const applyGroupTurn = internalMutation({
         workspaceId: workspace._id,
         tagger: senderUser,
         coViewerIds: users.filter((userId) => userId !== senderUser),
+        people: users,
         hashedAccessToken: args.hashedAccessToken,
         hashedRefreshToken: args.hashedRefreshToken,
         expiresAt: args.expiresAt,
@@ -430,6 +433,7 @@ async function guestTurn(
       workspaceId: workspace._id,
       tagger: actor,
       coViewerIds: [],
+      people: [...people.members, ...people.outsiders],
       hashedAccessToken: args.hashedAccessToken,
       hashedRefreshToken: args.hashedRefreshToken,
       expiresAt: args.expiresAt,
@@ -488,6 +492,7 @@ async function invitedTurn(
       workspaceId: workspace._id,
       tagger: actor,
       coViewerIds: [...new Set(invited.members.values())].filter((userId) => userId !== actor),
+      people: [...invited.members.values()],
       hashedAccessToken: args.hashedAccessToken,
       hashedRefreshToken: args.hashedRefreshToken,
       expiresAt: args.expiresAt,
@@ -576,6 +581,8 @@ async function mintGroupGrant(
     workspaceId: Id<"workspaces">;
     tagger: Id<"users">;
     coViewerIds: Id<"users">[];
+    /** Everyone in the chat with an account, the tagger included: whom the chat's home names (`textGroupHome.ts`). */
+    people: Id<"users">[];
     hashedAccessToken: string;
     hashedRefreshToken: string;
     expiresAt: number;
@@ -599,7 +606,7 @@ async function mintGroupGrant(
   // A guest chat counts against whoever opened it to guests (the owner, 2026-10-25), whoever tagged Tex.
   const meterWorkspaceId = await personalWorkspaceOf(ctx, input.guest?.binder ?? input.tagger);
   if (meterWorkspaceId === null) return false;
-  await ensureGroupClient(ctx);
+  await ensureGroupClient(ctx, TEXTS_GROUP_CLIENT_ID, TEXTS_GROUP_CLIENT_NAME);
 
   const guest = input.guest === undefined ? {} : { guestGroupId: input.guest.groupId, guestTagger: input.guest.guestTagger };
   const invited =
@@ -634,6 +641,7 @@ async function mintGroupGrant(
   } else {
     await ctx.db.patch(reusable._id, token);
   }
+  await ensureChatHome(ctx, input.group, input.people, input.tagger);
   await recordAudit(ctx, {
     workspaceId: input.workspaceId,
     actorUserId: input.tagger,
@@ -647,24 +655,6 @@ async function mintGroupGrant(
     },
   });
   return true;
-}
-
-async function ensureGroupClient(ctx: MutationCtx): Promise<void> {
-  const existing = await ctx.db
-    .query("oauthClients")
-    .withIndex("by_clientId", (q) => q.eq("clientId", TEXTS_GROUP_CLIENT_ID))
-    .unique();
-  if (existing !== null) return;
-  await ctx.db.insert("oauthClients", {
-    clientId: TEXTS_GROUP_CLIENT_ID,
-    clientName: TEXTS_GROUP_CLIENT_NAME,
-    redirectUris: [],
-    hashedClientSecret: null,
-    tokenEndpointAuthMethod: "none",
-    grantTypes: [],
-    responseTypes: [],
-    createdAt: Date.now(),
-  });
 }
 
 /**

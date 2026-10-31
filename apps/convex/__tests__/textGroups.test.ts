@@ -333,7 +333,8 @@ describe("Tex's setup in a group chat", () => {
     return await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
   }
 
-  test("the grant carries the pin last, marked setup-only, at member role, and nothing else new", async () => {
+  // Since 2026-10-31 the chat has a home in the pin (`textGroupHome.test.ts`), so the row is an editor's, read as a chat.
+  test("the grant carries the pin last, marked setup-only, with the chat's home, and nothing else new", async () => {
     const t = setupTest();
     const pinned = await pin(t);
     const { ada, studio } = await crew(t);
@@ -342,7 +343,8 @@ describe("Tex's setup in a group chat", () => {
     expect(session?.defaultWorkspaceId).toBe(studio);
     expect(session?.workspaces.map((entry) => entry.workspaceId)).toEqual([studio, pinned]);
     expect(session?.workspaces[0]?.setupOnly).toBeUndefined();
-    expect(session?.workspaces[1]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "member", setupOnly: true });
+    expect(session?.workspaces[1]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "editor", setupOnly: true });
+    expect((session?.workspaces[1] as { chatHome?: string } | undefined)?.chatHome).toMatch(/^tex\/groups\/[a-z]+-[a-z]+-[a-z]+$/);
     expect(JSON.stringify(session?.workspaces)).not.toContain(String(ada.workspaceId));
   });
 

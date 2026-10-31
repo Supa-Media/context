@@ -7,7 +7,9 @@
  *  - `clock?.mark("control")` removed from `answerGroup`: the control plane's
  *    four minutes land in `replyMs` and "a settings reply handed to its
  *    workflow" fails;
- *  - `timedReply` dropped from `answerHanded`: no line, the same test fails.
+ *  - `timedReply` dropped from `answerHanded`: no line, the same test fails;
+ *  - `fixedTimings` leaving the kept timings in place: "rides on the chat's
+ *    next model turn, once" fails on the second turn.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +44,24 @@ describe("a group reply's timing", () => {
     expect(timings(spy)).toEqual([{ event: "group_reply_timing", path: "settings", outcome: "done", queueMs: 2_000, startMs: 8_000, membersMs: 0, controlMs: 230_000, replyMs: 0, totalMs: 240_000 }]);
     // Numbers and a path name only: never the words or who sent them.
     expect(JSON.stringify(timings(spy))).not.toMatch(/settings here|Tex, settings|\+1/);
+  });
+
+  it("a settings reply's timing rides on the chat's next model turn, once, for the chat's note", async () => {
+    let t = 0;
+    const storage = new MemoryStorage();
+    const w = setup(groupId);
+    const deps = { ...w.deps, now: () => t };
+    await acceptGroup(storage, w.message("Tex, settings"), 0);
+    t = 4_000;
+    await drainGroup(storage, deps);
+    await acceptGroup(storage, w.message("Tex what's on tonight"), 10_000);
+    t = 12_000;
+    await drainGroup(storage, deps);
+    expect(w.asks[0]!.fixed).toEqual([{ path: "settings", arrivedAt: 0, sentAt: 4_000, queueMs: 4_000, membersMs: 0, controlMs: 0, replyMs: 0 }]);
+    await acceptGroup(storage, w.message("Tex and tomorrow"), 20_000);
+    t = 21_000;
+    await drainGroup(storage, deps);
+    expect(w.asks[1]).not.toHaveProperty("fixed");
   });
 
   it("a reply answered here has no workflow start, and a model turn is a turn", async () => {

@@ -9,7 +9,7 @@ import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clien
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { log, logTiming, say, sendPicture, type SayMeta } from "./groupSay";
+import { fixedTimings, log, logTiming, say, sendPicture, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { textsWithExact } from "./format";
 import type { InboxStorage } from "./inbox";
@@ -95,7 +95,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
-        arrivedAt,
+        arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),

@@ -207,6 +207,9 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
     // Asks their text corrected, with nothing new drawn, are dropped (`claimCheck.js` rule 6): `stale` names them.
     if (Array.isArray(stale) && stale.length > 0) return { ask: await dropStale(store, session, stale), verbatim: [] };
     // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
+    // Awaited, never handed to the host's deferral: `askOvertaken` counts only Tex's texts sent by
+    // themselves, so for a reply that asks something this disarm is the whole protection, and a
+    // deferral is "an optimisation it may not get, never where the work happens" (`http/route.js`).
     if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return { ask: null, verbatim: [] };
   }

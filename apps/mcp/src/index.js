@@ -99,6 +99,7 @@
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
+import { TexStore as TexStoreDurableObject } from "./texStore.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
@@ -159,6 +160,9 @@ class AuthorizedPresenceRoom extends PresenceRoomDurableObject {
 }
 
 export const PresenceRoom = AuthorizedPresenceRoom;
+
+/** Tex's notes, one Durable Object per person and per group chat (`texStore.js`). */
+export const TexStore = TexStoreDurableObject;
 
 export default {
   async fetch(request, env, ctx) {

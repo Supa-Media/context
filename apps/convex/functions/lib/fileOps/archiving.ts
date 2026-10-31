@@ -24,7 +24,8 @@
 
 import { archiveDestination, isArchiveStamp, mergeInto } from "@context/shared/src/archiveMirror.cjs";
 import { type FolderJobs, jobPath } from "@context/shared/src/folderRoles.cjs";
-import { visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
+import { visibilityOf } from "../privacy";
+import { archiveRoot, archiveRoots, insideArchive } from "../archiveRoots";
 import { type Clearance } from "../clearance";
 import { type FileStore } from "./store";
 import { assertNotProtectedFolder } from "./nameTwins";

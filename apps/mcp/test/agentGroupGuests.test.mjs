@@ -208,6 +208,7 @@ test("a guest chat saves its research as a page, pictures found for it included"
 test("research a guest chat saves as a plain note goes back to be a page, and the chat is told pages save here", async () => {
   // 2026-10-28 00:25: asked to save the page again, Tex saved the research plain and told the chat
   // "the page format keeps failing from this chat"; the folder being under tex/, nothing sent it back.
+  world.env.TEX_FRONT_DOOR = "off"; // The old turn: the reply checks run only with the front door off (`frontDoor.js`).
   world.model.install([
     { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research.md`, content: "# Research\n\nThe Stand.\n" } }] },
     { text: "Saved it." },
@@ -218,6 +219,7 @@ test("research a guest chat saves as a plain note goes back to be a page, and th
   const system = JSON.stringify(world.model.requests[0].system);
   assert.match(system, /as a page \(<name>\.page\.md\) like any new note: pages save here like anywhere else/);
   assert.match(JSON.stringify(world.model.requests.at(-1)), new RegExp(`Write it again now as ${FOLDER}/research\\.page\\.md`));
+  delete world.env.TEX_FRONT_DOOR;
 });
 
 test("a page named like a note the chat can't see is saved under another name, never called unwritable", async () => {

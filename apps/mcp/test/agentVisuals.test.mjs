@@ -302,6 +302,7 @@ test("a texted list that drew nothing goes back once, and comes out as a card an
   const { createEgressWorld, request, TOKEN_TEXTS } = await import("./agentEgressFixtures.mjs");
   const { VISUAL_NOTICE } = await import("../src/agent/visuals/notice.js");
   const world = await createEgressWorld();
+  world.env.TEX_FRONT_DOOR = "off"; // The old turn: the reply checks run only with the front door off (`frontDoor.js`).
   try {
     const shots = siteShots();
     const env = { ...world.env, SITE_SHOTS: shots.SITE_SHOTS };

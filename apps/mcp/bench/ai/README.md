@@ -59,6 +59,12 @@ this folder: it is public, like the rest of the repository.
   where it raises a goal or trade-off once, stays quiet, makes a small change
   with the cost beside it, gives an honest take, or agrees without flattery.
   Run it with `--test pushback`. Maya's goals are in her `tex/about-me.md`.
+- `tests/advisor.md` (decided at the Tex Devs meeting, 2026-10-30): the
+  two-agent rebuild, where Haiku answers every text and may consult Opus
+  through `ask_advisor`: two hard asks that must call the advisor, two easy
+  asks that must not, and a hurried hard ask that must still be right and
+  brief. The advisor calls are graded by `must call` and `must not call`
+  lines (`bench/checks.mjs`), not by the judge. Run it with `--test advisor`.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

@@ -32,6 +32,7 @@ import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
+import { dropWarm } from "./warm";
 
 /** Runs worked on at once in one tick. */
 export const ROUTINE_CONCURRENCY = 4;
@@ -184,6 +185,7 @@ export async function textRoutine(
 ): Promise<PhoneTexted> {
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (!chat || typeof chat.chatId !== "string" || chat.chatId === "") return "no_chat";
+  await dropWarm(storage); // the chat now holds words the gateway's warm copy hasn't seen (`warm.ts`)
   const texts = textsFromAnswer(body.text);
   if (chat.channel === "simulator") {
     if (!deps.simulator) return "no_chat";

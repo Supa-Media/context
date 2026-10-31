@@ -59,7 +59,10 @@ export async function recordTurn(store, turn, clean, { now = Date.now() } = {}) 
     const back = await store.get(key);
     if (back !== null && JSON.parse(await back.text())?.clean !== true) await store.put(key, tainted);
   }
-  await pruneTurns(store, now).catch(() => {}); // left over, a record is only kept longer
+  // Left over, a record is only kept longer; after the answer where the host allows (a listing and up to 100 reads: about 10 s of a "hi Tex", 2026-10-31).
+  const prune = pruneTurns(store, now).catch(() => {});
+  if (typeof store.defer === "function") store.defer(prune);
+  else await prune;
 }
 
 /**
@@ -116,9 +119,9 @@ async function cleanTurn(store, turn) {
 }
 
 /** Whether any of Tex's events shown is not proven clean; logs how many had no readable record, by count only. */
-async function showsTainted(store, events, workspace) {
+async function showsTainted(store, events, workspace, warm = null) {
   const turns = [...new Set(events.filter((event) => event.from?.kind === "tex").map((event) => event.turn))];
-  const records = await Promise.all(turns.map((turn) => cleanTurn(store, turn)));
+  const records = await Promise.all(turns.map((turn) => (warm === null ? cleanTurn(store, turn) : warm.clean(turn, () => cleanTurn(store, turn)))));
   const count = records.filter((clean) => clean === null).length;
   if (count > 0) console.log(JSON.stringify({ event: "tex_turn_unproven", workspace: String(workspace), count }));
   return records.some((clean) => clean !== true);
@@ -134,18 +137,19 @@ export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"Yo
   A group chat remembers in its own file, never the tagger's texts; its turns
   are other people's words, so untrusted (`groupTurn.js`).
 */
-export async function turnHistory(store, session, body, { runner, group, dispatch }) {
+export async function turnHistory(store, session, body, { runner, group, dispatch, warm = null }) {
   const conversation = !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
-  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await readConversation(store, conversation);
+  const read = () => readConversation(store, conversation);
+  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await (warm === null ? read() : warm.history(read)); // from a warm copy when it has the chat (`warmCopy.js`)
   return { conversation, history };
 }
 
 /** The log's history and question for a turn that names what it covers, or null for today's turn. */
-export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace } = {}) {
+export async function loggedTurn(store, body, { group = null, timeZone = "UTC", workspace, warm = null } = {}) {
   const covers = body?.covers;
   if (!Array.isArray(covers) || covers.length === 0 || covers.length > MAX_COVERS || !covers.every((id) => typeof id === "string" && EVENT_ID.test(id))) return null;
   if (!isChatKey(body.chat)) return null;
-  const events = await readEvents(store, body.chat);
+  const events = warm === null ? await readEvents(store, body.chat) : await warm.events(body.chat, () => readEvents(store, body.chat));
   const wanted = new Set(covers);
   const covered = events.filter((event) => wanted.has(event.id));
   if (covered.length !== wanted.size) return null;
@@ -156,5 +160,5 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   if (question === "") return null;
   const shown = seenBy(events.filter((event) => !wanted.has(event.id)), group?.members ?? null);
   const transcript = renderEvents(shown, { timeZone, answeredBy: events });
-  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace) };
+  return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm) };
 }

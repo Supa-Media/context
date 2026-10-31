@@ -151,6 +151,8 @@ test/attention.test.mjs
 test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
+test/privacy/sealedChats.test.mjs
+test/chatHome.test.mjs
 test/agentPictureMaker.test.mjs
 test/agentVisuals.test.mjs
 test/agentVisualNotice.test.mjs
@@ -218,6 +220,10 @@ test/routineVoice.test.mjs
 test/agentIdentity.test.mjs
 test/agentSelfReview.test.mjs
 test/agentTurnLog.test.mjs
+test/agentAdvisorSetup.test.mjs
+test/agentAdvisor.test.mjs
+test/agentTurnStages.test.mjs
+test/groupTiming.test.mjs
 test/agentInstacartCheckout.test.mjs
 test/agentKeptCarry.test.mjs
 test/agentKeptFiles.test.mjs
@@ -281,3 +287,6 @@ test/agentLosesTrack.test.mjs
 test/googleChatConversation.test.mjs
 test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
+test/agentFrontDoor.test.mjs
+test/agentWarmCopy.test.mjs
+test/texStore.test.mjs

@@ -136,7 +136,7 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
   await storage.put<HandedTurn>(TURN_KEY, { ...turn, tries });
   sendingFor(storage, id, entries.map(([, item]) => item.message.messageId));
   try {
-    const outcome = await timedReply(entries[0][1].at ?? turn.at, turn.at, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
+    const outcome = await timedReply(storage, entries[0][1].at ?? turn.at, turn.at, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [key] of entries) await storage.delete(key);
   } catch (error) {

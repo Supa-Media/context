@@ -414,7 +414,7 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
   // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
   if (item.attempts === 0) log("inline");
   try {
-    const outcome = await timedReply(entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
+    const outcome = await timedReply(storage, entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
   } catch (error) {

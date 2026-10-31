@@ -85,8 +85,8 @@ Linq wants a quick 2xx and retries anything else, while an answer can take a
 minute. So each sender has a Durable Object queue that holds a message, and
 once computed its reply, only until the reply is sent or given up on (three
 attempts). Deduplication keeps webhook ids and timestamps, never text, for a
-day. Conversation history is not kept in the Worker. The gateway keeps it in
-the person's own bucket, which follows non-negotiable #1. Test:
+day. History lives in the person's own bucket (non-negotiable #1); the Worker
+keeps only the gateway's sealed warm copy of it ([warm-copy](./texting-assistant/warm-copy.md)). Test:
 `inbox.test.ts`, "keeps no text afterwards".
 
 Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a

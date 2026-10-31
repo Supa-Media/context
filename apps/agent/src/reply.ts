@@ -49,6 +49,7 @@ import type { Choice } from "./pickCard";
 import type { Offer } from "./dataCards";
 import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
+import type { WarmDeps } from "./warm";
 
 /**
  * One text to answer. `channel` is set only by the staging simulator, whose
@@ -61,6 +62,8 @@ export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simul
 
 export type ReplyDeps = {
   fetch: Fetch;
+  /** The gateway's sealed warm copy, kept in this sender's object (`warm.ts`). */
+  warm?: WarmDeps;
   controlPlaneOrigin: string;
   workerSecret: string;
   gatewayOrigin: string;
@@ -272,12 +275,15 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), recent: await deps.warm?.recent(message.chatId) },
     );
+    if (answer.kind !== "answer") await deps.warm?.keep(undefined); // a turn that didn't answer may have written: the next one reads whole (`warm.ts`)
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
     if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
       deps.onAnswered?.();
+      // A job it started will write to the chat by itself: the next text reads it whole.
+      await deps.warm?.keep(answer.jobs ? undefined : answer.warm);
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();

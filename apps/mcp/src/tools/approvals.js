@@ -60,22 +60,26 @@ function stable(value) {
   return value;
 }
 
-async function readAll(store, prefix) {
-  const keys = await listAllKeysWithLegacy(store, prefix);
-  const out = [];
-  for (const { key } of keys) {
-    try {
-      const object = await getWithLegacyFallback(store, key);
-      if (!object) continue;
-      const record = JSON.parse(await object.text());
-      if (record && typeof record === "object" && typeof record.id === "string") {
-        out.push({ key, etag: object.etag, record });
+async function readAll(store, prefix, ids = null) {
+  // A record's key ends with its id (`createPending`): asked for some ids, only theirs are read.
+  const keys = (await listAllKeysWithLegacy(store, prefix)).filter(({ key }) => ids === null || ids.some((id) => key.endsWith(`-${id}.json`)));
+  // Read side by side, not one after another: a texted turn lists these
+  // several times before its model runs, and fifty reads in a row held a
+  // "hi Tex" for over a minute (2026-10-31).
+  const read = await Promise.all(
+    keys.map(async ({ key }) => {
+      try {
+        const object = await getWithLegacyFallback(store, key);
+        if (!object) return null;
+        const record = JSON.parse(await object.text());
+        return record && typeof record === "object" && typeof record.id === "string" ? { key, etag: object.etag, record } : null;
+      } catch {
+        // A record that cannot be read is one nobody can approve; it ages out.
+        return null;
       }
-    } catch {
-      // A record that cannot be read is one nobody can approve; it ages out.
-    }
-  }
-  return out;
+    }),
+  );
+  return read.filter((entry) => entry !== null);
 }
 
 function expired(record, now) {
@@ -87,14 +91,12 @@ function expired(record, now) {
  * are dropped. `texting: true` narrows to the ones asked on the texting
  * thread, which are the only ones a texted yes may settle.
  */
-export async function listPending(store, { userId, texting = false, now = Date.now() }) {
-  const all = await readAll(store, PENDING_PREFIX);
+export async function listPending(store, { userId, texting = false, now = Date.now(), ids = null }) {
+  const all = await readAll(store, PENDING_PREFIX, ids);
+  await Promise.all(all.filter(({ record }) => expired(record, now)).map(({ key }) => deleteWithLegacyFallback(store, key).catch(() => {})));
   const live = [];
   for (const { key, etag, record } of all) {
-    if (expired(record, now)) {
-      await deleteWithLegacyFallback(store, key).catch(() => {});
-      continue;
-    }
+    if (expired(record, now)) continue;
     if (record.actor?.userId !== userId) continue;
     // A texted yes reaches only what the thread asked, lately, and has not
     // since moved on from (`disarmTexting`).
