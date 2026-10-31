@@ -64,7 +64,8 @@ working on this?" got no status, and every other ask waited behind it.
 - **Progress stays quiet.** A job's progress lines update its status; only a
   line with a link (a sign-in page) is texted.
 - **Kept outside the bucket, bounded:** the ask's words sit in the job's own
-  object only while it runs; the chat's list holds no ask, and drops a job
+  object only while it runs, and two hours after it ended unfinished, so it
+  can be picked back up (below); the chat's list holds no ask, and drops a job
   two hours after it ends, or marks one stopped whose object died.
 
 **What a simplification would cost:** running the job inside the texting
@@ -122,6 +123,38 @@ puts a job's findings behind a link. Tests: `apps/mcp/test/agentJobCheck.test.mj
 the job-check and `job_status` checks in `agentBackground.test.mjs` and
 `agentBackgroundRoute.test.mjs`, and `apps/agent/src/jobs.test.ts`, each with
 a sabotage record.
+
+### "Restart it" picks a stopped job back up; a job works from its own record (2026-10-31)
+
+Asked for by the owner, 2026-10-31, after "jumpstart all 3 threads" took three
+texts, each starting a brand-new job whose question was the restart text, and
+all three answered "it's running again" eight times before they stopped.
+
+- **A job that ends without finishing keeps its run** in its own object for
+  two hours, as its chat keeps its entry (`apps/agent/src/jobRun.ts`
+  `ENDED_KEY`): the same ask, brief, finish line, its last answer and the
+  advisor's advice. An alarm drops it after that. A finished job keeps none.
+- **Restart resumes, never copies.** `send { action: "restart_job" }`
+  (`restart_background_job`, `background.js`) picks every stopped job back up
+  in one call, or the ones named, within the three-at-once limit, and the turn
+  ends at once with a fixed line. A new job named like one that stopped picks
+  that one up instead. The Worker sends `resume` to the job's object
+  (`resumeJobs`, `resumeJob`), which starts a new workflow for it; its limit
+  starts again, and its first part starts on its last answer and the advice.
+  One it can't pick up (finished, older than two hours, no room) is said so.
+- **A job works from its own record, not the chat.** Its prompt shows none of
+  the chat's history (`route.js`), and it reads only the newest 30 entries
+  (`loggedTurn.js` `JOB_HISTORY_ENTRIES`) for the earlier-texts tool, kept
+  files and the words that vouch for an address. The chat's "On it" lines were
+  what the restarted jobs copied, and the 150-entry read cost about 5s a part.
+- **Two parts in a row that call no tool and still aren't done end the job
+  stuck** (`idle` from `jobCheck.js`), saying so, instead of spending parts.
+
+**What a simplification would cost:** starting a new job on "restart" runs it
+on the restart text with nothing it had done; showing a job the chat lets it
+answer as the chat; dropping the repeat guard spends ten parts on nothing.
+Tests: `apps/mcp/test/agentJobRestart.test.mjs`, `agentJobCheck.test.mjs`,
+`apps/agent/src/jobResume.test.ts`, each with a sabotage record.
 
 ### A running job can be steered, stopped and audited from the chat (2026-10-21)
 

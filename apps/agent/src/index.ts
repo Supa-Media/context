@@ -47,7 +47,7 @@ import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, armJobNext, failJob, runJob, steerJob } from "./jobRun";
+import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
 import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -536,6 +536,8 @@ export class SenderInbox implements DurableObject {
     if (path === "/job-steer") {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
+      // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
+      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined) });
       return Response.json({ taken: await steerJob(this.state.storage, steer) });
     }
     if (path === "/job-update") {

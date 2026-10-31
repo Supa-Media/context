@@ -137,9 +137,9 @@ export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"Yo
   A group chat remembers in its own file, never the tagger's texts; its turns
   are other people's words, so untrusted (`groupTurn.js`).
 */
-export async function turnHistory(store, session, body, { runner, group, dispatch, warm = null }) {
+export async function turnHistory(store, session, body, { runner, group, dispatch, warm = null, job = false }) {
   const conversation = !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null;
-  const read = () => readConversation(store, conversation);
+  const read = () => readConversation(store, conversation, job ? { entries: JOB_HISTORY_ENTRIES } : {});
   const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await (warm === null ? read() : warm.history(read)); // from a warm copy when it has the chat (`warmCopy.js`)
   return { conversation, history };
 }
@@ -163,7 +163,16 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm) };
 }
 
+/**
+ * What a background job's part reads of the chat: its newest entries only, for the earlier-texts tool, kept files and
+ * the words that vouch for an address. Its prompt shows none of them (`route.js`): it works from its own record, the
+ * brief, finish line, their later texts, its last answer and the advisor's advice (`background.js` `jobPrompt`).
+ * On 2026-10-31 every part re-read the last 150 messages, about 5s each, and three restarted jobs copied the chat's
+ * "On it: ... restarted" lines as their answer.
+ */
+export const JOB_HISTORY_ENTRIES = 30;
+
 /** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
-export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone }) {
-  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm })]);
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false }) {
+  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm, job }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm })]);
 }

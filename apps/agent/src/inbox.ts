@@ -76,7 +76,7 @@ import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TexEvent } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
-import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
+import { chatJobs, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
@@ -593,7 +593,9 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
       })).notStarted),
     // The model only names the job: what the job is handed is always their own text.
     onSteers: async (asks) => {
-      if (deps.steerJob) await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      if (!deps.steerJob) return;
+      await steerJobs(storage, asks, { id: message.eventId, text: message.event ? "" : message.text.trim() }, deps.steerJob, deps.now()); // a turn by code passes only its own notes
+      return notResumedText(await resumeJobs(storage, asks, { id: message.eventId }, deps.steerJob, deps.now())); // "restart it" picks an ended job back up
     },
   };
 }

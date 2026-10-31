@@ -38,9 +38,10 @@ export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true; advice?: string };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
-export type JobSteer = { id: string; text: string; stop?: true };
+/** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
+export type JobSteer = { id: string; text: string; stop?: true; resume?: true };
 /** What a turn asked of a running job: the job, whether to stop it, and the coordinating turn's own instruction for it (`note`). */
-export type JobSteerAsk = { id: string; stop?: true; note?: string };
+export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
 export type JobReport = { title: string; state: JobState; texts: string[] };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
@@ -52,7 +53,7 @@ export type JobOrigin =
   | { kind: "group"; message: GroupMessage; at: number };
 
 /** Everything a job's object needs to run it. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; unfinished?: true; advice?: string; resumes?: number; idle?: true };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
 export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; sent?: number; stopped?: true; finalPass?: string };
@@ -138,9 +139,10 @@ export function readSteers(value: unknown): JobSteerAsk[] {
   if (!Array.isArray(value)) return [];
   return value
     .flatMap((entry) => {
-      const { id, stop, note } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const { id, stop, note, resume } = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
       const said = typeof note === "string" ? note.trim().slice(0, 4_000) : "";
-      return typeof id === "string" && ID.test(id) ? [{ id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }] : [];
+      if (typeof id !== "string" || !ID.test(id)) return [];
+      return [resume === true ? { id, resume: true as const } : { id, ...(stop === true ? { stop: true as const } : {}), ...(said ? { note: said } : {}) }];
     })
     .slice(0, MAX_RUNNING_JOBS);
 }
@@ -148,9 +150,9 @@ export function readSteers(value: unknown): JobSteerAsk[] {
 /** `POST /job-steer`'s body, read strictly. */
 export function readJobSteer(value: unknown): JobSteer | null {
   if (!value || typeof value !== "object") return null;
-  const { id, text, stop } = value as Record<string, unknown>;
+  const { id, text, stop, resume } = value as Record<string, unknown>;
   if (typeof id !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(id) || typeof text !== "string" || text.trim() === "") return null;
-  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}) };
+  return { id, text: text.trim().slice(0, 4_000), ...(stop === true ? { stop: true as const } : {}), ...(resume === true ? { resume: true as const } : {}) };
 }
 
 /**
@@ -165,7 +167,8 @@ export async function steerJobs(
   now: number,
 ): Promise<number> {
   let count = 0;
-  for (const { id, stop, note } of asks) {
+  for (const { id, stop, note, resume } of asks) {
+    if (resume) continue; // `resumeJobs`
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry?.state !== "running") continue;
     // The coordinating turn's own instruction goes as its, never as their words; a turn with no text of theirs passes only that, or a stop.
@@ -224,6 +227,44 @@ const sameTitle = (a: string, b: string) => a.toLowerCase().replace(/[^\p{L}\p{N
 
 /** Where a job's answer goes in the chat, and its object's name. */
 export type JobPlace = Pick<JobEntry, "chatId" | "messageId" | "line" | "groupId" | "channel">;
+
+/**
+ * Pick ended jobs back up where they stopped (Dev2, 2026-10-31: "restart all 3"
+ * started three fresh copies, one per text, each working from the restart text
+ * instead of the task). Each job's own object still holds its run for two hours
+ * after it ended (`jobRun.ts` `resumeJob`): the same ask, brief, finish line and
+ * what it had got to. Only this chat's jobs that ended without finishing, and
+ * never past the running limit. Says which could not be picked up.
+ */
+export async function resumeJobs(
+  storage: InboxStorage,
+  asks: JobSteerAsk[],
+  steer: Pick<JobSteer, "id">,
+  send: (id: string, steer: JobSteer) => Promise<boolean>,
+  now: number,
+): Promise<string[]> {
+  const missed: string[] = [];
+  for (const { id } of asks.filter((ask) => ask.resume)) {
+    const entry = await storage.get<JobEntry>(entryKey(id));
+    if (entry === undefined || entry.state === "running") continue;
+    const running = (await chatJobs(storage, now)).filter((job) => job.state === "running").length;
+    // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
+    const ok = entry.state !== "done" && running < MAX_RUNNING_JOBS && (await send(id, { id: steer.id, text: "(Picked back up.)", resume: true }).catch(() => false));
+    if (ok) {
+      const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, ...kept } = entry;
+      await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });
+    } else missed.push(entry.title);
+    log(ok ? "resumed" : "not_resumed", id);
+  }
+  return missed;
+}
+
+/** What they're told about jobs that could not be picked back up: too long ago, or three already running. */
+export function notResumedText(titles: readonly string[]): string | undefined {
+  if (titles.length === 0) return undefined;
+  const named = titles.map((title) => `"${title}"`).join(" and ");
+  return `I couldn't pick ${named} back up: it finished, stopped over two hours ago, or ${MAX_RUNNING_JOBS} jobs are already running. Ask me to start it fresh if you still want it.`;
+}
 
 /**
  * Start the jobs a turn asked for: each gets an entry here and an object of

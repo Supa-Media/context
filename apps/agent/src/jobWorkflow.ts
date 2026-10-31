@@ -75,8 +75,9 @@ export class JobRunWorkflow extends WorkflowEntrypoint<Env, JobRunParams> {
 }
 
 /** Start a job's workflow; one already started under this id counts as started. */
-export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "create" | "get">, job: string): Promise<void> {
-  const id = jobInstanceId(job);
+/** `resumes`: a job picked back up gets an instance of its own, as the one that ran it first already ended (`resumeJob`). */
+export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "create" | "get">, job: string, resumes = 0): Promise<void> {
+  const id = resumes > 0 ? `${jobInstanceId(job).slice(0, 90)}-r${resumes}` : jobInstanceId(job);
   try {
     await workflow.create({ id, params: { job } });
     logJobFlow("workflow_started");
@@ -94,6 +95,6 @@ export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "creat
 export async function handOverJob(storage: InboxStorage, workflow: Pick<Workflow<JobRunParams>, "create" | "get">): Promise<boolean> {
   const job = await storage.get<JobRun>(RUN_KEY);
   if (job === undefined) return false;
-  await startJobFlow(workflow, job.id);
+  await startJobFlow(workflow, job.id, job.resumes ?? 0);
   return true;
 }

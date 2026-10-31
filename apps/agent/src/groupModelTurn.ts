@@ -17,7 +17,7 @@ import { groupLineFor } from "./groupLine";
 import { chatBefore, dropChatLines, notePeople, peopleHash, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
-import { chatJobs, startJobs, steerJobs, threadsLines } from "./jobs";
+import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
 import { addEvent, kindOf, logAsk } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
@@ -180,6 +180,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   }
   // A change to a job still running is handed to it, in the words of whoever texted it.
   if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
+  if (answer.steers && deps.steerJob) await resumeJobs(storage, answer.steers, { id: message.eventId }, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped
 }
 
 /** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
