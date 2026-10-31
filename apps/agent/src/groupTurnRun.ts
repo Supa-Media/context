@@ -28,10 +28,11 @@ import { ServiceError } from "./clients";
 import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
 import { watchFailed } from "./reviewWatch";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
+import { armBy } from "./events";
 
 export const TURN_KEY = "gturn";
 /** `kind`: a chat routine's run or a check-in (`groupRoutines.ts`), for the logs; absent for a turn people asked for. */
-export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; reason?: string; tries?: number; kind?: TurnKind };
+export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; inline?: true; reason?: string; tries?: number; kind?: TurnKind };
 export type TurnKind = "routine" | "heartbeat";
 /** Failed starts before the turn is answered here instead. */
 export const MAX_STARTS = 3;
@@ -42,6 +43,8 @@ export const START_RETRY_MS = 20_000;
  * workflow is gone, so it is given up on rather than holding the chat.
  */
 export const TURN_STALE_MS = 2 * 60 * 60_000;
+/** An inline turn's watch: by then the object looks whether it is still answering, and hands a lost one to its workflow. */
+export const INLINE_WATCH_MS = 60_000;
 
 /** What `/group-answer` did: answered (or cancelled by a restart), failed (the workflow retries), or not this chat's turn any more. */
 export type AnswerOutcome = "done" | "failed" | "gone";
@@ -58,14 +61,41 @@ export async function handOff(storage: InboxStorage, deps: GroupDeps, entries: G
   const id = routine === undefined ? crypto.randomUUID() : `routine-${routine.runId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80)}`;
   const kind: TurnKind | undefined = routine === undefined ? undefined : routine.path === CHAT_LOOK_PATH ? "heartbeat" : "routine";
   const turn: HandedTurn = { id, keys: entries.map(([key]) => key), at: deps.now(), starts: 0, ...(kind ? { kind } : {}) };
+  // Answered here first (Dev2, 2026-10-31: starting a workflow cost 1 to 2 s of every reply); its workflow only retries one that failed.
+  if (deps.answerFirst !== undefined) return await answerFirst(storage, deps, { ...turn, inline: true });
   await storage.put(TURN_KEY, turn);
   return await start(storage, deps, turn);
+}
+
+/**
+ * Answer the turn in this object at once, beside the drain (`deps.answerFirst` keeps it running), and start its
+ * workflow only when that answer fails: the workflow retries it as it would its own first attempt, and a part already
+ * sent is never sent again (`sendingFor`). The chat stays held while it runs (`handedTurnWaits`), and an alarm a minute
+ * on looks whether it still runs; an object that restarted mid-answer hands it to its workflow then.
+ */
+async function answerFirst(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<boolean> {
+  await storage.put(TURN_KEY, turn);
+  await armBy(storage, deps.now() + INLINE_WATCH_MS, deps.now());
+  log("inline_started", undefined, undefined, turn.kind);
+  const work = answerHanded(storage, deps, turn.id).then(async (outcome) => {
+    if (outcome !== "failed") return;
+    const now = await storage.get<HandedTurn>(TURN_KEY);
+    if (now?.id === turn.id) await start(storage, deps, { ...now, inline: undefined });
+  });
+  deps.answerFirst!(work.catch(() => {}));
+  return true;
 }
 
 /** Whether a handed turn holds the chat: started and not stale, or waiting to be started again. */
 export async function handedTurnWaits(storage: InboxStorage, deps: GroupDeps): Promise<boolean> {
   const turn = await storage.get<HandedTurn>(TURN_KEY);
   if (turn === undefined) return false;
+  if (turn.inline) {
+    if (answering.get(storage)?.has(turn.id)) return (await armBy(storage, deps.now() + INLINE_WATCH_MS, deps.now()), true);
+    // Not running here: the object restarted mid-answer. Its workflow answers it, skipping any part already sent.
+    log("inline_lost", undefined, undefined, turn.kind);
+    return await start(storage, deps, { ...turn, inline: undefined });
+  }
   if (turn.started) {
     if (deps.now() - turn.at < TURN_STALE_MS) return true;
     log("stale");
@@ -78,7 +108,7 @@ export async function handedTurnWaits(storage: InboxStorage, deps: GroupDeps): P
 async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<boolean> {
   try {
     await deps.startTurn!(turn.id);
-    await storage.put<HandedTurn>(TURN_KEY, { ...turn, started: true });
+    await storage.put<HandedTurn>(TURN_KEY, { ...turn, started: true, inline: undefined });
     log("workflow_started", undefined, undefined, turn.kind);
     return true;
   } catch {

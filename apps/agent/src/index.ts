@@ -619,10 +619,10 @@ export class SenderInbox implements DurableObject {
     }
   }
 
-  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void> } {
+  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void } {
     const workflow = this.env.GROUP_TURN;
     return {
-      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn) } : {}),
+      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.state.waitUntil(work) } : {}),
       fetch: (input, init) => fetch(input, init),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
