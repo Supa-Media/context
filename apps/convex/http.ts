@@ -934,6 +934,7 @@ http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewa
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+http.route({ path: "/gateway/tex/command", method: "POST", handler: gatewayRoute(texStyleRoutes.gatewayTexCommandHandler) }); // the agent's chat commands, on its own grant (`functions/texCommands.ts`)
 /* Who is texting Tex, for the turns Tex answers for one person (`lib/texIdentity/identity.ts`). */
 export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler);
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });

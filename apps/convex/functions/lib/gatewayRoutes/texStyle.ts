@@ -33,3 +33,6 @@ export async function agentTextsGroupStyleHandler(ctx: ActionCtx, body: Record<s
   const style = await ctx.runMutation(internal.functions.texStyle.setGroupTexStyle, { groupKey: await groupKeyOf(line, groupId), patch, setBy });
   return json(style === null ? { ok: false } : { ok: true, style });
 }
+
+/** `POST /gateway/tex/command`: the agent's chat commands, on the turn's own grant (`texCommand.ts`). */
+export { gatewayTexCommandHandler } from "./texCommand";

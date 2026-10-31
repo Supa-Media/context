@@ -15,6 +15,7 @@ import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
+import { muteChat, setChatEngagement, unmuteChat } from "./lib/texChatRules";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
@@ -190,11 +191,11 @@ export const applyGroupTurn = internalMutation({
 
     // Anyone in the chat may stop Tex or start it again: it cannot leave a group.
     if (args.command?.kind === "stop") {
-      await ctx.db.patch(group._id, { mutedAt: now, ...(senderUser !== null ? { mutedBy: senderUser } : {}) });
+      await muteChat(ctx, group, senderUser, now);
       return { status: "stopped" };
     }
     if (args.command?.kind === "start") {
-      await ctx.db.patch(group._id, { mutedAt: undefined, mutedBy: undefined });
+      await unmuteChat(ctx, group);
       return { status: "started" };
     }
     if (group.mutedAt !== undefined) return { status: "muted" };
@@ -517,7 +518,7 @@ export const setGroupEngagement = internalMutation({
       .unique();
     if (chat === null) return "unknown";
     const setBy = isPhoneNumber(args.setBy) ? await hashToken(`${args.groupKey}:${args.setBy}`) : args.setBy;
-    await ctx.db.patch(chat._id, { engagement: args.style, engagementSetBy: setBy, engagementSetAt: Date.now() });
+    await setChatEngagement(ctx, chat, args.style, setBy);
     return "set";
   },
 });

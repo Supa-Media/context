@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, SETTINGS_LINE, YES_NO_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 import { READ_CLAIMS_LINE } from "./readClaims.js";
 
@@ -433,6 +433,8 @@ export function systemPromptParts(
         // Dev2, 2026-10-28: sound like the chat, in its language, whatever the setup's words are (`chatVoice.js`).
         MIRROR_LINE,
         LANGUAGE_LINE,
+        // Jhonatan, 2026-10-31: settings only through the tool, and never another assistant's message (`commandTools.js`).
+        SETTINGS_LINE,
         // Dev2, 2026-10-29: short texts, and one line beside a page or card (`wordy.js`).
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).

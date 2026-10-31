@@ -62,7 +62,7 @@ import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
-import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
+import { chatLines, checkerHistory, commandTools, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -537,7 +537,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (offerRead === null ? "" : await offerRead) + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
-      local: [...earlier, ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
+      local: [...earlier, ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => controlPlane.texCommand(session.accessToken, command), group, consent: consentForTurn(question, env) }) : []), ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
       ...(knowsRead === null ? {} : outgoing.knows(await knowsRead)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },

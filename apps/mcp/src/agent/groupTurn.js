@@ -544,3 +544,6 @@ export function groupAwareCallTool(callTool, writeTools, { store = null, group =
   // An invited person's tag sends nothing from the binder's account: only from a member's, on their own yes.
   return group?.guestTagger === true ? noAccountTaggerCallTool(taught, group) : taught;
 }
+
+// Tex's chat commands as tools (`commandTools.js`), imported by `route.js` with the rest of a chat turn's pieces.
+export { commandTools, consentForTurn } from "./commandTools.js";
