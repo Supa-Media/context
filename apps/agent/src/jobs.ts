@@ -31,7 +31,8 @@ export type StartedJob = { title: string; brief: string; doneWhen?: string; tain
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text. */
 export type JobStep = { at: number; text: string };
 /** One line of the chat's job list, sent with every texted turn, with its last few steps. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[] };
+/** `result`: a finished job's report, its own words, shown to the chat's turns only (never the live view), so "what did it fill in?" has an answer. */
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; result?: string };
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 export type JobAsk = { id: string; title: string; brief: string; doneWhen?: string; attempt: number; tainted?: true; followUps?: string[]; draft?: string; unfinished?: true };
@@ -97,6 +98,8 @@ const MAX_SHOWN = 6;
 /** Steps kept per job: what "what is it doing?" is answered from. The whole record is the person's Tex transcript. */
 export const MAX_STEPS_KEPT = 5;
 const MAX_STATUS = 280;
+/** The most of a finished job's report kept with its entry. */
+export const MAX_RESULT = 1_500;
 /** The asker's words a report carries, as long as a text they could send. */
 const MAX_ASKED = 8_000;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
@@ -173,9 +176,11 @@ export async function steerJobs(
 /**
  * The chat's jobs as the next turn is shown them, running first. Finished
  * ones past `JOB_KEPT_MS` go, and a running one past `JOB_STALE_MS` is marked
- * stopped: its object is gone, so it never will say.
+ * stopped: its object is gone, so it never will say. A finished job keeps its
+ * steps, and (`results`, for the chat's turns only) its report, so the chat's
+ * turn can say what it did rather than that it can't see (2026-10-31).
  */
-export async function chatJobs(storage: InboxStorage, now: number): Promise<RunningJob[]> {
+export async function chatJobs(storage: InboxStorage, now: number, { results = false }: { results?: boolean } = {}): Promise<RunningJob[]> {
   const entries = await storage.list<JobEntry>({ prefix: JOB_PREFIX });
   const kept: JobEntry[] = [];
   for (const [key, entry] of entries) {
@@ -194,14 +199,15 @@ export async function chatJobs(storage: InboxStorage, now: number): Promise<Runn
   return kept
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
     .slice(0, MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps }) => ({
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, result }) => ({
       id,
       title,
       state,
       startedAt,
       ...(finishedAt !== undefined ? { finishedAt } : {}),
       ...(status ? { status } : {}),
-      ...(state === "running" && steps?.length ? { steps } : {}),
+      ...(steps?.length ? { steps } : {}),
+      ...(results && state !== "running" && result ? { result } : {}),
     }));
 }
 
@@ -280,10 +286,16 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     state,
     ...(status ? { status } : {}),
     ...(step ? { steps: [...(entry.steps ?? []), { at: now, text: step }].slice(-MAX_STEPS_KEPT) } : {}),
-    ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}) } : {}),
+    ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}), ...resultOf(update) } : {}),
   };
   await storage.put(entryKey(update.id), next);
   return next;
+}
+
+/** A finished job's report as its entry keeps it: its words, bounded. */
+function resultOf(update: JobUpdate): { result?: string } {
+  const result = (update.texts ?? []).join("\n\n").trim().slice(0, MAX_RESULT);
+  return result ? { result } : {};
 }
 
 /** After a part of a job's texts went, so a retried update repeats none of them. */

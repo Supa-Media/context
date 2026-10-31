@@ -614,7 +614,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (unsourced !== null) return unsourced;
     if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
-      return finishNotice({ job: job !== null });
+      return finishNotice({ job: job !== null, answer });
     }
     if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
       askFirstNoticed = true;

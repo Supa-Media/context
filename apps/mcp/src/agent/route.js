@@ -61,7 +61,7 @@ import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is n
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
-import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
+import { backgroundSession, jobEnded, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -661,7 +661,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
-      ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
+      ...(turn.exhausted ? { exhausted: true, ...jobEnded(job, turn.answer, ledger.asked.length) } : claims?.unfinished(turn.answer) ? { unfinished: true } : jobEnded(job, turn.answer, ledger.asked.length)), // `incomplete`: a job's last part still saying it is working
       ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0, asks: asksRead && setAside.length === 0 && ledger.asked.length === 0 && !ledger.offered ? "none" : null })) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
     });
   } catch (error) {

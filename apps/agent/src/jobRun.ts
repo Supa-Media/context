@@ -85,7 +85,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; incomplete: boolean; status: string; steered: string[]; vaultWatch?: true }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -237,11 +237,15 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "now" };
   }
 
+  // A last part that still says its work is going on (`apps/mcp/src/agent/stillWorking.js`) ended without finishing:
+  // reported as stopped, never done, so neither the coordinator nor the live view reads it as running or finished (2026-10-31).
+  const ended = outcome.kind === "answer" && outcome.incomplete && !changed;
+  if (ended) log("ended_unfinished", run.id);
   const update: Omit<JobUpdate, "id" | "first"> =
     outcome.kind === "answer"
       ? {
-          state: "done",
-          status: outcome.status,
+          state: ended ? "failed" : "done",
+          status: ended ? `Ended before finishing: ${outcome.status}`.slice(0, 280) : outcome.status,
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
           texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
@@ -309,6 +313,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       pictures: answer.pictures,
       exhausted: answer.exhausted === true,
       unfinished: answer.unfinished === true,
+      incomplete: answer.incomplete === true,
       status: firstLine(answer.text),
       steered: answer.steered ?? [],
       ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),
