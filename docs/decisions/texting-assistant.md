@@ -321,25 +321,18 @@ credit, and nothing that costs money is spent while it lasts:
 - Each call is labelled with ids only (feature, workspace, client), never
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
-- Prompt caching is laid out least volatile first, because a turn is several
-  rounds over a growing transcript and the prefix must match text after text:
-  the tool list, the stable system prompt and the slow context (workspaces,
-  jobs, the about-me note) behind their own breakpoints, then the conversation
-  so far behind one more, all five-minute marks for now (a one-hour TTL is unproven through AI Gateway). What changes per text (the clock, the model
-  answering, the note open in front of them, what earlier texts used, the
-  planner's words, the nudge) is said in the person's own turn after the last
-  breakpoint, never in the system prompt (`turn.js`, `aiGateway.js`). A texted
-  turn sent about 58,000 tokens as new on every text before this (production,
-  2026-10-31).
+- Prompt caching is laid out least volatile first, so the prefix matches text
+  after text: tools, stable system prompt, slow context, then the conversation,
+  each behind a five-minute mark (one hour is unproven through AI Gateway).
+  What changes per text (clock, model, open note, earlier tools, nudge) rides
+  in the person's own turn (`turnPrompt.js`); before this a text sent ~58k new
+  tokens (2026-10-31). `agentPromptCache.test.mjs` fails if it moves back.
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside
 the customer's bucket; retrying without the key on every error would spend
 money while free credit remained; taking the gateway address from config text
 without the shape check would let a misconfiguration send our token anywhere.
-Putting the clock or the earlier-tools list back in the system prompt would
-pass every test but miss the cache on every text: `agentPromptCache.test.mjs`
-fails for it.
 The test that fails is `apps/mcp/test/agentGateway.test.mjs`.
 
 ### Other providers' models and routes go through the same gateway, Unified Billing only
