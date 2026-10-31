@@ -662,7 +662,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
-      ...(await jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
+      ...(await jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
       ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0 })) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
     });
   } catch (error) {
