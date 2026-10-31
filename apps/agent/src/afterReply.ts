@@ -21,9 +21,10 @@ import type { Pending } from "./inboxTurn";
 import type { Fetch } from "./clients";
 import { flushChat } from "./events";
 import { sha256Hex } from "./groupChat";
+import { writeTextTiming, type TimingDataset } from "./textTiming";
 
-/** When a turn's time went, in ms: read by `logTurnTiming` once its bookkeeping is done. */
-export type TurnTiming = { started: number; answered?: number; sendStart?: number; sendEnd?: number };
+/** When a turn's time went, in ms: read by `logTurnTiming` once its bookkeeping is done. `arrived`: when its oldest text came in; `firstSent`: when its first part went. */
+export type TurnTiming = { started: number; arrived?: number; answered?: number; sendStart?: number; firstSent?: number; sendEnd?: number };
 
 const deferred = new WeakMap<InboxStorage, Promise<void>>();
 /** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
@@ -43,7 +44,7 @@ export function rememberSession(storage: InboxStorage, token: string): void {
  */
 export async function afterReplyWork(
   storage: InboxStorage,
-  deps: { fetch: Fetch; gatewayOrigin: string; now: () => number },
+  deps: { fetch: Fetch; gatewayOrigin: string; now: () => number; textTiming?: TimingDataset },
   reply: { chat: string; from: string; simulator: boolean; parts: number; timing?: TurnTiming },
   offer: () => Promise<void>,
 ): Promise<void> {
@@ -53,7 +54,7 @@ export async function afterReplyWork(
     const waiting = [...(await storage.list<Pending>({ prefix: "pending:" }))].some(([, other]) => other.message.chatId === reply.chat);
     if (!waiting) await offer();
   }
-  if (reply.timing?.sendEnd !== undefined) logTurnTiming(reply.timing, reply.parts, deps.now());
+  if (reply.timing?.sendEnd !== undefined) logTurnTiming(reply.timing, reply.parts, deps.now(), deps.textTiming);
 }
 
 /**
@@ -79,20 +80,23 @@ export function afterRepliesSettled(storage: InboxStorage): Promise<void> {
  * work after them, and the whole. `afterSendMs` includes any wait behind an
  * earlier turn's work, which is the point of seeing it.
  */
-export function logTurnTiming(timing: TurnTiming, parts: number, bookedAt: number): void {
+export function logTurnTiming(timing: TurnTiming, parts: number, bookedAt: number, dataset?: TimingDataset): void {
   const started = timing.started;
   const answered = timing.answered ?? started;
   const sendStart = timing.sendStart ?? answered;
   const sendEnd = timing.sendEnd ?? sendStart;
-  console.log(
-    JSON.stringify({
-      event: "inbox_turn_timing",
-      parts,
-      gatewayMs: answered - started,
-      beforeSendMs: sendStart - answered,
-      sendMs: sendEnd - sendStart,
-      afterSendMs: bookedAt - sendEnd,
-      totalMs: bookedAt - started,
-    }),
-  );
+  const arrived = timing.arrived;
+  const since = (at: number | undefined) => (arrived === undefined || at === undefined ? undefined : at - arrived);
+  const row = {
+    parts,
+    queueMs: since(started),
+    gatewayMs: answered - started,
+    beforeSendMs: sendStart - answered,
+    sendMs: sendEnd - sendStart,
+    toFirstTextMs: since(timing.firstSent),
+    toLastTextMs: since(sendEnd),
+    afterSendMs: bookedAt - sendEnd,
+  };
+  console.log(JSON.stringify({ event: "inbox_turn_timing", ...row, totalMs: bookedAt - started }));
+  writeTextTiming(dataset, "one", row);
 }
