@@ -274,6 +274,18 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
   };
 
   /**
+   * The keys of the live keyed notes at `paths`, in one lookup: `{path: key}`, a path with no keyed row left out. For a
+   * group turn's direct reads of its chat's own notes (`agent/groupDirectNotes.js`).
+   */
+  wrapped.keysAt = async (paths) => {
+    const named = (Array.isArray(paths) ? paths : []).filter(mirroredPath);
+    if (named.length === 0) return {};
+    const answer = await lookup(named);
+    if (answer?.keyed !== true) return {};
+    return Object.fromEntries(named.map((path) => [path, entryFor(answer, path)]).filter(([, entry]) => keyedEntry(entry)).map(([path, entry]) => [path, entry.key]));
+  };
+
+  /**
    * The name note `noteId` has now, or `null` (no live row, or no `resolve` hook): how a collaborative
    * client that holds only a document id finds its note after a move (`collaborationRoute.js`). The
    * caller judges whether the asker may see that name.

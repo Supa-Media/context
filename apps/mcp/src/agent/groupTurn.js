@@ -44,7 +44,8 @@ import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.j
 import { GROUP_NOTES_FOLDER, asHomeNote, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, timedTurn, writeGroupNote } from "./groupMemoryNote.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
-import { addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
+import { aboutUsPath, addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
+import { directNote, learnDirect, memoryUnedited } from "./groupDirectNotes.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
@@ -227,20 +228,25 @@ export async function readGroupMemory(store, group, dispatch = null) {
     return (text === null ? null : JSON.parse(text)) ?? { turns: [] };
   })().catch(() => ({ turns: [] }));
   const names = await chatNames(group);
-  const target = await noteTarget(store, group, dispatch, names.key);
+  const [record, target] = await Promise.all([keptRead, noteTarget(store, group, dispatch, names.key)]);
+  // A home's notes straight from the chat's object when the record kept their keys (`groupDirectNotes.js`); else the old way.
+  const direct = target?.home === true;
   // The memory and the voice note move from the names they had to the chat's own, before either is read (`chatNoteMove.js`).
   // The visible note, when somebody has changed it since Tex last wrote it (`groupMemoryNote.js`): in the chat's home
   // when it has one (`chatHome.js`), the bound workspace's otherwise. Until its move lands, the old words it came from.
-  const noteRead = target === null ? Promise.resolve([null, null]) : moveMemory(group, target, dispatch, names).then(async (moved) => [moved, moved?.held ? { etag: moved.held.etag, text: moved.held.body } : await readGroupNote(target.dispatch, target.path)]);
+  const noteRead = target === null ? Promise.resolve([null, null]) : (direct ? memoryUnedited(group, record) : Promise.resolve(false)).then((same) => (same ? [null, { etag: record.noteEtag, text: "" }] : null)).then((fast) => fast ?? moveMemory(group, target, dispatch, names).then(async (moved) => [moved, moved?.held ? { etag: moved.held.etag, text: moved.held.body } : await readGroupNote(target.dispatch, target.path)]));
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
   const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
   group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
   const voiceRead = (async () => {
+    const held = direct ? await directNote(group, record, "voice") : null;
+    if (held !== null) return readGroupVoice(group.home.dispatch, group.voicePath, held);
     const moved = group.voicePath !== null && (dispatch !== null || group.home) ? await moveVoice(group, dispatch, names) : null;
     return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath, moved?.held);
   })();
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
-  const [kept, [moved, stored], playbook, voice, aboutUs] = await Promise.all([keptRead, noteRead, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, readAboutUs(group.home)]);
+  const aboutRead = (direct ? directNote(group, record, "about") : Promise.resolve(null)).then((held) => readAboutUs(group.home, held));
+  const [kept, [moved, stored], playbook, voice, aboutUs] = await Promise.all([record, noteRead, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, aboutRead]);
   const note = stored ?? (moved?.fallback ? { etag: null, text: moved.fallback } : null);
   const edited = note !== null && note.etag !== kept.noteEtag ? parseGroupNote(note.text) : null;
   const turns = edited ?? (Array.isArray(kept?.turns) ? kept.turns.filter(isTurn) : []);
@@ -359,8 +365,10 @@ export async function keepGroupExchange(store, group, history, question, answer,
     written = await writeGroupNote(target.dispatch, target.path, turns, null);
   }
   // The etag a read gives (a collaborative note's own, not the object's), so the next read knows it untouched.
+  // The keys for next turn's direct reads (`groupDirectNotes.js`), the object's version taken before the read-back below.
+  const direct = written !== null && target?.home === true ? await learnDirect(group, { memory: target.path, voice: group.voicePath, about: aboutUsPath(group.home) }) : {};
   const noteEtag = written === null ? seen.kept : ((await readGroupNote(target.dispatch, target.path))?.etag ?? written);
-  await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, turns, ...(noteEtag ? { noteEtag } : {}) }));
+  await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, turns, ...(noteEtag ? { noteEtag } : {}), ...(Object.keys(direct).length > 0 ? { direct } : {}) }));
 }
 
 /**

@@ -283,6 +283,7 @@ test/oneVersion.test.mjs
 test/outcome.test.mjs
 test/agentTexStyle.test.mjs
 test/agentChatVoice.test.mjs
+test/groupDirectNotes.test.mjs
 test/agentCommandTools.test.mjs
 test/lookTree.test.mjs
 test/s3SessionToken.test.mjs
