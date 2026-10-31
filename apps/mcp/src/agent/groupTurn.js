@@ -46,7 +46,7 @@ import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
 import { addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
-import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
+import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
@@ -103,9 +103,8 @@ export function groupOwnAccountTools(definitions) {
  * tagger's handle). Hashes only: no phone number reaches the gateway. Null
  * when any of it is missing or malformed.
  *
- * A guest chat (`groupGuests.js`) is known by the session's names, and then
- * `guest` is its group and folder as the Worker names them, and a turn with
- * no tagger handle is a guest's (`guestTagger`). Outside guest mode a turn
+ * A chat with people who aren't all here (`groupGuests.js`) is known by the session's names, and then
+ * a turn with no tagger handle is one of theirs (`guestTagger`). Otherwise a turn
  * with no tagger handle is an invited person's (the owner, 2026-10-27;
  * `docs/decisions/texting-assistant/invited-family.md`): they have no account,
  * so the grant is the binder's, and it is marked the same way so it acts for
@@ -119,7 +118,7 @@ export function groupOf(body, session = null) {
   const mail = chatMailOf(group.mail);
   const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat), ...(mail.length > 0 ? { mail } : {}) };
   if (!isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
-  return { ...kept, guestChat: true, guest: guestInfoOf(group.guest), guestTagger: from === "" };
+  return { ...kept, guestChat: true, guestTagger: from === "" };
 }
 
 /** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
@@ -216,7 +215,7 @@ export async function readGroupMemory(store, group, dispatch = null) {
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
   group.playbook = await readPlaybook(dispatch, group);
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
-  const voiceFolder = group.home ? group.home.folder : chatFolder(group, names.key);
+  const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
   group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
   if (group.voicePath !== null && (dispatch !== null || group.home)) await moveVoice(group, dispatch, names);
   group.voice = await readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath);
@@ -235,48 +234,46 @@ async function noteTarget(store, group, dispatch, keyHash) {
     addressHome(store, group.home);
   }
   if (group.home) return { path: groupNotePath(keyHash, group.home.folder), dispatch: group.home.dispatch, home: true };
-  const path = chatNotePath(group, keyHash);
+  const path = chatNotePath(keyHash);
   return path === null ? null : { path, dispatch, home: false };
 }
 
-/** The chat's note: a guest chat's in its own folder, or none when the Worker didn't name it. */
-function chatNotePath(group, hash) {
-  if (!group.guestChat) return groupNotePath(hash);
-  return group.guest ? groupNotePath(hash, group.guest.folder) : null;
+/** The chat's note in the bound workspace; a chat with a home keeps its note there (`noteTarget`), and carries this one in. */
+function chatNotePath(hash) {
+  return groupNotePath(hash);
 }
 
 /** The folder a chat's notes are kept in when it has no home: the bound workspace's (or a guest chat's), named by `hash`. */
-function chatFolder(group, hash) {
-  const note = chatNotePath(group, hash);
+function chatFolder(hash) {
+  const note = chatNotePath(hash);
   return note === null ? null : note.slice(0, note.lastIndexOf("/"));
 }
 
 /**
- * The chat's old note, named by the people in it, in the bound workspace (or a guest chat's folder). Retractable once its
- * words are carried to the chat's own name (`chatNoteMove.js`), except in a guest chat: its folder is the chat's guests'
- * alone, and an archive is team-visible, so that old note is copied and left where it is.
+ * The chat's old note, named by the people in it, in the bound workspace. Retractable once its words are carried to the
+ * chat's own name (`chatNoteMove.js`).
  */
-function boundOld(group, dispatch, path) {
-  return path === null ? [] : [{ dispatch, path, retract: group.guestChat !== true }];
+function boundOld(dispatch, path) {
+  return path === null ? [] : [{ dispatch, path, retract: true }];
 }
 
 /** The memory note, carried from the people's name to the chat's own name (`chatNoteMove.js`); the move's outcome. */
 async function moveMemory(group, target, dispatch, names) {
-  const boundPath = chatNotePath(group, names.people);
+  const boundPath = chatNotePath(names.people);
   const sources = group.home
-    ? [{ dispatch: group.home.dispatch, path: groupNotePath(names.people, group.home.folder), retract: false }, ...boundOld(group, dispatch, boundPath)]
-    : boundOld(group, dispatch, boundPath);
+    ? [{ dispatch: group.home.dispatch, path: groupNotePath(names.people, group.home.folder), retract: false }, ...boundOld(dispatch, boundPath)]
+    : boundOld(dispatch, boundPath);
   return await moveChatNote({ target, sources, adapt: group.home ? asHomeNote : undefined });
 }
 
 /** The voice note, carried the same way (`chatVoice.js`). */
 async function moveVoice(group, dispatch, names) {
   const voiceTarget = group.home ? { dispatch: group.home.dispatch, path: group.voicePath } : { dispatch, path: group.voicePath };
-  const boundFolder = chatFolder(group, names.people);
+  const boundFolder = chatFolder(names.people);
   const boundPath = boundFolder === null ? null : groupVoicePath(names.people, boundFolder);
   const sources = group.home
-    ? [{ dispatch: group.home.dispatch, path: groupVoicePath(names.people, group.home.folder), retract: false }, ...boundOld(group, dispatch, boundPath)]
-    : boundOld(group, dispatch, boundPath);
+    ? [{ dispatch: group.home.dispatch, path: groupVoicePath(names.people, group.home.folder), retract: false }, ...boundOld(dispatch, boundPath)]
+    : boundOld(dispatch, boundPath);
   await moveChatNote({ target: voiceTarget, sources });
 }
 

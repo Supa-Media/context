@@ -165,19 +165,6 @@ test("with no home, the old note is carried to the chat's own name in the bound 
   assert.deepEqual([...bound.notes.keys()], [`tex/groups/chat-${hashOf(KEY)}.md`], "one note, under the chat's name");
 });
 
-test("a guest chat's old note is copied to its key-named note and never archived (an archive is team-visible)", async () => {
-  const store = createMemoryStore();
-  const guestFolder = "tex/chats/orbit-lamp";
-  const oldPath = `${guestFolder}/chat-${hashOf(`${KEY}:${MEMBERS}`)}.md`;
-  const bound = filer({ [oldPath]: renderGroupNote(OLD_TURNS, { guests: true }) });
-  const guest = { ...GROUP, guestChat: true, guest: { folder: guestFolder } };
-  const history = await readGroupMemory(store, guest, bound.dispatch);
-  assert.ok(history.some((turn) => turn.text.includes("the gig is friday")));
-  assert.ok(bound.notes.has(`${guestFolder}/chat-${hashOf(KEY)}.md`), "copied under the chat's name in the guest folder");
-  assert.ok(bound.notes.has(oldPath), "the old note is left where the chat's guests can read it");
-  assert.ok(!bound.calls.some((call) => call.name === "archive_note"), "never archived");
-});
-
 test("with no home, the note is where it always was", async () => {
   const store = createMemoryStore();
   const bound = recorder();

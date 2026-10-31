@@ -21,8 +21,8 @@
  *    only from a member, on that member's yes";
  *  - letting `route.js` settle on a guest's turn: "a guest's yes or 👍
  *    releases nothing held for the person who turned guest mode on";
- *  - `groupOf` trusting the Worker's `guest` instead of the session's names:
- *    "a guest chat is known by its grant".
+ *  - `groupOf` taking the chat's kind from the Worker instead of the session's
+ *    names: "a chat is known by its grant, whatever the Worker sends".
  *
  * Sabotage record (2026-10-29): `chatMailTools` or `chatMailPrompt` leaving a
  * guest chat out again: "a guest chat reads the mail its owner shared with it".
@@ -43,10 +43,10 @@ import { PENDING_PREFIX } from "../src/tools/approvals.js";
 import { grantedGroupsOf } from "../src/session.js";
 import { readOnlyAt } from "../src/store/readOnlyRows.js";
 import { actorAccessOf } from "../src/vault/access.js";
-import { guestInfoOf } from "../src/agent/groupGuests.js";
 import { recipientMaySee } from "../src/live/relayAuthorization.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
+import { guestAwareCallTool, guestPrompt } from "../src/agent/groupGuests.js";
 
 const TOKEN_CHAT = `cat_group_guests_chat_${"0".repeat(18)}`;
 const KEY = "c".repeat(64);
@@ -54,7 +54,6 @@ const MEMBERS = "d".repeat(64);
 const WORDS = "chair-blast-tiger";
 const FOLDER = `tex/chats/${WORDS}`;
 const GROUP = `egress-team-${WORDS}`;
-const GUEST = { group: GROUP, words: WORDS, folder: FOLDER };
 const EMAIL = { to: ["jo@example.com"], subject: "Flights", body: "Hi Jo,\n\nWe land at 6.\n\nAda" };
 const verdict = (value) => ({ text: JSON.stringify({ verdict: value, reason: "" }) });
 
@@ -96,7 +95,7 @@ before(async () => {
 });
 after(() => world.restore());
 
-const chat = (from, extra = {}) => ({ key: KEY, members: MEMBERS, from, people: ["ada"], guest: GUEST, ...extra });
+const chat = (from, extra = {}) => ({ key: KEY, members: MEMBERS, from, people: ["ada"], ...extra });
 const tagged = (from, question, extra = {}, group = {}) =>
   request(world.env, TOKEN_CHAT, "/agent", { question, group: chat(from, group), timeZone: "UTC", ...extra });
 const sends = () => world.controlPlane.emailCalls.filter((entry) => !entry.check);
@@ -124,11 +123,8 @@ test("a guest chat reads only what is shared with the chat, and is told so", asy
   assert.match(flights, /TAP 204/);
   assert.doesNotMatch(budget, /BUDGET-MARKER/, "a note not shared with the chat doesn't exist for it");
   const system = JSON.stringify(world.model.requests[0].system);
-  assert.match(system, /GROUP CHAT WITH GUESTS/);
+  assert.match(system, /PEOPLE WHO AREN'T ALL ON CONTEXT/);
   assert.match(system, /A guest in this chat tagged you/);
-  assert.ok(system.includes(`${FOLDER}/`), "told where to write");
-  // A guest opens a note link with a texted code (`docs/decisions/texting-assistant/guest-phone-pass.md`), so Tex sends it.
-  assert.match(system, /guests included: a guest types the number they text this chat from and a texted code/);
 });
 
 test("a note shared to view is read, never changed; the chat's folder is written; nothing is published or moved out", async () => {
@@ -222,22 +218,24 @@ test("research a guest chat saves as a plain note goes back to be a page, and th
   delete world.env.TEX_FRONT_DOOR;
 });
 
+test("the chat is told where its home is, and that it is the one folder it writes", () => {
+  const prompt = guestPrompt({ from: "ada", people: ["ada"], home: { folder: FOLDER } }, "supa");
+  assert.ok(prompt.includes(`${FOLDER}/`), "told where to write");
+  assert.match(prompt, /Write what you make for the chat in tex\/chats\/chair-blast-tiger\//);
+});
+
 test("a page named like a note the chat can't see is saved under another name, never called unwritable", async () => {
-  // 2026-10-28 01:25: Tex picked the name of a page a member had saved in the chat's folder, read
-  // "permission denied", and told the chat it couldn't write pages to that folder.
-  const page = ["---", "kind: research", `skill: ${PAGE_SKILL_STAMP}`, "---", "# Research", "", "The Stand first.", ""].join("\n");
-  world.model.install([
-    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research.page.md`, content: page } }] },
-    { toolCalls: [{ name: "write_note", args: { path: `${FOLDER}/research-2.page.md`, content: page } }] },
-    { text: "Saved the page." },
-  ]);
-  const asked = await tagged("", "Tex try again putting this research into a page");
-  assert.equal(asked.status, 200, JSON.stringify(asked.body));
-  const [refused, written] = toolReplies(world.model.requests.at(-1));
-  assert.match(refused, /That name can't be written from this chat\. Save it under a different name in tex\/chats\/chair-blast-tiger\//);
-  assert.doesNotMatch(refused, /permission denied|MEMBER-PAGE|exists/, "nothing said about what is there");
-  assert.match(written, /written: tex\/chats\/chair-blast-tiger\/research-2\.page\.md/);
-  assert.match(bodyAt(`${FOLDER}/research.page.md`), /MEMBER-PAGE/, "the member's page is untouched");
+  // 2026-10-28 01:25: Tex picked the name of a page a member had saved in the chat's home, read "permission denied",
+  // and told the chat it couldn't write pages there. The refusal is said in words the model can act on, and only in
+  // the chat's home: a refusal anywhere else is passed on as it was.
+  const refusal = { isError: true, content: [{ type: "text", text: "permission denied: write destination is outside this connection's team-writable folder defaults." }] };
+  const callTool = async () => refusal;
+  const dispatch = guestAwareCallTool(callTool, { store: {}, group: { home: { folder: FOLDER }, people: ["ada"] }, guestTagger: false });
+  const refused = await dispatch("write_note", { path: `${FOLDER}/research.page.md`, content: "# Research" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /That name can't be written from this chat\. Save it under a different name in tex\/chats\/chair-blast-tiger\//);
+  assert.doesNotMatch(refused.content[0].text, /permission denied|MEMBER-PAGE|exists/, "nothing said about what is there");
+  assert.equal(await dispatch("write_note", { path: "notes/elsewhere.md", content: "x" }), refusal, "a refusal outside the home is not rewritten");
 });
 
 test("a guest's email goes only from a member, on that member's yes", async () => {
@@ -271,12 +269,10 @@ test("a guest's yes or 👍 releases nothing held for the person who turned gues
   assert.equal(live().length, 1, "and the hold is still Ada's to answer");
 });
 
-test("a guest chat is known by its grant, whatever the Worker sends", async () => {
+test("a chat is known by its grant, whatever the Worker sends", async () => {
   world.model.install([{ text: "Hi." }]);
-  await tagged("", "Tex hi", {}, { guest: undefined });
-  assert.match(JSON.stringify(world.model.requests.at(-1).system), /GROUP CHAT WITH GUESTS/);
-  assert.equal(guestInfoOf({ group: GROUP, words: "../../notes", folder: "notes" }), null);
-  assert.deepEqual(guestInfoOf({ group: GROUP, words: WORDS, folder: "notes" }), GUEST, "the folder is rebuilt from the words");
+  await tagged("", "Tex hi", {}, { guest: "../../notes" });
+  assert.match(JSON.stringify(world.model.requests.at(-1).system), /PEOPLE WHO AREN'T ALL ON CONTEXT/);
 });
 
 test("a guest chat's names: the guest marker and row tokens drop only for a chat", () => {

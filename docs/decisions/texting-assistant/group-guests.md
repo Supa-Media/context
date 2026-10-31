@@ -1,5 +1,15 @@
 # A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)
 
+> **Superseded 2026-10-31.** Guest mode is retired. A chat with people who
+> aren't all here is answered from its home in `@context-lc`
+> ([chat-homes](./chat-homes.md)), reached by a home-only grant held by the
+> chat's sponsor, and it gets no group or folder in the workspace it was bound
+> to. Nobody is added to a group or named on a folder for being in the chat,
+> the group-people route is gone, and the guest phone pass does not reach
+> home-only chats. What follows is the record of the 2026-10-25 decision and
+> why it was made. It no longer describes running code, except for legacy
+> guest chats, which a one-off move is to carry into homes (not yet written).
+
 Tex in a group answered only when every person in the chat was linked to an
 account and all of them shared one workspace ([groups](./groups.md)). One
 friend without an account, and Tex said "Text me on your own instead" and did

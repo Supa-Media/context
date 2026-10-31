@@ -195,3 +195,28 @@ something runs from them. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
 bound workspace. The chats that exist move in as above, and the one copy a
 home cannot retract is left sealed until a delete exists for homes.
+
+## Chats with people who aren't all here (2026-10-31)
+
+A chat with someone in it who has no account, or whose account isn't a member
+of the workspace the chat was bound to, is answered from its home rather than
+from a group in that workspace. This retires guest mode
+([group-guests](./group-guests.md)).
+
+- **The grant is the sponsor's.** The chat's sponsor (`textGroups.sponsorId`:
+  the person who turned Tex on in it, else whoever bound it, else the sender)
+  holds one grant on the pinned workspace for that chat, marked `homeOnly`. It
+  is minted once per chat and sponsor, and it reads the chat's home alone,
+  through the chat's name (`READS_AS_CHAT`) and the tokens of the notes shared
+  with the chat. Nothing else in any workspace.
+- **It lives only while the sponsor does.** `homeOnlyStillShares` ends the
+  grant when the sponsor is no longer the one who can text Tex, when Tex is
+  muted for the chat, or when the sponsor's account is paused. A grant held by
+  anyone but the sponsor reads nothing.
+- **Usage goes to whoever sent.** A tagger with no account is metered under
+  their number (`phone:<E.164>`), and one with an account under theirs. The
+  sponsor's grant pays.
+- **No group, no folder.** Nobody is added to a group or named on a folder for
+  being in the chat. Legacy guest groups and folders are not read. A one-off
+  is to move them into homes, and it is not written yet: the move engine refuses
+  to carry notes into a home (`chatHomesMoveRefused`).
