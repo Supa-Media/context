@@ -47,7 +47,7 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
-import { sendCardPart } from "./sendParts";
+import { partEvent, sendCardPart, threadFor } from "./sendParts";
 import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
 import type { Offer } from "./dataCards";
@@ -80,6 +80,7 @@ import { chatJobs, notStartedText, startJobs, steerJobs, type JobRun, type JobSt
 import { checkVaultSaved, logVaultWatch, watchForSave } from "./vaultWatch";
 import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
+import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -99,6 +100,8 @@ export type InboxDeps = ReplyDeps &
     spawnJob?: (id: string, run: JobRun) => Promise<void>;
     /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
     steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
+    /** The object's `waitUntil`: keeps it alive while the work after a reply runs, which nothing waits on (`afterReply.ts`). */
+    waitUntil?: (promise: Promise<unknown>) => void;
   };
 
 /**
@@ -348,9 +351,10 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const message = merged(entries.map(([, entry]) => entry.message));
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   const tries = (item.tries ?? 0) + 1;
+  const timing: TurnTiming = { started: deps.now() };
   let turn: Answered;
   try {
-    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: arrivedAt(entries) }, storage, covers, presence);
+    turn = await answering(message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: arrivedAt(entries) }, storage, covers, presence, timing);
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
     // Nothing ran, so these texts and the ones behind them wait; later ones keep their order.
@@ -373,11 +377,14 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
   const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}) };
   await storage.put<Pending>(key, ready);
-  return await sendReply(storage, deps, [key, ready]);
+  return await sendReply(storage, deps, [key, ready], timing);
 }
 
-/** Send a computed reply, each part logged as an event (`events.ts`). False when a retry is set for later. */
-async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry): Promise<boolean> {
+/**
+ * Send a computed reply, each part logged as an event (`events.ts`). False when a retry is set for later.
+ * What follows the reply (`afterReply`) is deferred, never awaited here: the next text is answered without waiting for it.
+ */
+async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: Entry, timing?: TurnTiming): Promise<boolean> {
   const reply = [item.reply ?? []].flat();
   let sent = item.sent ?? 0;
   const out = (part: Omit<TexEvent, "id" | "at" | "chat" | "from">) =>
@@ -400,6 +407,7 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     );
     const thread = threadFor(item.message, overtaken);
     let carousels = true;
+    if (timing) timing.sendStart = deps.now();
     for (const [index, part] of reply.entries()) {
       if (index < sent) continue;
       // Two or more pictures in a row go as one swipeable set where the line has carousels.
@@ -435,13 +443,14 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
       }
       sent = index + 1;
     }
+    if (timing) timing.sendEnd = deps.now();
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
       await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
     }
     await storage.delete(key);
-    await flushOwed(storage, deps, item.message.from);
-    if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, { ...lineDeps(deps), now: deps.now });
+    // The network work after the reply (the flush, the card) runs behind the next text, not before it.
+    deferAfterReply(storage, deps.waitUntil, () => afterReply(storage, deps, item, reply.length, timing));
     return true;
   } catch {
     const attempts = item.attempts + 1;
@@ -457,37 +466,11 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
   }
 }
 
-/** The event for one part Tex sent: a picture it could not upload is one that never went. */
-function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
-  if (part === PICTURE_FAILED) return { kind: "picture", delivered: false, reason: "upload_failed" };
-  if (typeof part !== "string" && "card" in part) return { kind: "text", text: part.card.fallbackText, delivered: true };
-  if (typeof part !== "string") return { kind: "picture", delivered: true, ...("url" in part.media ? { text: part.media.url } : {}) };
-  return { kind: kindOf(part), text: part, delivered: true };
-}
-
-/** The last session's token, in memory only, so what a turn sent is written to the log once it went (`events.ts`). */
-const sessions = new WeakMap<InboxStorage, string>();
-
-async function flushOwed(storage: InboxStorage, deps: InboxDeps, phone: string): Promise<void> {
-  const token = sessions.get(storage);
-  if (token !== undefined) await flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(phone));
-}
-
-/**
- * The person's message an answer goes inside the thread of, or none: Tex
- * matches how it was texted, and a new topic gets a thread of its own
- * (decided by the owner, 2026-10-20). A text typed inside a thread is
- * answered there; a plain text that starts a topic (`newTopic`: the first
- * after a quiet spell) opens a thread under it; any other plain text is
- * answered plainly, unless a newer text overtook it, when its thread keeps
- * the answer next to its question. Answering every text in its own thread
- * (2026-10-19) put a whole conversation under an unrelated check-in, because
- * each answer landed in whatever thread its text was in.
- */
-function threadFor(message: Message, overtaken = false): string | undefined {
-  // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
-  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
+/** What follows a reply that went out, behind it (`afterReply.ts`). */
+function afterReply(storage: InboxStorage, deps: InboxDeps, item: Pending, parts: number, timing?: TurnTiming): Promise<void> {
+  return afterReplyWork(storage, deps, { chat: item.message.chatId, from: item.message.from, simulator: item.message.channel === "simulator", parts, timing }, () =>
+    offerCard(storage, item.message.chatId, { ...lineDeps(deps), now: deps.now }),
+  );
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -514,7 +497,7 @@ export { ACKNOWLEDGE_AFTER_MS, TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./pres
  */
 type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean };
 
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence?: Presence): Promise<Answered> {
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
   let choices: Choice[] = [];
   let offers: Offer[] = [];
@@ -541,7 +524,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     covers,
     (ids) => dropSteered(storage, ids, covers),
     async (token) => {
-      sessions.set(storage, token);
+      rememberSession(storage, token);
       void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
@@ -569,6 +552,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     },
     storage,
     presence,
+    timing,
   ).finally(end);
   const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote });
   if (live.cancelled) {
@@ -642,7 +626,13 @@ async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: s
   }
 }
 
-async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage, presence?: Presence): Promise<string[]> {
+async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage, presence: Presence | undefined, timing: TurnTiming): Promise<string[]> {
+  // The gateway's answer is in when the reply is (`replyTo`); what follows it, before the first send, is `beforeSendMs`.
+  const replied = (texts: Promise<string[]>): Promise<string[]> =>
+    texts.then((reply) => {
+      timing.answered = deps.now();
+      return reply;
+    });
   const simulator = message.channel === "simulator";
   let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();
@@ -677,14 +667,14 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 
   if (simulator) {
     try {
-      return await replyTo(message, { ...deps, onProgress });
+      return await replied(replyTo(message, { ...deps, onProgress }));
     } finally {
       await chain;
     }
   }
   const shown = presence ?? (await startPresence(lineFor(lineDeps(deps), message.chatId), message));
   try {
-    return await replyTo(message, { ...deps, onProgress });
+    return await replied(replyTo(message, { ...deps, onProgress }));
   } finally {
     await shown.stop();
     await chain;

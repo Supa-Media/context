@@ -6,8 +6,35 @@
 
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import { isRefusal } from "./carousel";
+import { kindOf, type TexEvent } from "./events";
 import type { Line } from "./line";
-import type { Media, SendPart } from "./outgoing";
+import { PICTURE_FAILED, type Media, type SendPart } from "./outgoing";
+import type { Message } from "./reply";
+
+/** The event for one part Tex sent: a picture it could not upload is one that never went. */
+export function partEvent(part: SendPart): Omit<TexEvent, "id" | "at" | "chat" | "from"> {
+  if (part === PICTURE_FAILED) return { kind: "picture", delivered: false, reason: "upload_failed" };
+  if (typeof part !== "string" && "card" in part) return { kind: "text", text: part.card.fallbackText, delivered: true };
+  if (typeof part !== "string") return { kind: "picture", delivered: true, ...("url" in part.media ? { text: part.media.url } : {}) };
+  return { kind: kindOf(part), text: part, delivered: true };
+}
+
+/**
+ * The person's message an answer goes inside the thread of, or none: Tex
+ * matches how it was texted, and a new topic gets a thread of its own
+ * (decided by the owner, 2026-10-20). A text typed inside a thread is
+ * answered there; a plain text that starts a topic (`newTopic`: the first
+ * after a quiet spell) opens a thread under it; any other plain text is
+ * answered plainly, unless a newer text overtook it, when its thread keeps
+ * the answer next to its question. Answering every text in its own thread
+ * (2026-10-19) put a whole conversation under an unrelated check-in, because
+ * each answer landed in whatever thread its text was in.
+ */
+export function threadFor(message: Message, overtaken = false): string | undefined {
+  // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
+  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
+  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
+}
 
 const MAX_CAPTION = 100;
 const HOSTED = /\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.(png|jpg|gif|webp)$/;
