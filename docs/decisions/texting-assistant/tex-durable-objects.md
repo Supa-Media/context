@@ -56,19 +56,19 @@ did.
 
 ## Wiped with what owns them
 
-A person's object is wiped when their account is deleted or their phone is
-unlinked from Tex; a group chat's when the chat ends or its last person
-leaves. Cloudflare encrypts Durable Object storage at rest. The object
-decides no access: the gateway has already checked who is asking before it
-calls.
+A person's object is wiped when their personal workspace is deleted with
+their account; a group chat's when the chat ends. Unlinking a phone does not
+wipe anything: the notes are rows in the person's own workspace, still read,
+searched and exported like any note, and an unlink is texted from the phone,
+so whoever holds the number could send it. Cloudflare encrypts Durable Object
+storage at rest. The object decides no access: the gateway has already
+checked who is asking before it calls.
 
 As built (`functions/texStoreWipe.ts`): the account deletion wipes the
 person's object (`wipeWorkspace`, through `wipeOwner`), and `wipeOwner` can
-wipe a group chat's object, retried with backoff. Not yet wired, and open for
-the owner: no code ends or deletes a Tex group chat today, so nothing calls
-`wipeOwner` for `chat:`; and an unlink does not wipe the person's object yet,
-because an unlink is texted (`UNLINK`) from the phone and an irreversible
-wipe on that path needs the owner's yes first.
+wipe a group chat's object, retried with backoff. Nothing ends a Tex group
+chat today ("Tex, stop" only mutes it), so nothing calls `wipeOwner` for a
+chat yet; it is called when that event exists.
 
 ## Cost of reversing it
 
