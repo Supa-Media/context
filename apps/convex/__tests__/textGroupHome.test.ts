@@ -59,7 +59,7 @@ async function turn(t: T, sender: string, participants: string[]) {
   return await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants, mint: true });
 }
 
-type SessionRow = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true; chatHome?: string };
+type SessionRow = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true; homeOnly?: true; chatHome?: string };
 
 async function resolves(t: T, accessToken: string): Promise<{ workspaces: SessionRow[] } | null> {
   const response = await gatewayPost(t, "/gateway/session", { accessToken });
@@ -100,7 +100,7 @@ function sorted(ids: Id<"users">[]) {
 describe("a chat's home", () => {
   test("the first turn makes the home, three words under the homes folder, naming everyone in the chat to edit", async () => {
     const w = await world();
-    expect(await turn(w.t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "studio", minted: true });
+    expect(await turn(w.t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "context-lc", reach: ["studio"], minted: true });
     const chat = await chatRow(w.t);
     expect(chat?.homeWords).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
     const folder = `tex/groups/${chat!.homeWords}`;
@@ -137,32 +137,31 @@ describe("a chat's home", () => {
 });
 
 describe("what the chat's session carries in the pin", () => {
-  test("the setup row names the home and holds its token to edit, as a chat reads", async () => {
+  test("the home row names the home and holds its token to edit, as a chat reads", async () => {
     const w = await world();
     const answer = await turn(w.t, ADA, [ADA, BO, CY, LINE]);
     const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
     const home = await homeRow(w, folder);
     const session = await resolves(w.t, answer.accessToken as string);
-    const setup = session?.workspaces.find((entry) => entry.setupOnly === true);
+    const setup = session?.workspaces.find((entry) => entry.homeOnly === true);
     expect(setup).toMatchObject({ workspaceId: String(w.pinned), role: "editor", chatHome: folder });
-    expect(setup?.grantedNames).toEqual(expect.arrayContaining(["#reads-as-guest", "#reads-as-chat", `#${home!.row.noteId}`, `#${home!.row.noteId}!edit`]));
-    // Still nothing a tool can address.
-    expect(session?.workspaces.filter((entry) => entry.setupOnly !== true).map((entry) => entry.slug)).toEqual(["studio"]);
+    expect(setup?.grantedNames).toEqual(expect.arrayContaining(["#reads-as-chat", `#${home!.row.noteId}`, `#${home!.row.noteId}!edit`]));
+    // The home is the default row, then the workspace everyone in the chat shares.
+    expect(session?.workspaces.filter((entry) => entry.homeOnly !== true).map((entry) => entry.slug)).toEqual(["studio"]);
   });
 
   test("the rules the session reads by open the home to change, read the guides, and close the rest", async () => {
     const w = await world();
     const answer = await turn(w.t, ADA, [ADA, BO, CY, LINE]);
     const folder = `tex/groups/${(await chatRow(w.t))!.homeWords}`;
-    const setup = (await resolves(w.t, answer.accessToken as string))?.workspaces.find((entry) => entry.setupOnly === true);
+    const setup = (await resolves(w.t, answer.accessToken as string))?.workspaces.find((entry) => entry.homeOnly === true);
     const held = await w.t.query(internal.functions.nodesPrivacy.authority, { workspaceId: w.pinned, chatNames: setup!.grantedNames });
     const ruleAt = (prefix: string) => held.folders.find((rule) => rule.prefix === prefix)?.visibility;
     expect(ruleAt(folder)).toBe("team");
     expect(ruleAt("tex/groups")).toBe("private");
     expect(ruleAt("areas")).toBe("private");
-    // Read, never changed: the guides every account reads.
-    expect(ruleAt("guides")).toBe("team");
-    expect(held.readOnly?.folders).toContain("guides");
+    // Only the home (E1): not even the guides every account reads.
+    expect(ruleAt("guides")).toBe("private");
     expect(held.readOnly?.folders ?? []).not.toContain(folder);
   });
 
@@ -175,7 +174,7 @@ describe("what the chat's session carries in the pin", () => {
       return await ensureChatHome(ctx as unknown as MutationCtx, (await ctx.db.get(chat))!, [w.sayo], w.sayo);
     });
     expect(other).toMatch(/^tex\/groups\//);
-    const setup = (await resolves(w.t, answer.accessToken as string))?.workspaces.find((entry) => entry.setupOnly === true);
+    const setup = (await resolves(w.t, answer.accessToken as string))?.workspaces.find((entry) => entry.homeOnly === true);
     const held = await w.t.query(internal.functions.nodesPrivacy.authority, { workspaceId: w.pinned, chatNames: setup!.grantedNames });
     expect(held.folders.find((rule) => rule.prefix === other)?.visibility).toBe("private");
   });

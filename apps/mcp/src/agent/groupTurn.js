@@ -116,9 +116,38 @@ export function groupOf(body, session = null) {
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
   const mail = chatMailOf(group.mail);
-  const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat), ...(mail.length > 0 ? { mail } : {}) };
-  if (!isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
+  const reach = reachOf(session);
+  const kept = { key: group.key, members: group.members, from, people: peopleOf(group.people, from), chat: chatOf(group.chat), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}) };
+  // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
+  // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
+  if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
   return { ...kept, guestChat: true, guestTagger: from === "" };
+}
+
+/**
+ * The shared workspaces a chat reaches this turn, by name, read from the grant's own rows and never from the body
+ * (`apps/convex/functions/lib/textGroupReach.ts`): every row but the default, which is the chat's home in the pin.
+ * Only these may be addressed with `context`; the session refuses any other name the same as one that does not exist.
+ */
+export function reachOf(session) {
+  const rows = Array.isArray(session?.workspaces) ? session.workspaces : [];
+  // Only a home-only grant (the chat's home is its default row, `sessionPayload.js`) has a reach: any other group grant
+  // reads the one workspace it was minted on.
+  if (rows.find((entry) => entry.workspaceId === (session.defaultWorkspaceId ?? session.workspaceId))?.homeOnly !== true) return [];
+  return rows
+    .filter((entry) => entry.workspaceId !== (session.defaultWorkspaceId ?? session.workspaceId) && entry.homeOnly !== true && typeof entry.slug === "string" && entry.slug !== "")
+    .map((entry) => entry.slug)
+    .sort();
+}
+
+/**
+ * Runs `dispatch` against the first workspace in reach by name (the playbook's, and any single-workspace reader's), or
+ * as it is when the chat reaches none. The bound workspace of an old chat is not known here: the control plane's
+ * `chatWorkspace` picks it for its own readers, and the gateway takes the first by name.
+ */
+export function inFirstReach(dispatch, group) {
+  const first = Array.isArray(group?.reach) ? group.reach[0] : undefined;
+  return dispatch === null || first === undefined ? dispatch : (name, args) => dispatch(name, { ...args, context: `@${first}` });
 }
 
 /** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
@@ -213,7 +242,7 @@ export async function readGroupMemory(store, group, dispatch = null) {
   const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
   NOTE_STATE.set(history, { etag: stored?.etag ?? null, kept: typeof kept?.noteEtag === "string" ? kept.noteEtag : null });
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
-  group.playbook = await readPlaybook(dispatch, group);
+  group.playbook = await readPlaybook(inFirstReach(dispatch, group), group);
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
   const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
   group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
@@ -393,12 +422,18 @@ export const INVITED_TAGGER_LINE =
 
 export function groupPrompt(group, workspace) {
   if (group.guestChat) return guestPrompt(group, workspace);
-  const where = workspace ? `@${workspace}` : "one shared workspace";
+  const reach = Array.isArray(group.reach) ? group.reach : [];
+  const where = reach.length > 0 ? reach.map((slug) => `@${slug}`).join(" and ") : workspace ? `@${workspace}` : "one shared workspace";
   const who = group.from ? `@${group.from} tagged you` : "Someone tagged you";
   return (
     `\n\nTHIS IS AN IMESSAGE GROUP CHAT. ${who}, and everyone in the chat reads your answer. ` +
     (group.guestTagger ? INVITED_TAGGER_LINE : "") +
-    `You can read only ${where}, the shared workspace every person here is a member of, and only what its whole team can see. ` +
+    (reach.length > 0
+      ? `You can read only ${where}, the shared ${reach.length === 1 ? "workspace" : "workspaces"} every person here is a member of, and only what the whole team can see; ` +
+        `where a person here can only read, so can you. Name the one you mean with context: "@${reach[0]}"` +
+        (reach.length > 1 ? ` (or ${reach.slice(1).map((slug) => `"@${slug}"`).join(", ")})` : "") +
+        "; with none, a tool reaches only this chat's own home, which no workspace's notes are in. "
+      : `You can read only ${where}, the shared workspace every person here is a member of, and only what its whole team can see. `) +
     chatMailPrompt(group) +
     "You can do anything with notes there that you can in a text, by the role of whoever tagged you; never say you can't change a note from here. " +
     "Never write into a form's responses note (the gateway writes those) or a note that says it is generated. " +

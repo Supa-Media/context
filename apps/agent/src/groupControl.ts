@@ -11,17 +11,17 @@ import type { GroupMessage } from "./sendblueGroups";
 
 export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
-  | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
   | { status: "mail_unshared"; count: number }
   | { status: "mail_refused" }
   | { status: "unknown_sender"; tell?: boolean }
-  | { status: "choose"; slugs: string[] }
   | {
       status: "ready";
       slug: string;
+      /** The slugs of the shared workspaces every account holder here shares (`lib/textGroupReach.ts`): none when anyone has no account. */
+      reach?: string[];
       intro: boolean;
       timeZone?: string;
       handle?: string;
@@ -62,8 +62,6 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     case "started":
     case "no_shared":
       return { status: body.status };
-    case "not_shared":
-      return { status: "not_shared", slugs: (Array.isArray(body.slugs) ? body.slugs.filter(slug) : []).slice(0, 8) as string[] };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
     case "not_allowed":
@@ -79,16 +77,12 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     case "invited":
       if (!slug(body.slug) || typeof body.count !== "number" || !Number.isInteger(body.count) || body.count < 0) throw new ServiceError("control_plane", status);
       return { status: "invited", slug: body.slug as string, count: Math.min(body.count, 64), role: body.role === "member" ? "member" : "editor" };
-    case "choose": {
-      const slugs = Array.isArray(body.slugs) ? body.slugs.filter(slug) : [];
-      if (slugs.length === 0) throw new ServiceError("control_plane", status);
-      return { status: "choose", slugs: slugs as string[] };
-    }
     case "ready":
       if (!slug(body.slug)) throw new ServiceError("control_plane", status);
       return {
         status: "ready",
         slug: body.slug as string,
+        ...(Array.isArray(body.reach) ? { reach: (body.reach.filter(slug) as string[]).slice(0, 12) } : {}),
         intro: body.intro === true,
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
         ...(slug(body.handle) ? { handle: body.handle as string } : {}),

@@ -220,7 +220,8 @@ describe("an invited chat", () => {
     const t = setupTest();
     await family(t);
     await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
-    expect((await turn(t, DAD, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).status).not.toBe("ready");
+    // "Tex, use @slug" is gone (2026-10-31); the one command that names a workspace is an owner's "add everyone here".
+    expect((await turn(t, DAD, FAMILY, addEveryone("crystal-care"))).status).toBe("not_allowed");
     expect((await turn(t, DAD, [DAD, MOM, LINE])).status).toBe("unknown_sender");
   });
 
@@ -248,13 +249,13 @@ describe("an invited chat", () => {
     const { seyi, care } = await family(t);
     const dad = await texter(t, "dad", DAD);
     const mom = await texter(t, "mom", MOM);
-    // Before anyone was invited, naming the workspace is no longer a guest mode (E1): it is not shared with everyone here.
-    expect(await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).toMatchObject({ status: "not_shared" });
+    // Before anyone was invited, the chat reaches no workspace: not everyone here is in it.
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
     for (const invitee of ["@dad", "@mom"]) {
       await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee, role: "editor" });
     }
-    // Named again once they are invited: the chat binds to the workspace, its people counting as invited there.
-    await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } });
+    // Once they are invited, the owner adds the chat to the workspace: its people count as invited there.
+    await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
     const tagged = await turn(t, SEYI, FAMILY);
     expect(tagged).toMatchObject({ status: "ready", slug: "crystal-care", handle: "seyi" });
     expect(tagged.guest).toBeUndefined();
@@ -270,11 +271,11 @@ describe("an invited chat", () => {
   test("a chat whose people are all invited by number from Members is answered as invited", async () => {
     const t = setupTest();
     const { seyi, care } = await family(t);
-    expect(await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).toMatchObject({ status: "not_shared" });
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
     for (const invitee of [DAD, MOM]) {
       await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee, role: "editor" });
     }
-    await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } });
+    await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
     const tagged = await turn(t, SEYI, FAMILY);
     expect(tagged).toMatchObject({ status: "ready", slug: "crystal-care", handle: "seyi" });
     expect(tagged.guest).toBeUndefined();
@@ -294,7 +295,7 @@ describe("an invited chat", () => {
     await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee: "@dad", role: "editor" });
     // Dad blocked Seyi after the invitation went out (straight to the row: `blockPerson` would also void it).
     await t.run(async (ctx) => void (await ctx.db.insert("userBlocks", { blockerId: dad.userId, blockedId: seyi.userId, createdAt: Date.now() })));
-    expect(await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).toMatchObject({ status: "not_shared" });
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
     expect(await turn(t, SEYI, FAMILY)).not.toMatchObject({ guest: expect.anything() });
     const member = await t.run(
       async (ctx) => await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", care).eq("userId", dad.userId)).unique(),

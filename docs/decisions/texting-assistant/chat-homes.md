@@ -220,3 +220,13 @@ from a group in that workspace. This retires guest mode
   being in the chat. Legacy guest groups and folders are not read. A one-off
   is to move them into homes, and it is not written yet: the move engine refuses
   to carry notes into a home (`chatHomesMoveRefused`).
+
+## The home is where the grant lives; the reach is beside it (the owner, 2026-10-31)
+
+Every group chat's grant is now minted on the pinned workspace for its sponsor, as a home-only grant was for a chat with people who aren't all here (above). What differs is only what sits beside the home row. When every person in the chat has an account, the grant also lists the shared workspaces they all belong to, each a row at `team` tier held at the lowest role among them (`lib/textGroupReach.ts`; [groups](./groups.md#a-chat-reaches-the-workspaces-its-people-share-the-owner-2026-10-31)). When anyone has no account, there are none, and the chat has its home alone, as before.
+
+- **The home stays the default and the memory.** A call with no `context` reaches the home; the chat's memory, notes and voice live there whatever the chat reaches, so a person joining or leaving changes what Tex can read, not what it remembers.
+- **The pin is only ever the home.** A home-only grant's row is no clearance on the pin (no website publishing, no queued job, no owner check) and may hold a note mailbox only beneath its own folder. The pinned workspace never appears in a chat's reach, even when everyone in the chat is a member of it.
+- **The sponsor must share too.** Writes in a workspace are audited as the grant's account, so a workspace stays in reach only while the sponsor is a member of it as well as everyone in the chat.
+- **The home may be read by people the reach does not include.** A chat's home names every account in it to edit, whatever workspaces they share; reach narrows what Tex may use beyond the home, never who may open the home.
+

@@ -108,16 +108,16 @@ for (const { name, groupId } of LINES) {
     it("a yes, a 👍, a routine's run and a job's report still wait for the running turn: each is a model turn", () => {
       const w = setup(groupId);
       const item = (text: string, extra: Record<string, unknown> = {}) => ({ message: w.message(text), attempts: 0, byCode: true as const, ...extra });
-      expect(answeredByCode(item("yes"), [])).toBe(false);
-      expect(answeredByCode({ ...item("Loved it"), message: { ...w.message("Loved it"), reaction: { how: "like", words: "x" } } } as never, [])).toBe(false);
-      expect(answeredByCode({ ...item("Tex settings"), message: { ...w.message("Tex settings"), routine: { runId: "r", path: "p" } } } as never, [])).toBe(false);
-      expect(answeredByCode({ message: w.message("Tex what's on"), attempts: 0 }, [])).toBe(false);
+      expect(answeredByCode(item("yes"))).toBe(false);
+      expect(answeredByCode({ ...item("Loved it"), message: { ...w.message("Loved it"), reaction: { how: "like", words: "x" } } } as never)).toBe(false);
+      expect(answeredByCode({ ...item("Tex settings"), message: { ...w.message("Tex settings"), routine: { runId: "r", path: "p" } } } as never)).toBe(false);
+      expect(answeredByCode({ message: w.message("Tex what's on"), attempts: 0 })).toBe(false);
       // Answered by code alone: the commands, a menu reply, a style choice, an SMS group's line.
-      expect(answeredByCode(item("tex, settings"), [])).toBe(true);
-      expect(answeredByCode(item("Tex stop"), [])).toBe(true);
-      expect(answeredByCode(item("2", { setting: { kind: "menu" } }), [])).toBe(true);
-      expect(answeredByCode(item("3", { engagement: "helpful" }), [])).toBe(true);
-      expect(answeredByCode(item("Tex hi", { message: w.message("Tex hi", { sms: true }) }), [])).toBe(true);
+      expect(answeredByCode(item("tex, settings"))).toBe(true);
+      expect(answeredByCode(item("Tex stop"))).toBe(true);
+      expect(answeredByCode(item("2", { setting: { kind: "menu" } }))).toBe(true);
+      expect(answeredByCode(item("3", { engagement: "helpful" }))).toBe(true);
+      expect(answeredByCode(item("Tex hi", { message: w.message("Tex hi", { sms: true }) }))).toBe(true);
     });
 
     it("a draft for an older ask is held once, then one turn answers both; its asks are withdrawn", async () => {

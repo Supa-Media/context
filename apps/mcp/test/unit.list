@@ -298,3 +298,4 @@ test/texStore.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
+test/chatReach.test.mjs

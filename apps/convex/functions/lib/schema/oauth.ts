@@ -214,6 +214,14 @@ export const oauthTables = {
         homeOnly: v.optional(v.literal(true)),
         taggerId: v.optional(v.id("users")),
         guestPhone: v.optional(v.string()),
+        /**
+         * A group chat's reach (`lib/textGroupReach.ts`, decided by the owner, 2026-10-31): the shared workspaces every
+         * account holder in the chat is a member of, as of the turn that minted this grant, and those account holders.
+         * Only a snapshot of what to re-check: the rows a request is given are the ones that still hold for every one
+         * of `reachPeople` and the sponsor (`grant.userId`), re-read per request. Absent or empty: the home alone.
+         */
+        reach: v.optional(v.array(v.id("workspaces"))),
+        reachPeople: v.optional(v.array(v.id("users"))),
       }),
     ),
     workspaceId: v.id("workspaces"),

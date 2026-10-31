@@ -17,8 +17,19 @@ export const textGroupTables = {
   textGroups: defineTable({
     /** sha256 of `<line>:<group_id>`. */
     groupKey: v.string(),
-    /** The one shared workspace this chat reads, writes and remembers in, once chosen. */
+    /**
+     * DEPRECATED (2026-10-31): the one workspace a chat used to be bound to ("Tex, use @slug"). Nothing binds a chat
+     * now: its reach is every shared workspace all its people share (`reach`). Kept readable for old rows and set by
+     * "Tex, add everyone here to @slug"; where one workspace is needed, `chatWorkspace` (`lib/textGroupReach.ts`)
+     * takes this one if it is still in reach, else the first in reach by name.
+     */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * The chat's reach as of its last turn (`lib/textGroupReach.ts`) and the accounts it was worked out for. A hint to
+     * re-check live, never trusted as it stands: every consumer re-reads each person's membership.
+     */
+    reach: v.optional(v.array(v.id("workspaces"))),
+    reachPeople: v.optional(v.array(v.id("users"))),
     boundBy: v.optional(v.id("users")),
     /**
      * The person who brought Tex into the chat (decided by the owner, 2026-10-31): set once, by the first account
