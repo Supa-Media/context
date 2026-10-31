@@ -734,6 +734,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - [Tex's front door: a text in, Haiku answers, the reply out (2026-10-31)](./texting-assistant/front-door.md)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
+- [Tex's notes live in Durable Objects, not the bucket (2026-10-31)](./texting-assistant/tex-durable-objects.md)
 - The Worker decides nothing about access
 - A webhook is acted on only with Linq's signature
 - Group chats never reach a personal context

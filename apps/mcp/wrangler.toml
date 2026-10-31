@@ -126,6 +126,18 @@ class_name = "PresenceRoom"
 tag = "v1-presence"
 new_sqlite_classes = ["PresenceRoom"]
 
+# Tex's notes: one SQLite-backed object per person and per group chat
+# (src/texStore.js). A note marked on its tree row as living here keeps its
+# text here instead of in the workspace's bucket. Self-hosting on the free
+# tier: leave the binding out, and nothing is ever marked as living here.
+[[durable_objects.bindings]]
+name = "TEX_STORE"
+class_name = "TexStore"
+
+[[migrations]]
+tag = "v2-tex-store"
+new_sqlite_classes = ["TexStore"]
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -211,6 +223,10 @@ SEARCH_SUBREQUEST_BUDGET = "600"
 [[env.staging.durable_objects.bindings]]
 name = "PRESENCE_ROOM"
 class_name = "PresenceRoom"
+
+[[env.staging.durable_objects.bindings]]
+name = "TEX_STORE"
+class_name = "TexStore"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"
