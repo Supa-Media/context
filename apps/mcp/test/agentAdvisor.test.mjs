@@ -9,7 +9,7 @@
  * Sabotage (temporary local edits, reverted):
  *  - `tools: []` dropped from the advisor's request (it inherits nothing, so
  *    the request carries no tools key): "holds no tools" fails;
- *  - `MAX_ASKS` check removed from `call`: "at most twice a turn" fails.
+ *  - `MAX_ASKS` check removed from `call`: "at most MAX_ASKS a turn, never naming the limit" fails.
  */
 
 import assert from "node:assert/strict";
@@ -75,14 +75,16 @@ test("a decline comes back as words for the everyday model to act on", async () 
   assert.match(ADVISOR_PROMPT, /"Decline:"/);
 });
 
-test("at most twice a turn, and nothing asked without a question", async () => {
+test("at most MAX_ASKS a turn, never naming the limit, and nothing asked without a question", async () => {
   const { entry, asked } = advisor();
   assert.equal((await entry.call({ question: " " })).isError, true);
   for (let i = 0; i < MAX_ASKS; i += 1) assert.equal((await entry.call({ question: `ask ${i}` })).isError, undefined);
   const third = await entry.call({ question: "once more" });
   assert.equal(third.isError, true);
   assert.match(third.content[0].text, /Answer with what you have/);
+  assert.doesNotMatch(third.content[0].text, /\d|times|limit|budget/, "the everyday model is never told how many asks it gets");
   assert.equal(asked.length, MAX_ASKS);
+  assert.equal(MAX_ASKS, 10);
 });
 
 test("an advisor that can't be reached is told as such, and metered as a failure", async () => {
