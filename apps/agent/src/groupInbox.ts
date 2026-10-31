@@ -44,18 +44,17 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
-import { askAgentStream, askLine, reportRoutineResult, ServiceError, type AgentAnswer, type Fetch, type RoutineOutcome } from "./clients";
-import { CHAT_LOOK_PATH, chatRoutineMessage, saysSkip, type ChatRoutineRun } from "./groupRoutines";
+import { reportRoutineResult, ServiceError, type Fetch, type RoutineOutcome } from "./clients";
+import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer, type GuestInfo } from "./groupControl";
 import { noteGuestChat } from "./groupGuestPeople";
 import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer, GuestInfo };
-import { fixedTimings, log, logTiming, MAX_SENT, say, sendPicture, SENT_KEY, timedReply, type ReplyClock, type SayMeta } from "./groupSay";
+import { log, MAX_SENT, say, SENT_KEY, timedReply, type ReplyClock } from "./groupSay";
 import type { Picture } from "./line";
-import { prepareAttachments, type ImagesLike } from "./attachments";
+import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
-import { textsWithExact } from "./format";
 import { groupSettingReply, groupSettings } from "./groupSettings";
 import { tapbackText, type Reaction } from "./reactions";
 import { ackEmoji } from "./ackEmoji";
@@ -65,19 +64,20 @@ import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor } from "./groupLine";
 import type { NoteCardDrawer } from "./noteCards";
-import { chatBefore, dropChatLines, isBound, keepChatLine, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
+import { isBound, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
-import { watchConversation, watchFailed } from "./reviewWatch";
+import { watchFailed } from "./reviewWatch";
 import { addressesTex, groupCommand, offeredName, unquoted, type Command } from "./groupWords";
-import { chatJobs, startJobs, steerJobs, threadsLines, type JobRun, type JobSteer } from "./jobs";
-import { addEvent, armBy, flushChat, kindOf, logAsk, pruneEvents, type Conversation } from "./events";
+import type { JobRun, JobSteer } from "./jobs";
+import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { reactionFor } from "./reactEmoji";
-import { staleAsks } from "./decide";
-import { runningTurn, startTurn } from "./steer";
+import { runningTurn } from "./steer";
 import { chooseGroupTurn, WAIT_MS, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
-import { handedTurnWaits, handOff } from "./groupTurnRun";
-import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide, texSpoke } from "./groupStyle";
+import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { answerBesideTurn } from "./groupBeside";
+import { groupTurn } from "./groupModelTurn";
+import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -136,8 +136,8 @@ export const PICTURE_JOINS_MS = 2 * 60_000;
 export const MAX_GROUP_FILES = 4;
 /** How long a yes Tex asked for stays the asker's to give without its name. */
 export const ASK_OPEN_MS = 30 * 60_000;
-const ASK_KEY = "gask";
-type OpenAsk = { from: string; at: number };
+export const ASK_KEY = "gask";
+export type OpenAsk = { from: string; at: number };
 /** Words that only answer a yes Tex asked for: a yes, a no, or "send it" (`apps/mcp/src/agent/textedApprovals.js` decides what they settle). A bare "ok" stays chat: it is not a yes to a send there, and would only disarm the ask. */
 const ANSWERS_ASK =
   /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
@@ -263,7 +263,7 @@ export async function queueGroupByCode(storage: InboxStorage, message: GroupMess
 }
 
 /** How a chat routine's run went, to the control plane: a code, never its words. */
-async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
+export async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
   if (message.jobReport !== undefined) return; // a job's report runs as a routine's turn does, but no run waits on it
@@ -362,8 +362,10 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
   }
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
-    // One turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`).
-    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) return;
+    // One model turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`); a fixed line goes now (`groupBeside.ts`).
+    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) {
+      return void (await answerBesideTurn(storage, deps, (await storage.get<HandedTurn>(TURN_KEY))?.keys ?? [], await openChoice(storage, deps.now())));
+    }
     const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
@@ -523,169 +525,10 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   }
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
+  const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
-}
-
-type TurnInput = {
-  message: GroupMessage;
-  /** The messages it answers, one by one. */
-  covered: GroupMessage[];
-  acceptedAt: number;
-  arrivedAt: number; // when the first message it answers came in, for the turn log's wait (`apps/mcp/src/agent/turnLog.js`)
-  covers: string[];
-  people: string[];
-  asked: Extract<ControlAnswer, { status: "ready" }>;
-  accessToken: string;
-};
-
-/** The model's turn on a group message, its answer sent only to the people it was written for. */
-async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
-  const app = groupLineFor(deps, message.groupId);
-  const chat = { line: message.line, groupId: message.groupId };
-  const guest = asked.guest;
-  const routine = message.routine !== undefined;
-  const quoted = message.replyTo === undefined ? null : await app.readOwnMessage(chat, message.replyTo);
-  const kept = await chatBefore(storage, message, acceptedAt, deps.now());
-  // A chat line this turn answers is its question, not what the chat said around it.
-  const asked_ = new Set(covered.map((entry) => `${entry.from}\n${entry.text}`));
-  const said = { keys: kept.keys, lines: kept.lines.filter((line) => !asked_.has(`${line.from}\n${line.text}`)) };
-  const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
-  // A guest is named in the chat's lines by a label from the control plane, never by number; never offered an email.
-  const labels = new Map((asked.guests ?? []).map(({ phone, label }) => [phone, label]));
-  // Pictures sent in the chat are read, as a 1:1 text's are (the group chat of 2026-10-23).
-  const files = filesFor(message, said.lines);
-  const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
-  const group = {
-    key: await sha256Hex(`${message.line}:${message.groupId}`),
-    members: await peopleHash(message.line, people),
-    ...(asked.handle ? { from: asked.handle } : {}),
-    // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
-    people: [...new Set(handles.values())].filter(Boolean),
-    ...(guest ? { guest } : {}),
-    // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
-    ...(asked.mail?.length ? { mail: asked.mail } : {}),
-  };
-  // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
-  await notePeople(storage, message, group.members);
-  // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
-  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
-  await steer.onSession(accessToken);
-  const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
-  /*
-    Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
-    "group Tex should literally be the same exact as DM Tex"): a long ask
-    texts its progress into the chat while it works, each line only while
-    nobody new has joined, the same check the answer gets below.
-  */
-  const progress = async (text: string) => {
-    const now = await app.readMembers(chat);
-    if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) return;
-    await say(storage, deps, message, text, meta);
-  };
-  let answer: AgentAnswer;
-  const asking = deps.now();
-  try {
-    answer = await askAgentStream(
-      deps.fetch,
-      deps.gatewayOrigin,
-      accessToken,
-      {
-        question: message.text,
-        group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
-        turn: steer.turn,
-        arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
-        ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
-        ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
-        ...(message.reaction !== undefined
-          ? { quoted: message.reaction.words, tapback: message.reaction.how }
-          : quoted !== null
-            ? { quoted }
-            : message.replyTo !== undefined
-              ? { replied: true }
-              : {}),
-      },
-      progress,
-    );
-  } finally {
-    end();
-  }
-  const answered = deps.now();
-  if (live.cancelled || answer.kind === "cancelled") {
-    // Cancelled here though its answer came: what it armed is never left armed and unseen.
-    if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
-    return "cancelled";
-  }
-  // A routine the gateway couldn't run throws below like any turn, so its workflow retries it; failing every try reports it quietly.
-  if (routine && (answer.kind === "daily_limit" || answer.kind === "no_model")) return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : "no_provider"));
-  if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
-  if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
-  if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
-  if (answer.steered) await dropSteered(storage, answer.steered, covers);
-  // Filed in the chat's memory by that turn: this object's copy goes.
-  await dropChatLines(storage, said.keys);
-  // An answer that asks for a yes leaves it open for the one person it asks: the
-  // asker, or the person an email is offered to (`askFor`); any other answer closes it.
-  const asks = answer.askFor !== undefined ? [...handles].find(([, handle]) => handle === answer.askFor)?.[0] : message.from;
-  if ((answer.verbatim?.length ?? 0) > 0 && asks !== undefined) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(asks), at: deps.now() });
-  else await storage.delete(ASK_KEY);
-
-  // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
-  //
-  // A list that could not be read is not a list with nobody new in it. On the
-  // way in, falling back to the webhook's own names is safe because more names
-  // only ever narrow the workspace the chat may use; here the fallback would
-  // run the other way, and this is the only thing standing between an answer
-  // drawn from the bound workspace and somebody who is not a member of it. So
-  // an unreadable list holds the answer, as a joiner does.
-  if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
-  const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
-  const now = await app.readMembers(chat);
-  if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
-    log(now === null ? "members_unread_after" : "joined");
-    if (routine) return void (await routineDone(deps, message, now === null ? "failed" : "no_chat"));
-    // Held for the newcomer: logged as never delivered, and the chat is told why.
-    for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
-    return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
-  }
-  // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
-  for (const text of texts) await say(storage, deps, message, text, meta);
-  for (const picture of checkIn ? [] : answer.pictures) await sendPicture(storage, deps, message, picture, meta); // After the words, as in a 1:1.
-  // Each ask is the asked person's: only their words can make it stale, only their session disarms it.
-  const askedWho = await sha256Hex(asks ?? message.from);
-  for (const record of answer.askIds ?? []) await logAsk(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, turn: meta.turn, people: meta.people }, record, askedWho, askLine(answer));
-  await texSpoke(storage);
-  log("answered");
-  logTiming({ arrivedAt, asking, answered, sent: deps.now() });
-  await routineDone(deps, message, "answered", texts.length > 0 ? 1 : 0);
-  // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
-  await watchConversation(storage, { kind: "group", message, people }, deps.now());
-  // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
-  if (answer.jobs && deps.spawnJob) {
-    await startJobs(storage, answer.jobs, {
-      now: deps.now(),
-      inbox: groupInboxName(message.groupId),
-      origin: { kind: "group", message, at: acceptedAt },
-      place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
-      spawn: deps.spawnJob,
-    });
-  }
-  // A change to a job still running is handed to it, in the words of whoever texted it.
-  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.jobReport ? "" : message.text }, deps.steerJob, deps.now()); // a report's turn passes only its own notes
-}
-
-/** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
-async function dropSteered(storage: InboxStorage, ids: string[], covers: string[]): Promise<void> {
-  for (const [key, item] of await storage.list<Pending>({ prefix: "gpending:" })) {
-    if (!ids.includes(item.message.eventId)) continue;
-    if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
-    await storage.delete(key);
-  }
 }
 
 /** The names this chat was asked to pick from, while that question is still open. */

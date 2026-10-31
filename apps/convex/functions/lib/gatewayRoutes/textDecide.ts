@@ -16,6 +16,8 @@ import { ENGAGEMENT_STYLES, groupKeyOf, type Engagement } from "../../textGroups
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { withJev, type JevAnswers, type JevRequest } from "../jev/client";
 import { REACT_EMOJI } from "../reactEmoji";
+// Routed beside decide (`http.ts` is at its size limit): the last look before a group answer sends.
+export { agentTextsRecheckHandler } from "./textRecheck";
 
 export const STYLES = [...ENGAGEMENT_STYLES, "direct"] as const;
 export type Style = (typeof STYLES)[number];
