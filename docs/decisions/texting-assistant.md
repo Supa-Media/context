@@ -321,9 +321,9 @@ credit, and nothing that costs money is spent while it lasts:
 - Each call is labelled with ids only (feature, workspace, client), never
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
-- Prompt caching is on for the tool list, the system prompt and the
-  conversation so far, because a turn is several rounds over a growing
-  transcript.
+- Prompt caching: tools, stable system prompt, slow context, then the chat,
+  each behind a five-minute mark; per-text facts (clock, model, nudge) ride in
+  the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside

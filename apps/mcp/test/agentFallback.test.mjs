@@ -30,7 +30,7 @@ function binding({ failing = [], text = "From the spare model." } = {}) {
   return {
     calls,
     async run(model, input) {
-      calls.push({ model, system: input.messages?.[0]?.content ?? "" });
+      calls.push({ model, system: input.messages?.[0]?.content ?? "", messages: input.messages });
       if (failing.includes(model)) throw new Error("upstream said no");
       return {
         choices: [{ message: { content: text, tool_calls: [] } }],
@@ -72,7 +72,7 @@ test("a main model that fails hands the turn to the fallback, which answers, and
   assert.equal(fell.model, FALLBACK);
   assert.equal(fell.status, null, "a binding that threw has no status");
   assert.ok(
-    ai.calls[1].system.includes(FALLBACK),
+    JSON.stringify(ai.calls[1].messages).includes(FALLBACK),
     "the fallback is told it is the one answering",
   );
 });

@@ -133,7 +133,8 @@ test("the switch drops the planner's thinking and re-tells the model who it is",
   const planned = gw.bodies[1].messages.find((message) => message.role === "assistant");
   assert.ok(!planned.content.some((block) => block.type === "thinking"), "Haiku is not handed Opus's thinking");
   assert.ok(planned.content.some((block) => block.type === "tool_use"), "but it sees the calls Opus made");
-  const systemText = (body) => JSON.stringify(body.system);
+  // The model line and the plan's words are said in the person's turn (`turn.js`): the whole request is read, minus its `model` field.
+  const systemText = (body) => JSON.stringify({ ...body, model: undefined });
   assert.match(systemText(gw.bodies[0]), /claude-opus-5-5/);
   assert.match(systemText(gw.bodies[1]), /claude-haiku-5-5/);
   // Haiku's own thinking rides along between its own rounds, as on any turn.
@@ -258,7 +259,7 @@ test("parseSetup refuses think_rounds without a router, or that is not a whole n
 test("the planner is told to write its plan in words, and the driver that those words are its plan", async () => {
   const gw = scripted([tools(1), tools(2), answer()]);
   await turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) });
-  const systemText = (body) => JSON.stringify(body.system);
+  const systemText = (body) => JSON.stringify({ ...body, model: undefined });
   assert.match(systemText(gw.bodies[0]), /write the plan in a few short lines/, "Opus plans in words Haiku can read");
   assert.doesNotMatch(systemText(gw.bodies[0]), /its plan is in its words above/);
   assert.match(systemText(gw.bodies[1]), /its plan is in its words above/, "Haiku is told the plan is there");
@@ -268,7 +269,7 @@ test("the planner is told to write its plan in words, and the driver that those 
 test("a turn with no plan carries neither line", async () => {
   const gw = scripted([tools(1), answer()]);
   await turn(gw.fetchImpl, { router: router() });
-  for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify(body.system), /write the plan|its plan is in its words/);
+  for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify({ ...body, model: undefined }), /write the plan|its plan is in its words/);
 });
 
 test("a background job plans on think and drives on main without asking the router", async () => {

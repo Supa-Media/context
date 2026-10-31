@@ -440,7 +440,8 @@ export async function runAgentChecks(check) {
         text: "PRIVATE-ONLY-MARKER",
       },
     });
-    const sentSystem = systemText(model.requests[model.requests.length - 1].body);
+    // The place and the meeting are said in the person's turn, after the cached prefix (`turn.js`): the whole request is read.
+    const sentSystem = JSON.stringify(model.requests[model.requests.length - 1].body);
     check(
       "the ambient place reaches the model",
       sentSystem.includes("1-projects/pricing.md") && sentSystem.includes("unsaved"),
@@ -533,7 +534,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and the next turn is told it used them",
-      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
+      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body ?? "")),
     );
 
     // Every turn knows the time where the person is (owner, 2026-10-14: Tex
@@ -542,7 +543,8 @@ export async function runAgentChecks(check) {
     model.install([{ text: "ok" }, { text: "ok" }]);
     await ask(env, TOKEN_OWNER, { question: "Remind me in 2 minutes", conversation: "texts", timeZone: "Asia/Tokyo" });
     await ask(env, TOKEN_OWNER, { question: "And now?", conversation: "texts", timeZone: "Not/AZone" });
-    const toldZone = JSON.stringify(model.requests[0]?.body?.system ?? "");
+    // The clock is said in the person's turn, not the system prompt (`turn.js`): the whole request is read.
+    const toldZone = JSON.stringify(model.requests[0]?.body ?? "");
     check(
       "a texted turn is told the date and time in the zone it was sent",
       /It is now \w+day, \w+ \d+, 20\d\d, \d+:\d\d [ap]m where they are \(Asia\/Tokyo\)/.test(toldZone) &&
@@ -550,8 +552,8 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and a zone that is not one falls back to the routines' default, named",
-      JSON.stringify(model.requests[1]?.body?.system ?? "").includes("(America/New_York)") &&
-        !JSON.stringify(model.requests[1]?.body?.system ?? "").includes("Not/AZone"),
+      JSON.stringify(model.requests[1]?.body ?? "").includes("(America/New_York)") &&
+        !JSON.stringify(model.requests[1]?.body ?? "").includes("Not/AZone"),
     );
 
     model.requests.length = 0;

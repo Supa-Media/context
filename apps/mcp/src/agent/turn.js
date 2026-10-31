@@ -43,25 +43,19 @@
  */
 
 import { attachmentsLine } from "./attachments.js";
-import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
-import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
-import { systemPrompt } from "./prompt.js";
-import { localNowPrompt } from "./localNow.js";
-import { workspacesPrompt } from "./workspaces.js";
+import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
+import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
 import { isPlainNoteWrite, settleNoteWrite, ToolTimeout, withinTime } from "./noteWriteRetry.js";
 import { isMove, MOVE_TIMED_OUT, MOVE_TIMEOUTS } from "./slowMoves.js";
-import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
-import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
-import { usedTools } from "./conversation.js";
+import { addModelUsage, failedCall, modelForRound, thinkRoundsFor } from "./modelPlan.js";
+import { PROGRESS_TOOL } from "./progress.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
-import { aboutMePrompt, goalsIn } from "./aboutMe.js";
+import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
-import { jobsPrompt } from "./jobs.js";
-import { TRANSCRIPTS_PROMPT } from "./transcript.js";
-import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { recheckNote } from "./recheck.js";
@@ -391,34 +385,11 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const systemFor = (answering) =>
-    systemPrompt(place, {
-      texting,
-      pictures,
-      notes,
-      model: answering,
-      models: router !== null ? { main: mainModel, think: router.think } : null,
-      edits: tools.some((tool) => tool.name === "write_note"),
-      continued: history.length > 0,
-      used: usedTools(history),
-    }) +
-    threadNote +
-    webPrompt(webNames) +
-    (progress ? PROGRESS_PROMPT : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
-    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
-    (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
-    (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
-    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
-    workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
-    nudge; // said last, beside the question
-  let system = systemFor(model);
-  const messages = [
-    ...history.map(({ role, text }) => ({ role, text })),
-    { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) },
-  ];
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  let prompt = promptFor(model);
+  // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
+  const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
+  const messages = [...history.map(({ role, text }) => ({ role, text })), questionMessage];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their
@@ -468,7 +439,7 @@ export async function runTurn(options) {
   */
   const switchTo = (next) => {
     model = next;
-    system = systemFor(model);
+    prompt = promptFor(model);
     for (const message of messages) if (message.content) delete message.content;
   };
   // The last round's tool calls included one that failed: the next one plans again.
@@ -490,9 +461,11 @@ export async function runTurn(options) {
     escalate = false;
     const asked = clock();
     let answer;
+    questionMessage.preamble = prompt.preamble;
     try {
       answer = await requestBuiltin(
-        { model, system, messages, tools: offered, effort: efforts?.[model], ...(observe ? { display: "summarized" } : {}) },
+        // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: history.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -633,7 +606,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args, { system, messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
+                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),

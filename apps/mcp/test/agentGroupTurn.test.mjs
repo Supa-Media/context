@@ -228,7 +228,8 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
   ]);
   await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures as a plain note", group: people });
   await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
-  const system = JSON.stringify(world.model.requests.at(-1).system);
+  // What the earlier answer used is said in the person's turn, after the system prompt (`turn.js`): the whole request is read.
+  const system = JSON.stringify(world.model.requests.at(-1));
   assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);
   assert.match(system, /fetch it by that exact path/);
 });

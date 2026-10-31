@@ -98,6 +98,11 @@ function count(value) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
+/** The system prompt as one string: a string as it is, or `{ stable, context }` (`turn.js`) joined. */
+export function systemText(system) {
+  return typeof system === "string" ? system : [system?.stable, system?.context].filter((part) => typeof part === "string").join("");
+}
+
 /**
  * One round on Workers AI, in the shape `providers.js` describes, plus the
  * model's own token counts for the meter.
@@ -113,9 +118,9 @@ function count(value) {
  *   for a gateway model: the gateway (`aiGatewayConfig`) and the labels its
  *   cost is filed under
  */
-export async function requestBuiltin({ model, system, messages, tools, effort, display }, ai, options = {}) {
+export async function requestBuiltin({ model, system, messages, tools, effort, display, cachedThrough }, ai, options = {}) {
   if (isGatewayModel(model)) {
-    return await requestViaGateway({ model, system, messages, tools, effort, display }, options.gateway ?? null, options);
+    return await requestViaGateway({ model, system, messages, tools, effort, display, cachedThrough }, options.gateway ?? null, options);
   }
   if (typeof ai?.run !== "function") throw new ProviderError("built-in model not configured");
   const catalog = isCatalogModel(model);
@@ -133,7 +138,7 @@ export async function requestBuiltin({ model, system, messages, tools, effort, d
       ai.run(
         model,
         {
-          messages: openAiMessages(system, messages),
+          messages: openAiMessages(systemText(system), messages),
           ...(tools.length > 0 ? { tools: openAiTools(tools) } : {}),
           max_tokens: MAX_OUTPUT_TOKENS,
         },

@@ -388,7 +388,23 @@ const READ_LINE =
   "Those notes are what that text was based on: asked where something came from, fetch that exact path and say what it says, " +
   "and if it doesn't back the text up, say so plainly and correct it from what it does say. Never hunt for a source by the name the text gave it.";
 
-export function systemPrompt(
+export function systemPrompt(place, options = {}) {
+  const { stable, volatile } = systemPromptParts(place, options);
+  return volatile === "" ? stable : `${stable}\n${volatile}`;
+}
+
+/**
+ * The system prompt, cut where the prompt cache can be read across texts.
+ *
+ * `stable` is the same from one text to the next in a conversation: who the
+ * assistant is, how it writes, what it may do. It goes first, behind a cache
+ * breakpoint. `volatile` is what changes per text (the model answering, the
+ * note open in front of them, what earlier texts used, whether there are
+ * earlier texts). It is not put in the system prompt at all: `turn.js` says it
+ * in the person's turn, after the cache's last breakpoint, so one changed word
+ * does not cost the whole prefix.
+ */
+export function systemPromptParts(
   place,
   { texting = false, pictures = false, notes = null, model = null, models = null, edits = false, continued = false, used = [] } = {},
 ) {
@@ -430,15 +446,16 @@ export function systemPrompt(
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
       ];
-  if (continued) lines.push(CONTINUED);
+  const tail = [];
+  if (continued) tail.push(CONTINUED);
   const usedBefore = continued ? usedLine(used) : "";
-  if (usedBefore) lines.push(usedBefore);
+  if (usedBefore) tail.push(usedBefore);
   const which = modelLine(model, models);
-  if (which) lines.push(which);
+  if (which) tail.push(which);
 
   const where = describePlace(place);
-  if (where) lines.push("", where);
-  return lines.join("\n");
+  if (where) tail.push("", where);
+  return { stable: lines.join("\n"), volatile: tail.join("\n") };
 }
 
 /**
