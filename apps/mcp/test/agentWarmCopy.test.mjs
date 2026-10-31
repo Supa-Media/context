@@ -95,6 +95,19 @@ test("the setup is trusted for an hour, while About me and the skills are read a
   assert.equal(past.setup, undefined, "the setup is read again after an hour");
 });
 
+test("while a background job runs, or just after, About me and the skills are read fresh and the chat still comes from the copy", async () => {
+  const now = Date.now();
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "setup text" }, notes: { at: now, value: "kept" }, skills: { at: now, value: ["kept"] } });
+  for (const running of [[{ id: "j1", title: "Apply", state: "running" }], [{ id: "j1", title: "Apply", state: "done", finishedAt: now - 60_000 }]]) {
+    const hot = warmTurn(env, session, { warm: sealed, running }, { eligible: true, now });
+    assert.equal(await hot.notes(async () => "read"), "read", "a job may have written the jobs list or a task note");
+    assert.deepEqual(await hot.skills(async () => ["read"]), ["read"]);
+    assert.equal(await hot.setup(async () => "read"), "setup text", "the setup is still the copy's");
+  }
+  const long = warmTurn(env, session, { warm: sealed, running: [{ id: "j1", title: "Apply", state: "done", finishedAt: now - WARM_NOTES_MS - 1 }] }, { eligible: true, now });
+  assert.equal(await long.notes(async () => "read"), "kept", "a job long finished changes nothing");
+});
+
 test("a turn not its own (a group, a job, a routine) never uses or makes one", async () => {
   const now = Date.now();
   const sealed = await sealWarm(env, session, { v: 1, notes: { at: now, value: "kept" } });

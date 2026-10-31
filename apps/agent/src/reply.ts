@@ -282,8 +282,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (answer.kind === "cancelled") return [];
     if (answer.kind === "answer") {
       deps.onAnswered?.();
-      // A job it started will write to the chat by itself: the next text reads it whole.
-      await deps.warm?.keep(answer.jobs ? undefined : answer.warm);
+      // Kept when it started a job too: a job reports through the chat's own turn (never writes the chat itself), and the gateway reads notes and skills fresh while one runs (`warmCopy.js` `jobBusy`).
+      await deps.warm?.keep(answer.warm);
       if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
