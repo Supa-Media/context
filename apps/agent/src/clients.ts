@@ -296,7 +296,7 @@ export async function askAgent(
     told = [],
     texStyle,
     arrivedAt,
-    warm,
+    warm, beside,
     recent,
     holdsLog,
   }: {
@@ -323,7 +323,7 @@ export async function askAgent(
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
-    warm?: string;
+    warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[];
     holdsLog?: boolean; // `recent` is the chat's whole log (`events.ts` `holdsLog`): the gateway reads none from storage
   } = {},
@@ -348,7 +348,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
-    ...(warm ? { warm } : {}),
+    ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
     ...(holdsLog === true ? { holdsLog: true } : {}),
   };
@@ -649,6 +649,8 @@ export type RoutineAnswer = {
   answer: string;
   /** The routine's `send:` as the gateway read it just now, when it said. */
   send: RoutineSend | null;
+  /** What the gateway wrote to their texts for it, sealed for the next text (`warm.ts` `keepBeside`). */
+  beside?: string;
 };
 
 const GATEWAY_OUTCOMES = new Set(["answered", "skipped", "finished", "failed", "paused"]);
@@ -667,14 +669,7 @@ export async function runRoutine(
   const failed: RoutineAnswer = { outcome: "failed", answer: "", send: null };
   let result: { status: number; json: unknown };
   try {
-    result = await post(
-      fetcher,
-      "gateway",
-      `${gatewayOrigin}/agent`,
-      accessToken,
-      { routine: { path: routine.path, timeZone: routine.timeZone } },
-      AGENT_TIMEOUT_MS,
-    );
+    result = await post(fetcher, "gateway", `${gatewayOrigin}/agent`, accessToken, { routine: { path: routine.path, timeZone: routine.timeZone } }, AGENT_TIMEOUT_MS);
   } catch {
     return failed;
   }
@@ -686,7 +681,7 @@ export async function runRoutine(
     return {
       outcome,
       answer: speaks && typeof body.answer === "string" ? body.answer.trim() : "",
-      send: isSend(body.send) ? body.send : null,
+      send: isSend(body.send) ? body.send : null, ...(typeof body.beside === "string" ? { beside: body.beside } : {}), // what it wrote to their texts, sealed (`warm.ts` `keepBeside`)
     };
   }
   if (result.status === 404) return { ...failed, outcome: "routine_gone" };

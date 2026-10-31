@@ -51,6 +51,11 @@ export function eventKey(at, tag = randomTag()) {
   return `${EVENTS_PREFIX}${sort}-${tag}.json`;
 }
 
+/** When the exchange with this id happened (ms): its key sorts by it. */
+export function atOfId(id) {
+  return NEWEST - Number(String(id).slice(0, 13));
+}
+
 export function idOfKey(key) {
   const leaf = key.slice(EVENTS_PREFIX.length).replace(/\.json$/, "");
   return ID.test(leaf) ? leaf : null;

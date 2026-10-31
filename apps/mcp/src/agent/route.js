@@ -56,7 +56,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
-import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, warmTurn } from "./warmCopy.js";
+import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, sealBeside, warmTurn } from "./warmCopy.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
@@ -149,7 +149,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads (`warmCopy.js`)
+  store.chatWrites = []; store.historyLogged = () => hot.logged(); const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, now: received, writes: () => store.chatWrites }); // what the Worker kept of the last turn's reads, and every write to the history since (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
@@ -178,7 +178,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       await keepRun(store, routine, runs, outcome, answer || NO_MODEL);
       if (outcome === "finished") await stopRoutine(dispatch, routine.path);
       if (supervision.task) await deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work));
-      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to, beside: (await sealBeside(env, session, store.chatWrites)) ?? undefined }); // what it wrote to their texts, for the warm copy
     }
     if (supervision !== null) question = supervision.question;
   }
@@ -224,7 +224,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       told: body.told,
       thumbsUp,
     });
-    if (settled?.answer !== undefined) return (outcome.clean = true), json(settled); // the gateway's words, nothing read
+    if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await hot.seal({ wrote: true })) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
     ({ setAside = [], dropped = [] } = settled ?? {});
     paid = settled?.allowed ?? [];
   }
@@ -599,7 +599,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         to: routine.settings.to,
         provider: turn.provider,
         model: turn.model,
-        steps: turn.steps,
+        steps: turn.steps, beside: (await sealBeside(env, session, store.chatWrites)) ?? undefined, // what it wrote to their texts, sealed for the warm copy (`warmCopy.js`)
       });
     }
 

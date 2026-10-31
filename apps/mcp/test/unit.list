@@ -295,6 +295,7 @@ test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
 test/agentFrontDoor.test.mjs
 test/agentWarmCopy.test.mjs
+test/agentWarmHistory.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
 test/texRouting.test.mjs
