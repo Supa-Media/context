@@ -109,6 +109,7 @@ export const claimDueRoutines = internalMutation({
   args: {
     runIds: v.array(v.string()),
     tokens: v.array(v.object({ hashedAccessToken: v.string(), hashedRefreshToken: v.string() })),
+    scope: v.optional(v.object({ workspaceId: v.string(), path: v.string() })),
   },
   returns: v.array(
     v.object({
@@ -120,6 +121,7 @@ export const claimDueRoutines = internalMutation({
       phones: v.array(v.string()),
       chat: v.optional(v.string()),
       since: v.optional(v.number()),
+      nextRunAt: v.optional(v.union(v.number(), v.null())),
     }),
   ),
   handler: claimDueRoutinesHandler,

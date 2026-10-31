@@ -61,6 +61,19 @@ export const rowsPage = internalQuery({
   },
 });
 
+/** The personal workspace a handle names, for a run on one person's notes first; `null` when none. */
+export const personalWorkspaceBySlug = internalQuery({
+  args: { slug: v.string() },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, { slug }) => {
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .unique();
+    return workspace !== null && workspace.kind === "personal" ? workspace._id : null;
+  },
+});
+
 /**
  * Switches one row's key from its bucket id key to the Tex form, when the row
  * still names that bucket key and is still at the version the copy was read

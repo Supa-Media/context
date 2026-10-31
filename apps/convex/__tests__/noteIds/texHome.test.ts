@@ -10,6 +10,7 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { migrate, pinnedWorld, type PinnedWorld } from "../pinnedReaders.helpers";
 import { idKeyFor } from "../../functions/lib/nodes/noteIds";
 import { ensureCopyRow } from "../../functions/lib/noteIds/state";
 import { createUser, createWorkspace, seedTreeRows } from "../fixtures.helpers";
@@ -73,5 +74,83 @@ describe("where a new note is kept", () => {
     expect(await adopt(t, ws, "projects/new.md", `tex/person:${ws}/${idKeyFor(NOTE, "projects/new.md")}`)).toEqual({ adopted: false, taken: null });
     expect(await adopt(t, ws, "tex/attention.md", `tex/person:someone/${idKeyFor(NOTE, "tex/attention.md")}`)).toEqual({ adopted: false, taken: null });
     expect(await adopt(t, ws, "tex/attention.md", `tex/chat:c1/${idKeyFor(NOTE, "tex/attention.md")}`)).toEqual({ adopted: false, taken: null });
+  });
+});
+
+/*
+ * A group chat's home in the pinned workspace keeps its notes in that chat's object, under the chat's key. These
+ * pin that a home answers only its own chat's key, and that no other workspace, path or name ever gets one.
+ *
+ * Sabotage, each confirmed to fail a case here: answer `chat:` owners for a shared workspace other than the pin, drop
+ * the `take(2)` ambiguity check, or match the home by prefix alone.
+ */
+describe("a group chat's home in the pinned workspace", () => {
+  const CHAT = "c".repeat(64);
+  const OTHER = "d".repeat(64);
+  const WORDS = "orbit-lamp-river";
+  const HOME_NOTE = `tex/groups/${WORDS}/attention.md`;
+
+  async function chatWorld(): Promise<PinnedWorld> {
+    const w = await pinnedWorld();
+    await migrate(w);
+    await keyed(w.t, w.pinned);
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("textGroups", { groupKey: CHAT, lastSeenAt: 1, homeWords: WORDS });
+      await ctx.db.insert("textGroups", { groupKey: OTHER, lastSeenAt: 1, homeWords: "marsh-quiet-stone" });
+    });
+    return w;
+  }
+
+  const adoptIn = (w: PinnedWorld, path: string, key: string) =>
+    w.t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, { workspaceId: w.pinned, path, noteId: NOTE, key, etag: "e", at: 1 });
+
+  test("a note under a chat's home is kept in that chat's object, and the tree says so on lookup", async () => {
+    const w = await chatWorld();
+    const found = await w.t.query(internal.functions.noteIdsKeyed.notesFor, {
+      workspaceId: w.pinned,
+      paths: [HOME_NOTE, `tex/groups/${WORDS}`, "tex/groups/no-such-chat-here/x.md"],
+    });
+    expect(found.texHomes).toEqual([{ path: HOME_NOTE, owner: `chat:${CHAT}` }]);
+  });
+
+  test("it is adopted under its chat's key, and under no other key", async () => {
+    const w = await chatWorld();
+    const key = `tex/chat:${CHAT}/${idKeyFor(NOTE, HOME_NOTE)}`;
+    expect(await adoptIn(w, HOME_NOTE, `tex/chat:${OTHER}/${idKeyFor(NOTE, HOME_NOTE)}`)).toEqual({ adopted: false, taken: null });
+    expect(await adoptIn(w, HOME_NOTE, `tex/person:${w.pinned}/${idKeyFor(NOTE, HOME_NOTE)}`)).toEqual({ adopted: false, taken: null });
+    expect(await adoptIn(w, HOME_NOTE, key)).toEqual({ adopted: true });
+    const found = await w.t.query(internal.functions.noteIdsKeyed.notesFor, { workspaceId: w.pinned, paths: [HOME_NOTE] });
+    expect(found.notes[0]).toMatchObject({ state: "keyed", key, noteId: NOTE });
+  });
+
+  test("a home whose words name no chat, or two chats, keeps nothing in a chat's object", async () => {
+    const w = await chatWorld();
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("textGroups", { groupKey: "e".repeat(64), lastSeenAt: 1, homeWords: WORDS });
+    });
+    const found = await w.t.query(internal.functions.noteIdsKeyed.notesFor, {
+      workspaceId: w.pinned,
+      paths: [HOME_NOTE, "tex/groups/no-such-chat-here/x.md"],
+    });
+    expect(found.texHomes).toEqual([]);
+    expect(await adoptIn(w, HOME_NOTE, `tex/chat:${CHAT}/${idKeyFor(NOTE, HOME_NOTE)}`)).toEqual({ adopted: false, taken: null });
+  });
+
+  test("a folder of the same name in any other workspace never takes a chat's key", async () => {
+    const w = await chatWorld();
+    const owner = await createUser(w.t, "studio-owner@example.invalid");
+    const studio = await createWorkspace(w.t, owner, "studio", { kind: "shared" });
+    await keyed(w.t, studio);
+    const found = await w.t.query(internal.functions.noteIdsKeyed.notesFor, { workspaceId: studio, paths: [HOME_NOTE] });
+    expect(found.texHomes).toEqual([]);
+    const refused = await w.t.mutation(internal.functions.noteIdsKeyed.adoptKeyed, {
+      workspaceId: studio,
+      path: HOME_NOTE,
+      noteId: NOTE,
+      key: `tex/chat:${CHAT}/${idKeyFor(NOTE, HOME_NOTE)}`,
+      etag: "e",
+      at: 1,
+    });
+    expect(refused).toEqual({ adopted: false, taken: null });
   });
 });

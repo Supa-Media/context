@@ -44,6 +44,18 @@ Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
 
+## Which object a turn may reach
+
+A group chat's object is named by its key (`chat:<groupKey>`, the chat's
+`textGroups.groupKey`). The key reaches the gateway only on the chat's own
+grant, from the control plane, and only under the group client
+(`session.js` `normalizeSession` via `sessionPayload.js`). A store is built
+with the one key its session carries and no other (`sessionStore.js`
+`texChatsOf`), so a person's turn reaches no chat's object and one chat's turn
+reaches no other's. A new note under a chat's home in the pinned workspace is
+keyed to that chat, and nowhere else: the home is found by its three words and
+only in the pin (`lib/noteIds/texHome.ts`).
+
 ## What changes in the non-negotiables
 
 - **#1**: a note body lives in the workspace's bucket, *except* a note whose
@@ -85,9 +97,51 @@ object holds the note.
 
 Not moved: a group chat's home in `@context-lc`, which is a separate change.
 
+## Routine alarms
+
+A routine's time is kept in the same object that keeps its notes
+(`texStore/alarms.js`): one row per routine, its id, the time it is due and a
+payload, which is what the place running it needs to find the run again. The
+object holds one runtime alarm, armed at the earliest row, and re-arms it after
+every change and every fire. When the alarm fires, each due row is handed on;
+one that ran is removed, one that did not waits a minute and is tried again,
+and no alarm is ever armed at a time already past. At most fifty go per fire.
+
+The control plane's due list stays the source of truth, and the texting Worker's
+once-a-minute cron stays as the backstop. The alarm only makes a run happen on
+time instead of up to a minute late.
+
+**Dispatch.** An alarm calls the texting Worker's named RPC entrypoint
+`TexRoutines.routineDue({owner, id})` through the gateway's `TEXTING` service
+binding, which names the entrypoint (`texStore/dispatch.js`,
+`apps/agent/src/texRoutineDue.ts`). The owner is the person's workspace and the
+id the routine's path. A named entrypoint is reachable only through a service
+binding, never over HTTP, so there is no route and no secret: the Worker's
+public `fetch` does not answer for it. The method refuses a chat's owner and any
+malformed argument. It runs the routine through the cron's own path and answers
+when it next runs, and the object keeps the routine for that time. The object
+never holds a grant or any other credential: the texting Worker fetches the run
+and its token from the control plane itself.
+
+**Double fire.** The alarm and the cron can both ask. The control plane hands a
+run out once: a claim moves the routine's next time past now and holds a lease
+(`apps/convex/functions/lib/routines/runs.ts`), so the second ask finds nothing
+due. The alarm's ask is scoped to its one routine (`{scope: {workspaceId,
+path}}`) and never takes another routine's run.
+
+**Scheduling.** A write to a Tex routine's file sets its alarm, or cancels it when
+the file is gone or paused (`texStore/routineAlarm.js`, from `activity/record.js`).
+The time is computed from the file with the shared schedule module. That may not
+know the account's time zone, so an alarm can fire at a moment the control plane
+does not yet find due; then nothing runs and the cron runs it at its own time.
+Failure to schedule never fails the write.
+
+Not on alarms, for now: a routine in a group chat (its chat's own runs stay on
+the cron) and the routines under `routines/` (the cron runs them).
+
 ## Cost of reversing it
 
 Tex's state goes back to many bucket reads per turn (a second each through
 the adapter), which is what made "hi Tex" take a minute before the warm copy.
 
-Test: `apps/mcp/test/texStore.test.mjs`.
+Tests: `apps/mcp/test/texStore.test.mjs` and `apps/mcp/test/texAlarms.test.mjs`.

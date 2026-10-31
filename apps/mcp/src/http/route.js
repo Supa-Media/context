@@ -487,7 +487,7 @@ export async function route(request, env, ctx) {
        * is a subrequest spent on nothing. The line is in the customer's bucket
        * either way, which is where it matters.
        */
-      attachChangeReporters(store, session.workspaceId, controlPlane);
+      attachChangeReporters(store, session.workspaceId, controlPlane, { env });
 
       /**
        * That a form on this context just took an answer.

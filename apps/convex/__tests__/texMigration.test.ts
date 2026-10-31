@@ -218,6 +218,20 @@ describe("a dry run reports what would move and writes nothing", () => {
   });
 });
 
+describe("a run on one workspace first", () => {
+  test("only that workspace's notes move; naming another moves nothing here", async () => {
+    const w = await world();
+    const before = await w.snapshotAll();
+
+    const elsewhere = await w.run(false, { only: w.shared });
+    expect(elsewhere).toMatchObject({ moved: 0, wouldMove: 0, done: true });
+    expect(await w.snapshotAll()).toEqual(before);
+
+    const mine = await w.run(false, { only: w.personal });
+    expect(mine).toMatchObject({ moved: 4, workspaces: 1, done: true });
+  });
+});
+
 describe("a real run moves each body into the person's object, switches the key, and then deletes the bucket copy", () => {
   test("the body and its content type are copied, read back, the key is switched and the bucket copy is gone", async () => {
     const w = await world();

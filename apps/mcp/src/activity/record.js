@@ -349,9 +349,13 @@ export function announceRoutineChange(store, paths) {
     .slice(0, MAX_ROUTINE_PATHS);
   if (touched.length === 0) return;
   const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});
+  // A Tex routine's alarm follows its file (`texStore/routineAlarm.js`); it never fails the write, and the cron catches a miss.
+  const alarms =
+    typeof store.syncRoutineAlarms === "function" ? Promise.resolve(store.syncRoutineAlarms(touched)).catch(() => {}) : null;
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);
+    if (alarms !== null) store.defer(alarms);
   } catch {
     // A host whose `waitUntil` refuses the work simply does not report.
   }

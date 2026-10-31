@@ -162,3 +162,88 @@ test("a new note where the tree says Tex keeps it is written to the person's obj
   assert.deepEqual(objects.get("person:w1").list({}).objects.map((object) => object.key), [`notes/${adopted[0].noteId}.md`]);
   assert.deepEqual(bucketObjects.list({}).objects.map((object) => object.key), [`notes/${adopted[1].noteId}.md`]);
 });
+
+/* ---------------------- a group chat's own Tex key ---------------------- */
+
+const CHAT = "c".repeat(64);
+const OTHER_CHAT = "d".repeat(64);
+const CHAT_NOTE = `tex/chat:${CHAT}/notes/${NOTE}.md`;
+
+test("a chat's Tex key reaches its object only for that chat's turn: a person's turn and another chat's are refused", { skip }, async () => {
+  const { objects, env, binding, texStore, opened } = world();
+  const person = storeForBinding(binding, env, { texStore, texChats: [] });
+  await assert.rejects(person.get(CHAT_NOTE), TexStoreUnavailable);
+  await assert.rejects(person.put(CHAT_NOTE, "planted"), TexStoreUnavailable);
+  await assert.rejects(person.list({ prefix: `tex/chat:${CHAT}/` }), TexStoreUnavailable);
+  const other = storeForBinding(binding, env, { texStore, texChats: [OTHER_CHAT] });
+  await assert.rejects(other.get(CHAT_NOTE), TexStoreUnavailable);
+  await assert.rejects(other.head(CHAT_NOTE), TexStoreUnavailable);
+  await assert.rejects(other.put(CHAT_NOTE, "planted"), TexStoreUnavailable);
+  await assert.rejects(other.delete(CHAT_NOTE), TexStoreUnavailable);
+  await assert.rejects(other.list({ prefix: `tex/chat:${CHAT}/` }), TexStoreUnavailable);
+  assert.deepEqual(opened, [], "nothing reached any object");
+  assert.equal(objects.size, 0);
+
+  const own = storeForBinding(binding, env, { texStore, texChats: [CHAT] });
+  await own.put(CHAT_NOTE, "the group's memory", { contentType: "text/markdown; charset=utf-8" });
+  assert.equal(await (await own.get(CHAT_NOTE)).text(), "the group's memory");
+  assert.deepEqual(opened, [`chat:${CHAT}`]);
+  assert.deepEqual(objects.get(`chat:${CHAT}`).list({}).objects.map((object) => object.key), [`notes/${NOTE}.md`]);
+  // The same chat's key is not the person's object: a person's store still refuses it.
+  await assert.rejects(person.get(CHAT_NOTE), TexStoreUnavailable);
+});
+
+test("a chat's turn cannot reach another chat's object, nor another workspace's person's Tex", { skip }, async () => {
+  const { env, binding, texStore, opened } = world();
+  const own = storeForBinding(binding, env, { texStore, texChats: [CHAT] });
+  await assert.rejects(own.get(`tex/chat:${OTHER_CHAT}/notes/${NOTE}.md`), TexStoreUnavailable);
+  await assert.rejects(own.get(`tex/person:w2/notes/${NOTE}.md`), TexStoreUnavailable);
+  assert.deepEqual(opened, []);
+});
+
+test("the chat id a session carries comes only from the control plane's grant, under the group client, and only as a chat key", async () => {
+  const { resolveSession } = await import("../src/session.js");
+  const raw = (clientId, texChatId) => ({
+    grantId: "grant_x",
+    clientId,
+    actorUserId: "user_x",
+    scopes: ["context:read", "context:write"],
+    defaultWorkspaceId: "w1",
+    workspaces: [{ workspaceId: "w1", slug: "studio", role: "editor", kind: "shared" }],
+    ...(texChatId === undefined ? {} : { texChatId }),
+  });
+  const controlPlaneFor = (body) => ({ resolveSession: async () => body });
+  const TOKEN = `cat_chat_${"0".repeat(24)}`;
+
+  const chat = await resolveSession(TOKEN, null, controlPlaneFor(raw("context_texts_group", CHAT)));
+  assert.equal(chat.texChatId, CHAT);
+  // Any other client's grant carrying the field is not a chat's turn.
+  const person = await resolveSession(TOKEN, null, controlPlaneFor(raw("context_mcp", CHAT)));
+  assert.equal(person.texChatId, undefined);
+  // A malformed id is dropped, not used as a key.
+  const bad = await resolveSession(TOKEN, null, controlPlaneFor(raw("context_texts_group", "../x")));
+  assert.equal(bad.texChatId, undefined);
+  const none = await resolveSession(TOKEN, null, controlPlaneFor(raw("context_texts_group")));
+  assert.equal(none.texChatId, undefined);
+});
+
+test("the store a session is built with opens its own chat's object and no other: the wiring from the session", { skip }, async () => {
+  const { storeForSession } = await import("../src/sessionStore.js");
+  const { env, binding } = world();
+  const active = { ...binding, status: "active", workspaceId: "w1" };
+  const controlPlane = { getStorageBinding: async () => ({ binding: active }) };
+  // No Durable Object namespace on this Worker: a chat's key that is allowed is refused for want of one, and any
+  // other is refused as another workspace's. Which of the two a session gets is the wiring under test.
+  const reasonFor = async (session) => {
+    const store = await storeForSession(session, env, controlPlane);
+    try {
+      await store.get(CHAT_NOTE);
+      return "served";
+    } catch (error) {
+      return error.reason;
+    }
+  };
+  assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok" }), /another workspace's Tex/);
+  assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", texChatId: OTHER_CHAT }), /another workspace's Tex/);
+  assert.match(await reasonFor({ workspaceId: "w1", accessToken: "tok", texChatId: CHAT }), /no way to reach/);
+});

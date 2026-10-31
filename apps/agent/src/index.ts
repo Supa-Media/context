@@ -30,7 +30,8 @@ import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox"
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
-import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
+import { runDueRoutines, textPhone, textRoutine, type PhoneTexted } from "./routines";
+export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
@@ -432,18 +433,6 @@ async function newLine(request: Request, env: Env): Promise<Response> {
   return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
 }
 
-/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
-async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string, continues?: string): Promise<PhoneTexted> {
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
-  const response = await stub.fetch(ROUTINE_TEXT_URL, {
-    method: "POST",
-    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}) }),
-  });
-  if (!response.ok) return "failed";
-  const { status } = (await response.json()) as { status?: unknown };
-  return status === "texted" || status === "no_chat" ? status : "failed";
-}
-
 /** A chat routine's run, into its chat's own queue, found by the chat's key (`groupRoutines.ts`). */
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
@@ -458,9 +447,6 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
   if (!response.ok) return "failed";
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";
 }
-
-/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
-const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 export class SenderInbox implements DurableObject {
   constructor(
