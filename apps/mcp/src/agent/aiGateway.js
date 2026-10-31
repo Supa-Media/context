@@ -45,13 +45,6 @@ import { ProviderError, anthropicMessages } from "./providers.js";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
- * The beta the one-hour cache TTL (`ttl: "1h"`, `gatewayBody`'s texted-turn
- * layout) is asked under. Sent on every call, so the gateway's pass-through
- * of headers is the only thing it depends on.
- */
-const EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11";
-
-/**
  * How much one round may produce: the models' own ceiling (128K output on
  * every Claude 5.5 model). `max_tokens` caps the thinking *and* the answer
  * together, and tokens are billed as used, not as allowed, so a lower cap
@@ -173,7 +166,7 @@ export function metadataHeader(metadata) {
  * and a breakpoint closes each stretch that stays the same from one text to the
  * next:
  *
- *   tools (1h) → system.stable (1h) → system.context (1h)
+ *   tools → system.stable → system.context (five-minute marks)
  *     → history through message `cachedThrough` (5m) → the person's new text
  *
  * Everything after the history breakpoint (the new text, the per-turn facts
@@ -217,8 +210,8 @@ function markLastBlock(wire, index) {
 
 export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, cachedThrough = null }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
-  // The texted-turn layout's tools and system stay put for an hour; a plain caller keeps five minutes.
-  const stableMark = layered ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+  // Five-minute marks everywhere for now: a one-hour TTL through AI Gateway is unproven, and a refused field would fail every texted turn.
+  const stableMark = { type: "ephemeral" };
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -290,7 +283,6 @@ async function send(config, body, { withKey, metadata }, fetchImpl) {
         headers: {
           "Content-Type": "application/json",
           "anthropic-version": ANTHROPIC_VERSION,
-          "anthropic-beta": EXTENDED_CACHE_TTL_BETA,
           "cf-aig-authorization": `Bearer ${config.token}`,
           "cf-aig-collect-log": "false",
           ...metadataHeader(metadata),

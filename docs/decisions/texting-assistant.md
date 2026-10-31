@@ -324,8 +324,8 @@ credit, and nothing that costs money is spent while it lasts:
 - Prompt caching is laid out least volatile first, because a turn is several
   rounds over a growing transcript and the prefix must match text after text:
   the tool list, the stable system prompt and the slow context (workspaces,
-  jobs, the about-me note) behind one-hour breakpoints, then the conversation
-  so far behind a five-minute one. What changes per text (the clock, the model
+  jobs, the about-me note) behind their own breakpoints, then the conversation
+  so far behind one more, all five-minute marks for now (a one-hour TTL is unproven through AI Gateway). What changes per text (the clock, the model
   answering, the note open in front of them, what earlier texts used, the
   planner's words, the nudge) is said in the person's own turn after the last
   breakpoint, never in the system prompt (`turn.js`, `aiGateway.js`). A texted

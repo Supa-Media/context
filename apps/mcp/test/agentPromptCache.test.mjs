@@ -7,7 +7,7 @@
  * prefix only where it matches, so the request is now laid out least volatile
  * first (`aiGateway.js`, `turn.js`):
  *
- *   tools (1h) → system.stable (1h) → system.context (1h) → history (5m) → the new text + its preamble
+ *   tools → system.stable → system.context → history (all 5-minute marks) → the new text + its preamble
  *
  * These checks send two texts of one chat, eleven minutes apart, through
  * `runTurn` to a fake gateway and read the bodies on the wire:
@@ -17,11 +17,11 @@
  *    person's turn, never in the cached prefix, and the model still has the time;
  *  - there are at most four breakpoints, each where the layout says;
  *  - the tools are offered in one fixed order, whatever order they were granted in;
- *  - the one-hour cache is asked for with the beta that enables it.
+ *  - every mark is the default five-minute one (a one-hour TTL is unproven through AI Gateway).
  *
  * Sabotage (run by hand while writing this): moving `localNowPrompt` back into
  * the system prompt, dropping `cachedThrough`, offering the tools reversed, and
- * removing `ttl: "1h"` each fail a check here.
+ * adding a TTL each fail a check here.
  */
 
 import assert from "node:assert/strict";
@@ -140,18 +140,17 @@ test("the clock, the model line and the list of earlier tools are said in the pe
 });
 
 test("at most four breakpoints, each where the layout puts it, all of them one-hour except the history", async () => {
-  const { body, headers } = await sendText({ now: SECOND_TEXT, question: "and what about Monday?", history: HISTORY_LATER });
+  const { body } = await sendText({ now: SECOND_TEXT, question: "and what about Monday?", history: HISTORY_LATER });
   const marks = JSON.stringify(body).split('"cache_control"').length - 1;
   assert.ok(marks <= 4, `at most four breakpoints, got ${marks}`);
   assert.equal(marks, 4, "tools, stable system, context system and history");
-  assert.deepEqual(body.tools.at(-1).cache_control, { type: "ephemeral", ttl: "1h" });
+  assert.deepEqual(body.tools.at(-1).cache_control, { type: "ephemeral" });
   assert.equal(body.tools.slice(0, -1).some((entry) => entry.cache_control !== undefined), false);
   assert.equal(body.system.length, 2, "the stable and the context parts are each a block");
-  for (const block of body.system) assert.deepEqual(block.cache_control, { type: "ephemeral", ttl: "1h" });
+  for (const block of body.system) assert.deepEqual(block.cache_control, { type: "ephemeral" });
   const historyEnd = body.messages[HISTORY_LATER.length - 1];
   assert.deepEqual(historyEnd.content.at(-1).cache_control, { type: "ephemeral" }, "the history's last block, five minutes");
   assert.equal(body.messages.at(-1).content.at(-1).cache_control, undefined, "the new text is uncached");
-  assert.equal(headers["anthropic-beta"], "extended-cache-ttl-2025-04-11", "the one-hour cache is asked for with its beta");
 });
 
 test("the first text of a chat has no history breakpoint and still caches the tools and the system prompt", async () => {
