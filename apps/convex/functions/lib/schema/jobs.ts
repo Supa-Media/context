@@ -273,4 +273,21 @@ export const jobTables = {
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_expiresAt", ["expiresAt"]),
+  /**
+   * The control plane's way into Tex's notes (`lib/texStore.ts`): one
+   * workspace, the owners whose Durable Objects its keys may name
+   * (`person:<workspaceId>`), minted when a console store first meets a Tex
+   * key and spent by the gateway on each call (`apps/mcp/src/texStore/door.js`).
+   * Kept until it expires, so one export's many reads share it.
+   */
+  texStoreTickets: defineTable({
+    /** SHA-256 of the opaque ticket, lowercase hex. Never the plaintext. */
+    hashedTicket: v.string(),
+    workspaceId: v.id("workspaces"),
+    owners: v.array(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace", ["workspaceId"]),
 };

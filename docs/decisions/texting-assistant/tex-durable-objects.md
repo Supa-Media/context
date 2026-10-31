@@ -33,6 +33,13 @@ reaches the right place without knowing about Tex. A key naming another
 workspace's owner is refused, and with no way to reach the object the key is
 refused rather than looked for in the bucket.
 
+The control plane's own stores (Download as folders, emptying the trash,
+filing a shared edit) reach the objects through the gateway's door,
+`POST /internal/tex-store` (`apps/mcp/src/texStore/door.js`), as the mover
+does: the gateway secret plus a ticket this deployment minted for one
+workspace's own objects, five minutes long (`texStoreTickets`). The secret
+alone opens nothing.
+
 Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
