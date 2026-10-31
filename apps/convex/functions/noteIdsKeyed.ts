@@ -26,6 +26,7 @@ import { idKeyFor, isNoteId } from "./lib/nodes/noteIds";
 import type { Observation } from "./lib/nodes/table";
 import { clampAt, entryOf, noteEntryValidator, type NoteEntry } from "./lib/noteIds/keyed";
 import { nodeAt } from "./lib/noteIds/state";
+import { isTexKeyFor, texHomesFor } from "./lib/noteIds/texHome";
 import { canonicalJobPath } from "./lib/nodes/folderJobs";
 import { movingRowMoves, throughRowMoves } from "./lib/nodes/rowMoveChunks";
 import { markNestedSiteWrite } from "./lib/websites/routeChangeAt";
@@ -58,19 +59,28 @@ const adoptResultValidator = v.union(
  */
 export const notesFor = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
-  returns: v.object({ keyed: v.boolean(), notes: v.array(noteEntryValidator) }),
+  returns: v.object({
+    keyed: v.boolean(),
+    notes: v.array(noteEntryValidator),
+    /** Paths with no live note whose new note would be kept in Tex's Durable Object (`texHome.ts`), with its owner. */
+    texHomes: v.array(v.object({ path: v.string(), owner: v.string() })),
+  }),
   handler: async (ctx, { workspaceId, paths }) => {
     const notes: NoteEntry[] = [];
+    const empty: Array<{ asked: string; path: string }> = [];
     const moving = await movingRowMoves(ctx.db, workspaceId);
-    for (const path of [...new Set(paths)]) {
+    for (const asked of [...new Set(paths)]) {
       // A built-in folder's default name reaches the folder doing that job now (`folderJobs.ts`),
       // answered under the path asked, which is the one the caller looks it up by.
-      const row = await nodeAt(ctx.db, workspaceId, await keyedPathOf(ctx.db, workspaceId, path, moving));
-      if (row === null) continue;
-      const entry = entryOf(row);
-      if (entry !== null) notes.push({ ...entry, path });
+      const path = await keyedPathOf(ctx.db, workspaceId, asked, moving);
+      const row = await nodeAt(ctx.db, workspaceId, path);
+      const entry = row === null ? null : entryOf(row);
+      if (entry !== null) notes.push({ ...entry, path: asked });
+      if (entry === null || entry.state === "gone") empty.push({ asked, path });
     }
-    return { keyed: true, notes };
+    const homes = await texHomesFor(ctx.db, workspaceId, empty.map(({ path }) => path));
+    const texHomes = empty.flatMap(({ asked, path }) => (homes.has(path) ? [{ path: asked, owner: homes.get(path)! }] : []));
+    return { keyed: true, notes, texHomes };
   },
 });
 
@@ -139,7 +149,9 @@ export async function adoptKeyedRow(
 ): Promise<{ adopted: true } | { adopted: false; taken: NoteEntry | null }> {
   const refused = { adopted: false as const, taken: null };
   const path = await keyedPathOf(ctx.db, workspaceId, asked);
-  if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
+  if (!isNoteId(noteId) || isPlumbing(path)) return refused;
+  // A bucket note's id key, or the Tex key of a note made in the Tex folder (`texHome.ts`).
+  if (key !== idKeyFor(noteId, path) && !(await isTexKeyFor(ctx.db, workspaceId, path, noteId, key))) return refused;
   if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
 
   await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));

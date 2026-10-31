@@ -286,9 +286,9 @@ async function deleteWorkspaceCascade(
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
   // Premium usage analytics go with the workspace (`usage.purgeWorkspaceHourly`).
-  await ctx.scheduler.runAfter(0, internal.functions.usage.purgeWorkspaceHourly, {
-    workspaceId,
-  });
+  await ctx.scheduler.runAfter(0, internal.functions.usage.purgeWorkspaceHourly, { workspaceId });
+  // Tex's notes live in the workspace's Durable Object, not its bucket: wiped too (`texStoreWipe.ts`).
+  await ctx.scheduler.runAfter(0, internal.functions.texStoreWipe.wipeWorkspace, { workspaceId, attempt: 0 });
   // A managed-storage copy parks a second encrypted bucket credential. Remove
   // it before its source binding so no orphan can survive account deletion;
   // a move INTO storage we run names a managed bucket of its own, which is

@@ -20,7 +20,7 @@ import type { ActionCtx } from "../../../_generated/server";
 
 /** The hooks `storeForBinding` takes as `idLayout` (`apps/mcp/src/store/idLayout.js`). */
 export type ConsoleIdLayoutHooks = {
-  lookup: (paths: string[]) => Promise<{ keyed: boolean; notes: Record<string, unknown> }>;
+  lookup: (paths: string[]) => Promise<{ keyed: boolean; notes: Record<string, unknown>; texHomes: Record<string, string> }>;
   wrote: (record: { path: string; key: string; etag: string; keyed?: boolean; size?: number; at?: number }) => Promise<unknown>;
   adopt: (note: { path: string; noteId: string; key: string; etag: string; size?: number; at: number }) => Promise<unknown>;
   removed: (note: { path: string; key: string; at: number }) => Promise<unknown>;
@@ -34,7 +34,11 @@ export function consoleIdLayoutHooks(ctx: ActionCtx, workspaceId: Id<"workspaces
   return {
     lookup: async (paths: string[]) => {
       const noted = await ctx.runQuery(internal.functions.noteIdsKeyed.notesFor, { workspaceId, paths });
-      return { keyed: noted.keyed, notes: Object.fromEntries(noted.notes.map((entry) => [entry.path, entry])) };
+      return {
+        keyed: noted.keyed,
+        notes: Object.fromEntries(noted.notes.map((entry) => [entry.path, entry])),
+        texHomes: Object.fromEntries(noted.texHomes.map(({ path, owner }) => [path, owner])),
+      };
     },
     wrote: async (record) =>
       await ctx.runMutation(internal.functions.noteIdsKeyed.recordKeyed, {

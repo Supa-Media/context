@@ -128,3 +128,21 @@ export async function gatewayMoverOpenHandler(
     return json({ ok: false }, 503);
   }
 }
+
+/**
+ * `POST /gateway/tex-store/open`: the gateway checks a Tex store ticket
+ * (`texStoreTickets`) before it passes the control plane's call to a Durable
+ * Object. Answers the workspace and the owners it may reach, or `null`.
+ */
+export async function gatewayTexStoreOpenHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const ticket = stringField(body, "ticket");
+  if (ticket === null) return json({ opened: null });
+  const opened = await ctx.runQuery(internal.functions.texStoreTickets.open, {
+    hashedTicket: await hashToken(ticket),
+    now: Date.now(),
+  });
+  return json({ opened });
+}

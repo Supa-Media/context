@@ -395,11 +395,9 @@ export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
-/* -------------------------------------------------------------------------- */
-/* 2f. POST /gateway/mover/open — spend one page of a whole-bucket move       */
-/* -------------------------------------------------------------------------- */
-
+/* 2f. POST /gateway/mover/open, /gateway/tex-store/open — the control plane's tickets */
 export const gatewayMoverOpen = gatewayRoute(jobs.gatewayMoverOpenHandler);
+export const gatewayTexStoreOpen = gatewayRoute(jobs.gatewayTexStoreOpenHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 3. POST /gateway/clients/register — RFC 7591 dynamic client registration  */
@@ -826,6 +824,7 @@ http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsC
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
 http.route({ path: "/gateway/jobs/report", method: "POST", handler: gatewayJobsReport });
 http.route({ path: "/gateway/mover/open", method: "POST", handler: gatewayMoverOpen });
+http.route({ path: "/gateway/tex-store/open", method: "POST", handler: gatewayTexStoreOpen });
 http.route({ path: "/gateway/clients/register", method: "POST", handler: gatewayClientsRegister });
 http.route({ path: "/gateway/clients/get", method: "POST", handler: gatewayClientsGet });
 http.route({ path: "/gateway/authorize/start", method: "POST", handler: gatewayAuthorizeStart });

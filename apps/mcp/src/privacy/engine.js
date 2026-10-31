@@ -244,8 +244,20 @@ function foldPath(key) {
  */
 const ID_KEY = /^(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
 
+/**
+ * The same id key kept in Tex's Durable Object instead of the bucket
+ * (`texStore/keys.js`): `tex/<owner>/notes/<noteId>.md`, the owner
+ * `person:<workspaceId>` or `chat:<chatId>`. A row whose key has this form
+ * keeps its note's text there (decided by the owner, 2026-10-31).
+ */
+const TEX_KEY = /^tex\/(?:person|chat):[A-Za-z0-9_-]{1,64}\/(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
+
+export function isTexKey(key) {
+  return typeof key === "string" && TEX_KEY.test(key);
+}
+
 export function isIdKey(key) {
-  return typeof key === "string" && ID_KEY.test(key);
+  return typeof key === "string" && (ID_KEY.test(key) || TEX_KEY.test(key));
 }
 
 export function isPlumbing(key) {

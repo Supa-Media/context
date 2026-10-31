@@ -77,6 +77,7 @@ import { isMessagesBackupOperation, runMessagesBackupOperation } from "../messag
 import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
+import { consoleTexStore } from "../texStore";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -438,9 +439,11 @@ export async function runFileOperationHandler(
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
       idLayout,
+      // Tex's notes, through the gateway (`lib/texStore.ts`).
+      texStore: consoleTexStore(ctx, args.workspaceId),
     }) as unknown as FileStore;
     if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
-      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption }) as unknown as FileStore;
+      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption, texStore: consoleTexStore(ctx, args.workspaceId) }) as unknown as FileStore;
     }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.

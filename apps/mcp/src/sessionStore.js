@@ -11,6 +11,7 @@
  * credential into another's request.
  */
 
+import { gatewayTexStore } from "./texStore/wire.js";
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
@@ -125,6 +126,7 @@ async function openSessionStore(session, env, controlPlane) {
       noteCount,
       managedEncryption: managedEncryptionForStore(opened, binding),
       idLayout: hooks,
+      texStore: gatewayTexStore(env),
     }),
     authority,
   );

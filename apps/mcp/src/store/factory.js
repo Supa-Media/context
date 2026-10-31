@@ -78,6 +78,7 @@ import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withIdLayout } from "./idLayout.js";
+import { withTexRouting } from "./texRouting.js";
 import { withNoteCap } from "./noteCap.js";
 import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
@@ -153,7 +154,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{texStore?: ((owner: string) => unknown)|null, texChats?: string[], fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -207,7 +208,11 @@ export function storeForBinding(binding, env, options = {}) {
   // The id layer (`idLayout.js`) sits inside the cap, so the cap still sees
   // the path a person wrote and counts it, and the keys the layer writes
   // underneath are never mistaken for notes of their own.
-  return withNoteCap(withNoteLayout(withLogicalDelete(probed), options.idLayout), options.noteCap, options.noteCount ?? null);
+  // Tex's notes (`texRouting.js`): a row's key of the Tex form goes to its
+  // Durable Object, under the id layer so every holder of a row's key reaches
+  // it, and refused when `options.texStore` cannot open one.
+  const routed = withTexRouting(withLogicalDelete(probed), { workspaceId: binding.workspaceId, chats: options.texChats ?? [], texStore: options.texStore ?? null });
+  return withNoteCap(withNoteLayout(routed, options.idLayout), options.noteCap, options.noteCount ?? null);
 }
 
 /**
