@@ -115,6 +115,12 @@ export const JOB_LINES = {
   failed: (title: string) => `I couldn't finish "${title}". Text me if you want me to try again.`,
   busy: "I'm already running three things for you; I'll take that one once one finishes.",
   missed: "You texted a change after I'd done most of it, and I ran out of room to redo it. Text me if you still want it changed.",
+  /** A part the gateway refused to run (`jobRun.ts`): the job waits on them, and they're told why. */
+  refused: (title: string, why: "daily_limit" | "no_model") =>
+    why === "daily_limit"
+      ? `I paused "${title}": I've hit today's limit for background work. Text me tomorrow and I'll pick it back up.`
+      : `I paused "${title}": I can't reach my model right now. Text me in a bit and I'll pick it back up.`,
+  refusedStatus: { daily_limit: "Paused: today's limit for background work is used up", no_model: "Paused: no model could run it" },
 } as const;
 
 const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");

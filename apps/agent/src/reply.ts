@@ -165,6 +165,7 @@ export const COPY = {
     "I can't answer right now. Please text me again in a little while.",
   dailyLimit:
     "That's all the questions I can answer for you today. Text me again tomorrow.",
+  jobReportRefused: "One of the things I was working on for you has news, but I can't put it into words right now. Text me and I'll catch you up.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
   /** A linked phone's SMS: never answered from the notes, since its sender can be faked. */
   sms: "Hi, it's Tex. That text came through as SMS, and I only open your notes over iMessage, since anyone can send an SMS that looks like it's from your number. Send it again here and I'll answer.",
@@ -302,6 +303,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return [...textsWithExact(answer.text, answer.verbatim, session.texStyle?.bubbles === "one"), ...after];
     }
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
+    // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
+    if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
     if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;

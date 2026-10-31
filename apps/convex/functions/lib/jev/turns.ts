@@ -35,21 +35,24 @@ export type TurnVerdict = { allowed: true; remaining: number } | { allowed: fals
 
 /**
  * May this turn run? Counts it as one call when it may, or as a refusal when
- * it may not, so the cap is enforced before anything is spent.
+ * it may not, so the cap is enforced before anything is spent. A background
+ * job's turn (`background`) is counted apart, as one of `jevUsage.background`,
+ * and is held to its own ceiling rather than the cap (`gate`).
  */
 export async function countTurn(
   ctx: MutationCtx,
   feature: JevFeatureName,
   workspaceId: Id<"workspaces">,
   now: number,
+  { background = false }: { background?: boolean } = {},
 ): Promise<TurnVerdict> {
-  const verdict = await gate(ctx, feature, workspaceId, now);
+  const verdict = await gate(ctx, feature, workspaceId, now, { background });
   const counts = { failed: 0, questions: 0, tokens: 0, ms: 0 };
   if (!verdict.allowed) {
     await addUsage(ctx, feature, workspaceId, { ...counts, calls: 0, refused: 1 }, now);
     return verdict;
   }
-  await addUsage(ctx, feature, workspaceId, { ...counts, calls: 1, refused: 0 }, now);
+  await addUsage(ctx, feature, workspaceId, { ...counts, ...(background ? { calls: 0, background: 1 } : { calls: 1 }), refused: 0 }, now);
   return { allowed: true, remaining: verdict.remaining - 1 };
 }
 
@@ -80,6 +83,8 @@ export interface TurnReport {
   model?: string;
   failed: boolean;
   ms: number;
+  /** A background job's turn: it was never in `calls`, so a failure moves nothing to `failed` either. */
+  background?: boolean;
 }
 
 /**
@@ -114,9 +119,9 @@ export async function recordTurn(
     feature,
     workspaceId,
     {
-      // A failed call moves its call to `failed`, so the cap still counts it once.
-      calls: report.failed ? -1 : 0,
-      failed: report.failed ? 1 : 0,
+      // A failed call moves its call to `failed`, so the cap still counts it once; a background turn's was never there.
+      calls: report.failed && !report.background ? -1 : 0,
+      failed: report.failed && !report.background ? 1 : 0,
       refused: 0,
       questions: 0,
       tokens: written + decision,

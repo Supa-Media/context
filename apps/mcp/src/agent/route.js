@@ -231,7 +231,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
   try {
-    await openProvider(controlPlane, session, body.provider, env); stages?.mark("provider");
+    await openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null }); stages?.mark("provider"); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
   } catch (error) {
     outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
@@ -429,7 +429,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         model: typeof model === "string" ? model : builtinUsed,
         decision: whole ? (web?.usage.decision ?? 0) + (usage?.decision ?? 0) : 0,
         failed,
-        ms: whole ? Date.now() - started : 0,
+        ms: whole ? Date.now() - started : 0, background: job !== null || report !== null, // a job's turn was never on the cap
       });
     } catch {
       // See above.

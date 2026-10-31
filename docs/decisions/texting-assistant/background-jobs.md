@@ -226,3 +226,24 @@ own answer is no longer kept in the conversation as said; only the
 coordinator's turn is. Texting a job's words straight in again, for any
 kind of update, breaks the rule. Tests: `apps/agent/src/jobReports.test.ts`,
 `groupJobs.test.ts`, `apps/mcp/test/agentBackgroundRoute.test.mjs`.
+
+## A job's turns are off the daily cap (decided by the owner, 2026-10-31)
+
+On 2026-10-31 three restarted jobs used up a workspace's 100 turns in five
+minutes, and from then on every text was refused about a second in. A job's
+parts, the advisor's check on each (it runs inside the part's own turn), and
+its reports to the chat's turn are no longer counted against the cap. The
+gateway says which turns those are (`openProvider`'s `background`, from
+`route.js`'s `job` and `report`); the control plane believes it only from a
+chat's grant (texting or group), counts it in `jevUsage.background` instead
+of `calls`, and holds it to `BACKGROUND_TURNS_PER_DAY` (500), a runaway
+ceiling, not a product cap (`apps/convex/functions/lib/jev/meter.ts`). The
+kill switch still stops it, and its spend is metered as before. Each job is
+started by a counted turn, so the person's own texts still pay for starting
+work. A part the gateway refuses (`daily_limit`, `no_model`) ends the job
+`waiting` and says why (`JOB_LINES.refused`), and a report the chat's turn
+is refused for is answered with a fixed line rather than silence. Counting
+job turns against the cap again, or ending a refused job silently, reverses
+this. Tests: `apps/convex/__tests__/builtinModel.test.ts` ("a background
+job's turns"), `apps/mcp/test/agentBackgroundRoute.test.mjs`,
+`apps/agent/src/jobs.test.ts`, `apps/agent/src/jobReports.test.ts`.

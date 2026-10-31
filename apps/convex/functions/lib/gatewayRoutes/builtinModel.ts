@@ -19,6 +19,8 @@ export async function gatewayBuiltinModelHandler(ctx: ActionCtx, body: Record<st
     expectedWorkspaceId: expected.value,
     // Only `true` asks for the Try it exception; anything else is an ordinary turn.
     tryIt: body.tryIt === true,
+    // Only `true` asks for a background job's turn; the mutation believes it from a chat's grant only.
+    background: body.background === true,
   });
   return json({ verdict });
 }
@@ -42,6 +44,7 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     failed: body.failed === true,
     ms: count("ms"),
     tryIt: body.tryIt === true,
+    background: body.background === true,
   });
   return json({ recorded });
 }
