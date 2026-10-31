@@ -422,8 +422,7 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
     id,
     record(event) {
       if (ending || !event || typeof event !== "object") return;
-      events.push({ ...event, at: tick() });
-      schedule();
+      events.push({ ...event, at: tick() }); // kept, and written once with the ending (`finish`): a write per step cost a long turn ~130 storage calls beside its own tools (2026-10-31)
     },
     async finish({ answer = "", outcome = "answered" } = {}) {
       if (ending) return;

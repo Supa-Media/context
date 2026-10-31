@@ -89,18 +89,16 @@ test("the day is the person's own, in their zone", () => {
   assert.equal(transcriptPath(NOW, "UTC", 2), "tex/transcripts/2026-10-15-2.md");
 });
 
-test("a turn is in the note before it is answered, then whole after", async () => {
+test("a turn's steps are written once, whole, with its answer, never one write per step", async () => {
   const store = fakeNotes();
   const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "what's due today?", attachments: [{ name: "report.pdf", mediaType: "application/pdf", data: "JVBERi0=" }] });
   t.record({ kind: "thinking", text: "They want today's tasks.\nCheck todo.md." });
   t.record({ kind: "say", text: "Looking." });
   t.record({ kind: "tool", name: "read_note", args: { path: "todo.md" }, ok: true, ms: 420 });
-  // Mid-turn: the note already holds the question and is marked as working.
+  // Mid-turn: nothing read or written yet (2026-10-31: a write per step cost a long turn ~130 storage calls beside its own tools).
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const during = store.notes.get("tex/transcripts/2026-10-15.md")?.body ?? "";
-  assert.match(during, /\*\*Them:\*\* what's due today\?/);
-  assert.match(during, /_…working_/);
+  assert.equal(store.notes.get("tex/transcripts/2026-10-15.md"), undefined);
   await t.finish({ answer: "Rent and the dentist." });
   const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
   assert.match(body, /^# Tex, October 15, 2026/);
