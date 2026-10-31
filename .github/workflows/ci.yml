@@ -149,6 +149,7 @@ jobs:
           - 'apps/mcp/src/sessionStore.js'
           - 'apps/mcp/src/storageLayout.js'
           - 'apps/mcp/src/store/**'
+          - 'apps/mcp/src/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
           - 'apps/mcp/src/tools/moves/archive.js'
           - 'apps/mcp/src/tools/moves/destination.js'
@@ -737,6 +738,7 @@ jobs:
             apps/mcp/src/sessionStore.js
             apps/mcp/src/storageLayout.js
             apps/mcp/src/store/**
+            apps/mcp/src/texStore/**
             apps/mcp/src/tools/approvalKeys.js
             apps/mcp/src/tools/moves/archive.js
             apps/mcp/src/tools/moves/destination.js

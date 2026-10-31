@@ -28,6 +28,7 @@
 
 import { isIdKey, isPlumbing } from "../privacy/engine.js";
 import { idKeyFor, newNoteId } from "./noteIdKeys.js";
+import { texKeyFor } from "./texRouting.js";
 
 /** Options that make a read or write about one particular version or byte range. */
 const CONDITIONAL_OPTIONS = ["onlyIf", "range", "ifMatch", "ifNoneMatch", "ifModifiedSince", "ifUnmodifiedSince"];
@@ -168,7 +169,8 @@ export class NotKeyed extends Error {
 /**
  * The store with its reads and writes routed through the id layer.
  *
- * `lookup(paths)` answers `{keyed, notes}` as `noteIdLookup` does. `wrote(record)`
+ * `lookup(paths)` answers `{keyed, notes, texHomes?}` as `noteIdLookup` does:
+ * a new note at a path `texHomes` names is kept in that owner's Tex object. `wrote(record)`
  * reports a write, `adopt(note)` asks for a new keyed row and `removed(note)`
  * retires one; each is bound by the caller to one request's session, so this
  * module holds no credential. All four are required. `resolve(noteIds)`, as
@@ -219,7 +221,9 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
     if (answer?.keyed !== true) throw new NotKeyed();
     const entry = entryFor(answer, path);
     if (entry !== null && entry.state !== "gone" && entry.state !== "folder" && !keyedEntry(entry)) throw new NotKeyed();
-    return { entry };
+    // A new note here is kept in Tex's Durable Object (`texRouting.js`): the owner whose, or null.
+    const home = answer?.texHomes?.[path];
+    return { entry, texHome: typeof home === "string" && Object.prototype.hasOwnProperty.call(answer.texHomes, path) ? home : null };
   };
 
   /** Whether the tree's answer means "no note here": no live row at the path. */
@@ -310,10 +314,11 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
    * unconditional write then lands on whoever holds the name, as a write to
    * an existing note would.
    */
-  const keyedCreate = async (path, body, options) => {
+  const keyedCreate = async (path, body, options, texHome = null) => {
     if (options?.onlyIf?.etagMatches !== undefined) return null;
     const noteId = newNoteId(now());
-    const key = idKeyFor(noteId, path);
+    // In the Tex folder the note is kept in Tex's Durable Object, and its key says so.
+    const key = texHome === null ? idKeyFor(noteId, path) : texKeyFor(texHome, idKeyFor(noteId, path));
     const result = await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
     // The key is a fresh id, so a refusal here means somebody else's object is already at it.
     if (result === null) throw new NoteCreateRaced(await etagAtKey(key));
@@ -341,7 +346,7 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, resolve: re
       const resolved = await resolve(path);
       const { entry } = resolved;
       if (keyedEntry(entry)) return await keyedPut(path, entry, body, rest[0]);
-      if (noNote(resolved)) return await keyedCreate(path, body, rest[0]);
+      if (noNote(resolved)) return await keyedCreate(path, body, rest[0], resolved.texHome);
       throw new NoteNameTaken();
     };
   }

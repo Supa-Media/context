@@ -140,3 +140,25 @@ test("a listing under the owner's prefix is the object's, keys given back in the
   assert.deepEqual(bucket.objects.map((object) => object.key), [`notes/${NOTE}.md`]);
   await assert.rejects(store.list({ prefix: "tex/person:w2/" }), TexStoreUnavailable);
 });
+
+test("a new note where the tree says Tex keeps it is written to the person's object under a Tex key, and adopted with it", { skip }, async () => {
+  const { bucketObjects, objects, env, binding, texStore } = world();
+  const base = storeForBinding(binding, env, { texStore });
+  const adopted = [];
+  const store = withIdLayout(base, {
+    lookup: async (paths) => ({
+      keyed: true,
+      notes: {},
+      texHomes: Object.fromEntries(paths.filter((path) => path.startsWith("tex/")).map((path) => [path, "person:w1"])),
+    }),
+    wrote: async () => {},
+    adopt: async (note) => (adopted.push(note), { adopted: true }),
+    removed: async () => {},
+  });
+  await store.put("tex/attention.md", "watch the oven", { contentType: "text/markdown; charset=utf-8" });
+  await store.put("projects/plan.md", "a plan", { contentType: "text/markdown; charset=utf-8" });
+  assert.match(adopted[0].key, new RegExp(`^tex/person:w1/notes/${adopted[0].noteId}\\.md$`));
+  assert.equal(adopted[1].key, `notes/${adopted[1].noteId}.md`);
+  assert.deepEqual(objects.get("person:w1").list({}).objects.map((object) => object.key), [`notes/${adopted[0].noteId}.md`]);
+  assert.deepEqual(bucketObjects.list({}).objects.map((object) => object.key), [`notes/${adopted[1].noteId}.md`]);
+});

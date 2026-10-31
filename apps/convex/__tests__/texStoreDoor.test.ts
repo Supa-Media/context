@@ -75,7 +75,7 @@ async function world() {
     doors.push(request.clone());
     return await handleTexStoreDoor(request, env, { controlPlane });
   }) as unknown as typeof fetch;
-  const ctx = { runMutation: (ref: never, args: never) => t.mutation(ref, args) } as unknown as ActionCtx;
+  const ctx = { runMutation: (ref: unknown, args: unknown) => (t.mutation as (r: unknown, a: unknown) => Promise<unknown>)(ref, args) } as unknown as ActionCtx;
   return { t, workspaceId, otherId, objects, env, controlPlane, fetchImpl, ctx, doors };
 }
 
@@ -138,8 +138,26 @@ describe("the console's store reaches Tex's notes through the gateway", () => {
   });
 });
 
+describe("a deleted workspace's Tex notes", () => {
+  test("are wiped from its Durable Object through the gateway", async () => {
+    const { t, workspaceId, objects, fetchImpl } = await world();
+    vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
+    vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const held = texObjects(durableSql());
+      objects.set(`person:${workspaceId}`, held);
+      await held.put(`notes/${NOTE}.md`, "Likes tea.");
+      await t.action(internal.functions.texStoreWipe.wipeWorkspace, { workspaceId, attempt: 0 });
+      expect(held.list({}).objects).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the gateway's door", () => {
-  async function call(env: object, controlPlane: object, headers: Record<string, string>) {
+  async function call(env: object, controlPlane: Parameters<typeof handleTexStoreDoor>[2] extends infer D ? (D extends { controlPlane?: infer C } ? C : never) : never, headers: Record<string, string>) {
     return await handleTexStoreDoor(
       new Request(`${GATEWAY}/internal/tex-store`, { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "list" })), ...headers } }),
       env,

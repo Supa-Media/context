@@ -37,6 +37,19 @@ export function consoleTexStore(
   workspaceId: Id<"workspaces">,
   options: Options = {},
 ): ((owner: string) => unknown) | null {
+  const bucketFor = consoleTexBuckets(ctx, workspaceId, options);
+  return bucketFor === null ? null : (owner: string) => new R2Store(bucketFor(owner));
+}
+
+/**
+ * The bucket-shaped client for each of this workspace's Tex objects, as
+ * `texBucket` makes it (with `wipe`), or `null` without a way to the gateway.
+ */
+export function consoleTexBuckets(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  options: Options = {},
+): ((owner: string) => ReturnType<typeof texBucket>) | null {
   const env = options.env ?? process.env;
   const origin = storageMoverOrigin(env);
   const secret = env[GATEWAY_SECRET_ENV_VAR];
@@ -55,7 +68,6 @@ export function consoleTexStore(
       return minted;
     })());
   return (owner: string) =>
-    new R2Store(
       texBucket({
         async fetch(request: Request) {
           const controller = new AbortController();
@@ -77,6 +89,5 @@ export function consoleTexStore(
             clearTimeout(timer);
           }
         },
-      }),
-    );
+      });
 }

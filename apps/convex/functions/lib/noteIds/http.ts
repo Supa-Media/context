@@ -106,6 +106,8 @@ export async function gatewayNoteIdsLookupHandler(ctx: ActionCtx, body: Record<s
       copies: Object.fromEntries(found.map(({ path, key, etag, keyEtag, fresh }) => [path, { key, etag, keyEtag, fresh }])),
       keyed: noted.keyed,
       notes: Object.fromEntries(noted.notes.map((entry) => [entry.path, entry])),
+      // Only for paths the reader may see, as `copies`.
+      texHomes: Object.fromEntries(noted.texHomes.filter(({ path }) => seen.includes(path)).map(({ path, owner }) => [path, owner])),
     });
   } catch {
     return json(NOT_SERVED);

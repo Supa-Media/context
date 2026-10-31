@@ -25,6 +25,11 @@ import { texStoreStub } from "./wire.js";
 export const TEX_STORE_PATH = "/internal/tex-store";
 const OWNER = /^(person|chat):([A-Za-z0-9_-]{1,64})$/;
 
+/**
+ * @param {Request} request
+ * @param {object} env
+ * @param {{controlPlane?: {openTexStoreTicket: (ticket: string) => Promise<{workspaceId: string, owners: string[]}|null>}|null}} [deps]
+ */
 export async function handleTexStoreDoor(request, env, { controlPlane = null } = {}) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!(await carriesGatewaySecret(request, env))) return json({ error: "unauthorized" }, 401);
