@@ -14,6 +14,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { pinnedContextWorkspace } from "../pinnedContext";
 import { withPendingPrivate } from "./pendingAccess";
 import { withChatFolders } from "./chatFolders";
+import { withSealedChats } from "./sealedChats";
 import type { AccessRow, Grantee } from "./rowAccess";
 import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
 import { located, nodePaths } from "./paths";
@@ -144,7 +145,9 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
   // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
   const pending = withPendingPrivate(moving, state?.pending, Date.now());
   // A Tex guest chat's folder is shared with the chat's group before it has a row (`chatFolders.ts`).
-  return await withAccountsHonoured(ctx, workspaceId, await withChatFolders(ctx, workspaceId, pending));
+  const honoured = await withAccountsHonoured(ctx, workspaceId, await withChatFolders(ctx, workspaceId, pending));
+  // Group Tex's chat homes, sealed from every role in the pinned workspace (`withSealedChats`).
+  return await withSealedChats(ctx, workspaceId, honoured);
 }
 
 /**

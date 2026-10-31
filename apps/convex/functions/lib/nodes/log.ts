@@ -28,7 +28,7 @@
 
 import { audiencesOf, treeAudiences } from "../treeAudiences";
 import type { Clearance } from "../clearance";
-import { canSee, isPlumbing, visibilityOf, type PrivacyRule, type Visibility } from "../privacy";
+import { canSee, isPlumbing, sealedCovers, visibilityOf, type PrivacyRule, type Visibility } from "../privacy";
 import { describeFile, folderVisibleAtScope } from "../fileOps/listing";
 import type { ManifestEntry, ManifestFolder } from "../fileOps";
 import { loadPrivacyState } from "../fileOps/privacyState";
@@ -178,7 +178,8 @@ export function audiencesNow(path: string, rules: Rules): string[] {
 /** Whether a reader at `clearance` may hear of this row. */
 export function toldOf(row: LogRow, clearance: Clearance, rules: Rules, reader: ReadonlySet<string>): boolean {
   if (isPlumbing(row.path)) return false;
-  if (clearance.scope === "private") return true;
+  // An owner hears of every row but a sealed one, which `canSee` answers by name (`sealedChats.ts`).
+  if (clearance.scope === "private" && !sealedCovers(row.path, rules.rules)) return true;
   if (row.gone) return (row.audiences ?? []).some((audience) => reader.has(audience));
   return canSee(row.path, clearance.scope, rules.rules, rules.overrides, clearance.names);
 }

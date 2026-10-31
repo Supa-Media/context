@@ -29,7 +29,7 @@
  * ask "may this person write" and for nothing that decides visibility.
  */
 
-import { PrivacyOverrides, type PrivacyRule, type Visibility } from "../privacy";
+import { PrivacyOverrides, SEALED, type PrivacyRule, type Visibility } from "../privacy";
 
 export type Audience = "member" | "guest";
 export type Role = "view" | "edit";
@@ -62,6 +62,8 @@ export interface AccessRow {
   kind: "file" | "folder";
   base?: "private" | "team";
   grantees: Grantee[];
+  /** The pinned workspace's chat homes folder (`sealedChats.ts` `withSealedChats`): rendered as `SEALED` for everyone. */
+  sealed?: true;
 }
 
 /** Who is asking, as far as grants go. Anything absent grants nothing. */
@@ -127,12 +129,12 @@ export function renderAccess(rows: readonly AccessRow[], audience: Audience): Re
   const overrides = new PrivacyOverrides();
   const seen = new Set<string>();
   for (const row of rows) {
-    if (row.base === undefined && row.grantees.length === 0) continue;
+    if (row.base === undefined && row.grantees.length === 0 && row.sealed !== true) continue;
     if (row.path === "") throw new Error("the root carries no access row");
     const key = `${row.kind}:${row.path}`;
     if (seen.has(key)) throw new Error(`two access rows for ${row.path}`);
     seen.add(key);
-    const vis = visibilityFor(row, audience);
+    const vis = row.sealed === true ? SEALED : visibilityFor(row, audience);
     if (row.kind === "folder") rules.push({ prefix: row.path, vis });
     else overrides.set(row.path, vis);
   }

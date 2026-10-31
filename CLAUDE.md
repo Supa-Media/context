@@ -39,7 +39,11 @@ breaking one, stop and say so rather than working around it.
    control plane deletes there with the account, the workspace or "sign Tex
    out"; export carries the sealed copy (decided by the owner, 2026-10-06,
    2026-10-20 and 2026-10-29;
-   [texting-assistant](./docs/decisions/texting-assistant.md)). See
+   [texting-assistant](./docs/decisions/texting-assistant.md)). A group
+   chat's memory is the other: its home is in `@context-lc` under
+   `tex/groups/`, sealed so no role there opens it, an owner's included, only
+   the chat's people (decided by the owner, 2026-10-31;
+   [chat-homes](./docs/decisions/texting-assistant/chat-homes.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
    a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note's bytes live
