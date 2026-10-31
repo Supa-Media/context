@@ -231,13 +231,13 @@ export async function readGroupMemory(store, group, dispatch = null) {
   // The memory and the voice note move from the names they had to the chat's own, before either is read (`chatNoteMove.js`).
   // The visible note, when somebody has changed it since Tex last wrote it (`groupMemoryNote.js`): in the chat's home
   // when it has one (`chatHome.js`), the bound workspace's otherwise. Until its move lands, the old words it came from.
-  const noteRead = target === null ? Promise.resolve([null, null]) : moveMemory(group, target, dispatch, names).then(async (moved) => [moved, await readGroupNote(target.dispatch, target.path)]);
+  const noteRead = target === null ? Promise.resolve([null, null]) : moveMemory(group, target, dispatch, names).then(async (moved) => [moved, moved?.held ? { etag: moved.held.etag, text: moved.held.body } : await readGroupNote(target.dispatch, target.path)]);
   // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
   const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
   group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
   const voiceRead = (async () => {
-    if (group.voicePath !== null && (dispatch !== null || group.home)) await moveVoice(group, dispatch, names);
-    return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath);
+    const moved = group.voicePath !== null && (dispatch !== null || group.home) ? await moveVoice(group, dispatch, names) : null;
+    return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath, moved?.held);
   })();
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
   const [kept, [moved, stored], playbook, voice, aboutUs] = await Promise.all([keptRead, noteRead, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, readAboutUs(group.home)]);
@@ -294,7 +294,7 @@ async function moveMemory(group, target, dispatch, names) {
   return await moveChatNote({ target, sources, adapt: group.home ? asHomeNote : undefined });
 }
 
-/** The voice note, carried the same way (`chatVoice.js`). */
+/** The voice note, carried the same way (`chatVoice.js`); the move's outcome, with the note when it is already there. */
 async function moveVoice(group, dispatch, names) {
   const voiceTarget = group.home ? { dispatch: group.home.dispatch, path: group.voicePath } : { dispatch, path: group.voicePath };
   const boundFolder = chatFolder(names.people);
@@ -302,7 +302,7 @@ async function moveVoice(group, dispatch, names) {
   const sources = group.home
     ? [{ dispatch: group.home.dispatch, path: groupVoicePath(names.people, group.home.folder), retract: false }, ...boundOld(dispatch, boundPath)]
     : boundOld(dispatch, boundPath);
-  await moveChatNote({ target: voiceTarget, sources });
+  return await moveChatNote({ target: voiceTarget, sources });
 }
 
 /** What `readGroupMemory` saw of the note, for the write after the turn. */

@@ -126,3 +126,19 @@ test("a group turn reads its notes side by side, not one after another (2026-10-
   await readGroupMemory({ get: async () => null }, { ...GROUP }, dispatch);
   assert.ok(most >= 3, `the memory note, the voice note and the playbook are read at once (at most ${most} open)`);
 });
+
+test("a group turn reads its memory note and voice note once each, not again after their moves (2026-10-31)", async () => {
+  const reads = new Map();
+  const dispatch = async (name, args) => {
+    if (name !== "read_note") return { isError: true, content: [{ type: "text", text: "refused" }] };
+    reads.set(args.path, (reads.get(args.path) ?? 0) + 1);
+    if (/\/voice-[0-9a-f]{12}\.md$/.test(args.path)) return { content: [{ type: "text", text: "etag: v1\n\n- dry humor" }] };
+    if (/\/[0-9a-f]{12}\.md$/.test(args.path) || /tex\/groups\/[^/]+\.md$/.test(args.path)) return { content: [{ type: "text", text: "etag: m1\n\n# Chat\n" }] };
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  const group = { ...GROUP };
+  await readGroupMemory({ get: async () => null }, group, dispatch);
+  assert.equal(group.voice, "- dry humor");
+  const twice = [...reads].filter(([, count]) => count > 1).map(([path]) => path);
+  assert.deepEqual(twice, [], "no note is read twice");
+});

@@ -160,3 +160,13 @@ test("after-work starts only when the turn's queue is run, and one that fails fa
   assert.deepEqual(started, ["a", "b"]);
   assert.deepEqual(later, [], "each runs once");
 });
+
+test("a group turn's history is read beside the plan check, with the egress ledger set first (2026-10-31)", () => {
+  const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
+  const ledger = source.indexOf("session.egress = {");
+  const read = source.search(/historyRead = ahead\(turnReads\(/);
+  const provider = source.indexOf("await openProvider(");
+  assert.ok(ledger > 0 && read > ledger, "the ledger is set before the history read starts");
+  assert.ok(provider > read, "and the read starts before the plan check is awaited, for a group too");
+  assert.doesNotMatch(source, /historyRead = group === null \?/, "no group is left out of the early read");
+});
