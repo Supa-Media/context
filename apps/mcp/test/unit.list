@@ -20,6 +20,7 @@ test/agentBrowserbaseRefused.test.mjs
 test/agentBrowserHold.test.mjs
 test/agentCatalog.test.mjs
 test/agentConversation.test.mjs
+test/agentWarmBudget.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
 test/agentHandoff.test.mjs

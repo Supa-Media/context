@@ -21,9 +21,10 @@
  * - A cache, never a copy of record: the bucket stays where every note, the
  *   chat and the event log live, and a turn writes there as it always did.
  *   Dropping the copy costs one slow turn, never anything kept.
- * - Fresh enough to trust, by part: what changes outside the chat (the setup,
- *   learned skills, About me and the jobs list) is used for ten minutes, and
- *   dropped by any turn that wrote; the chat for a day, carried forward by
+ * - Fresh enough to trust, by part: the setup (a pinned note that changes
+ *   rarely) for an hour; what changes outside the chat (learned skills, About
+ *   me and the jobs list) for ten minutes, and dropped by any turn that wrote;
+ *   the chat for a day, carried forward by
  *   each turn with what it said. The Worker drops the whole copy when it
  *   texts outside a turn (a routine, a job), since the chat then holds words
  *   the copy hasn't seen.
@@ -44,8 +45,10 @@ const PREFIX = "tw1.";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** What changes outside the chat is trusted this long, then read again. */
+/** What changes outside the chat (About me, learned skills, the jobs list) is trusted this long, then read again. */
 export const WARM_NOTES_MS = 10 * 60 * 1000;
+/** The texting setup, a note in the pinned workspace that changes rarely: trusted this long, then read again. */
+export const WARM_SETUP_MS = 60 * 60 * 1000;
 /** The chat itself, carried forward turn by turn. */
 export const WARM_CHAT_MS = 24 * 60 * 60 * 1000;
 /** A sealed copy larger than this is not made: the turn after reads, as without one. */
@@ -96,7 +99,7 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const copy = JSON.parse(decoder.decode(await squeeze(new Uint8Array(plain), DecompressionStream)));
     if (copy === null || typeof copy !== "object" || copy.v !== 1) return null;
     const fresh = (part, ms) => (part && Number.isFinite(part.at) && part.at <= now && now - part.at < ms ? part : undefined);
-    return { setup: fresh(copy.setup, WARM_NOTES_MS), skills: fresh(copy.skills, WARM_NOTES_MS), notes: fresh(copy.notes, WARM_NOTES_MS), chat: fresh(copy.chat, WARM_CHAT_MS) };
+    return { setup: fresh(copy.setup, WARM_SETUP_MS), skills: fresh(copy.skills, WARM_NOTES_MS), notes: fresh(copy.notes, WARM_NOTES_MS), chat: fresh(copy.chat, WARM_CHAT_MS) };
   } catch {
     return null;
   }

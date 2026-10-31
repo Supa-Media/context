@@ -162,3 +162,8 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   const transcript = renderEvents(shown, { timeZone, answeredBy: events });
   return { history: transcript === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${transcript}` }], question, tainted: await showsTainted(store, shown, workspace, warm) };
 }
+
+/** Today's history and the chat's event log, side by side: what a turn reads before its model (`route.js`). */
+export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone }) {
+  return Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm }), runner ? null : loggedTurn(store, body, { group, timeZone, workspace: session.workspaceId, warm })]);
+}

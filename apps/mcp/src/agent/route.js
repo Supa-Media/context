@@ -37,8 +37,8 @@ import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { loggedTurn, recordedTurn, turnHistory } from "./loggedTurn.js"; import { newExchange } from "./events.js";
-import { deferred } from "./deferred.js";
+import { recordedTurn, turnReads } from "./loggedTurn.js"; import { newExchange } from "./events.js";
+import { ahead, deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
@@ -229,6 +229,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     paid = settled?.allowed ?? [];
   }
 
+  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
   try {
     await openProvider(controlPlane, session, body.provider, env); stages?.mark("provider");
   } catch (error) {
@@ -256,7 +257,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
   const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
-  const offered = await grantedToolsFor(session, store); stages?.mark("tools");
+  const offered = await offeredRead; stages?.mark("tools");
 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
@@ -291,8 +292,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history }, logged] = await Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm: hot }), runner ? null : loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId, warm: hot })]); // side by side
-  const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
+  const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -484,6 +484,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
+  const offerRead = texted && job === null ? ahead(googleOfferLine(store, shown)) : null, knowsRead = texting ? ahead(hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : null;
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await standingForwardTools(store, routine.path, offered)), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
@@ -535,10 +536,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       },
       web: steer?.trackWeb(claims?.wrapWeb(seenWeb) ?? seenWeb) ?? claims?.wrapWeb(seenWeb) ?? seenWeb, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: logged?.history ?? shown,
-      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (texted && job === null ? await googleOfferLine(store, shown) : "") + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + jobReportPrompt(report) + (offerRead === null ? "" : await offerRead) + (chatTurn ? stylePrompt(readTexStyle(body.texStyle)) : ""), steer,
       local: [...earlier, ...(chatTurn && productionModel !== null && production.advisor && canRunBuiltin(production.advisor, env) ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter }) : [])], // the advisor, when the setup names one (`advisor.js`)
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
-      ...(texting ? outgoing.knows(await hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : {}), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
+      ...(knowsRead === null ? {} : outgoing.knows(await knowsRead)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
       localNow: { now: Date.now(), timeZone },
       observe: withJobSteps(job, step, transcript?.record ?? null), // a job's steps also go to its chat (`background.js`)
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).

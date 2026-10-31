@@ -629,6 +629,7 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
+      waitUntil: (promise) => this.state.waitUntil(promise),
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(

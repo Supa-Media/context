@@ -41,6 +41,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { keptEvents, logAsk } from "./events";
 import { sha256Hex } from "./groupChat";
 import { restartTurn, steerInto, type Live } from "./steer";
+import { afterRepliesSettled } from "./afterReply";
 
 const msg = (eventId: string, text: string, extra: Partial<Message> = {}): Message => ({
   kind: "message",
@@ -332,12 +333,14 @@ describe("a text while a turn runs", () => {
     w.release();
     await accept(storage, msg("e1", "never mind that email"), 1_000);
     await drain(storage, w.deps);
+    await afterRepliesSettled(storage);
     // Only an ask it was told is waiting; an id it made up is dropped.
     expect(w.decided[0]).toMatchObject({ waitingAsks: [ask] });
     // Disarmed by its approval record, never by the event id.
     expect(w.stale).toEqual([{ asks: ["approval_1"] }]);
     await accept(storage, msg("e2", "thanks"), 2_000);
     await drain(storage, w.deps);
+    await afterRepliesSettled(storage);
     expect(w.stale).toHaveLength(1);
     expect(w.decided[1]).toMatchObject({ waitingAsks: [] });
   });
