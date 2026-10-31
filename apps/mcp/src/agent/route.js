@@ -37,7 +37,7 @@ import { readTexStyle, stylePrompt, withoutFlattery } from "./pushback.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
-import { loggedTurn, recordedTurn, turnHistory } from "./loggedTurn.js"; import { newExchange } from "./events.js";
+import { recordedTurn, turnReads } from "./loggedTurn.js"; import { newExchange } from "./events.js";
 import { ahead, deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
@@ -229,13 +229,9 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     paid = settled?.allowed ?? [];
   }
 
-  // Reads that need nothing the provider check or its writes give (`ahead`): the tools this grant offers and today's history run beside the check, not after it.
-  const offeredRead = ahead(grantedToolsFor(session, store));
-  const historyRead = ahead(Promise.all([turnHistory(store, session, body, { runner, group, dispatch, warm: hot }), runner ? null : loggedTurn(store, body, { group, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, workspace: session.workspaceId, warm: hot })])); // side by side
-  let began = null;
+  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
   try {
     await openProvider(controlPlane, session, body.provider, env); stages?.mark("provider");
-    began = steer === null ? null : ahead(steer.begin()); // the running mark, written beside the reads below and awaited before the model (`steer.js`)
   } catch (error) {
     outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
@@ -296,8 +292,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history }, logged] = await historyRead;
-  const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
+  const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -489,9 +484,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
-  // What the prompt and the answer's notes need, started here so they overlap the pictures and tools set up below (`ahead`).
-  const offerRead = texted && job === null ? ahead(googleOfferLine(store, shown)) : null;
-  const knowsRead = texting ? ahead(hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : null;
+  const offerRead = texted && job === null ? ahead(googleOfferLine(store, shown)) : null, knowsRead = texting ? ahead(hot.notes(() => readTexNotes(dispatch, { controlPlane, session }))) : null;
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? [...(await standingForwardTools(store, routine.path, offered)), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
@@ -502,7 +495,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
   maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
   try {
-    await began; // `/agent/cancel` may stop it from now (`steer.js`)
+    await steer?.begin(); // `/agent/cancel` may stop it from now (`steer.js`)
     stages?.ready(); const turn = await runTurn({
       // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
       question: [logged === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.question ?? askedWith(question, quoted), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
