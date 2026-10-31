@@ -8,9 +8,14 @@
  *    turn writes one point" fails;
  *  - `stages?.ran(report)` dropped from `logTurn`: the same test fails (no
  *    outcome, no rounds).
+ *  - the `[[analytics_engine_datasets]]` block dropped from `wrangler.toml`:
+ *    "both deployments bind TEX_TIMING" fails. It was missing from #2496 to
+ *    2026-10-31, so every point went nowhere and a 78-second "hi" could not be
+ *    taken apart.
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { COLUMNS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
@@ -77,4 +82,10 @@ test("a texted turn writes one point, with a kind and numbers only, never their 
   } finally {
     world.restore();
   }
+});
+
+test("both deployments bind TEX_TIMING, so the points are kept and can be read back", () => {
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  assert.match(toml, /\[\[analytics_engine_datasets\]\]\s*binding = "TEX_TIMING"\s*dataset = "tex_timing"/);
+  assert.match(toml, /\[\[env\.staging\.analytics_engine_datasets\]\]\s*binding = "TEX_TIMING"\s*dataset = "tex_timing_staging"/);
 });
