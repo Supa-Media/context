@@ -85,7 +85,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true; verdict?: JobVerdict; advice?: string }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; verdict?: JobVerdict; advice?: string }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -227,7 +227,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     const { unfinished: _was, advice: _said, ...kept } = run;
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       ...watch,
@@ -321,6 +321,8 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       unfinished: answer.unfinished === true,
       status: firstLine(answer.text),
       steered: answer.steered ?? [],
+      // It read from outside: every part after it is built on its words, so they carry the same mark (`ask`'s `tainted`).
+      ...(answer.untrusted ? { untrusted: true as const } : {}),
       ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),
       ...(answer.verdict ? { verdict: answer.verdict, ...(answer.advice ? { advice: answer.advice } : {}) } : {}),
     };

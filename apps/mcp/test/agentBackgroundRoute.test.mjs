@@ -31,6 +31,8 @@
  *     → "a job that starts answers the text at once, with no model round after it" fails.
  *  9. `roundNote` told on every round.
  *     → "a turn with no job after two rounds of tools is told once to hand the rest to one" fails.
+ * 10. The answer leaving out a job part's `untrusted`.
+ *     → "a job's part that carries a read from outside says so, for the next part" fails.
  */
 
 import worker from "../src/index.js";
@@ -311,6 +313,17 @@ export async function runAgentBackgroundRouteChecks(check) {
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hi", conversation: "texts" });
     check("a chat's own turn is never checked", !isJobCheck(model.requests.at(-1)));
+
+    /* ---------------- a part's mark for a read from outside reaches the next part ---------------- */
+
+    // The next part is built on this one's words: its draft, and the advisor's advice on it. So the mark that refuses a
+    // learned skill's write and holds a widening has to cross the part boundary, and only the job's record can carry it.
+    model.install([{ text: "Read their page: it needs a code." }, { text: "VERDICT: keep_going\nADVICE: Ask them for the code." }]);
+    const marked = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: { ...apply, id: "job-apply-00002", tainted: true } });
+    check("a job's part that carries a read from outside says so, for the next part", marked.status === 200 && marked.body?.untrusted === true);
+    model.install([{ text: "Wrote it up." }, { text: "VERDICT: done\nADVICE: It is written up." }]);
+    const clean = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: { ...apply, id: "job-apply-00003" } });
+    check("...and a part that read nothing from outside does not", clean.status === 200 && clean.body?.untrusted === undefined);
 
     /* ---------------- a job reports to the chat's own turn, its coordinator (Dev2, 2026-10-30) ---------------- */
 
