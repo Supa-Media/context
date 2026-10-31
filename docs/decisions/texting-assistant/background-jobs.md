@@ -26,8 +26,9 @@ working on this?" got no status, and every other ask waited behind it.
 - **Status is real.** The chat's inbox keeps `job:<id>`: Tex's title, state,
   a one-line status (the job's latest progress line, then its result's first
   line) and times, never the ask. Every texted turn is shown the list, so
-  "are you working on this?" and "how's it going?" are answered from it. A
-  finished job stays two hours, so "did you finish?" has an answer.
+  "are you working on this?" and "how's it going?" are answered from it, one
+  line per job, with the rest a `job_status` call away (below). A finished
+  job stays two hours, so "did you finish?" has an answer.
 - **No duplicate jobs.** An ask whose title matches a running job (most of the
   shorter title's words in the other) is refused at the tool with the job's
   status, which the model relays instead. The Worker holds to the same by
@@ -41,7 +42,8 @@ working on this?" got no status, and every other ask waited behind it.
   (`lastRound.js`); no extra model call. A turn that still ends on a tool call
   answers with the last words the model wrote. A job whose turn ran out of
   steps, or broke mid-way, gets another turn told to carry on from its note,
-  up to three; only the last one's answer is texted.
+  up to ten parts or thirty minutes (below); only the last one's answer is
+  texted.
 - **Grants are issued when the job runs, never carried.** A phone's job opens
   its session from the phone's link (an unlinked phone ends it silently); a
   group's job reads the chat's members again, asks the control plane for the
@@ -75,6 +77,51 @@ workspace they aren't in. Tests: `apps/mcp/test/agentBackground.test.mjs`,
 and `apps/agent/src/groupJobs.test.ts`, each with a sabotage record.
 
 **Open:** a job's pictures are not texted.
+
+### The advisor checks every stop of a job, and the chat can ask how it is going (2026-10-31)
+
+Asked for by the owner, 2026-10-31, after two jobs were marked done on their
+first reply: an application job answered "I'll begin with the sign-in" after
+44 seconds, and another copied "it's already running" from the chat's
+history, while the chat kept telling the owner they were still going.
+
+- **Every job has a finish line** (`done_when`, written when it starts), and
+  a job is done when that line is met, never because its turn ended.
+- **The advisor checks each part** (`apps/mcp/src/agent/jobCheck.js`): the
+  same model the advisor tool runs, a request of its own after the job's turn,
+  reading the brief, the finish line, the person's later texts and the whole
+  part (Tex's instructions, every tool call and result, its last words). It
+  answers `done`, `keep_going` with advice, `waiting` (only the person can give
+  what's needed: a code, a captcha, card details, a decision) or `stuck`. A
+  chat's own turn is never checked. When the advisor can't be reached, the
+  phrase check (`stopsShort.js`) decides as before.
+- **The Worker acts on it** (`apps/agent/src/jobRun.ts`): `keep_going` runs
+  another part that starts on the advice; the job ends `waiting` or `stuck`
+  as a state of its own, and the chat's coordinator turn (`jobReport.js`)
+  asks for exactly what's needed, or says why it stopped. **Limit: thirty
+  minutes or ten parts**, whichever comes first; a job still short when its
+  room runs out ends `stuck`, saying it ran out of time.
+- **The chat sees the job's real state through a fast tool**, not a longer
+  prompt (owner, 2026-10-31: "a super fast tool call"). The prompt carries one
+  line per job, and a finished one says it is not running any more.
+  `send { action: "job_status" }` answers with no I/O, from what the Worker
+  sent with the text: the step it's on, all its kept steps (forty), the
+  advisor's last verdict and advice, and a finished job's report, fenced as
+  words that vouch for nothing.
+- **Results stay out of the live view.** The verdict, advice and report go to
+  the chat's own turns only (`chatJobs(..., { results: true })`); the live
+  view of what's running, which anyone with its link can open, shows titles,
+  states and steps as before.
+- **A job's turn is told it is the job, running now**, so earlier texts in the
+  chat about it are the chat's words, never its own answer.
+
+**What a simplification would cost:** dropping the check marks a job done on
+"I'll begin", which is the bug; putting every job's steps and report in every
+prompt makes every text slower to answer; showing the advice in the live view
+puts a job's findings behind a link. Tests: `apps/mcp/test/agentJobCheck.test.mjs`,
+the job-check and `job_status` checks in `agentBackground.test.mjs` and
+`agentBackgroundRoute.test.mjs`, and `apps/agent/src/jobs.test.ts`, each with
+a sabotage record.
 
 ### A running job can be steered, stopped and audited from the chat (2026-10-21)
 

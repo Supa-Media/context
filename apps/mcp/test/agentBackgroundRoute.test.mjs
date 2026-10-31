@@ -38,16 +38,21 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { MAX_JOB_ATTEMPTS } from "../src/agent/background.js";
 
 const S3_ENDPOINT = "https://s3.example-background.test";
 const TOKEN_TEXTS = `cat_backgr_texts_${"0".repeat(23)}`;
 const TOKEN_APP = `cat_backgr_app_${"0".repeat(25)}`;
+
+// The advisor's check of a job's part (`jobCheck.js`) is a request of its own after the turn's: the turn's own is the last that isn't it.
+const isJobCheck = (request) => JSON.stringify(request?.system ?? "").includes("One of Tex's background jobs has just stopped");
 
 function fakeModel() {
   const requests = [];
   let script = [];
   return {
     requests,
+    turn: () => requests.findLast((request) => !isJobCheck(request)),
     install(replies) {
       script = [...replies];
     },
@@ -214,7 +219,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     model.install([{ text: "Wrote 1-projects/tex/competitors.md: Notion, Mem, Reflect." }]);
     const job = { id: "job-competitors-1", title: "Competitor research", brief: "Five competitors, into 1-projects/tex.", attempt: 2, followUps: ["add Reflect too"] };
     const ran = await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", job });
-    const jobRequest = model.requests.at(-1);
+    const jobRequest = model.turn();
     check("a job's own turn is told its plan and to deliver", /background job you started/.test(systemOf(jobRequest)) && /Five competitors, into 1-projects\/tex\./.test(systemOf(jobRequest)) && /carry on from where it stops/.test(systemOf(jobRequest)));
     check("a job's own turn is shown their later texts", /newer than your plan[^]*- add Reflect too/.test(systemOf(jobRequest)));
     check("a job's own turn cannot start another job", !/background:/.test(sendTool(jobRequest)?.description ?? ""));
@@ -246,7 +251,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     });
     check(
       "...and the next part is shown it, to build on rather than start over",
-      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.requests.at(-1))) &&
+      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.turn())) &&
         conversationTurns(bucket).length === kept,
     );
 
@@ -260,7 +265,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     const stopped = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: dinner });
     check(
       "a job's answer that stops short gets one more round, told to finish it",
-      /stops short of what they asked[^]*background job/.test(JSON.stringify(model.requests.at(-1)?.messages?.at(-1) ?? "")),
+      /stops short of what they asked[^]*background job/.test(JSON.stringify(model.turn()?.messages?.at(-1) ?? "")),
     );
     check(
       "...and one that still stops short is marked unfinished for the Worker, and not kept as said",
@@ -274,15 +279,38 @@ export async function runAgentBackgroundRouteChecks(check) {
     });
     check(
       "the next part is shown the short answer as unfinished, to do the missing part",
-      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(systemOf(model.requests.at(-1))),
+      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(systemOf(model.turn())),
     );
     check(
       "...and a full answer is done: not marked, and kept",
       finished.body?.unfinished === undefined && conversationTurns(bucket).length === beforeShort,
     );
     model.install([{ text: short }, { text: short }]);
-    const last = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: { ...dinner, attempt: 3 } });
+    const last = await post(env, TOKEN_TEXTS, "/agent", { question: "three dinner options, about $10 a head for 30 people", conversation: "texts", job: { ...dinner, attempt: MAX_JOB_ATTEMPTS } });
     check("a job's last part texts what it has, even short", last.status === 200 && last.body?.unfinished === undefined && /not priced yet/.test(last.body?.answer ?? ""));
+
+    /* ---------------- the advisor checks every stop of a job (Dev2, 2026-10-31) ---------------- */
+
+    // The a16z job: "I'll begin with the sign-in" was marked done. The advisor reads the part against its finish line.
+    const apply = { id: "job-apply-00001", title: "Apply to the accelerator", brief: "Fill in the application.", doneWhen: "the application is submitted", attempt: 1, followUps: [] };
+    model.install([{ text: "Opened the form: it starts at a sign-in page." }, { text: "VERDICT: keep_going\nADVICE: Sign in with the emailed link, then fill page one." }]);
+    const going = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: apply });
+    const asked = model.requests.at(-1);
+    check(
+      "a job's part is checked by the advisor against its finish line, seeing the whole part",
+      isJobCheck(asked) && /Finish line: the application is submitted/.test(lastText(asked)) && /starts at a sign-in page/.test(lastText(asked)) && (asked.tools ?? []).length === 0,
+    );
+    check(
+      "...and keep_going comes back with its advice, to carry on",
+      going.status === 200 && going.body?.verdict === "keep_going" && going.body?.unfinished === true && /emailed link/.test(going.body?.advice ?? ""),
+    );
+    model.install([{ text: "Signing in needs the code they were texted." }, { text: "VERDICT: waiting\nADVICE: The six-digit code texted to them." }]);
+    const waits = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: { ...apply, attempt: 2, advice: going.body?.advice } });
+    check("...the next part starts on that advice", /Your advisor checked your last part[^]*emailed link/.test(systemOf(model.turn())));
+    check("...and waiting comes back without carrying on", waits.body?.verdict === "waiting" && waits.body?.unfinished === undefined);
+    model.install([{ text: "Hi." }]);
+    await post(env, TOKEN_TEXTS, "/agent", { question: "hi", conversation: "texts" });
+    check("a chat's own turn is never checked", !isJobCheck(model.requests.at(-1)));
 
     /* ---------------- a job reports to the chat's own turn, its coordinator (Dev2, 2026-10-30) ---------------- */
 

@@ -582,7 +582,7 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
   if (spawn === undefined || message.sms) return {};
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
-    running: await chatJobs(storage, deps.now()),
+    running: await chatJobs(storage, deps.now(), { results: true }),
     onJobs: async (jobs) =>
       notStartedText((await startJobs(storage, jobs, {
         now: deps.now(),

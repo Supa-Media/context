@@ -34,7 +34,7 @@ import { groupLineFor } from "./groupLine";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
-import { JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { JOB_LIMIT_MS, JOB_LINES, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobRun, type JobSteer, type JobUpdate, type JobVerdict } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { STEER_TIMEOUT_MS } from "./steer";
@@ -85,7 +85,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; vaultWatch?: true; verdict?: JobVerdict; advice?: string }
   /** Nothing ran: try the same turn again later. */
   | { kind: "retry" }
   /** It ran and broke: carry on in a new turn, if one is left. */
@@ -216,32 +216,41 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const watch = outcome.kind === "answer" && outcome.vaultWatch && run.origin.kind === "phone" ? { vaultWatch: run.origin.phone } : {};
   // A text that came after the turn's last look changes the job: it is not texted the old way.
   const changed = outcome.kind === "answer" && left.length > 0;
-  // An answer that stopped short of the ask (`apps/mcp/src/agent/stopsShort.js`) is not done: the next part finishes it.
+  // An answer the advisor says isn't finished (`apps/mcp/src/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
   const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
   const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
-  if (carryOn && run.attempt < MAX_JOB_ATTEMPTS) {
+  const advice = outcome.kind === "answer" ? outcome.advice : undefined;
+  const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};
+  // Dev2, 2026-10-31: a job keeps going for at most 30 minutes or 10 parts, then reports where it got to.
+  const roomLeft = run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
+  if (carryOn && roomLeft) {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
-    const { unfinished: _was, ...kept } = run;
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}) });
+    const { unfinished: _was, advice: _said, ...kept } = run;
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}) });
     await tell({
       state: "running",
       ...watch,
+      ...checked,
       status: changed
         ? "Changing it to what you texted"
         : unfinished
-          ? "Finishing what was still missing"
+          ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
           : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
     log("carry_on", run.id);
     return { kind: "now" };
   }
 
+  // What the advisor said decides how it ended: waiting on them, stuck, or (still short when its room ran out) stuck too; else done.
+  const ended = outcome.kind !== "answer" || changed ? "done" : outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" || unfinished ? "stuck" : "done";
+  if (ended !== "done") log(`ended_${ended}`, run.id);
   const update: Omit<JobUpdate, "id" | "first"> =
     outcome.kind === "answer"
       ? {
-          state: "done",
-          status: outcome.status,
+          state: ended,
+          ...checked,
+          status: ended === "done" ? outcome.status : `${ended === "stuck" && outcome.verdict !== "stuck" ? "Ran out of time. " : ""}${advice || outcome.status}`.slice(0, 280),
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
           texts: changed ? [...outcome.texts, JOB_LINES.missed] : outcome.texts,
@@ -293,6 +302,7 @@ function ask(run: JobRun, followUps: string[]): JobAsk {
     ...(run.tainted ? { tainted: true as const } : {}),
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
+    ...(run.advice ? { advice: run.advice } : {}),
   };
 }
 
@@ -312,6 +322,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       status: firstLine(answer.text),
       steered: answer.steered ?? [],
       ...(answer.vaultWatch ? { vaultWatch: true as const } : {}),
+      ...(answer.verdict ? { verdict: answer.verdict, ...(answer.advice ? { advice: answer.advice } : {}) } : {}),
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };

@@ -542,7 +542,7 @@ export async function runTurn(options) {
 
     if (answer.toolCalls.length === 0) {
       const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
-      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: { system: systemText(prompt.system), messages } }; // `live`: the whole turn, for a job's check (`jobCheck.js`)
       messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheckNote(recheck) });
       continue;
     }
@@ -656,7 +656,7 @@ export async function runTurn(options) {
       // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
       const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
       if (typeof settled === "string" && settled !== "") {
-        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name };
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: { system: systemText(prompt.system), messages } };
       }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
@@ -677,5 +677,6 @@ export async function runTurn(options) {
     usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
+    live: { system: systemText(prompt.system), messages },
   };
 }

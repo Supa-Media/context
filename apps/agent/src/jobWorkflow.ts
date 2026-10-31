@@ -15,13 +15,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { ANSWER_RETRIES, ANSWER_TIMEOUT } from "./groupTurnWorkflow";
 import type { JobNext } from "./jobRun";
-import { RUN_KEY, type JobRun } from "./jobs";
+import { MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, RUN_KEY, type JobRun } from "./jobs";
 import type { InboxStorage } from "./inbox";
 import type { Env } from "./index";
 
 export type JobRunParams = { job: string };
-/** More passes than a job can take: attempts times tries, plus its last word offered again. */
-export const MAX_JOB_PASSES = 20;
+/** More passes than a job can take: every part's tries, plus its last word offered again (10 parts since 2026-10-31). */
+export const MAX_JOB_PASSES = MAX_JOB_ATTEMPTS * (MAX_JOB_TRIES + 1) + 2;
 
 /** Asks the job's object at an internal path. */
 export type JobCall = (path: "/job-pass" | "/job-failed") => Promise<Response>;

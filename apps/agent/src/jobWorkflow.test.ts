@@ -7,13 +7,16 @@
  *  - `startJobFlow` treating "already exists" as a failure: "the same job
  *    started twice runs once" fails;
  *  - `runJobFlow` without its catch around a pass: "a pass that keeps failing
- *    is retried, then the job ends with its couldn't-finish line" fails.
+ *    is retried, then the job ends with its couldn't-finish line" fails;
+ *  - `MAX_JOB_PASSES` back at 20 (sized for three parts): "a job that takes
+ *    every one of its parts, each after a busy model, still ends through its
+ *    instance" fails.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { ANSWER_RETRIES } from "./groupTurnWorkflow";
 import { acceptJob, armJobNext, failJob, runJob, type JobDeps, type JobNext } from "./jobRun";
-import { JOB_LINES, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
+import { JOB_LINES, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
 import { handOverJob, jobInstanceId, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 
@@ -102,6 +105,18 @@ describe("a background job's workflow", () => {
     expect(storage.data.has(RUN_KEY)).toBe(false);
     const lines = logs.mock.calls.flat().map((line) => JSON.parse(String(line))).filter((line) => line.kind === "job");
     expect(lines).toEqual([{ event: "group_turn", outcome: "workflow_answered", kind: "job", attempts: 3 }]);
+  });
+
+  it("a job that takes every one of its parts, each after a busy model, still ends through its instance (2026-10-31)", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const storage = new MemoryStorage();
+    await acceptJob(storage, RUN, NOW, async () => {});
+    const busy = { status: 503, body: { error: "model_unavailable" } };
+    const parts = Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => [busy, busy, { body: { answer: i === MAX_JOB_ATTEMPTS - 1 ? "Wrote the note." : "More to do.", unfinished: true, verdict: "keep_going", advice: "Carry on." } }]).flat();
+    const { d, reports } = deps(parts);
+    const { step } = fakeStep();
+    expect(await runJobFlow(step, objectCall(storage, d))).toBe("done");
+    expect(reports.at(-1)).toMatchObject({ state: "stuck", texts: ["Wrote the note."] });
   });
 
   it("a pass that keeps failing is retried, then the job ends with its couldn't-finish line", async () => {
