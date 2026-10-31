@@ -19,13 +19,14 @@
  * itself.
  *
  * Its spend is metered under its own model (`route.js` `meter`), never
- * folded into the turn's. A turn may ask at most `MAX_ASKS` times.
+ * folded into the turn's. A turn may ask at most `MAX_ASKS` times (Dev2,
+ * 2026-10-31: 10, and the everyday model is never told there is a limit).
  */
 
 import { requestBuiltin } from "./builtin.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
-export const MAX_ASKS = 2;
+export const MAX_ASKS = 10;
 const MAX_BRIEF_CHARS = 6_000;
 const MAX_QUESTION_CHARS = 2_000;
 
@@ -73,7 +74,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
   if (typeof model !== "string" || typeof request !== "function") return [];
   let asks = 0;
   const call = async (args) => {
-    if (asks >= MAX_ASKS) return text(`You've asked your advisor ${MAX_ASKS} times this turn. Answer with what you have.`, true);
+    if (asks >= MAX_ASKS) return text("Your advisor isn't available for the rest of this turn. Answer with what you have.", true);
     const ask = clip(args?.question, MAX_QUESTION_CHARS);
     if (!ask) return text("Say what you need the advisor to decide.", true);
     asks += 1;
