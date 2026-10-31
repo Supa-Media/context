@@ -16,11 +16,23 @@
  * settings and the style; a person's own chat gets their own settings and
  * review sharing.
  *
+ * The tools that act for the person or widen who sees something (sharing or
+ * unsharing their mail, their review sharing) run only when the turn's own
+ * message, from the person the grant names, asks for it (`consentFor`). Those
+ * words come from the texting Worker (`body.question`, the tagger's own
+ * message), never from the model's arguments, so another member's text, a
+ * quoted message or an email's contents cannot steer the turn into acting as
+ * the tagger. The same small judge as any other widening decides when the
+ * deployment has one (`privacy/judge.js`), after a code check that the words
+ * name the thing at all.
+ *
  * Choosing a workspace for a chat, inviting everyone in it and starting a
  * muted Tex stay with the texting Worker's commands ("Tex, use @x",
  * "Tex, start"): they need the chat's member list, which only the Worker
  * holds, and a muted chat has no turn to call a tool from.
  */
+
+import { judgeFor } from "../privacy/judge.js";
 
 const STYLE_SCHEMA = {
   type: "object",
@@ -48,6 +60,42 @@ const REFUSALS = {
     "Not shared: only the mailbox's own person can share it, from a connected Gmail, in a chat on a shared workspace they can edit. Nothing was changed.",
 };
 
+/** The words a consent-gated action needs in the person's own message before the judge is even asked. */
+const CONSENT_WORDS = {
+  share_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
+  unshare_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
+  review_sharing: /\b(shar\w*|review\w*|conversations?|chats?)\b/i,
+};
+const CONSENT_ACTIONS = {
+  share_mail: "share the person's own email inbox with this group chat",
+  unshare_mail: "stop sharing the person's own email inbox with this group chat",
+  review_sharing: "change whether the person's finished conversations are shared with the Context team",
+};
+export const OWN_WORDS_REFUSAL = "They have to ask for that in their own words. Nothing was changed; tell them so.";
+
+/**
+ * Whether the turn's own message (`words`, the grant's person's text from the
+ * Worker, never the model's) asks for `kind`. A code check first, then the
+ * judge when there is one. Anything but a clear yes is a no.
+ */
+export function consentFor(words, judge = null) {
+  return async (kind) => {
+    const said = typeof words === "string" ? words : "";
+    if (!CONSENT_WORDS[kind]?.test(said)) return false;
+    if (typeof judge !== "function") return true;
+    try {
+      return (await judge({ words: said, action: CONSENT_ACTIONS[kind] }))?.allow === true;
+    } catch {
+      return false;
+    }
+  };
+}
+
+/** `consentFor` with this deployment's judge, or the code check alone where there is none (self-hosting). */
+export function consentForTurn(words, env) {
+  return consentFor(words, judgeFor(env));
+}
+
 /** One tool's answer, as words the turn may repeat. Anything unexpected is a failure, never a success. */
 function answered(result, success) {
   if (result && typeof result === "object" && result.status === "done") return text(success(result), false);
@@ -70,10 +118,20 @@ function styleWords(style) {
  * `local` list. `run(command)` posts one command with the turn's own grant
  * and resolves to the control plane's answer (`controlPlane.texCommand`).
  *
- * @param {{ run: (command: object) => Promise<object|null>, group: object|null }} options
+ * `consent(kind)` resolves true only when the turn's own message asks for a
+ * consent-gated action (`consentFor`); without it those actions are refused.
+ *
+ * @param {{ run: (command: object) => Promise<object|null>, group: object|null, consent?: (kind: string) => Promise<boolean> }} options
  */
-export function commandTools({ run, group }) {
+export function commandTools({ run, group, consent = async () => false }) {
   if (typeof run !== "function") return [];
+  const asked = async (kind) => {
+    try {
+      return (await consent(kind)) === true;
+    } catch {
+      return false;
+    }
+  };
   const call = (command, success) => async () => {
     try {
       return answered(await run(command), success);
@@ -121,6 +179,7 @@ export function commandTools({ run, group }) {
       },
       call: async (args) => {
         if (typeof args?.share !== "boolean") return text("Say whether to share (true) or stop (false). Nothing was changed.", true);
+        if (!(await asked("review_sharing"))) return text(OWN_WORDS_REFUSAL, true);
         return await call({ kind: "review_sharing", share: args.share }, (result) =>
           result.sharing ? "Saved: their finished conversations will be shared with the Context team." : "Saved: their conversations are no longer shared.",
         )();
@@ -167,7 +226,7 @@ export function commandTools({ run, group }) {
       inputSchema: { type: "object", properties: { address: { type: "string" }, query: { type: "string" } }, required: ["address"] },
     },
     call: async (args) =>
-      await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) =>
+      !(await asked("share_mail")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) =>
         `Shared ${result.address} with this chat${result.narrowed ? ", narrowed by its search" : ""}. Replies go from it only when they say yes.`,
       )(),
   };
@@ -178,7 +237,7 @@ export function commandTools({ run, group }) {
       inputSchema: { type: "object", properties: { address: { type: "string" } } },
     },
     call: async (args) =>
-      await call({ kind: "unshare_mail", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+      !(await asked("unshare_mail")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "unshare_mail", ...(args?.address ? { address: args.address } : {}) }, (result) =>
         result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that mailbox" : `${result.count} mailboxes`} with this chat.` : "None of their mail was shared here, so nothing changed.",
       )(),
   };

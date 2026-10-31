@@ -27,6 +27,15 @@ in regex in the texting Worker, and the model had no say and no tools.
   style and when it speaks up; only the mailbox's own person shares or stops
   sharing their mail, in a chat on a shared workspace they can edit; a person's
   review sharing is set in their own chat only.
+- **Acting for the person needs their own words.** Sharing or unsharing
+  their mail and their review sharing run only when the turn's own message,
+  from the person the grant names, asks for it (`commandTools.js`
+  `consentFor`): a code check that the words name it, then the same small
+  judge as any widening (`privacy/judge.js`) where the deployment has one.
+  Those words are the Worker's `question`, never the model's arguments, so
+  another member's text, a quoted message or an email cannot make the turn
+  act as the tagger (security review, 2026-10-31). Otherwise the tool says
+  they have to ask in their own words.
 - **Guests get mute, settings and style only.** A guest's tag, and an invited
   person's, is minted on the account of whoever opened the chat, so nothing
   that acts as a person (mail, review sharing) is theirs.
@@ -54,5 +63,5 @@ fails). Giving a guest's tag the mail tools lets a guest share the opener's
 mail ("a guest may mute and set the style" fails, and its gateway twin in
 `agentCommandTools.test.mjs`). Letting the Worker's command write the style
 its own way lets the two paths drift ("the tool and the texted command write
-the same row" fails). Wording a refusal as success brings back "I've saved
+the same row" fails). Dropping the own-words check lets another member, a quote or an email share the tagger's mail ("another member's words, a quote or an email cannot share Ada's mail" fails). Wording a refusal as success brings back "I've saved
 your settings" ("a refusal is never worded as done" fails).
