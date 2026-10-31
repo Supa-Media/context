@@ -117,8 +117,10 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
   // The chat is carried only when the turn has nothing the copy can't hold: fixed Worker texts go to the history as they always did.
   const chatUsable = eligible && !(Array.isArray(body?.told) && body.told.length > 0);
   const cleanSeen = {};
+  // A background job writes on its own (task notes, the jobs list, a skill): while one runs, or just after, those are read fresh.
+  const jobBusy = (Array.isArray(body?.running) ? body.running : []).some((job) => job?.state === "running" || (Number.isFinite(job?.finishedAt) && now - job.finishedAt < WARM_NOTES_MS));
   const part = (name) => async (read) => {
-    const warm = (await opened)?.[name];
+    const warm = jobBusy && (name === "notes" || name === "skills") ? undefined : (await opened)?.[name];
     if (warm !== undefined && warm.value !== undefined) return (next[name] = warm).value;
     const value = await read();
     if (eligible) next[name] = { at: now, value };

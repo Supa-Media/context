@@ -45,11 +45,17 @@ from storage; one without reads as before and starts one.
 - Waiting asks are kept only as "none waited after the last turn". A text
   that may answer an ask (a yes, a no, a tapback) still reads the records:
   that check is the gateway's, never a copy's.
-- The Worker drops the copy after a day, when an answer hands none back, when
-  it starts a background job, and when a routine texts the person: the chat
-  then holds words the copy hasn't seen. A group, a job's turn and a routine never
-  use or make one. A job's report to the chat's own turn does (2026-10-31:
-  it re-read 150 exchanges, 10 s, before the model).
+- The Worker drops the copy after a day, when an answer hands none back, and
+  when a routine texts the person: the chat then holds words the copy hasn't
+  seen. A group, a job's turn and a routine never use or make one. A job's
+  report to the chat's own turn does (2026-10-31: it re-read 150 exchanges,
+  10 s, before the model).
+- A turn that starts a background job keeps its copy (2026-10-31: the text
+  after a job start re-read 150 exchanges and every skill, 9 s). A job never
+  writes the chat itself, it reports through the chat's own turn, but it can
+  write task notes, the jobs list or a skill, so while a job runs, and for ten
+  minutes after it finishes, About me, the jobs list and the skills are read
+  fresh (`warmCopy.js` `jobBusy`).
 
 ## Also moved out of the reply's way
 

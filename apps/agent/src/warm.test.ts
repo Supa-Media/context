@@ -8,7 +8,9 @@
  *    drops the old one" fails;
  *  - `dropWarm` dropped from `textRoutine`: "a routine's text drops it" fails;
  *  - `keep` not comparing the drop count: "a routine that texts while a turn
- *    runs keeps that turn's copy from being kept" fails.
+ *    runs keeps that turn's copy from being kept" fails;
+ *  - `keep` dropping the copy when the answer started a job: "a turn that
+ *    started a job still hands its copy to the next text" fails.
  */
 import { describe, expect, it } from "vitest";
 import { accept, drain, type InboxDeps } from "./inbox";
@@ -51,6 +53,16 @@ describe("the warm copy", () => {
     const recent = bodies[1].recent as { text?: string; from: { kind: string } }[];
     expect(recent.map((event) => event.text)).toEqual(expect.arrayContaining(["hi Tex", "what's up"]));
     expect(recent.some((event) => event.from.kind === "tex")).toBe(true);
+  });
+
+  it("a turn that started a job still hands its copy to the next text", async () => {
+    const storage = new MemoryStorage();
+    const bodies: Record<string, unknown>[] = [];
+    await accept(storage, msg("e1", "fill in the application"), 1_000);
+    await drain(storage, deps(bodies, [{ answer: "On it.", warm: "tw1.sealed-job", jobs: [{ title: "Application", brief: "Fill it in.", doneWhen: "every answer drafted" }] }]));
+    await accept(storage, msg("e2", "thanks"), 2_000);
+    await drain(storage, deps(bodies, [{ answer: "Sure." }], () => 2_000));
+    expect(bodies[1].warm).toBe("tw1.sealed-job");
   });
 
   it("an answer with no copy drops the old one, and a day-old copy is not sent", async () => {
