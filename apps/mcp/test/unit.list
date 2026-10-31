@@ -151,6 +151,7 @@ test/attention.test.mjs
 test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
+test/privacy/sealedChats.test.mjs
 test/agentPictureMaker.test.mjs
 test/agentVisuals.test.mjs
 test/agentVisualNotice.test.mjs

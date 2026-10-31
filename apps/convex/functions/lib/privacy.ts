@@ -594,6 +594,33 @@ export function readsAsGuest(names: ReadonlySet<string> | undefined): boolean {
 }
 
 /**
+ * The rule that seals a folder: what is under it is seen only through a row token a person was named on, never by
+ * a role, an owner's included (decided by the owner, 2026-10-31: group Tex's chats live in the pinned workspace,
+ * sealed from the people who run it; `docs/decisions/texting-assistant/chat-homes.md`). Shaped like a row token so
+ * it passes every boundary a rule's visibility does; no row's id is spelled with these letters, so nobody holds it.
+ * Mirrored in `apps/mcp/src/privacy/engine.js`.
+ */
+export const SEALED = "@#sealed-chats";
+
+/** A row's token, as `nodes/rowAccess.ts` renders it: the only visibility that opens anything under a sealed rule. */
+const ROW_TOKEN = /^@#[a-z0-9-]{8,64}$/;
+
+/**
+ * Whether `key` is under a sealed rule (`SEALED`), compared folded, so no spelling of a path slips out from under it.
+ * A sealed rule outranks scope: `canSee` answers it by name alone.
+ */
+export function sealedCovers(key: string, rules: readonly PrivacyRule[]): boolean {
+  let folded: string | null = null;
+  for (const rule of rules) {
+    if (rule.vis !== SEALED) continue;
+    folded ??= foldPath(key);
+    const prefix = foldPath(rule.prefix);
+    if (folded === prefix || folded.startsWith(`${prefix}/`)) return true;
+  }
+  return false;
+}
+
+/**
  * The one question that matters: may this caller see this key at all?
  *
  * `privacy.md` is visible only at `private` scope — it is the access map, and
@@ -625,8 +652,11 @@ export function canSee(
 ): boolean {
   if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false;
-  if (scope === "private") return true;
+  const sealed = sealedCovers(key, rules);
+  if (scope === "private" && !sealed) return true;
   const visibility = effectiveVisibility(key, rules, overrides);
+  // A sealed folder opens to the row tokens its people hold, and to nothing a role gives (`sealedCovers`).
+  if (sealed) return visibility !== SEALED && ROW_TOKEN.test(visibility) && grantedGroups !== undefined && grantedGroups.has(visibility);
   if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
   return grantedGroups !== undefined && grantedGroups.has(visibility);

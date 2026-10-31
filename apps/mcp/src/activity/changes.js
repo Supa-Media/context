@@ -13,6 +13,7 @@ import { frontMatterBlock } from "../notes/format.js";
 import { isEncryptedNote } from "../encryption.js";
 import { readsBetween, storageBudget } from "../live/readLog.js";
 import { readFilterFor } from "../live/storedReads.js";
+import { sealedCovers } from "../privacy/engine.js";
 
 /**
  * The changes that alter a context's file tree — something created, moved,
@@ -129,6 +130,8 @@ export async function toolListChanges(store, scope, rules, overrides, limitArg, 
     );
     for (const entry of entries) {
       if (!entry) continue;
+      // A record about a sealed path is nobody's by role, an owner's included (`privacy/engine.js` `sealedCovers`).
+      if (Array.isArray(entry.paths) && entry.paths.some((path) => typeof path === "string" && sealedCovers(path, rules))) continue;
       if (scope !== "private") {
         // Only an immutable event-time decision may expose audit paths to a
         // team connection. Legacy records without the flag fail closed.

@@ -130,7 +130,16 @@ const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.
 function isQuietPath(path) {
   if (typeof path !== "string" || path === "") return true;
   if (path === ACTIVITY_PATH) return true;
-  return path.startsWith("tex/transcripts/") || path.startsWith("tex/dreams/") || path.split("/").some((segment) => segment.startsWith("."));
+  // `tex/groups/`: a group chat's memory is a log of its own, and in the pinned workspace a sealed one, which a line
+  // in this note, read whole by an owner, would name (`apps/convex/functions/lib/nodes/sealedChats.ts`).
+  const folded = path.toLowerCase();
+  return (
+    folded.startsWith("tex/transcripts/") ||
+    folded.startsWith("tex/dreams/") ||
+    folded === "tex/groups" ||
+    folded.startsWith("tex/groups/") ||
+    path.split("/").some((segment) => segment.startsWith("."))
+  );
 }
 
 /**
