@@ -11,6 +11,8 @@
  *  1. `readVerdict` accepting any word after VERDICT:.
  *     → "the advisor's two lines are read strictly" fails.
  *  2. `jobFields` dropping `unfinished` for keep_going.
+ *  2a. `jobFields` dropping `untrusted` → "keep_going carries on; done, waiting and stuck end the job" fails: a later
+ *      part of a job that read from outside would run unmarked, built on this part's draft and advice.
  *     → "keep_going carries on; done, waiting and stuck end the job" fails.
  *  3. `jobCheckBrief` leaving out the finish line.
  *     → "the advisor reads the job, its finish line, their texts and every tool result" fails.
@@ -51,6 +53,9 @@ test("keep_going carries on; done, waiting and stuck end the job", () => {
   assert.deepEqual(jobFields({ verdict: "keep_going", advice: "a" }, { exhausted: true, unfinished: false }), { exhausted: true, verdict: "keep_going", advice: "a" }, "exhausted already carries on");
   assert.deepEqual(jobFields(null, { exhausted: false, unfinished: true }), { unfinished: true });
   assert.deepEqual(jobFields(null, { exhausted: false, unfinished: false }), {});
+  // The mark for a read from outside goes with every verdict, since the parts after this one are built on its words.
+  assert.deepEqual(jobFields({ verdict: "done", advice: "" }, { exhausted: false, unfinished: false, untrusted: true }), { untrusted: true, verdict: "done" });
+  assert.deepEqual(jobFields(null, { exhausted: false, unfinished: true, untrusted: true }), { untrusted: true, unfinished: true }, "and with no verdict at all");
 });
 
 test("the advisor reads the job, its finish line, their texts and every tool result", () => {

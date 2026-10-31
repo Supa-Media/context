@@ -118,12 +118,22 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
 }
 
 /**
- * The answer's fields for a job's part: the verdict and its advice, and
- * `unfinished` when it should carry on, as the Worker reads it. Without a
+ * The answer's fields for a job's part: the verdict and its advice,
+ * `unfinished` when it should carry on, as the Worker reads it, and
+ * `untrusted` when this part read from outside the workspace. Without a
  * verdict, the old phrase check (`unfinished`) decides.
+ *
+ * `untrusted` is how the turn's mark reaches the parts after this one. It dies
+ * with the request, and the Worker keeps it on the job's run record instead
+ * (`apps/agent/src/jobRun.ts`), so every later part is asked with `tainted`
+ * (`background.js` `jobOf`). They need it because they are built on this
+ * part's words: its draft, which the next part is told to build on, and the
+ * advice above, which it is told to start on — both written by a model that
+ * had just read the page. In the gateway that mark is what refuses a write to
+ * `tex/skills/` (`learnedSkills.js`) and what leaves a delegation unvouched.
  */
-export function jobFields(check, { exhausted, unfinished }) {
-  const base = exhausted ? { exhausted: true } : {};
+export function jobFields(check, { exhausted, unfinished, untrusted = false }) {
+  const base = { ...(exhausted ? { exhausted: true } : {}), ...(untrusted ? { untrusted: true } : {}) };
   if (check === null) return { ...base, ...(!exhausted && unfinished ? { unfinished: true } : {}) };
   return { ...base, verdict: check.verdict, ...(check.advice ? { advice: check.advice } : {}), ...(!exhausted && check.verdict === "keep_going" ? { unfinished: true } : {}) };
 }
@@ -133,9 +143,9 @@ export function jobFields(check, { exhausted, unfinished }) {
  * (`checkJob`), any other turn keeps `exhausted` and the phrase check's
  * `unfinished` as before.
  */
-export async function jobTurnFields(job, turn, { unfinished, model, efforts, request, meter }) {
+export async function jobTurnFields(job, turn, { unfinished, untrusted = false, model, efforts, request, meter }) {
   const exhausted = turn.exhausted === true;
   if (job === null) return exhausted ? { exhausted: true } : unfinished ? { unfinished: true } : {};
   const check = await checkJob({ job, live: turn.live, answer: turn.answer, exhausted, model, effort: efforts?.[model], request, meter });
-  return jobFields(check, { exhausted, unfinished });
+  return jobFields(check, { exhausted, unfinished, untrusted });
 }
