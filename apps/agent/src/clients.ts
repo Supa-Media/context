@@ -236,7 +236,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -381,7 +381,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
-  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true)) { // `quiet`: a turn with nothing to text, as a flag (`apps/mcp/src/agent/jobReport.js`)
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
@@ -395,7 +395,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       pictures,
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers) } : {}),
-      ...(verbatim.length > 0 ? { verbatim } : {}),
+      ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
