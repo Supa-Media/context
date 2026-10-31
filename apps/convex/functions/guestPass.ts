@@ -10,23 +10,34 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { readThroughShare } from "./lib/shares/readPath";
 import { workspaceBySlug } from "./lib/textGroupInvited";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
-import { phoneHolder } from "./phoneSignIn";
+import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
+import { nameOutsider } from "./lib/textGroupGuestSync";
+import { mintPhoneSignInCode } from "./textSignIn";
 
 /**
- * A guest pass: opening a note from a Tex guest chat with a texted code, no account needed (the owner,
- * 2026-10-27; `docs/decisions/texting-assistant/guest-phone-pass.md`).
+ * Opening a note from a Tex guest chat with a texted code, no account needed (the owner, 2026-10-27;
+ * `docs/decisions/texting-assistant/guest-phone-pass.md`). Since 2026-10-31 the code makes an account.
  *
  * Someone in a guest chat who has no account taps the note link Tex sent (`/note/@slug/<path>`). The page asks
- * for their number, texts it a code, and the code gives that browser a pass. The pass names the number (as its
- * hash, `lib/guestPhones.ts`) and nothing else: every read works out again which guest chats the number is in now,
- * and what those chats' groups can see, so leaving the chat, guest mode going off or the owner taking a note back
- * ends it on the next read.
+ * for their number and texts it a code. A code that checks out makes a light account for the number (`enrol`), named
+ * on the chat's folder to edit as an outsider is, and the page signs in with that account through `phone-verify`
+ * (`mintPhoneSignInCode`). It is then an ordinary user: what it reads and edits, and what the audit names, are the
+ * normal paths'. Passes made before accounts still read what the chat's group can see, read as a guest, until they
+ * expire; `usePass`, `readNote` and `signOut` serve them.
  *
  *  - **A code goes only to a number in a live guest chat** of the workspace the link names. Any other number is
  *    texted nothing and gets the same answer, so this public action can't be used to text strangers, nor to ask
  *    whether a number is in a chat.
- *  - **Read only.** Edits still go through Tex in the chat. A note that is sealed, or comments on it, never reach
- *    the page: it reads through the share path with `openToAnyone`, as a link does.
+ *  - **A wrong code makes no account.** The code is checked before anything else is asked; an approved code for a
+ *    number in no chat, or one an account carries, makes nothing.
+ *  - **A number an account holds signs in for real** (the owner, 2026-10-27: "I should already be signed in"). It is
+ *    texted the ordinary sign-in code, whichever chat it is in, members chats included, and the page signs in with
+ *    `phone-verify`, landing on the note in the console with everything the account may see. Whether a number holds
+ *    an account is already what the public sign-in page answers, so saying so here tells nobody anything new.
+ *  - **A phone alone never takes an existing account.** A new account is made only for a number no row carries, and
+ *    an existing holder is only ever signed into by the ordinary `phone-verify` path (`account-safety.md`).
+ *  - **Legacy passes are read only.** Edits still go through Tex in the chat. A note that is sealed, or comments on
+ *    it, never reach a pass's page: it reads through the share path with `openToAnyone`, as a link does.
  *  - **A number an account holds signs in for real** (the owner, 2026-10-27: "I should already be signed in"). It is
  *    texted the ordinary sign-in code, whichever chat it is in, members chats included, and the page signs in with
  *    `phone-verify`, landing on the note in the console with everything the account may see. Whether a number holds
@@ -50,8 +61,6 @@ const LOOKUPS_PER_HOUR = 1000;
 const SIGN_IN_SEND_PER_HOUR = 300;
 /** Codes typed for one phone per hour, right or wrong. */
 const CHECK_PER_PHONE = 10;
-/** Most passes one number holds; the oldest goes when a new one is made. */
-const MAX_PASSES_PER_PHONE = 10;
 
 const startStatus = v.union(
   v.literal("sent"),
@@ -131,39 +140,51 @@ export const spendCheck = internalMutation({
     await tryConsumeRateLimit(ctx, { key: `guestPass.check:${phone}`, limit: CHECK_PER_PHONE, windowMs: WINDOW_MS }),
 });
 
-/** Keep a new pass for a number that just proved itself and is in a guest chat; `false` when it is in none. */
-export const issue = internalMutation({
-  args: { phoneHash: v.string(), tokenHash: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, { phoneHash, tokenHash }) => {
-    if ((await guestChatsOf(ctx, phoneHash)).length === 0) return false;
-    const held = await ctx.db
-      .query("guestPasses")
-      .withIndex("by_phone_hash", (q) => q.eq("phoneHash", phoneHash))
-      .take(MAX_PASSES_PER_PHONE + 5);
-    held.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-    for (const old of held.slice(0, Math.max(0, held.length - MAX_PASSES_PER_PHONE + 1))) await ctx.db.delete(old._id);
-    const now = Date.now();
-    await ctx.db.insert("guestPasses", { tokenHash, phoneHash, createdAt: now, lastUsedAt: now, expiresAt: now + PASS_LIFETIME_MS });
-    // Expired passes of anyone are swept a few at a time as passes are made.
+/**
+ * A number a texted code just proved, and that is in a live guest chat, and that no account carries: its light account
+ * (`newPhoneAccount`, the account phone sign-in makes for a number staff let in), named on each of the chats' folders
+ * (`nameOutsider`), and the code that signs it in through `phone-verify` (`mintPhoneSignInCode`). Anything else is
+ * `unavailable`: a number in no chat, one an account already holds or carries (that sign-in is the ordinary one), or
+ * one that changed hands since the code was checked.
+ */
+export const enrol = internalMutation({
+  args: { phone: v.string(), phoneHash: v.string() },
+  returns: v.union(v.object({ status: v.literal("ok"), code: v.string() }), v.object({ status: v.literal("unavailable") })),
+  handler: async (ctx, { phone, phoneHash }) => {
+    const chats = await guestChatsOf(ctx, phoneHash);
+    if (chats.length === 0) return { status: "unavailable" as const };
+    // Any row carrying the number, confirmed or not, is someone's: a new account never takes a number from anyone.
+    const carried = await ctx.db
+      .query("users")
+      .withIndex("by_phone", (q) => q.eq("phone", phone))
+      .take(1);
+    if (carried.length > 0 || (await phoneHolder(ctx, phone)) !== null) return { status: "unavailable" as const };
+    const userId = await newPhoneAccount(ctx, phone, { adConversions: false });
+    for (const chat of chats) await nameOutsider(ctx, chat, userId);
+    // Expired passes of anyone are swept a few at a time, as accounts are made.
     for (const stale of await ctx.db
       .query("guestPasses")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", Date.now()))
       .take(20)) {
       await ctx.db.delete(stale._id);
     }
-    return true;
+    return { status: "ok" as const, code: await mintPhoneSignInCode(ctx, userId, phone) };
   },
 });
 
-/** Check the texted code and hand this browser a pass. The pass is returned once and kept here only as a hash. */
+/**
+ * Check the texted code. A number in a live guest chat that no account carries gets its light account and the code to
+ * sign in with (`enrol`); the page then signs in through `phone-verify`, as a number an account holds does, so this
+ * action never holds a session. The code is checked before anything else is asked, so a wrong code answers the same for
+ * every number, and only an approved one says whether the number is in a chat.
+ */
 export const verify = action({
   args: { phone: v.string(), code: v.string() },
   returns: v.object({
     status: v.union(v.literal("ok"), v.literal("wrong"), v.literal("too_many"), v.literal("unavailable")),
-    pass: v.optional(v.string()),
+    code: v.optional(v.string()),
   }),
-  handler: async (ctx, args): Promise<{ status: "ok" | "wrong" | "too_many" | "unavailable"; pass?: string }> => {
+  handler: async (ctx, args): Promise<{ status: "ok" | "wrong" | "too_many" | "unavailable"; code?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null || !/^\d{6}$/.test(args.code)) return { status: "wrong" };
     const phoneHash = await guestPhoneHash(phone);
@@ -172,17 +193,10 @@ export const verify = action({
     const checked = await checkCode(ctx, phone, args.code);
     if (checked === "too_many") return { status: "too_many" };
     if (checked !== "approved") return { status: "wrong" };
-    const pass = newPass();
-    const issued = await ctx.runMutation(internal.functions.guestPass.issue, { phoneHash, tokenHash: await hashToken(pass) });
-    return issued ? { status: "ok", pass } : { status: "unavailable" };
+    const made = await ctx.runMutation(internal.functions.guestPass.enrol, { phone, phoneHash });
+    return made.status === "ok" ? { status: "ok", code: made.code } : { status: "unavailable" };
   },
 });
-
-/** 32 random bytes, base64url. */
-function newPass(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
 
 /** The number a live pass names, its last use written now and then. `null` for an unknown or expired pass. */
 export const usePass = internalMutation({

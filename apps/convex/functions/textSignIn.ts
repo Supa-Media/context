@@ -1,8 +1,33 @@
 import { v } from "convex/values";
-import { action, internalMutation, type ActionCtx } from "../_generated/server";
+import { action, internalMutation, type ActionCtx, type MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { personalWorkspaceOf } from "./textLinks";
+
+/**
+ * A ten-digit code that signs `userId` in through `phone-verify`, for a page that has just proved `phone` with a texted
+ * code and was made the account itself (`guestPass.ts`, the owner, 2026-10-31). The page then signs in exactly as a
+ * number an account holds does: the provider checks this code, `signInUser` names the holder, and the session is the
+ * library's. The row has no link to open, so its token is random and never sent; it is spent by the code like any
+ * other, and lives the code's five minutes.
+ */
+export async function mintPhoneSignInCode(ctx: MutationCtx, userId: Id<"users">, phone: string): Promise<string> {
+  const code = newLinkCode();
+  const now = Date.now();
+  const token = [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  await ctx.db.insert("textSignInLinks", {
+    userId,
+    phone,
+    tokenHash: await hashToken(token),
+    next: "/",
+    expiresAt: now + SIGN_IN_LINK_TTL_MS,
+    openedAt: now,
+    codeHash: await hashToken(code),
+    codeExpiresAt: now + SIGN_IN_CODE_TTL_MS,
+  });
+  return code;
+}
 
 /**
  * The link Tex texts once somebody's notes are ready, which signs them in

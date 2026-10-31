@@ -39,6 +39,18 @@ export async function syncChatPeople(
   await syncFolderPeople(ctx, chat, actor, people.outsiders.slice(0, MAX_FOLDER_PEOPLE));
 }
 
+/**
+ * An account that has just been made for a number in the chat (`guestPass.ts`) is named on the chat's folder to edit,
+ * as the next tag would name it, rather than made a member of the group: a group row reaches nothing for someone who
+ * isn't a member, and a member is an invitation, which is the owner's. Waits for the folder's grant, like the tag does.
+ */
+export async function nameOutsider(ctx: MutationCtx, chat: Doc<"textGroups">, userId: Id<"users">): Promise<void> {
+  if (chat.boundBy === undefined) return;
+  const wanted = [...(chat.guestFolderUsers ?? [])];
+  if (!wanted.includes(userId)) wanted.push(userId);
+  await syncFolderPeople(ctx, chat, chat.boundBy, wanted.slice(0, MAX_FOLDER_PEOPLE));
+}
+
 /** Everything the chat added, taken back: guest mode is off. */
 export async function unsyncChatPeople(ctx: MutationCtx, chat: Doc<"textGroups">): Promise<void> {
   if (chat.workspaceId !== undefined && chat.guestGroupId !== undefined) {
