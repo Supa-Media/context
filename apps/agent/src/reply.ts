@@ -275,7 +275,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), recent: await deps.warm?.recent(message.chatId) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, texStyle: session.texStyle, arrivedAt: deps.arrivedAt, warm: await deps.warm?.get(), recent: await deps.warm?.recent(message.chatId), holdsLog: message.chatId ? await deps.warm?.holds(message.chatId) : undefined },
     );
     if (answer.kind !== "answer") await deps.warm?.keep(undefined); // a turn that didn't answer may have written: the next one reads whole (`warm.ts`)
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -284,6 +284,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.onAnswered?.();
       // A job it started will write to the chat by itself: the next text reads it whole.
       await deps.warm?.keep(answer.jobs ? undefined : answer.warm);
+      if (answer.log && message.chatId) await deps.warm?.keepLog(message.chatId, answer.log); // the chat's log, held here from now on (`events.ts` `keepLog`)
       await deps.onToldDelivered?.();
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.();

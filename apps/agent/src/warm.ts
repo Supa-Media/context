@@ -15,7 +15,7 @@
  */
 
 import { MAX_WARM_CHARS } from "./clients";
-import { recentEvents, type TexEvent } from "./events";
+import { holdsLog, keepLog, recentEvents, type TexEvent } from "./events";
 import type { InboxStorage } from "./inbox";
 
 const WARM_KEY = "tex-warm";
@@ -30,6 +30,10 @@ export type WarmDeps = {
   get(): Promise<string | undefined>;
   /** This chat's newest events, as `/agent/events` would take them. */
   recent(chat: string): Promise<TexEvent[]>;
+  /** Whether this object holds the chat's whole log (`events.ts` `holdsLog`): then the gateway reads none of it from storage. */
+  holds(chat: string): Promise<boolean>;
+  /** Keep the log the gateway read from storage, so the next turn needn't (`events.ts` `keepLog`). */
+  keepLog(chat: string, events: readonly TexEvent[]): Promise<void>;
   /** Keep the copy an answer handed back, or drop the old one when it handed none. */
   keep(sealed: string | undefined): Promise<void>;
 };
@@ -49,6 +53,8 @@ export function warmDeps(storage: InboxStorage, now: () => number): WarmDeps {
       return kept.sealed;
     },
     recent: (chat) => recentEvents(storage, chat),
+    holds: (chat) => holdsLog(storage, chat),
+    keepLog: (chat, events) => keepLog(storage, chat, events, now()),
     async keep(sealed) {
       const since = (await storage.get<number>(DROPS_KEY)) ?? 0;
       if (typeof sealed === "string" && since === (drops ?? since) && sealed.length > 0 && sealed.length <= MAX_WARM_CHARS) await storage.put<Kept>(WARM_KEY, { at: now(), sealed });
