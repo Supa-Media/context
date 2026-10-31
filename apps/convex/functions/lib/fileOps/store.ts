@@ -69,7 +69,7 @@ export function underHiddenRoot(path: string): boolean {
 
 /**
  * Retired as a constant: which folder is *the* archive is a question about the
- * context's own manifest, not a literal. See `archiveRoot` in `lib/privacy.ts`.
+ * context's own manifest, not a literal. See `archiveRoot` in `lib/archiveRoots.ts`.
  */
 
 /* -------------------------------------------------------------------------- */

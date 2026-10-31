@@ -7,7 +7,7 @@
  * overall rules.
  */
 
-import { ARCHIVE_FOLDER_PATTERN } from "../privacy";
+import { ARCHIVE_FOLDER_PATTERN } from "../archiveRoots";
 import { INDEX_KEY, LEGACY_PARA_FOLDERS, PARA_FOLDERS, PRIVACY_KEY } from "./store";
 
 /**
