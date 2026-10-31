@@ -284,6 +284,7 @@ export function modelLine(model, models = null) {
   const named = (value) => typeof value === "string" && value.length > 0 && value.length <= 160;
   if (!named(model)) return "";
   const routed = named(models?.main) && named(models?.think) && models.main !== models.think;
+  if (routed && models.jobsOnly === true) return `This answer is written by the AI model ${model}. You run on two models: ${models.main} answers texts and carries out long jobs, and ${models.think} plans those jobs. If they ask which model you run on, say that.`;
   return routed
     ? `This answer is written by the AI model ${model}. You run on two models: ${models.main} answers most texts, and harder ones and long jobs go to ${models.think}. If they ask which model you run on, say that.`
     : `This answer is written by the AI model ${model}. If they ask which model you run on, tell them that.`;
