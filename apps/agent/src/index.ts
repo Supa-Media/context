@@ -47,7 +47,7 @@ import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
 import { mintThreadsLink, readJobSteer, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
-import { acceptJob, armJobNext, failJob, runJob, steerJob } from "./jobRun";
+import { acceptJob, armJobNext, failJob, resumeJob, runJob, steerJob } from "./jobRun";
 import { handOverJob, startJobFlow, type JobRunParams } from "./jobWorkflow";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -224,7 +224,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         runInChat: (run) => runInChat(env, run),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
@@ -236,7 +236,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey, continues) => textPhone(env, phone, text, idempotencyKey, continues),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -468,13 +468,13 @@ export class SenderInbox implements DurableObject {
       );
     }
     if (path === "/routine-text") {
-      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown };
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown; beside?: unknown };
       if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
         return new Response(null, { status: 400 });
       }
       const status = await textRoutine(
         this.state.storage,
-        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}) },
+        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) },
         {
           fetch: (input, init) => fetch(input, init),
           linqApiKey: this.env.LINQ_API_KEY,
@@ -539,6 +539,8 @@ export class SenderInbox implements DurableObject {
     if (path === "/job-steer") {
       const steer = readJobSteer(await request.json());
       if (steer === null) return new Response(null, { status: 400 });
+      // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
+      if (steer.resume) return Response.json({ taken: await resumeJob(this.state.storage, Date.now(), this.env.JOB_RUN ? (id, resumes) => startJobFlow(this.env.JOB_RUN!, id, resumes) : undefined) });
       return Response.json({ taken: await steerJob(this.state.storage, steer) });
     }
     if (path === "/job-update") {

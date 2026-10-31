@@ -236,7 +236,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; quiet?: true; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -296,7 +296,7 @@ export async function askAgent(
     told = [],
     texStyle,
     arrivedAt,
-    warm,
+    warm, beside,
     recent,
     holdsLog,
   }: {
@@ -323,7 +323,7 @@ export async function askAgent(
     /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
-    warm?: string;
+    warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[];
     holdsLog?: boolean; // `recent` is the chat's whole log (`events.ts` `holdsLog`): the gateway reads none from storage
   } = {},
@@ -348,7 +348,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...(texStyle ? { texStyle } : {}),
     ...(arrivedAt !== undefined ? { arrivedAt } : {}),
-    ...(warm ? { warm } : {}),
+    ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
     ...(holdsLog === true ? { holdsLog: true } : {}),
   };
@@ -400,7 +400,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
-      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
+      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
@@ -649,6 +649,8 @@ export type RoutineAnswer = {
   answer: string;
   /** The routine's `send:` as the gateway read it just now, when it said. */
   send: RoutineSend | null;
+  /** What the gateway wrote to their texts for it, sealed for the next text (`warm.ts` `keepBeside`). */
+  beside?: string;
 };
 
 const GATEWAY_OUTCOMES = new Set(["answered", "skipped", "finished", "failed", "paused"]);
@@ -667,14 +669,7 @@ export async function runRoutine(
   const failed: RoutineAnswer = { outcome: "failed", answer: "", send: null };
   let result: { status: number; json: unknown };
   try {
-    result = await post(
-      fetcher,
-      "gateway",
-      `${gatewayOrigin}/agent`,
-      accessToken,
-      { routine: { path: routine.path, timeZone: routine.timeZone } },
-      AGENT_TIMEOUT_MS,
-    );
+    result = await post(fetcher, "gateway", `${gatewayOrigin}/agent`, accessToken, { routine: { path: routine.path, timeZone: routine.timeZone } }, AGENT_TIMEOUT_MS);
   } catch {
     return failed;
   }
@@ -686,7 +681,7 @@ export async function runRoutine(
     return {
       outcome,
       answer: speaks && typeof body.answer === "string" ? body.answer.trim() : "",
-      send: isSend(body.send) ? body.send : null,
+      send: isSend(body.send) ? body.send : null, ...(typeof body.beside === "string" ? { beside: body.beside } : {}), // what it wrote to their texts, sealed (`warm.ts` `keepBeside`)
     };
   }
   if (result.status === 404) return { ...failed, outcome: "routine_gone" };

@@ -18,6 +18,8 @@
  *     → "the advisor reads the job, its finish line, their texts and every tool result" fails.
  *  4. `checkJob` not metering a failed advisor call.
  *     → "a chat's own turn is never checked; an unreachable advisor falls back to the phrase check" fails.
+ *  5. `jobTurnFields` leaving out `idle`.
+ *     → "a chat's own turn is never checked; an unreachable advisor falls back to the phrase check" fails.
  */
 
 import assert from "node:assert/strict";
@@ -83,7 +85,7 @@ test("a chat's own turn is never checked; an unreachable advisor falls back to t
     return { text: "VERDICT: keep_going\nADVICE: Sign in with the email link.", usage: { input: 10, output: 5 } };
   };
   const meter = async (usage, failed, model) => metered.push({ usage, failed, model });
-  const turn = { answer: "I'll begin with the sign-in.", live: LIVE };
+  const turn = { answer: "I'll begin with the sign-in.", live: LIVE, steps: [{ tool: "send", ok: true }] };
 
   assert.deepEqual(await jobTurnFields(null, turn, { unfinished: true, model: "m", request, meter }), { unfinished: true });
   assert.deepEqual(await jobTurnFields(null, { ...turn, exhausted: true }, { unfinished: false, model: "m", request, meter }), { exhausted: true });
@@ -103,5 +105,8 @@ test("a chat's own turn is never checked; an unreachable advisor falls back to t
   assert.deepEqual(await jobTurnFields(JOB, turn, { unfinished: true, model: "m", request: broken, meter }), { unfinished: true });
   assert.equal(metered.at(-1).failed, true);
   assert.deepEqual(await jobTurnFields(JOB, turn, { unfinished: false, model: undefined, request, meter }), {}, "no model: the old check");
+  // A part that called no tool says so, so two in a row end the job (`jobRun.ts`); a chat's own turn never does.
+  assert.deepEqual(await jobTurnFields(JOB, { ...turn, steps: [] }, { unfinished: true, model: undefined, request, meter }), { unfinished: true, idle: true });
+  assert.deepEqual(await jobTurnFields(null, { ...turn, steps: [] }, { unfinished: false, model: "m", request, meter }), {});
   assert.equal(await checkJob({ job: JOB, live: LIVE, answer: "x", model: "m", request: async () => ({ text: "Sure!" }) }), null);
 });

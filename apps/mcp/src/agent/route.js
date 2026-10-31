@@ -56,7 +56,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { vaultSavedQuestion, withVaultWatch } from "./vaultSaved.js";
 import { answerWithAsk, approvalVerdict, textedAsk, thumbsDownIsNo, thumbsUpIsYes } from "./textedApprovals.js";
-import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, warmTurn } from "./warmCopy.js";
+import { setAsideLine, settleTextedText } from "./textedSettle.js"; import { mayAnswerAsk, waitingAsks } from "./frontDoor.js"; import { exchangeTurns, sealBeside, warmTurn } from "./warmCopy.js";
 import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is never shown again
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
@@ -149,7 +149,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads (`warmCopy.js`)
+  store.chatWrites = []; store.historyLogged = () => hot.logged(); const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, now: received, writes: () => store.chatWrites }); // what the Worker kept of the last turn's reads, and every write to the history since (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
@@ -178,7 +178,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       await keepRun(store, routine, runs, outcome, answer || NO_MODEL);
       if (outcome === "finished") await stopRoutine(dispatch, routine.path);
       if (supervision.task) await deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work));
-      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to, beside: (await sealBeside(env, session, store.chatWrites)) ?? undefined }); // what it wrote to their texts, for the warm copy
     }
     if (supervision !== null) question = supervision.question;
   }
@@ -224,12 +224,12 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       told: body.told,
       thumbsUp,
     });
-    if (settled?.answer !== undefined) return (outcome.clean = true), json(settled); // the gateway's words, nothing read
+    if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await hot.seal({ wrote: true })) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
     ({ setAside = [], dropped = [] } = settled ?? {});
     paid = settled?.allowed ?? [];
   }
 
-  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
+  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
   try {
     await openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null }); stages?.mark("provider"); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
   } catch (error) {
@@ -292,7 +292,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
+  const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -367,7 +367,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   */
   const production = await setupRead; stages?.mark("setup");
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
-  const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
+  const { shown, ...inThread } = threadView(history, quoted, job !== null ? 0 : production?.history ?? SHOWN_HISTORY_TURNS); // a job works from its own record, not the chat (`loggedTurn.js` `JOB_HISTORY_ENTRIES`)
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown) || logged?.tainted === true) markUntrusted(ledger); // and what the log shows of a tainted turn (`loggedTurn.js`)
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
@@ -599,7 +599,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         to: routine.settings.to,
         provider: turn.provider,
         model: turn.model,
-        steps: turn.steps,
+        steps: turn.steps, beside: (await sealBeside(env, session, store.chatWrites)) ?? undefined, // what it wrote to their texts, sealed for the warm copy (`warmCopy.js`)
       });
     }
 

@@ -52,6 +52,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment, before you call a task done, or when you are stuck; it sees this whole turn, so send no args, and it answers you, never them.", take: own }, // `advisor.js`
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
   steer_job: { tool: "steer_background_job", summary: "Steer a background job that is still running: their text, your own note, or stop it.", take: own },
+  restart_job: { tool: "restart_background_job", summary: "Pick background jobs that stopped before finishing back up where they stopped, all in one call; never a new copy.", take: own },
   job_status: { tool: "job_status", summary: "How a background job is going, instantly: its state, the step it is on, all its steps, your advisor's last check and advice, and a finished job's report.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },
   draw_visual: { tool: "draw_visual", summary: "Turn your answer into one of your designed picture cards (options, photos, a trip, a day, a plan, a board, a chart), to text them.", take: own },

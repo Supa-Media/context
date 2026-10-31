@@ -49,6 +49,7 @@ export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, rep
 export const START_JOB_TOOL = "start_background_job";
 export const STEER_JOB_TOOL = "steer_background_job";
 export const JOB_STATUS_TOOL = "job_status";
+export const RESTART_JOB_TOOL = "restart_background_job";
 /** Their later texts a job's turn is shown, newest last. */
 export const MAX_FOLLOW_UPS = 5;
 const MAX_FOLLOW_UP = 4_000;
@@ -246,6 +247,28 @@ const TOOL = {
   },
 };
 
+/** A job that ended without finishing: what "restart it" picks back up (`apps/agent/src/jobs.ts` `resumeJobs`). */
+const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
+
+const RESTART_TOOL = {
+  name: RESTART_JOB_TOOL,
+  description:
+    "Pick background jobs that stopped before finishing back up where they stopped: the same task, finish line and what each had got to, " +
+    "never a new copy. For \"restart it\", \"jumpstart those\", \"try again\", \"keep going on the YC one\". Leave out titles for every one " +
+    "that stopped, or name them from your background list. It answers them for you; send nothing more.",
+  inputSchema: {
+    type: "object",
+    properties: { titles: { type: "array", items: { type: "string" }, description: "Jobs to pick back up, by title; leave out for all that stopped." } },
+  },
+};
+
+/** What they're texted when ended jobs pick back up: at once, by the gateway, as a job's start is. */
+export function resumedLine(titles) {
+  const named = titles.map((title) => `"${line(title, MAX_TITLE)}"`);
+  const list = named.length < 3 ? named.join(" and ") : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+  return `On it: picking ${list} back up where ${titles.length === 1 ? "it" : "they"} stopped. I'll text you when ${titles.length === 1 ? "it's" : "they're"} done.\n[card threads]`;
+}
+
 const STATUS_TOOL = {
   name: JOB_STATUS_TOOL,
   description:
@@ -310,7 +333,16 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   if (running === null) return null;
   const started = [];
   let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
-  const busy = () => running.filter((entry) => entry.state === "running").length + started.length;
+  const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
+  let justResumed = []; // their titles, read once by `endsTurn`
+  const busy = () => running.filter((entry) => entry.state === "running").length + started.length + resumed.length;
+  const resume = (entries) => {
+    const room = Math.max(0, MAX_RUNNING_JOBS - busy());
+    const taken = entries.filter((entry) => !resumed.some((kept) => kept.id === entry.id)).slice(0, room);
+    resumed.push(...taken);
+    justResumed = taken.map((entry) => entry.title);
+    return taken;
+  };
   const call = async (args) => {
     const title = line(args?.title, MAX_TITLE);
     const brief = typeof args?.brief === "string" ? args.brief.trim().slice(0, MAX_BRIEF) : "";
@@ -323,6 +355,12 @@ export function backgroundSession({ running, job, now, report = false, read = ()
           (already.status ? `; latest: ${already.status}` : "") +
           ". Don't start it again: tell them it's in progress and what it's at.",
       );
+    }
+    // The same job that stopped before finishing is picked back up, never started over from this text (2026-10-31).
+    const stopped = running.find((entry) => resumable(entry) && sameJob(entry.title, title));
+    if (stopped && busy() < MAX_RUNNING_JOBS) {
+      resume([stopped]);
+      return text(`Picking "${stopped.title}" back up where it stopped. They're told so; send nothing more.`);
     }
     if (busy() >= MAX_RUNNING_JOBS) {
       return text(
@@ -346,7 +384,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     if (!target) {
       const finished = running.find((entry) => entry.state !== "running" && sameJob(entry.title, title));
       return text(
-        finished
+        finished && resumable(finished)
+          ? `"${finished.title}" stopped before finishing. Pick it back up with send { action: "restart_job", args: { titles: ["${finished.title}"] } }, ` +
+              "then pass it their change once it's running."
+          : finished
           ? `"${finished.title}" isn't running any more, so nothing can be passed to it. Make the change yourself now, or start a new ` +
               "background job for it if it's long."
           : "No running background job by that title. Check the list: only a job that is still running can be passed their text.",
@@ -370,6 +411,23 @@ export function backgroundSession({ running, job, now, report = false, read = ()
             "passed it on; don't do the job's work in this turn.",
     );
   };
+  const restart = async (args) => {
+    const names = Array.isArray(args?.titles) ? args.titles.map((title) => line(title, MAX_TITLE)).filter(Boolean) : [];
+    const ended = running.filter(resumable);
+    const picked = names.length === 0 ? ended : ended.filter((entry) => names.some((name) => entry.title.toLowerCase() === name.toLowerCase() || sameJob(entry.title, name)));
+    if (picked.length === 0) {
+      return text(
+        names.length === 0
+          ? "No background job stopped before finishing: every one is running or done. Tell them so, from your list."
+          : "None of those stopped before finishing: a running one is still going, a finished one is done. Check your list.",
+        true,
+      );
+    }
+    const taken = resume(picked);
+    if (taken.length === 0) return text(`${MAX_RUNNING_JOBS} jobs are already running. Tell them you'll pick these up once one finishes.`, true);
+    const left = picked.filter((entry) => !taken.includes(entry)).map((entry) => `"${entry.title}"`);
+    return text(`Picking ${taken.map((entry) => `"${entry.title}"`).join(", ")} back up.${left.length > 0 ? ` No room for ${left.join(", ")} yet: ${MAX_RUNNING_JOBS} run at once.` : ""}`);
+  };
   const status = async (args) => {
     const title = line(args?.title, MAX_TITLE);
     const picked = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
@@ -386,6 +444,10 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         "it is instant and shows the step it's on, what your advisor last said about it, and a finished job's report. Answer in a line or two, " +
         "what it's on and, if it's stuck, how it's getting around it. A job marked ended is not working on anything: never tell them it is still going. " +
         "An ask for one that's still running gets its status, never a second copy of the job." +
+        (running.some(resumable)
+          ? ' "Restart", "jumpstart" or "try again" on jobs that stopped is send { action: "restart_job" }, all of them in one call: each picks up ' +
+            "where it stopped. Never start a new job for one that stopped."
+          : "") +
         (live.length > 0
           ? ' A text that changes or adds to a running job ("make it yellow, not green") is passed to it with send { action: "steer_job", ' +
             'args: { title } }; "stop it" or "cancel that" is the same with stop: true.'
@@ -394,14 +456,16 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     (job === null ? JOB_FIRST : "");
   let nudged = false;
   return {
-    tools: job === null ? [TOOL, ...(live.length > 0 ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : [])] : [],
+    tools: job === null ? [TOOL, ...(live.length > 0 ? [STEER_TOOL] : []), ...(running.length > 0 ? [STATUS_TOOL] : []), ...(running.some(resumable) ? [RESTART_TOOL] : [])] : [],
     /** A job that started settles the turn: the fixed line goes out, with no model round after (`turn.js` `endsTurn`). */
     endsTurn:
       job === null
         ? (name) => {
             const title = name === START_JOB_TOOL ? justStarted : null;
+            const picked = name === START_JOB_TOOL || name === RESTART_JOB_TOOL ? justResumed : [];
             justStarted = null;
-            return title === null ? null : ackLine(title);
+            justResumed = [];
+            return picked.length > 0 ? resumedLine(picked) : title === null ? null : ackLine(title);
           }
         : null,
     /** Still working after a round of tools with no job started: told once to hand the rest to one (`turn.js` `roundNote`). */
@@ -415,10 +479,12 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         : null,
     call,
     steer,
+    restart,
     status,
     prompt,
     started,
     steered,
+    resumed,
   };
 }
 
@@ -426,7 +492,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
 export function withBackground(background, callTool) {
   if (background === null) return callTool;
   return (name, args) =>
-    name === START_JOB_TOOL ? background.call(args) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : callTool(name, args);
+    name === START_JOB_TOOL ? background.call(args) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
 }
 
 /** What a job's own turn is told: the plan it started with, and to deliver. */
@@ -486,6 +552,8 @@ export function startedJobs(background, tainted) {
     ...(background.started.length > 0
       ? { jobs: background.started.map(({ title, brief, doneWhen }) => ({ title, brief, doneWhen, ...(tainted ? { tainted: true } : {}) })) }
       : {}),
-    ...(background.steered.length > 0 ? { steers: background.steered.map((entry) => ({ ...entry })) } : {}),
+    ...(background.steered.length + background.resumed.length > 0
+      ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true }))] }
+      : {}),
   };
 }
