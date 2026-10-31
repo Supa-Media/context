@@ -205,6 +205,23 @@ export const oauthTables = {
          */
         coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
         invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
+        /**
+         * A home-only grant (`lib/textGroupHomeOnly.ts`, decided by the owner, 2026-10-31): minted on the pinned
+         * workspace, reads only the chat's own home there, as the chat reads, and is held for its sponsor, who pays.
+         * `taggerId` is the account that tagged Tex; `guestPhone` the number of a guest who did. Usage is recorded
+         * against one or the other, never both. `guestPhone` is kept in the control plane only, never in logs.
+         */
+        homeOnly: v.optional(v.literal(true)),
+        taggerId: v.optional(v.id("users")),
+        guestPhone: v.optional(v.string()),
+        /**
+         * A group chat's reach (`lib/textGroupReach.ts`, decided by the owner, 2026-10-31): the shared workspaces every
+         * account holder in the chat is a member of, as of the turn that minted this grant, and those account holders.
+         * Only a snapshot of what to re-check: the rows a request is given are the ones that still hold for every one
+         * of `reachPeople` and the sponsor (`grant.userId`), re-read per request. Absent or empty: the home alone.
+         */
+        reach: v.optional(v.array(v.id("workspaces"))),
+        reachPeople: v.optional(v.array(v.id("users"))),
       }),
     ),
     workspaceId: v.id("workspaces"),
@@ -292,6 +309,25 @@ export const oauthTables = {
     .index("by_access_token", ["hashedAccessToken"])
     .index("by_previous_refresh_token", ["previousHashedRefreshToken"])
     .index("by_path_token_seen", ["pathTokenSeenAt"]),
+
+  /**
+   * A texting grant's access tokens that a newer mint replaced but that have
+   * not expired yet (`textLinks.applyTextsGrant`). Every text, job and review
+   * opens its own session, and one live texting grant per person used to mean
+   * each mint killed the token a turn already running was using: its next
+   * control-plane call (counting the turn) came back "no such grant" and the
+   * person was told "I can't answer right now" (2026-10-31, a question sent
+   * while a job started). Hashes only, honoured only while the grant itself is
+   * live (`liveGrants.resolveLiveGrant`), swept at the next mint, and deleted
+   * with the account.
+   */
+  textsEarlierTokens: defineTable({
+    grantId: v.id("oauthGrants"),
+    hashedAccessToken: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_access_token", ["hashedAccessToken"])
+    .index("by_grant", ["grantId"]),
 
   /**
    * One row per person who has used an AI client other than this app, written

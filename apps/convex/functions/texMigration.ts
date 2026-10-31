@@ -1,6 +1,6 @@
 /**
- * Moving Tex's existing notes into their person's Durable Object (decided by
- * the owner, 2026-10-31; `docs/decisions/texting-assistant/tex-durable-objects.md`).
+ * Moving Tex's existing notes into their Durable Object, a person's or a
+ * group chat's (decided by the owner, 2026-10-31; `docs/decisions/texting-assistant/tex-durable-objects.md`).
  *
  * Run from the `Tex notes into their objects` workflow: first with `dryRun`
  * (counts only, nothing written), then for real, paging with the cursor until
@@ -19,15 +19,24 @@ import { storeForBinding } from "../../mcp/src/store/factory.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
-import { consoleTexStore } from "./lib/texStore";
+import { consoleTexRouting } from "./lib/texStore";
 import { migrateTexNotes, type TexMigrationPage } from "./lib/texMigration/run";
 
-/** The bucket, as the console opens it for this workspace, with Tex keys routed to the person's object; `null` without a binding. */
-async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<FileStore | null> {
+/**
+ * The bucket, as the console opens it for this workspace, with `owner`'s Tex
+ * keys routed to its object (the person's, or a chat's whose home is here);
+ * `null` without a binding.
+ */
+async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, owner: string): Promise<FileStore | null> {
   const credential = (await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId })) as GatewayCredential | null;
   if (credential === null) return null;
   const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-  return storeForBinding(credential, undefined, { managedEncryption, texStore: consoleTexStore(ctx, workspaceId) }) as unknown as FileStore;
+  const chats = owner.startsWith("chat:") ? [owner.slice("chat:".length)] : [];
+  return storeForBinding(credential, undefined, {
+    managedEncryption,
+    ...consoleTexRouting(ctx, workspaceId, { ticketOwners: [owner] }),
+    texChats: chats,
+  }) as unknown as FileStore;
 }
 
 const countsValidator = v.object({
@@ -54,12 +63,12 @@ export const run = internalAction({
     cursor: v.optional(v.string()),
     listPaths: v.optional(v.boolean()),
     limit: v.optional(v.number()),
-    /** A handle: move only that person's notes. Unknown or shared, and nothing moves. */
+    /** A handle: move only that person's notes, or the pinned workspace's chat homes. Unknown or another shared one, and nothing moves. */
     only: v.optional(v.string()),
   },
   returns: countsValidator,
   handler: async (ctx, args): Promise<TexMigrationPage> => {
-    const only: Id<"workspaces"> | null | undefined = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.personalWorkspaceBySlug, { slug: args.only });
+    const only: Id<"workspaces"> | null | undefined = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.migrationWorkspaceBySlug, { slug: args.only });
     if (only === null) {
       return { workspaces: 0, rows: 0, wouldMove: 0, moved: 0, alreadyMoved: 0, swept: 0, other: 0, refused: { NO_WORKSPACE: 1 }, cursor: "", done: true };
     }
@@ -69,7 +78,7 @@ export const run = internalAction({
       ...(args.listPaths === undefined ? {} : { listPaths: args.listPaths }),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(only === undefined ? {} : { only }),
-      openStore: (workspaceId) => openWorkspaceStore(ctx, workspaceId),
+      openStore: (workspaceId, owner) => openWorkspaceStore(ctx, workspaceId, owner),
     });
   },
 });

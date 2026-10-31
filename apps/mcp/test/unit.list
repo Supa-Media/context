@@ -20,6 +20,7 @@ test/agentBrowserbaseRefused.test.mjs
 test/agentBrowserHold.test.mjs
 test/agentCatalog.test.mjs
 test/agentConversation.test.mjs
+test/agentWarmBudget.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
 test/agentHandoff.test.mjs
@@ -32,6 +33,7 @@ test/agentInstructions.test.mjs
 test/agentJobs.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
+test/agentPromptCache.test.mjs
 test/agentOpenWebBrowse.test.mjs
 test/agentProduction.test.mjs
 test/agentBugReportAsked.test.mjs
@@ -153,6 +155,8 @@ test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
 test/privacy/sealedChats.test.mjs
 test/chatHome.test.mjs
+test/homeOnlyChat.test.mjs
+test/chatMemoryRecord.test.mjs
 test/agentPictureMaker.test.mjs
 test/agentVisuals.test.mjs
 test/agentVisualNotice.test.mjs
@@ -290,7 +294,9 @@ test/agentSourcedFigures.test.mjs
 test/agentReadClaims.test.mjs
 test/agentFrontDoor.test.mjs
 test/agentWarmCopy.test.mjs
+test/agentHeldLog.test.mjs
 test/texStore.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
+test/chatReach.test.mjs

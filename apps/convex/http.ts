@@ -965,7 +965,6 @@ http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnl
 /* A tagged message or a command in a group chat Tex is in (`functions/textGroups.ts`). */
 export const agentTextsGroup = agentWorkerRoute(agentTextGroups.agentTextsGroupHandler);
 http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGroup });
-http.route({ path: "/agent-texts/group/people", method: "POST", handler: agentWorkerRoute(agentTextGroups.agentTextsGroupPeopleHandler) });
 /* Whether Tex answers, reacts or stays silent, and a group's chosen style (`docs/design/tex-event-log/CONTRACT.md`). */
 http.route({ path: "/agent-texts/decide", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsDecideHandler) });
 http.route({ path: "/agent-texts/recheck", method: "POST", handler: agentWorkerRoute(textDecide.agentTextsRecheckHandler) }); // `textRecheck.ts`

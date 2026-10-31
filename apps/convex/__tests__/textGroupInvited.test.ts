@@ -200,10 +200,11 @@ describe("an invited chat", () => {
     const dadInvite = (await invitations(t, care)).find((row) => row.invitee === DAD)!;
     await asUser(t, seyi.userId).mutation(api.functions.invitations.revokeInvitation, { invitationId: dadInvite._id });
     expect(await resolves(t, tagged.accessToken as string)).toBeNull();
-    // The owner's next tag goes on with Dad as a guest, never with the whole workspace.
+    // The owner's next tag is no longer the whole workspace: with Dad not in it, the chat is answered from its home
+    // (E1, 2026-10-31), and this deployment has no pin to hold one, so it is not answered as an invited chat at all.
     const next = await turn(t, SEYI, FAMILY);
-    expect(next).toMatchObject({ status: "ready", guest: { group: expect.stringMatching(/^crystal-care-/) } });
-    expect((await resolves(t, next.accessToken as string))?.workspaces[0]?.grantedNames ?? []).toContain("#reads-as-guest");
+    expect(next).not.toMatchObject({ status: "ready", slug: "crystal-care" });
+    expect(next.guest).toBeUndefined();
   });
 
   test("a stranger in the chat, and it counts as nothing", async () => {
@@ -211,15 +212,16 @@ describe("an invited chat", () => {
     await family(t);
     await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
     expect((await turn(t, DAD, [...FAMILY, STRANGER])).status).toBe("unknown_sender");
-    // Not as invited: the owner's tag makes everyone here a guest instead (`lib/textGroupGuests.ts` guestsOnTag).
-    expect(await turn(t, SEYI, [...FAMILY, STRANGER])).toMatchObject({ status: "ready", guest: { group: expect.stringMatching(/^crystal-care-/) } });
+    // Not as invited, and not as guests of the workspace either (E1): the chat has no home without a pin here.
+    expect(await turn(t, SEYI, [...FAMILY, STRANGER])).not.toMatchObject({ guest: expect.anything() });
   });
 
   test("an invited person can't say use, and nobody stands behind their tag once the binder leaves", async () => {
     const t = setupTest();
     await family(t);
     await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
-    expect((await turn(t, DAD, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).status).not.toBe("ready");
+    // "Tex, use @slug" is gone (2026-10-31); the one command that names a workspace is an owner's "add everyone here".
+    expect((await turn(t, DAD, FAMILY, addEveryone("crystal-care"))).status).toBe("not_allowed");
     expect((await turn(t, DAD, [DAD, MOM, LINE])).status).toBe("unknown_sender");
   });
 
@@ -247,11 +249,13 @@ describe("an invited chat", () => {
     const { seyi, care } = await family(t);
     const dad = await texter(t, "dad", DAD);
     const mom = await texter(t, "mom", MOM);
-    // Bound before anyone was invited: the chat runs as Seyi's guests.
-    expect(await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).toMatchObject({ guest: { group: expect.stringMatching(/^crystal-care-/) } });
+    // Before anyone was invited, the chat reaches no workspace: not everyone here is in it.
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
     for (const invitee of ["@dad", "@mom"]) {
       await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee, role: "editor" });
     }
+    // Once they are invited, the owner adds the chat to the workspace: its people count as invited there.
+    await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
     const tagged = await turn(t, SEYI, FAMILY);
     expect(tagged).toMatchObject({ status: "ready", slug: "crystal-care", handle: "seyi" });
     expect(tagged.guest).toBeUndefined();
@@ -264,13 +268,14 @@ describe("an invited chat", () => {
     expect((await resolves(t, tagged.accessToken as string))?.workspaces[0]?.grantedNames ?? []).not.toContain("#reads-as-guest");
   });
 
-  test("a guest chat whose people are all invited by number from Members leaves guest mode", async () => {
+  test("a chat whose people are all invited by number from Members is answered as invited", async () => {
     const t = setupTest();
     const { seyi, care } = await family(t);
-    expect(await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } })).toMatchObject({ guest: expect.anything() });
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
     for (const invitee of [DAD, MOM]) {
       await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee, role: "editor" });
     }
+    await turn(t, SEYI, FAMILY, addEveryone("crystal-care"));
     const tagged = await turn(t, SEYI, FAMILY);
     expect(tagged).toMatchObject({ status: "ready", slug: "crystal-care", handle: "seyi" });
     expect(tagged.guest).toBeUndefined();
@@ -290,8 +295,8 @@ describe("an invited chat", () => {
     await asUser(t, seyi.userId).mutation(api.functions.invitations.inviteMember, { workspaceId: care, invitee: "@dad", role: "editor" });
     // Dad blocked Seyi after the invitation went out (straight to the row: `blockPerson` would also void it).
     await t.run(async (ctx) => void (await ctx.db.insert("userBlocks", { blockerId: dad.userId, blockedId: seyi.userId, createdAt: Date.now() })));
-    await turn(t, SEYI, FAMILY, { command: { kind: "use", slug: "crystal-care" } });
-    expect(await turn(t, SEYI, FAMILY)).toMatchObject({ guest: { group: expect.stringMatching(/^crystal-care-/) } });
+    expect(await turn(t, SEYI, FAMILY)).toEqual({ status: "no_shared" });
+    expect(await turn(t, SEYI, FAMILY)).not.toMatchObject({ guest: expect.anything() });
     const member = await t.run(
       async (ctx) => await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", care).eq("userId", dad.userId)).unique(),
     );

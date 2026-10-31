@@ -1,7 +1,7 @@
 /**
  * Tex in a group chat (`src/agent/groupTurn.js`): a group turn reaches the
  * one shared workspace its grant names, writes notes as a person's own text does,
- * has none of the tagger's own tools, and remembers the chat by its people.
+ * has none of the tagger's own tools, and remembers the chat as one memory, shared with whoever is added.
  *
  * Sabotage these and a test here fails:
  *
@@ -9,8 +9,8 @@
  *     turn is offered note writes but none of the tagger's own tools".
  *  2. `groupWriteTools` narrowing a text's writes → "a group turn changes
  *     notes as a text does".
- *  3. `groupMemoryPath` filing by the chat alone → "somebody added to the
- *     chat starts a new memory".
+ *  3. `groupMemoryPath` filing by the people in the chat → "the chat
+ *     remembers as one: somebody added to the chat reads what came before them".
  *  4. The route reading `conversation` for a group → "a group turn never
  *     touches anyone's texts".
  *  5. The route or the memory dropping `chat` → "what the chat said before a
@@ -228,7 +228,8 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
   ]);
   await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures as a plain note", group: people });
   await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
-  const system = JSON.stringify(world.model.requests.at(-1).system);
+  // What the earlier answer used is said in the person's turn, after the system prompt (`turn.js`): the whole request is read.
+  const system = JSON.stringify(world.model.requests.at(-1));
   assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);
   assert.match(system, /fetch it by that exact path/);
 });
@@ -339,18 +340,19 @@ test("a member's read-only chat grant writes nothing", async () => {
   assert.equal(bodyAt(world.team, "1-projects/new.md"), undefined);
 });
 
-test("the chat remembers by its people: somebody added to the chat starts a new memory", async () => {
-  world.model.install([{ text: "Noted: Friday." }, { text: "Friday, like you said." }, { text: "What gig?" }]);
+test("the chat remembers as one: somebody added to the chat reads what came before them (the owner, 2026-10-31)", async () => {
+  world.model.install([{ text: "Noted: Friday." }, { text: "Friday, like you said." }, { text: "Friday at 6." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: chat() });
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat() });
   const remembered = JSON.stringify(world.model.requests[1].messages);
   assert.match(remembered, /@ada: the gig is friday/);
   assert.match(remembered, /Noted: Friday\./);
   await ask(TOKEN_GROUP, { question: "when's the gig?", group: chat({ members: "c".repeat(64) }) });
-  assert.doesNotMatch(JSON.stringify(world.model.requests[2].messages), /the gig is friday/, "a newcomer is never replayed the chat before them");
+  assert.match(JSON.stringify(world.model.requests[2].messages), /the gig is friday/, "a newcomer reads the chat's earlier memory");
   const files = live(world.team, GROUP_MEMORY_PREFIX);
-  assert.equal(files.length, 2);
+  assert.equal(files.length, 1, "one record per chat");
   for (const file of files) assert.doesNotMatch(file, /a{64}|b{64}|c{64}/, "the file name is a hash of the chat, not its key");
+  assert.equal(live(world.team, "tex/groups/chat-").length, 1, "one note per chat, whoever is in it");
 });
 
 test("what the chat said before a tag reaches the turn and is kept", async () => {

@@ -12,7 +12,7 @@ import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { eraseWorkspaceTrash } from "./lib/trash/erase";
-import { consoleTexStore } from "./lib/texStore";
+import { consoleTexRouting } from "./lib/texStore";
 
 export const eraseWorkspace = internalAction({
   args: { workspaceId: v.id("workspaces") },
@@ -23,6 +23,6 @@ export const eraseWorkspace = internalAction({
       if (credential === null) return null;
       // Sealed history is read in its own mode; a mode whose key cannot be opened fails here, and the erasure waits.
       const managedEncryption = await managedEncryptionOption(ctx, workspaceId);
-      return storeForBinding(credential, undefined, { managedEncryption, texStore: consoleTexStore(ctx, workspaceId) }) as unknown as FileStore;
+      return storeForBinding(credential, undefined, { managedEncryption, ...consoleTexRouting(ctx, workspaceId) }) as unknown as FileStore;
     }),
 });

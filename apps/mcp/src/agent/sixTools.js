@@ -49,7 +49,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
-  advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment or you are stuck; it answers you, never them.", take: own }, // `advisor.js`
+  advisor: { tool: "ask_advisor", summary: "Ask your advisor, a stronger model, when an ask needs judgment, before you call a task done, or when you are stuck; it sees this whole turn, so send no args, and it answers you, never them.", take: own }, // `advisor.js`
   background: { tool: "start_background_job", summary: "Hand a long task to a background job, so several things run at once.", take: own }, // `background.js`
   steer_job: { tool: "steer_background_job", summary: "Steer a background job that is still running: their text, your own note, or stop it.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },

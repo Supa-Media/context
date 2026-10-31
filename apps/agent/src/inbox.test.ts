@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { accept, CARD_EVERY_MS, drain, LINK_PREVIEW_MS, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, TYPING_AGAIN_MS, type InboxDeps } from "./inbox";
 import { COPY, type Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { READY_FIRST_MS, READY_KEY } from "./ready";
+import { afterRepliesSettled } from "./afterReply";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -27,6 +28,8 @@ function deps(opts: {
   events?: string[];
   typingStatus?: number;
   cards?: string[];
+  /** Holds the contact card's request until it resolves: work after a reply that is slow. */
+  cardGate?: Promise<unknown>;
   cardStatus?: number;
   readStatus?: number;
   progress?: string[];
@@ -51,6 +54,7 @@ function deps(opts: {
     }
     if (path.endsWith("/share_contact_card")) {
       opts.cards?.push(path);
+      await opts.cardGate;
       return new Response("{}", { status: opts.cardStatus ?? 200 });
     }
     if (path === "/agent-texts/session") {
@@ -295,6 +299,7 @@ describe("inbox", () => {
     const events: string[] = [];
     await accept(storage, msg("e1"), 1_000);
     await drain(storage, deps({ cards, events }));
+    await afterRepliesSettled(storage);
     expect(cards).toEqual(["/api/partner/v3/chats/chat_1/share_contact_card"]);
     // After the reply: Linq shares a card only into a chat with an outbound message.
     expect(events).toEqual(["read", "typing", "send"]);
@@ -302,10 +307,12 @@ describe("inbox", () => {
 
     await accept(storage, msg("e2"), 2_000);
     await drain(storage, deps({ cards, now: 2_000 }));
+    await afterRepliesSettled(storage);
     expect(cards).toHaveLength(1);
 
     await accept(storage, msg("e3"), 1_000 + CARD_EVERY_MS);
     await drain(storage, deps({ cards, now: 1_000 + CARD_EVERY_MS }));
+    await afterRepliesSettled(storage);
     expect(cards).toHaveLength(2);
   });
 
@@ -403,5 +410,93 @@ describe("setting up by text", () => {
     await accept(storage, msg("e1", "ada"), 1_000);
     await drain(storage, deps({ sent: [], unlinked: true, now: 5_000, setup: { status: "set_up", handle: "ada", storage: "none" } }));
     expect(await storage.get(READY_KEY)).toBeUndefined();
+  });
+});
+
+describe("the work after a reply", () => {
+  it("sends the reply before the slow work after it, and a text that comes in during that work is answered without waiting for it", async () => {
+    const storage = new MemoryStorage();
+    const cards: string[] = [];
+    const sent: Sent[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await accept(storage, msg("e1", "first"), 1_000);
+    // The first drain returns while the card is still held: nothing after the reply holds the alarm.
+    const first = drain(storage, deps({ sent, cards, cardGate: gate }));
+    const outcome = await Promise.race([
+      first.then(() => "returned" as const),
+      new Promise<"stuck">((resolve) => setTimeout(() => resolve("stuck"), 300)),
+    ]);
+    expect(outcome).toBe("returned");
+    expect(sent.map((s) => s.text)).toEqual(["answer to first"]);
+    // The card's request is in flight now, behind the reply it follows.
+    for (let tries = 0; cards.length === 0 && tries < 1_000; tries += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(cards).toHaveLength(1);
+
+    // A text that comes in while the card is held is answered by the next drain, not after the card.
+    await accept(storage, msg("e2", "second"), 1_500);
+    await drain(storage, deps({ sent, cards, cardGate: gate, now: 1_500 }));
+    expect(sent.map((s) => s.text)).toEqual(["answer to first", "answer to second"]);
+
+    release();
+    await afterRepliesSettled(storage);
+    expect(cards).toHaveLength(1);
+  });
+
+  it("offers the card after the last reply of a run, never between two replies", async () => {
+    const storage = new MemoryStorage();
+    const cards: string[] = [];
+    const sent: Sent[] = [];
+    // How many cards had gone when each text was sent: none may land between the two replies.
+    const cardsAtSend: number[] = [];
+    await accept(storage, msg("e1", "first"), 1_000);
+    // A reply to other words, so the two are not one burst (`sameBurst`).
+    await accept(storage, { ...msg("e2", "second"), quoted: "other words" }, 1_000);
+    await drain(
+      storage,
+      deps({
+        sent,
+        cards,
+        linqStatus: () => {
+          cardsAtSend.push(cards.length);
+          return 200;
+        },
+      }),
+    );
+    await afterRepliesSettled(storage);
+    expect(sent.map((s) => s.text)).toEqual(["answer to first", "answer to second"]);
+    expect(cardsAtSend).toEqual([0, 0]);
+    expect(cards).toHaveLength(1);
+  });
+
+  it("logs one timing line per turn, made of numbers only", async () => {
+    const storage = new MemoryStorage();
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+      logs.push(String(line));
+    });
+    try {
+      await accept(storage, msg("e1", "secret words"), 1_000);
+      await drain(storage, deps({}));
+      await afterRepliesSettled(storage);
+    } finally {
+      spy.mockRestore();
+    }
+    const lines = logs.flatMap((line) => {
+      try {
+        return [JSON.parse(line) as Record<string, unknown>];
+      } catch {
+        return [];
+      }
+    });
+    const timing = lines.find((line) => line.event === "inbox_turn_timing");
+    expect(timing).toBeDefined();
+    for (const [key, value] of Object.entries(timing!)) {
+      if (key !== "event") expect(typeof value).toBe("number");
+    }
+    expect(logs.join("\n")).not.toContain("secret words");
+    expect(logs.join("\n")).not.toContain("5555550100");
   });
 });

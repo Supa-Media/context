@@ -107,7 +107,8 @@ test("a texted turn's instructions end with that reminder", async () => {
     world.model.install([{ text: "Agreed, sign-off first." }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "i think we should hold the demo until sign-off", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
-    const system = JSON.stringify(world.model.requests[0].system);
+    // The nudge is said in the person's turn, just before their words (`turn.js`): the whole request is read.
+    const system = JSON.stringify(world.model.requests[0]);
     assert.match(system, /Their text is an opinion or a \\"should\\"/);
   } finally {
     world.restore();

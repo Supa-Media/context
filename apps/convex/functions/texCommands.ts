@@ -12,7 +12,7 @@
  * Who may do what:
  *  - anyone in the chat: mute Tex, read the settings, change the chat's style
  *    and when Tex speaks up;
- *  - a guest (no account) or an invited person tagging through someone else:
+ *  - a guest (no account, in a home-only chat) or an invited person tagging through someone else:
  *    only those. Their grant stands on another person's account, so nothing
  *    that acts as a person (mail, their own review sharing) is theirs;
  *  - the mailbox's own person: share or stop sharing their mail here, by the
@@ -29,7 +29,8 @@ import { mergeTexStyle, readTexStyle, texStyleValidator, type TexStyle } from ".
 import { muteChat, setChatEngagement, setChatStyle, setPersonStyle, type Engagement } from "./lib/texChatRules";
 import { cleanAddress, cleanShareQuery, shareMail, unshareMail } from "./lib/textGroupMail";
 import { TEXTS_CLIENT_ID } from "./textLinks";
-import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES, handleOf } from "./textGroups";
+import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES } from "./textGroups";
+import { handleOf } from "./lib/textGroupAccounts";
 import { setSharing } from "./texReviews";
 
 export const TEX_COMMANDS = ["mute", "status", "settings", "style", "engagement", "share_mail", "unshare_mail", "review_sharing"] as const;
@@ -85,11 +86,13 @@ async function actorOf(ctx: MutationCtx, hashedAccessToken: string): Promise<Act
   if (grant.clientId !== TEXTS_GROUP_CLIENT_ID || grant.texGroup === undefined) return null;
   const group = await ctx.db.get(grant.texGroup.groupId);
   if (group === null) return null;
-  // A guest's tag, or an invited person's, is minted on the person who opened the chat: never act as them.
-  const standsOnSomeoneElse = grant.texGroup.guestTagger === true || grant.texGroup.invitedTaggerRole !== undefined;
-  const person = standsOnSomeoneElse ? null : grant.userId;
+  // A home-only grant (`lib/textGroupHomeOnly.ts`) is held for the chat's sponsor: it acts for the account that tagged
+  // Tex (`taggerId`), and for nobody when a guest without an account did. An invited person's tag stands on the
+  // binder's account, so it acts for nobody either. Guest mode is retired (2026-10-31); a grant left from it is a guest's.
+  const texGroup = grant.texGroup;
+  const person = texGroup.homeOnly === true ? (texGroup.taggerId ?? null) : texGroup.guestTagger === true || texGroup.invitedTaggerRole !== undefined ? null : grant.userId;
   const setBy = person === null ? "a guest" : (await handleOf(ctx, person)) || "someone here";
-  return { kind: "group", group, person, slug: workspace.slug, setBy };
+  return { kind: "group", group, person, slug: texGroup.homeOnly === true ? "" : workspace.slug, setBy };
 }
 
 function styleOf(group: Doc<"textGroups">): TexStyle {
@@ -129,7 +132,8 @@ export const applyTexCommand = internalMutation({
         await muteChat(ctx, group, person, now);
         return { status: "done", muted: true };
       case "status":
-        return { status: "done", slug, guest: group.guestGroupId !== undefined };
+        // A home-only chat (someone here has no account) reads only its own home: no workspace to name.
+        return { status: "done", slug, guest: slug === "" };
       case "settings":
         return { status: "done", style: styleOf(group), ...(group.engagement !== undefined ? { engagement: group.engagement } : {}), engagementChosen: group.engagement !== undefined };
       case "style": {

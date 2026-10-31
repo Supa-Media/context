@@ -138,6 +138,15 @@ class_name = "TexStore"
 tag = "v2-tex-store"
 new_sqlite_classes = ["TexStore"]
 
+# Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
+# and an outcome per turn, never words, a person or a workspace. Read with the
+# account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
+# shipped in #2496 but the binding never did, so nothing was written. Leave it
+# out when self-hosting: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_TIMING"
+dataset = "tex_timing"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -238,6 +247,10 @@ class_name = "PresenceRoom"
 [[env.staging.durable_objects.bindings]]
 name = "TEX_STORE"
 class_name = "TexStore"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_TIMING"
+dataset = "tex_timing_staging"
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"

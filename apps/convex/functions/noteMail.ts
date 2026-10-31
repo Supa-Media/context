@@ -75,6 +75,8 @@ export const joinMailbox = internalMutation({
     if (live === null) return refused;
     const target = addressable(await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === args.workspaceId);
     if (!target) return refused;
+    // A group chat's home in the pin is the one place in the pin it may hold a mailbox: its folder, never the pin.
+    if (target.homeOnly === true && !(typeof target.chatHome === "string" && args.path.startsWith(`${target.chatHome}/`))) return refused;
     const existing = await ctx.db
       .query("noteMailboxes")
       .withIndex("by_workspace_path_name", (q) =>

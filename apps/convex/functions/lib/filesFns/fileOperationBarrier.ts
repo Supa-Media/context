@@ -77,7 +77,7 @@ import { isMessagesBackupOperation, runMessagesBackupOperation } from "../messag
 import { repairLinks } from "../nodes/linkRepair";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
-import { consoleTexStore } from "../texStore";
+import { consoleTexRouting } from "../texStore";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
@@ -410,6 +410,11 @@ export async function runFileOperationHandler(
   let store: FileStore;
   // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
   let keyStore: FileStore | null = null;
+  // A move landing notes under a chat's home keeps them in that chat's object, so the ticket and the store name it.
+  const landingChats: string[] =
+    args.operation.kind === "contextMoveImport"
+      ? await ctx.runQuery(internal.functions.texChatLanding.chatsOfHomes, { workspaceId: args.workspaceId, paths: args.operation.objects.map((object) => object.destination) })
+      : [];
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -440,10 +445,11 @@ export async function runFileOperationHandler(
       managedEncryption,
       idLayout,
       // Tex's notes, through the gateway (`lib/texStore.ts`).
-      texStore: consoleTexStore(ctx, args.workspaceId),
+      ...consoleTexRouting(ctx, args.workspaceId, landingChats.length === 0 ? {} : { ticketOwners: [`person:${args.workspaceId}`, ...landingChats.map((chat) => `chat:${chat}`)] }),
+      texChats: landingChats,
     }) as unknown as FileStore;
     if (args.operation.kind === "readOldCopies" || isMessagesBackupOperation(args.operation)) {
-      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption, texStore: consoleTexStore(ctx, args.workspaceId) }) as unknown as FileStore;
+      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption, ...consoleTexRouting(ctx, args.workspaceId) }) as unknown as FileStore;
     }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.

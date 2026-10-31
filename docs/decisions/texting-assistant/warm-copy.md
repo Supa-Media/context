@@ -45,10 +45,17 @@ from storage; one without reads as before and starts one.
 - Waiting asks are kept only as "none waited after the last turn". A text
   that may answer an ask (a yes, a no, a tapback) still reads the records:
   that check is the gateway's, never a copy's.
-- The Worker drops the copy after a day, when an answer hands none back, when
-  it starts a background job, and when a routine texts the person: the chat
-  then holds words the copy hasn't seen. A group, a job's turn, a routine and a
-  job's report never use or make one.
+- The Worker drops the copy after a day, when an answer hands none back, and
+  when a routine texts the person: the chat then holds words the copy hasn't
+  seen. A group, a job's turn and a routine never use or make one. A job's
+  report to the chat's own turn does (2026-10-31: it re-read 150 exchanges,
+  10 s, before the model).
+- A turn that starts a background job keeps its copy (2026-10-31: the text
+  after a job start re-read 150 exchanges and every skill, 9 s). A job never
+  writes the chat itself, it reports through the chat's own turn, but it can
+  write task notes, the jobs list or a skill, so while a job runs, and for ten
+  minutes after it finishes, About me, the jobs list and the skills are read
+  fresh (`warmCopy.js` `jobBusy`).
 
 ## Also moved out of the reply's way
 
@@ -57,4 +64,34 @@ from storage; one without reads as before and starts one.
 - Pruning old turn records runs after the answer (`loggedTurn.js`
   `recordTurn`); the record itself is still written before it.
 
-Tests: `apps/mcp/test/agentWarmCopy.test.mjs`, `apps/agent/src/warm.test.ts`.
+## The Worker holds the chat's log (2026-10-31)
+
+Seyi: Tex's Durable Object is the source of truth, and an append-only
+transcript beats a file per message. A "hi Tex" at 13:57 made 964 storage
+calls, about 400 of them reading the chat's log one event file at a time,
+and the reply took 46 s with 3 s in the model.
+
+- Every event of a one-to-one chat already passes through the sender's
+  object (`apps/agent/src/events.ts`), and only it writes the bucket's log
+  (`POST /agent/events`). It now keeps as much as the gateway reads (400
+  events, 120,000 characters, a day), and decide is still shown only its own
+  24,000 characters (`TRANSCRIPT_CHARS`).
+- The first turn that reads the log from the bucket hands it back (`log`);
+  the object keeps it as written and from then on says `holdsLog`, and the
+  gateway takes the object's events as the whole log and reads none
+  (`warmCopy.js` `events`). The trust is unchanged: the object could already
+  write any event to the log, and every event is checked as `/agent/events`
+  checks it. A lost object (no `holdsLog`) reads the bucket once and is
+  handed the log again.
+- The bucket's log is still written: it stays the customer's copy and what
+  a group, a job or a routine reads.
+- Tex's transcript note is written once, with the turn's ending, never once
+  per step: a long turn's step writes cost ~130 storage calls beside its own
+  tools (`transcript.js` `record`).
+- A turn's after-work (the meter, the turn row, the transcript, saving the
+  chat, reflection) is queued and started only once its response is ready
+  (`deferred.js` `afterTurn`). Started at the call, it took the Worker's six
+  connections and the reply's own last reads queued behind it: 10 s.
+
+Tests: `apps/mcp/test/agentWarmCopy.test.mjs`, `apps/mcp/test/agentHeldLog.test.mjs`,
+`apps/agent/src/warm.test.ts`, `apps/agent/src/heldLog.test.ts`.

@@ -20,6 +20,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogleConnection, setupTest } from "./fixtures.helpers";
+import { migrate, pinnedWorld } from "./pinnedReaders.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
 const LINE = "+15555550001";
@@ -59,7 +60,7 @@ async function chat(t: T) {
   const bo = await texter(t, "bo", BO);
   const studio = await createWorkspace(t, ada.userId, "studio", { kind: "shared" });
   await addMember(t, studio, bo.userId, "editor");
-  expect((await turn(t, ADA, { command: { kind: "use", slug: "studio" } })).status).toBe("ready");
+  // A chat reaches every shared workspace all its people share (#2531): no "use" step.
   const ready = await turn(t, ADA);
   expect(ready.status).toBe("ready");
   return { ada, bo, studio, token: ready.accessToken as string };
@@ -167,6 +168,29 @@ describe("a group's commands as tools", () => {
       await ctx.db.patch(grant._id, { texGroup: { ...grant.texGroup!, invitedTaggerRole: "member" } });
     });
     expect(await command(t, token, { kind: "share_mail", address: WORK })).toMatchObject({ status: expect.stringMatching(/not_allowed|refused/) });
+  });
+});
+
+// Guest mode is retired (#2529): a chat with someone who has no account is answered from its home, on a grant held
+// for its sponsor. A guest's tag acts for nobody; an account holder's tag in that chat acts for them.
+describe("a home-only chat", () => {
+  const GUEST = "+15555550163";
+  const homeTurn = async (t: T, sender: string) =>
+    await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants: [ADA, BO, GUEST, LINE], mint: true });
+
+  test("a guest's tag may set the style, never act for the sponsor", async () => {
+    const w = await pinnedWorld();
+    await migrate(w);
+    const ada = await texter(w.t, "ada", ADA);
+    await texter(w.t, "bo", BO);
+    await seedGoogleConnection(w.t, { workspaceId: ada.workspaceId, boundBy: ada.userId, address: WORK });
+    await homeTurn(w.t, ADA);
+    const guest = await homeTurn(w.t, GUEST);
+    expect(guest.status).toBe("ready");
+    const token = guest.accessToken as string;
+    expect(await command(w.t, token, { kind: "share_mail", address: WORK })).toEqual({ status: "not_allowed" });
+    expect(await command(w.t, token, { kind: "style", style: { humor: 40 } })).toEqual({ status: "done", style: { humor: 40 } });
+    expect(await command(w.t, token, { kind: "status" })).toEqual({ status: "done", slug: "", guest: true });
   });
 });
 

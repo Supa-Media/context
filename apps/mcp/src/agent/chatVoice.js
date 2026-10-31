@@ -11,8 +11,8 @@
  * setup's voice.
  *
  * A group also keeps a short note of how it talks, beside its memory note and
- * filed by the same people hash, so a new set of people starts a new one
- * (`groupMemoryNote.js`). Tex writes it the way it writes a person's
+ * named by the chat's key alone, so somebody added shares the one it has
+ * (`groupMemoryNote.js`; one memory per chat, the owner, 2026-10-31). Tex writes it the way it writes a person's
  * about-me: with write_note, in the same turn, when it learns something
  * lasting. It is a plain note, so a person's edit is what Tex goes by next
  * time. It is read into the group's words every turn, bounded, and it is about

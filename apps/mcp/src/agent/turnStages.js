@@ -19,7 +19,7 @@
 export const STAGES = ["provider", "tools", "history", "web", "setup", "skills", "pictures", "ready"];
 
 /**
- * blobs: kind, outcome. doubles, in order: waitMs, then one per `STAGES`
+ * blobs: kind, outcome, the bucket calls by stage (`callsLine`). doubles, in order: waitMs, then one per `STAGES`
  * entry, then modelMs, toolMs, otherTurnMs (the turn's own time outside the
  * model and tools), afterMs, totalMs, rounds, retriedRounds, slowestRoundMs.
  */
@@ -34,7 +34,25 @@ export function turnStages(env, now = Date.now) {
   const marks = {};
   let report = null;
   let flushed = false;
+  const calls = {};
   return {
+    /**
+     * Count the bucket calls this turn makes, by where in the turn (b before the
+     * model, t in it, a after the answer) and by the key's first folders, ids
+     * blanked: which reads fill a stage, never a name or a word.
+     */
+    watch(store) {
+      for (const op of ["get", "head", "put", "delete", "list"]) {
+        const inner = store?.[op];
+        if (typeof inner !== "function") continue;
+        store[op] = function (key, ...rest) {
+          const where = report !== null ? "a" : marks.ready !== undefined ? "t" : "b";
+          const name = `${where}:${op}:${keyShape(op === "list" ? key?.prefix : key)}`;
+          calls[name] = (calls[name] ?? 0) + 1;
+          return inner.call(this, key, ...rest);
+        };
+      }
+    },
     /** A step before the model is done (`STAGES`); the first mark of a name counts. */
     mark(stage) {
       if (marks[stage] === undefined) marks[stage] = now();
@@ -52,6 +70,7 @@ export function turnStages(env, now = Date.now) {
       if (flushed) return null;
       flushed = true;
       const point = stagesOf({ start, marks, end: now(), report });
+      point.blobs.push(callsLine(calls));
       // The same numbers in the Worker's log, for a live tail (`wrangler tail`).
       if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "turn_stages", kind: point.blobs[0], outcome: point.blobs[1], ...Object.fromEntries(COLUMNS.map((name, i) => [name, Math.round(point.doubles[i])])) }));
       const dataset = env?.TEX_TIMING;
@@ -100,4 +119,21 @@ export function stagesOf({ start, marks, end, report }) {
     ],
     indexes: [String(report?.kind ?? "unknown")],
   };
+}
+
+/** A key's first two folders, any part that looks like an id or a name blanked. */
+export function keyShape(key) {
+  if (typeof key !== "string") return "?";
+  return key.split("/").slice(0, 3).map((part) => (/^[.a-z-]{1,24}$/.test(part) ? part : "*")).join("/");
+}
+
+/** The busiest call shapes, most first, in at most a thousand characters (blob3). */
+export function callsLine(calls) {
+  let line = "";
+  for (const [name, count] of Object.entries(calls).sort((a, b) => b[1] - a[1])) {
+    const part = `${name}=${count}`;
+    if (line.length + part.length + 1 > 1000) break;
+    line += (line ? " " : "") + part;
+  }
+  return line;
 }

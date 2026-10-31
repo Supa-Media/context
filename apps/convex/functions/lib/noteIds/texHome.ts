@@ -40,7 +40,7 @@ const HOME_WORDS = /^[a-z]+(?:-[a-z]+){2}$/;
  * The group chat whose object a note at `path` belongs to, by its key, or null. A path counts only beneath a
  * chat's home folder, and the home is found by its words: two chats naming the same words are no answer at all.
  */
-async function chatKeyOfHome(db: DatabaseReader, path: string): Promise<string | null> {
+export async function chatKeyOfHome(db: DatabaseReader, path: string): Promise<string | null> {
   const prefix = `${CHAT_HOMES_FOLDER}/`;
   if (!path.startsWith(prefix)) return null;
   const [words, ...inside] = path.slice(prefix.length).split("/");

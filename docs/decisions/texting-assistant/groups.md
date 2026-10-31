@@ -1,5 +1,7 @@
 # Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)
 
+> **Superseded in part (the owner, 2026-10-31):** a chat is bound to no workspace. See [A chat reaches the workspaces its people share](#a-chat-reaches-the-workspaces-its-people-share-the-owner-2026-10-31) below; "Tex, use @slug" and the question that asks a chat to pick are gone.
+
 The owner asked for Tex in iMessage group chats, like Claude in Slack, but
 "only access to workspaces that all the users in the chat have access to".
 This is how that is built, and the decisions the owner made on the way.
@@ -41,7 +43,7 @@ Each tagged message is resolved again by the control plane
   the chat is still a member, nobody has paused texting and the chat isn't
   muted (`liveGrants.ts`), so removing someone from the workspace stops the
   next tool call. The tagger's role decides writes; the turn is metered on
-  the tagger's personal workspace; audit records the tagger.
+  the chat's sponsor's personal workspace (the owner, 2026-10-31, below); audit records the tagger.
 
 ## Tex follows the whole chat (the owner, 2026-10-21)
 
@@ -190,9 +192,10 @@ The owner asked for group memory "inside the shared workspaces", in a `tex/`
 folder like heartbeat. Naming people on a note is owner only, and the
 group grant's `team` tier would hide a note shared by name, so the first
 version keeps each chat's memory as plumbing in the bound workspace,
-`.context/agent/groups/<hash>.json`, filed by the chat and the exact set of
-people in it: somebody added later starts a new memory and is never
-replayed what was said before they joined, untagged lines included. A visible `tex/groups/` note the
+`.context/agent/groups/<hash>.json`, filed by the chat's key alone: one memory
+per chat, and somebody added later reads what came before them, untagged
+lines included (the owner, 2026-10-31, reversing the people-named file).
+A visible `tex/groups/` note the
 people in the chat can read and correct is the follow-up.
 
 ## What Sendblue gives and doesn't
@@ -374,7 +377,7 @@ note the last one wrote") fail if either is reversed.
 ## A chat's memory as a note people can fix (the owner, 2026-10-23)
 
 The owner chose "Visible tex/ folder, team-wide" over memory nobody can see.
-Each chat, filed by its exact set of people as before, keeps
+Each chat, filed by its key alone (one memory per chat, 2026-10-31), keeps
 `tex/groups/chat-<id>.md` in its workspace (`groupMemoryNote.js`): every
 question with the chat lines before it, every answer, and a hidden line under
 each answer naming the tools it used and the notes and pages behind it. Tex
@@ -431,3 +434,24 @@ it was refused (the same cap had cut off the tree's manifest on 2026-10-13).
 control-plane refusal is logged by what went wrong (`response_too_large`,
 `timed_out`, a status). Test: `storageUnavailableLog.test.mjs` "a binding whose
 access rules are past 256 KB still opens".
+
+## Who pays for a group chat's turns (the owner, 2026-10-31)
+
+The person who brought Tex into a chat is its sponsor: the first account holder whose turn mints a grant there, set once and never overwritten (a row from before this rule reads its binder, then its tagger). Every turn in the chat is metered to the sponsor's personal workspace, whoever tagged Tex, guest chats included; if the sponsor has no personal workspace or texting is paused for them, the turn falls back to today's meter, the tagger's (a guest chat's binder's). Each finished turn's cost is also recorded per day against the person who tagged Tex, so the chat can show each person's share; a guest tagger's turn is recorded as `guest` until the gateway can name the number, and the owner's decision lets guests' numbers be stored when it does. Nothing reads these shares publicly yet. Code: `functions/lib/textGroupUsage.ts`, `functions/textGroupUsage.ts`; tests: `__tests__/textGroupUsage.test.ts`.
+
+## A chat reaches the workspaces its people share (the owner, 2026-10-31)
+
+Decided by the owner in the Tex Devs meeting of 2026-10-30 and the day after: a group chat is not tied to one workspace. Binding a chat to "the one workspace" (above) made it pick, made the pick stale the moment people joined or left, and left everything in the other workspaces its people share out of reach.
+
+- **Reach is worked out on the fly.** The chat reaches every *shared* workspace that all of its people with accounts are live members of (`lib/textGroupReach.ts`, `reachOf`). It is never a personal workspace, never the pinned workspace (`@context-lc`: a chat's access to that is its home), and **empty when anyone in the chat has no account** (a guest, a number not linked by code, or texting paused). A chat with no reach has its home alone, as in [chat-homes](./chat-homes.md#chats-with-people-who-arent-all-here-2026-10-31).
+- **The grant is the home's, with the reach beside it.** It is minted on the pinned workspace for the chat's sponsor (the E1 home-only grant) and carries `texGroup.reach` and `texGroup.reachPeople`, recomputed on every turn. `contextsForGrant` returns the home row, then one row per workspace in reach: `team` tier, no granted names, never `context:private`, held at the **lowest role among the chat's people there**, so one viewer in the chat makes the whole chat read-only in that workspace and no other.
+- **Re-checked on every request, per person, per workspace.** What a request is given is `liveReach`, not the stored list: each workspace in the list is kept only while every person in the chat, and the sponsor who acts (writes are audited as them), is still a member of it and has not paused texting. Someone removed from a workspace drops it from the chat's next call, mid-turn included; the grant itself lives on with the rest. A stored list that names a personal workspace, the pin, or a workspace nobody in the chat is in serves none of them.
+- **Tool calls name a workspace with `context: "@slug"`, as for any multi-workspace grant.** A call with none reaches the chat's home. The gateway adds no rule of its own: the session lists only the grant's rows, so a `context` naming anything else is refused as a workspace that does not exist is (`session.js` `sessionForContext`). The prompt names the reach from the session, never from the Worker's body (`agent/groupTurn.js` `reachOf`).
+- **No pin, no home, one workspace.** A deployment without a pinned workspace has nowhere to put the chat's grant. There the chat is answered as before, on the one workspace in its reach (the one it was last bound to if still in reach, else the first by name), for the tagger, so a self-hosted context still works. This path asks the chat nothing.
+- **The binding flow is gone.** "Tex, use @slug", the name-alone answer to "which one?", and the `choose` and `not_shared` answers are removed from the Worker (`groupWords.ts`, `groupInbox.ts`) and the control plane. `textGroups.workspaceId` stays readable for old rows and is still set by "Tex, add everyone here to @slug" ([invited-family](./invited-family.md)), which is the one thing that names a workspace for a chat now. It is marked deprecated in the schema.
+- **Where one workspace is needed**, `chatWorkspace` answers with the bound one if it is still in reach, else the first in reach by name, and nothing if the chat reaches none (a row that never took a turn under reach keeps its bound workspace). That is how the chat's mail shares (`textGroupMail.ts`), its check-in (`textGroupLooks.ts`), its decisions' meter (`groupDecideWorkspace`) and its routines (`routines/chats.ts`: a routine runs in any workspace the chat reaches) read it. The gateway reads the playbook (`groupPlaybook.js`) from the first in reach by name; it does not know which workspace an old row was bound to.
+
+Two clearances were closed with it. A home-only grant's row (the chat's folder in the pin, an editor's) is no longer an owner or editor clearance on the pin (`gatewayOwnerClearance`, `gatewayEditorClearance`), and a note mailbox joined from it must sit under the home (`noteMail.ts`).
+
+What a simplification would cost: caching the reach on the grant and trusting it drops the "someone left" guarantee; computing it from the tagger alone gives a chat the notes of a workspace one of its people cannot open; letting a personal workspace or the pin count hands a chat someone's mail and calendar or the deployment's own notes. Tests: `apps/convex/__tests__/textGroupReach.test.ts`, `apps/mcp/test/chatReach.test.mjs`.
+

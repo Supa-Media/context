@@ -2,17 +2,19 @@
  * A GROUP CHAT'S MEMORY AS A NOTE PEOPLE CAN READ AND FIX (the owner,
  * 2026-10-23: "Visible tex/ folder, team-wide").
  *
- * Each chat, filed by the exact set of people in it as before
- * (`groupTurn.js`), keeps `tex/groups/chat-<id>.md` in its workspace: what
- * was asked, what Tex answered, and on a hidden line under each answer the
- * tools it used and the notes and pages it read or wrote (`sources.js`).
- * Tex reads the note before it answers and rewrites it after, so a line
- * someone changed or deleted there is what Tex goes by next time.
+ * Each chat keeps ONE note, `tex/groups/chat-<id>.md`, named by the chat's
+ * key alone (the owner, 2026-10-31: one memory per chat, and somebody added
+ * later shares it; `groupTurn.js`). It holds what was asked, what Tex
+ * answered, and on a hidden line under each answer the tools it used and the
+ * notes and pages it read or wrote (`sources.js`). Tex reads the note before
+ * it answers and rewrites it after, so a line someone changed or deleted
+ * there is what Tex goes by next time.
  *
- * It is a workspace note at the folder's visibility, so everyone in the
- * workspace can read it, people not in the chat included; the owner chose
- * that over memory nobody can see. Somebody added to the chat still starts
- * a new note and is never replayed what came before them.
+ * In a workspace-bound chat it is a workspace note at the folder's
+ * visibility, so everyone in the workspace can read it, people not in the
+ * chat included (the owner chose that over memory nobody can see). In a chat
+ * with a home (`chatHome.js`) it lives in the home, which only the chat's
+ * people open.
  *
  * Written and read through the dispatcher under the turn's own grant, like a
  * texted turn's transcript (`transcript.js`). A tagger whose role can't write
@@ -37,9 +39,14 @@ const META = /^<!--\s*tex used:(.*)-->$/;
 const TIMING = /^<!--\s*tex timing:(.*)-->$/;
 const MAX_TIMING = 1_200;
 
-/** The chat's note, from the same hash its plumbing file is named by; a guest chat's is in its own folder (`groupGuests.js`). */
+/** The chat's note, from the hash of its key; a guest chat's is in its own folder (`groupGuests.js`). */
 export function groupNotePath(hash, folder = GROUP_NOTES_FOLDER) {
   return `${folder}/chat-${hash.slice(0, 12)}.md`;
+}
+
+/** A note moved into a home: its intro says who can read it, and in a home that is the chat's people alone. */
+export function asHomeNote(text) {
+  return String(text).split(INTRO).join(GUEST_INTRO);
 }
 
 /** A line that would read as the note's own structure, kept as words. */

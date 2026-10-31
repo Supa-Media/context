@@ -21,7 +21,6 @@ const MAX_GROUP_ID = 200;
 type Command =
   | { kind: "stop" }
   | { kind: "start" }
-  | { kind: "use"; slug: string }
   | { kind: "invite"; slug: string; role?: "editor" | "member" }
   | { kind: "share_mail"; address: string; query?: string }
   | { kind: "unshare_mail"; address?: string };
@@ -34,7 +33,6 @@ function readCommand(value: unknown): Command | null | undefined {
   if (kind === "share_mail" || kind === "unshare_mail") return readMailCommand(kind, value as Record<string, unknown>);
   const slug = (value as { slug?: unknown }).slug;
   if (typeof slug !== "string" || slug.length === 0 || slug.length > 65) return null;
-  if (kind === "use") return { kind, slug };
   if (kind === "invite") {
     const role = (value as { role?: unknown }).role;
     if (role === undefined) return { kind, slug };
@@ -81,20 +79,4 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
   });
   if (answer.status === "ready" && answer.minted) return json({ ...answer, accessToken });
   return json(answer);
-}
-
-/**
- * `POST /agent-texts/group/people` `{ line, groupId, participants }` → `{ ok: true }`, always: a guest chat's people
- * changed, so its group and folder follow them (`syncGuestPeople`). Sent for any message, tagged or not, so people
- * who join or leave are added or removed without anyone tagging Tex. The answer is the same for every chat.
- */
-export async function agentTextsGroupPeopleHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
-  const line = stringField(body, "line");
-  const groupId = stringField(body, "groupId");
-  const participants = body.participants;
-  if (line === null || groupId === null || groupId.length > MAX_GROUP_ID) return badRequest();
-  if (!Array.isArray(participants) || participants.length > MAX_GROUP_PARTICIPANTS * 2) return badRequest();
-  const listed = participants.map((entry) => (typeof entry === "string" ? entry.slice(0, 320) : "?"));
-  await ctx.runMutation(internal.functions.textGroups.syncGuestPeople, { line, groupKey: await groupKeyOf(line, groupId), participants: listed });
-  return json({ ok: true });
 }

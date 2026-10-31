@@ -43,7 +43,6 @@ import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, groupInboxName } from "./groupInbox";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { sha256Hex } from "./groupChat";
-import { syncGuestPeople } from "./groupGuestPeople";
 import type { DueRoutine } from "./clients";
 import { checkReview } from "./reviewWatch";
 import { verifyLinqSignature } from "./signature";
@@ -502,8 +501,6 @@ export class SenderInbox implements DurableObject {
       const { routine: _routine, ...message } = (await request.json()) as GroupMessage;
       await this.keepWhere(message);
       const outcome = await acceptGroup(this.state.storage, message, Date.now());
-      // People who joined or left a guest chat are added or removed without anyone tagging Tex.
-      await syncGuestPeople(this.state.storage, this.deps(), message);
       return Response.json({ outcome });
     }
     // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
@@ -629,6 +626,7 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       appCard: appCardConfig(this.env),
+      waitUntil: (promise) => this.state.waitUntil(promise),
       noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), this.env.CONTROL_PLANE_ORIGIN, this.env.AGENT_WORKER_SECRET),
       hostPicture: async (picture: Picture) =>
         hostPicture(

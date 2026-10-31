@@ -17,17 +17,17 @@ import type { GroupEntry, GroupPending } from "./groupTurn";
 import type { InboxStorage } from "./inbox";
 
 /** Whether code answers this waiting message alone, with no model turn (`answerGroup` returns before it asks the gateway). */
-export function answeredByCode(item: GroupPending, choices: readonly string[]): boolean {
+export function answeredByCode(item: GroupPending): boolean {
   if (item.message.routine !== undefined || item.message.reaction !== undefined || item.message.jobReport !== undefined) return false;
   if (item.message.sms === true || item.setting !== undefined || item.engagement !== undefined) return true;
-  return item.byCode === true && groupCommand(item.message.text, choices) !== null;
+  return item.byCode === true && groupCommand(item.message.text) !== null;
 }
 
 /** Answer, oldest first, each waiting message code answers alone that the handed turn (`keys`) does not hold. */
-export async function answerBesideTurn(storage: InboxStorage, deps: GroupDeps, keys: readonly string[], choices: readonly string[]): Promise<void> {
+export async function answerBesideTurn(storage: InboxStorage, deps: GroupDeps, keys: readonly string[]): Promise<void> {
   const waiting: GroupEntry[] = [...(await storage.list<GroupPending>({ prefix: "gpending:" }))];
   for (const entry of waiting) {
-    if (keys.includes(entry[0]) || !answeredByCode(entry[1], choices)) continue;
+    if (keys.includes(entry[0]) || !answeredByCode(entry[1])) continue;
     console.log(JSON.stringify({ event: "group_turn", outcome: "beside_turn" }));
     // A retry is set for it (the alarm, RETRY_MS): the rest wait for that alarm too.
     if (await answerInline(storage, [entry], deps)) return;

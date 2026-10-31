@@ -155,6 +155,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
         setupOnly: v.optional(v.literal(true)),
         // And the chat's home there, the one folder that row may change (`lib/textGroupHome.ts`).
         chatHome: v.optional(v.string()),
+        // A home-only group chat's grant (`lib/textGroupHomeOnly.ts`): the one row it reads, the chat's home in the pin.
+        homeOnly: v.optional(v.literal(true)),
       }),
     ),
   }),
@@ -213,12 +215,14 @@ export function gatewayOwnerClearance(
   session: {
     scopes: string[];
     workspaceId: Id<"workspaces">;
-    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string; homeOnly?: true; setupOnly?: true }>;
   },
   expectedWorkspaceId: string,
 ): Id<"workspaces"> | null {
   const covered = session.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
   if (covered === undefined) return null;
+  // A group chat's home in the pin (or its setup row) is a folder's worth of the pin, never the pin: no clearance.
+  if (covered.homeOnly === true || covered.setupOnly === true) return null;
   if (covered.role !== "owner") return null;
   if (!session.scopes.includes("context:write")) return null;
   if (!session.scopes.includes("context:private")) return null;
@@ -289,12 +293,13 @@ export async function ownerClearanceForGatewayHandler(
 export function gatewayEditorClearance(
   session: {
     scopes: string[];
-    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string; homeOnly?: true; setupOnly?: true }>;
   },
   expectedWorkspaceId: string,
 ): Id<"workspaces"> | null {
   const covered = session.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
   if (covered === undefined) return null;
+  if (covered.homeOnly === true || covered.setupOnly === true) return null;
   if (covered.role !== "owner" && covered.role !== "editor") return null;
   if (!session.scopes.includes("context:write")) return null;
   return covered.workspaceId;

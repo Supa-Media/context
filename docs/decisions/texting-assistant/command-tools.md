@@ -36,17 +36,21 @@ in regex in the texting Worker, and the model had no say and no tools.
   another member's text, a quoted message or an email cannot make the turn
   act as the tagger (security review, 2026-10-31). Otherwise the tool says
   they have to ask in their own words.
-- **Guests get mute, settings and style only.** A guest's tag, and an invited
-  person's, is minted on the account of whoever opened the chat, so nothing
-  that acts as a person (mail, review sharing) is theirs.
+- **Guests get mute, settings and style only.** Guest mode is retired
+  (#2529): a chat with someone who has no account is answered from its home
+  on a grant held for its sponsor, and acts for the account that tagged Tex
+  (`taggerId`), or for nobody when a guest did. An invited person's tag
+  stands on the binder's account. Neither acts as a person (mail, review
+  sharing).
 - **The exact short commands stay in code.** "Tex, settings", "Tex settings",
-  "Tex, stop", "Tex, start", "Tex, use @x" and replies to the menu are still
+  "Tex, stop", "Tex, start" and replies to the menu are still
   answered at once by the Worker, beside a running turn too
   (`groupBeside.ts`, the four-minute fix of 2026-10-30), and in muted or
   unbound chats, which have no turn to call a tool from.
-- **Choosing a workspace, inviting everyone and starting a muted Tex are not
-  tools yet.** They need the chat's member list, which only the Worker holds,
-  and a muted chat's grant does not resolve.
+- **Inviting everyone and starting a muted Tex are not tools yet.** Inviting
+  needs the chat's member list, which only the Worker holds, and a muted
+  chat's grant does not resolve. Choosing a workspace is gone: a chat reaches
+  every shared workspace all its people share (#2531).
 - **The prompt says it.** Every texted turn is told settings change only
   through the `tex_style` action, a note is never the settings, and it says
   only what a tool's answer says happened (`chatVoice.js` `SETTINGS_LINE`).

@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { exchangeTurns, mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, warmTurn } from "../src/agent/warmCopy.js";
+import { exchangeTurns, mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, WARM_SETUP_MS, warmTurn } from "../src/agent/warmCopy.js";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };
@@ -78,6 +78,34 @@ test("events the log would refuse are left out, and the copy's are kept beside t
   const fresh = event(now - 1_000, { text: "what's up" });
   const merged = mergeEvents([kept], [kept, fresh, { ...event(now), chat: "another-chat" }, { ...event(now), from: { kind: "tex", name: "Tex" } }, { id: "nope" }], { chat: CHAT, now });
   assert.deepEqual(merged.map((entry) => entry.id), [kept.id, fresh.id]);
+});
+
+test("the setup is trusted for an hour, while About me and the skills are read again after ten minutes", async () => {
+  const now = Date.now();
+  const thirtyMinutes = 30 * 60 * 1000;
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "setup text" }, notes: { at: now, value: "n" }, skills: { at: now, value: [] } });
+  const hot = warmTurn(env, session, { warm: sealed }, { eligible: true, now: now + thirtyMinutes });
+  let reads = 0;
+  assert.equal(await hot.setup(async () => (reads += 1, "read")), "setup text", "a 30-minute-old setup is used");
+  assert.equal(await hot.notes(async () => (reads += 1, "read")), "read", "a 30-minute-old About me is read again");
+  assert.equal(await hot.skills(async () => (reads += 1, "read")), "read", "30-minute-old skills are read again");
+  assert.equal(reads, 2, "only the two parts past their window were read");
+
+  const past = await openWarm(env, session, sealed, now + WARM_SETUP_MS + 1);
+  assert.equal(past.setup, undefined, "the setup is read again after an hour");
+});
+
+test("while a background job runs, or just after, About me and the skills are read fresh and the chat still comes from the copy", async () => {
+  const now = Date.now();
+  const sealed = await sealWarm(env, session, { v: 1, setup: { at: now, value: "setup text" }, notes: { at: now, value: "kept" }, skills: { at: now, value: ["kept"] } });
+  for (const running of [[{ id: "j1", title: "Apply", state: "running" }], [{ id: "j1", title: "Apply", state: "done", finishedAt: now - 60_000 }]]) {
+    const hot = warmTurn(env, session, { warm: sealed, running }, { eligible: true, now });
+    assert.equal(await hot.notes(async () => "read"), "read", "a job may have written the jobs list or a task note");
+    assert.deepEqual(await hot.skills(async () => ["read"]), ["read"]);
+    assert.equal(await hot.setup(async () => "read"), "setup text", "the setup is still the copy's");
+  }
+  const long = warmTurn(env, session, { warm: sealed, running: [{ id: "j1", title: "Apply", state: "done", finishedAt: now - WARM_NOTES_MS - 1 }] }, { eligible: true, now });
+  assert.equal(await long.notes(async () => "read"), "kept", "a job long finished changes nothing");
 });
 
 test("a turn not its own (a group, a job, a routine) never uses or makes one", async () => {

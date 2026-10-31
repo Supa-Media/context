@@ -20,8 +20,8 @@ it texts with or to answer in their language.
   earlier length rule, so a group set to Detailed is not held to "a line or
   two". With no length set, the line or two stands.
 - **A group's voice note.** `tex/groups/voice-<id>.md`, beside the chat's
-  memory note and named by the same people hash, so a new set of people starts
-  a new one. Tex keeps at most six short bullets there about style only and
+  memory note and named by the chat's key alone, so somebody added shares it
+  (the owner, 2026-10-31). Tex keeps at most six short bullets there about style only and
   updates them with write_note when it learns something lasting, as it keeps a
   person's about-me. Every group turn reads it, bounded to six lines and 600
   characters. It is a plain note, so a person's edit wins.

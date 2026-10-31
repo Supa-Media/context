@@ -18,7 +18,7 @@ import { texObjects } from "../../mcp/src/texStore/objects.js";
 import { serveTexStore } from "../../mcp/src/texStore/wire.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { hashToken } from "../functions/lib/crypto";
-import { consoleTexStore } from "../functions/lib/texStore";
+import { consoleTexRouting, consoleTexStore } from "../functions/lib/texStore";
 import { TEX_STORE_TICKET_TTL_MS } from "../functions/texStoreTickets";
 import { TEST_GATEWAY_SECRET, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 
@@ -101,7 +101,8 @@ describe("the console's store reaches Tex's notes through the gateway", () => {
     vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
     vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
     const bucket = new Map<string, unknown>();
-    const binding = { provider: "r2-binding", bindingName: "BUCKET", workspaceId: String(workspaceId), conditionalWrite: true, conditionalCreate: true };
+    // As the control plane opens a credential: it names no workspace (`S3GatewayCredential`).
+    const binding = { provider: "r2-binding", bindingName: "BUCKET", conditionalWrite: true, conditionalCreate: true };
     const env = {
       NATIVE_BINDINGS: "BUCKET",
       BUCKET: {
@@ -112,9 +113,9 @@ describe("the console's store reaches Tex's notes through the gateway", () => {
         list: async () => ({ objects: [], delimitedPrefixes: [], truncated: false }),
       },
     };
-    const texStore = consoleTexStore(ctx, workspaceId, { fetchImpl });
-    expect(texStore).not.toBeNull();
-    const store = storeForBinding(binding, env, { texStore }) as unknown as {
+    const routing = consoleTexRouting(ctx, workspaceId, { fetchImpl });
+    expect(routing.texStore).not.toBeNull();
+    const store = storeForBinding(binding, env, routing) as unknown as {
       put: (key: string, value: string) => Promise<{ etag: string } | null>;
       get: (key: string) => Promise<{ text: () => Promise<string> } | null>;
       delete: (key: string) => Promise<void>;

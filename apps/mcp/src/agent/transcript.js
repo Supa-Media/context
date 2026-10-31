@@ -409,15 +409,20 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
     if (running === null) running = drain();
   }
 
-  // The text is in the note before the model has said a word.
-  schedule();
+  /*
+    Nothing is read or written until the turn does something worth keeping: a
+    step (`record`) or its answer (`finish`). A plain "hi" is then written once,
+    after its answer has gone (`deferred`), instead of reading the day's note and
+    writing it before the model has said a word. Each write costs a note read,
+    a collaboration save and an audit entry, and a text that needs none of that
+    should not wait for it or hold a connection the reply needs.
+  */
 
   return {
     id,
     record(event) {
       if (ending || !event || typeof event !== "object") return;
-      events.push({ ...event, at: tick() });
-      schedule();
+      events.push({ ...event, at: tick() }); // kept, and written once with the ending (`finish`): a write per step cost a long turn ~130 storage calls beside its own tools (2026-10-31)
     },
     async finish({ answer = "", outcome = "answered" } = {}) {
       if (ending) return;
@@ -435,6 +440,7 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
      * will have, its hash.
      */
     async kept() {
+      if (state === null && running === null && ending === null) return []; // nothing started, so nothing is in the note
       await ready;
       if (!state) return [];
       return sent.items

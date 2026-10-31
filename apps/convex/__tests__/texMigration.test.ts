@@ -16,7 +16,8 @@
  */
 
 import { createRequire } from "node:module";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
 import { R2Store } from "../../mcp/src/store/r2.js";
 import { texKeyFor, withTexRouting } from "../../mcp/src/store/texRouting.js";
@@ -38,6 +39,12 @@ const NOTE_FOREIGN = "0199a000-0000-7000-8000-00000000000f";
 const NOTE_LEFT = "0199a000-0000-7000-8000-000000000010";
 const NOTE_FILE = "0199a000-0000-7000-8000-000000000011";
 const NOTE_OUTSIDE = "0199a000-0000-7000-8000-000000000012";
+const NOTE_US = "0199a000-0000-7000-8000-000000000013";
+const NOTE_STRAY = "0199a000-0000-7000-8000-000000000014";
+const NOTE_PIN_OTHER = "0199a000-0000-7000-8000-000000000015";
+const CHAT_KEY = "a".repeat(64);
+const HOME = "tex/groups/blue-river-lamp";
+const STAFF_EMAIL = "staff@example.invalid";
 const MARKDOWN = "text/markdown; charset=utf-8";
 
 function durableSql() {
@@ -131,10 +138,18 @@ async function world() {
         },
       }),
     );
-  const openStore = async (workspaceId: Id<"workspaces">) => {
+  const opened: string[] = [];
+  // As the console opens it: a store reaches only the one object it was opened for.
+  const openStore = async (workspaceId: Id<"workspaces">, owner: string) => {
     const store = stores.get(workspaceId);
     if (store === undefined) return null;
-    return withTexRouting(store, { workspaceId: String(workspaceId), texStore: (name: string) => texBucketFor(name) }) as never;
+    opened.push(owner);
+    const chats = owner.startsWith("chat:") ? [owner.slice("chat:".length)] : [];
+    return withTexRouting(store, {
+      workspaceId: String(workspaceId),
+      chats,
+      texStore: (name: string) => (name === owner ? texBucketFor(name) : null),
+    }) as never;
   };
 
   // The bucket copies first: each keyed row takes the etag its copy has, which is the version the seam records for it.
@@ -201,8 +216,59 @@ async function world() {
       sharedBucket: { ...stores.get(shared)!.snapshot() },
     };
   };
-  return { f, personal, shared, owner, foreignOwner, stores, failing, objectsFor, texBucketFor, objectText, run, rowAt, snapshotAll };
+  return { f, personal, shared, owner, foreignOwner, stores, failing, objectsFor, texBucketFor, objectText, run, rowAt, snapshotAll, opened };
 }
+
+/**
+ * The world, plus the pinned workspace with one group chat's home in it: a
+ * note in the home, a note in a folder under `tex/groups/` that is no chat's
+ * home, and a note elsewhere in the pinned workspace.
+ */
+async function pinnedWorld() {
+  vi.stubEnv("ADMIN_EMAILS", STAFF_EMAIL);
+  const w = await world();
+  const chatOwner = `chat:${CHAT_KEY}`;
+  const pinned = await w.f.t.run(async (ctx) => {
+    const staff = await ctx.db.insert("users", { email: STAFF_EMAIL, emailVerificationTime: 1 });
+    const id = await ctx.db.insert("workspaces", {
+      slug: PINNED_CONTEXT_SLUG,
+      displayName: "Context",
+      createdBy: staff,
+      kind: "shared",
+      structureTemplate: "para",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await ctx.db.insert("textGroups", { groupKey: CHAT_KEY, homeWords: "blue-river-lamp", lastSeenAt: 1 });
+    for (const path of ["tex", "tex/groups", HOME, "tex/groups/no-such-chat"]) {
+      await ctx.db.insert("nodes", { workspaceId: id, path, name: path.slice(path.lastIndexOf("/") + 1), kind: "folder", observedAt: 1 });
+    }
+    return id;
+  });
+  const bucket = memoryStore({ conditional: true });
+  w.stores.set(pinned, bucket);
+  const paths = { us: `${HOME}/about-us.md`, stray: "tex/groups/no-such-chat/note.md", other: "guides/start.md" };
+  const etagOf = {
+    us: await seedBucket(bucket, idKeyFor(NOTE_US, paths.us), "# About us\n\nBook club.\n"),
+    stray: await seedBucket(bucket, idKeyFor(NOTE_STRAY, paths.stray), "# Stray\n"),
+    other: await seedBucket(bucket, idKeyFor(NOTE_PIN_OTHER, paths.other), "# Start\n"),
+  };
+  await seedRow(w.f, pinned, paths.us, NOTE_US, undefined, etagOf.us);
+  await seedRow(w.f, pinned, paths.stray, NOTE_STRAY, undefined, etagOf.stray);
+  await seedRow(w.f, pinned, paths.other, NOTE_PIN_OTHER, undefined, etagOf.other);
+  const pinnedRow = async (path: string): Promise<Row> =>
+    await w.f.t.run(async (ctx) => {
+      const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned)).collect();
+      const row = rows.find((candidate) => candidate.path === path);
+      if (row === undefined) throw new Error("no row");
+      return row as Row;
+    });
+  return { ...w, pinned, bucket, chatOwner, paths, pinnedRow };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("a dry run reports what would move and writes nothing", () => {
   test("counts the bucket-keyed rows under a personal Tex folder, and changes no row, bucket or object", async () => {
@@ -406,5 +472,63 @@ describe("the run pages through the workspaces and resumes where it stopped", ()
     expect(moved).toBe(4);
     expect(pages).toBeGreaterThan(1);
     expect((await w.rowAt("tex/file.png")).storageKey).toBe(texKeyFor(w.owner, idKeyFor(NOTE_FILE, "tex/file.png")));
+  });
+});
+
+describe("a group chat's home in the pinned workspace moves into that chat's object", () => {
+  test("a dry run counts the home's notes and nothing else of the pinned workspace", async () => {
+    const w = await pinnedWorld();
+    const before = await w.snapshotAll();
+
+    const page = await w.run(true, { only: w.pinned, listPaths: true });
+
+    expect(page).toMatchObject({ wouldMove: 1, other: 1, done: true });
+    expect(page.paths).toEqual([w.paths.us]);
+    expect(await w.snapshotAll()).toEqual(before);
+  });
+
+  test("the home's note is copied to the chat's object, its row keyed there and the bucket copy removed; the rest stays", async () => {
+    const w = await pinnedWorld();
+    const idKey = idKeyFor(NOTE_US, w.paths.us);
+    const old = await w.pinnedRow(w.paths.us);
+
+    const page = await w.run(false, { only: w.pinned });
+
+    expect(page).toMatchObject({ moved: 1, other: 1, refused: {}, done: true });
+    const row = await w.pinnedRow(w.paths.us);
+    expect(row._id).toBe(old._id);
+    expect(row.storageKey).toBe(texKeyFor(w.chatOwner, idKey));
+    expect(await w.objectText(w.chatOwner, idKey)).toBe("# About us\n\nBook club.\n");
+    expect(w.bucket.snapshot()[idKey]).toBeUndefined();
+    // Never the person's object, and never a store opened for anyone but the chat.
+    expect(await w.objectText(`person:${w.pinned}`, idKey)).toBeNull();
+    expect(w.opened).toEqual([w.chatOwner]);
+    // A folder under tex/groups that is no chat's home, and a note outside the homes, are left in the bucket.
+    expect((await w.pinnedRow(w.paths.stray)).storageKey).toBe(idKeyFor(NOTE_STRAY, w.paths.stray));
+    expect(w.bucket.snapshot()[idKeyFor(NOTE_STRAY, w.paths.stray)]).toBe("# Stray\n");
+    expect((await w.pinnedRow(w.paths.other)).storageKey).toBe(idKeyFor(NOTE_PIN_OTHER, w.paths.other));
+  });
+
+  test("a second run is a no-op, and the person's notes move on the same run", async () => {
+    const w = await pinnedWorld();
+    const first = await w.run(false);
+    expect(first).toMatchObject({ moved: 5, refused: {}, done: true });
+    const after = await w.snapshotAll();
+
+    const again = await w.run(false);
+
+    expect(again).toMatchObject({ moved: 0, alreadyMoved: 6, refused: {} });
+    expect(await w.snapshotAll()).toEqual(after);
+  });
+
+  test("a workspace with the pinned slug that nobody vouches for has no homes to move", async () => {
+    const w = await pinnedWorld();
+    vi.stubEnv("ADMIN_EMAILS", "someone-else@example.invalid");
+    const before = await w.snapshotAll();
+
+    const page = await w.run(false, { only: w.pinned });
+
+    expect(page).toMatchObject({ moved: 0, wouldMove: 0, rows: 0 });
+    expect(await w.snapshotAll()).toEqual(before);
   });
 });

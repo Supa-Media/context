@@ -93,7 +93,7 @@ export function anthropicMessages(messages) {
     // What the person sent with their words (`attachments.js`): pictures and
     // documents as the API's own blocks.
     if (Array.isArray(message.attachments) && message.attachments.length > 0) {
-      out.push({ role: "user", content: anthropicAttachmentBlocks(message.attachments, message.text) });
+      out.push({ role: "user", content: withPreamble(anthropicAttachmentBlocks(message.attachments, message.text), message.preamble) });
       continue;
     }
     // Words after a tool round (`steer.js`) ride in the same turn as its answers.
@@ -102,11 +102,24 @@ export function anthropicMessages(messages) {
       last.content.push({ type: "text", text: message.text });
       continue;
     }
-    out.push({ role: "user", content: [{ type: "text", text: message.text }] });
+    out.push({ role: "user", content: withPreamble([{ type: "text", text: message.text }], message.preamble) });
   }
-  // `pendingTools` is this function's own bookkeeping and is not part of the
+  // `pendingTools` and `preamble` are this function's own bookkeeping and are not part of the
   // API's shape; a stray key here is a 400 from Anthropic, not a silent ignore.
-  return out.map(({ pendingTools, ...message }) => message);
+  return out.map(({ pendingTools, preamble, ...message }) => message);
+}
+
+/**
+ * The per-turn facts a message carries ahead of its own words (`turn.js`): the
+ * time, the models in play, what earlier texts used. They are said here, in
+ * the person's turn, and never in the system prompt, so the prompt's bytes
+ * stay the same from one text to the next and the cache can read them. They go
+ * just before the words, which are the message's last block; a picture or a
+ * document the person attached keeps its place ahead of them.
+ */
+function withPreamble(blocks, preamble) {
+  if (typeof preamble !== "string" || preamble === "") return blocks;
+  return [...blocks.slice(0, -1), { type: "text", text: preamble }, ...blocks.slice(-1)];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -138,13 +151,8 @@ export function openAiMessages(system, messages) {
       });
       continue;
     }
-    out.push({
-      role: "user",
-      content:
-        Array.isArray(message.attachments) && message.attachments.length > 0
-          ? plainAttachmentText(message.attachments, message.text)
-          : message.text,
-    });
+    const words = Array.isArray(message.attachments) && message.attachments.length > 0 ? plainAttachmentText(message.attachments, message.text) : message.text;
+    out.push({ role: "user", content: typeof message.preamble === "string" && message.preamble !== "" ? `${message.preamble}\n\n${words}` : words });
   }
   return out;
 }

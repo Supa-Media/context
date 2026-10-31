@@ -1,15 +1,16 @@
 /**
- * Moving Tex's existing notes from the bucket into their person's Durable
- * Object (decided by the owner, 2026-10-31;
- * `docs/decisions/texting-assistant/tex-durable-objects.md`).
+ * Moving Tex's existing notes from the bucket into their Durable Object
+ * (decided by the owner, 2026-10-31;
+ * `docs/decisions/texting-assistant/tex-durable-objects.md`): a personal
+ * workspace's Tex folder into the person's object, and each group chat's home
+ * in the pinned workspace into that chat's (`texMigrationRows.ts` `texScope`).
  *
  * One call is one page of work, and the cursor says where the next call picks
- * up. Within a personal workspace's Tex folder, each live keyed row whose key
- * is its bucket id key is handled in this order, and each step waits for the
- * one before it:
+ * up. Within those folders, each live keyed row whose key is its bucket id key
+ * is handled in this order, and each step waits for the one before it:
  *
  *  1. read the bucket copy, and its etag, which must be the row's own version;
- *  2. copy the body to the same id key of the person's object, with its
+ *  2. copy the body to the same id key of the row's object, with its
  *     content type (the row still names the bucket, so nothing reads the copy);
  *  3. read the copy back and compare it with the bucket's bytes;
  *  4. check the bucket copy did not move under the copy;
@@ -48,12 +49,14 @@ export interface TexRow {
   noteId?: string;
   storageKey: string;
   etag?: string;
+  /** The object it belongs in, as the tree says (`person:<workspaceId>` or `chat:<groupKey>`); absent, it is not moved. */
+  owner?: string;
 }
 
 export interface TexMigrationCounts {
-  /** Personal workspaces whose Tex folder was looked at to the end. */
+  /** Workspaces whose Tex rows (a personal Tex folder, the pinned workspace's chat homes) were looked at to the end. */
   workspaces: number;
-  /** Live keyed rows under a personal workspace's Tex folder. */
+  /** Live keyed Tex rows. */
   rows: number;
   /** Dry run: rows that a real run would move. */
   wouldMove: number;
@@ -63,7 +66,7 @@ export interface TexMigrationCounts {
   alreadyMoved: number;
   /** Bucket copies removed for rows already in the Tex form (left by a crash after the switch). */
   swept: number;
-  /** Keyed rows that are not this migration's: a path key, or another owner's Tex form. */
+  /** Keyed rows that are not this migration's: a path key, another owner's Tex form, or a row in no chat's home. */
   other: number;
   /** Rows left as they were, counted by a fixed code (`missing`, `changed`, `verify_failed`, `FAILED`, ...). */
   refused: Record<string, number>;
@@ -84,8 +87,8 @@ export interface TexMigrationOptions {
   limit?: number;
   /** Only this workspace: a first run on one person's notes before everyone's. */
   only?: Id<"workspaces">;
-  /** The workspace's bucket, as the console opens it, with Tex keys routed to the person's object; `null` when it has none. */
-  openStore: (workspaceId: Id<"workspaces">) => Promise<FileStore | null>;
+  /** The workspace's bucket, as the console opens it, with `owner`'s Tex keys routed to its object; `null` when it has none. */
+  openStore: (workspaceId: Id<"workspaces">, owner: string) => Promise<FileStore | null>;
   /** Test seam: runs after a copy is read back and before the switch. */
   afterCopy?: (row: TexRow) => Promise<void>;
 }
@@ -152,8 +155,9 @@ async function moveRow(
   counts: TexMigrationCounts,
 ): Promise<Outcome> {
   if (row.noteId === undefined || row.etag === undefined) return { moved: false, code: "no_etag" };
+  if (row.owner === undefined) return { moved: false, code: "no_owner" };
   const idKey = idKeyFor(row.noteId, row.path);
-  const texKey = texKeyFor(`person:${workspaceId}`, idKey);
+  const texKey = texKeyFor(row.owner, idKey);
 
   const before = await metaAt(store, idKey);
   if (before === null) return { moved: false, code: "missing" };
@@ -215,9 +219,9 @@ async function sweepRow(store: FileStore, row: TexRow, counts: TexMigrationCount
   }
 }
 
-async function openFor(options: TexMigrationOptions, workspaceId: Id<"workspaces">): Promise<{ store: FileStore | null; code: string }> {
+async function openFor(options: TexMigrationOptions, workspaceId: Id<"workspaces">, owner: string): Promise<{ store: FileStore | null; code: string }> {
   try {
-    const store = await options.openStore(workspaceId);
+    const store = await options.openStore(workspaceId, owner);
     return store === null ? { store: null, code: "NO_BUCKET" } : { store, code: "" };
   } catch (error) {
     return { store: null, code: codeOf(error) };
@@ -234,8 +238,8 @@ async function migrateWorkspace(
   paths: string[],
   work: Work,
 ): Promise<{ finished: boolean; next: string | null }> {
-  const owner = `person:${workspaceId}`;
-  let opened: { store: FileStore | null; code: string } | undefined;
+  // One store per object: a store's way to the objects names the ones it may reach.
+  const opened = new Map<string, { store: FileStore | null; code: string }>();
   let cursor = after;
   for (;;) {
     const page: { tex: boolean; rows: TexRow[]; next: string | null } = await ctx.runQuery(internal.functions.texMigrationRows.rowsPage, {
@@ -245,7 +249,7 @@ async function migrateWorkspace(
     if (!page.tex) return { finished: true, next: null };
     for (const row of page.rows) {
       counts.rows += 1;
-      const state: TexRowState = texRowState(row, owner);
+      const state: TexRowState = row.owner === undefined ? "other" : texRowState(row, row.owner);
       if (state === "other") {
         counts.other += 1;
         continue;
@@ -258,13 +262,15 @@ async function migrateWorkspace(
           counts.alreadyMoved += 1;
         }
       } else {
-        opened ??= await openFor(options, workspaceId);
-        if (opened.store === null) {
-          refuse(counts, opened.code);
+        const owner = row.owner as string;
+        if (!opened.has(owner)) opened.set(owner, await openFor(options, workspaceId, owner));
+        const { store, code } = opened.get(owner)!;
+        if (store === null) {
+          refuse(counts, code);
         } else {
           try {
             if (state === "move") {
-              const outcome = await moveRow(ctx, options, workspaceId, opened.store, row, counts);
+              const outcome = await moveRow(ctx, options, workspaceId, store, row, counts);
               if (outcome.moved) {
                 counts.moved += 1;
                 if (options.listPaths === true) paths.push(row.path);
@@ -273,7 +279,7 @@ async function migrateWorkspace(
               }
             } else {
               counts.alreadyMoved += 1;
-              await sweepRow(opened.store, row, counts);
+              await sweepRow(store, row, counts);
             }
           } catch (error) {
             refuse(counts, codeOf(error));
@@ -290,8 +296,8 @@ async function migrateWorkspace(
 
 /**
  * One call of the run: as much as the work limit allows, from `options.cursor`.
- * Every personal workspace is visited in turn, shared ones have no Tex folder
- * to read and are passed over.
+ * Every workspace is visited in turn; one with no Tex rows (a shared one other
+ * than the pinned workspace, or a person with no Tex folder) is passed over.
  */
 export async function migrateTexNotes(ctx: ActionCtx, options: TexMigrationOptions): Promise<TexMigrationPage> {
   const counts = emptyCounts();

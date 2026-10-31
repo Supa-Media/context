@@ -21,9 +21,10 @@
  * - A cache, never a copy of record: the bucket stays where every note, the
  *   chat and the event log live, and a turn writes there as it always did.
  *   Dropping the copy costs one slow turn, never anything kept.
- * - Fresh enough to trust, by part: what changes outside the chat (the setup,
- *   learned skills, About me and the jobs list) is used for ten minutes, and
- *   dropped by any turn that wrote; the chat for a day, carried forward by
+ * - Fresh enough to trust, by part: the setup (a pinned note that changes
+ *   rarely) for an hour; what changes outside the chat (learned skills, About
+ *   me and the jobs list) for ten minutes, and dropped by any turn that wrote;
+ *   the chat for a day, carried forward by
  *   each turn with what it said. The Worker drops the whole copy when it
  *   texts outside a turn (a routine, a job), since the chat then holds words
  *   the copy hasn't seen.
@@ -44,8 +45,10 @@ const PREFIX = "tw1.";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** What changes outside the chat is trusted this long, then read again. */
+/** What changes outside the chat (About me, learned skills, the jobs list) is trusted this long, then read again. */
 export const WARM_NOTES_MS = 10 * 60 * 1000;
+/** The texting setup, a note in the pinned workspace that changes rarely: trusted this long, then read again. */
+export const WARM_SETUP_MS = 60 * 60 * 1000;
 /** The chat itself, carried forward turn by turn. */
 export const WARM_CHAT_MS = 24 * 60 * 60 * 1000;
 /** A sealed copy larger than this is not made: the turn after reads, as without one. */
@@ -96,7 +99,7 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const copy = JSON.parse(decoder.decode(await squeeze(new Uint8Array(plain), DecompressionStream)));
     if (copy === null || typeof copy !== "object" || copy.v !== 1) return null;
     const fresh = (part, ms) => (part && Number.isFinite(part.at) && part.at <= now && now - part.at < ms ? part : undefined);
-    return { setup: fresh(copy.setup, WARM_NOTES_MS), skills: fresh(copy.skills, WARM_NOTES_MS), notes: fresh(copy.notes, WARM_NOTES_MS), chat: fresh(copy.chat, WARM_CHAT_MS) };
+    return { setup: fresh(copy.setup, WARM_SETUP_MS), skills: fresh(copy.skills, WARM_NOTES_MS), notes: fresh(copy.notes, WARM_NOTES_MS), chat: fresh(copy.chat, WARM_CHAT_MS) };
   } catch {
     return null;
   }
@@ -114,15 +117,17 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
   // The chat is carried only when the turn has nothing the copy can't hold: fixed Worker texts go to the history as they always did.
   const chatUsable = eligible && !(Array.isArray(body?.told) && body.told.length > 0);
   const cleanSeen = {};
+  // A background job writes on its own (task notes, the jobs list, a skill): while one runs, or just after, those are read fresh.
+  const jobBusy = (Array.isArray(body?.running) ? body.running : []).some((job) => job?.state === "running" || (Number.isFinite(job?.finishedAt) && now - job.finishedAt < WARM_NOTES_MS));
   const part = (name) => async (read) => {
-    const warm = (await opened)?.[name];
+    const warm = jobBusy && (name === "notes" || name === "skills") ? undefined : (await opened)?.[name];
     if (warm !== undefined && warm.value !== undefined) return (next[name] = warm).value;
     const value = await read();
     if (eligible) next[name] = { at: now, value };
     return value;
   };
   const chat = (async () => (chatUsable ? (await opened)?.chat : undefined))();
-  let chatRead = null;
+  let chatRead = null, logRead = null;
   return {
     /** The setup's text; the turn parses it either way. */
     setup: part("setup"),
@@ -139,12 +144,17 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
     },
     /** The chat's event log (`log.js` `readEvents`), with the Worker's newest events on top. */
     async events(chatKey, read) {
-      const warm = await chat;
-      const base = warm?.events ?? (await read());
+      // The Worker holds the chat's whole log (`apps/agent/src/events.ts` `holdsLog`): its events are all of it, nothing is read from storage.
+      const held = eligible && body?.holdsLog === true && Array.isArray(body?.recent);
+      const warm = held ? undefined : await chat;
+      const base = held ? [] : warm?.events ?? (await read());
       const events = mergeEvents(base, eligible ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
       chatRead = { ...(chatRead ?? {}), events };
+      if (eligible && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
       return events;
     },
+    /** The log this turn read from storage, for the Worker to hold so the next turn reads none (`apps/agent/src/events.ts` `keepLog`); null when it read none. */
+    log: () => logRead,
     /** Whether a turn record is clean, from the copy when it knows it. */
     async clean(turn, read) {
       const known = (await chat)?.clean?.[turn];
