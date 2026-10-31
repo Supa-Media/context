@@ -1,18 +1,8 @@
 /**
- * A Tex guest chat's people, kept in step with its group and folder (the owner, 2026-10-25: "as people are added to
- * a groupchat they are added and removed from the context group, but still as guests";
- * `docs/decisions/texting-assistant/group-guests.md`).
- *
- * Each tag in a guest chat names who is in it, and this brings the workspace in line:
- *
- *  - **A member of the workspace** in the chat is in the chat's group, so the app shows them what the chat reads.
- *    A row the chat added carries `viaChat` and goes when they leave the chat; a row the owner added is never touched.
- *  - **Somebody with an account who isn't a member** is named on the chat's folder row to edit, the way an owner
- *    names an outsider, so they reach that folder in the app and nothing else of the workspace. A group row would
- *    reach nothing for them (`resolveGroupMembers` keeps members only), and making them a member is an invitation,
- *    which is the owner's.
- *  - **Somebody with no account** has nothing to be given until they link a phone; the first tag after that names
- *    them like anyone else. Their number is kept only as a keyed hash, beside this (`guestPhones.ts`).
+ * What guest mode added to a workspace, taken back (`docs/decisions/texting-assistant/group-guests.md`, retired by the
+ * owner on 2026-10-31). A legacy chat's group and folder rows are cleared by `unsyncChatPeople`, and the guest phone
+ * pass names an account made for a number on the chat's folder (`nameOutsider`). Nothing here adds people any more:
+ * a chat with people who aren't all here is answered from its home (`lib/textGroupHomeOnly.ts`).
  *
  * Only people already linked to an account are ever written, by account id.
  */
@@ -26,18 +16,6 @@ import { granteeInputOf, setAccessRow, type GranteeInput } from "./nodes/setAcce
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 /** Most outsiders one chat names on its folder: a chat holds at most 32 people. */
 const MAX_FOLDER_PEOPLE = 32;
-
-/** Bring the chat's group and folder in line with who is in it now. Best effort: a refusal changes nothing. */
-export async function syncChatPeople(
-  ctx: MutationCtx,
-  chat: Doc<"textGroups">,
-  actor: Id<"users">,
-  people: { members: Id<"users">[]; outsiders: Id<"users">[] },
-): Promise<void> {
-  if (chat.workspaceId === undefined || chat.guestGroupId === undefined) return;
-  await syncGroupRows(ctx, chat.workspaceId, chat.guestGroupId, chat._id, actor, people.members);
-  await syncFolderPeople(ctx, chat, actor, people.outsiders.slice(0, MAX_FOLDER_PEOPLE));
-}
 
 /**
  * An account that has just been made for a number in the chat (`guestPass.ts`) is named on the chat's folder to edit,

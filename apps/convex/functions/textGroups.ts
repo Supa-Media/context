@@ -10,9 +10,7 @@ import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
-import { syncChatPeople } from "./lib/textGroupGuestSync";
-import { syncChatPhones } from "./lib/guestPhones";
-import { clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { clearGuests, guestLabel, mayOpenToGuests } from "./lib/textGroupGuests";
 import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
@@ -40,11 +38,9 @@ import { handleOf, linkedUser } from "./lib/textGroupAccounts";
  *   of them couldn't open is not reachable, whoever tagged Tex.
  * - The person who tagged Tex is the acting identity: their role decides
  *   writes, their personal workspace is metered, and the audit names them.
- * - **Guest mode** (the owner, 2026-10-25; `lib/textGroupGuests.ts`): "Tex,
- *   use @slug" from an owner or editor of a workspace not everyone here
- *   shares gives the chat a group and folder of its own there. Then anyone in
- *   the chat may tag Tex, accounts or not, and the grant reads only what is
- *   shared with that group; usage counts against whoever turned it on.
+ * - **Homes, not guest mode** (the owner, 2026-10-31; `lib/textGroupHomeOnly.ts`): a chat whose people don't all share a
+ *   workspace is answered from its home in the pinned workspace, on a grant that reads only that home, and a guest who
+ *   tags Tex is answered the same way. Guest mode (2026-10-25) is retired.
  * - **Invited family** (the owner, 2026-10-27; `lib/textGroupInvited.ts`):
  *   "Tex, add everyone here to @slug" from an owner of a shared workspace
  *   invites each person in the chat by number, and a pending phone invitation
@@ -100,8 +96,6 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("choose"), slugs: v.array(v.string()) }),
   /** "Tex, use @slug" from someone who isn't an owner or editor there, or a name no workspace has: one answer. */
   v.object({ status: v.literal("not_allowed"), slug: v.string() }),
-  /** A guest chat whose group is gone or whose binder can no longer open it: guest mode is off. */
-  v.object({ status: v.literal("guests_off") }),
   /** "Tex, add everyone here to @slug": how many people here were invited, as what (`lib/textGroupInvited.ts`). */
   v.object({ status: v.literal("invited"), slug: v.string(), count: v.number(), role: v.string() }),
   /** A mailbox shared with the chat, or the sender's shares ended (`lib/textGroupMail.ts`); refused is one answer for every reason. */
@@ -121,11 +115,10 @@ export const groupAnswerValidator = v.union(
     /** Each person in the chat's handle, so what they said before the tag is filed by name, never by number. */
     names: v.array(v.object({ phone: v.string(), handle: v.string() })),
     /**
-     * Guest mode (`lib/textGroupGuests.ts`): the chat's group and folder, a label for each person who isn't a member
-     * of the workspace, and the tagger's label when they are one of them. A guest never appears in `names`, so an
-     * email is never offered to go from a guest's account.
+     * A label for each person with no account (or who isn't a member of the workspace the answer names), and the
+     * tagger's label when they are one of them. A guest never appears in `names`, so an email is never offered to go
+     * from a guest's account. Guest mode itself is retired (`lib/textGroupGuests.ts`).
      */
-    guest: v.optional(v.object({ group: v.string(), words: v.string(), folder: v.string() })),
     guests: v.optional(v.array(v.object({ phone: v.string(), label: v.string() }))),
     guestTagger: v.optional(v.string()),
     /** The chat's style, absent until someone in it chose one (`engagementChosen` false). */
@@ -138,7 +131,7 @@ export const groupAnswerValidator = v.union(
 );
 
 export type GroupAnswer =
-  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "guests_off" }
+  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
@@ -156,7 +149,6 @@ export type GroupAnswer =
       handle: string;
       minted: boolean;
       names: { phone: string; handle: string }[];
-      guest?: GuestInfo;
       guests?: { phone: string; label: string }[];
       guestTagger?: string;
       engagement?: Engagement;
@@ -340,43 +332,6 @@ export const applyGroupTurn = internalMutation({
   },
 });
 
-/**
- * Anyone's message in a guest chat, tagged or not, whose people changed since the last one: who is in the chat now,
- * in its group and on its folder (`lib/textGroupGuestSync.ts`), with no turn and no grant. A muted chat is kept in
- * step too, since leaving the chat should end what it gave. Answers nothing about who is linked or a member.
- */
-export const syncGuestPeople = internalMutation({
-  args: { line: v.string(), groupKey: v.string(), participants: v.array(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    if (!isPhoneNumber(args.line) || !/^[0-9a-f]{64}$/.test(args.groupKey)) return null;
-    if (args.participants.length === 0 || args.participants.length > MAX_GROUP_PARTICIPANTS) return null;
-    const chat = await ctx.db
-      .query("textGroups")
-      .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
-      .unique();
-    if (chat === null || chat.guestGroupId === undefined || chat.workspaceId === undefined) return null;
-    // A binder who may no longer: the next tag turns guest mode off, and takes back what the chat added.
-    const binder = await guestBinder(ctx, chat);
-    if (binder === null) return null;
-    await ensureChatFolderGrant(ctx, chat, binder);
-    const people = { members: [] as Id<"users">[], outsiders: [] as Id<"users">[] };
-    for (const phone of new Set(args.participants.filter((entry) => entry !== args.line))) {
-      const userId = await linkedUser(ctx, phone);
-      if (userId === null) continue;
-      if ((await getMembership(ctx, chat.workspaceId, userId)) !== null) people.members.push(userId);
-      else people.outsiders.push(userId);
-    }
-    const current = await ctx.db.get(chat._id);
-    if (current !== null) {
-      await syncChatPeople(ctx, current, binder, people);
-      // Their numbers too, hashed, so who may open the chat's notes by code moves with them (`lib/guestPhones.ts`).
-      await syncChatPhones(ctx, current, args.participants.filter((entry) => entry !== args.line));
-    }
-    return null;
-  },
-});
-
 type TurnArgs = {
   groupKey: string;
   sender: string;
@@ -523,8 +478,6 @@ async function mintGroupGrant(
     hashedRefreshToken: string;
     expiresAt: number;
     participants: number;
-    /** Guest mode: the chat's group, the person usage counts against, and whether the tagger is a guest. */
-    guest?: { groupId: Id<"workspaceGroups">; binder: Id<"users">; guestTagger: boolean };
     /** Invited family (`lib/textGroupInvited.ts`): the invitations counted, and the invited tagger's role when one tagged. */
     invited?: { invitationIds: Id<"workspaceInvitations">[]; taggerRole?: "editor" | "member" };
   },
@@ -544,18 +497,16 @@ async function mintGroupGrant(
   const fresh = (await ctx.db.get(input.group._id)) ?? input.group;
   const sponsor = sponsorOf(fresh, input.tagger);
   const sponsorMeter = (await phoneSignInPaused(ctx, sponsor)) ? null : await personalWorkspaceOf(ctx, sponsor);
-  // The sponsor has no personal workspace, or texting is paused for them: keep today's meter, the tagger's (a guest chat's
-  // binder's, since a guest chat counts against whoever opened it to guests, the owner, 2026-10-25).
-  const meterWorkspaceId = sponsorMeter ?? (await personalWorkspaceOf(ctx, input.guest?.binder ?? input.tagger));
+  // The sponsor has no personal workspace, or texting is paused for them: keep today's meter, the tagger's.
+  const meterWorkspaceId = sponsorMeter ?? (await personalWorkspaceOf(ctx, input.tagger));
   if (meterWorkspaceId === null) return false;
   await ensureGroupClient(ctx, TEXTS_GROUP_CLIENT_ID, TEXTS_GROUP_CLIENT_NAME);
 
-  const guest = input.guest === undefined ? {} : { guestGroupId: input.guest.groupId, guestTagger: input.guest.guestTagger };
   const invited =
     input.invited === undefined
       ? {}
       : { coInvitationIds: input.invited.invitationIds, ...(taggerRole !== undefined ? { invitedTaggerRole: taggerRole } : {}) };
-  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...guest, ...invited };
+  const texGroup = { groupId: input.group._id, coViewerIds: input.coViewerIds, meterWorkspaceId, ...invited };
   const token = {
     scopes,
     texGroup,
@@ -593,7 +544,6 @@ async function mintGroupGrant(
     details: {
       scopes: scopes.join(" "),
       participants: input.participants,
-      ...(input.guest !== undefined ? { guests: true, guestTagger: input.guest.guestTagger } : {}),
       ...(input.invited !== undefined ? { invited: input.invited.invitationIds.length, invitedTagger: taggerRole !== undefined } : {}),
     },
   });
