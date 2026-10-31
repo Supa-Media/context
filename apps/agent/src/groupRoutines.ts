@@ -18,6 +18,7 @@
  */
 
 import type { GroupMessage } from "./sendblueGroups";
+import { isControlWord } from "./controlWords";
 
 /** The object that knows where a chat is, named by its key alone. */
 export function chatDirectoryName(groupKey: string): string {
@@ -126,7 +127,5 @@ export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
   };
 }
 
-/** An answer that means "nothing to say": SKIP on its own. */
-export function saysSkip(text: string): boolean {
-  return /^\W*skip\W*$/i.test(text.trim());
-}
+/** An answer that means "nothing to say": SKIP, or any other control word, on its own (`controlWords.ts`). */
+export const saysSkip = isControlWord;

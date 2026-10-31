@@ -28,7 +28,7 @@ import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
-import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
+import { meterEach, meterParts, turnRouter } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
@@ -61,7 +61,7 @@ import { withSameAsk } from "./sameAsk.js"; // a change they pushed back on is n
 import { paidLine } from "./textedPay.js";
 import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends, read for sense
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
-import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
+import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, commandTools, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -405,10 +405,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const builtinUsed = productionModel ?? builtinModel(env);
   // The setup's router (`router.js`), when this deployment can run both the
   // decision model and the thinking model; otherwise every text runs on `main`.
-  const router =
-    productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt, thinkRounds: production.router.thinkRounds }
-      : null;
+  const router = productionModel !== null ? turnRouter(production, (name) => canRunBuiltin(name, env), () => decisionEngine(env.AI)) : null; // or a planner for jobs alone (`modelPlan.js`)
   // The setup's fallback model (`production.js`), when this deployment can call it.
   const fallback = pictureFallback(productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null, [builtinUsed, router?.think], attachments);
 
@@ -611,7 +608,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // relaying it is a courtesy rather than the mechanism.
     // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
-    const { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
+    const { answer: replied, quiet } = reportReply(report, turn.answer), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`)
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -634,7 +631,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     const behind = front ? afterAnswer : (work) => work(); // on the front door the chat is saved after the reply has gone; best effort, as below: a memory that failed to save costs the chat some context, not this answer
     if (group !== null && job === null && !turn.exhausted && !replaced) await behind(() => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
-    const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
+    const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
     const kept = { ...newExchange(), tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`); the same exchange is handed to the warm copy
     if (saving) await behind(() => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
@@ -648,7 +645,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
     if (!turn.exhausted) await afterAnswer(() => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
     return json({
-      answer: sent,
+      answer: sent, ...(quiet && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,

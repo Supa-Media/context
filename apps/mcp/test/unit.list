@@ -30,6 +30,7 @@ test/agentLookFirst.test.mjs
 test/agentHandbackMiner.test.mjs
 test/agentOtherRoutes.test.mjs
 test/agentInstructions.test.mjs
+test/agentJobPlanner.test.mjs
 test/agentJobs.test.mjs
 test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
@@ -302,3 +303,4 @@ test/texRoutineAlarms.test.mjs
 test/chatReach.test.mjs
 test/agentJobCheck.test.mjs
 test/agentJobRestart.test.mjs
+test/jobReportReply.test.mjs

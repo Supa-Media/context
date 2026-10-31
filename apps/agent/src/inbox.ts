@@ -52,7 +52,7 @@ import type { Choice } from "./pickCard";
 import { settleCard, withCardsHere } from "./cardChats";
 import type { Offer } from "./dataCards";
 import { withAnswerCards } from "./answerCards";
-import { textsFromAnswer } from "./format";
+import { textsFromAnswer } from "./format"; import { isControlWord } from "./controlWords";
 import { noteCardDrawer } from "./noteCards";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
@@ -431,7 +431,8 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
         continue;
       }
       const idempotency = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-      if (typeof part === "string") {
+      if (typeof part === "string" && isControlWord(part)) console.log(JSON.stringify({ event: "reply", outcome: "control_word_dropped" })); // a word meant for us, never a text (`controlWords.ts`)
+      else if (typeof part === "string") {
         const handle = await line.sendText(item.message.chatId, part, idempotency, thread);
         await rememberText(storage, item.message.chatId, handle, part, deps.now());
         await out(partEvent(part));

@@ -259,3 +259,20 @@ own answer is no longer kept in the conversation as said; only the
 coordinator's turn is. Texting a job's words straight in again, for any
 kind of update, breaks the rule. Tests: `apps/agent/src/jobReports.test.ts`,
 `groupJobs.test.ts`, `apps/mcp/test/agentBackgroundRoute.test.mjs`.
+
+**Staying quiet on a report is a flag, and an ended job is never met with
+silence** (Dev2 approved, 2026-10-31, after self-reviews fa3f7a and
+a0365e: "SKIP" stood as Tex's reply to three job reports, two of them
+finished jobs whose results never reached the person). Only a report from a
+job still running is offered SKIP; the gateway turns that word into
+`quiet: true` with an empty answer, and the history keeps "(You texted them
+nothing ...)" instead of the word (`jobReport.js` `reportReply`). A report
+from a job that finished, failed, is waiting or stuck always gets a line:
+the model's own words with any SKIP taken off, or, when it said only a
+control word or nothing, one plain status line with the job's own result
+(`reportStatusLine`). In front of the line, a bubble that is only a control
+word (SKIP, NOOP, NO_REPLY, QUIET, NONE in capitals) is never sent, on any
+path (`apps/agent/src/controlWords.ts`, checked in `reply.ts`, `inbox.ts`,
+`groupSay.ts`). Letting the model's word decide again brings back results
+nobody hears. Tests: `apps/mcp/test/jobReportReply.test.mjs`,
+`agentBackgroundRoute.test.mjs`, `apps/agent/src/jobReports.test.ts`.
