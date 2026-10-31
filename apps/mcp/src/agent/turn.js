@@ -43,10 +43,10 @@
  */
 
 import { attachmentsLine } from "./attachments.js";
-import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL, webPrompt } from "./computer.js";
-import { systemPrompt } from "./prompt.js";
+import { systemPromptParts } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
@@ -230,6 +230,18 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
   throw noModel();
 }
 
+/** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
+const PREAMBLE_LABEL = "Context for this text, not written by them:";
+
+/**
+ * The per-text facts as one preamble (`providers.js` puts it before their words), or "" when there are none.
+ * Each part is trimmed of the leading newlines its system-prompt wording carries.
+ */
+function turnFacts(parts) {
+  const facts = parts.map((part) => (typeof part === "string" ? part.trim() : "")).filter((part) => part !== "");
+  return facts.length === 0 ? "" : [PREAMBLE_LABEL, ...facts].join("\n\n");
+}
+
 /**
  * Run one turn to completion.
  *
@@ -391,8 +403,19 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
     tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const systemFor = (answering) =>
-    systemPrompt(place, {
+  /*
+    THE PROMPT, IN THREE PARTS, so the bytes the prompt cache reads stay the same from one text to the next.
+
+    - `system.stable`: who the assistant is and what it may do. The same every text.
+    - `system.context`: what changes slowly (the workspaces, the jobs, the about-me note, the
+      thread). The system prompt is sent with these two, each behind a cache breakpoint.
+    - `preamble`: what changes per text or per round: the time, the model answering, the note
+      open in front of them, what earlier texts used, the planner's or driver's words, and the
+      nudge. It is said in the person's turn, just before their words, after the last breakpoint,
+      so a changed minute or model never costs the cached prefix (`aiGateway.js`).
+  */
+  const promptFor = (answering) => {
+    const parts = systemPromptParts(place, {
       texting,
       pictures,
       notes,
@@ -401,24 +424,33 @@ export async function runTurn(options) {
       edits: tools.some((tool) => tool.name === "write_note"),
       continued: history.length > 0,
       used: usedTools(history),
-    }) +
-    threadNote +
-    webPrompt(webNames) +
-    (progress ? PROGRESS_PROMPT : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
-    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
-    (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
-    (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
-    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
-    workspacesPrompt(workspaces) +
-    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT) + // `modelPlan.js`
-    nudge; // said last, beside the question
-  let system = systemFor(model);
-  const messages = [
-    ...history.map(({ role, text }) => ({ role, text })),
-    { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) },
-  ];
+    });
+    return {
+      system: {
+        stable: parts.stable,
+        context:
+          threadNote +
+          webPrompt(webNames) +
+          (progress ? PROGRESS_PROMPT : "") +
+          (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note"), identity })) +
+          (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
+          (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
+          (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
+          (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
+          workspacesPrompt(workspaces),
+      },
+      preamble: turnFacts([
+        localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone),
+        parts.volatile,
+        plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT, // `modelPlan.js`
+        nudge, // said last, beside the question
+      ]),
+    };
+  };
+  let prompt = promptFor(model);
+  // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
+  const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
+  const messages = [...history.map(({ role, text }) => ({ role, text })), questionMessage];
   /*
     What the turn did, by name only. The arguments a tool was called with can
     carry a path and a query — facts about what somebody is looking for in their
@@ -468,7 +500,7 @@ export async function runTurn(options) {
   */
   const switchTo = (next) => {
     model = next;
-    system = systemFor(model);
+    prompt = promptFor(model);
     for (const message of messages) if (message.content) delete message.content;
   };
   // The last round's tool calls included one that failed: the next one plans again.
@@ -490,9 +522,11 @@ export async function runTurn(options) {
     escalate = false;
     const asked = clock();
     let answer;
+    questionMessage.preamble = prompt.preamble;
     try {
       answer = await requestBuiltin(
-        { model, system, messages, tools: offered, effort: efforts?.[model], ...(observe ? { display: "summarized" } : {}) },
+        // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: history.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -633,7 +667,7 @@ export async function runTurn(options) {
               progress && call.name === PROGRESS_TOOL
                 ? progress.call(call.args)
                 : localCalls.has(call.name)
-                ? localCalls.get(call.name)(call.args, { system, messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
+                ? localCalls.get(call.name)(call.args, { system: [systemText(prompt.system), prompt.preamble].join("\n\n"), messages, tools: offered }) // the turn so far, for a tool that reads it (`advisor.js`)
                 : webNames.has(call.name)
                   ? web.call(call.name, call.args)
                   : callTool(call.name, call.args),

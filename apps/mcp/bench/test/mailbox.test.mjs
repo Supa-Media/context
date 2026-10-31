@@ -88,7 +88,8 @@ test("task 12 end to end: found by sender, kept a text later, forwarded in a dra
     const before = asked.length;
     const second = await world.text("ok save her a draft with it");
     assert.equal(second.ok, true, second.error ?? "");
-    const system = JSON.stringify(asked[before]?.system ?? "");
+    // The earlier answer's email is said in the person's turn, after the system prompt (`turn.js`): the whole request is read.
+    const system = JSON.stringify(asked[before] ?? "");
     assert.ok(system.includes(`Emails you found: email:kofi@northside.example/`) && system.includes(RECEIPT), "the next text knows the receipt's id");
     const emails = world.emails();
     assert.equal(emails.at(-1)?.forward, RECEIPT);
