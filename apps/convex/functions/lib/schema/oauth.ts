@@ -205,6 +205,15 @@ export const oauthTables = {
          */
         coInvitationIds: v.optional(v.array(v.id("workspaceInvitations"))),
         invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
+        /**
+         * A home-only grant (`lib/textGroupHomeOnly.ts`, decided by the owner, 2026-10-31): minted on the pinned
+         * workspace, reads only the chat's own home there, as the chat reads, and is held for its sponsor, who pays.
+         * `taggerId` is the account that tagged Tex; `guestPhone` the number of a guest who did. Usage is recorded
+         * against one or the other, never both. `guestPhone` is kept in the control plane only, never in logs.
+         */
+        homeOnly: v.optional(v.literal(true)),
+        taggerId: v.optional(v.id("users")),
+        guestPhone: v.optional(v.string()),
       }),
     ),
     workspaceId: v.id("workspaces"),

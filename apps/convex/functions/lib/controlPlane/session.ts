@@ -155,6 +155,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
         setupOnly: v.optional(v.literal(true)),
         // And the chat's home there, the one folder that row may change (`lib/textGroupHome.ts`).
         chatHome: v.optional(v.string()),
+        // A home-only group chat's grant (`lib/textGroupHomeOnly.ts`): the one row it reads, the chat's home in the pin.
+        homeOnly: v.optional(v.literal(true)),
       }),
     ),
   }),

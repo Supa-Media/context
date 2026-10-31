@@ -225,21 +225,15 @@ describe("what the chat reaches", () => {
     expect(await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE], { routine: true })).toEqual({ status: "no_shared" });
   });
 
-  test("a bound workspace someone new doesn't share: its editor's tag opens it to them as guests, as their use would", async () => {
+  test("a bound workspace someone new doesn't share is answered from a home, and with no pinned workspace there is none", async () => {
     const t = setupTest();
     await crew(t);
     expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "studio", intro: true });
     await texter(t, "di", STRANGER);
-    // The Crystal Care chat of 2026-10-29: bound, the family not in yet, and a research question refused.
-    const opened = await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE]);
-    expect(opened).toMatchObject({ status: "ready", slug: "studio", bound: true, minted: true, intro: true, guest: { group: expect.stringMatching(/^studio-/) } });
-    expect(opened.guests).toHaveLength(1);
-    // The guest grant, never the team tier the chat had before.
-    const session = await resolves(t, opened.accessToken as string);
-    expect(session?.workspaces[0]?.grantedNames ?? []).toContain("#reads-as-guest");
-    expect(session?.scopes).not.toContain(SCOPE_PRIVATE);
-    // The newcomer may now tag it too, as a guest; the introduction is not repeated.
-    expect(await turn(t, STRANGER, [ADA, BO, CY, STRANGER, LINE])).toMatchObject({ status: "ready", intro: false, guestTagger: expect.stringMatching(/^guest-/) });
+    // The Crystal Care chat of 2026-10-29, as E1 answers it (2026-10-31): not everyone shares the workspace, so the chat
+    // is answered from its home in @context-lc (`lib/textGroupHomeOnly.ts`). This deployment has no pin: no guest mode.
+    expect(await turn(t, ADA, [ADA, BO, CY, STRANGER, LINE])).toMatchObject({ status: "no_shared" });
+    expect(await turn(t, STRANGER, [ADA, BO, CY, STRANGER, LINE])).not.toMatchObject({ guest: expect.anything() });
   });
 });
 

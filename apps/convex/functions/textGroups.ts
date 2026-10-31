@@ -12,13 +12,15 @@ import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
 import { getMembership } from "./lib/workspaceAuth";
 import { syncChatPeople } from "./lib/textGroupGuestSync";
 import { syncChatPhones } from "./lib/guestPhones";
-import { bindGuestChat, clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, guestsOnTag, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { clearGuests, ensureChatFolderGrant, guestBinder, guestLabel, guestOf, mayOpenToGuests, type GuestInfo } from "./lib/textGroupGuests";
+import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, workspaceBySlug, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
 import { armChatLook } from "./lib/textGroupLooks";
 import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
+import { handleOf, linkedUser } from "./lib/textGroupAccounts";
 
 /**
  * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
@@ -240,10 +242,10 @@ export const applyGroupTurn = internalMutation({
     const usingSlug = args.command?.kind === "use" ? cleanSlug(args.command.slug) : null;
     const counted = usingSlug !== null ? await workspaceBySlug(ctx, usingSlug) : group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
     const invited = counted === null ? null : await invitedChat(ctx, counted, others, now);
-    // A guest chat answers whoever tags it, accounts or not, until all of them count there or "use" names another.
+    // A guest chat (retired, E2) answers from its home, as any chat with people who aren't all here shares a workspace.
     if (args.command?.kind !== "use" && group.guestGroupId !== undefined) {
       const answer = invited === null || invited.invited.size === 0 ? null : await invitedTurn(ctx, args, group, invited, false);
-      if (invited === null || (answer === null && invited.invited.size > 0)) return await guestTurn(ctx, args, group, senderUser, others);
+      if (invited === null || (answer === null && invited.invited.size > 0)) return (await homeAnswer(ctx, args, group, senderUser, others)) ?? { status: "no_shared" };
       await clearGuests(ctx, group);
       if (answer !== null) return answer;
     }
@@ -256,6 +258,12 @@ export const applyGroupTurn = internalMutation({
     // Somebody with no account can't open a workspace to anyone; in a guest chat they are told so plainly.
     if (senderUser === null && args.command?.kind === "use" && group.guestGroupId !== undefined) {
       return { status: "not_allowed", slug: cleanSlug(args.command.slug) };
+    }
+    // A guest who tags Tex, with no account, is answered from the chat's home (E1, `lib/textGroupHomeOnly.ts`): the
+    // chat's sponsor pays and the grant reads only the home. A routine or a command is never a guest's to ask.
+    if (senderUser === null && args.command === undefined && args.routine !== true) {
+      const answer = await homeAnswer(ctx, args, group, null, others);
+      if (answer !== null) return answer;
     }
     if (senderUser === null) {
       // Told once per person per chat, and by a salted hash, never the number.
@@ -286,21 +294,18 @@ export const applyGroupTurn = internalMutation({
       const slug = cleanSlug(args.command.slug);
       const chosen = shared.find((entry) => entry.slug === slug) ?? null;
       if (chosen === null) {
-        // Guest mode (`lib/textGroupGuests.ts`): an owner or editor opens that workspace to this chat, whoever is in it.
-        const opened = await bindGuestChat(ctx, group, senderUser, slug);
-        // Every person here is a member of each of these, so naming them tells nobody anything new.
-        if (opened === null) return shared.length > 0 ? { status: "not_shared", slugs: shared.map((entry) => entry.slug).sort() } : { status: "not_allowed", slug };
-        const fresh = await ctx.db.get(group._id);
-        return fresh === null ? { status: "refused" } : await guestTurn(ctx, args, fresh, senderUser, others, opened.changed);
+        // Guest mode is retired (E1, 2026-10-31): a workspace not everyone here shares is not opened to the chat, by
+        // anyone. Every person here is a member of each of these, so naming them tells nobody anything new.
+        return { status: "not_shared", slugs: shared.map((entry) => entry.slug).sort() };
       }
       // A workspace everyone shares: an ordinary chat again, at its team tier.
       bound = chosen._id !== group.workspaceId || group.guestGroupId !== undefined;
       await clearGuests(ctx, group);
       workspace = chosen;
     } else if (!everyone || shared.length === 0) {
-      // Bound here, and its owner or editor tags Tex: the chat goes on as their guests (`lib/textGroupGuests.ts`).
-      const opened = args.routine === true ? null : await guestsOnTag(ctx, group, senderUser);
-      return opened === null ? { status: "no_shared" } : await guestTurn(ctx, args, opened, senderUser, others, true);
+      // Not everyone here shares a workspace: the chat answers from its home alone (E1). A routine is nobody talking.
+      if (args.routine === true) return { status: "no_shared" };
+      return (await homeAnswer(ctx, args, group, senderUser, others)) ?? { status: "no_shared" };
     } else if (workspace === null) {
       if (shared.length > 1) return { status: "choose", slugs: shared.map((entry) => entry.slug).sort() };
       workspace = shared[0];
@@ -383,72 +388,20 @@ type TurnArgs = {
 };
 
 /**
- * One tag, or the "use" that turned guest mode on, in a guest chat (`lib/textGroupGuests.ts`). The grant reads only
- * what is shared with the chat's group (`lib/controlPlane/liveGrants.ts`), whoever tagged Tex. It is the tagger's own
- * when they are a member of the workspace, and otherwise the binder's, marked as a guest's, so it acts for nobody's
- * own account. Usage counts against the binder either way.
+ * A tag in a chat answered from its home (E1, decided by the owner, 2026-10-31; `lib/textGroupHomeOnly.ts`): its people
+ * are named on the home, and the grant reads that home alone in the pin. Null when the chat can't be answered this way
+ * (no pin on this deployment, or nobody who may pay), and the caller answers as it did before.
  */
-async function guestTurn(
+async function homeAnswer(
   ctx: MutationCtx,
   args: TurnArgs,
   chat: Doc<"textGroups">,
   senderUser: Id<"users"> | null,
   others: string[],
-  justBound = false,
-): Promise<GroupAnswer> {
-  const binder = await guestBinder(ctx, chat);
-  const guest = await guestOf(ctx, chat);
-  const workspace = chat.workspaceId === undefined ? null : await ctx.db.get(chat.workspaceId);
-  if (binder === null || guest === null || workspace === null) {
-    await clearGuests(ctx, chat);
-    return { status: "guests_off" };
-  }
-  await ensureChatFolderGrant(ctx, chat, binder);
-  const names: { phone: string; handle: string }[] = [];
-  const guests: { phone: string; label: string }[] = [];
-  const people = { members: [] as Id<"users">[], outsiders: [] as Id<"users">[] };
-  let taggerMember = false;
-  for (const phone of others) {
-    const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
-    if (userId !== null && (await getMembership(ctx, workspace._id, userId)) !== null) {
-      names.push({ phone, handle: await handleOf(ctx, userId) });
-      people.members.push(userId);
-      if (phone === args.sender) taggerMember = true;
-    } else {
-      guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
-      if (userId !== null) people.outsiders.push(userId);
-    }
-  }
-  // Who is here now, in the chat's group and on its folder (`lib/textGroupGuestSync.ts`).
-  const current = await ctx.db.get(chat._id);
-  if (current !== null) {
-    await syncChatPeople(ctx, current, binder, people);
-    // And by number, hashed, so a guest can open what the chat reads with a texted code (`lib/guestPhones.ts`).
-    await syncChatPhones(ctx, current, others);
-  }
-  const actor = taggerMember && senderUser !== null ? senderUser : binder;
-  const minted = args.mint && args.command === undefined;
-  if (minted) {
-    const ok = await mintGroupGrant(ctx, {
-      group: chat,
-      workspaceId: workspace._id,
-      tagger: actor,
-      coViewerIds: [],
-      people: [...people.members, ...people.outsiders],
-      hashedAccessToken: args.hashedAccessToken,
-      hashedRefreshToken: args.hashedRefreshToken,
-      expiresAt: args.expiresAt,
-      participants: others.length,
-      guest: { groupId: guest.groupId, binder, guestTagger: !taggerMember },
-    });
-    if (!ok) return { status: "guests_off" };
-  }
-  const introduced = chat.introducedAt === undefined && (minted || args.command?.kind === "use");
-  if (introduced) await ctx.db.patch(chat._id, { introducedAt: Date.now() });
-  const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
-  const tagger = taggerMember ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  const handle = taggerMember ? await handleOf(ctx, actor) : "";
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: justBound, timeZone, handle, minted, names, guest: guest.info, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
+): Promise<GroupAnswer | null> {
+  const turn = await homeOnlyTurn(ctx, args, chat, senderUser, others);
+  if (turn === null) return null;
+  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -518,12 +471,6 @@ async function invitedTurn(
   return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
-/** A person's handle: their personal workspace's slug, or "" when they have none. */
-async function handleOf(ctx: MutationCtx, userId: Id<"users">): Promise<string> {
-  const personal = await personalWorkspaceOf(ctx, userId);
-  return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
-}
-
 async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: boolean): Promise<Doc<"textGroups">> {
   const existing = await ctx.db
     .query("textGroups")
@@ -536,18 +483,6 @@ async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: 
   }
   const id = await ctx.db.insert("textGroups", { groupKey, lastSeenAt: now });
   return (await ctx.db.get(id))!;
-}
-
-/** The account a phone was linked to by code, unless that account has texting paused. */
-async function linkedUser(ctx: MutationCtx, phone: string): Promise<Id<"users"> | null> {
-  if (!isPhoneNumber(phone)) return null;
-  const link = await ctx.db
-    .query("phoneLinks")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .first();
-  if (link === null) return null;
-  if (await phoneSignInPaused(ctx, link.userId)) return null;
-  return link.userId;
 }
 
 /** The shared workspaces every one of `users` is a live member of, oldest slug first. */

@@ -12,7 +12,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { utcDay } from "./jev/meter";
 
 /** Who a turn is recorded against: `user:<userId>` for an account holder, or `guest` for a guest tagger. */
-export type UsageWho = `user:${string}` | "guest";
+export type UsageWho = `user:${string}` | `phone:${string}` | "guest";
 
 /**
  * The sponsor a chat's turns are metered to: the row's `sponsorId`, else its `boundBy`, else the tagger. The last two
@@ -23,12 +23,21 @@ export function sponsorOf(chat: { sponsorId?: Id<"users">; boundBy?: Id<"users">
 }
 
 /**
- * Who a group grant's turn is recorded against. The grant's `userId` is the tagger for an account holder. A guest
- * tagger's grant is the binder's, so the gateway cannot name the tagger's number here.
- * TODO: record guest taggers by number (`phone:<E.164>`) once the group's turn carries it to the usage path.
+ * Who a group grant's turn is recorded against. A home-only grant (`lib/textGroupHomeOnly.ts`) is held for its sponsor,
+ * so it names the tagger it was minted for: a guest by number (`phone:<E.164>`, the owner's decision of 2026-10-31),
+ * an account holder as themselves. An ordinary grant's `userId` is the tagger for an account holder, and a guest
+ * tagger's grant is the binder's, recorded as `guest` until guest chats are retired (E2).
  */
-export function usageWho(grant: { userId: Id<"users">; texGroup?: { guestTagger?: boolean } }): UsageWho {
-  return grant.texGroup?.guestTagger === true ? "guest" : `user:${grant.userId}`;
+export function usageWho(grant: {
+  userId: Id<"users">;
+  texGroup?: { guestTagger?: boolean; homeOnly?: true; taggerId?: Id<"users">; guestPhone?: string };
+}): UsageWho {
+  const texGroup = grant.texGroup;
+  if (texGroup?.homeOnly === true) {
+    if (texGroup.guestPhone !== undefined) return `phone:${texGroup.guestPhone}`;
+    return `user:${texGroup.taggerId ?? grant.userId}`;
+  }
+  return texGroup?.guestTagger === true ? "guest" : `user:${grant.userId}`;
 }
 
 /** Add one finished turn's cost to the chat's usage for its person, for today's UTC day. */

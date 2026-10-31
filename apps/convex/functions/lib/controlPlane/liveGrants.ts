@@ -13,7 +13,9 @@ import type { QueryCtx } from "../../../_generated/server";
 import { TOKEN_HASH_PATTERN } from "../crypto";
 import { grantedNamesFor } from "../grantedNames";
 import { getMembership } from "../workspaceAuth";
-import { pinnedContextRow } from "../pinnedContext";
+import { pinnedContextRow, pinnedContextWorkspace } from "../pinnedContext";
+import { PINNED_CONTEXT_ROLE } from "@context/shared";
+import { homeOnlyRows, homeOnlyStillShares } from "../textGroupHomeOnly";
 import { guestNamesIn, pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
@@ -84,10 +86,23 @@ export async function validateLiveGrantRecord(
     return null;
   }
 
-  const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
-  if (membership === null) return null;
-
-  const workspace = await ctx.db.get(grant.workspaceId);
+  // A home-only group grant (`lib/textGroupHomeOnly.ts`) is the pin's, and its sponsor is not a member of it: its reach
+  // is the chat's home alone, judged below. Any other grant, even one carrying the field under another client, needs
+  // the membership it always did.
+  const homeOnly = grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.texGroup?.homeOnly === true;
+  let workspace: Doc<"workspaces"> | null;
+  let role: string;
+  if (homeOnly) {
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (pinned === null || pinned._id !== grant.workspaceId) return null;
+    workspace = pinned;
+    role = PINNED_CONTEXT_ROLE;
+  } else {
+    const membership = await getMembership(ctx, grant.workspaceId, grant.userId);
+    if (membership === null) return null;
+    workspace = await ctx.db.get(grant.workspaceId);
+    role = membership.role;
+  }
   if (workspace === null) return null;
 
   const client = await ctx.db
@@ -98,7 +113,7 @@ export async function validateLiveGrantRecord(
 
   if (grant.clientId === TEXTS_GROUP_CLIENT_ID && !(await groupStillShares(ctx, grant))) return null;
 
-  return { grant, workspace, role: membership.role };
+  return { grant, workspace, role };
 }
 
 /**
@@ -112,8 +127,12 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   const texGroup = grant.texGroup;
   if (texGroup === undefined) return false;
   const group = await ctx.db.get(texGroup.groupId);
-  if (group === null || group.mutedAt !== undefined || group.workspaceId !== grant.workspaceId) return false;
+  if (group === null || group.mutedAt !== undefined) return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
+  // A home-only grant (`lib/textGroupHomeOnly.ts`): the chat is not muted, and the sponsor who minted it still may text.
+  // Its chat is not bound to the pin, so the workspace check below is for the chat's own workspace only.
+  if (texGroup.homeOnly === true) return await homeOnlyStillShares(ctx, grant, group);
+  if (group.workspaceId !== grant.workspaceId) return false;
   // A guest chat's grant (`lib/textGroupGuests.ts`) holds while the chat is still a guest chat of the same group and
   // the person who opened it may still: an owner or editor, texting. An ordinary chat's grant never resolves in a
   // guest chat, nor a guest chat's in an ordinary one, so neither reads at the other's reach.
@@ -197,6 +216,7 @@ export async function contextsForGrant(
     grantedNames?: string[];
     setupOnly?: true;
     chatHome?: string;
+    homeOnly?: true;
   }>
 > {
   const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
@@ -221,6 +241,9 @@ export async function contextsForGrant(
   // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
   // already runs on (`apps/mcp/src/agent/production.js`).
   if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
+    // A home-only grant reaches its chat's home in the pin and nothing else: no workspace of its sponsor's, no setup,
+    // and no pin reader's names (`lib/textGroupHomeOnly.ts`).
+    if (live.grant.texGroup?.homeOnly === true) return await homeOnlyRows(ctx, live.grant, live.workspace);
     const setup = await groupSetupRow(ctx, live, own.workspaceId);
     // A guest chat's reads only what is shared with its group, as a guest reads (`lib/nodes/chatFolders.ts`).
     const chatGroupId = live.grant.texGroup?.guestGroupId;
