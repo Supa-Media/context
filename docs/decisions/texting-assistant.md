@@ -321,12 +321,9 @@ credit, and nothing that costs money is spent while it lasts:
 - Each call is labelled with ids only (feature, workspace, client), never
   text. The address is built from two ids checked against a strict shape, so
   nothing a caller sends can point the gateway's token at another host.
-- Prompt caching is laid out least volatile first, so the prefix matches text
-  after text: tools, stable system prompt, slow context, then the conversation,
-  each behind a five-minute mark (one hour is unproven through AI Gateway).
-  What changes per text (clock, model, open note, earlier tools, nudge) rides
-  in the person's own turn (`turnPrompt.js`); before this a text sent ~58k new
-  tokens (2026-10-31). `agentPromptCache.test.mjs` fails if it moves back.
+- Prompt caching: tools, stable system prompt, slow context, then the chat,
+  each behind a five-minute mark; per-text facts (clock, model, nudge) ride in
+  the person's turn (`turnPrompt.js`, guarded by `agentPromptCache.test.mjs`).
 
 **What a simplification would cost:** dropping `cf-aig-collect-log` would
 quietly copy every texted question and the notes it read into a log outside
