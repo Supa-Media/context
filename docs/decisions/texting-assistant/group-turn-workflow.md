@@ -72,3 +72,43 @@ For one release, a job armed by its object's alarm before this change is
 handed to its instance when that alarm fires (`handOverJob`), so no armed job
 is lost. That handover is removed in a follow-up once no such alarm can
 remain.
+
+## A busy group is answered fast, and only with a reply that still fits (2026-10-30)
+
+From the group review of 2026-10-30 (a "tex, settings" took four minutes, and a
+reply about saving a playbook landed after a debugging question), carrying out
+two points of the interaction-agent redesign the owner adopted that day: a
+message that names Tex skips the pause, and before sending, Tex checks the
+reply still answers the latest ask from the right person.
+
+- **A named message never waits on decide.** It is answered whatever decide
+  says (code's floor, 2026-10-27), so a burst holding one is chosen by code
+  alone (`addressedTurn` in `groupTurn.ts`): every addressed message with what
+  joined it, the untagged lines before it as chat, the untagged lines after it
+  decided on the next pass. Decide is asked only about bursts of untagged
+  messages. This removed up to 15 seconds (`GROUP_DECIDE_MS`) from every tag.
+- **A fixed line never waits behind another turn.** While a handed turn holds
+  the chat, the drain still answers what code answers alone
+  (`groupBeside.ts`): the commands (`groupCommand`, which the control plane
+  answers with no grant), a reply to the settings menu, a style choice, an
+  SMS group's line. A yes, a 👍, a routine's run and a job's report still
+  wait: each is a model turn, and a chat runs one model turn at a time. A
+  handed turn's remembered parts are now only the ones under its own
+  messages, so a line sent beside it is never taken for one of its parts.
+- **A reply drafted for an older ask is looked at again.** When the asker has
+  written since the turn started and none of it was folded in, the Worker
+  asks `POST /agent-texts/recheck` (CONTRACT.md section 3b, the decision
+  model through `withJev` as `textDecide`) whether the draft still answers
+  them (`groupRecheck.ts`). Held (below 0.5), the turn ends as a restart does:
+  nothing it wrote is sent, its held asks are withdrawn, and one new turn
+  answers the old ask and the newer words together. Each ask is held at most
+  once. Recheck unreachable or unsure: sent, as before. Somebody else's words
+  never trigger it: their tag is their own turn.
+
+What a simplification would cost: putting a named message to decide again
+brings back the wait ("a named message never waits on decide" in
+`groupFast.test.ts` fails); returning on a handed turn without answering
+beside it brings back the four-minute settings menu ("Tex, settings is
+answered while another turn runs" fails); sending without the recheck brings
+back replies to questions nobody is asking ("a draft for an older ask is held
+once…" fails).

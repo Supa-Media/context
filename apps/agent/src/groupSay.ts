@@ -22,13 +22,16 @@ type GroupSayDeps = GroupLineDeps & { now: () => number; images?: ImagesLike; ho
 
 /** A part a handed turn sent, by turn and position, as the hash of what it was (`groupTurnRun.ts`). */
 const PART_PREFIX = "gpart:";
-/** The handed turn sending now in this chat, and the position of its next part. */
-const sending = new WeakMap<InboxStorage, { turn: string; next: number }>();
+/**
+ * The handed turn sending now in this chat, the messages it answers (its parts are threaded under one of them), and
+ * the position of its next part. A fixed line answered beside it (`groupBeside.ts`) is under another message: not its part.
+ */
+const sending = new WeakMap<InboxStorage, { turn: string; under: readonly string[]; next: number }>();
 
-/** While a handed turn runs (`turn`), each part it sends is remembered; null ends that. */
-export function sendingFor(storage: InboxStorage, turn: string | null): void {
+/** While a handed turn runs (`turn`, answering the messages `under`), each part it sends is remembered; null ends that. */
+export function sendingFor(storage: InboxStorage, turn: string | null, under: readonly string[] = []): void {
   if (turn === null) sending.delete(storage);
-  else sending.set(storage, { turn, next: 0 });
+  else sending.set(storage, { turn, under, next: 0 });
 }
 
 /** Forget what a handed turn sent, once it is over. */
@@ -41,9 +44,9 @@ export async function dropParts(storage: InboxStorage, turn: string): Promise<vo
  * same position: a workflow retry runs the turn again (`groupTurnWorkflow.ts`),
  * and what reached the chat the first time is not sent twice.
  */
-async function once(storage: InboxStorage, part: string, send: () => Promise<void>): Promise<void> {
+async function once(storage: InboxStorage, under: string, part: string, send: () => Promise<void>): Promise<void> {
   const scope = sending.get(storage);
-  if (scope === undefined) return await send();
+  if (scope === undefined || !scope.under.includes(under)) return await send();
   const key = `${PART_PREFIX}${scope.turn}:${scope.next++}`;
   const hash = await sha256Hex(part);
   if ((await storage.get<string>(key)) === hash) return;
@@ -124,7 +127,7 @@ export type SayMeta = { turn?: string; covers?: string[]; people?: string; syste
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
-  await once(storage, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
+  await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
 
 async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta): Promise<void> {
@@ -153,7 +156,7 @@ export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: st
 
 /** One picture into the chat; one the app refuses becomes a line saying so, as in a 1:1 text. */
 export async function sendPicture(storage: InboxStorage, deps: GroupSayDeps, message: GroupMessage, picture: OutgoingPicture, meta: SayMeta): Promise<void> {
-  await once(storage, `picture:${"url" in picture ? picture.url : `${picture.name}:${picture.data}`}`, () => sendPictureNow(storage, deps, message, picture, meta));
+  await once(storage, message.messageId, `picture:${"url" in picture ? picture.url : `${picture.name}:${picture.data}`}`, () => sendPictureNow(storage, deps, message, picture, meta));
 }
 
 async function sendPictureNow(storage: InboxStorage, deps: GroupSayDeps, message: GroupMessage, picture: OutgoingPicture, meta: SayMeta): Promise<void> {
