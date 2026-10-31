@@ -13,11 +13,13 @@
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { FileTree } from "../features/console/files/FileTree";
 import { FolderRow } from "../features/console/files/FolderRow";
 import { FolderHead } from "../features/console/files/folderPage/Head";
+import { TEX_HOME_LINE } from "../features/console/files/jobIcons/folderJobs";
 import { jobIconMarker } from "../features/console/files/jobIcons/marker";
 import type { TreeRow } from "../features/console/files/tree";
 import { FolderLine } from "../features/console/home/homeRows";
@@ -134,6 +136,12 @@ describe("the folder page's head", () => {
     const container = mount(createElement(FolderHead, { title: "Inbox", icon: INBOX, switcher: null }));
     expect(container.querySelector("[data-testid='folder-head-job']")).not.toBeNull();
     expect(container.querySelector("[data-testid='folder-head-built-in']")).toBeNull();
+  });
+
+  test("Tex's folder says its notes are kept with Tex, and that export still takes them", () => {
+    const container = mount(createElement(FolderHead, { title: "tex", icon: TEX_FIGURE_ICON, switcher: null }));
+    expect(container.querySelector("[data-testid='folder-head-built-in']")?.textContent).toBe(TEX_HOME_LINE);
+    expect(container.textContent).not.toContain("Built-in");
   });
 
   test("an own folder's emoji is drawn as before, with no line", () => {

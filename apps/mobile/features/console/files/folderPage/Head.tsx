@@ -35,16 +35,20 @@
  * system folders set), and, when its name no longer says the job, one plain
  * line under the title saying which built-in folder it is and what lands in
  * it: "Built-in Inbox. Unfiled captures. …" (`builtInLine`). No tint, no box.
+ *
+ * Tex's folder has the same one line, saying its notes are kept with Tex
+ * (`TEX_HOME_LINE`).
  */
 
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 import { Settle } from "../../../design/components/Settle";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { JobIcon } from "../jobIcons/JobIcon";
-import { builtInLine } from "../jobIcons/folderJobs";
+import { TEX_HOME_LINE, builtInLine } from "../jobIcons/folderJobs";
 import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
@@ -139,7 +143,9 @@ export function FolderHead({
   const [hovered, setHovered] = useState(false);
   const job = jobOfIcon(icon);
   const twin = twinJobOfIcon(icon);
-  const jobLine = job === null ? null : builtInLine(job, title);
+  // Tex's folder draws Tex's marker, which `jobOfIcon` does not read as a built-in job.
+  const texHome = icon === TEX_FIGURE_ICON;
+  const jobLine = texHome ? TEX_HOME_LINE : job === null ? null : builtInLine(job, title);
   const heading = (
     <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
       {title}
