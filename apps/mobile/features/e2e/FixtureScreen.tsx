@@ -47,6 +47,8 @@ export interface FixtureParams {
   skip?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
   role?: string | string[];
+  /** `screen=palette-results`: `1` draws a loaded name while the search runs, then same-topic notes to fold. */
+  names?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
   anyone?: string | string[];
   /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
@@ -119,7 +121,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
   if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;
   // ⌘K's answered search: rich rows, preview, Tab narrows the tree. See its own header.
-  if (first(params.screen) === "palette-results") return <PaletteResultsFixture />;
+  if (first(params.screen) === "palette-results") return <PaletteResultsFixture names={first(params.names) === "1"} />;
   if (first(params.screen) === "shared") return <SharedInboxFixture at={first(params.at)} />;
   if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
 

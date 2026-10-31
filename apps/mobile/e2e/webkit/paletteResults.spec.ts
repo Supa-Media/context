@@ -66,3 +66,36 @@ test.describe("on a phone", () => {
     expect(pageWidth).toBeLessThanOrEqual(390);
   });
 });
+
+/**
+ * NAMES FIRST, AND NOTHING MOVES WHEN THE SEARCH ANSWERS (the search tune-up,
+ * boards M1, M2 and P1, 2026-10-27). `names=1` draws a name the tree holds at
+ * once, answers 800 ms later, and includes two notes found only by meaning.
+ */
+const NAMES = "/e2e-fixture?screen=palette-results&names=1";
+
+for (const [where, viewport] of [
+  ["a wide window", { width: 1440, height: 900 }],
+  ["a phone", { width: 390, height: 844 }],
+] as const) {
+  test.describe(`names first, on ${where}`, () => {
+    test.use({ viewport });
+
+    test("the name drawn at once stays on top when the answer lands, and meaning folds", async ({ page }) => {
+      await page.goto(NAMES);
+      await page.getByRole("textbox").fill("launch pricing plan");
+      const rows = page.getByRole("option");
+      await expect(rows.first()).toContainText("Launch pricing plan checklist");
+      await expect(page.getByText("2 more about the same topic")).toBeVisible();
+      await expect(rows.first()).toContainText("Launch pricing plan checklist");
+      // Four answers, the folded line, and the name the tree held.
+      await expect(rows).toHaveCount(6);
+      await expect(page.getByText("Notes on freemium", { exact: true })).toHaveCount(0);
+      await page.getByText("2 more about the same topic").click();
+      await expect(page.getByText("Notes on freemium", { exact: true })).toBeVisible();
+      await expect(rows.first()).toContainText("Launch pricing plan checklist");
+      const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(pageWidth).toBeLessThanOrEqual(viewport.width);
+    });
+  });
+}
