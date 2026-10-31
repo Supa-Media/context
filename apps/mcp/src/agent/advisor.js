@@ -29,6 +29,7 @@
  */
 
 import { requestBuiltin } from "./builtin.js";
+import { withoutTag } from "./promptFence.js";
 
 export const ADVISOR_TOOL = "ask_advisor";
 export const MAX_ASKS = 10;
@@ -60,6 +61,12 @@ export const ADVISOR_PROMPT =
   "say what Tex must look up instead.";
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
+
+/** The tags the brief quotes in (`advisorBrief`); a quoted word that is one of them would end the quote. */
+const BRIEF_TAGS = ["tex_instructions", "tex_tools", "transcript"];
+
+/** Content the brief quotes, with its own tags neutralized (`promptFence.js`): a page's words never become the brief's. */
+const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text), String(value ?? ""));
 
 /**
  * The advisor as a local tool for one turn, or none when the setup names no
@@ -102,7 +109,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
  * included. A long turn keeps its newest part.
  */
 export function advisorBrief(live, transcript) {
-  const system = clip(live?.system, MAX_SYSTEM_CHARS);
+  const system = quoted(clip(live?.system, MAX_SYSTEM_CHARS));
   const tools = (Array.isArray(live?.tools) ? live.tools : []).map((tool) => tool?.name).filter((name) => typeof name === "string" && name !== ADVISOR_TOOL);
   const lines = transcript.map(messageLine).filter(Boolean);
   let body = lines.join("\n\n");
@@ -118,14 +125,15 @@ function messageLine(message) {
   if (!message || typeof message !== "object") return "";
   const said = typeof message.text === "string" ? message.text.trim() : "";
   if (message.role === "tool") {
-    const result = said.length > MAX_RESULT_CHARS ? `${said.slice(0, MAX_RESULT_CHARS)}\n[cut]` : said;
+    const cut = said.length > MAX_RESULT_CHARS ? `${said.slice(0, MAX_RESULT_CHARS)}\n[cut]` : said;
+    const result = quoted(cut);
     return `[result of ${message.name ?? "a tool"}${message.isError ? ", failed" : ""}]\n${result || "(no result)"}${Array.isArray(message.images) && message.images.length > 0 ? "\n(with a picture)" : ""}`;
   }
   const calls = Array.isArray(message.toolCalls) && message.toolCalls.length > 0
-    ? message.toolCalls.map((made) => `[Tex calls ${made?.name ?? "a tool"} ${JSON.stringify(made?.args ?? {}).slice(0, 2_000)}]`).join("\n")
+    ? message.toolCalls.map((made) => `[Tex calls ${made?.name ?? "a tool"} ${quoted(JSON.stringify(made?.args ?? {}).slice(0, 2_000))}]`).join("\n")
     : "";
   const who = message.role === "assistant" ? "Tex" : "Them";
-  return [said ? `${who}: ${said}` : "", calls].filter(Boolean).join("\n");
+  return [said ? `${who}: ${quoted(said)}` : "", calls].filter(Boolean).join("\n");
 }
 
 const text = (words, isError) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
