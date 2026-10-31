@@ -27,6 +27,10 @@
  *     → "an app turn can't name a job's report" fails.
  *  7. `jobReportQuestion` not replacing the body's question.
  *     → "the coordinator's turn is asked the gateway's own line, never the body's" fails.
+ *  8. `endsTurn` returning null (2026-10-31, acknowledge first).
+ *     → "a job that starts answers the text at once, with no model round after it" fails.
+ *  9. `roundNote` told on every round.
+ *     → "a turn with no job after two rounds of tools is told once to hand the rest to one" fails.
  */
 
 import worker from "../src/index.js";
@@ -147,6 +151,11 @@ export async function runAgentBackgroundRouteChecks(check) {
     ]);
     const started = await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", running });
     const first = model.requests[0];
+    check(
+      "a job that starts answers the text at once, with no model round after it",
+      model.requests.length === 1 && /^On it: Competitor research\. I'll text you when it's done\./.test(started.body?.answer ?? ""),
+    );
+    check("a texted turn is told to start a task's job first, before reading", /as your FIRST call: before reading notes/.test(systemOf(first)));
     check("a text from a Worker that runs jobs is offered background, under send", /background: Hand a long task/.test(sendTool(first)?.description ?? ""));
     check(
       "the turn is shown what's running, with its status",
@@ -159,6 +168,22 @@ export async function runAgentBackgroundRouteChecks(check) {
         started.body.jobs[0].title === "Competitor research" &&
         started.body.jobs[0].brief === "Five competitors, into 1-projects/tex." &&
         started.body.jobs[0].tainted === undefined,
+    );
+
+    /* ---------------- a turn still reading after two rounds is told to hand it over ---------------- */
+
+    const before = model.requests.length;
+    model.install([
+      { toolCalls: [{ name: "search", args: { query: "a16z" } }] },
+      { toolCalls: [{ name: "search", args: { query: "application" } }] },
+      { toolCalls: [{ name: "send", args: { action: "background", args: { title: "a16z application", brief: "Draft it." } } }] },
+    ]);
+    const slow = await post(env, TOKEN_TEXTS, "/agent", { question: "get started on an a16z application", conversation: "texts", running: [] });
+    const third = model.requests[before + 2];
+    check(
+      "a turn with no job after two rounds of tools is told once to hand the rest to one",
+      !/taking a while/.test(lastText(model.requests[before + 1])) && /taking a while and they're waiting/.test(JSON.stringify(third?.messages ?? [])) &&
+        slow.body?.jobs?.[0]?.title === "a16z application" && model.requests.length === before + 3,
     );
 
     /* ---------------- a later text changes a running job ---------------- */
