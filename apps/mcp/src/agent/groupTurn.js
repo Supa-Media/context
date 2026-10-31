@@ -221,34 +221,33 @@ export function trimGroupTurns(turns) {
 
 /** The chat's memory, or none. A memory that cannot be read is an empty one, never a failed answer. */
 export async function readGroupMemory(store, group, dispatch = null) {
-  let kept = { turns: [] };
-  try {
+  // Every read below is its own note, so they run side by side: one after another they took 3 to 5 s of each group reply (2026-10-31).
+  const keptRead = (async () => {
     const text = await readChatMemoryRecord(store, group, await groupMemoryPath(group));
-    if (text !== null) kept = JSON.parse(text) ?? kept;
-  } catch {
-    kept = { turns: [] };
-  }
+    return (text === null ? null : JSON.parse(text)) ?? { turns: [] };
+  })().catch(() => ({ turns: [] }));
   const names = await chatNames(group);
   const target = await noteTarget(store, group, dispatch, names.key);
-  // The memory and the voice note move from the names they had to the chat's own, before anything is read (`chatNoteMove.js`).
-  const moved = target === null ? null : await moveMemory(group, target, dispatch, names);
+  // The memory and the voice note move from the names they had to the chat's own, before either is read (`chatNoteMove.js`).
   // The visible note, when somebody has changed it since Tex last wrote it (`groupMemoryNote.js`): in the chat's home
   // when it has one (`chatHome.js`), the bound workspace's otherwise. Until its move lands, the old words it came from.
-  const stored = target === null ? null : await readGroupNote(target.dispatch, target.path);
+  const noteRead = target === null ? Promise.resolve([null, null]) : moveMemory(group, target, dispatch, names).then(async (moved) => [moved, await readGroupNote(target.dispatch, target.path)]);
+  // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
+  const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
+  group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
+  const voiceRead = (async () => {
+    if (group.voicePath !== null && (dispatch !== null || group.home)) await moveVoice(group, dispatch, names);
+    return readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath);
+  })();
+  // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
+  const [kept, [moved, stored], playbook, voice, aboutUs] = await Promise.all([keptRead, noteRead, readPlaybook(inFirstReach(dispatch, group), group), voiceRead, readAboutUs(group.home)]);
   const note = stored ?? (moved?.fallback ? { etag: null, text: moved.fallback } : null);
   const edited = note !== null && note.etag !== kept.noteEtag ? parseGroupNote(note.text) : null;
   const turns = edited ?? (Array.isArray(kept?.turns) ? kept.turns.filter(isTurn) : []);
   // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
   const history = trimGroupTurns(turns.map(({ role, text, tainted, tools, sources, timing }) => ({ ...keptTurn({ role, text, tainted, tools, sources }), ...timedTurn(role, timing) })));
   NOTE_STATE.set(history, { etag: stored?.etag ?? null, kept: typeof kept?.noteEtag === "string" ? kept.noteEtag : null });
-  // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
-  group.playbook = await readPlaybook(inFirstReach(dispatch, group), group);
-  // How this group talks, beside its memory note and by the same name (`chatVoice.js`), and in a home what it is about.
-  const voiceFolder = group.home ? group.home.folder : chatFolder(names.key);
-  group.voicePath = voiceFolder ? groupVoicePath(names.key, voiceFolder) : null;
-  if (group.voicePath !== null && (dispatch !== null || group.home)) await moveVoice(group, dispatch, names);
-  group.voice = await readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath);
-  group.aboutUs = await readAboutUs(group.home);
+  Object.assign(group, { playbook, voice, aboutUs });
   return history;
 }
 

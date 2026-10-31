@@ -112,3 +112,17 @@ test("the voice note is one per chat: somebody added to the chat reads the same 
   assert.equal(await voicePath("b".repeat(64)), await voicePath("c".repeat(64)));
 });
 
+
+test("a group turn reads its notes side by side, not one after another (2026-10-31: 3 to 5 s of each reply)", async () => {
+  let open = 0;
+  let most = 0;
+  const dispatch = async () => {
+    open += 1;
+    most = Math.max(most, open);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    open -= 1;
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  await readGroupMemory({ get: async () => null }, { ...GROUP }, dispatch);
+  assert.ok(most >= 3, `the memory note, the voice note and the playbook are read at once (at most ${most} open)`);
+});
