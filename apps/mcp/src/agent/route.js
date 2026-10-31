@@ -45,7 +45,7 @@ import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { withFolderFit } from "./folderFit.js"; import { withTheirNotesKept } from "./theirNotes.js";
 import { delegateSession, withDelegate } from "./delegate.js";
 import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
-import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
+import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js"; import { jobTurnFields } from "./jobCheck.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
@@ -294,7 +294,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null }) : null;
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
@@ -662,7 +662,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
-      ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
+      ...(await jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter })), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
       ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0, asks: asksRead && setAside.length === 0 && ledger.asked.length === 0 && !ledger.offered ? "none" : null })) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
     });
   } catch (error) {

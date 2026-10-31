@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { drain, accept, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, steerJob, STEERS_KEY, STOP_KEY, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_LINES, MAX_STEPS_KEPT, noteJobUpdate, readSteers, RUN_KEY, steerJobs, type JobEntry, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_LINES, MAX_STEPS_KEPT, noteJobUpdate, readSteers, RUN_KEY, steerJobs, type JobEntry, type JobRun, type JobSteer, type JobUpdate, MAX_JOB_ATTEMPTS } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -143,7 +143,7 @@ describe("steering a running job", () => {
 
   it("says so when the change came after its last turn", async () => {
     const storage = new MemoryStorage();
-    await acceptJob(storage, run({ attempt: 3 }), NOW);
+    await acceptJob(storage, run({ attempt: MAX_JOB_ATTEMPTS }), NOW);
     const { deps, reports } = jobDeps([{ body: { answer: "Made a green logo." }, during: async () => void (await steerJob(storage, yellow)) }]);
     await runJob(storage, deps);
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Made a green logo.", JOB_LINES.missed] });

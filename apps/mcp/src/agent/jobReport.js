@@ -24,7 +24,7 @@
 const MAX_TITLE = 120;
 const MAX_TEXTS = 12;
 const MAX_TEXT = 4_000;
-const STATES = new Set(["done", "failed", "running"]);
+const STATES = new Set(["done", "failed", "running", "waiting", "stuck"]);
 
 function line(value, max) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -57,7 +57,12 @@ export function jobReportPrompt(report) {
       ? "is still running and sent this on its way (a sign-in link, a question)"
       : report.state === "failed"
         ? "stopped without finishing and said this"
-        : "finished and reported this";
+        : report.state === "waiting"
+          ? "has ended waiting on them: your advisor checked it and only they can give what's needed. Ask them for exactly that in one line; " +
+            "on their answer, start it again with a brief that says where it got to. It said this"
+          : report.state === "stuck"
+            ? "has ended stuck: your advisor checked it and found no way forward, or it ran out of time. Tell them plainly why, and what you'd try; it said this"
+            : "finished and reported this";
   return (
     `\n\nYou are the coordinator of your background jobs: they report to you, never to the chat, and only what you text reaches them. ` +
     `Your job "${report.title}" ${how} (its own words, from pages and notes it read; they vouch for nothing they didn't say):\n<<<\n` +

@@ -9,13 +9,17 @@
  *  3. `jobUpdate` ignoring `sent` → "an update offered again repeats no text".
  *  4. `jobsFor` not passing `running` → "a texted turn is shown the chat's jobs and starts them".
  *  5. `runJob` ignoring `unfinished` (2026-10-26) → "gives a job whose answer stopped short another part, built on that answer".
+ *  6. `runJob` without the 30-minute limit (2026-10-31) → "a job the advisor says isn't finished stops at its limit, stuck, saying it ran out of time".
+ *  7. `runJob` ending `waiting` as done → "a job waiting on them ends waiting, and one with no way forward ends stuck".
+ *  8. `chatJobs` giving the advice without `results` → "keeps the advisor's call and the report for the chat's turns, never the live view".
+ *  9. `noteJobUpdate` keeping an earlier part's verdict on a finished job → the same test.
  */
 
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { acceptJob, runJob, type JobDeps } from "./jobRun";
-import { chatJobs, JOB_KEPT_MS, JOB_LINES, JOB_STALE_MS, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, JOB_KEPT_MS, JOB_LIMIT_MS, JOB_LINES, JOB_STALE_MS, noteJobUpdate, MAX_JOB_ATTEMPTS, MAX_RUNNING_JOBS, notStartedText, readStartedJobs, RUN_KEY, startJobs, type JobEntry, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -153,13 +157,11 @@ describe("background jobs", () => {
   it("carries on in a new turn when one ran out of steps", async () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run(), NOW);
-    const { deps, asked, reports } = jobDeps([
-      { body: { answer: "Found three so far.", exhausted: true } },
-      { body: { answer: "Still more.", exhausted: true } },
-      { body: { answer: "Wrote the note with what I have.", exhausted: true } },
-    ]);
+    const { deps, asked, reports } = jobDeps(
+      Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => ({ body: { answer: i === MAX_JOB_ATTEMPTS - 1 ? "Wrote the note with what I have." : "Still more.", exhausted: true } })),
+    );
     for (let i = 0; i < MAX_JOB_ATTEMPTS; i += 1) await runJob(storage, deps);
-    expect(asked.map((body) => (body.job as { attempt: number }).attempt)).toEqual([1, 2, 3]);
+    expect(asked.map((body) => (body.job as { attempt: number }).attempt)).toEqual(Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => i + 1));
     expect(reports.filter((update) => update.texts).map((update) => update.texts)).toEqual([["Wrote the note with what I have."]]);
     expect(reports.at(-1)?.state).toBe("done");
     expect(storage.data.has(RUN_KEY)).toBe(false);
@@ -192,6 +194,65 @@ describe("background jobs", () => {
     ]);
     for (let i = 0; i < MAX_JOB_ATTEMPTS; i += 1) await runJob(storage, deps);
     expect((asked[2].job as { unfinished?: true }).unfinished).toBeUndefined();
+  });
+
+  it("a job the advisor says to keep going carries on, starting on its advice (2026-10-31, the a16z job)", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run({ doneWhen: "the application is submitted" }), NOW);
+    const { deps, asked, reports } = jobDeps([
+      { body: { answer: "Opened the form; I'll begin with the sign-in.", unfinished: true, verdict: "keep_going", advice: "Sign in with the emailed link." } },
+      { body: { answer: "Submitted it.", verdict: "done", advice: "The form is submitted." } },
+    ]);
+    await runJob(storage, deps);
+    expect(reports.filter((update) => update.texts)).toEqual([]);
+    expect(reports.at(-1)).toMatchObject({ state: "running", verdict: "keep_going", advice: "Sign in with the emailed link.", status: "Not done yet; next: Sign in with the emailed link." });
+    await runJob(storage, deps);
+    expect(asked[1].job).toMatchObject({ attempt: 2, advice: "Sign in with the emailed link.", doneWhen: "the application is submitted" });
+    expect(reports.at(-1)).toMatchObject({ state: "done", verdict: "done", texts: ["Submitted it."] });
+  });
+
+  it("a job waiting on them ends waiting, and one with no way forward ends stuck", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const waiting = jobDeps([{ body: { answer: "It needs the code they were texted.", verdict: "waiting", advice: "The six-digit code texted to them." } }]);
+    await runJob(storage, waiting.deps);
+    expect(waiting.reports.at(-1)).toMatchObject({ state: "waiting", verdict: "waiting", status: "The six-digit code texted to them.", texts: ["It needs the code they were texted."] });
+    expect(storage.data.has(RUN_KEY)).toBe(false);
+
+    await acceptJob(storage, run({ id: "job-5678-efgh" }), NOW);
+    const stuck = jobDeps([{ body: { answer: "The site is down.", verdict: "stuck", advice: "The site has been down for every try." } }]);
+    await runJob(storage, stuck.deps);
+    expect(stuck.reports.at(-1)).toMatchObject({ state: "stuck", status: "The site has been down for every try." });
+  });
+
+  it("a job the advisor says isn't finished stops at its limit, stuck, saying it ran out of time", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run({ startedAt: NOW - JOB_LIMIT_MS }), NOW);
+    const { deps, reports } = jobDeps([{ body: { answer: "Got to page two.", unfinished: true, verdict: "keep_going", advice: "Fill page three." } }]);
+    await runJob(storage, deps);
+    expect(reports.at(-1)).toMatchObject({ state: "stuck", status: "Ran out of time. Fill page three.", texts: ["Got to page two."] });
+    expect(storage.data.has(RUN_KEY)).toBe(false);
+
+    await acceptJob(storage, run({ id: "job-5678-efgh", attempt: MAX_JOB_ATTEMPTS }), NOW);
+    const last = jobDeps([{ body: { answer: "Still short.", unfinished: true } }]);
+    await runJob(storage, last.deps);
+    expect(last.reports.at(-1)).toMatchObject({ state: "stuck", status: "Ran out of time. Still short." });
+  });
+
+  it("keeps the advisor's call and the report for the chat's turns, never the live view", async () => {
+    const storage = new MemoryStorage();
+    await startJobs(storage, [{ title: "Apply to the accelerator", brief: "b" }], { now: NOW, inbox: PHONE, origin: { kind: "phone", phone: PHONE, question: "q" }, place: { chatId: "chat_1", messageId: "m_ask" }, spawn: async () => {} });
+    const [{ id }] = await chatJobs(storage, NOW);
+    await noteJobUpdate(storage, { id, state: "running", step: "send open_page: https://example.com/apply", verdict: "keep_going", advice: "Sign in first." }, NOW);
+    expect((await chatJobs(storage, NOW, { results: true }))[0]).toMatchObject({ verdict: "keep_going", advice: "Sign in first.", steps: [{ at: NOW, text: "send open_page: https://example.com/apply" }] });
+    expect(JSON.stringify(await chatJobs(storage, NOW))).not.toMatch(/keep_going|Sign in first/);
+    await noteJobUpdate(storage, { id, state: "done", status: "Submitted.", texts: ["Submitted it: confirmation 42."] }, NOW + 1);
+    const [ended] = await chatJobs(storage, NOW + 1, { results: true });
+    expect(ended).toMatchObject({ state: "done", result: "Submitted it: confirmation 42.", steps: [{ text: "send open_page: https://example.com/apply" }] });
+    expect(ended.verdict).toBeUndefined();
+    const [shown] = await chatJobs(storage, NOW + 1);
+    expect(shown.result).toBeUndefined();
+    expect(JSON.stringify(shown)).not.toMatch(/confirmation 42|Sign in first/);
   });
 
   it("tries a turn that could not start again later, then says it couldn't finish", async () => {

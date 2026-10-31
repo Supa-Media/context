@@ -23,7 +23,7 @@ import type { JobReport } from "./jobs";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
-import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
+import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type JobVerdict, type RunningJob, type StartedJob } from "./jobs";
 import type { TexEvent } from "./events";
 import { readLog } from "./logHold";
 
@@ -236,7 +236,7 @@ export type AgentAnswer =
   /** `askFor`: in a group, the handle of the one person whose 👍 or yes the answer asks for, when that isn't the tagger (`groupInbox.ts`). */
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; askFor?: string; askIds?: string[]; warm?: string; log?: TexEvent[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -400,7 +400,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
-      ...(body.unfinished === true ? { unfinished: true as const } : {}),
+      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const } : {}),
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
