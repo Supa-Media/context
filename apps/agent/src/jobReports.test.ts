@@ -9,6 +9,8 @@
  *  2. `reply.ts` dropping the SKIP check → "a report with nothing new texts nothing".
  *  3. `steerJobs` passing the report turn's text instead of its note → "the coordinator steers a running job with its own note, and only that".
  *  4. `jobUpdate` texting an update with no ask directly → "a report from before reports carried their ask is never texted straight in".
+ *  5. `agentAnswer` ignoring `quiet` (2026-10-31) → "the gateway's quiet flag texts nothing, and a job it starts still runs".
+ *  6. `reply.ts` and `inbox.ts` both without their control-word guard (either alone holds) → "a bare control word is never texted, on any path".
  */
 
 import { describe, expect, it } from "vitest";
@@ -98,6 +100,29 @@ describe("a job reports to the chat's own turn", () => {
     await drain(storage, deps);
     expect(world.bodies).toHaveLength(1);
     expect(world.sent).toEqual([]);
+  });
+
+  it("the gateway's quiet flag texts nothing, and a job it starts still runs", async () => {
+    const storage = new MemoryStorage();
+    const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
+    const id = await oneJob(storage);
+    const deps = inboxDeps(world, { answer: "", quiet: true, jobs: [{ title: "Agentic benchmarks, check", brief: "Read the page back." }] });
+    await jobUpdate(storage, deps, done(id, ["Still saving."]));
+    await drain(storage, deps);
+    expect(world.sent).toEqual([]);
+    expect(world.spawned.map(([, job]) => job.title)).toEqual(["Agentic benchmarks, check"]);
+  });
+
+  it("a bare control word is never texted, on any path (self-reviews fa3f7a, a0365e)", async () => {
+    for (const answer of ["SKIP", "[SKIP]", "NOOP", "NO_REPLY"]) {
+      const storage = new MemoryStorage();
+      const world: World = { bodies: [], sent: [], spawned: [], steered: [] };
+      const id = await oneJob(storage);
+      const deps = inboxDeps(world, { answer });
+      await jobUpdate(storage, deps, done(id, ["Done."]));
+      await drain(storage, deps);
+      expect(world.sent).toEqual([]);
+    }
   });
 
   it("the coordinator can start the job again, on the person's own words", async () => {

@@ -23,15 +23,19 @@
  *                  model like `openai/gpt-…`, or a gateway route `dynamic/<name>`)
  *   models.router  optional, with `models.think`: the decision model that picks
  *                  a tier for each text (`router.js`; only Clef, for now)
- *   models.think   the model a `think` text runs on instead of `models.main`
+ *   models.think   the model a `think` text runs on instead of `models.main`;
+ *                  without a router, with `think_rounds`, the model a
+ *                  background job's turn plans on before `main` drives
+ *                  (`modelPlan.js`, the owner, 2026-10-31)
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
- *   models.think_rounds optional, with the router: 1-9, how many model rounds
- *                  of a `think` text run on `think` before `main` drives the
- *                  rest; a round after a failed call goes back to `think` once
- *                  (`modelPlan.js`, the owner, 2026-10-17). Absent: the whole
- *                  turn on `think`.
+ *   models.think_rounds 1-9, how many model rounds of a `think` text run on
+ *                  `think` before `main` drives the rest; a round after a
+ *                  failed call goes back to `think` once (`modelPlan.js`, the
+ *                  owner, 2026-10-17). With a router it is optional (absent:
+ *                  the whole turn on `think`); with `think` and no router it is
+ *                  required, and only a background job's turn plans.
  *   models.effort  optional low|medium|high|xhigh|max: how hard `main` thinks
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
@@ -131,10 +135,15 @@ async function parse(raw) {
   const models = front.models;
   if (!isMap(models) || typeof models.main !== "string" || !isBuiltinModelName(models.main)) return null;
 
-  // A router without a thinking model has nowhere to send a text; a thinking
-  // model without a router would never be chosen. Either alone is a mistake.
+  // A router without a thinking model has nowhere to send a text. A thinking
+  // model without a router plans background jobs only (`modelPlan.js`, the
+  // owner, 2026-10-31), so it must say how many rounds it plans: a bare
+  // `think` would put whole jobs on it.
+  const thinkRounds = readThinkRounds(models.think_rounds);
+  if (thinkRounds === undefined) return null;
   let router = null;
-  if (models.router !== undefined || models.think !== undefined) {
+  let planner = null;
+  if (models.router !== undefined) {
     if (models.router !== ROUTER_MODEL) return null;
     if (typeof models.think !== "string" || !isBuiltinModelName(models.think)) return null;
     let routeAt = DEFAULT_ROUTE_AT;
@@ -143,13 +152,12 @@ async function parse(raw) {
       routeAt = Number(models.route_at);
     }
     // Opus plans, Haiku drives (`modelPlan.js`): absent, a routed turn stays on `think`.
-    let thinkRounds = null;
-    if (models.think_rounds !== undefined) {
-      if (typeof models.think_rounds !== "string" || !THINK_ROUNDS.test(models.think_rounds)) return null;
-      thinkRounds = Number(models.think_rounds);
-    }
     router = { model: models.router, think: models.think, routeAt, ...(thinkRounds === null ? {} : { thinkRounds }) };
-  } else if (models.route_at !== undefined || models.think_rounds !== undefined) return null;
+  } else if (models.think !== undefined) {
+    if (typeof models.think !== "string" || !isBuiltinModelName(models.think) || models.think === models.main) return null;
+    if (thinkRounds === null || models.route_at !== undefined) return null;
+    planner = { think: models.think, thinkRounds };
+  } else if (models.route_at !== undefined || thinkRounds !== null) return null;
   // The advisor is independent of the router. An effort with no advisor names
   // no model, so the loop below refuses it.
   let advisor = null;
@@ -160,7 +168,7 @@ async function parse(raw) {
   // How hard each model thinks, by model name, so the turn looks it up for
   // whichever model the router picked. A word that isn't one refuses the file.
   const efforts = {};
-  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think], ["advisor_effort", advisor]]) {
+  for (const [key, name] of [["effort", models.main], ["think_effort", (router ?? planner)?.think], ["advisor_effort", advisor]]) {
     if (models[key] === undefined) continue;
     if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
     efforts[name] = models[key];
@@ -211,6 +219,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    planner,
     advisor,
     efforts,
     fallback,
@@ -290,6 +299,12 @@ function scalar(text = "") {
 function unquote(text) {
   const quoted = /^(["'])(.*)\1$/.exec(text);
   return quoted ? quoted[2] : text;
+}
+
+/** `think_rounds` as a number, null when absent, undefined when it is not 1-9. */
+function readThinkRounds(value) {
+  if (value === undefined) return null;
+  return typeof value === "string" && THINK_ROUNDS.test(value) ? Number(value) : undefined;
 }
 
 function isMap(value) {

@@ -145,7 +145,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // run the other way, and this is the only thing standing between an answer
   // drawn from the bound workspace and somebody who is not a member of it. So
   // an unreadable list holds the answer, as a joiner does.
-  if (routine && saysSkip(answer.text) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
+  if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) return void (await routineDone(deps, message, "skipped"));
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
   const texts = [...textsWithExact(answer.text, answer.verbatim, checkIn || asked.texStyle?.bubbles === "one"), ...(checkIn ? [] : await threadsLines(answer.offers, deps.threadsLink))];
   const now = await app.readMembers(chat);

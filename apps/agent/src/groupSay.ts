@@ -14,6 +14,7 @@ import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
+import { isControlWord } from "./controlWords";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -129,6 +130,7 @@ export type SayMeta = { turn?: string; covers?: string[]; people?: string; syste
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string, meta: SayMeta = {}): Promise<void> {
+  if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
 

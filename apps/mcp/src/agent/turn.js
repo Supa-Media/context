@@ -247,10 +247,11 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
- * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number}} [options.router] the setup's
+ * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number, jobsOnly?: boolean}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
  *   text, and the model a `think` text runs on; `route.js` checks it can be called.
- *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`)
+ *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`);
+ *   `jobsOnly` (a planner, no router) plans a `planned` turn and leaves every other on `main`
  * @param {() => number} [options.clock] milliseconds, for `timing`
  * @param {{write?: string[], manage?: string[], send?: string[]}|null} [options.grants]
  *   the actions a surface allows by name, where it narrows further than the
@@ -373,7 +374,8 @@ export async function runTurn(options) {
     came from.
   */
   const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
-  if (router !== null) {
+  // A planner with no router (`jobsOnly`, `modelPlan.js` `turnRouter`) plans a background job and nothing else: every other text stays on `main`.
+  if (router !== null && (router.jobsOnly !== true || options.planned)) {
     const asked = clock();
     // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
     const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
@@ -385,9 +387,9 @@ export async function runTurn(options) {
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
-    tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
+    tell({ kind: "model", model, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, webNames, progress, aboutMe, identity, jobs, observe, workspaces, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
