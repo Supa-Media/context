@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { guestChatsOf, guestNote, guestPhoneHash } from "./lib/guestPhones";
 import { phoneSignInPaused } from "./lib/emailProof";
@@ -12,6 +12,7 @@ import { workspaceBySlug } from "./lib/textGroupInvited";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
 import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { nameOutsider } from "./lib/textGroupGuestSync";
+import { guestBinder } from "./lib/textGroupGuests";
 import { mintPhoneSignInCode } from "./textSignIn";
 
 /**
@@ -151,7 +152,12 @@ export const enrol = internalMutation({
   args: { phone: v.string(), phoneHash: v.string() },
   returns: v.union(v.object({ status: v.literal("ok"), code: v.string() }), v.object({ status: v.literal("unavailable") })),
   handler: async (ctx, { phone, phoneHash }) => {
-    const chats = await guestChatsOf(ctx, phoneHash);
+    // Only chats that may still answer: `guestBinder` asks what a turn asks — the group is there, and the person who
+    // turned guest mode on is still an owner or editor of the workspace, with texting not paused. An enrolment names
+    // that person's authority on the folder (`nameOutsider` tells `setAccessRow` `role: "owner"`), so a chat whose
+    // binder has since been taken off the workspace enrols nobody rather than granting in their name.
+    const chats: Doc<"textGroups">[] = [];
+    for (const chat of await guestChatsOf(ctx, phoneHash)) if ((await guestBinder(ctx, chat)) !== null) chats.push(chat);
     if (chats.length === 0) return { status: "unavailable" as const };
     // Any row carrying the number, confirmed or not, is someone's: a new account never takes a number from anyone.
     const carried = await ctx.db
