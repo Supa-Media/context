@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { routineAlarmAt, syncRoutineAlarms } from "../src/texStore/routineAlarm.js";
-import { routineDispatchFor, TEXTING_ROUTINE_DUE } from "../src/texStore/dispatch.js";
+import { routineDispatchFor } from "../src/texStore/dispatch.js";
 import { TexStore, RETRY_MS } from "../src/texStore.js";
 import { nextAt, due } from "../src/texStore/alarms.js";
 import { DEFAULT_TIME_ZONE } from "../src/agent/localNow.js";
@@ -143,16 +143,16 @@ test("a failure to schedule resolves and never throws: the cron is the backstop"
   await syncRoutineAlarms({ TEX_STORE: namespaceOver().namespace }, WORKSPACE, { get: async () => { throw new Error("bucket down"); } }, [PATH], T);
 });
 
-test("an alarm that fires asks the texting Worker for its own routine, and re-arms at the time it answers", { skip }, async () => {
+test("an alarm that fires asks the texting Worker's routine entrypoint for its own routine, and re-arms at the time it answers", { skip }, async () => {
   const calls = [];
   const texting = {
-    fetch: async (request) => {
-      calls.push({ url: request.url, method: request.method, auth: request.headers.get("authorization"), body: JSON.parse(await request.text()) });
-      return Response.json({ next: T + 86_400_000 });
+    routineDue: async (call) => {
+      calls.push(call);
+      return { next: T + 86_400_000 };
     },
   };
   const state = stateOver();
-  const dispatch = routineDispatchFor({ TEXTING: texting, TEX_ALARM_SECRET: "s3cret" });
+  const dispatch = routineDispatchFor({ TEXTING: texting });
   const store = new TexStore(state, {}, { dispatch, now: () => T });
   await store.fetch(
     new Request("https://tex-store.internal/schedule", {
@@ -163,10 +163,8 @@ test("an alarm that fires asks the texting Worker for its own routine, and re-ar
   );
   await store.alarm();
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, TEXTING_ROUTINE_DUE);
-  assert.equal(calls[0].method, "POST");
-  assert.equal(calls[0].auth, "Bearer s3cret");
-  assert.deepEqual(calls[0].body, { owner: `person:${WORKSPACE}`, id: PATH });
+  // The call carries the owner and the path, and nothing else: no bearer, no grant.
+  assert.deepEqual(calls[0], { owner: `person:${WORKSPACE}`, id: PATH });
   // The routine is kept for its next time, with its payload, and the runtime alarm is set to it.
   assert.equal(nextAt(state.storage.sql), T + 86_400_000);
   assert.equal(state.storage.alarm, T + 86_400_000);
@@ -175,7 +173,7 @@ test("an alarm that fires asks the texting Worker for its own routine, and re-ar
 
 test("a texting Worker that refuses the alarm, or cannot be reached, leaves the routine to try again in a minute", { skip }, async () => {
   const state = stateOver();
-  const refusing = routineDispatchFor({ TEXTING: { fetch: async () => new Response(null, { status: 401 }) }, TEX_ALARM_SECRET: "s" });
+  const refusing = routineDispatchFor({ TEXTING: { routineDue: async () => { throw new Error("the route refused"); } } });
   const store = new TexStore(state, {}, { dispatch: refusing, now: () => T });
   await store.fetch(
     new Request("https://tex-store.internal/schedule", {
@@ -188,8 +186,8 @@ test("a texting Worker that refuses the alarm, or cannot be reached, leaves the 
   assert.equal(nextAt(state.storage.sql), T + RETRY_MS);
 });
 
-test("with no texting binding or no alarm secret, nothing is dispatched and the routine waits", async () => {
-  for (const env of [{}, { TEXTING: { fetch: async () => new Response(null, { status: 200 }) } }]) {
+test("with no texting binding, nothing is dispatched and the routine waits", async () => {
+  for (const env of [{}, { TEXTING: {} }]) {
     const dispatch = routineDispatchFor(env);
     await assert.rejects(dispatch({ id: PATH, at: T, payload: { owner: `person:${WORKSPACE}` } }));
   }

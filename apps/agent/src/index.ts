@@ -30,8 +30,8 @@ import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox"
 import { checkReady } from "./ready";
 import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
-import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
-import { TEX_ROUTINE_DUE_PATH, texRoutineDue } from "./texRoutineDue";
+import { runDueRoutines, textPhone, textRoutine, type PhoneTexted } from "./routines";
+export { TexRoutines } from "./texRoutineDue";
 import { runDueDreams } from "./dreams";
 import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
@@ -89,12 +89,6 @@ export interface Env {
   CONTROL_PLANE_ORIGIN: string;
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
-  /**
-   * The bearer the gateway's Tex store sends on `/tex/routine-due`, its alarm's
-   * call (`texRoutineDue.ts`). Unset, that route refuses everything, and the
-   * cron still runs every routine.
-   */
-  TEX_ALARM_SECRET?: string;
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
@@ -146,10 +140,6 @@ export default {
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
-    // A Tex store's alarm (`texRoutineDue.ts`), refused without its own bearer.
-    if (url.pathname === TEX_ROUTINE_DUE_PATH) {
-      return texRoutineDue(request, env, (phone, text, key) => textPhone(env, phone, text, key));
-    }
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
@@ -443,18 +433,6 @@ async function newLine(request: Request, env: Env): Promise<Response> {
   return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
 }
 
-/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
-async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string, continues?: string): Promise<PhoneTexted> {
-  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
-  const response = await stub.fetch(ROUTINE_TEXT_URL, {
-    method: "POST",
-    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}) }),
-  });
-  if (!response.ok) return "failed";
-  const { status } = (await response.json()) as { status?: unknown };
-  return status === "texted" || status === "no_chat" ? status : "failed";
-}
-
 /** A chat routine's run, into its chat's own queue, found by the chat's key (`groupRoutines.ts`). */
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
@@ -469,9 +447,6 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
   if (!response.ok) return "failed";
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";
 }
-
-/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
-const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 export class SenderInbox implements DurableObject {
   constructor(

@@ -27,7 +27,7 @@ export const RETRY_MS = 60 * 1000;
 export class TexStore {
   /**
    * @param {object} state the Durable Object's state (`storage.sql`, `setAlarm`, `deleteAlarm`)
-   * @param {object} env the Worker's bindings (`TEXTING`, `TEX_ALARM_SECRET`: `texStore/dispatch.js`)
+   * @param {object} env the Worker's bindings (`TEXTING`, the texting Worker's routine entrypoint: `texStore/dispatch.js`)
    * @param {{dispatch?: (routine: {id: string, at: number, payload: unknown}) => Promise<{next: number | null}>, now?: () => number}} [options]
    *   `dispatch` hands a due routine on and answers when it next runs, or throws to have it tried again.
    */

@@ -111,15 +111,17 @@ The control plane's due list stays the source of truth, and the texting Worker's
 once-a-minute cron stays as the backstop. The alarm only makes a run happen on
 time instead of up to a minute late.
 
-**Dispatch.** An alarm calls the texting Worker through the gateway's `TEXTING`
-service binding (`texStore/dispatch.js`, `apps/agent/src/texRoutineDue.ts`):
-`POST /tex/routine-due` with `{owner, id}`, the owner being the person's
-workspace and the id the routine's path. The route needs `TEX_ALARM_SECRET` as
-its bearer, on both Workers, and refuses everything without it, a chat's owner
-included. It runs the routine through the cron's own path and answers when it
-next runs, and the object keeps the routine for that time. The object never
-holds a grant or any other credential: the texting Worker fetches the run and
-its token from the control plane itself.
+**Dispatch.** An alarm calls the texting Worker's named RPC entrypoint
+`TexRoutines.routineDue({owner, id})` through the gateway's `TEXTING` service
+binding, which names the entrypoint (`texStore/dispatch.js`,
+`apps/agent/src/texRoutineDue.ts`). The owner is the person's workspace and the
+id the routine's path. A named entrypoint is reachable only through a service
+binding, never over HTTP, so there is no route and no secret: the Worker's
+public `fetch` does not answer for it. The method refuses a chat's owner and any
+malformed argument. It runs the routine through the cron's own path and answers
+when it next runs, and the object keeps the routine for that time. The object
+never holds a grant or any other credential: the texting Worker fetches the run
+and its token from the control plane itself.
 
 **Double fire.** The alarm and the cron can both ask. The control plane hands a
 run out once: a claim moves the routine's next time past now and holds a lease

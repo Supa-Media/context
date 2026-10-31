@@ -131,6 +131,27 @@ export async function runScopedRoutine(deps: RoutineDeps, scope: RoutineScope): 
   return { next };
 }
 
+/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
+const ROUTINE_TEXT_URL = "https://inbox/routine-text";
+
+/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
+export async function textPhone(
+  env: { SENDER_INBOX: DurableObjectNamespace },
+  phone: string,
+  text: string,
+  idempotencyKey: string,
+  continues?: string,
+): Promise<PhoneTexted> {
+  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+  const response = await stub.fetch(ROUTINE_TEXT_URL, {
+    method: "POST",
+    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}) }),
+  });
+  if (!response.ok) return "failed";
+  const { status } = (await response.json()) as { status?: unknown };
+  return status === "texted" || status === "no_chat" ? status : "failed";
+}
+
 /** Due runs grouped by the phones they text, in the order they came. */
 export function byPerson(due: DueRoutine[]): DueRoutine[][] {
   const groups = new Map<string, DueRoutine[]>();
