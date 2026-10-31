@@ -7,7 +7,8 @@ import { claimCheck, correctsTheAsk, lastOffer } from "./claimCheck.js";
 import { addressedTo, offerLine } from "../tools/offerFor.js";
 import { handbackJudgeFor } from "./handbackJudge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
-import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
+import { agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
+import { allowedBeside, isRefusal, refusedResponse } from "./turnAllowed.js";
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
@@ -29,7 +30,7 @@ import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
-import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { attachmentsLine, carriesData, carriesVoice, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "./replyChecks.js";
@@ -63,16 +64,6 @@ import { sleepLineNote } from "./timeLog.js"; // a sleep line their phone sends,
 import { googleOfferLine } from "./googleOffer.js"; // offers Google once to a texter without it
 import { backgroundSession, jobOf, jobPrompt, jobReportOf, jobReportPrompt, jobReportQuestion, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, commandTools, consentForTurn, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange } from "./groupTurn.js";
-/**
- * What a turn that may not run says. Nothing in the app can change this any
- * more (people's own model keys were deleted, the owner, 2026-10-10): the
- * built-in model answers texts and routines where the control plane allows
- * it, and every
- * other `no_provider` — another client, another plan, the assistant switched
- * off, a deployment with no built-in model, a request naming a provider — is
- * the same sentence, so none of them is told apart from the outside.
- */
-const NO_MODEL_HERE = "The assistant isn't available here yet.";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
@@ -230,31 +221,10 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   }
 
   const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
-  try {
-    await openProvider(controlPlane, session, body.provider, env); stages?.mark("provider");
-  } catch (error) {
-    outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
-    if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
-    if (error instanceof AgentRefusal && error.code === "daily_limit") {
-      return json(
-        { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
-        429,
-      );
-    }
-    if (error instanceof AgentRefusal) {
-      return json(
-        {
-          error: error.code,
-          error_description: NO_MODEL_HERE,
-        },
-        409,
-      );
-    }
-    // A control plane that could not be reached is not a refusal, and telling somebody
-    // the assistant is not theirs when it is is worse than telling them nothing.
-    return json({ error: "model_unavailable" }, 503);
-  }
-  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
+  const allowed = allowedBeside(openProvider(controlPlane, session, body.provider, env)); stages?.mark("provider"); stages?.allowedBy(allowed); // asked beside the turn and its first model round, never before them (`turnAllowed.js`)
+  const refused = async (error) => ((outcome.turn = undefined), runner && (await keepRun(store, routine, runs, error?.name === "AgentRefusal" ? error.code : "failed", "")), refusedResponse(error)); // no model's word was kept: no record (`loggedTurn.js`)
+  // Voice messages become their words only once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
+  if (carriesVoice(sent)) try { await allowed.wait; } catch (error) { return await refused(error); }
   const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
 
   const offered = await offeredRead; stages?.mark("tools");
@@ -512,7 +482,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      answerCheck: claims?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
+      allowed, answerCheck: claims?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
       callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
@@ -669,6 +639,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     outcome.clean = false;
     if (steer !== null) await steer.clear();
     if (opened !== null) await afterAnswer(() => opened.close());
+    if (isRefusal(allowed, error)) return await refused(error); // no tool ran and nothing was said: nothing to meter, withdraw or log
     if (transcript !== null) await afterAnswer(() => transcript.finish({ answer: "", outcome: "the turn failed" }));
     await meter(null, true);
     /*

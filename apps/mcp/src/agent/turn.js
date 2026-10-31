@@ -45,6 +45,7 @@
 import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError } from "./providers.js";
+import { besideAllowed } from "./turnAllowed.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
@@ -311,6 +312,11 @@ export async function runTurn(options) {
     // Never throws back into the turn, and asks the model for its thinking in words.
     observe = null,
   } = options;
+  // The control plane's yes, asked beside this turn (`turnAllowed.js`): a no ends it before any tool runs.
+  let allowed = options.allowed ?? null;
+  const refusedYet = () => {
+    if (allowed?.refusal) throw allowed.refusal;
+  };
   const tell = (event) => {
     if (typeof observe !== "function") return;
     try {
@@ -374,6 +380,7 @@ export async function runTurn(options) {
   */
   const nudge = texting ? pushbackNudge(question, goalsIn(aboutMe)) : ""; // an opinion or a goal-touching ask (`pushback.js`)
   if (router !== null) {
+    refusedYet();
     const asked = clock();
     // A background job always plans on `think` and drives on `main` (`background.js`), and so does a text asking for Tex's judgment (`pushback.js`): no router call.
     const routed = options.planned || nudge !== "" ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
@@ -467,12 +474,13 @@ export async function runTurn(options) {
     let answer;
     questionMessage.preamble = prompt.preamble;
     try {
-      answer = await requestBuiltin(
+      refusedYet();
+      answer = await besideAllowed(allowed, requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
         { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: history.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
-      );
+      ));
     } catch (error) {
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
@@ -511,6 +519,7 @@ export async function runTurn(options) {
       }
       throw error;
     }
+    allowed = null; // yes: from here the turn is the person's
     const roundMs = clock() - asked;
     timing.rounds += 1;
     timing.modelMs += roundMs;

@@ -135,6 +135,8 @@ export function turnAttachments(raw, runner) {
 }
 
 const isAudio = (attachment) => typeof attachment.data === "string" && attachment.mediaType.startsWith("audio/");
+/** Whether a voice message came with the text: hearing it costs, so it waits for the turn to be allowed (`turnAllowed.js`). */
+export const carriesVoice = (attachments) => attachments.some(isAudio);
 
 /** What the transcription service heard, as one paragraph, or "" for nothing. */
 function heardText(payload) {
