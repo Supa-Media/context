@@ -60,8 +60,9 @@ function stable(value) {
   return value;
 }
 
-async function readAll(store, prefix) {
-  const keys = await listAllKeysWithLegacy(store, prefix);
+async function readAll(store, prefix, ids = null) {
+  // A record's key ends with its id (`createPending`): asked for some ids, only theirs are read.
+  const keys = (await listAllKeysWithLegacy(store, prefix)).filter(({ key }) => ids === null || ids.some((id) => key.endsWith(`-${id}.json`)));
   // Read side by side, not one after another: a texted turn lists these
   // several times before its model runs, and fifty reads in a row held a
   // "hi Tex" for over a minute (2026-10-31).
@@ -90,8 +91,8 @@ function expired(record, now) {
  * are dropped. `texting: true` narrows to the ones asked on the texting
  * thread, which are the only ones a texted yes may settle.
  */
-export async function listPending(store, { userId, texting = false, now = Date.now() }) {
-  const all = await readAll(store, PENDING_PREFIX);
+export async function listPending(store, { userId, texting = false, now = Date.now(), ids = null }) {
+  const all = await readAll(store, PENDING_PREFIX, ids);
   await Promise.all(all.filter(({ record }) => expired(record, now)).map(({ key }) => deleteWithLegacyFallback(store, key).catch(() => {})));
   const live = [];
   for (const { key, etag, record } of all) {
