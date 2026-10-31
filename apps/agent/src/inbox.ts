@@ -132,11 +132,9 @@ export type RememberedChat = { chatId: string; channel?: "simulator"; at: number
 export const MEDIA_WAIT_MS = 4_000;
 
 /**
- * How long words with no file wait for a photo sent just before them: none
- * since Tex's front door (Seyi, 2026-10-31: a "hi Tex" took minutes). It was
- * 3 s, for a photo whose upload made Linq deliver the words first (2026-10-16);
- * a photo that lands while the turn runs now restarts it with both
- * (`inboxTurn.ts`).
+ * How long words with no file wait for a photo sent just before them: none since
+ * Tex's front door (Seyi, 2026-10-31: a "hi Tex" took minutes). It was 3 s, for a
+ * photo whose upload made Linq deliver the words first (2026-10-16).
  */
 export const TEXT_WAIT_MS = 0;
 
