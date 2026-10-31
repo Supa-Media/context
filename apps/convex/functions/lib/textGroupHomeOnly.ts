@@ -28,6 +28,7 @@ import { READS_AS_CHAT_NAME } from "./nodes/chatFolders";
 import { accountTimeZone } from "./routines/access";
 import { effectiveTimeZone } from "./routines/model";
 import { personalWorkspaceOf } from "../textLinks";
+import { liveReach, reachOf } from "./textGroupReach";
 
 /** The client every group grant is minted for, and its name (`functions/textGroups.ts` holds the same two). */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -54,6 +55,8 @@ export interface HomeOnlyReady {
   names: { phone: string; handle: string }[];
   guests: { phone: string; label: string }[];
   guestTagger?: string;
+  /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); none when anyone here has no account. */
+  reach: string[];
 }
 
 /**
@@ -89,6 +92,12 @@ export async function homeOnlyTurn(
   // The sponsor brought Tex in and pays: set once (`textGroupUsage.ts`). Before the row has one, whoever is here with an account.
   const sponsor = chat.sponsorId ?? chat.boundBy ?? senderUser ?? people[0];
   if (sponsor === undefined) return null;
+  // The chat's reach, worked out now (`lib/textGroupReach.ts`): every shared workspace each account holder here, and the
+  // sponsor who acts, is a member of; none when anyone has no account. Kept on the chat for its single-workspace readers.
+  const reachPeople = [...new Set([...people, sponsor])];
+  const reach = await reachOf(ctx, chat, reachPeople, guests.length > 0);
+  const reachIds = reach.map((row) => row.workspace._id);
+  await ctx.db.patch(chat._id, { reach: reachIds, reachPeople });
   const intro = chat.introducedAt === undefined;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -97,6 +106,8 @@ export async function homeOnlyTurn(
       pinned,
       sponsor,
       people,
+      reach: reachIds,
+      reachPeople,
       tagger: senderUser,
       guestPhone: senderUser === null ? args.sender : undefined,
       hashedAccessToken: args.hashedAccessToken,
@@ -120,6 +131,7 @@ export async function homeOnlyTurn(
     minted,
     names,
     guests,
+    reach: reach.map((row) => row.workspace.slug),
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
 }
@@ -135,6 +147,8 @@ async function mintHomeOnlyGrant(
     pinned: Doc<"workspaces">;
     sponsor: Id<"users">;
     people: Id<"users">[];
+    reach: Id<"workspaces">[];
+    reachPeople: Id<"users">[];
     tagger: Id<"users"> | null;
     guestPhone?: string;
     hashedAccessToken: string;
@@ -155,6 +169,8 @@ async function mintHomeOnlyGrant(
     coViewerIds: [] as Id<"users">[],
     meterWorkspaceId: meterWorkspace,
     homeOnly: true as const,
+    reach: input.reach,
+    reachPeople: input.reachPeople,
     ...(input.tagger === null ? {} : { taggerId: input.tagger }),
     ...(input.guestPhone === undefined ? {} : { guestPhone: input.guestPhone }),
   };
@@ -192,31 +208,31 @@ async function mintHomeOnlyGrant(
   return true;
 }
 
+/** A row a home-only grant reaches: the chat's home in the pin, or a shared workspace in the chat's reach. */
+export interface HomeOnlyRow {
+  workspaceId: Id<"workspaces">;
+  slug: string;
+  role: string;
+  kind: "personal" | "shared";
+  grantedNames?: string[];
+  chatHome?: string;
+  homeOnly?: true;
+}
+
 /**
  * What a home-only grant reads: its chat's home, as one row of the pin, read as the chat reads (`READS_AS_CHAT`), held
- * at the editor's hand, and nothing else of the pin, nor any workspace. `[]` when the chat has no home.
+ * at the editor's hand, and nothing else of the pin; then one row per shared workspace in the chat's reach
+ * (`lib/textGroupReach.ts`), at the lowest role among the chat's people there, at `team` tier and with no granted names,
+ * so a note any one of them could not open is not reachable. The reach is re-read now, for every person and the
+ * sponsor, so someone removed from a workspace drops it from this request on. `[]` when the chat has no home.
  */
-export async function homeOnlyRows(
-  ctx: QueryCtx,
-  grant: Doc<"oauthGrants">,
-  workspace: Doc<"workspaces">,
-): Promise<
-  Array<{
-    workspaceId: Id<"workspaces">;
-    slug: string;
-    role: string;
-    kind: "personal" | "shared";
-    grantedNames: string[];
-    chatHome: string;
-    homeOnly: true;
-  }>
-> {
+export async function homeOnlyRows(ctx: QueryCtx, grant: Doc<"oauthGrants">, workspace: Doc<"workspaces">): Promise<HomeOnlyRow[]> {
   const groupId = grant.texGroup?.groupId;
   if (groupId === undefined) return [];
   const home = await chatHomeOf(ctx, groupId);
   if (home === null || home.workspaceId !== grant.workspaceId) return [];
   const token = `#${home.noteId}`;
-  return [
+  const rows: HomeOnlyRow[] = [
     {
       workspaceId: home.workspaceId,
       slug: workspace.slug,
@@ -227,6 +243,10 @@ export async function homeOnlyRows(
       homeOnly: true,
     },
   ];
+  for (const reach of await liveReach(ctx, grant.texGroup?.reach, grant.texGroup?.reachPeople, grant.userId)) {
+    rows.push({ workspaceId: reach.workspace._id, slug: reach.workspace.slug, role: reach.role, kind: reach.workspace.kind });
+  }
+  return rows;
 }
 
 /**

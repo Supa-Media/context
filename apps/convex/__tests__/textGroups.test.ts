@@ -130,11 +130,11 @@ describe("who counts", () => {
 });
 
 describe("what the chat reaches", () => {
-  test("one shared workspace is bound at once, introduced once, and the grant reaches only it, at team tier", async () => {
+  test("with no pinned workspace the one shared workspace is the chat's, introduced once, and the grant reaches only it, at team tier", async () => {
     const t = setupTest();
     const { ada, studio } = await crew(t);
     const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    expect(first).toMatchObject({ status: "ready", slug: "studio", intro: true, bound: true, minted: true, handle: "ada" });
+    expect(first).toMatchObject({ status: "ready", slug: "studio", intro: true, bound: false, reach: ["studio"], minted: true, handle: "ada" });
     // Everyone's handle by their number, so the chat's words are filed by name.
     expect([...(first.names as { phone: string; handle: string }[])].sort((x, y) => x.handle.localeCompare(y.handle))).toEqual([
       { phone: ADA, handle: "ada" },
@@ -187,33 +187,18 @@ describe("what the chat reaches", () => {
     expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toMatchObject({ status: "ready", slug: "studio" });
   });
 
-  test("several shared workspaces: the chat is asked to pick, and a pick is kept", async () => {
+  test("with no pinned workspace and several shared, the first by name is used; nobody is asked to pick or to say use", async () => {
     const t = setupTest();
     const { ada, bo, cy } = await crew(t);
     const ops = await createWorkspace(t, bo.userId, "ops", { kind: "shared" });
     await addMember(t, ops, ada.userId, "editor");
     await addMember(t, ops, cy.userId, "member");
-    expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toEqual({ status: "choose", slugs: ["ops", "studio"] });
-
-    const picked = await turn(t, CY, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "@ops" } });
-    // The pick's own line is the introduction, so the next answer doesn't repeat it.
-    expect(picked).toMatchObject({ status: "ready", slug: "ops", bound: true, minted: false, intro: true });
-    expect(picked.accessToken).toBeUndefined();
     const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    expect(answer).toMatchObject({ status: "ready", slug: "ops", bound: false, intro: false });
+    expect(answer).toMatchObject({ status: "ready", slug: "ops", reach: ["ops"], bound: false });
     expect((await resolves(t, answer.accessToken as string))?.defaultWorkspaceId).toBe(ops);
-  });
-
-  test("naming a workspace the chat doesn't share binds nothing", async () => {
-    const t = setupTest();
-    const { bo } = await crew(t);
-    await createWorkspace(t, bo.userId, "bos-own", { kind: "shared" });
-    // The group chat of 2026-10-21: the no names the workspaces the chat can use, and only those.
-    const shared = (await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "bos-own" } })) as { status: string; slugs: string[] };
-    expect(shared.status).toBe("not_shared");
-    expect(shared.slugs.length).toBeGreaterThan(0);
-    expect(shared.slugs).not.toContain("bos-own");
-    expect(await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "nowhere" } })).toEqual(shared);
+    // "Tex, use @slug" is gone from the door: the command is not one.
+    const refused = await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender: ADA, participants: [ADA, BO, CY, LINE], mint: false, command: { kind: "use", slug: "studio" } });
+    expect(refused.status).toBe(400);
   });
 
   test("a bound workspace someone new doesn't share is refused to a viewer's tag and a routine, never used at team tier", async () => {
@@ -328,18 +313,23 @@ describe("Tex's setup in a group chat", () => {
     return await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
   }
 
-  // Since 2026-10-31 the chat has a home in the pin (`textGroupHome.test.ts`), so the row is an editor's, read as a chat.
-  test("the grant carries the pin last, marked setup-only, with the chat's home, and nothing else new", async () => {
+  // Since 2026-10-31 a chat is bound to nothing: its grant is on the pin (its home, an editor's, read as a chat) and the
+  // shared workspaces everyone in the chat shares follow it as rows of their own (`textGroupReach.test.ts`).
+  test("the grant is the chat's home in the pin first, then the workspace everyone shares at the lowest role there", async () => {
     const t = setupTest();
     const pinned = await pin(t);
     const { ada, studio } = await crew(t);
     const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    expect(answer).toMatchObject({ status: "ready", slug: PINNED_CONTEXT_SLUG, reach: ["studio"] });
     const session = await resolves(t, answer.accessToken as string);
-    expect(session?.defaultWorkspaceId).toBe(studio);
-    expect(session?.workspaces.map((entry) => entry.workspaceId)).toEqual([studio, pinned]);
-    expect(session?.workspaces[0]?.setupOnly).toBeUndefined();
-    expect(session?.workspaces[1]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "editor", setupOnly: true });
-    expect((session?.workspaces[1] as { chatHome?: string } | undefined)?.chatHome).toMatch(/^tex\/groups\/[a-z]+-[a-z]+-[a-z]+$/);
+    expect(session?.defaultWorkspaceId).toBe(pinned);
+    expect(session?.workspaces.map((entry) => entry.workspaceId)).toEqual([pinned, studio]);
+    expect(session?.workspaces[0]).toMatchObject({ slug: PINNED_CONTEXT_SLUG, role: "editor", homeOnly: true });
+    expect((session?.workspaces[0] as { chatHome?: string } | undefined)?.chatHome).toMatch(/^tex\/groups\/[a-z]+-[a-z]+-[a-z]+$/);
+    // Ada edits and Cy only views, so the whole chat only views @studio.
+    expect(session?.workspaces[1]).toMatchObject({ slug: "studio", role: "member" });
+    expect(session?.workspaces[1]?.grantedNames).toBeUndefined();
+    expect(session?.scopes).not.toContain(SCOPE_PRIVATE);
     expect(JSON.stringify(session?.workspaces)).not.toContain(String(ada.workspaceId));
     // The chat's own Tex key, from its grant: the one object its turn may reach (`store/texRouting.js`).
     const chat = await t.run(async (ctx) => await ctx.db.query("textGroups").first());

@@ -28,6 +28,7 @@
  * chat routine's run with no note behind it.
  */
 
+import { chatWorkspace } from "./textGroupReach";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { recordAudit } from "./audit";
@@ -78,7 +79,9 @@ async function zoneOf(ctx: QueryCtx, userId: Id<"users"> | null): Promise<string
 
 /** A chat bound to a workspace with no look coming gets its next daily one. Never moves one already due. */
 export async function armChatLook(ctx: MutationCtx, group: Doc<"textGroups">, now: number): Promise<boolean> {
-  if (group.nextLookAt !== undefined || group.workspaceId === undefined || group.mutedAt !== undefined || group.guestGroupId !== undefined) return false;
+  if (group.nextLookAt !== undefined || group.mutedAt !== undefined || group.guestGroupId !== undefined) return false;
+  // A chat with a workspace in reach (`lib/textGroupReach.ts` `chatWorkspace`): the bound one if still in reach, else the first.
+  if ((await chatWorkspace(ctx, group)) === null) return false;
   const next = nextBeatAfter(await zoneOf(ctx, await lookerOf(ctx, group)), now);
   if (next === null) return false;
   await ctx.db.patch(group._id, { nextLookAt: next });
@@ -131,7 +134,7 @@ export async function claimChatLooks(ctx: MutationCtx, runIds: string[], now: nu
   for (const group of due) {
     if (looks.length >= runIds.length) break;
     if (group.lookClaimedAt !== undefined && group.lookClaimedAt + ROUTINE_LEASE_MS > now) continue;
-    const workspaceId = group.workspaceId;
+    const workspaceId = (await chatWorkspace(ctx, group))?._id;
     const chat = workspaceId === undefined ? null : await routineChat(ctx, workspaceId, group.groupKey.slice(0, 16));
     const looker = await lookerOf(ctx, group);
     const phones = workspaceId === undefined || looker === null ? [] : await routineRecipients(ctx, { workspaceId, writerUserId: looker, send: "text" });

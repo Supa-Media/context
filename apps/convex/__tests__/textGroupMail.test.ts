@@ -115,7 +115,7 @@ async function family(t: T) {
   const id = await seedGoogleConnection(t, { workspaceId: seyi.workspaceId, boundBy: seyi.userId, address: WORK });
   const encryptedAccessToken = await encryptSecret("ya29.fake-access-token", requireKeyset(), { workspaceId: seyi.workspaceId });
   await t.run((ctx) => ctx.db.patch(id, { encryptedAccessToken, accessTokenExpiresAt: Date.now() + HOUR }));
-  expect((await turn(t, SEYI, { command: { kind: "use", slug: "crystal-care" } })).status).toBe("ready");
+  expect((await turn(t, SEYI, { mint: false })).status).toBe("ready");
   return { seyi, dad, care, connectionId: id };
 }
 

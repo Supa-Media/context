@@ -129,7 +129,8 @@ async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promi
   if (group === null || group.mutedAt !== undefined) return false;
   if (await phoneSignInPaused(ctx, grant.userId)) return false;
   // A home-only grant (`lib/textGroupHomeOnly.ts`): the chat is not muted, and the sponsor who minted it still may text.
-  // Its chat is not bound to the pin, so the workspace check below is for the chat's own workspace only.
+  // Its chat is bound to nothing: the workspaces it reaches are re-checked per person, per workspace, on every request
+  // in `contextsForGrant` (`lib/textGroupReach.ts` `liveReach`), so someone removed from one drops it on the next call.
   if (texGroup.homeOnly === true) return await homeOnlyStillShares(ctx, grant, group);
   // Guest mode is retired (E2, 2026-10-31): a grant minted under it (`texGroup.guestGroupId`) reads nothing. Its chat is
   // answered from its home from the next turn, so a stale guest grant never reads its workspace at the binder's tier.
@@ -232,14 +233,15 @@ export async function contextsForGrant(
   if (includeGrantedNames) {
     own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
   }
-  // A group chat's grant reaches its one workspace and nothing else: not the
+  // A group chat's grant reaches its chat's workspaces and nothing else: not the
   // tagger's other memberships, not their personal workspace. The pin comes
   // back marked `setupOnly`: the gateway never lists or addresses it, and
   // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
   // already runs on (`apps/mcp/src/agent/production.js`).
   if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
-    // A home-only grant reaches its chat's home in the pin and nothing else: no workspace of its sponsor's, no setup,
-    // and no pin reader's names (`lib/textGroupHomeOnly.ts`).
+    // A home-only grant reaches its chat's home in the pin, then each shared workspace every person in the chat is a live
+    // member of, at the lowest role among them (`lib/textGroupReach.ts`); nothing of its sponsor's own, no setup, and no
+    // pin reader's names (`lib/textGroupHomeOnly.ts`).
     if (live.grant.texGroup?.homeOnly === true) return await homeOnlyRows(ctx, live.grant, live.workspace);
     const setup = await groupSetupRow(ctx, live, own.workspaceId);
     // An invited person's tag: the binder's grant, never past the invitation's role, and never an owner's tools.

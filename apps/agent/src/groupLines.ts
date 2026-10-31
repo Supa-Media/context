@@ -8,25 +8,20 @@
 export const PICTURE_LINE = "(sent a picture or file)";
 /** The fixed lines, sent with no model. */
 export const GROUP_LINES = {
-  intro: (slug: string) =>
-    `Hi, I'm Tex. Start a message with "Tex" and I'll answer here, using only @${slug}, the workspace everyone in this chat shares. ` +
-    `I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
+  intro: (reach: string[]) =>
+    `Hi, I'm Tex. Start a message with "Tex" and I'll answer here. ` +
+    (reach.length > 0
+      ? `I can use ${reach.map((slug) => `@${slug}`).join(" and ")}, the ${reach.length === 1 ? "workspace" : "workspaces"} everyone in this chat shares, and only what everyone there can open. `
+      : "I keep what I learn here in this chat's own home, which only the people here open. ") +
+    `I follow the chat so you can just say "Tex, write this up". "Tex, stop" mutes me and "Tex, start" brings me back.`,
   unknown: "I answer people who've set me up. Text me on your own to start.",
   noShared:
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
-  choose: (slugs: string[]) =>
-    `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
-  notShared: (slugs: string[]) =>
-    "That isn't a workspace everyone in this chat shares." +
-    (slugs.length > 0 ? ` You all share ${slugs.map((slug) => `@${slug}`).join(", ")}. Say "Tex use @${slugs[0]}" to pick one.` : ""),
-  bound: (slug: string, intro = false) =>
-    `Got it, I'll use @${slug} in this chat.` +
-    (intro
-      ? ` Start a message with "Tex" when you need me. I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. ` +
-        `"Tex, stop" mutes me and "Tex, start" brings me back.`
-      : ""),
-  status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
-  notAllowed: (slug: string) => `Only an owner or editor of @${slug} can bring it into this chat. One of them can say "Tex use @${slug}".`,
+  status: (reach: string[]) =>
+    reach.length === 0
+      ? "In this chat I can see only its own home, because not everyone here shares a workspace with me."
+      : `In this chat I can see ${reach.map((slug) => `@${slug}`).join(", ")}, and only what everyone there can open. Name one when you ask: "in @${reach[0]}".`,
+  notAllowed: (slug: string) => `Only an owner of @${slug} can add this chat's people to it. They can say "Tex add everyone here to @${slug}".`,
   // Invited family (`docs/decisions/texting-assistant/invited-family.md`): an owner adds everyone here by number.
   invited: (slug: string, count: number, role: string) =>
     count === 0

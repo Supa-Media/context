@@ -19,38 +19,36 @@ import { ensureGroupClient } from "./lib/textGroupClient";
 import { ensureChatHome } from "./lib/textGroupHome";
 import { sponsorOf } from "./lib/textGroupUsage";
 import { handleOf, linkedUser } from "./lib/textGroupAccounts";
+import { chatWorkspace, reachOf } from "./lib/textGroupReach";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
 
 /**
- * Tex in an iMessage group chat: who is in it, and which one workspace it may use.
+ * Tex in an iMessage group chat: who is in it, and what it reaches.
  *
- * Decided by the owner on 2026-10-20 (`docs/decisions/texting-assistant/groups.md`):
+ * Decided by the owner on 2026-10-20 and changed on 2026-10-31 (`docs/decisions/texting-assistant/groups.md`):
  *
- * - **Everyone counts, or nobody does.** Every participant but the line the
- *   message arrived on must be a phone linked by code (`phoneLinks`), with
- *   texting not paused. One number that isn't, and the chat reaches no notes.
- * - **One shared workspace per chat.** It must be a shared workspace every one
- *   of them is a live member of. When they share one, it is used; when they
- *   share several, the chat picks one ("Tex, use @slug") and the choice stays
- *   until the chat changes it or it stops being shared by everyone.
- * - **The grant reads at team tier and names nobody.** No `context:private`,
- *   no granted names, nothing but its own workspace (`liveGrants.ts`), and it
- *   resolves only while every co-viewer is still a member. So a note any one
- *   of them couldn't open is not reachable, whoever tagged Tex.
- * - The person who tagged Tex is the acting identity: their role decides
- *   writes, their personal workspace is metered, and the audit names them.
- * - **Homes, not guest mode** (the owner, 2026-10-31; `lib/textGroupHomeOnly.ts`): a chat whose people don't all share a
- *   workspace is answered from its home in the pinned workspace, on a grant that reads only that home, and a guest who
- *   tags Tex is answered the same way. Guest mode (2026-10-25) is retired.
+ * - **Everyone counts, or nobody does.** Every participant but the line the message arrived on must be a phone linked
+ *   by code (`phoneLinks`), with texting not paused, for the chat to reach any workspace. One number that isn't, and
+ *   the chat is answered from its home alone.
+ * - **No chat is bound to a workspace** ("Tex, use @slug" and the choose-a-workspace prompt are gone). Its reach is
+ *   every shared workspace all its account holders are live members of, worked out each turn and re-read on every
+ *   request (`lib/textGroupReach.ts`): the grant is minted on the pinned workspace for the chat's sponsor, carries
+ *   `texGroup.reach`, and a tool call names one workspace by `context: "@slug"`. Never a personal workspace, never the
+ *   pin, and at the lowest role among the chat's people.
+ * - **The grant reads at team tier and names nobody.** No `context:private`, no granted names in reach, and a note any
+ *   one of them couldn't open is not reachable, whoever tagged Tex.
+ * - The person who tagged Tex is the acting identity for their own accounts; every turn is metered to the sponsor.
+ * - **Homes, not guest mode** (the owner, 2026-10-31; `lib/textGroupHomeOnly.ts`): a guest who tags Tex is answered
+ *   from the chat's home in the pinned workspace. Guest mode (2026-10-25) is retired.
  * - **Invited family** (the owner, 2026-10-27; `lib/textGroupInvited.ts`):
  *   "Tex, add everyone here to @slug" from an owner of a shared workspace
  *   invites each person in the chat by number, and a pending phone invitation
- *   counts as membership in the chat, so it works on the whole workspace.
+ *   counts as membership in the chat, so it works on the whole workspace. This is the one thing that still names a
+ *   workspace for a chat (`textGroups.workspaceId`, deprecated otherwise).
  *
  * The participant list is never stored: it arrives with each message (the
  * Worker sends the union of the webhook's list and Sendblue's own), and is
  * resolved again each time. The chat is named by a hash of its line and id.
- * A guest chat writes who is in it only as accounts: group rows and folder
- * grantees (`lib/textGroupGuestSync.ts`), never a phone number.
  */
 
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -59,8 +57,6 @@ export const TEXTS_GROUP_CLIENT_NAME = "Tex (group chats)";
 export const TEXTS_GROUP_GRANT_TTL_MS = 15 * 60 * 1000;
 /** Most people a chat may have for Tex to answer in it. Sendblue's groups take 25. */
 export const MAX_GROUP_PARTICIPANTS = 32;
-/** Most workspaces read per person when intersecting; nobody is in this many. */
-const MEMBERSHIP_SCAN = 200;
 /** The longest workspace slug a command may name. */
 const MAX_SLUG = 64;
 
@@ -78,7 +74,6 @@ function engagementOf(chat: Doc<"textGroups">): { engagement?: Engagement; engag
 const commandValidator = v.union(
   v.object({ kind: v.literal("stop") }),
   v.object({ kind: v.literal("start") }),
-  v.object({ kind: v.literal("use"), slug: v.string() }),
   v.object({ kind: v.literal("invite"), slug: v.string(), role: v.optional(v.union(v.literal("editor"), v.literal("member"))) }),
   v.object({ kind: v.literal("share_mail"), address: v.string(), query: v.optional(v.string()) }),
   v.object({ kind: v.literal("unshare_mail"), address: v.optional(v.string()) }),
@@ -91,10 +86,7 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("started") }),
   v.object({ status: v.literal("unknown_sender"), tell: v.boolean() }),
   v.object({ status: v.literal("no_shared") }),
-  /** `slugs`: the workspaces everyone here does share, so the answer can name them (2026-10-21). */
-  v.object({ status: v.literal("not_shared"), slugs: v.array(v.string()) }),
-  v.object({ status: v.literal("choose"), slugs: v.array(v.string()) }),
-  /** "Tex, use @slug" from someone who isn't an owner or editor there, or a name no workspace has: one answer. */
+  /** "Tex, add everyone here to @slug" from someone who isn't an owner there, or a name no workspace has: one answer. */
   v.object({ status: v.literal("not_allowed"), slug: v.string() }),
   /** "Tex, add everyone here to @slug": how many people here were invited, as what (`lib/textGroupInvited.ts`). */
   v.object({ status: v.literal("invited"), slug: v.string(), count: v.number(), role: v.string() }),
@@ -106,11 +98,14 @@ export const groupAnswerValidator = v.union(
     status: v.literal("ready"),
     slug: v.string(),
     intro: v.boolean(),
+    /** Deprecated: always false. A chat is no longer bound to a workspace (2026-10-31). */
     bound: v.boolean(),
+    /** The slugs of the shared workspaces the chat reaches this turn, by name: none when anyone here has no account. */
+    reach: v.optional(v.array(v.string())),
     timeZone: v.string(),
     /** The tagger's handle (their personal workspace's slug), so the answer can say who asked; "" when none. */
     handle: v.string(),
-    /** False when only the binding was asked for ("Tex, use @slug"): no token was minted. */
+    /** False when only a command was asked: no token was minted. */
     minted: v.boolean(),
     /** Each person in the chat's handle, so what they said before the tag is filed by name, never by number. */
     names: v.array(v.object({ phone: v.string(), handle: v.string() })),
@@ -132,19 +127,18 @@ export const groupAnswerValidator = v.union(
 
 export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
-  | { status: "not_shared"; slugs: string[] }
   | { status: "not_allowed"; slug: string }
   | { status: "invited"; slug: string; count: number; role: string }
   | { status: "mail_shared"; address: string; narrowed: boolean }
   | { status: "mail_unshared"; count: number }
   | { status: "mail_refused" }
   | { status: "unknown_sender"; tell: boolean }
-  | { status: "choose"; slugs: string[] }
   | {
       status: "ready";
       slug: string;
       intro: boolean;
       bound: boolean;
+      reach?: string[];
       timeZone: string;
       handle: string;
       minted: boolean;
@@ -230,27 +224,23 @@ export const applyGroupTurn = internalMutation({
       return { status: "invited", slug: added.workspace.slug, count: added.count, role };
     }
 
-    // A chat whose people are all members or invited there works on the whole workspace (`textGroupInvited.ts`).
-    const usingSlug = args.command?.kind === "use" ? cleanSlug(args.command.slug) : null;
-    const counted = usingSlug !== null ? await workspaceBySlug(ctx, usingSlug) : group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
+    // A chat an owner added everyone to ("Tex, add everyone here to @slug", `textGroupInvited.ts`) whose people are all
+    // members or invited there works on that whole workspace. Every other chat is answered by its reach, below.
+    const counted = group.workspaceId !== undefined ? await ctx.db.get(group.workspaceId) : null;
     const invited = counted === null ? null : await invitedChat(ctx, counted, others, now);
     // A guest chat (retired, E2) answers from its home, as any chat with people who aren't all here shares a workspace.
-    if (args.command?.kind !== "use" && group.guestGroupId !== undefined) {
-      const answer = invited === null || invited.invited.size === 0 ? null : await invitedTurn(ctx, args, group, invited, false);
+    if (group.guestGroupId !== undefined) {
+      const answer = invited === null || invited.invited.size === 0 ? null : await invitedTurn(ctx, args, group, invited);
       if (invited === null || (answer === null && invited.invited.size > 0)) return (await homeAnswer(ctx, args, group, senderUser, others)) ?? { status: "no_shared" };
       await clearGuests(ctx, group);
       if (answer !== null) return answer;
     }
     if (invited !== null && invited.invited.size > 0) {
       const fresh = (await ctx.db.get(group._id)) ?? group;
-      const answer = await invitedTurn(ctx, args, fresh, invited, usingSlug !== null);
+      const answer = await invitedTurn(ctx, args, fresh, invited);
       if (answer !== null) return answer;
     }
 
-    // Somebody with no account can't open a workspace to anyone; in a guest chat they are told so plainly.
-    if (senderUser === null && args.command?.kind === "use" && group.guestGroupId !== undefined) {
-      return { status: "not_allowed", slug: cleanSlug(args.command.slug) };
-    }
     // A guest who tags Tex, with no account, is answered from the chat's home (E1, `lib/textGroupHomeOnly.ts`): the
     // chat's sponsor pays and the grant reads only the home. A routine or a command is never a guest's to ask.
     if (senderUser === null && args.command === undefined && args.routine !== true) {
@@ -266,69 +256,14 @@ export const applyGroupTurn = internalMutation({
       return { status: "unknown_sender", tell };
     }
 
-    const users: Id<"users">[] = [];
-    const phones = new Map<Id<"users">, string>();
-    let everyone = true;
-    for (const phone of others) {
-      const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
-      if (userId === null) {
-        everyone = false;
-        break;
-      }
-      phones.set(userId, phone);
-      if (!users.includes(userId)) users.push(userId);
-    }
-    const shared = everyone ? await sharedWorkspaces(ctx, users) : [];
-
-    let bound = false;
-    let workspace = shared.find((entry) => entry._id === group.workspaceId) ?? null;
-    if (args.command?.kind === "use") {
-      const slug = cleanSlug(args.command.slug);
-      const chosen = shared.find((entry) => entry.slug === slug) ?? null;
-      if (chosen === null) {
-        // Guest mode is retired (E1, 2026-10-31): a workspace not everyone here shares is not opened to the chat, by
-        // anyone. Every person here is a member of each of these, so naming them tells nobody anything new.
-        return { status: "not_shared", slugs: shared.map((entry) => entry.slug).sort() };
-      }
-      // A workspace everyone shares: an ordinary chat again, at its team tier.
-      bound = chosen._id !== group.workspaceId || group.guestGroupId !== undefined;
-      await clearGuests(ctx, group);
-      workspace = chosen;
-    } else if (!everyone || shared.length === 0) {
-      // Not everyone here shares a workspace: the chat answers from its home alone (E1). A routine is nobody talking.
-      if (args.routine === true) return { status: "no_shared" };
-      return (await homeAnswer(ctx, args, group, senderUser, others)) ?? { status: "no_shared" };
-    } else if (workspace === null) {
-      if (shared.length > 1) return { status: "choose", slugs: shared.map((entry) => entry.slug).sort() };
-      workspace = shared[0];
-      bound = true;
-    }
-    if (bound) await ctx.db.patch(group._id, { workspaceId: workspace._id, boundBy: senderUser });
-
-    const intro = group.introducedAt === undefined;
-    const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, senderUser));
-    const minted = args.mint && args.command === undefined;
-    if (minted) {
-      const ok = await mintGroupGrant(ctx, {
-        group,
-        workspaceId: workspace._id,
-        tagger: senderUser,
-        coViewerIds: users.filter((userId) => userId !== senderUser),
-        people: users,
-        hashedAccessToken: args.hashedAccessToken,
-        hashedRefreshToken: args.hashedRefreshToken,
-        expiresAt: args.expiresAt,
-        participants: others.length,
-      });
-      if (!ok) return { status: "no_shared" };
-    }
-    // Choosing the workspace is the chat's first word from Tex, so the line that answers it carries the introduction.
-    const introduced = intro && (minted || args.command?.kind === "use");
-    if (introduced) await ctx.db.patch(group._id, { introducedAt: now });
-    const names: { phone: string; handle: string }[] = [];
-    for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
-    const handle = await handleOf(ctx, senderUser);
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)) };
+    // Everyone else is answered from the chat's home, on a grant that also reaches the shared workspaces all its account
+    // holders share (`lib/textGroupReach.ts`): none when anyone here has no account. A routine is nobody talking, and
+    // runs only where there is a workspace to run in.
+    const answer = await homeAnswer(ctx, args, group, senderUser, others);
+    // A deployment with no pinned workspace has no home to answer from: its chat works on the one workspace in its reach.
+    if (answer === null) return (await pinnedContextWorkspace(ctx)) === null ? await singleWorkspaceTurn(ctx, args, group, senderUser, others) : { status: "no_shared" };
+    if (args.routine === true && answer.status === "ready" && (answer.reach ?? []).length === 0) return { status: "no_shared" };
+    return answer;
   },
 });
 
@@ -359,28 +294,76 @@ async function homeAnswer(
   return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
+/**
+ * A deployment with no pinned workspace has no home to put a chat's grant on, so the chat is answered as it was before
+ * reach: on the one workspace in its reach (`chatWorkspace`'s rule: the one it was last bound to if still in reach,
+ * else the first by name), at team tier, for the tagger. Self-hosting needs this (`CLAUDE.md`: a working context without
+ * us), and it widens nothing: the grant reads that one workspace while every person is a member of it
+ * (`lib/controlPlane/liveGrants.ts` `groupStillShares`). Nothing is asked of the chat: there is no "use @slug".
+ */
+async function singleWorkspaceTurn(
+  ctx: MutationCtx,
+  args: TurnArgs,
+  group: Doc<"textGroups">,
+  senderUser: Id<"users">,
+  others: string[],
+): Promise<GroupAnswer> {
+  const users: Id<"users">[] = [];
+  const phones = new Map<Id<"users">, string>();
+  for (const phone of others) {
+    const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
+    if (userId === null) return { status: "no_shared" };
+    phones.set(userId, phone);
+    if (!users.includes(userId)) users.push(userId);
+  }
+  const reach = await reachOf(ctx, group, users);
+  const workspace = (reach.find((row) => row.workspace._id === group.workspaceId) ?? reach[0])?.workspace;
+  if (workspace === undefined) return { status: "no_shared" };
+  if (group.workspaceId !== workspace._id) await ctx.db.patch(group._id, { workspaceId: workspace._id, boundBy: senderUser });
+  const intro = group.introducedAt === undefined;
+  const minted = args.mint && args.command === undefined;
+  if (minted) {
+    const ok = await mintGroupGrant(ctx, {
+      group,
+      workspaceId: workspace._id,
+      tagger: senderUser,
+      coViewerIds: users.filter((userId) => userId !== senderUser),
+      people: users,
+      hashedAccessToken: args.hashedAccessToken,
+      hashedRefreshToken: args.hashedRefreshToken,
+      expiresAt: args.expiresAt,
+      participants: others.length,
+    });
+    if (!ok) return { status: "no_shared" };
+  }
+  const introduced = intro && minted;
+  if (introduced) await ctx.db.patch(group._id, { introducedAt: Date.now() });
+  const names: { phone: string; handle: string }[] = [];
+  for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
+  const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, senderUser));
+  const handle = await handleOf(ctx, senderUser);
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)) };
+}
+
 /** A slug as a command said it: no "@", lowercase, bounded. */
 function cleanSlug(said: string): string {
   return said.trim().replace(/^@/, "").toLowerCase().slice(0, MAX_SLUG);
 }
 
 /**
- * One tag in a chat whose people are members of the workspace or invited there by number (`lib/textGroupInvited.ts`),
- * or the "use" that names it. The grant reads at team tier, as any chat's does. It is the tagger's own when they are a
+ * One tag in a chat whose people are members of the workspace or invited there by number (`lib/textGroupInvited.ts`). The grant reads at team tier, as any chat's does. It is the tagger's own when they are a
  * member, and otherwise the binder's, an owner or editor in the chat, clamped to the invitation's role and marked so
- * it acts for nobody's own account. Null when it can't answer this way and the chat goes on as before: an invited
- * person saying "use", or nobody here who may stand behind an invited person's tag.
+ * it acts for nobody's own account. Null when it can't answer this way and the chat goes on as before: nobody here
+ * who may stand behind an invited person's tag.
  */
 async function invitedTurn(
   ctx: MutationCtx,
   args: TurnArgs,
   chat: Doc<"textGroups">,
   invited: InvitedChat,
-  using: boolean,
 ): Promise<GroupAnswer | null> {
   const workspace = invited.workspace;
   const taggerUser = invited.members.get(args.sender) ?? null;
-  if (using && taggerUser === null) return null;
   let actor = taggerUser;
   const taggerInvitation = invited.invited.get(args.sender);
   if (actor === null) {
@@ -388,11 +371,6 @@ async function invitedTurn(
     const inChat = binder !== undefined && [...invited.members.values()].includes(binder);
     if (!inChat || !(await mayOpenToGuests(ctx, workspace._id, binder)) || (await phoneSignInPaused(ctx, binder))) return null;
     actor = binder;
-  }
-  const bound = using && (chat.workspaceId !== workspace._id || chat.guestGroupId !== undefined);
-  if (using) {
-    await clearGuests(ctx, chat);
-    await ctx.db.patch(chat._id, { workspaceId: workspace._id, boundBy: actor });
   }
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -413,7 +391,7 @@ async function invitedTurn(
     });
     if (!ok) return null;
   }
-  const introduced = chat.introducedAt === undefined && (minted || using);
+  const introduced = chat.introducedAt === undefined && minted;
   if (introduced) await ctx.db.patch(chat._id, { introducedAt: Date.now() });
   const names: { phone: string; handle: string }[] = [];
   for (const [phone, userId] of invited.members) names.push({ phone, handle: await handleOf(ctx, userId) });
@@ -423,7 +401,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)) };
 }
 
 async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: boolean): Promise<Doc<"textGroups">> {
@@ -438,31 +416,6 @@ async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: 
   }
   const id = await ctx.db.insert("textGroups", { groupKey, lastSeenAt: now });
   return (await ctx.db.get(id))!;
-}
-
-/** The shared workspaces every one of `users` is a live member of, oldest slug first. */
-export async function sharedWorkspaces(
-  ctx: MutationCtx,
-  users: Id<"users">[],
-): Promise<Doc<"workspaces">[]> {
-  if (users.length === 0) return [];
-  let common: Id<"workspaces">[] | undefined;
-  for (const userId of users) {
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(MEMBERSHIP_SCAN);
-    const mine = memberships.map((membership) => membership.workspaceId);
-    common = common === undefined ? mine : common.filter((id) => mine.includes(id));
-    if (common.length === 0) return [];
-  }
-  const found: Doc<"workspaces">[] = [];
-  for (const id of common ?? []) {
-    const workspace = await ctx.db.get(id);
-    // A personal workspace never counts: it carries its owner's mail, calendar and vault.
-    if (workspace !== null && workspace.kind === "shared") found.push(workspace);
-  }
-  return found.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
 }
 
 async function mintGroupGrant(
@@ -569,7 +522,7 @@ export const setGroupEngagement = internalMutation({
   },
 });
 
-/** The workspace a decision is metered against: a group's bound workspace, or null when it has none yet. */
+/** The workspace a decision is metered against: a group's one workspace in reach (`chatWorkspace`), or null when it has none. */
 export const groupDecideWorkspace = internalQuery({
   args: { groupKey: v.string() },
   returns: v.union(v.id("workspaces"), v.null()),
@@ -578,6 +531,6 @@ export const groupDecideWorkspace = internalQuery({
       .query("textGroups")
       .withIndex("by_key", (q) => q.eq("groupKey", args.groupKey))
       .unique();
-    return chat?.workspaceId ?? null;
+    return chat === null ? null : ((await chatWorkspace(ctx, chat))?._id ?? null);
   },
 });
