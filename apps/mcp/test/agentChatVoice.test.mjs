@@ -103,3 +103,12 @@ test("every group turn reads the chat's voice note, beside its memory note", asy
   assert.equal(group.voice, "- dry humor\n- lowercase");
 });
 
+test("the voice note is one per chat: somebody added to the chat reads the same one (the owner, 2026-10-31)", async () => {
+  const voicePath = async (members) => {
+    const group = { ...GROUP, members };
+    await readGroupMemory({ get: async () => null }, group, async () => ({ isError: true, content: [{ text: "not found" }] }));
+    return group.voicePath;
+  };
+  assert.equal(await voicePath("b".repeat(64)), await voicePath("c".repeat(64)));
+});
+

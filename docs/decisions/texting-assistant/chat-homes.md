@@ -106,10 +106,9 @@ spellings, `list_changes`). Both carry a sabotage record.
   `session.js` `sessionForChatHome`), which exists only for the group client's
   setup row, a folder under `tex/groups/`, the chat marker and a grant that
   may write. `agent/chatHome.js` hands the group turn a dispatcher on it, and
-  the chat's memory note (`chat-<id>.md`, named by the people in the chat as
-  before, so somebody added is never replayed what came before them) is read
-  and written there instead of in the bound workspace. A model's tool call
-  never reaches the home.
+  the chat's memory note (`chat-<id>.md`, named by the chat's key alone, see
+  "One memory per chat" below) is read and written there instead of in the
+  bound workspace. A model's tool call never reaches the home.
 - A chat bound to `@context-lc` itself gets no door (its setup is read where
   it is bound), and keeps its memory in the plumbing copy alone.
 
@@ -132,6 +131,60 @@ them that work today:
   let it change the home and only read what every account reads. Every other
   name is routed as it was.
 
+## One memory per chat, shared with whoever is added (2026-10-31)
+
+The owner decided on 2026-10-31 that a chat keeps ONE memory, and somebody
+added later shares it. This reverses the 2026-10-23 rule that filed the
+memory by the exact set of people in the chat, so a newcomer started a new
+note and was never replayed what came before.
+
+- **Named by the chat's key alone.** The memory note is `chat-<id>.md` and
+  the voice note `voice-<id>.md`, where `<id>` is the first twelve hex digits
+  of the SHA-256 of the chat's key (`groupMemoryNote.js` `groupNotePath`,
+  `chatVoice.js` `groupVoicePath`). The record kept in the bound workspace is
+  named the same way (`groupMemoryPath`); in a chat's Durable Object the
+  record was already one per chat. The chat's members are no longer in any
+  memory name. They are still used where they were before: the browser the
+  chat signs in with (`browserJar.js`, `browserProfile.js`), and the people
+  Tex is told are in the chat (`group.people`).
+- **A chat with a home** keeps both notes in the home. Once the home holds
+  them, the bound workspace is never written again. On the first turn after
+  the change, a note the chat kept under the people's name is carried over
+  (`agent/chatNoteMove.js`): its words are copied under the chat's name, read
+  back and compared, and only a read-back that matches goes on. Only then is
+  the old note retracted, with `archive_note` at the etag it was copied from.
+  An old note changed meanwhile is refused, and copied again within the same
+  turn. A move that cannot finish leaves the old note where it is, and the
+  next turn tries again.
+- **A chat without a home** keeps its notes in its bound workspace (or its
+  guest folder), under the same key-named names. Its old people-named note is
+  carried over the same way, and retracted in that workspace, except in a
+  guest chat: its folder is the chat's guests' alone and an archive is
+  team-visible, so that copy is left where it is.
+- **A people-named note inside a home is never retracted.** The gateway's only
+  retraction, `archive_note`, moves a note to the workspace's archive root,
+  outside the home's seal. So a home's old copy, if one was made under the
+  people's name, stays sealed and unread. The dispatcher has no delete, so
+  nothing takes it out.
+- **Newcomers read what the chat kept.** The note and the record are read by
+  the chat's name, so whoever is added next gets the same memory and voice
+  note as everyone else in the chat.
+
+What a simplification would cost: naming the memory by the people again
+starts a new memory for every newcomer, and what the chat kept is hidden from
+them (fails "a newcomer reads the chat's earlier memory from its home").
+Retracting the old note before its copy is read back loses the memory if the
+copy does not arrive (fails "a read-back that differs keeps the old note").
+Retracting a home's note with `archive_note` would move it out of the seal.
+
+Tests: `apps/mcp/test/chatHome.test.mjs` (the carry-over copies, then
+retracts; a read-back that differs keeps the old note; an old note changed
+meanwhile is copied again; no carry-over with no home is still key-named; a
+newcomer reads the home's memory; once the home holds it the bound workspace
+gets no write), `apps/mcp/test/agentGroupTurn.test.mjs` ("the chat remembers as
+one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
+`apps/mcp/test/chatMemoryRecord.test.mjs`.
+
 ## Still to build
 
 Routines, dreams and a heartbeat for a chat need their jobs moved too: a
@@ -140,5 +193,5 @@ with `chat:` in their front matter, its check-in is a timer on the chat's
 row, and chats have no dreams yet. Empty folders for them are not made until
 something runs from them. The workspace's playbook stays the workspace's.
 Then: the chat reads every workspace everyone in it shares instead of one
-bound workspace, and the chats that exist move in (old notes archived, never
-deleted).
+bound workspace. The chats that exist move in as above, and the one copy a
+home cannot retract is left sealed until a delete exists for homes.

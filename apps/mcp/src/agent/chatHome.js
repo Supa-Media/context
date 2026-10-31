@@ -10,9 +10,11 @@
  * and only through the calls made here: a model's tool call never names it.
  *
  * The memory itself is the note it always was (`groupMemoryNote.js`),
- * `chat-<id>.md`, named by the people in the chat as before, now in the
- * home. The plumbing copy stays in the bound workspace (`groupTurn.js`), so a
- * chat moving in keeps its history.
+ * `chat-<id>.md`, now named by the chat's key alone, so one memory per chat
+ * is shared with whoever is added (the owner, 2026-10-31), and now in the
+ * home. A note the chat kept under the people's name is carried in once
+ * (`chatNoteMove.js`). The plumbing copy keeps its place (`groupTurn.js`), so
+ * a chat moving in keeps its history.
  *
  * Beside it, the chat's own notes, which the turn's model keeps as a person's
  * Tex keeps theirs: `about-us.md` (who these people are and what they are
