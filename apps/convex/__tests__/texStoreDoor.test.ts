@@ -6,7 +6,10 @@
  *
  * Sabotage, each confirmed to fail a case here: let `mint` accept another
  * workspace's owner, stop `open` refusing an expired ticket, or let the door
- * skip the ticket's owners.
+ * skip the ticket's owners. Let `mint` take a `chat:` owner on its shape alone
+ * and "a chat owner is this workspace's own chat" fails: the door trusts the
+ * ticket's owners entirely, so this mutation is where a chat is tied to its
+ * workspace.
  */
 
 import { createRequire } from "node:module";
@@ -19,7 +22,7 @@ import { serveTexStore } from "../../mcp/src/texStore/wire.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { hashToken } from "../functions/lib/crypto";
 import { consoleTexStore } from "../functions/lib/texStore";
-import { TEX_STORE_TICKET_TTL_MS } from "../functions/texStoreTickets";
+import { MAX_TICKET_OWNERS, TEX_STORE_TICKET_TTL_MS } from "../functions/texStoreTickets";
 import { TEST_GATEWAY_SECRET, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -92,6 +95,33 @@ describe("tickets for Tex's notes", () => {
     });
     expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("b"), now: 1_000 + TEX_STORE_TICKET_TTL_MS })).toBeNull();
     expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("never"), now: 2_000 })).toBeNull();
+  });
+
+  test("a chat owner is this workspace's own chat, not any id of that shape", async () => {
+    const { t, workspaceId, otherId } = await world();
+    const mine = await t.run(async (ctx) => await ctx.db.insert("textGroups", { groupKey: "a".repeat(64), workspaceId, lastSeenAt: 1 }));
+    const theirs = await t.run(async (ctx) => await ctx.db.insert("textGroups", { groupKey: "b".repeat(64), workspaceId: otherId, lastSeenAt: 1 }));
+    // The door checks the ticket's owners and nothing else, so a chat named here is reached.
+    await expect(
+      t.mutation(internal.functions.texStoreTickets.mint, { hashedTicket: await hashToken("theirs"), workspaceId, owners: [`chat:${theirs}`], now: 1 }),
+    ).rejects.toThrow();
+    await expect(
+      t.mutation(internal.functions.texStoreTickets.mint, { hashedTicket: await hashToken("nobody"), workspaceId, owners: ["chat:not-a-chat-id"], now: 1 }),
+    ).rejects.toThrow();
+    // Each owner is a read, so the list is capped as well as closed.
+    await expect(
+      t.mutation(internal.functions.texStoreTickets.mint, {
+        hashedTicket: await hashToken("many"),
+        workspaceId,
+        owners: Array.from({ length: MAX_TICKET_OWNERS + 1 }, () => `person:${workspaceId}`),
+        now: 1,
+      }),
+    ).rejects.toThrow();
+    await t.mutation(internal.functions.texStoreTickets.mint, { hashedTicket: await hashToken("mine"), workspaceId, owners: [`chat:${mine}`], now: 1 });
+    expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("mine"), now: 2 })).toEqual({
+      workspaceId,
+      owners: [`chat:${mine}`],
+    });
   });
 });
 

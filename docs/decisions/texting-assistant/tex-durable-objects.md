@@ -40,6 +40,11 @@ does: the gateway secret plus a ticket this deployment minted for one
 workspace's own objects, five minutes long (`texStoreTickets`). The secret
 alone opens nothing.
 
+The door checks the ticket's owners and nothing else, so the mint is where an
+owner is tied to its workspace: `person:` has to be the ticket's own
+workspace, and a `chat:` owner has to name a chat bound to it, by its row and
+not by the shape of the id. A chat bound to nobody is nobody's to name.
+
 Notes Tex writes *for* the person (a packing list, a meeting's notes) are
 ordinary notes in their bucket. Tex reads and writes the bucket as it always
 did.
