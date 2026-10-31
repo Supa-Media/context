@@ -146,6 +146,7 @@ jobs:
           - 'apps/mcp/src/privacy/**'
           - 'apps/mcp/src/search/**'
           - 'apps/mcp/src/session.js'
+          - 'apps/mcp/src/sessionPayload.js'
           - 'apps/mcp/src/sessionStore.js'
           - 'apps/mcp/src/storageLayout.js'
           - 'apps/mcp/src/store/**'
@@ -735,6 +736,7 @@ jobs:
             apps/mcp/src/privacy/**
             apps/mcp/src/search/**
             apps/mcp/src/session.js
+            apps/mcp/src/sessionPayload.js
             apps/mcp/src/sessionStore.js
             apps/mcp/src/storageLayout.js
             apps/mcp/src/store/**
