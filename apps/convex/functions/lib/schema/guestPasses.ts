@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 /**
  * Opening a note by phone, for the people in a Tex guest chat who have no account (`functions/guestPass.ts`,
- * decided by the owner, 2026-10-27; `docs/decisions/texting-assistant/guest-phone-pass.md`).
+ * decided by the owner, 2026-10-27, and changed 2026-10-31 so a code makes an account; `docs/decisions/texting-assistant/guest-phone-pass.md`).
  *
  * Neither table holds a phone number. A number is kept only as a keyed hash (`lib/guestPhones.ts`), and the key
  * lives in the deployment's environment, so the hashes can't be walked back to numbers from these rows alone.
@@ -22,8 +22,9 @@ export const guestPassTables = {
     .index("by_phone_hash", ["phoneHash"])
     .index("by_chat", ["chatId"]),
   /**
-   * A browser that proved a number with a texted code. The pass itself stays on that browser; only its hash is
-   * here. It names a number, not a chat: what it opens is worked out again on every read.
+   * A browser that proved a number with a texted code, before a code made an account (2026-10-31). No new pass is
+   * made: the pass itself stays on that browser, only its hash is here, and the rows expire a year from their last
+   * use. It names a number, not a chat: what it opens is worked out again on every read.
    */
   guestPasses: defineTable({
     tokenHash: v.string(),

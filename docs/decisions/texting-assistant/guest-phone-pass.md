@@ -1,4 +1,4 @@
-# A guest in a group chat opens a shared note with a texted code (2026-10-27)
+# A guest in a group chat opens a shared note with a texted code, and the code makes an account (2026-10-27, 2026-10-31)
 
 Guest mode ([group-guests](./group-guests.md)) lets people with no account
 use Tex in a group chat, and Tex answers with the link to each note it reads
@@ -48,35 +48,62 @@ saw the four-screen mock, and chose every default below on 2026-10-27
   chat names its account holders on the chat's folder) reads it in @shared,
   someone invited there goes to the console's invitation, and anyone else is
   told the note isn't open to them, one answer whether it exists or not.
-- **A pass, not an account.** The code gives the browser a random pass, kept
-  in its storage and on the server only as a hash (`guestPasses`). It lasts a
-  year from its last use, and "Sign out" forgets it. No user row, no
-  workspace, no waitlist.
-- **Reach is worked out again on every read.** The pass names a number. Each
+- **An account, not a pass (decided by the owner, 2026-10-31).** A code that
+  checks out for a number in a live guest chat, which no account holds or
+  carries, makes a light account. It is made by `newPhoneAccount`, the same
+  account phone sign-in makes for a number staff let in, with the phone
+  confirmed by the code. The account is then named on each chat's folder to
+  edit, as an outsider is (`nameOutsider`, `lib/textGroupGuestSync.ts`). It is
+  not made a member of the chat's group: a group row reaches nothing for
+  someone who isn't a member (`resolveGroupMembers`), and making them a member
+  is an invitation, which is the owner's. The page then signs in through
+  `phone-verify` with a ten-digit code the check handed it
+  (`mintPhoneSignInCode`), one use and five minutes, exactly as a number an
+  account holds signs in. The account is an ordinary user: what it reads and
+  edits, and what the audit names, are the normal paths'. It gets no
+  workspace, no membership and no waitlist place. Membership in the chat and
+  access to its notes are decided by a later PR; until then the folder naming
+  keeps the reach a guest pass had. The folder's grant comes from
+  `ensureChatFolderGrant` on the chat's first turn, so until that a new
+  account is named on the folder with the next tag.
+- **Passes made before accounts keep working.** A pass issued on 2026-10-27
+  is kept in its storage and on the server only as a hash (`guestPasses`),
+  lasts a year from its last use, and "Sign out" forgets it. No new one is
+  made.
+- **Reach of a legacy pass is worked out again on every read.** The pass names a number. Each
   read finds the guest chats that number is in now, in the workspace the
   link names, and reads with the names of the rows granted to those chats'
   groups and the rows rendered for a guest (`guestReach`): exactly what Tex
   reads for the chat. Leaving the chat, guest mode off, or the owner taking
   the note back from the group ends it at the next read.
-- **Read only.** Edits still go through Tex in the chat. The read goes
-  through the share path with `openToAnyone`, so a sealed note and the
-  note's comments never reach the page. Every refusal is one answer.
-- **Artifact pages later use the same pass.** Anything a Tex page shows a
-  guest is judged by `guestReach` for the number its pass names.
+- **Legacy passes are read only.** Edits still go through Tex in the chat.
+  The read goes through the share path with `openToAnyone`, so a sealed note
+  and the note's comments never reach the page. Every refusal is one answer.
+  A new account reads through its own sign-in and the normal paths.
+- **Artifact pages later use the account.** Anything a Tex page shows a guest
+  is judged by the reach of the number's account, once the later PR that
+  decides membership lands; until then, `guestReach` for the number.
 
 ## Non-negotiables
 
-#5 already allows a guest chat's grantees to be whoever is in the chat. This
-gives each of those people a way to read what the chat reads without Tex in
-between, and nothing more: no listing, no search, no other workspace, no
-`team` tier. #1 holds: no number is kept, and the pass is not a credential to
-anything but these reads.
+#5 already allows a guest chat's grantees to be whoever is in the chat. The
+account a code makes is named on the chat's folder to edit and nothing more:
+no membership, no `team` tier, no other workspace, no listing. #1 holds: no
+number is kept, and the account is a user like any other, whose sign-in and
+export are the ordinary ones. #4 (account safety, `account-safety.md`) holds:
+a code makes an account only for a number no row carries, so a phone alone
+never takes an existing account; an existing holder signs in only through
+`phone-verify`, with its own sign-in code; and the ten-digit code is returned
+only to the browser that has just proved the six-digit one.
 
 **What a simplification would cost:** texting any number that asks makes the
-page an SMS pump and a "who is in this chat" oracle; issuing a pass on any
-approved code lets anyone with a phone read the chat's notes; rendering the
-rows for a member opens every `team` note to a guest; storing a pass's reach
-instead of re-deriving it keeps a guest who left reading; a plain hash of
-the number can be reversed by trying every number.
+page an SMS pump and a "who is in this chat" oracle; making an account on any
+approved code lets anyone with a phone into the workspace's chats; making the
+account a member of the chat's group is an invitation nobody gave; creating an
+account for a number an account already carries hands that account to whoever
+holds the phone; rendering the rows for a member opens every `team` note to a
+guest; storing a legacy pass's reach instead of re-deriving it keeps a guest
+who left reading; a plain hash of the number can be reversed by trying every
+number.
 `apps/convex/__tests__/guestPass.test.ts` fails if any is reversed (sabotage
 record in its header).

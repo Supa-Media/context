@@ -3,28 +3,36 @@
  * `docs/decisions/texting-assistant/guest-phone-pass.md`).
  *
  * The owner, 2026-10-27: a guest with no account who taps a note link from the chat proves their number and sees
- * the note, and stays signed in. What must hold: a code is texted only to a number in a live guest chat, and every
- * other number hears the same answer; a pass reads exactly what the chat's group can see, read as a guest; leaving
- * the chat, guest mode going off and the owner taking a note back each end it at the next read; no number is kept.
+ * the note, and stays signed in. The owner, 2026-10-31: the proven number of a guest chat with no account gets a
+ * light account, signed in through the ordinary `phone-verify` path, and is named on the chat's folder the way an
+ * outsider is. What must hold: a code is texted only to a number in a live guest chat, and every other number hears
+ * the same answer; a wrong code makes no account; a number an account holds signs into that account and no second
+ * one is made; passes issued before accounts still read what the chat's group can see, read as a guest; leaving the
+ * chat, guest mode going off and the owner taking a note back each end a pass at the next read; no number is kept.
  * Reads go through the real credential barrier to a bucket stub, so a note's marker in a result really came back.
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - skip the `guestChatsOf` check in `reserveSend`: "a number not in the chat is texted nothing" fails;
  *  - drop the account branch in `reserveSend`: "is texted a sign-in code from any chat" fails;
  *  - drop its pause check: "paused by \"This wasn't me\"" fails;
- *  - skip it in `issue`: "an approved code for a number not in the chat makes no pass" fails;
+ *  - skip the chat check in `enrol`: "an approved code for a number not in the chat makes no account" fails;
+ *  - drop the holder check in `enrol`: "signs into its own account, and no second account is made" fails;
+ *  - drop the `nameOutsider` call in `enrol`: "is named on the chat's folder" fails;
  *  - render the rows for a member in `guestReach`: "only what the chat's group can see" fails (the team note opens);
- *  - drop `clearChatPhones` from `clearGuests`: "guest mode off ends it" fails on the kept rows;
+ *  - drop `clearChatPhones` from `clearGuests`: "guest mode off ends a legacy pass" fails on the kept rows;
  *  - drop the delete loop in `syncChatPhones`: "someone who left the chat" fails.
  */
 
+import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { setAccessRow } from "../functions/lib/nodes/setAccess";
 import { guestPhoneHash, syncChatPhones } from "../functions/lib/guestPhones";
-import { clearGuests } from "../functions/lib/textGroupGuests";
+import { hashToken } from "../functions/lib/crypto";
+import { clearGuests, ensureChatFolderGrant } from "../functions/lib/textGroupGuests";
+import { drainScheduled, seedTreeRows } from "./fixtures.helpers";
 import { PLAN, PLAN_MARKER, SALARIES, SECRET, TEAM_MARKER, TEAM_NOTE, setBase, world, type World } from "./grants/outsider.helpers";
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -32,6 +40,8 @@ vi.setConfig({ testTimeout: 30_000 });
 const FRIEND = "+15555550188";
 const STRANGER = "+15555550199";
 const GOOD_CODE = "123456";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FOLDER = "tex/chats/chair-blast-tiger";
 
 let texted: string[];
 
@@ -40,6 +50,11 @@ beforeEach(() => {
   vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_test_not_real");
   vi.stubEnv("TWILIO_AUTH_TOKEN", "test-token-not-real");
   vi.stubEnv("TWILIO_VERIFY_SERVICE_SID", "VA_test_not_real");
+  // A session is signed with a key; a throwaway one, made here, as the sign-in tests make theirs.
+  vi.stubEnv("SITE_URL", "https://context.test");
+  vi.stubEnv("CONVEX_SITE_URL", "https://context.test");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  vi.stubEnv("JWT_PRIVATE_KEY", privateKey.export({ type: "pkcs8", format: "pem" }).toString());
 });
 
 afterEach(() => {
@@ -72,7 +87,7 @@ async function guestChat(w: World) {
       workspaceId: w.ws,
       boundBy: w.owner,
       guestGroupId: groupId,
-      guestFolder: "tex/chats/chair-blast-tiger",
+      guestFolder: FOLDER,
       guestToken: "chat-token-test",
       lastSeenAt: 1,
     });
@@ -91,34 +106,97 @@ async function guestChat(w: World) {
   return ids;
 }
 
-async function passFor(w: World, phone: string): Promise<string> {
+/** Start and verify a number in a guest chat: the code it gets back, for `phone-verify`. */
+async function codeFor(w: World, phone: string): Promise<string> {
   expect(await w.t.action(api.functions.guestPass.start, { phone, slug: "@acme" })).toEqual({ status: "sent", phone });
   const verified = await w.t.action(api.functions.guestPass.verify, { phone, code: GOOD_CODE });
   expect(verified.status).toBe("ok");
-  return verified.pass as string;
+  expect("pass" in verified).toBe(false);
+  return verified.code as string;
+}
+
+/** Signs a browser in through the ordinary `phone-verify` provider, as the guest page does. */
+async function signIn(w: World, phone: string, code: string) {
+  const result = await w.t.action(api.auth.signIn, { provider: "phone-verify", params: { phone, code } });
+  await drainScheduled(w.t);
+  return result;
+}
+
+const accountsWith = (w: World, phone: string) =>
+  w.t.run(async (ctx) => await ctx.db.query("users").withIndex("by_phone", (q) => q.eq("phone", phone)).collect());
+
+/** The accounts with a session in this test world (the fixtures sign nobody in). */
+const sessionUserIds = (w: World) => w.t.run(async (ctx) => (await ctx.db.query("authSessions").collect()).map((row) => row.userId));
+
+/** A pass issued before this change (the owner, 2026-10-27): still reads what the chat reads until it expires. */
+async function legacyPass(w: World, phone: string): Promise<string> {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const pass = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const phoneHash = (await guestPhoneHash(phone)) as string;
+  const tokenHash = await hashToken(pass);
+  await w.t.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert("guestPasses", { tokenHash, phoneHash, createdAt: now, lastUsedAt: now, expiresAt: now + 365 * DAY_MS });
+  });
+  return pass;
 }
 
 const read = (w: World, pass: string, path: string) => w.t.action(api.functions.guestPass.readNote, { pass, slug: "acme", path });
 
-describe("a guest in the chat", () => {
-  test("is texted a code, and the code opens the note shared with the chat", async () => {
+describe("a guest in the chat with no account", () => {
+  test("is texted a code, and the code makes a light account and signs the browser in", async () => {
     const w = await world();
     await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const code = await codeFor(w, FRIEND);
     expect(texted).toEqual([FRIEND]);
-    const note = await read(w, pass, PLAN);
-    expect(note.status).toBe("ok");
-    expect(note.status === "ok" ? note.text : "").toContain(PLAN_MARKER);
-    // The same pass opens it again later, with no code: they stay signed in.
-    expect((await read(w, pass, PLAN)).status).toBe("ok");
-    expect(texted).toHaveLength(1);
+    // The approved code made the account; the browser signs in with the code the page is given, not the texted one.
+    expect(await accountsWith(w, FRIEND)).toHaveLength(1);
+    const signedIn = await signIn(w, FRIEND, code);
+    expect(signedIn.tokens).toBeTruthy();
+    const [account] = await accountsWith(w, FRIEND);
+    expect(account).toBeDefined();
+    expect(account!.phoneVerificationTime).toBeDefined();
+    expect(await sessionUserIds(w)).toContain(account!._id);
+    // The code is one use: the same code signs nobody in again.
+    expect((await signIn(w, FRIEND, code)).tokens).toBeNull();
   });
 
-  test("only what the chat's group can see: team, private and unshared notes stay shut, as one answer", async () => {
+  test("the new account makes no guest pass, and the chat's numbers are left as they were", async () => {
+    const w = await world();
+    await guestChat(w);
+    const code = await codeFor(w, FRIEND);
+    await signIn(w, FRIEND, code);
+    const rows = await w.t.run(async (ctx) => ({
+      passes: await ctx.db.query("guestPasses").collect(),
+      phones: await ctx.db.query("chatGuestPhones").collect(),
+    }));
+    expect(rows.passes).toEqual([]);
+    expect(rows.phones.map((row) => row.phoneHash)).toEqual([await guestPhoneHash(FRIEND)]);
+  });
+
+  test("is named on the chat's folder to edit, as an outsider is, once the folder has its grant", async () => {
+    const w = await world();
+    const { chatId } = await guestChat(w);
+    // The chat's first note is written in its folder, then the folder gets the group's grant (`ensureChatFolderGrant`).
+    await seedTreeRows(w.t, w.ws, [`${FOLDER}/flights.md`]);
+    await w.t.run(async (ctx) => {
+      await ensureChatFolderGrant(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">, w.owner);
+    });
+    expect((await w.t.run((ctx) => ctx.db.get(chatId)))?.guestFolderGranted).toBe(true);
+    await signIn(w, FRIEND, await codeFor(w, FRIEND));
+    const [account] = await accountsWith(w, FRIEND);
+    const chat = await w.t.run((ctx) => ctx.db.get(chatId));
+    expect(chat?.guestFolderUsers).toEqual([account!._id]);
+  });
+
+  test("a legacy pass still reads only what the chat's group can see: team, private and unshared notes stay shut", async () => {
     const w = await world();
     await guestChat(w);
     await setBase(w, "1-projects", "team");
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
+    const note = await read(w, pass, PLAN);
+    expect(note.status).toBe("ok");
+    expect(note.status === "ok" ? note.text : "").toContain(PLAN_MARKER);
     for (const path of [TEAM_NOTE, SECRET, SALARIES, "1-projects/missing.md", "../index.md", "1-projects/"]) {
       const answer = await read(w, pass, path);
       expect(answer).toEqual({ status: "unavailable" });
@@ -128,10 +206,10 @@ describe("a guest in the chat", () => {
     expect(await w.t.action(api.functions.guestPass.readNote, { pass, slug: "globex", path: PLAN })).toEqual({ status: "unavailable" });
   });
 
-  test("the owner taking the note back from the group ends it at the next read", async () => {
+  test("the owner taking the note back from the group ends a legacy pass at the next read", async () => {
     const w = await world();
     await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     await w.t.run(async (ctx) => {
       await setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: PLAN, base: "private", grantees: [], actor: { userId: w.owner, role: "owner" } });
     });
@@ -141,17 +219,17 @@ describe("a guest in the chat", () => {
   test("someone who left the chat reads nothing at the next read", async () => {
     const w = await world();
     const { chatId } = await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     await w.t.run(async (ctx) => {
       await syncChatPhones(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">, ["+15555550111"]);
     });
     expect(await read(w, pass, PLAN)).toEqual({ status: "unavailable" });
   });
 
-  test("guest mode off ends it, and the chat's numbers go with it", async () => {
+  test("guest mode off ends a legacy pass, and the chat's numbers go with it", async () => {
     const w = await world();
     const { chatId } = await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     await w.t.run(async (ctx) => {
       await clearGuests(ctx as MutationCtx, (await ctx.db.get(chatId)) as Doc<"textGroups">);
     });
@@ -162,7 +240,7 @@ describe("a guest in the chat", () => {
   test("a chat no longer in guest mode reaches nothing, whatever numbers are left over", async () => {
     const w = await world();
     const { chatId } = await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     await w.t.run(async (ctx) => {
       await ctx.db.patch(chatId, { guestGroupId: undefined });
     });
@@ -172,10 +250,10 @@ describe("a guest in the chat", () => {
   test("signing out, a made-up pass and an expired one all say signed out", async () => {
     const w = await world();
     await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     expect(await read(w, "x".repeat(43), PLAN)).toEqual({ status: "signed_out" });
     expect(await read(w, "short", PLAN)).toEqual({ status: "signed_out" });
-    const other = await passFor(w, FRIEND);
+    const other = await legacyPass(w, FRIEND);
     await w.t.run(async (ctx) => {
       for (const row of await ctx.db.query("guestPasses").collect()) await ctx.db.patch(row._id, { expiresAt: 1 });
     });
@@ -197,9 +275,31 @@ describe("a number an account holds", () => {
     // In no guest chat at all, as in a members chat like the team's own.
     expect(await w.t.action(api.functions.guestPass.start, { phone: MEMBER, slug: "acme" })).toEqual({ status: "sent", phone: MEMBER, account: true });
     expect(texted).toEqual([MEMBER]);
-    // The code is for the ordinary sign-in: it makes no pass.
+    // The code is for the ordinary sign-in: it makes no pass and no account.
     expect(await w.t.action(api.functions.guestPass.verify, { phone: MEMBER, code: GOOD_CODE })).toEqual({ status: "unavailable" });
     expect(await w.t.run(async (ctx) => await ctx.db.query("guestPasses").collect())).toEqual([]);
+    expect(await accountsWith(w, MEMBER)).toHaveLength(1);
+  });
+
+  test("signs into its own account, and no second account is made", async () => {
+    const w = await world();
+    withTwilio(w);
+    const holder = await w.t.run(async (ctx) => await ctx.db.insert("users", { phone: FRIEND, phoneVerificationTime: 1, createdAt: 1 }));
+    await guestChat(w);
+    expect(await w.t.action(api.functions.guestPass.start, { phone: FRIEND, slug: "acme" })).toEqual({ status: "sent", phone: FRIEND, account: true });
+    const signedIn = await signIn(w, FRIEND, GOOD_CODE);
+    expect(signedIn.tokens).toBeTruthy();
+    expect(await sessionUserIds(w)).toContain(holder);
+    expect(await accountsWith(w, FRIEND)).toHaveLength(1);
+  });
+
+  test("who types the code into the guest page in a guest chat gets no second account, and no code", async () => {
+    const w = await world();
+    await guestChat(w);
+    const holder = await w.t.run(async (ctx) => await ctx.db.insert("users", { phone: FRIEND, phoneVerificationTime: 1, createdAt: 1 }));
+    expect(await w.t.action(api.functions.guestPass.start, { phone: FRIEND, slug: "acme" })).toEqual({ status: "sent", phone: FRIEND, account: true });
+    expect(await w.t.action(api.functions.guestPass.verify, { phone: FRIEND, code: GOOD_CODE })).toEqual({ status: "unavailable" });
+    expect((await accountsWith(w, FRIEND)).map((row) => row._id)).toEqual([holder]);
   });
 
   test("paused by \"This wasn't me\", gets no sign-in code, only what a guest gets", async () => {
@@ -224,14 +324,15 @@ describe("anybody else", () => {
     expect(texted).toEqual([]);
   });
 
-  test("an approved code for a number not in the chat makes no pass", async () => {
+  test("an approved code for a number not in the chat makes no account", async () => {
     const w = await world();
     await guestChat(w);
     expect(await w.t.action(api.functions.guestPass.verify, { phone: STRANGER, code: GOOD_CODE })).toEqual({ status: "unavailable" });
     expect(await w.t.run(async (ctx) => await ctx.db.query("guestPasses").collect())).toEqual([]);
+    expect(await accountsWith(w, STRANGER)).toHaveLength(0);
   });
 
-  test("a wrong code makes no pass, and guessing is limited", async () => {
+  test("a wrong code makes no account, guessing is limited, and a stranger's wrong code hears what a member's does", async () => {
     const w = await world();
     await guestChat(w);
     await w.t.action(api.functions.guestPass.start, { phone: FRIEND, slug: "acme" });
@@ -240,6 +341,9 @@ describe("anybody else", () => {
     expect(answers.slice(0, 10).every((status) => status === "wrong")).toBe(true);
     expect(answers[10]).toBe("too_many");
     expect(await w.t.action(api.functions.guestPass.verify, { phone: FRIEND, code: GOOD_CODE })).toEqual({ status: "too_many" });
+    expect(await accountsWith(w, FRIEND)).toHaveLength(0);
+    expect(await w.t.action(api.functions.guestPass.verify, { phone: STRANGER, code: "000000" })).toEqual({ status: "wrong" });
+    expect(await accountsWith(w, STRANGER)).toHaveLength(0);
   });
 
   test("texting one number is limited to five codes an hour", async () => {
@@ -256,16 +360,15 @@ describe("what is kept", () => {
   test("no number, only keyed hashes that a plain hash of the number doesn't match", async () => {
     const w = await world();
     await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const code = await codeFor(w, FRIEND);
+    await signIn(w, FRIEND, code);
     const rows = await w.t.run(async (ctx) => ({
       phones: await ctx.db.query("chatGuestPhones").collect(),
       passes: await ctx.db.query("guestPasses").collect(),
-      codes: await ctx.db.query("phoneCodes").collect(),
     }));
     const kept = JSON.stringify([rows.phones, rows.passes]);
     expect(kept).not.toContain(FRIEND.slice(2));
-    expect(kept).not.toContain(pass);
-    const { hashToken } = await import("../functions/lib/crypto");
+    expect(kept).not.toContain(code);
     expect(kept).not.toContain(await hashToken(FRIEND));
     expect(rows.phones.map((row) => row.phoneHash)).toEqual([await guestPhoneHash(FRIEND)]);
   });
@@ -301,7 +404,7 @@ describe("a tag keeps the chat's numbers", () => {
   test("a message whose people changed moves them too, tag or not (syncGuestPeople)", async () => {
     const w = await world();
     const { chatId } = await guestChat(w);
-    const pass = await passFor(w, FRIEND);
+    const pass = await legacyPass(w, FRIEND);
     const LINE = "+15555550001";
     await w.t.mutation(internal.functions.textGroups.syncGuestPeople, { line: LINE, groupKey: "a".repeat(64), participants: [LINE, STRANGER] });
     const kept = await w.t.run(async (ctx) => await ctx.db.query("chatGuestPhones").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
