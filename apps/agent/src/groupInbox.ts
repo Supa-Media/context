@@ -102,6 +102,8 @@ export type GroupDeps = {
   steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
   /** Starts the workflow that answers a chosen turn (`groupTurnWorkflow.ts`); absent, the turn is answered here. */
   startTurn?: (turn: string) => Promise<void>;
+  /** Present, a chosen turn is answered here at once and its workflow only retries a failure (`groupTurnRun.ts`); keeps that answer alive. */
+  answerFirst?: (work: Promise<unknown>) => void;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
