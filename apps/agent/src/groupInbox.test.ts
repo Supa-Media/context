@@ -667,4 +667,19 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
     expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
   });
+
+  it("hands the chat's log in once the gateway handed it back, so later turns read none from storage", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const held = [{ id: "0000000000001-000001", at: 1, chat: GROUP, from: { kind: "person" }, kind: "text", text: "earlier" }];
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: "Hey.", log: held } }));
+    await acceptGroup(storage, message("Tex, and now?", { messageId: "t2" }), 10);
+    await drainGroup(storage, deps(w));
+    expect(w.asks).toHaveLength(2);
+    expect(w.asks[0].holdsLog).toBeUndefined();
+    expect(w.asks[1]).toMatchObject({ holdsLog: true, chat: GROUP });
+    expect((w.asks[1].recent as { id: string }[]).map((event) => event.id)).toContain("0000000000001-000001");
+  });
 });
+

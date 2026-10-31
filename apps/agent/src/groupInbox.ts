@@ -123,11 +123,13 @@ export const SAME_ASK_MS = 10 * 60_000;
 const RECENT_KEY = "grecent";
 type Recent = { h: string; at: number };
 /**
- * How long a tag waits before it is answered, so a picture sent just after it
- * ("Tex, file this screenshot", then the screenshot) is read with it, as a
- * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`). 2s since Dev2, 2026-10-28 (was 4s): Tex felt slow.
+ * How long a tag waits before it is answered, for a picture sent just after it
+ * ("Tex, file this screenshot", then the screenshot). None since 2026-10-31,
+ * as a 1:1 text's words (`inbox.ts` `TEXT_WAIT_MS`): Dev2 timed a group reply
+ * at 20 s, 2 of them this wait. A picture that comes while the turn runs is
+ * taken in by it (`steer.ts`). It was 4 s, then 2 s (Dev2, 2026-10-28).
  */
-export const GROUP_TEXT_WAIT_MS = 2_000;
+export const GROUP_TEXT_WAIT_MS = 0;
 /** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
