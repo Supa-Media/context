@@ -26,3 +26,19 @@ export async function handleOf(ctx: MutationCtx, userId: Id<"users">): Promise<s
   const personal = await personalWorkspaceOf(ctx, userId);
   return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
 }
+
+/**
+ * The account a number holds by its own sign-in, with no Tex link: the light account a guest's texted code makes
+ * (`functions/guestPass.ts`). Only one confirmed account carrying the number counts, and not one with texting paused.
+ * It is named on a chat's home beside the linked accounts, so a guest who opened the note link keeps their way in.
+ */
+export async function phoneAccountOf(ctx: MutationCtx, phone: string): Promise<Id<"users"> | null> {
+  if (!isPhoneNumber(phone)) return null;
+  const rows = await ctx.db
+    .query("users")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .take(2);
+  if (rows.length !== 1 || rows[0].phoneVerificationTime === undefined) return null;
+  if (await phoneSignInPaused(ctx, rows[0]._id)) return null;
+  return rows[0]._id;
+}

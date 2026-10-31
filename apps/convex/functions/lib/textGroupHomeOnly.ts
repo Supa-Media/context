@@ -20,7 +20,8 @@ import { recordAudit } from "./audit";
 import { phoneSignInPaused } from "./emailProof";
 import { ensureGroupClient } from "./textGroupClient";
 import { ensureChatHome, chatHomeOf } from "./textGroupHome";
-import { handleOf, linkedUser } from "./textGroupAccounts";
+import { handleOf, linkedUser, phoneAccountOf } from "./textGroupAccounts";
+import { syncHomePhones } from "./guestPhones";
 import { guestLabel } from "./textGroupGuests";
 import { pinnedContextWorkspace } from "./pinnedContext";
 import { READS_AS_CHAT_NAME } from "./nodes/chatFolders";
@@ -76,6 +77,10 @@ export async function homeOnlyTurn(
     const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
     if (userId === null) {
       guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
+      // A guest who opened a note link has a light account (`functions/guestPass.ts`): still a guest to Tex, but named
+      // on the home to edit, so the next tag does not take away what the code gave.
+      const light = await phoneAccountOf(ctx, phone);
+      if (light !== null && !people.includes(light)) people.push(light);
       continue;
     }
     if (!people.includes(userId)) people.push(userId);
@@ -100,6 +105,8 @@ export async function homeOnlyTurn(
       participants: others.length,
     });
     if (!ok) return null;
+    // The numbers of the people with no account, kept so a guest's code can open the home (`functions/guestPass.ts`).
+    await syncHomePhones(ctx, chat._id, guests.map((guest) => guest.phone));
   }
   const introduced = intro && minted;
   if (introduced) await ctx.db.patch(chat._id, { introducedAt: Date.now() });
@@ -220,6 +227,19 @@ export async function homeOnlyRows(
       homeOnly: true,
     },
   ];
+}
+
+/**
+ * Whether a guest's light account may be named on this chat's home, and who it is named under: the chat has a home in
+ * the pin, is not muted, and its sponsor (or the person who bound it) may still text. A home is written in the
+ * sponsor's name (`ensureChatHome` tells `setAccessRow` `role: "owner"`), so a chat with nobody left to stand behind it
+ * names nobody. Null when it may not.
+ */
+export async function homeBinder(ctx: QueryCtx, chat: Doc<"textGroups">): Promise<Id<"users"> | null> {
+  if (chat.mutedAt !== undefined) return null;
+  const sponsor = chat.sponsorId ?? chat.boundBy;
+  if (sponsor === undefined || (await chatHomeOf(ctx, chat._id)) === null) return null;
+  return (await phoneSignInPaused(ctx, sponsor)) ? null : sponsor;
 }
 
 /**

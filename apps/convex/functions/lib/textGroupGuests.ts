@@ -15,6 +15,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { clearChatPhones } from "./guestPhones";
 import { hashToken } from "./crypto";
+import { phoneSignInPaused } from "./emailProof";
 import { nodeAt } from "./nodes/paths";
 import { granteeInputOf, setAccessRow, type GranteeInput } from "./nodes/setAccess";
 import { unsyncChatPeople } from "./textGroupGuestSync";
@@ -27,6 +28,19 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 export async function mayOpenToGuests(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<boolean> {
   const membership = await getMembership(ctx, workspaceId, userId);
   return membership !== null && (membership.role === "owner" || membership.role === "editor");
+}
+
+/**
+ * Whether a legacy guest chat may still answer: its group is there, and the person who turned guest mode on is still
+ * an owner or editor of the workspace with texting not paused. The person it counts against, when it may.
+ */
+export async function guestBinder(ctx: QueryCtx, chat: Doc<"textGroups">): Promise<Id<"users"> | null> {
+  if (chat.guestGroupId === undefined || chat.guestFolder === undefined || chat.boundBy === undefined || chat.workspaceId === undefined) return null;
+  const group = await ctx.db.get(chat.guestGroupId);
+  if (group === null || group.workspaceId !== chat.workspaceId) return null;
+  if (!(await mayOpenToGuests(ctx, chat.workspaceId, chat.boundBy))) return null;
+  if (await phoneSignInPaused(ctx, chat.boundBy)) return null;
+  return chat.boundBy;
 }
 
 /** Guest mode off for a legacy chat: what the chat added for its people goes with it (`textGroupGuestSync.ts`). */
