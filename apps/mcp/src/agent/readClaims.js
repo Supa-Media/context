@@ -18,8 +18,10 @@
  *      texts, what Tex itself wrote this turn) holds those words.
  *   2. A page came back cut (`[cut`, `computer.js`) and the answer reviews it
  *      or says it lacks something, without saying it was only partly read.
- *   3. Their text carries a link, nothing on the web was read this turn, and
- *      the answer sums the link up ("it's for GPT, skip it").
+ *   3. Their text carries a link that no page this turn read with a body
+ *      (unopened, or back as a wall, an error or nothing: `pageReads.js`),
+ *      and the answer sums it up ("it's for GPT, skip it", "Ashaya's post
+ *      says"), rather than saying it couldn't read it.
  *   4. Something read, or an earlier text, says a change is not live yet
  *      (planned, not switched over), and the answer states it as live with
  *      no correction named.
@@ -31,6 +33,7 @@
  */
 
 import { namesIn, resultText, sentencesOf } from "./sourcedFigures.js";
+import { linksIn, pageKey, pagesRead } from "./pageReads.js";
 
 /** Told on every texted turn, beside `RESEARCH_LINE` (`prompt.js`). */
 export const READ_CLAIMS_LINE =
@@ -77,6 +80,12 @@ const SAYS_IT_LACKS =
 const SUMS_UP_A_LINK =
   /\b(?:it['’]?s|it is|that['’]?s|that is|this is|this one is|looks|seems)\s+(?:only\s+|just\s+|mostly\s+|really\s+)?(?:for|about|aimed at|meant for|written for|specific to)\b|\bskip (?:it|that|this)\b|\b(?:is\s*n['’o]?t|isn['’]t|is not|not)\s+(?:relevant|for us|for you|useful|worth (?:reading|it))\b/i;
 
+/** "Ashaya's post says", "the thread argues", "that article is about". */
+const SAYS_WHAT_IT_SAYS =
+  /\b(?:[Tt]he|[Tt]hat|[Tt]his|[Tt]heir|[Hh]is|[Hh]er|[Ii]ts|[A-Z][\w-]*['’]s)\s+(?:post|tweet|thread|page|article|video|piece|blog(?:\s+post)?|essay|announcement|write-?up|reply|link)\s+(?:says|said|argues|claims|explains|shows|lists|covers|mentions|is about|talks about|points out|notes|makes the (?:case|point)|reports|describes|walks through|recommends)\b/;
+/** An answer saying plainly it couldn't read the link, which is the honest answer. */
+const COULD_NOT_READ =
+  /\b(?:could\s*n['’o]?t|couldn['’]t|can['’]t|cannot|can not|unable to|was\s*n['’o]?t able to|wasn['’]t able to|did\s*n['’o]?t|didn['’]t)\s+(?:actually\s+)?(?:open|read|load|see|get (?:into|past|at)|access|view)\b|\b(?:sign-in|login|log-in) wall\b|\bblock(?:s|ed) (?:reads|me|it)\b/i;
 /** A sentence saying a change is not live yet: not switched over, not shipped, a planned switch. */
 const NOT_LIVE_YET =
   /\b(?:is\s*n['’o]?t|isn['’]t|is not|are\s*n['’o]?t|aren['’]t|are not|has\s*n['’o]?t|hasn['’]t|has not|have\s*n['’o]?t|haven['’]t|have not|was\s*n['’o]?t|wasn['’]t|not)\s+(?:been\s+)?(?:yet\s+)?(?:switched|live|shipped|rolled\s+out|enabled|turned\s+on|merged|deployed|launched|in\s+place|adopted)\b|\bnot\s+(?:yet\s+)?(?:live|on)\s+yet\b|\b(?:planned|proposed)\s+(?:change|switch|default|rollout|roll-out|feature|update|migration|move)\b/i;
@@ -200,6 +209,20 @@ export function unnamedRetraction(answer, history = []) {
     })());
 }
 
+/** The links in their text that no page this turn read with a body. */
+export function unreadLinks(question, pages) {
+  return linksIn(question).filter((link) => {
+    const key = pageKey(link);
+    return key !== null && !pages.has(key);
+  });
+}
+
+/** Whether an answer sums a link up or says what it says, rather than that it couldn't read it. */
+export function describesALink(answer) {
+  const text = said(answer);
+  return !COULD_NOT_READ.test(text) && (SUMS_UP_A_LINK.test(text) || SAYS_WHAT_IT_SAYS.test(text));
+}
+
 function clip(text, length = 140) {
   const flat = String(text).replace(/\s+/g, " ").trim();
   return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat;
@@ -222,7 +245,9 @@ export function readClaimsNotice({ topics = [], quotes = [], cut = false, partly
     );
   }
   if (link) {
-    parts.push("your answer sums up the link in their text, but you haven't opened it in this turn. Open it and read it first, then say what it is");
+    parts.push(
+      "your answer says what the link in their text holds, but no page you opened in this turn read it: it wasn't opened, or it came back empty, as an error or as a sign-in wall. Open it (in the browser if a plain read was blocked) and read it first; if it still won't show, say plainly you couldn't read it and describe nothing of it",
+    );
   }
   if (planned !== null) {
     parts.push(
@@ -246,7 +271,8 @@ export function readClaimCheck({ question = "", history = [], pictures = false }
   const read = [];
   let cut = false;
   let readOn = false;
-  let readTheWeb = false;
+  // The pages read with a body worth the name (`pageReads.js`): a sign-in wall or an empty page is not one.
+  const pages = new Set();
   let noticed = false;
   const turns = (Array.isArray(history) ? history : []).filter((turn) => typeof turn?.text === "string");
   return {
@@ -257,7 +283,7 @@ export function readClaimCheck({ question = "", history = [], pictures = false }
       if (text === "") return;
       read.push(text);
       if (!web) return;
-      readTheWeb = true;
+      for (const key of pagesRead(text)) pages.add(key);
       if (CUT.test(text)) cut = true;
       if (READ_FROM.test(text)) readOn = true;
     },
@@ -269,7 +295,7 @@ export function readClaimCheck({ question = "", history = [], pictures = false }
         Object.assign(found, unreadContents(answer, read, { theirs }));
         found.cut = cut && !readOn;
         found.partly = found.topics.length === 0 && found.quotes.length === 0 && cut && !readOn && !SAYS_PARTLY.test(said(answer)) && (ASKS_ABOUT_A_PAGE.test(String(question ?? "")) || SAYS_IT_LACKS.test(said(answer)));
-        found.link = !readTheWeb && /https?:\/\//i.test(String(question ?? "")) && SUMS_UP_A_LINK.test(said(answer));
+        found.link = unreadLinks(question, pages).length > 0 && describesALink(answer);
       }
       found.planned = plannedSaidAsLive(answer, [...read, String(question ?? ""), ...turns.slice(-EARLIER_TEXTS).map((turn) => turn.text)]);
       found.retracted = unnamedRetraction(answer, turns);
