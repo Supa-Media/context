@@ -241,7 +241,15 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 18,500 when a drawn card was said to arrive as a Context card, and a time to meet names open slots (PICTURES_LINE, SYNCED_PLACES_LINE, 2026-10-29; 18,6xx then).
   // and from 19,000 when a yes-or-no question was told to invite a 👍 or 👎, never "say yes" (chatVoice.js, YES_NO_LINE, 2026-10-30; 19,0xx then).
   // and from 19,500 when a page was said to hold only what was read in it, and a cut page to be read on (readClaims.js, READ_CLAIMS_LINE, 2026-10-30; 19,7xx then).
-  assert.ok(system.length < 20_000, `system was ${system.length} characters`);
+  // and from 20,000 when a safe next step was told to be taken, never offered (chatVoice.js, DO_NOT_OFFER_LINE, 2026-10-31; 19,9xx then).
+  assert.ok(system.length < 20_500, `system was ${system.length} characters`);
+});
+
+test("a texted turn takes a safe next step instead of offering it (self-reviews, 2026-10-31)", async () => {
+  pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
+  const system = await systemFor(TOKEN_TEXTS);
+  assert.match(system, /A next step that reaches nobody else \(try again, restart, start a sign-in, give what you have\) is yours: take it and say what happened, never "want me to\?"/);
+  assert.match(system, /Ask first only for what reaches another person, spends money or can't be undone\./);
 });
 
 test("every new note a texted turn makes is a designed page (owner, 2026-10-27)", async () => {

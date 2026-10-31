@@ -44,6 +44,19 @@ export const BRIEF_LINE =
  */
 export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never "say yes": a 👍 on it is their yes, a 👎 their no.';
 
+/**
+ * A safe next step is taken, never offered (three self-reviews of
+ * 2026-10-31: Tex asked whether to try a sign-in before trying it, whether to
+ * give a result it had been asked for, and whether to restart a form fill).
+ * Each cost the person a round for a step that reached nobody else. A yes
+ * still waits for what reaches another person
+ * (docs/decisions/texting-assistant/handing-back.md). The front door runs no
+ * reply checks, so this line is the guard; hand-back bench cases 19 and 20
+ * measure it.
+ */
+export const DO_NOT_OFFER_LINE =
+  'A next step that reaches nobody else (try again, restart, start a sign-in, give what you have) is yours: take it and say what happened, never "want me to?". Ask first only for what reaches another person, spends money or can\'t be undone.';
+
 /** The word the note is fenced in below, dropped from its own lines (`promptFence.js`). */
 const FENCE = "VOICE";
 

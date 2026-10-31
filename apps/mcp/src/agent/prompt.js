@@ -10,7 +10,7 @@ import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isEmailSource, isNoteSource, isReadSource } from "./sources.js";
 import { OPINION_LINE } from "./pushback.js";
-import { BRIEF_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
+import { BRIEF_LINE, DO_NOT_OFFER_LINE, LANGUAGE_LINE, MIRROR_LINE, YES_NO_LINE } from "./chatVoice.js";
 import { LOOK_FIRST_LINE } from "./lookFirst.js";
 import { READ_CLAIMS_LINE } from "./readClaims.js";
 
@@ -421,6 +421,8 @@ export function systemPrompt(
         BRIEF_LINE,
         // A new tester, 2026-10-30: 👍 or 👎, not "say yes" (`chatVoice.js`).
         YES_NO_LINE,
+        // Self-reviews, 2026-10-31: take a safe next step, never offer it (`chatVoice.js`).
+        DO_NOT_OFFER_LINE,
         ...(edits ? [REMEMBER_LINE, LESSONS_LINE, SAVING_LINE, REORGANIZE_LINE, PAGES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]

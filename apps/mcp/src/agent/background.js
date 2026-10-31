@@ -44,7 +44,7 @@
  */
 
 import { PAGE_JOB_LINE } from "../pages.js";
-export { jobReportOf, jobReportPrompt, jobReportQuestion } from "./jobReport.js";
+export { jobReportOf, jobReportPrompt, jobReportQuestion, quietReport, QUIET_REPORT_LINE } from "./jobReport.js";
 
 export const START_JOB_TOOL = "start_background_job";
 export const STEER_JOB_TOOL = "steer_background_job";
