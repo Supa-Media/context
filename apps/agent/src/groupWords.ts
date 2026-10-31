@@ -42,6 +42,7 @@ const OPENS = new RegExp(
 );
 const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
 const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
+const STARTS_WITH_NAME = new RegExp(`^\\s*(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}`, "i");
 /** A reply to Tex that needs no answer. */
 const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
@@ -55,6 +56,8 @@ export function addressesTex(text: string, repliesToTex: boolean): boolean {
   const words = unquoted(text);
   if (words === "") return false;
   if (OPENS.test(words) || CLOSES.test(words)) return true;
+  // "Tex settings", "Tex stop": a command after the name is for Tex, though "settings" reads like a verb about it (2026-11-01).
+  if (STARTS_WITH_NAME.test(words) && groupCommand(words) !== null) return true;
   if (NAMED.test(words) && /\?\s*$/.test(words)) return true;
   return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
 }
