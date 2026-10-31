@@ -10,3 +10,15 @@ export async function deferred(store, work) {
     await work;
   }
 }
+
+/**
+ * A read started now and awaited later, so the reads a turn needs overlap
+ * instead of queueing one behind another. Awaiting it later still throws what
+ * it threw; a turn that returns before awaiting it does not leave an unhandled
+ * rejection behind.
+ */
+export function ahead(work) {
+  const read = Promise.resolve(work);
+  read.catch(() => {});
+  return read;
+}
