@@ -8,8 +8,8 @@
  * key derived from the deployment's storage key, so the rows alone can't be walked back to numbers the way a plain
  * or chat-salted hash of a ten-digit number can.
  *
- *  - **Rewritten on every tag** from the participants the message came with (`syncChatPhones`), so someone who
- *    left is gone at the next tag and someone who joined is there.
+ *  - **Rewritten on every tag** from the participants the message came with (`syncChatPhones`, and `syncHomePhones`
+ *    for a chat answered from its home), so someone who left is gone at the next tag and someone who joined is there.
  *  - **Emptied when guest mode goes off** (`clearChatPhones`), and ignored anyway for a chat that is no longer a
  *    guest chat: what a number opens is worked out from the live chat row on every read (`guestReach`).
  *  - **Reach is the chat's group, read as a guest.** The names are the tokens of the rows granted to the chat's
@@ -25,6 +25,7 @@ import { guestCanSee, type GuestView } from "./grants/outsider";
 import { accessRowsOf } from "./nodes/accessRows";
 import { nodeAt } from "./nodes/paths";
 import { accessNamesFor, renderAccess } from "./nodes/rowAccess";
+import { pinnedContextWorkspace } from "./pinnedContext";
 
 /** What the derived key is for, so it can never equal a key derived for anything else. */
 const KEY_LABEL = "context/guest-phone-hash/v1";
@@ -57,6 +58,21 @@ export async function guestPhoneHash(phone: string): Promise<string | null> {
 /** Keep the chat's numbers as they are now: the ones gone come off, the new ones go on. Best effort. */
 export async function syncChatPhones(ctx: MutationCtx, chat: Doc<"textGroups">, phones: readonly string[]): Promise<void> {
   if (chat.workspaceId === undefined || chat.guestGroupId === undefined) return;
+  await keepPhones(ctx, chat._id, chat.workspaceId, phones);
+}
+
+/**
+ * The same for a chat answered from its home (E1, `lib/textGroupHomeOnly.ts`): its numbers are kept against the pinned
+ * workspace its home is in, so a number in the chat may open a note link there. Nothing for a chat with no home.
+ */
+export async function syncHomePhones(ctx: MutationCtx, chatId: Id<"textGroups">, phones: readonly string[]): Promise<void> {
+  const chat = await ctx.db.get(chatId);
+  const pinned = await pinnedContextWorkspace(ctx);
+  if (chat === null || chat.homeWords === undefined || pinned === null) return;
+  await keepPhones(ctx, chatId, pinned._id, phones);
+}
+
+async function keepPhones(ctx: MutationCtx, chatId: Id<"textGroups">, workspaceId: Id<"workspaces">, phones: readonly string[]): Promise<void> {
   const wanted = new Set<string>();
   for (const phone of phones.slice(0, MAX_PHONES_PER_CHAT)) {
     const hash = await guestPhoneHash(phone);
@@ -65,12 +81,12 @@ export async function syncChatPhones(ctx: MutationCtx, chat: Doc<"textGroups">, 
   }
   const rows = await ctx.db
     .query("chatGuestPhones")
-    .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
+    .withIndex("by_chat", (q) => q.eq("chatId", chatId))
     .take(MAX_PHONES_PER_CHAT * 2);
   const kept = new Set<string>();
   for (const row of rows) {
     // A row for another workspace is from before the chat was bound again: it goes.
-    if (!wanted.has(row.phoneHash) || row.workspaceId !== chat.workspaceId || kept.has(row.phoneHash)) {
+    if (!wanted.has(row.phoneHash) || row.workspaceId !== workspaceId || kept.has(row.phoneHash)) {
       await ctx.db.delete(row._id);
     } else {
       kept.add(row.phoneHash);
@@ -78,7 +94,7 @@ export async function syncChatPhones(ctx: MutationCtx, chat: Doc<"textGroups">, 
   }
   const now = Date.now();
   for (const phoneHash of wanted) {
-    if (!kept.has(phoneHash)) await ctx.db.insert("chatGuestPhones", { chatId: chat._id, workspaceId: chat.workspaceId, phoneHash, seenAt: now });
+    if (!kept.has(phoneHash)) await ctx.db.insert("chatGuestPhones", { chatId, workspaceId, phoneHash, seenAt: now });
   }
 }
 
@@ -91,19 +107,25 @@ export async function clearChatPhones(ctx: MutationCtx, chatId: Id<"textGroups">
   for (const row of rows) await ctx.db.delete(row._id);
 }
 
-/** The live guest chats this number is in, in one workspace or any. */
+/**
+ * The live chats this number is in, in one workspace or any: a legacy guest chat, or a chat answered from its home in
+ * the pinned workspace. The chat row decides, not the number's row.
+ */
 export async function guestChatsOf(ctx: QueryCtx, phoneHash: string, workspaceId?: Id<"workspaces">): Promise<Doc<"textGroups">[]> {
   const rows = await ctx.db
     .query("chatGuestPhones")
     .withIndex("by_phone_hash", (q) => q.eq("phoneHash", phoneHash))
     .take(MAX_CHATS_PER_PHONE);
   const chats: Doc<"textGroups">[] = [];
+  const pinned = await pinnedContextWorkspace(ctx);
   for (const row of rows) {
     if (workspaceId !== undefined && row.workspaceId !== workspaceId) continue;
     const chat = await ctx.db.get(row.chatId);
-    // The chat row decides, not this one: a chat out of guest mode, or bound elsewhere since, reaches nothing.
-    if (chat === null || chat.guestGroupId === undefined || chat.workspaceId !== row.workspaceId) continue;
-    chats.push(chat);
+    if (chat === null) continue;
+    // A chat out of guest mode, or bound elsewhere since, reaches nothing; a home counts only in the pin it is in.
+    const legacy = chat.guestGroupId !== undefined && chat.workspaceId === row.workspaceId;
+    const home = chat.homeWords !== undefined && pinned !== null && row.workspaceId === pinned._id;
+    if (legacy || home) chats.push(chat);
   }
   return chats;
 }

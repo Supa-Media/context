@@ -598,14 +598,13 @@ describe("a group tapback the line refuses", () => {
   });
 });
 
-describe("a group chat with guests (docs/decisions/texting-assistant/group-guests.md)", () => {
-  const guest = { group: "band-chair-blast-tiger", words: "chair-blast-tiger", folder: "tex/chats/chair-blast-tiger" };
+describe("a group chat with people who aren't all here (homes, not guest mode; docs/decisions/texting-assistant/group-guests.md)", () => {
   const ready = {
     status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "", minted: true, accessToken: "cat_group",
-    names: [{ phone: ADA, handle: "ada" }], guest, guests: [{ phone: BO, label: "guest-1a2b" }],
+    names: [{ phone: ADA, handle: "ada" }], guests: [{ phone: BO, label: "guest-1a2b" }],
   };
 
-  it("a guest's ask reaches Tex with the chat's group, the guest named by label and never offered an email", async () => {
+  it("a person with no account is named by label in the chat, never by number, and never offered an email", async () => {
     const storage = new MemoryStorage();
     const w = world();
     // A chat Tex answers in keeps what is said between tags.
@@ -617,30 +616,27 @@ describe("a group chat with guests (docs/decisions/texting-assistant/group-guest
     const group = w.asks[1]?.group as Record<string, unknown>;
     expect(group.from).toBeUndefined();
     expect(group.people).toEqual(["ada"]);
-    expect(group.guest).toEqual(guest);
+    expect(group.guest).toBeUndefined();
     expect(group.chat).toEqual([{ from: "guest-1a2b", text: "flights are pricey" }]);
     expect(JSON.stringify(w.asks[1])).not.toContain(BO);
   });
 
-  it("says what guest mode is when it's turned on, and what it can see", async () => {
+  it("says what it can see in this chat when it is turned on, and when asked", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex use @band"), 0);
     await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", bound: true } }));
     await acceptGroup(storage, message("Tex what can you see?", { eventId: "sendblue:status", messageId: "status" }), 10);
     await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.guestBound("band", guest), GROUP_LINES.guestStatus("band", guest)]);
-    expect(GROUP_LINES.guestBound("band", guest)).toContain("tex/chats/chair-blast-tiger");
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.bound("band", false), GROUP_LINES.status("band")]);
   });
 
-  it("says who may turn it on, and when it has stopped", async () => {
+  it("says who may turn it on, and asks nothing of the model", async () => {
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex use @band", { from: BO }), 0);
     await drainGroup(storage, deps(w, { control: { status: "not_allowed", slug: "band" } }));
-    await acceptGroup(storage, message("Tex find flights", { eventId: "sendblue:f", messageId: "f" }), 10);
-    await drainGroup(storage, deps(w, { control: { status: "guests_off" } }));
-    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band"), GROUP_LINES.guestsOff]);
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.notAllowed("band")]);
     expect(w.asks).toEqual([]);
   });
 });

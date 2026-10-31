@@ -50,7 +50,6 @@ export function setup(
   let groupStyle: Record<string, unknown> = {};
   /** Each `/agent-texts/review-sharing` asked (`reviewSharing.ts`). */
   const sharing: Record<string, unknown>[] = [];
-  const people: Record<string, unknown>[] = [];
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
@@ -98,10 +97,6 @@ export function setup(
     if (path === "/agent-texts/recheck") {
       rechecks.push(body);
       return Response.json(opts.recheck?.(body) ?? { ok: true, fits: true });
-    }
-    if (path === "/agent-texts/group/people") {
-      people.push(body);
-      return Response.json({ ok: true });
     }
     if (path === "/agent-texts/group/style") {
       styles.push(body);
@@ -186,7 +181,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, people, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */

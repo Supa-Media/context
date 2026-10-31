@@ -13,6 +13,8 @@ import { canTextCodes, checkCode, textCode } from "./phoneCodes";
 import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { nameOutsider } from "./lib/textGroupGuestSync";
 import { guestBinder } from "./lib/textGroupGuests";
+import { ensureChatHome } from "./lib/textGroupHome";
+import { homeBinder } from "./lib/textGroupHomeOnly";
 import { mintPhoneSignInCode } from "./textSignIn";
 
 /**
@@ -157,8 +159,17 @@ export const enrol = internalMutation({
     // that person's authority on the folder (`nameOutsider` tells `setAccessRow` `role: "owner"`), so a chat whose
     // binder has since been taken off the workspace enrols nobody rather than granting in their name.
     const chats: Doc<"textGroups">[] = [];
-    for (const chat of await guestChatsOf(ctx, phoneHash)) if ((await guestBinder(ctx, chat)) !== null) chats.push(chat);
-    if (chats.length === 0) return { status: "unavailable" as const };
+    const homes: { chat: Doc<"textGroups">; sponsor: Id<"users"> }[] = [];
+    for (const chat of await guestChatsOf(ctx, phoneHash)) {
+      if (chat.guestGroupId !== undefined) {
+        if ((await guestBinder(ctx, chat)) !== null) chats.push(chat);
+        continue;
+      }
+      // A chat answered from its home: the account is named on the home, under the sponsor who stands behind the chat.
+      const sponsor = await homeBinder(ctx, chat);
+      if (sponsor !== null) homes.push({ chat, sponsor });
+    }
+    if (chats.length === 0 && homes.length === 0) return { status: "unavailable" as const };
     // Any row carrying the number, confirmed or not, is someone's: a new account never takes a number from anyone.
     const carried = await ctx.db
       .query("users")
@@ -167,6 +178,10 @@ export const enrol = internalMutation({
     if (carried.length > 0 || (await phoneHolder(ctx, phone)) !== null) return { status: "unavailable" as const };
     const userId = await newPhoneAccount(ctx, phone, { adConversions: false });
     for (const chat of chats) await nameOutsider(ctx, chat, userId);
+    for (const { chat, sponsor } of homes) {
+      // The list the next tag would write: the accounts already named, and this one. Their way in is the home's row.
+      await ensureChatHome(ctx, (await ctx.db.get(chat._id)) ?? chat, [...(chat.homeUsers ?? []), userId], sponsor);
+    }
     // Expired passes of anyone are swept a few at a time, as accounts are made.
     for (const stale of await ctx.db
       .query("guestPasses")

@@ -100,9 +100,9 @@ breaking one, stop and say so rather than working around it.
    2026-10-15). Every grantee is a person with an account or an email awaiting
    one, or a phone number invited from a Tex chat
    ([invited-family](./docs/decisions/texting-assistant/invited-family.md));
-   a Tex group chat in guest mode is the exception, its grantees whoever is
-   in the chat
-   ([group-guests](./docs/decisions/texting-assistant/group-guests.md)). No *setting* publishes a
+   a Tex group chat's home is the exception: the grant that reaches it is its
+   sponsor's, and it reaches that home and what is shared with the chat
+   ([chat-homes](./docs/decisions/texting-assistant/chat-homes.md)). No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
    indexed. **A link an owner mints and can revoke is the single exception**, and
    it is always a share row, never a value of a row's access. A link covers one note, or one folder and the subtree

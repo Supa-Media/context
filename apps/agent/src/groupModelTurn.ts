@@ -44,7 +44,6 @@ export type TurnInput = {
 export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
-  const guest = asked.guest;
   const routine = message.routine !== undefined;
   const quoted = message.replyTo === undefined ? null : await app.readOwnMessage(chat, message.replyTo);
   const kept = await chatBefore(storage, message, acceptedAt, deps.now());
@@ -63,7 +62,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     ...(asked.handle ? { from: asked.handle } : {}),
     // Who is here, by handle, so an email can be offered to one of them to send (`apps/mcp/src/tools/offerFor.js`).
     people: [...new Set(handles.values())].filter(Boolean),
-    ...(guest ? { guest } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
   };
