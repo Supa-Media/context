@@ -12,7 +12,9 @@
  *    change goes out as it is" fails (the claim check sends it back);
  *  - `waitingAsks` returning null: "the model is told one still waits"
  *    fails;
- *  - `front_door` read as always on: "off brings the old turn back" fails.
+ *  - `front_door` read as always on: "off brings the old turn back" fails;
+ *  - `textedAsk` handing its disarm to a host deferral: "a reply that asks
+ *    something disarms the older ask before it answers" fails.
  */
 
 import assert from "node:assert/strict";
@@ -20,6 +22,9 @@ import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { mayAnswerAsk, readFrontDoor } from "../src/agent/frontDoor.js";
+import { textedAsk } from "../src/agent/textedApprovals.js";
+import { createPending, listPending } from "../src/tools/approvals.js";
+import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const claim = (slug) => ({ toolCalls: [{ name: "create_workspace", args: { slug, name: slug } }] });
 
@@ -101,4 +106,39 @@ test("the chat is still kept: the next text's turn sees the last one", async () 
   } finally {
     world.restore();
   }
+});
+
+/*
+  THE DISARM THAT PROTECTS A LATER YES IS NEVER LEFT TO THE HOST.
+
+  When Tex's own reply asks something, `textedAsk` disarms the texting asks
+  held before it, so the bare "yes" that answers the new question cannot
+  release an older one (an email, a handle claim, a vault key's first use).
+  `askOvertaken` is no second check here: it counts only Tex texts kept under
+  "(Not a text from them.", and an ordinary reply is not one.
+
+  So this disarm is the whole protection and must land before the turn
+  answers. A host's deferral (`store.defer`, `ctx.waitUntil`) is "an
+  optimisation it may not get, never where the work happens"
+  (`src/http/route.js`), and the suite is given no deferral at all, which is
+  why the behaviour cannot be seen through the worker here and the contract is
+  asserted instead: a `defer` that takes the work and returns at once, as a
+  host does, must not stop the record being gone by the time `textedAsk`
+  resolves. The delete is made slow so an unawaited one is visibly armed.
+*/
+test("a reply that asks something disarms the older ask before it answers", async () => {
+  const kept = createMemoryStore();
+  const slow = { ...kept, delete: async (key) => { await new Promise((resolve) => setTimeout(resolve, 0)); return kept.delete(key); } };
+  const summary = "email jo";
+  await createPending(slow, {
+    name: "send_email",
+    args: { summary },
+    actor: { userId: "u1", clientId: "context_texts" },
+    widening: { summary },
+    detail: "To: jo@example.com\n\nshort",
+    texting: true,
+  });
+  assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 1);
+  await textedAsk(slow, { actorUserId: "u1" }, [], "Sure, what time?", { defer: () => undefined });
+  assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 0, "the older ask is still armed: a bare yes would release it");
 });
