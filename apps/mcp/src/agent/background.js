@@ -239,6 +239,30 @@ const STEER_TOOL = {
   },
 };
 
+/*
+ * ACKNOWLEDGE FIRST, THEN WORK (owner, 2026-10-31). "Get started on an a16z
+ * application" sat 84 seconds before "On it": six rounds of reading and
+ * thinking in the texted turn, then the job, which read it all again. A task
+ * starts its job as the turn's first call, the brief carrying what the turn
+ * already knows, and the turn ends the moment the job starts with a fixed
+ * line: no model round after it. A turn still working after two rounds (or
+ * SLOW_TURN_MS) without one is told once to hand the rest over.
+ */
+const JOB_FIRST =
+  "\n\nA task that takes more than a couple of tool calls (research across many sources, an application, a plan, a draft built from " +
+  'several notes, a multi-step task on a site) goes to a background job (send { action: "background" }) as your FIRST call: before ' +
+  "reading notes, searching, browsing or asking your advisor. The job does the reading; put what you already know from this chat in the brief. " +
+  "They hear \"on it\" the moment it starts, and you can take their next text while it runs.";
+/** How long a texted turn works before it is told to hand the rest to a job. */
+export const SLOW_TURN_MS = 12_000;
+export const SLOW_TURN_NOTE =
+  "(This is taking a while and they're waiting on the line. If what's left takes more than one more step, hand it to a background job " +
+  'now with send { action: "background" }, putting what you found so far in the brief; otherwise answer now.)';
+/** What they're texted when a job starts: at once, by the gateway, not another model round. */
+export function ackLine(title) {
+  return `On it: ${line(title, MAX_TITLE)}. I'll text you when it's done.\n[card threads]`;
+}
+
 const text = (words, isError = false) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
 
 /**
@@ -247,9 +271,10 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number }} options
  */
-export function backgroundSession({ running, job, now }) {
+export function backgroundSession({ running, job, now, report = false }) {
   if (running === null) return null;
   const started = [];
+  let justStarted = null; // the title of the job the last call started, read once by `endsTurn`
   const busy = () => running.filter((entry) => entry.state === "running").length + started.length;
   const call = async (args) => {
     const title = line(args?.title, MAX_TITLE);
@@ -272,6 +297,7 @@ export function backgroundSession({ running, job, now }) {
       );
     }
     started.push({ title, brief, doneWhen: line(args?.done_when, MAX_STATUS), startedAt: now });
+    justStarted = title;
     return text(
       `Started in the background as "${title}". Tell them in one short line that you're on it and will text the result, ` +
         "with [card threads] on its own line so they can watch it; don't do the work in this turn.",
@@ -320,11 +346,28 @@ export function backgroundSession({ running, job, now }) {
             'args: { title } }; "stop it" or "cancel that" is the same with stop: true. Asked what a job is doing, answer from its recent steps.'
           : "")
       : "") +
-    (job === null
-      ? '\n\nA long ask (research across many sources, a multi-step task on a site) goes to a background job (send { action: "background" }), so you can take their next text while it runs.'
-      : "");
+    (job === null ? JOB_FIRST : "");
+  let nudged = false;
   return {
     tools: job === null ? [TOOL, ...(live.length > 0 ? [STEER_TOOL] : [])] : [],
+    /** A job that started settles the turn: the fixed line goes out, with no model round after (`turn.js` `endsTurn`). */
+    endsTurn:
+      job === null
+        ? (name) => {
+            const title = name === START_JOB_TOOL ? justStarted : null;
+            justStarted = null;
+            return title === null ? null : ackLine(title);
+          }
+        : null,
+    /** Still working after a round of tools with no job started: told once to hand the rest to one (`turn.js` `roundNote`). */
+    roundNote:
+      job === null && !report
+        ? (round, elapsedMs) => {
+            if (nudged || started.length > 0 || (round < 2 && elapsedMs < SLOW_TURN_MS)) return null;
+            nudged = true;
+            return SLOW_TURN_NOTE;
+          }
+        : null,
     call,
     steer,
     prompt,

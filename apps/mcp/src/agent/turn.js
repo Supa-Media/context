@@ -297,6 +297,8 @@ export async function runTurn(options) {
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
+    endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
+    roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
@@ -451,6 +453,8 @@ export async function runTurn(options) {
   for (let round = 0; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds);
     if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
+    const jobNudge = typeof roundNote === "function" ? roundNote(round, clock() - began) : null;
+    if (typeof jobNudge === "string" && jobNudge !== "") messages.push({ role: "user", text: jobNudge });
     if (plan !== null) {
       const next = modelForRound(plan, round, escalate);
       if (next.model !== model) {
@@ -649,6 +653,11 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
+      // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
+      const settled = typeof endsTurn === "function" && result?.isError !== true ? endsTurn(call.name, call.args) : null;
+      if (typeof settled === "string" && settled !== "") {
+        return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name };
+      }
     }
     if (steer !== null && typeof steer.cancelled === "function" && steer.wrote !== true && (await steer.cancelled())) return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true }; // the Worker cancelled it (`steer.js`)
     const steered = steer === null ? null : await steer.next();

@@ -294,7 +294,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
   const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
@@ -512,7 +512,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      answerCheck: claims?.check ?? null,
+      answerCheck: claims?.check ?? null, endsTurn: background?.endsTurn ?? null, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`)
       callTool: (steer?.track ?? ((call) => call))(withVaultWatch(ledger, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
           attachments,
