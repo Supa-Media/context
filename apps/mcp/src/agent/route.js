@@ -611,7 +611,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     // A flattering opener ("You're so right!") comes off first (`pushback.js`).
     const { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(!runner && isEmptyAnswer(turn.answer) ? EMPTY_FALLBACK : withoutFlattery(turn.answer));
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
-    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null });
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, defer: front ? afterAnswer : null });
     const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
     const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something
     /*
