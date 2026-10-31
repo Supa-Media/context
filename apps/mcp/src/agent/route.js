@@ -479,7 +479,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         question,
         quoted: quoted.words,
         attachments: fresh, // what came with this text, never a file shown again
-        routine: runner ? routine.path : null,
+        routine: runner ? routine.path : null, live: !front || runner || job !== null, // a front-door text writes its part once, after the reply (`transcript.js`)
       })
     : null;
 

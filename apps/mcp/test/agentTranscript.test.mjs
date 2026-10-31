@@ -114,6 +114,23 @@ test("a turn is in the note before it is answered, then whole after", async () =
   assert.doesNotMatch(body, /working_/);
 });
 
+test("not live (a front-door text), nothing is read or written until finish, then the whole turn once", async () => {
+  const store = fakeNotes();
+  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "hi Tex", live: false });
+  t.record({ kind: "thinking", text: "A greeting." });
+  t.record({ kind: "tool", name: "read_note", args: { path: "todo.md" }, ok: true, ms: 120 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(store.calls, [], "the reply is not held up by the transcript");
+  await t.finish({ answer: "Hey." });
+  assert.equal(store.calls.filter(([name]) => name === "write_note").length, 1, "one write, after the answer");
+  const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
+  assert.match(body, /\*\*Them:\*\* hi Tex/);
+  assert.match(body, /> 💭 A greeting\./);
+  assert.match(body, /\*\*Tex:\*\* Hey\./);
+  assert.doesNotMatch(body, /working_/);
+});
+
 test("an inline reply shows the message it answers above the person's words", async () => {
   const store = fakeNotes();
   const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "try again", quoted: "The Oct 30 price isn't in your notes." });

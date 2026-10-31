@@ -290,8 +290,13 @@ function writtenEtag(result) {
  * @param {object[]} [options.attachments] what they sent, as `attachments.js` reads it (voice messages heard)
  * @param {string|null} [options.routine] the routine's path, when this is one's run
  * @param {() => number} [options.clock]
+ * @param {boolean} [options.live] write as the turn goes (the default); false
+ *   writes the whole part once, at `finish`, after the reply has gone: a
+ *   front-door text (Dev2, 2026-10-31: replies "should take less than 5
+ *   seconds"), where each live write re-read and rewrote the day's note
+ *   through the dispatcher beside the model, on the turn's own connections.
  */
-export function openTranscript(callTool, { now, timeZone, question, quoted: repliedTo = "", attachments = [], routine = null, clock: tick = Date.now }) {
+export function openTranscript(callTool, { now, timeZone, question, quoted: repliedTo = "", attachments = [], routine = null, clock: tick = Date.now, live = true }) {
   const id = `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const events = [];
   let ending = null;
@@ -409,15 +414,15 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
     if (running === null) running = drain();
   }
 
-  // The text is in the note before the model has said a word.
-  schedule();
+  // Live, the text is in the note before the model has said a word; otherwise all of it goes at `finish`.
+  if (live) schedule();
 
   return {
     id,
     record(event) {
       if (ending || !event || typeof event !== "object") return;
       events.push({ ...event, at: tick() });
-      schedule();
+      if (live) schedule();
     },
     async finish({ answer = "", outcome = "answered" } = {}) {
       if (ending) return;
@@ -435,6 +440,7 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
      * will have, its hash.
      */
     async kept() {
+      if (!live && state === null && running === null) schedule(); // asked before `finish`: open now, rather than wait on a write never started
       await ready;
       if (!state) return [];
       return sent.items
