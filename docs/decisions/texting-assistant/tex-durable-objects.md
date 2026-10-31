@@ -56,11 +56,34 @@ did.
 
 ## Wiped with what owns them
 
-A person's object is wiped when their account is deleted or their phone is
-unlinked from Tex; a group chat's when the chat ends or its last person
-leaves. Cloudflare encrypts Durable Object storage at rest. The object
-decides no access: the gateway has already checked who is asking before it
-calls.
+A person's object is wiped when their personal workspace is deleted with
+their account; a group chat's when the chat ends. Unlinking a phone does not
+wipe anything: the notes are rows in the person's own workspace, still read,
+searched and exported like any note, and an unlink is texted from the phone,
+so whoever holds the number could send it. Cloudflare encrypts Durable Object
+storage at rest. The object decides no access: the gateway has already
+checked who is asking before it calls.
+
+As built (`functions/texStoreWipe.ts`): the account deletion wipes the
+person's object (`wipeWorkspace`, through `wipeOwner`), and `wipeOwner` can
+wipe a group chat's object, retried with backoff. Nothing ends a Tex group
+chat today ("Tex, stop" only mutes it), so nothing calls `wipeOwner` for a
+chat yet; it is called when that event exists.
+
+## Notes Tex already had
+
+Tex's notes written before the move still sat in the bucket. A one-time job
+(`functions/texMigration.ts`, run by hand from the `Tex notes into their
+objects` workflow, dry run first) moves each live keyed row under the
+person's Tex folder that is still keyed at its bucket id key. In order: the
+body is copied to the person's object at the same id key, read back and
+compared, the row's key is switched to the Tex form under a compare-and-swap
+on the row's version, and only then is the bucket copy deleted. A crash
+before the switch leaves the bucket copy authoritative. A bucket copy left
+by a crash after the switch is removed on a later run, and only once the
+object holds the note.
+
+Not moved: a group chat's home in `@context-lc`, which is a separate change.
 
 ## Cost of reversing it
 
