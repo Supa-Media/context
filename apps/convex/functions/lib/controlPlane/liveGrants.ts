@@ -14,13 +14,14 @@ import { TOKEN_HASH_PATTERN } from "../crypto";
 import { grantedNamesFor } from "../grantedNames";
 import { getMembership } from "../workspaceAuth";
 import { pinnedContextRow } from "../pinnedContext";
-import { pinReaderNames } from "../pinnedReaders";
+import { guestNamesIn, pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 import { phoneSignInPaused } from "../emailProof";
 import { guestBinder, mayOpenToGuests } from "../textGroupGuests";
 import { invitationsStillCount } from "../textGroupInvited";
-import { chatNamesOf } from "../nodes/chatFolders";
+import { READS_AS_CHAT_NAME, chatNamesOf } from "../nodes/chatFolders";
+import { chatHomeOf } from "../textGroupHome";
 import { accessRowsOf } from "../nodes/accessRows";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -195,6 +196,7 @@ export async function contextsForGrant(
     kind: "personal" | "shared";
     grantedNames?: string[];
     setupOnly?: true;
+    chatHome?: string;
   }>
 > {
   const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
@@ -296,10 +298,22 @@ export async function contextsForGrant(
  * The pin for a group chat's grant, as a row the gateway may open only to read
  * Tex's setup, or nothing: no pin on this deployment, or the chat's own
  * workspace is the pin (then the setup is read there already).
+ *
+ * A chat with a home there (`lib/textGroupHome.ts`) holds its row's token to
+ * edit beside the names every pin reader holds, read as a chat reads
+ * (`READS_AS_CHAT`, `lib/nodes/chatFolders.ts`): the home is the one row it
+ * holds to edit, so the gateway's chat-home session (`sessionForChatHome`)
+ * may change that folder and only read the rest. `chatHome` names the folder.
  */
 async function groupSetupRow(ctx: QueryCtx, live: LiveGrant, own: Id<"workspaces">) {
   const pinned = await pinnedContextRow(ctx, new Set([own]));
   if (pinned === null) return [];
+  const home = live.grant.texGroup === undefined ? null : await chatHomeOf(ctx, live.grant.texGroup.groupId);
+  if (home !== null && home.workspaceId === pinned.workspaceId) {
+    const token = `#${home.noteId}`;
+    const names = [...new Set([...(await guestNamesIn(ctx, pinned.workspaceId)), READS_AS_CHAT_NAME, token, `${token}!edit`])];
+    return [{ ...pinned, role: "editor", grantedNames: names, chatHome: home.folder, setupOnly: true as const }];
+  }
   const names = (await pinReaderNames(ctx, pinned.workspaceId, live.grant.userId)) ?? [];
   return [{ ...pinned, ...(names.length === 0 ? {} : { grantedNames: names }), setupOnly: true as const }];
 }
