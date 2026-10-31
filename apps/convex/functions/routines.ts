@@ -6,7 +6,7 @@
  */
 
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, mutation, query } from "../_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import {
   myTimeZoneHandler,
   routineForNoteHandler,
@@ -23,6 +23,7 @@ import {
   takeRoutineWritersHandler,
 } from "./lib/routines/sync";
 import { claimDueRoutinesHandler, recordRoutineResultHandler } from "./lib/routines/runs";
+import { homeRoutineFolders as homeRoutineFoldersOf } from "./lib/routines/homes";
 
 const cadenceValidator = v.object({
   unit: v.union(
@@ -65,6 +66,12 @@ export const recordRoutineSignal = internalMutation({
   },
   returns: v.null(),
   handler: recordRoutineSignalHandler,
+});
+
+/** Each chat home's routines folder in the pin, with the row token that lists it (`lib/routines/homes.ts`). */
+export const homeRoutineFolders = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: (ctx, args) => homeRoutineFoldersOf(ctx, args.workspaceId),
 });
 
 export const takeRoutineWriters = internalMutation({

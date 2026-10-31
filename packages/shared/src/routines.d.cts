@@ -55,7 +55,9 @@ export const DEFAULT_AT: Readonly<ClockTime>;
 
 export function cadenceFromFolder(folder: string): RoutineCadence | null;
 export function routineFromPath(path: string): RoutinePath | null;
-export function routineRootOf(path: string): RoutineRoot | null;
+/** A built-in root, or a chat home's (`tex/groups/<words>/routines/`). */
+export function routineRootOf(path: string): RoutineRoot | `tex/groups/${string}/routines/` | null;
+export function homeRoutineWords(path: unknown): string | null;
 export function isRoutinePath(path: unknown): boolean;
 export function frontMatter(text: string): Record<string, string>;
 export function parseTime(value: string): ClockTime | null;

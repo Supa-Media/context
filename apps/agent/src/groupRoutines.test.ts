@@ -72,6 +72,12 @@ async function run(w: World, answers: { control?: unknown; answer?: string } = {
 }
 
 describe("a chat routine's run", () => {
+  it("names the pin for a routine in the chat's home, and nothing for one in a workspace", () => {
+    const home = chatRoutineMessage({ ...RUN, path: "tex/groups/orbit-lamp-river/routines/daily/standup.md" });
+    expect(home.text).toContain('tex/groups/orbit-lamp-river/routines/daily/standup.md (context: "@context-lc")');
+    expect(chatRoutineMessage({ ...RUN, path: "tex/routines/daily/standup.md" }).text).not.toContain("context:");
+  });
+
   it("a check-in posts one bubble and no card, however long the model's answer", async () => {
     const w = world();
     const storage = new MemoryStorage();

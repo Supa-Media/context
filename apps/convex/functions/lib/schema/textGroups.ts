@@ -76,7 +76,8 @@ export const textGroupTables = {
     .index("by_key", ["groupKey"])
     .index("by_workspace", ["workspaceId"])
     .index("by_nextLookAt", ["nextLookAt"])
-    .index("by_look_run", ["lookRunId"]),
+    .index("by_look_run", ["lookRunId"])
+    .index("by_home", ["homeWords"]),
   /**
    * A mailbox its owner shares with one chat (`lib/textGroupMail.ts`, decided by
    * the owner, 2026-10-27; `docs/decisions/texting-assistant/chat-mail.md`):

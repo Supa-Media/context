@@ -5,11 +5,18 @@
  * its home there and nowhere else (`agent/chatHome.js`). Each answers
  * `{ session, store }`, and is attached only when the grant carries it.
  */
+import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { sessionForChatHome, sessionForSetup } from "../session.js";
 
-export function attachPinnedDoors(store, session, openStore) {
+export function attachPinnedDoors(store, session, openStore, controlPlane = null) {
   const setupSession = sessionForSetup(session);
   if (setupSession !== null) store.openPinnedSetup = async () => ({ session: setupSession, store: await openStore(setupSession) });
   const homeSession = sessionForChatHome(session);
-  if (homeSession !== null) store.openChatHome = async () => ({ session: homeSession, store: await openStore(homeSession) });
+  if (homeSession === null) return;
+  store.openChatHome = async () => {
+    const opened = await openStore(homeSession);
+    // A home's writes report as any write in the pin does: its tree, its activity, and its routines (`lib/routines/homes.ts`).
+    if (controlPlane !== null) attachChangeReporters(opened, homeSession.workspaceId, controlPlane);
+    return { session: homeSession, store: opened };
+  };
 }

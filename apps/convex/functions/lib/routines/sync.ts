@@ -30,7 +30,8 @@ import {
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
-import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner, writingRole } from "./access";
+import { accountTimeZone, runsRoutine, userForActorName, workspaceOwner, writesRoutine } from "./access";
+import { MAX_ROUTINES_PER_HOME, homeOfRoutine, homeRoutineChatId } from "./homes";
 import { PROPS_AT_PATHS } from "../nodes/facts";
 import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
@@ -69,9 +70,12 @@ export async function recordRoutineSignalHandler(
   let writer: Id<"users"> | null = null;
   if (args.userId !== undefined) writer = ctx.db.normalizeId("users", args.userId);
   else if (args.actorName !== undefined) writer = await userForActorName(ctx, args.actorName);
-  if (writer !== null && (await writingRole(ctx, workspaceId, writer)) === null) writer = null;
 
-  const writers = writer === null ? [] : paths.map((path) => ({ path, userId: writer }));
+  // Asked per path: a chat's home routine is written by somebody in that chat, not by the pin's roles (`homes.ts`).
+  const writers: Writer[] = [];
+  if (writer !== null) {
+    for (const path of paths) if (await writesRoutine(ctx, workspaceId, path, writer)) writers.push({ path, userId: writer });
+  }
   await scheduleReconcile(ctx, workspaceId, writers);
   return null;
 }
@@ -172,10 +176,10 @@ export async function scanRoutines(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<RoutineScan> {
-  const list = async (path: string) => {
+  const list = async (path: string, clearance: { scope: "private" | "team"; grantedNames: string[] } = OWNER_CLEARANCE) => {
     const listing = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId,
-      ...OWNER_CLEARANCE,
+      ...clearance,
       operation: { kind: "list", path },
     });
     if (listing.kind !== "listing") throw new Error("routine listing returned an invalid result");
@@ -199,6 +203,28 @@ export async function scanRoutines(
       if (files.length > MAX_ROUTINES_PER_WORKSPACE) {
         complete = false;
         break scan;
+      }
+    }
+  }
+
+  // Each chat's home in the pin, at its own row's clearance: the seal opens a home to no role (`homes.ts`).
+  const homes = await ctx.runQuery(internal.functions.routines.homeRoutineFolders, { workspaceId });
+  if (!homes.complete) complete = false;
+  for (const home of homes.folders) {
+    if (files.length > MAX_ROUTINES_PER_WORKSPACE) break;
+    const clearance = { scope: "team" as const, grantedNames: home.grantedNames };
+    const root = await list(there(home.path), clearance);
+    if (root.truncated) complete = false;
+    let kept = 0;
+    for (const folder of root.entries) {
+      if (folder.kind !== "folder") continue;
+      const inner = await list(folder.path, clearance);
+      if (inner.truncated) complete = false;
+      for (const entry of inner.entries) {
+        if (entry.kind !== "file" || !/\.md$/i.test(entry.path)) continue;
+        if (kept >= MAX_ROUTINES_PER_HOME) break;
+        files.push(entry.path);
+        kept += 1;
       }
     }
   }
@@ -251,8 +277,17 @@ export async function commitRoutinesHandler(
 ): Promise<{ upserted: number; deleted: number }> {
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return { upserted: 0, deleted: 0 };
+  // A home's routine answers into the home's chat, whatever its `chat:` says, and a home with no chat runs nothing.
+  const homed: RoutineSchedule[] = [];
+  for (const schedule of args.schedules) {
+    if (homeOfRoutine(schedule.path) === null) homed.push(schedule);
+    else {
+      const chat = await homeRoutineChatId(ctx, args.workspaceId, schedule.path);
+      if (chat !== null) homed.push({ ...schedule, chat });
+    }
+  }
   // A shared workspace's routine without a chat never runs; a personal one's `chat:` means nothing.
-  const schedules = args.schedules
+  const schedules = homed
     .filter((schedule) => runsRoutine(workspace, schedule))
     .map((schedule) => (workspace.kind === "personal" ? { ...schedule, chat: undefined, wake: undefined } : schedule));
   const now = Date.now();
@@ -272,12 +307,14 @@ export async function commitRoutinesHandler(
     let writer: Id<"users"> | null = null;
     let writerSource: "signal" | "fallback" = "fallback";
     const fromSignal = signalledWriter(signalled, schedule.path);
-    if (fromSignal !== undefined && (await writingRole(ctx, args.workspaceId, fromSignal)) !== null) {
+    if (fromSignal !== undefined && (await writesRoutine(ctx, args.workspaceId, schedule.path, fromSignal))) {
       writer = fromSignal;
       writerSource = "signal";
     } else if (row !== undefined) {
-      writer = (await writingRole(ctx, args.workspaceId, row.writerUserId)) === null ? null : row.writerUserId;
+      writer = (await writesRoutine(ctx, args.workspaceId, schedule.path, row.writerUserId)) ? row.writerUserId : null;
       writerSource = row.writerSource;
+    } else if (homeOfRoutine(schedule.path) !== null) {
+      continue; // A home's routine nobody in the chat was seen writing: never the pin's owner's.
     } else {
       if (owner === undefined) owner = await workspaceOwner(ctx, args.workspaceId);
       writer = owner;

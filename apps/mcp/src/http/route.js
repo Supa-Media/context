@@ -649,7 +649,7 @@ export async function route(request, env, ctx) {
       };
       store.openPinnedContext = () => store.openContext(PINNED_CONTEXT_NAME);
       // A group chat's turn reads Tex's setup in the pin it may not otherwise address, and keeps its home there.
-      attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, env, controlPlane));
+      attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, env, controlPlane), controlPlane);
 
       store.suggestDestination = (args) =>
         toolSuggestDestination(session, args, (candidate) => store.openContext(candidate));

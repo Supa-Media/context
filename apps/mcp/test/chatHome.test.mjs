@@ -19,6 +19,8 @@
  *   `noteTarget` ignoring `group.home` → "the chat's note is written in its home" fails
  *   `addressHome` call dropped from `noteTarget` → "the turn opens its home once, and from then on @context-lc is the home" fails
  *   `addressHome` matching no name → that test and "@context-lc on a tool call opens the home" fail
+ *   `chatRoutineRefusal` passing any home path → "a chat with a home sets its routines there, and only there" fails
+ *   `textingWrites` refusing every routine with a context → that test fails
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -203,4 +205,36 @@ test("the turn opens its home once, and from then on @context-lc is the home", a
   assert.equal((await store.openContext("@studio")).store, store);
   await readGroupMemory(store, group, recorder().dispatch);
   assert.equal(opened, 1);
+});
+
+test("a chat with a home sets its routines there, and only there", async () => {
+  const { chatRoutinePrompt, chatRoutineRefusal } = await import("../src/agent/groupRoutines.js");
+  const { textingAwareCallTool } = await import("../src/agent/textingWrites.js");
+  const group = { ...GROUP, home: { folder: HOME } };
+  const own = `${HOME}/routines/daily/standup.md`;
+  const body = "---\nat: 8:00 am\n---\nPost what is on today.\n";
+  assert.equal(chatRoutineRefusal(group, "write_note", { path: own, content: body, context: "@context-lc" }), null, "no chat: line needed in the home");
+  assert.match(chatRoutineRefusal(group, "write_note", { path: "tex/groups/other-chat-words/routines/daily/x.md", content: body }), /another chat's folder/);
+  assert.match(chatRoutineRefusal({ ...group, guestTagger: true }, "write_note", { path: own, content: body }), /on Context/);
+  assert.match(chatRoutineRefusal({ ...GROUP }, "write_note", { path: own, content: body }), /another chat's folder/, "a chat with no home has none to write in");
+  // Outside the home, the bound workspace's rule stands.
+  assert.match(chatRoutineRefusal(group, "write_note", { path: "tex/routines/daily/x.md", content: body }), /chat: /);
+  assert.match(chatRoutinePrompt(group), new RegExp(`${HOME}/routines/`));
+  assert.match(chatRoutinePrompt(group), /context: "@context-lc"/);
+  // The texting gate lets a home routine name its context; any other routine still may not.
+  const passed = [];
+  const listed = [];
+  const tools = [{ name: "write_note", inputSchema: { properties: { path: {}, content: {}, context: {} } } }];
+  const dispatch = async (name, args) => {
+    if (name === "list_notes") return (listed.push(args), { content: [{ type: "text", text: `${HOME}/routines/daily/older.md` }] });
+    return (passed.push(args.path), { content: [] });
+  };
+  const call = textingAwareCallTool(dispatch, tools);
+  const wrote = await call("write_note", { path: own, content: body, context: "@context-lc" });
+  // The chat's other routines are looked for in its home, never in the bound workspace.
+  assert.deepEqual(listed, [{ prefix: `${HOME}/routines/`, context: "@context-lc" }]);
+  assert.match(JSON.stringify(wrote.content), /older\.md/);
+  const refused = await call("write_note", { path: "tex/routines/daily/x.md", content: body, context: "@studio" });
+  assert.deepEqual(passed, [own]);
+  assert.equal(refused.isError, true);
 });

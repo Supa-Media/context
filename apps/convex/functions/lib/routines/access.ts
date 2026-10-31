@@ -7,6 +7,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { resolveAddressedUser } from "../identities";
 import { getMembership, type WorkspaceRole } from "../workspaceAuth";
+import { homeOfRoutine, writesHomeRoutine } from "./homes";
 
 /** The roles that may write a note, and so may be a routine's writer. */
 export function isWritingRole(role: WorkspaceRole): boolean {
@@ -43,6 +44,20 @@ export async function workspaceOwner(
   if (creator !== undefined) return creator.userId;
   owners.sort((a, b) => a.joinedAt - b.joinedAt);
   return owners[0]?.userId ?? null;
+}
+
+/**
+ * Whether `userId` may be the writer of the routine at `path` here now: somebody who writes in this workspace, or,
+ * for a chat's routine in its home (`homes.ts`), somebody in that chat. The pin's own roles never write a home's.
+ */
+export async function writesRoutine(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+  userId: Id<"users">,
+): Promise<boolean> {
+  if (homeOfRoutine(path) !== null) return await writesHomeRoutine(ctx, workspaceId, path, userId);
+  return (await writingRole(ctx, workspaceId, userId)) !== null;
 }
 
 /** The time zone a person chose, or null. */

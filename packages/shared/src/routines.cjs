@@ -45,14 +45,30 @@ const ROUTINE_RUNS_PREFIXES = Object.freeze({
   [TEX_ROUTINES_FOLDER]: ".context/agent/tex/routines/",
 });
 
-/** The routine root `path` starts with (`"tex/routines/"` or `"routines/"`), or null. */
+/**
+ * A group chat's own routines, in its home in the pinned workspace:
+ * `tex/groups/<words>/routines/` (decided by the owner, 2026-10-31;
+ * `docs/decisions/texting-assistant/chat-homes.md`). The home says which chat
+ * they answer into, so they need no `chat:` line.
+ */
+const HOME_ROUTINES = /^tex\/groups\/([a-z]+(?:-[a-z]+){1,4})\/routines(?:\/|$)/;
+
+/** The home's words when `path` is in a chat home's routines folder (or is it), else null. */
+function homeRoutineWords(path) {
+  if (typeof path !== "string") return null;
+  const match = HOME_ROUTINES.exec(path.replace(/^\/+/, "").toLowerCase());
+  return match === null ? null : match[1];
+}
+
+/** The routine root `path` starts with (`"tex/routines/"`, `"routines/"` or a chat home's), or null. */
 function routineRootOf(path) {
   if (typeof path !== "string") return null;
   const lower = path.toLowerCase();
   for (const root of ROUTINE_ROOTS) {
     if (lower.slice(0, root.length) === root) return root;
   }
-  return null;
+  const words = homeRoutineWords(lower);
+  return words !== null && lower.startsWith(`tex/groups/${words}/routines/`) ? `tex/groups/${words}/routines/` : null;
 }
 
 /**
@@ -66,7 +82,7 @@ function isRoutinePath(path) {
   if (typeof path !== "string") return false;
   const normalized = path.replace(/^\/+|\/+$/g, "").toLowerCase();
   if (normalized === "") return false;
-  return ROUTINE_ROOTS.some((root) => normalized.startsWith(root) || root.startsWith(`${normalized}/`));
+  return ROUTINE_ROOTS.some((root) => normalized.startsWith(root) || root.startsWith(`${normalized}/`)) || homeRoutineWords(normalized) !== null;
 }
 
 /** When a daily-or-slower routine runs if its file names no time. */
@@ -600,7 +616,7 @@ function describeSchedule(cadence, settings) {
  */
 function routineRunsKey(path) {
   const root = routineRootOf(path) || ROUTINES_FOLDER;
-  return `${ROUTINE_RUNS_PREFIXES[root]}${path.slice(root.length).replace(/\.md$/i, "")}.json`;
+  return `${ROUTINE_RUNS_PREFIXES[root] ?? `.context/agent/${root}`}${path.slice(root.length).replace(/\.md$/i, "")}.json`;
 }
 
 module.exports = {
@@ -614,6 +630,7 @@ module.exports = {
   cadenceFromFolder,
   routineFromPath,
   routineRootOf,
+  homeRoutineWords,
   isRoutinePath,
   frontMatter,
   parseTime,

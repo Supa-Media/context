@@ -78,7 +78,7 @@ export function lastRanWords(since: number | undefined, timeZone: string | undef
 /** What a chat routine's turn is asked: its writer's tag, in words only this Worker writes. */
 export function chatRoutineQuestion(path: string, lastRan: string | null = null): string {
   return (
-    `(It's time for this chat's routine, ${path}. Read that note and do what it says now, for everyone here, ` +
+    `(It's time for this chat's routine, ${path}${path.startsWith("tex/groups/") ? ' (context: "@context-lc")' : ""}. Read that note and do what it says now, for everyone here, ` +
     "as if it had just been asked. " +
     (lastRan === null ? "" : `It last ran ${lastRan}: anything "new" means since then. `) +
     "If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"

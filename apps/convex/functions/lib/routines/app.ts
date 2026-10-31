@@ -9,6 +9,7 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { callerId, personalNameFor } from "../filesFns/access";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
+import { homeOfRoutine } from "./homes";
 import { isTimeZone, scheduleFromNote } from "./model";
 
 export type RoutineView = {
@@ -37,7 +38,8 @@ export async function routineForNoteHandler(
 ): Promise<RoutineView | null> {
   const userId = await callerId(ctx);
   await requireWorkspaceAccess(ctx, args.workspaceId, userId);
-  if (scheduleFromNote(args.path, "") === null) return null;
+  // A chat's home routine is shown on no page of the pin: its roles can't open the home (`homes.ts`).
+  if (scheduleFromNote(args.path, "") === null || homeOfRoutine(args.path) !== null) return null;
   const row = await ctx.db
     .query("routines")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
@@ -66,6 +68,7 @@ export async function runRoutineNowHandler(
 ): Promise<boolean> {
   const userId = await callerId(ctx);
   await requireWorkspaceRole(ctx, args.workspaceId, userId, "editor");
+  if (homeOfRoutine(args.path) !== null) return false;
   const row = await ctx.db
     .query("routines")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))

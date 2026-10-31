@@ -16,7 +16,8 @@
  * binder's grant: the routine would run as the binder.
  */
 
-import { chatRoutineId, frontMatter, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
+import { chatRoutineId, frontMatter, homeRoutineWords, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 
 /** Every path-like argument a routine could be named by. */
 export const routinePaths = (args) =>
@@ -24,7 +25,16 @@ export const routinePaths = (args) =>
 
 /** Why a write to a routine from this chat is refused, or null when it may go. */
 export function chatRoutineRefusal(group, name, args) {
-  if (routinePaths(args).length === 0) return null;
+  const paths = routinePaths(args);
+  if (paths.length === 0) return null;
+  // A routine in a chat's home answers into that chat (`chatHome.js`): only this chat's own, and only by somebody on Context.
+  const homed = paths.filter((path) => homeRoutineWords(path) !== null);
+  if (homed.length > 0) {
+    if (group?.guestTagger) return "Only someone here who is on Context can set a reminder or routine for this chat; ask one of them to.";
+    const home = typeof group?.home?.folder === "string" ? `${group.home.folder}/routines/` : null;
+    if (home === null || homed.some((path) => !path.toLowerCase().startsWith(home))) return "That is another chat's folder: set this chat's routines in its own.";
+    if (homed.length === paths.length) return null;
+  }
   if (group?.guestChat) return "Reminders and routines can't be set from a guest chat: it reads only its own corner of the workspace. Text me on your own for one.";
   if (group?.guestTagger) return "Only someone here who is on Context can set a reminder or routine for this chat; ask one of them to.";
   const id = chatRoutineId(group?.key);
@@ -41,6 +51,15 @@ export function chatRoutineRefusal(group, name, args) {
 
 /** What a group turn is told about routines. */
 export function chatRoutinePrompt(group) {
+  if (typeof group?.home?.folder === "string" && !group.guestTagger) {
+    return (
+      `You can set reminders and routines for this chat. Write one in this chat's own folder at ${group.home.folder}/routines/<how-often>/<name>.md, ` +
+      `with context: "${PINNED_CONTEXT_NAME}" on the call; the lines are a routine's usual ones, and it answers here because it is in this chat's folder. ` +
+      "When it is due it runs as the person who asked for it, and you answer it here for everyone, never in anyone's own texts; it stays quiet when it has nothing to say. " +
+      "Only the people in this chat can see and change it. When someone asks to stop one, archive it yourself at once. " +
+      CHECK_IN_LINE
+    );
+  }
   const id = chatRoutineId(group?.key);
   if (group?.guestChat || id === null) return "You can't set reminders or routines from this chat. ";
   return (
@@ -49,7 +68,10 @@ export function chatRoutinePrompt(group) {
     "When it is due it runs as the person who asked for it, on this workspace's team notes, and you answer it here for everyone, " +
     "never in anyone's own texts; it stays quiet when it has nothing to say. Anyone here can see and change it in the app. " +
     "When someone asks to stop one, archive it yourself at once. " +
-    "You also check in on this chat on your own, a few times a day and soon after mail shared here arrives, posting only what it needs: " +
-    "nobody sets that up, so if asked to keep an eye on things, say you already do. "
+    CHECK_IN_LINE
   );
 }
+
+const CHECK_IN_LINE =
+  "You also check in on this chat on your own, a few times a day and soon after mail shared here arrives, posting only what it needs: " +
+  "nobody sets that up, so if asked to keep an eye on things, say you already do. ";

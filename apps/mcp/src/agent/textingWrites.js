@@ -28,7 +28,8 @@
  * that grow their own reach.
  */
 
-import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
+import { homeRoutineWords, routineFromPath, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
+import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
@@ -160,7 +161,8 @@ function refusalFor(name, args) {
       return "Routines can't run more often than hourly from a text: they would text over and over. Use hourly, with until: for when to stop.";
     }
     // A routine runs as the person who wrote it, in their own context.
-    if (inRoutines && name === "write_note" && args.context !== undefined) {
+    // A group chat's own routine is the exception: it is in the chat's home, reached by name (`groupRoutines.js`).
+    if (inRoutines && name === "write_note" && args.context !== undefined && homeRoutineWords(path) === null) {
       return "Routines are written in their own workspace: leave out context.";
     }
   }
@@ -226,8 +228,11 @@ async function withOtherRoutines(callTool, path, result) {
   if (result?.isError === true) return result;
   try {
     const others = [];
-    for (const prefix of ["tex/routines/", "routines/"]) {
-      const listed = await callTool("list_notes", { prefix });
+    // A chat's home routine is beside the chat's other routines, in its home (`groupRoutines.js`).
+    const home = homeRoutineWords(path) === null ? null : routineRootOf(path);
+    const lists = home === null ? [{ prefix: "tex/routines/" }, { prefix: "routines/" }] : [{ prefix: home, context: PINNED_CONTEXT_NAME }];
+    for (const where of lists) {
+      const listed = await callTool("list_notes", where);
       const text = listed?.isError === true ? "" : String(listed?.content?.[0]?.text ?? "");
       for (const line of text.split("\n")) {
         const key = line.replace(/\s+\(\d+ bytes\)$/, "").trim();
