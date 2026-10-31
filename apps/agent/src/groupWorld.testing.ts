@@ -36,9 +36,12 @@ export function setup(
     cancelled?: boolean;
     /** Decide waits for this before it answers (a slow decide). */
     decideWait?: () => Promise<void>;
+    /** What `/agent-texts/recheck` answers (`groupRecheck.ts`); absent, the draft fits. */
+    recheck?: (body: Record<string, unknown>) => unknown;
   } = {},
 ) {
   const decided: Decide[] = [];
+  const rechecks: Record<string, unknown>[] = [];
   const asks: Record<string, unknown>[] = [];
   const control: Record<string, unknown>[] = [];
   const engagement: Record<string, unknown>[] = [];
@@ -91,6 +94,10 @@ export function setup(
       decided.push(body);
       await opts.decideWait?.();
       return Response.json((opts.decide ?? answerAll)(body));
+    }
+    if (path === "/agent-texts/recheck") {
+      rechecks.push(body);
+      return Response.json(opts.recheck?.(body) ?? { ok: true, fits: true });
     }
     if (path === "/agent-texts/group/people") {
       people.push(body);
@@ -179,7 +186,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, asks, control, engagement, styles, sharing, people, events, steers, cancels, stale, texts, reactions, release, running, message };
+  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, people, events, steers, cancels, stale, texts, reactions, release, running, message };
 }
 
 /** The words of each candidate decide was shown at the drain (not mid-turn). */

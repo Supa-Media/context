@@ -83,6 +83,30 @@ workspace per day). Typed questions only. Returns:
 `ok:false` means the Worker falls back: groups answer only when addressed
 (today's `addressesTex`), 1:1 always answers.
 
+## 3b. Convex: `POST /agent-texts/recheck`
+
+A group answer's last look before it sends (2026-10-30). Same auth and the
+same body as section 3, for a group only, without `running` and
+`waitingAsks`, plus:
+
+```ts
+{ draft: string;     // Tex's unsent reply, <= 4,000 chars (cut, not refused)
+  draftFor: string } // the event id it answers: a candidate before `newest`
+```
+
+`newest` is the asker's newest message since the turn started. One `noul`
+question through `withJev(ctx, { feature: "textDecide", workspaceId }, …)`,
+the draft in the state beside the transcript. Returns:
+
+```ts
+{ ok: true; fits: boolean; confidence: number }   // fits: noul >= 0.5
+| { ok: false; reason: "capped" | "off" | "unavailable"; cause: string }
+```
+
+`fits: false` → the Worker sends nothing of the turn, withdraws its asks and
+answers the old ask with the newer words in one new turn; anything else sends.
+Neither the draft nor the transcript is returned, stored or logged.
+
 ## 4. Worker
 
 - Every inbound message → an `Event`, buffered, then `POST /agent/events`.
@@ -92,6 +116,8 @@ workspace per day). Typed questions only. Returns:
   Tex speaks until decide returns `movedOn: true` or 20 texts; `helpful` every
   text. 1:1 chats use `style: "direct"`: every text is decided, and `silent`
   is only allowed for a pure acknowledgement (a tapback, "ok", "thanks").
+- A group message addressed to Tex is never put to decide: it is answered
+  (code's floor), with what joined it. Decide reads only untagged messages.
 - `answer` → `/agent` with `covers`; `react` → a tapback; `silent` → nothing.
 - A text while a turn runs → decide with `running: true`: `fold` → today's
   steer injection (any kind of message now); `queue` → held, answered next;

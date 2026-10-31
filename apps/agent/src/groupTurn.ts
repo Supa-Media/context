@@ -50,6 +50,8 @@ export type GroupPending = {
   joins?: true;
   /** How many times in a row decide said `wait` on it: a burst still being typed (`WAIT_MS`, `MAX_WAITS`). */
   waits?: number;
+  /** A turn's draft for it was held by `recheckDraft` once already: the next answer is sent. */
+  rechecked?: true;
 };
 export type GroupEntry = [string, GroupPending];
 export const groupPendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
@@ -139,39 +141,54 @@ function withJoins(burst: GroupEntry[], head: GroupEntry): GroupEntry[] {
  * What the next turn answers out of `burst` (waiting messages, none code's,
  * oldest first). A message addressed to Tex (its name, a reply to Tex) is
  * always answered, with what joined it: code's floor, whatever decide says
- * (Dev2's review, 2026-10-27). Decide chooses only whether untagged messages
- * are answered, and which of them an answer covers. Decide down: the oldest
- * addressed one with what joined it; with none, an untagged question that
- * reached decide (its style reads it) is answered, so a follow-up is never
- * dropped silently; other untagged ones become chat lines.
+ * (Dev2's review, 2026-10-27), so a burst holding one is chosen by code
+ * alone (`addressedTurn`), never waiting on decide. Decide chooses only for
+ * a burst of untagged messages: whether they are answered, and which of
+ * them an answer covers. Decide down: an untagged question that reached
+ * decide (its style reads it) is answered, so a follow-up is never dropped
+ * silently; other untagged ones become chat lines.
  */
 export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {
+  // Addressed: answered whatever decide says, so decide is not waited on (up to GROUP_DECIDE_MS) first.
+  const named = addressedTurn(burst);
+  if (named !== null) return named;
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   if (ids.length === 0) console.log(JSON.stringify({ event: "group_decide", outcome: "unavailable", reason: "no_events" }));
   const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false);
+  // Nothing here is addressed (`addressedTurn` took those): every message is one decide reads.
   if (!decision.ok) {
-    const first = burst.findIndex((entry) => !soft(entry));
     const question = decideDownAnswer(burst.map(([, item]) => item));
-    if (first === -1 && question !== -1) return { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
-    return first === -1 ? { answer: [], chat: burst, drop: [] } : { answer: withJoins(burst, burst[first]), chat: burst.slice(0, first), drop: [] };
+    return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
   }
-  const floor = new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)));
-  // Wait never delays an addressed message (the floor is answered now); after MAX_WAITS in a row it is an answer.
-  const waited = Math.max(0, ...burst.filter((entry) => !floor.has(entry)).map((entry) => entry[1].waits ?? 0));
-  const act = decision.act === "wait" && !honoursWait(burst.filter((entry) => !floor.has(entry)).map(([, item]) => item), waited) ? "answer" : decision.act;
-  if (act === "wait") return { answer: burst.filter((entry) => floor.has(entry)), chat: [], drop: [], wait: burst.filter((entry) => !floor.has(entry)) };
-  // No tapback on a message about to be answered: its answer gets one of its own (`answerGroup`).
-  const react = act === "react" && !floor.has(burst.at(-1)!) ? { react: burst.at(-1)![1].message, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
-  if (act !== "answer") {
-    return { answer: burst.filter((entry) => floor.has(entry)), chat: burst.filter((entry) => !floor.has(entry)), drop: [], ...react };
-  }
-  const covered = (entry: GroupEntry) => floor.has(entry) || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
-  const chosen = burst.filter(covered);
+  // After MAX_WAITS in a row a wait is an answer.
+  const waited = Math.max(0, ...burst.map((entry) => entry[1].waits ?? 0));
+  const act = decision.act === "wait" && !honoursWait(burst.map(([, item]) => item), waited) ? "answer" : decision.act;
+  if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst };
+  const react = act === "react" ? { react: burst.at(-1)![1].message, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  if (act !== "answer") return { answer: [], chat: burst, drop: [], ...react };
+  const chosen = burst.filter((entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   const answer = chosen.length > 0 ? chosen : [burst.at(-1)!];
   const last = burst.indexOf(answer.at(-1)!);
-  // Left out before the answer: chat (every addressed one is in the floor).
-  const before = burst.slice(0, last).filter((entry) => !answer.includes(entry));
-  return { answer, chat: before.filter(soft), drop: [] };
+  // Left out before the answer: chat.
+  return { answer, chat: burst.slice(0, last).filter((entry) => !answer.includes(entry)), drop: [] };
+}
+
+/**
+ * A burst holding a message addressed to Tex, chosen without decide (the
+ * group review of 2026-10-30: a named message waited up to 15s on a decide
+ * whose answer could not change that it is answered). Every addressed
+ * message is answered with what joined it (`ownTurn` then keeps the first
+ * one's sender's). That sender's own untagged lines before it are chat, so
+ * the turn reads them; anybody else's untagged line, and any after it, stays
+ * waiting, decided on the next pass as decide would have had it, for its own
+ * sender. Null when nothing is addressed.
+ */
+export function addressedTurn(burst: GroupEntry[]): GroupChoice | null {
+  const first = burst.findIndex((entry) => !soft(entry));
+  if (first === -1) return null;
+  const answer = [...new Set(burst.filter((entry) => !soft(entry)).flatMap((entry) => withJoins(burst, entry)))];
+  const asker = burst[first][1].message.from;
+  return { answer, chat: burst.slice(0, first).filter((entry) => entry[1].message.from === asker), drop: [] };
 }
 
 /** Several messages as the one a turn answers: words in order, files first-sent first, the newest's sender and place. */

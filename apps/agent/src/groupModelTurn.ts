@@ -21,6 +21,7 @@ import { chatJobs, startJobs, steerJobs, threadsLines } from "./jobs";
 import { addEvent, kindOf, logAsk } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
+import { recheckDraft } from "./groupRecheck";
 import type { GroupPending } from "./groupTurn";
 import { texSpoke } from "./groupStyle";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
@@ -30,6 +31,8 @@ export type TurnInput = {
   /** The messages it answers, one by one. */
   covered: GroupMessage[];
   acceptedAt: number;
+  /** When the newest message it answers came in: the asker's words after it are what `recheckDraft` reads. */
+  upTo: number;
   arrivedAt: number; // when the first message it answers came in, for the turn log's wait (`apps/mcp/src/agent/turnLog.js`)
   covers: string[];
   people: string[];
@@ -38,7 +41,7 @@ export type TurnInput = {
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(deps, message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const guest = asked.guest;
@@ -123,6 +126,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  // Still what its asker wants? Their newer words, not folded in, may have changed it: held, it ends as a restart does.
+  if (!routine && !message.jobReport && message.reaction === undefined && (await recheckDraft(storage, deps, { message, covers, upTo, text: answer.text })) === "held") {
+    if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
+    return "cancelled";
+  }
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the one person it asks: the

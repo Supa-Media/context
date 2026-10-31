@@ -55,6 +55,8 @@ const unavailable = (cause: string, ms: number) => ({ ok: false, reason: "unavai
 export const MAX_CANDIDATES = 32;
 export const MAX_WAITING_ASKS = 8;
 export const MAX_TRANSCRIPT = 24_000;
+/** The unsent reply a recheck reads (Convex `MAX_DRAFT`). */
+export const MAX_DRAFT = 4_000;
 /** Decide on a text that came in while a turn runs is on the webhook's path: it waits no longer than a steer does. */
 export const RUNNING_DECIDE_MS = 5_000;
 /** Decide on what is waiting, with the person watching the typing bubble: slower than this, the fallback answers. */
@@ -108,6 +110,24 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
     ...(json.act === "react" && typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
   };
+}
+
+/** Whether a group answer still answers its asker (`groupRecheck.ts`): `fits` false holds it; anything unclear sends it, as before. */
+export type Recheck = { ok: true; fits: boolean } | { ok: false; cause: string };
+
+/** `POST /agent-texts/recheck` (CONTRACT.md section 3b): decide's body for a group, plus the unsent reply and the message it answers. */
+export async function recheck(deps: ControlDeps, ask: Omit<DecideAsk, "running" | "waitingAsks">, draft: string, draftFor: string, timeoutMs = RUNNING_DECIDE_MS): Promise<Recheck> {
+  const body = { ...ask, candidates: ask.candidates.slice(-MAX_CANDIDATES), transcript: ask.transcript.slice(-MAX_TRANSCRIPT), draft: draft.slice(0, MAX_DRAFT), draftFor };
+  let reply: { status: number; json: unknown };
+  try {
+    reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/recheck`, deps.workerSecret, body, timeoutMs);
+  } catch {
+    return { ok: false, cause: "unreachable" };
+  }
+  if (reply.status !== 200) return { ok: false, cause: `http_${reply.status}` };
+  const json = record(reply.json);
+  if (json.ok !== true || typeof json.fits !== "boolean") return { ok: false, cause: typeof json.cause === "string" ? json.cause.replace(/[^\w-]/g, "").slice(0, 40) || "unknown" : "bad_answer" };
+  return { ok: true, fits: json.fits };
 }
 
 /**

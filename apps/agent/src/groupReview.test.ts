@@ -150,7 +150,7 @@ for (const { name, groupId } of LINES) {
       const storage = new MemoryStorage();
       const w = setup(groupId, {
         control: { engagement: "helpful", engagementChosen: true },
-        decide: (body) => (w.decided.length === 1 ? answerAll(body) : { ...silent(), stale: body.waitingAsks } as Answer),
+        decide: (body) => ({ ...silent(), stale: body.waitingAsks }) as Answer,
         agent: (body) =>
           String(body.question).startsWith("Tex draft")
             ? { answer: "Here's the email. Give it a 👍 and I'll send it.", verbatim: ["Give it a 👍 and I'll send it."], askIds: [ASK_ID] }
@@ -160,11 +160,11 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("nah forget it", { from: BO }), 10);
       await drainGroup(storage, w.deps);
-      expect(w.decided[1].waitingAsks).toEqual([]);
+      expect(w.decided[0].waitingAsks).toEqual([]);
       // Ada's own words are shown her ask.
       await acceptGroup(storage, w.message("actually wait"), 20);
       await drainGroup(storage, w.deps);
-      expect(w.decided[2].waitingAsks).toHaveLength(1);
+      expect(w.decided[1].waitingAsks).toHaveLength(1);
       // Owed now, and disarmed only with Ada's own session, the next time she tags Tex.
       await acceptGroup(storage, w.message("Tex what's on tonight", { from: BO }), 30);
       await drainGroup(storage, w.deps);
@@ -192,10 +192,10 @@ for (const { name, groupId } of LINES) {
       expect(v.asks.map((ask) => ask.question)).toEqual(["Tex check this link"]);
     });
 
-    it("the Seyi/Jhon burst: Jhon's untagged complaint decided with Seyi's ask gets its own decide, and silent means one answer", async () => {
+    it("the Seyi/Jhon burst: Jhon's untagged complaint after Seyi's ask gets its own decide, and silent means one answer", async () => {
       const storage = new MemoryStorage();
-      const idle = (w: { decided: { running: boolean }[] }) => w.decided.filter((body) => !body.running).length;
-      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: (body) => (idle(w) <= 2 ? answerAll(body) : silent()) });
+      // Tags are never put to decide: Seyi's is answered at once, and Jhon's complaint, after it, is decided on its own.
+      const w = setup(groupId, { control: { engagement: "helpful", engagementChosen: true }, decide: silent });
       await acceptGroup(storage, w.message("Tex hi"), 0);
       await drainGroup(storage, w.deps);
       await acceptGroup(storage, w.message("Tex make the poster"), 10);
@@ -221,6 +221,9 @@ for (const { name, groupId } of LINES) {
       const answer = events.find((event) => event.text === "answer to Tex hi")!;
       expect(second.people).toBe(members);
       expect(answer.people).toBe(members);
+      // A tag is never put to decide: an untagged line after it is, and decide reads Tex's answer in the transcript.
+      await acceptGroup(storage, w.message("nice"), 20);
+      await drainGroup(storage, w.deps);
       expect(w.decided.at(-1)!.transcript).toContain("answer to Tex hi");
     });
 

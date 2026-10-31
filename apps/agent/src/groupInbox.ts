@@ -74,7 +74,8 @@ import { reactionFor } from "./reactEmoji";
 import { runningTurn } from "./steer";
 import { chooseGroupTurn, WAIT_MS, coversOf, groupPendingKey as pendingKey, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { chooseStyle } from "./groupChoose";
-import { handedTurnWaits, handOff } from "./groupTurnRun";
+import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurnRun";
+import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
 
@@ -361,8 +362,10 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     await storage.put<Pending>(pendingKey(seq), { ...unanswered, attempts: 0, byCode: true, styleAsked: true });
   }
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
-    // One turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`).
-    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) return;
+    // One model turn at a time: while a workflow answers one, the rest wait for it (`groupTurnRun.ts`); a fixed line goes now (`groupBeside.ts`).
+    if (deps.startTurn !== undefined && (await handedTurnWaits(storage, deps))) {
+      return void (await answerBesideTurn(storage, deps, (await storage.get<HandedTurn>(TURN_KEY))?.keys ?? [], await openChoice(storage, deps.now())));
+    }
     const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))];
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
@@ -522,7 +525,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   }
   const covered = entries.map(([, entry]) => entry.message);
   const contextUntil = Math.max(acceptedAt, item.contextUntil ?? acceptedAt);
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
+  const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken });
   await flushChat(storage, deps, asked.accessToken, conversation, message.groupId, () => sha256Hex(message.from));
   return outcome;
 }

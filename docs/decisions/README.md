@@ -757,6 +757,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
+- [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
 - [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
