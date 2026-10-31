@@ -256,6 +256,19 @@ export function isTexKey(key) {
   return typeof key === "string" && TEX_KEY.test(key);
 }
 
+/**
+ * A group chat's own state in its Durable Object, not a note:
+ * tex/chat:<chatKey>/state/<64 hex>.json (its memory record, a rebuildable
+ * cache of the visible memory note; `agent/chatMemoryRecord.js`). Only a chat
+ * owns one, never a person; no row ever names it, so it is plumbing, and never
+ * an id key.
+ */
+const TEX_STATE_KEY = /^tex\/chat:[A-Za-z0-9_-]{1,64}\/state\/[0-9a-f]{64}\.json$/;
+
+export function isTexStateKey(key) {
+  return typeof key === "string" && TEX_STATE_KEY.test(key);
+}
+
 export function isIdKey(key) {
   return typeof key === "string" && (ID_KEY.test(key) || TEX_KEY.test(key));
 }
@@ -266,6 +279,7 @@ export function isPlumbing(key) {
     folded === PRIVACY_KEY ||
     folded === LEGACY_SCOPES_KEY ||
     isIdKey(key) ||
+    isTexStateKey(key) ||
     key.split("/").some((s) => s.startsWith("."))
   );
 }

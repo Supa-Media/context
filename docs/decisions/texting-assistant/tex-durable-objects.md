@@ -139,9 +139,23 @@ Failure to schedule never fails the write.
 Not on alarms, for now: a routine in a group chat (its chat's own runs stay on
 the cron) and the routines under `routines/` (the cron runs them).
 
+**A chat's state.** One narrower key form besides the id keys:
+`tex/chat:<chatKey>/state/<64 hex>.json`, kept by a group chat's object alone
+(never a person's) and named by no row, so it is plumbing that no listing,
+search or tree shows. It holds the chat's memory record, one per chat (the
+owner, 2026-10-31: somebody added to a chat shares what it remembers), when the
+turn's grant names the chat (`agent/chatMemoryRecord.js`). It is a rebuildable
+cache of the visible memory note, so it belongs with the chat rather than in
+the bound workspace's bucket, and it is wiped with the object. The bucket's old
+copy (`.context/agent/groups/<sha>.json`) moves in on first read and is deleted
+only once the object reads back the same bytes; an object that cannot be
+reached keeps nothing for that turn, never a bucket copy instead. Copies left
+by earlier sets of people stay in the bucket for a later merge.
+
 ## Cost of reversing it
 
 Tex's state goes back to many bucket reads per turn (a second each through
 the adapter), which is what made "hi Tex" take a minute before the warm copy.
 
-Tests: `apps/mcp/test/texStore.test.mjs` and `apps/mcp/test/texAlarms.test.mjs`.
+Tests: `apps/mcp/test/texStore.test.mjs`, `apps/mcp/test/texAlarms.test.mjs` and
+`apps/mcp/test/chatMemoryRecord.test.mjs`.

@@ -22,10 +22,11 @@
  * nobody's sign-ins and fills only the workspace's own saved logins
  * (`turnWeb.js`, `vault/access.js`).
  *
- * Memory is the chat's own, kept in the bound workspace under `.context/`
- * (plumbing, never a note) and filed by the chat and the exact set of people
- * in it: somebody added later starts a new memory rather than reading what
- * was said before they joined. It holds the whole chat, not only what Tex was
+ * Memory is the chat's own. Its record (plumbing, never a note) is kept in
+ * the chat's Durable Object when the grant names the chat, one per chat
+ * (`chatMemoryRecord.js`); otherwise in the bound workspace under
+ * `.context/`, filed by the chat and the exact set of people in it. The
+ * visible note is still filed by the set of people. It holds the whole chat, not only what Tex was
  * asked (the owner, 2026-10-21): each tag arrives with what the chat said
  * since Tex last answered (`chat`), and that is kept with the question, as
  * much as a person's own texts are (`conversation.js`), the rest read with
@@ -41,13 +42,14 @@ import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuest
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
+import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPrompt, readPlaybook, withPlaybookGate } from "./groupPlaybook.js";
 import { toolDefinitions } from "../tools/registry.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 
-/** Where a chat's memory is kept, in the bound workspace. */
+/** Where a chat's memory record was kept in the bound workspace, and still is for a grant that names no chat. */
 export const GROUP_MEMORY_PREFIX = ".context/agent/groups/";
 /** How much of a chat is kept: as much as a person's own texts. */
 export const MAX_GROUP_TURNS = MAX_HISTORY_TURNS;
@@ -151,7 +153,7 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** The chat's memory file: one per chat and set of people in it. */
+/** The chat's memory file in the bucket: one per chat and set of people in it (`chatMemoryRecord.js` moves it out). */
 export async function groupMemoryPath(group) {
   return `${GROUP_MEMORY_PREFIX}${await sha256Hex(`${group.key}:${group.members}`)}.json`;
 }
@@ -177,8 +179,8 @@ export function trimGroupTurns(turns) {
 export async function readGroupMemory(store, group, dispatch = null) {
   let kept = { turns: [] };
   try {
-    const object = await store.get(await groupMemoryPath(group));
-    if (object) kept = JSON.parse(await object.text()) ?? kept;
+    const text = await readChatMemoryRecord(store, group, await groupMemoryPath(group));
+    if (text !== null) kept = JSON.parse(text) ?? kept;
   } catch {
     kept = { turns: [] };
   }
@@ -278,7 +280,7 @@ export async function keepGroupExchange(store, group, history, question, answer,
   }
   // The etag a read gives (a collaborative note's own, not the object's), so the next read knows it untouched.
   const noteEtag = written === null ? seen.kept : ((await readGroupNote(target.dispatch, target.path))?.etag ?? written);
-  await store.put(await groupMemoryPath(group), JSON.stringify({ version: 1, turns, ...(noteEtag ? { noteEtag } : {}) }));
+  await writeChatMemoryRecord(store, group, await groupMemoryPath(group), JSON.stringify({ version: 1, turns, ...(noteEtag ? { noteEtag } : {}) }));
 }
 
 /**
