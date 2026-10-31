@@ -30,6 +30,15 @@ several texts waiting, a bare "thanks" a tapback may answer, or an ask this
 text may leave behind. A background job's turn keeps the reply checks: it is
 not a reply.
 
+**What is not deferred:** the chat is saved after the reply has gone, and so
+are the meter, the log and the reflection — work that is ours rather than the
+person's. The disarm of asks held before a reply that asks something
+(`textedApprovals.js` `textedAsk`) is not among them: `askOvertaken` counts
+only Tex's texts sent by themselves, so for an ordinary reply that disarm is
+the whole protection against a later bare yes releasing an older ask, and
+`store.defer` is "an optimisation it may not get, never where the work
+happens" (`http/route.js`). It is awaited before the turn answers.
+
 **Rolling back:** `front_door: off` in `ai/production/texting-assistant.md`,
 or `TEX_FRONT_DOOR=off` on the gateway, brings the old turn back exactly. The
 Worker's two changes are code.
