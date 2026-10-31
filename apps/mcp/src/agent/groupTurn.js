@@ -35,7 +35,7 @@
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, timedTurn, writeGroupNote } from "./groupMemoryNote.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
-import { openChatHome } from "./chatHome.js";
+import { addressHome, homePrompt, openChatHome, readAboutUs } from "./chatHome.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestInfoOf, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
@@ -194,9 +194,11 @@ export async function readGroupMemory(store, group, dispatch = null) {
   NOTE_STATE.set(history, { etag: note?.etag ?? null, kept: typeof kept?.noteEtag === "string" ? kept.noteEtag : null });
   // The workspace's playbook rides on the chat, for `groupPrompt` (`groupPlaybook.js`).
   group.playbook = await readPlaybook(dispatch, group);
-  // How this group talks, beside its memory note and by the same people (`chatVoice.js`).
-  group.voicePath = notePath === null ? null : groupVoicePath(await sha256Hex(`${group.key}:${group.members}`), notePath.slice(0, notePath.lastIndexOf("/")));
-  group.voice = await readGroupVoice(dispatch, group.voicePath);
+  // How this group talks, beside its memory note and by the same people (`chatVoice.js`), and in a home what it is about.
+  const folder = group.home ? group.home.folder : notePath?.slice(0, notePath.lastIndexOf("/"));
+  group.voicePath = folder ? groupVoicePath(await sha256Hex(`${group.key}:${group.members}`), folder) : null;
+  group.voice = await readGroupVoice(group.home ? group.home.dispatch : dispatch, group.voicePath);
+  group.aboutUs = await readAboutUs(group.home);
   return history;
 }
 
@@ -206,7 +208,10 @@ export async function readGroupMemory(store, group, dispatch = null) {
  */
 async function noteTarget(store, group, notePath, dispatch) {
   if (dispatch === null) return null;
-  if (!("home" in group)) group.home = await openChatHome(store);
+  if (!("home" in group)) {
+    group.home = await openChatHome(store);
+    addressHome(store, group.home);
+  }
   // Named by the same people as ever, so somebody added starts a new note and is never replayed what came before.
   if (group.home) return { path: groupNotePath(await sha256Hex(`${group.key}:${group.members}`), group.home.folder), dispatch: group.home.dispatch, home: true };
   return notePath === null ? null : { path: notePath, dispatch, home: false };
@@ -372,7 +377,7 @@ export function groupPrompt(group, workspace) {
 
 /** Where the chat's memory is kept, for the prompt: its home, which only its people open (`chatHome.js`), or the workspace's folder. */
 function memoryLine(group) {
-  if (group?.home) return `What you remember of this chat is kept in the chat's own folder in the Context app, which only the people in this chat can open; people may fix it there, so go by it. `;
+  if (group?.home) return `What you remember of this chat is kept in its own folder; people may fix it there, so go by it. ${homePrompt(group)}`;
   return `What you remember of this chat is kept in ${GROUP_NOTES_FOLDER}/ when the workspace shares that folder; people may fix it there, so go by it. `;
 }
 

@@ -9,13 +9,16 @@
  *    homes, the chat marker, and a grant that may write; read-only `sessionForSetup` is unchanged;
  *  - a home named anywhere else, or on any other row, is dropped when the session is read;
  *  - the group turn writes the chat's note in the home, named by its people as before, through the home's own
- *    dispatcher, and the bound workspace gets no note at all; with no home, the note is where it always was.
+ *    dispatcher, and the bound workspace gets no note at all; with no home, the note is where it always was;
+ *  - the chat's voice and about-us notes are in the home, and `@context-lc` on the model's tool call opens the home.
  *
  * ## Sabotage record
  *
  *   `sessionForChatHome` without the `READS_AS_CHAT` check → "no chat marker, no door" fails
  *   `CHAT_HOME_PATTERN` loosened to any path → "a home outside the homes folder is dropped" fails
  *   `noteTarget` ignoring `group.home` → "the chat's note is written in its home" fails
+ *   `addressHome` call dropped from `noteTarget` → "the turn opens its home once, and from then on @context-lc is the home" fails
+ *   `addressHome` matching no name → that test and "@context-lc on a tool call opens the home" fail
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -149,4 +152,55 @@ test("with no home, the note is where it always was", async () => {
   await keepGroupExchange(store, group, history, "what's for dinner?", "Pasta.", { dispatch: bound.dispatch });
   assert.equal(group.home, null);
   assert.deepEqual([...bound.notes.keys()].map((path) => path.replace(/chat-[0-9a-f]{12}/, "chat-x")), ["tex/groups/chat-x.md"]);
+});
+
+test("@context-lc on a tool call opens the home, and every other name is routed as before", async () => {
+  const { addressHome } = await import("../src/agent/chatHome.js");
+  const home = { folder: HOME, session: { workspaceId: "ws_pin", chatHome: HOME }, store: { home: true } };
+  const asked = [];
+  const store = { openContext: async (name) => (asked.push(name), { session: { name }, store: { home: false } }) };
+  addressHome(store, home);
+  for (const name of ["@context-lc", "context-lc", "@Context-LC"]) assert.equal((await store.openContext(name)).store.home, true, name);
+  assert.equal((await store.openContext("@studio")).store.home, false);
+  assert.deepEqual(asked, ["@studio"]);
+  // Twice is once.
+  addressHome(store, home);
+  assert.equal((await store.openContext("@other")).store.home, false);
+  assert.deepEqual(asked, ["@studio", "@other"]);
+  // No home, no change.
+  const plain = { openContext: async () => ({ store: { home: false } }) };
+  addressHome(plain, null);
+  assert.equal((await plain.openContext("@context-lc")).store.home, false);
+});
+
+test("a chat with a home keeps its voice and about-us there, and is told how to reach them", async () => {
+  const store = createMemoryStore();
+  const bound = recorder();
+  const home = recorder();
+  await home.dispatch("write_note", { path: `${HOME}/about-us.md`, content: "# About us\n\nThe Okafor cousins planning a reunion.\n" });
+  const group = { ...GROUP, home: { folder: HOME, dispatch: home.dispatch } };
+  await readGroupMemory(store, group, bound.dispatch);
+  assert.match(group.voicePath, new RegExp(`^${HOME}/voice-[0-9a-f]{12}\\.md$`));
+  assert.match(group.aboutUs, /Okafor cousins/);
+  const { groupPrompt } = await import("../src/agent/groupTurn.js");
+  const prompt = groupPrompt(group, { slug: "studio" });
+  assert.match(prompt, new RegExp(`${HOME}/ in @context-lc`));
+  assert.match(prompt, /context: "@context-lc"/);
+  assert.match(prompt, /Okafor cousins/);
+  assert.ok(!bound.calls.some((call) => call.args?.path?.includes("voice-")), "the voice note is not read in the bound workspace");
+});
+
+test("the turn opens its home once, and from then on @context-lc is the home", async () => {
+  const store = createMemoryStore();
+  const homeStore = createMemoryStore();
+  let opened = 0;
+  store.openChatHome = async () => (opened++, { session: { workspaceId: "ws_pin", chatHome: HOME, actorUserId: "user_group" }, store: homeStore });
+  store.openContext = async () => ({ session: {}, store });
+  const group = { ...GROUP };
+  await readGroupMemory(store, group, recorder().dispatch);
+  assert.equal(group.home.folder, HOME);
+  assert.equal((await store.openContext("@context-lc")).store, homeStore);
+  assert.equal((await store.openContext("@studio")).store, store);
+  await readGroupMemory(store, group, recorder().dispatch);
+  assert.equal(opened, 1);
 });
