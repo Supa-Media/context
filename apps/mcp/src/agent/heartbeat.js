@@ -35,6 +35,7 @@
  * The control plane hears an outcome code.
  */
 
+import { sealBeside } from "./warmCopy.js";
 import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
@@ -459,6 +460,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
+  store.chatWrites = []; // what it writes to their texts goes back sealed, for Tex's warm copy (`warmCopy.js` `sealBeside`)
+  const beside = async () => ((sealed) => (sealed ? { beside: sealed } : {}))(await sealBeside(env, session, store.chatWrites));
   // It reads only its own workspace, and what it says goes to the person's own phone.
   session.egress = { complete: true, ledger: newLedger(), texting: false };
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
@@ -480,7 +483,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     );
     // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
     if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
+    return json(delivered ? { outcome: "speak", answer: delivered.text, ...(await beside()) } : { outcome: "quiet" });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
 
@@ -668,5 +671,5 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   );
   if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
   if (!text) return json({ outcome });
-  return json(marked.continues !== null ? { outcome, answer: text, continues: marked.continues } : { outcome, answer: text });
+  return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}), ...(await beside()) });
 }

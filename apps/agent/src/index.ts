@@ -224,7 +224,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         runInChat: (run) => runInChat(env, run),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
@@ -236,7 +236,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey, continues) => textPhone(env, phone, text, idempotencyKey, continues),
+        textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -468,13 +468,13 @@ export class SenderInbox implements DurableObject {
       );
     }
     if (path === "/routine-text") {
-      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown };
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown; beside?: unknown };
       if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
         return new Response(null, { status: 400 });
       }
       const status = await textRoutine(
         this.state.storage,
-        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}) },
+        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) },
         {
           fetch: (input, init) => fetch(input, init),
           linqApiKey: this.env.LINQ_API_KEY,

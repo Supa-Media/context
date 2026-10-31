@@ -45,9 +45,26 @@ from storage; one without reads as before and starts one.
 - Waiting asks are kept only as "none waited after the last turn". A text
   that may answer an ask (a yes, a no, a tapback) still reads the records:
   that check is the gateway's, never a copy's.
+- The copy is the only place a turn reads the history from, and it never
+  falls behind (Seyi, 2026-10-31: "the saved copy needs to be the only
+  source of truth", "if it falls behind that's a bigger issue"). Every write
+  to the person's texts reaches it: one made in the turn's own request (the
+  Worker's fixed texts, a yes the gateway settles by itself, which now hands a
+  copy back too) is added there (`store.chatWrites`, `withWrites`); one made
+  by a routine or a check-in comes back with its answer sealed for the
+  person's texting turn alone (`sealBeside`, same key and associated data
+  with the texting client), the Worker keeps it beside the copy (at most 20,
+  a day) and hands it to the next text, which adds it. A text Tex sends
+  outside a turn with nothing sealed for it drops the copy instead of leaving
+  it behind. A turn that names no texts (a job's report) still hands the
+  history on: it used to leave the chat out because it read no log, and every
+  text after a report re-read 150 exchange files (2026-10-31 16:57, 7 s).
+  A write that only needs to know whether the old whole file must be copied
+  in reads nothing when the copy holds the history by id (`priorTurns`).
 - The Worker drops the copy after a day, when an answer hands none back, and
-  when a routine texts the person: the chat then holds words the copy hasn't
-  seen. A group, a job's turn and a routine never use or make one. A job's
+  when a turn ends with the gateway unreachable (it may have written and
+  never said what). A turn refused before it ran (the daily limit, no model)
+  keeps it. A group, a job's turn and a routine never use or make one. A job's
   report to the chat's own turn does (2026-10-31: it re-read 150 exchanges,
   10 s, before the model).
 - A turn that starts a background job keeps its copy (2026-10-31: the text

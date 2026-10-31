@@ -24,7 +24,7 @@
  */
 
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
+import { atOfId, eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
 import { NOTE_SOURCE_PREFIX, READ_SOURCE_PREFIX, isNoteSource, isReadSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
@@ -240,7 +240,10 @@ export async function appendConversation(store, name, history, question, answer,
     if (history.length > 0 && !history.some((turn) => typeof turn.id === "string")) {
       await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used, sources: was }) => keptTurn({ role, text, tainted: marked, tools: used, sources: was })));
     }
-    return await writeExchange(store, { at, tag, question, answer, tainted, tools: names, sources: read, thread, theirs });
+    const id = await writeExchange(store, { at, tag, question, answer, tainted, tools: names, sources: read, thread, theirs });
+    // What this request wrote to the person's texts, for Tex's warm copy (`warmCopy.js`): the copy is the history a turn reads, so every write reaches it.
+    if (name === "texts" && Array.isArray(store.chatWrites) && id !== null) store.chatWrites.push({ question, answer, at: atOfId(id), id, tainted, tools: names, sources: read, thread, theirs });
+    return id;
   }
   const turns = trimHistory([
     ...history,
@@ -296,6 +299,17 @@ export function readTold(value) {
 }
 
 /**
+ * What `appendConversation` needs of the history before it writes: only
+ * whether the old whole file still has to be copied in. None when Tex's warm
+ * copy already holds the history by id (`warmCopy.js`), so a write there
+ * reads nothing; otherwise the newest exchange.
+ */
+export async function priorTurns(store, name) {
+  if (typeof store?.historyLogged === "function" && (await store.historyLogged()) === true) return [];
+  return await readConversation(store, name, { entries: 1 });
+}
+
+/**
  * Write the named fixed texts into a conversation, oldest first, before the
  * turn reads it. Best effort: a history that failed to save costs the turn
  * some context, never its answer.
@@ -307,7 +321,7 @@ export async function appendTold(store, name, told) {
     const at = Date.now();
     for (const [index, key] of told.entries()) {
       // Read again each time: the old whole file is rewritten by each append.
-      await appendConversation(store, name, await readConversation(store, name, { entries: 1 }), TOLD_QUESTION, TOLD[key], { at: at + index });
+      await appendConversation(store, name, await priorTurns(store, name), TOLD_QUESTION, TOLD[key], { at: at + index });
     }
   } catch {
     // See above.
