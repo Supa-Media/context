@@ -54,14 +54,22 @@ export const run = internalAction({
     cursor: v.optional(v.string()),
     listPaths: v.optional(v.boolean()),
     limit: v.optional(v.number()),
+    /** A handle: move only that person's notes. Unknown or shared, and nothing moves. */
+    only: v.optional(v.string()),
   },
   returns: countsValidator,
-  handler: async (ctx, args) =>
-    await migrateTexNotes(ctx, {
+  handler: async (ctx, args) => {
+    const only = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.personalWorkspaceBySlug, { slug: args.only });
+    if (only === null) {
+      return { workspaces: 0, rows: 0, wouldMove: 0, moved: 0, alreadyMoved: 0, swept: 0, other: 0, refused: { NO_WORKSPACE: 1 }, cursor: "", done: true };
+    }
+    return await migrateTexNotes(ctx, {
       dryRun: args.dryRun,
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
       ...(args.listPaths === undefined ? {} : { listPaths: args.listPaths }),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(only === undefined ? {} : { only }),
       openStore: (workspaceId) => openWorkspaceStore(ctx, workspaceId),
-    }),
+    });
+  },
 });

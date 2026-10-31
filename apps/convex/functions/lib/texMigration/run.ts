@@ -82,6 +82,8 @@ export interface TexMigrationOptions {
   cursor?: string;
   listPaths?: boolean;
   limit?: number;
+  /** Only this workspace: a first run on one person's notes before everyone's. */
+  only?: Id<"workspaces">;
   /** The workspace's bucket, as the console opens it, with Tex keys routed to the person's object; `null` when it has none. */
   openStore: (workspaceId: Id<"workspaces">) => Promise<FileStore | null>;
   /** Test seam: runs after a copy is read back and before the switch. */
@@ -313,6 +315,7 @@ export async function migrateTexNotes(ctx: ActionCtx, options: TexMigrationOptio
       { ...(pageCursor === null ? {} : { cursor: pageCursor }), limit: WORKSPACES_PER_PAGE },
     );
     for (let i = index; i < page.workspaceIds.length; i += 1) {
+      if (options.only !== undefined && page.workspaceIds[i] !== options.only) continue;
       const outcome = await migrateWorkspace(ctx, options, page.workspaceIds[i], resume, counts, paths, work);
       resume = null;
       if (!outcome.finished) return finish({ c: pageCursor, i, a: outcome.next }, false);

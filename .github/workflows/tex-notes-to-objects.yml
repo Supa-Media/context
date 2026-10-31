@@ -22,6 +22,10 @@ on:
         description: "Count only; move nothing."
         type: boolean
         default: true
+      only:
+        description: "A handle: move only that person's notes (empty for everyone)."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -47,6 +51,7 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
+          ONLY: ${{ inputs.only }}
         run: |
           set -euo pipefail
           cursor=""
@@ -58,6 +63,7 @@ jobs:
             else
               args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
             fi
+            if [ -n "$ONLY" ]; then args=$(echo "$args" | jq -c --arg only "$ONLY" '. + {only: $only}'); fi
             answer=$(npx convex run functions/texMigration:run "$args")
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
