@@ -30,7 +30,9 @@
  *   the copy hasn't seen.
  * - The chat's newest events come from the Worker itself (`recent`), as they
  *   would reach the log through `/agent/events`, on the same grant.
- * - Waiting asks are kept only as "none": a turn that may have one reads them.
+ * - The waiting asks are never kept: a job, a routine or the heartbeat arms one
+ *   beside the chat without touching this copy, so every turn that may have one
+ *   reads them for itself (`frontDoor.js`).
  *
  * Only a person's own texted turn (not a group, a job, a routine or a report)
  * uses one.
@@ -163,19 +165,14 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
       if (typeof clean === "boolean") cleanSeen[turn] = clean;
       return clean;
     },
-    /** True when the copy knows nothing was waiting for their yes after the last turn. */
-    async noAsks() {
-      return (await chat)?.asks === "none";
-    },
     /**
      * The copy to hand back: what this turn read, with what it said added.
      * `exchange` the history turns it kept (null when nothing was kept),
      * `keepChat` false when what it kept can't be known here (then the chat is read again),
      * `turn` and `clean` its own record, `wrote` whether it changed anything
-     * (then the notes and skills are read again), `asks` "none" when nothing
-     * waits.
+     * (then the notes and skills are read again).
      */
-    async seal({ exchange = null, keepChat = true, turn = null, clean = null, wrote = false, asks = null }) {
+    async seal({ exchange = null, keepChat = true, turn = null, clean = null, wrote = false }) {
       if (!eligible) return null;
       const warm = await chat;
       const out = { ...next };
@@ -195,7 +192,6 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
           history,
           events: chatRead.events,
           clean: Object.fromEntries(Object.entries(known).filter(([id]) => shown.has(id))),
-          ...(asks === "none" ? { asks: "none" } : {}),
         };
       }
       return await sealWarm(env, session, out);

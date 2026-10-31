@@ -21,11 +21,18 @@ import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.m
 
 /**
  * Storage and control-plane calls before the model, on a warm simple text:
- * session, binding, the built-in model's check, the plugin switches, the prior
- * turn's record, the running mark (its read and its write), and the Google offer's
- * mail check. Two of them are the auth the Worker makes for every request.
+ * session, binding, the waiting asks, the built-in model's check, the plugin
+ * switches, the prior turn's record, the running mark (its read and its write),
+ * and the Google offer's mail check. Two of them are the auth the Worker makes
+ * for every request.
+ *
+ * The waiting asks are listed on every texted turn and cannot come off this
+ * budget: a job, a routine or the heartbeat arms one beside the chat without
+ * writing the copy, so a copy that said none waited can be older than the ask,
+ * and that listing and the disarm it feeds are the whole protection between
+ * such an ask and a bare "yes" (`agentFrontDoor.test.mjs`).
  */
-const WARM_BUDGET = 8;
+const WARM_BUDGET = 9;
 
 const CHAT = "sendblue:line:+15555550100";
 let seq = 0;
