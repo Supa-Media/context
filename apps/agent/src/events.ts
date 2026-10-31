@@ -47,8 +47,11 @@ type Kept = { e: TexEvent; w?: true };
 const PREFIX = "ev:";
 const SEQ = "evseq";
 export const MAX_EVENT_TEXT = 3000;
-export const MAX_KEPT_EVENTS = 60;
-export const MAX_KEPT_CHARS = 24_000;
+/** As many as the gateway reads of a chat's log (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`): this object holds the day's log, so a turn reads none of it from storage. */
+export const MAX_KEPT_EVENTS = 400;
+export const MAX_KEPT_CHARS = 120_000;
+/** What decide is shown of the kept log, at most. */
+export const TRANSCRIPT_CHARS = 24_000;
 export const KEEP_EVENTS_MS = 24 * 60 * 60 * 1000;
 /** The gateway takes an event only within a day of now: one this old is dropped before it is sent, never refused there. */
 export const SEND_WITHIN_MS = 23 * 60 * 60 * 1000;
@@ -121,6 +124,31 @@ export async function keptEvents(storage: InboxStorage, chat: string): Promise<T
 /** This chat's kept events, oldest first, written or not: what a turn is handed beside the warm copy (`warm.ts`). */
 export async function recentEvents(storage: InboxStorage, chat: string): Promise<TexEvent[]> {
   return [...(await storage.list<Kept>({ prefix: PREFIX })).values()].map((kept) => kept.e).filter((event) => event.chat === chat).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** Marks a chat whose whole log this object holds: its log as the gateway read it was kept here (`keepLog`), and every event since went through `addEvent`. */
+const FULL = "evfull:";
+
+/** Whether this object holds the chat's whole log, so the gateway need not read it from storage. */
+export async function holdsLog(storage: InboxStorage, chat: string): Promise<boolean> {
+  return (await storage.get<number>(`${FULL}${chat}`)) !== undefined;
+}
+
+/**
+ * Keep the chat's log as the gateway read it from storage (`log` on its
+ * answer), each event marked written, and remember that this object now holds
+ * the whole log. An event already kept is left as it is; one past the window
+ * is pruned as any other.
+ */
+export async function keepLog(storage: InboxStorage, chat: string, events: readonly TexEvent[], now: number): Promise<void> {
+  const kept = new Set((await storage.list<Kept>({ prefix: PREFIX })).keys());
+  for (const event of events) {
+    if (event?.chat !== chat || typeof event.id !== "string" || !/^\d{13}-\d{6}$/.test(event.id) || !Number.isFinite(event.at)) continue;
+    const key = `${PREFIX}${event.id}`;
+    if (!kept.has(key)) await storage.put<Kept>(key, { e: { ...event, ...(event.text === undefined ? {} : { text: event.text.slice(0, MAX_EVENT_TEXT) }) }, w: true });
+  }
+  await prune(storage, now);
+  await storage.put<number>(`${FULL}${chat}`, now);
 }
 
 /** Whether the gateway has written it; kept for the window either way. */
@@ -316,7 +344,7 @@ export function renderTranscript(events: readonly TexEvent[], options: { timeZon
     lines.push(`<${event.id}> [${time(event.at)}] ${who}: ${words}${unanswered}`);
     if (event.from.kind === "tex" && event.delivered === false) lines.push(`           (not delivered: ${NOT_DELIVERED[event.reason ?? "failed"]})`);
   }
-  const limit = options.limit ?? MAX_KEPT_CHARS;
+  const limit = options.limit ?? TRANSCRIPT_CHARS;
   let out = lines.join("\n");
   while (out.length > limit && lines.length > 1) {
     lines.shift();

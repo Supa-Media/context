@@ -125,7 +125,7 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
     return value;
   };
   const chat = (async () => (chatUsable ? (await opened)?.chat : undefined))();
-  let chatRead = null;
+  let chatRead = null, logRead = null;
   return {
     /** The setup's text; the turn parses it either way. */
     setup: part("setup"),
@@ -142,12 +142,17 @@ export function warmTurn(env, session, body, { eligible, now = Date.now() }) {
     },
     /** The chat's event log (`log.js` `readEvents`), with the Worker's newest events on top. */
     async events(chatKey, read) {
-      const warm = await chat;
-      const base = warm?.events ?? (await read());
+      // The Worker holds the chat's whole log (`apps/agent/src/events.ts` `holdsLog`): its events are all of it, nothing is read from storage.
+      const held = eligible && body?.holdsLog === true && Array.isArray(body?.recent);
+      const warm = held ? undefined : await chat;
+      const base = held ? [] : warm?.events ?? (await read());
       const events = mergeEvents(base, eligible ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
       chatRead = { ...(chatRead ?? {}), events };
+      if (eligible && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
       return events;
     },
+    /** The log this turn read from storage, for the Worker to hold so the next turn reads none (`apps/agent/src/events.ts` `keepLog`); null when it read none. */
+    log: () => logRead,
     /** Whether a turn record is clean, from the copy when it knows it. */
     async clean(turn, read) {
       const known = (await chat)?.clean?.[turn];

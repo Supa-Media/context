@@ -38,7 +38,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted } from "./conversation.js";
 import { recordedTurn, turnReads } from "./loggedTurn.js"; import { newExchange } from "./events.js";
-import { ahead, deferred } from "./deferred.js";
+import { afterTurn, ahead, deferred } from "./deferred.js";
 import { cancelledTurn } from "./textingRoutes.js";
 import { loadRoutine, keepRun, readRuns, RoutineRefusal, ROUTINES_CLIENT_ID, routinePathFrom, routineRunQuestion, routineTimeZone, runOutcome, stopRoutine, finishOnce, routineCalendarTools } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
@@ -109,10 +109,10 @@ const CONSOLE_CLIENT_ID = "context_console";
  * the request that produced it — the customer's question and their notes.
  */
 export function handleAgent(request, env, store, session, controlPlane, options = {}) {
-  const stages = turnStages(env); return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, { ...options, stages }, outcome)).finally(() => stages.flush()); // every exit of a named turn is recorded (`loggedTurn.js`), with where its time went (`turnStages.js`)
+  const stages = turnStages(env), later = []; return recordedTurn(store, (outcome) => agentTurn(request, env, store, session, controlPlane, { ...options, stages, later }, outcome)).finally(() => (stages.flush(), afterTurn(store, later))); // every exit of a named turn is recorded (`loggedTurn.js`), with where its time went (`turnStages.js`)
 }
 
-async function agentTurn(request, env, store, session, controlPlane, { progress = null, step = null, stages = null }, outcome) {
+async function agentTurn(request, env, store, session, controlPlane, { progress = null, step = null, stages = null, later = [] }, outcome) {
   const received = Date.now();
   let body;
   try {
@@ -437,7 +437,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   };
 
   // Ours, not the person's: after the answer has gone (`deferred`).
-  const afterAnswer = (work) => deferred(store, work);
+  const afterAnswer = (work) => (typeof work === "function" ? void later.push(work) : deferred(store, work)); // ours, not theirs: started once the response is ready (`deferred.js` `afterTurn`)
 
   /*
     Every turn goes to the turn log (`apps/convex/functions/agentTurns.ts`) and
@@ -458,13 +458,13 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
         tools: report.trace.filter((entry) => entry.kind === "tool").map((entry) => entry.tool),
       }),
     );
-    return (async () => {
+    return async () => { // the row is sent once the response is ready (`afterAnswer`); the numbers are taken now
       try {
         await controlPlane.recordAgentTurn(session.accessToken, session.workspaceId, report);
       } catch {
         // See above.
       }
-    })();
+    };
   };
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
@@ -563,8 +563,8 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       planned: job !== null || carriesData(attachments), ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).
-    if (opened !== null) await afterAnswer(opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
-    await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
+    if (opened !== null) await afterAnswer(() => opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
+    await afterAnswer(() => meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
     outcome.clean = ledger.untrusted !== true;
     // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
@@ -572,7 +572,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
-      await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
+      await afterAnswer(() => transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -625,18 +625,18 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
-    if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
+    if (transcript !== null) await afterAnswer(() => transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
     // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
     const replaced = (job !== null && steer !== null && (await steer.pending())) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
-    if (steer !== null) await afterAnswer(steer.clear());
+    if (steer !== null) await afterAnswer(() => steer.clear());
     // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
-    await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
+    await afterAnswer(() => afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
-    const behind = front ? afterAnswer : (work) => work; // on the front door the chat is saved after the reply has gone; best effort, as below: a memory that failed to save costs the chat some context, not this answer
-    if (group !== null && job === null && !turn.exhausted && !replaced) await behind(keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
+    const behind = front ? afterAnswer : (work) => work(); // on the front door the chat is saved after the reply has gone; best effort, as below: a memory that failed to save costs the chat some context, not this answer
+    if (group !== null && job === null && !turn.exhausted && !replaced) await behind(() => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
     const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
     const kept = { ...newExchange(), tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID }; // addresses only (`sources.js`); the same exchange is handed to the warm copy
-    if (saving) await behind((async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
+    if (saving) await behind(() => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, said, kept);
@@ -646,7 +646,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     })());
 
     // "fix this" or frustration scores the conversation now (`selfReview.js`); quiet ends do it from the Worker.
-    if (!turn.exhausted) await afterAnswer(reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
+    if (!turn.exhausted) await afterAnswer(() => reviewAfterTurn({ env, store, session, controlPlane, question, group, saved: group !== null || conversation !== null }));
     return json({
       answer: sent,
       // How many held calls the answer's last line asks about, so a caller that
@@ -663,13 +663,13 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
       model: turn.model,
       steps: turn.steps,
       ...(turn.exhausted ? { exhausted: true } : claims?.unfinished(turn.answer) ? { unfinished: true } : {}),
-      ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0, asks: asksRead && setAside.length === 0 && ledger.asked.length === 0 && !ledger.offered ? "none" : null })) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
+      ...{ warm: (await hot.seal({ exchange: saving && attachments.length === 0 ? exchangeTurns([reactedLine(reacted), tapbackLine(quoted) || question, steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"), said, kept) : null, keepChat: !saving || attachments.length === 0, turn: body.turn, clean: ledger.untrusted !== true, wrote: turn.steps.length > 0, asks: asksRead && setAside.length === 0 && ledger.asked.length === 0 && !ledger.offered ? "none" : null })) ?? undefined, log: hot.log() ?? undefined }, // the copy the Worker hands back with the next text, and the log it holds from now on (`warmCopy.js`)
     });
   } catch (error) {
     outcome.clean = false;
     if (steer !== null) await steer.clear();
-    if (opened !== null) await afterAnswer(opened.close());
-    if (transcript !== null) await afterAnswer(transcript.finish({ answer: "", outcome: "the turn failed" }));
+    if (opened !== null) await afterAnswer(() => opened.close());
+    if (transcript !== null) await afterAnswer(() => transcript.finish({ answer: "", outcome: "the turn failed" }));
     await meter(null, true);
     /*
       An ask the person was never told about (the turn failed before its ask
