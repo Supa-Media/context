@@ -159,7 +159,7 @@ export const enrol = internalMutation({
       .withIndex("by_phone", (q) => q.eq("phone", phone))
       .take(1);
     if (carried.length > 0 || (await phoneHolder(ctx, phone)) !== null) return { status: "unavailable" as const };
-    const userId = await newPhoneAccount(ctx, phone);
+    const userId = await newPhoneAccount(ctx, phone, { adConversions: false });
     for (const chat of chats) await nameOutsider(ctx, chat, userId);
     // Expired passes of anyone are swept a few at a time, as accounts are made.
     for (const stale of await ctx.db

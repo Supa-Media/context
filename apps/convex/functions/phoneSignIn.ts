@@ -180,14 +180,21 @@ export const signInUser = internalMutation({
  * (`textSetup.ts`). The caller has checked the phone is admitted and held by
  * nobody.
  */
-export async function newPhoneAccount(ctx: MutationCtx, phone: string): Promise<Id<"users">> {
+export async function newPhoneAccount(
+  ctx: MutationCtx,
+  phone: string,
+  { adConversions = true }: { adConversions?: boolean } = {},
+): Promise<Id<"users">> {
   const now = Date.now();
   const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
   // What `onUserCreated` does for an account made by email (`auth.ts`),
   // founding Premium included: scheduled, so nothing in it fails this.
   await scheduleSignupAlert(ctx, { kind: "account", userId });
-  await scheduleXConversion(ctx, { kind: "account", userId });
-  await scheduleMetaConversion(ctx, { kind: "account", userId });
+  // An account made for someone in a Tex chat (`guestPass.ts`) did not sign up from an ad: no ad network hears of it.
+  if (adConversions) {
+    await scheduleXConversion(ctx, { kind: "account", userId });
+    await scheduleMetaConversion(ctx, { kind: "account", userId });
+  }
   await ctx.scheduler.runAfter(0, internal.functions.foundingPremium.catchUp, {});
   return userId;
 }

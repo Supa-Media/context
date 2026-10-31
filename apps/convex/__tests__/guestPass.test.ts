@@ -25,6 +25,7 @@
 
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { META_PIXEL } from "../functions/lib/metaConversion";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -159,6 +160,22 @@ describe("a guest in the chat with no account", () => {
     expect(await sessionUserIds(w)).toContain(account!._id);
     // The code is one use: the same code signs nobody in again.
     expect((await signIn(w, FRIEND, code)).tokens).toBeNull();
+  });
+
+  test("the new account is not reported to an ad network as a sign-up", async () => {
+    vi.stubEnv("META_CAPI_TOKEN", "fake-meta-token");
+    META_PIXEL.id = "1234567890123456";
+    try {
+      const w = await world();
+      await guestChat(w);
+      await codeFor(w, FRIEND);
+      expect(await accountsWith(w, FRIEND)).toHaveLength(1);
+      const scheduled = await w.t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
+      expect(scheduled.map((job) => job.name).filter((name) => /Conversions/.test(name))).toEqual([]);
+    } finally {
+      META_PIXEL.id = null;
+      vi.unstubAllEnvs();
+    }
   });
 
   test("the new account makes no guest pass, and the chat's numbers are left as they were", async () => {
