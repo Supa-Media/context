@@ -1,7 +1,7 @@
 /**
  * THE BUILT-IN MODEL, END TO END THROUGH `/agent`.
  *
- * Free, 100 a day (decided by the owner, 2026-10-17; was "Premium, capped"): `/agent` asks the
+ * Free, 500 a day (decided by the owner, 2026-10-17, raised 2026-10-31; was "Premium, capped"): `/agent` asks the
  * control plane whether this turn may spend ours, runs it on the Workers AI
  * binding or our AI gateway, and reports token counts back. It is the only
  * model a turn runs on since people's own keys were deleted (the owner,

@@ -1,6 +1,6 @@
 /**
  * The built-in model: the only model a turn runs on, for a texting or routine
- * grant on any workspace, up to its daily cap (free with 100 a day, decided by
+ * grant on any workspace, up to its daily cap (free with 500 a day, decided by
  * the owner, 2026-10-17; people's own keys were deleted on 2026-10-10).
  *
  * This file only makes the call. Whether a turn may make it is the control
