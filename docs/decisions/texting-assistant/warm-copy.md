@@ -47,8 +47,9 @@ from storage; one without reads as before and starts one.
   that check is the gateway's, never a copy's.
 - The Worker drops the copy after a day, when an answer hands none back, when
   it starts a background job, and when a routine texts the person: the chat
-  then holds words the copy hasn't seen. A group, a job's turn, a routine and a
-  job's report never use or make one.
+  then holds words the copy hasn't seen. A group, a job's turn and a routine never
+  use or make one. A job's report to the chat's own turn does (2026-10-31:
+  it re-read 150 exchanges, 10 s, before the model).
 
 ## Also moved out of the reply's way
 
@@ -78,6 +79,9 @@ and the reply took 46 s with 3 s in the model.
   handed the log again.
 - The bucket's log is still written: it stays the customer's copy and what
   a group, a job or a routine reads.
+- Tex's transcript note is written once, with the turn's ending, never once
+  per step: a long turn's step writes cost ~130 storage calls beside its own
+  tools (`transcript.js` `record`).
 - A turn's after-work (the meter, the turn row, the transcript, saving the
   chat, reflection) is queued and started only once its response is ready
   (`deferred.js` `afterTurn`). Started at the call, it took the Worker's six
