@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import { utcDay } from "../functions/lib/jev/meter";
-import { decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
+import { OTHER_ASSISTANT_RULE, decideRequest } from "../functions/lib/gatewayRoutes/textDecide";
 import { addMember, asUser, createUser, createWorkspace, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -324,5 +324,15 @@ test("every request it builds passes the inference Worker's request rules", () =
         }
       }
     }
+  }
+});
+
+// Jhonatan, 2026-10-31: a message for another assistant (Instinct is in Tex Devs) is not Tex's.
+test("every style tells decide a message for another assistant is silent, never a react", () => {
+  for (const style of ["quiet", "attentive", "followAlong", "helpful", "direct"] as const) {
+    const { questions } = decideRequest({ chat: GROUP, line: LINE, style, transcript: "x", running: false, waitingAsks: [], candidates: ["1761619442000-000001"], newest: "1761619442000-000001" });
+    const act = (questions as Record<string, { instructions: string }>).act!;
+    expect(act.instructions).toContain(OTHER_ASSISTANT_RULE);
+    expect(act.instructions.length).toBeLessThanOrEqual(1_000);
   }
 });

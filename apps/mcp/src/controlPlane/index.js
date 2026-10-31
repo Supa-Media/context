@@ -21,6 +21,7 @@ import { createAttentionMethods } from "./attention.js";
 import { createMailHealthMethods } from "./mailHealth.js";
 import { createIdentityMethods } from "./identity.js";
 import { createTranscriptionMethods } from "./transcription.js";
+import { createTexCommandMethods } from "./texCommands.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -58,5 +59,6 @@ export function createControlPlane(env, options = {}) {
     ...createMailHealthMethods({ post }),
     ...createIdentityMethods({ post }),
     ...createTranscriptionMethods({ post }),
+    ...createTexCommandMethods({ post }),
   };
 }
