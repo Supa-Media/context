@@ -229,36 +229,6 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     paid = settled?.allowed ?? [];
   }
 
-  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = group === null ? ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null })) : null; // beside the provider check (`ahead`); a group's memory needs the egress ledger set below
-  try {
-    await openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null }); stages?.mark("provider"); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
-  } catch (error) {
-    outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
-    if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
-    if (error instanceof AgentRefusal && error.code === "daily_limit") {
-      return json(
-        { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
-        429,
-      );
-    }
-    if (error instanceof AgentRefusal) {
-      return json(
-        {
-          error: error.code,
-          error_description: NO_MODEL_HERE,
-        },
-        409,
-      );
-    }
-    // A control plane that could not be reached is not a refusal, and telling somebody
-    // the assistant is not theirs when it is is worse than telling them nothing.
-    return json({ error: "model_unavailable" }, 503);
-  }
-  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
-  const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
-
-  const offered = await offeredRead; stages?.mark("tools");
-
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
     question is the person's own words and every tool call passes through
@@ -290,9 +260,39 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
     ...(group !== null ? { group: { from: group.from, people: group.people } } : {}), // who an email may be offered to (`offerFor.js`)
   };
 
+  const offeredRead = ahead(grantedToolsFor(session, store)), historyRead = ahead(turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null })); // beside the provider check (`ahead`), a group's memory too now that the egress ledger is set above (2026-10-31)
+  try {
+    await openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null }); stages?.mark("provider"); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
+  } catch (error) {
+    outcome.turn = undefined; // no model ran: no record (`loggedTurn.js`)
+    if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
+    if (error instanceof AgentRefusal && error.code === "daily_limit") {
+      return json(
+        { error: "daily_limit", error_description: "That's all the questions for today. Ask me again tomorrow." },
+        429,
+      );
+    }
+    if (error instanceof AgentRefusal) {
+      return json(
+        {
+          error: error.code,
+          error_description: NO_MODEL_HERE,
+        },
+        409,
+      );
+    }
+    // A control plane that could not be reached is not a refusal, and telling somebody
+    // the assistant is not theirs when it is is worse than telling them nothing.
+    return json({ error: "model_unavailable" }, 503);
+  }
+  // Voice messages become their words only now, once the turn is allowed and counted; a file is kept for later texts and jobs, and shown to them again (`keptFiles.js`).
+  const fresh = await keepSentFiles(store, await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId));
+
+  const offered = await offeredRead; stages?.mark("tools");
+
   const learnedRead = openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history }, logged] = await (historyRead ?? turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null })); const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
+  const [{ conversation, history }, logged] = await historyRead; const attachments = [...fresh, ...(runner ? [] : await carryKeptFiles(store, history, fresh))]; stages?.mark("history");
   if (group !== null || job?.tainted || report !== null) markUntrusted(ledger); // a job planned after a read from outside still carries it, and a job's report is what it read
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger) }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's

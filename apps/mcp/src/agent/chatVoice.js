@@ -63,11 +63,11 @@ export function groupVoicePath(hash, folder = "tex/groups") {
   return `${folder}/voice-${String(hash).slice(0, 12)}.md`;
 }
 
-/** The note's bullets, bounded to a few short lines; "" when there is none or it can't be read. */
-export async function readGroupVoice(dispatch, path) {
+/** The note's bullets, bounded to a few short lines; "" when there is none or it can't be read. `held` is the note already read. */
+export async function readGroupVoice(dispatch, path, held = null) {
   if (dispatch === null || path === null) return "";
   try {
-    const note = await readWithEtag(dispatch, path);
+    const note = held ?? (await readWithEtag(dispatch, path)); // `held`: the move just read it (`chatNoteMove.js`)
     const body = typeof note?.body === "string" ? note.body : "";
     const lines = body
       .split("\n")
