@@ -10,8 +10,12 @@
  *   the bucket when `holdsLog` is set.
  * - A turn that did read the log hands it back (`log`) for the Worker to hold.
  *   Fails if the answer stops carrying it.
- * - Never for a turn not its own (a group, a job, a routine): its `holdsLog`
- *   is ignored and it hands nothing back.
+ * - Never for a turn not its own (a job, a routine): its `holdsLog` is
+ *   ignored and it hands nothing back.
+ * - A group chat's own turn (`logEligible`, 2026-10-31: every group turn read
+ *   275 log files, 4 to 6 s) holds its log the same way, though it makes no
+ *   warm copy. Fails if `route.js` stops passing `logEligible` for a group, or
+ *   `warmCopy.js` stops honouring it.
  * - The turn's row for the turn log (`/gateway/agent-turn`) is sent only once
  *   the response is ready (after the turn's own record), never inside it. Fails if `afterAnswer` starts its
  *   work at the call again.
@@ -25,6 +29,7 @@ import { createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { warmTurn } from "../src/agent/warmCopy.js";
 import { afterTurn } from "../src/agent/deferred.js";
+import { readFileSync } from "node:fs";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };
@@ -86,6 +91,22 @@ test("a turn not its own ignores holdsLog, reads the log and hands nothing back"
   assert.deepEqual(await hot.events(CHAT, async () => (reads += 1, [])), []);
   assert.equal(reads, 1);
   assert.equal(hot.log(), null);
+});
+
+test("a group chat's own turn holds its log too, but makes no warm copy", async () => {
+  const now = Date.now();
+  const group = { workspaceId: "ws_team", actorUserId: "user_1", actorClientId: "context_texts_group" };
+  let reads = 0;
+  const held = warmTurn(env, group, { holdsLog: true, recent: [event(now - 1_000, { text: "Tex, now" })] }, { eligible: false, logEligible: true, now });
+  assert.deepEqual((await held.events(CHAT, async () => (reads += 1, []))).map((entry) => entry.text), ["Tex, now"]);
+  assert.equal(reads, 0, "a group whose object holds the log reads none");
+  assert.equal(await held.seal({}), null, "no warm copy for a group");
+  const cold = warmTurn(env, group, {}, { eligible: false, logEligible: true, now });
+  const stored = [event(now - 60_000, { text: "from the bucket" })];
+  assert.deepEqual(await cold.events(CHAT, async () => stored), stored);
+  assert.deepEqual(cold.log(), stored, "the first group turn hands the log back to hold");
+  const source = readFileSync(new URL("../src/agent/route.js", import.meta.url), "utf8");
+  assert.match(source, /logEligible: group !== null && job === null && !runner/, "route.js marks a group's own turn");
 });
 
 test("a held log is used end to end: no log read, the earlier words still shown, and nothing handed back", async () => {

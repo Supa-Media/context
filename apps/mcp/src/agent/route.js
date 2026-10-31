@@ -149,7 +149,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
-  store.chatWrites = []; store.historyLogged = () => hot.logged(); const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, now: received, writes: () => store.chatWrites }); // what the Worker kept of the last turn's reads, and every write to the history since (`warmCopy.js`)
+  store.chatWrites = []; store.historyLogged = () => hot.logged(); const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received, writes: () => store.chatWrites }); // what the Worker kept of the last turn's reads, and every write to the history since (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup }); // read beside what comes before it, not after
 
   // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.

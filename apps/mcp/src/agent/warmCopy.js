@@ -124,8 +124,15 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
  * part it is skipped, without one it runs and what it read is kept for the
  * next copy. `eligible` false (a group, a job, a routine) means it always runs
  * and no copy is made.
+ *
+ * `logEligible`: a group chat's own turn from the texting Worker. It makes no
+ * copy, but the chat's event log is held by the group's object just as a
+ * one-to-one chat's is (`apps/agent/src/events.ts` `holdsLog`): the first turn
+ * reads it from storage and hands it back as `log`, and later turns read none
+ * (production, 2026-10-31: every group turn read 275 log files, 4 to 6 s,
+ * before the model).
  */
-export function warmTurn(env, session, body, { eligible, now = Date.now(), writes = () => [] }) {
+export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now(), writes = () => [] }) {
   const opened = eligible ? openWarm(env, session, body?.warm, now) : Promise.resolve(null);
   // What Tex wrote to this history beside the copy's turns (a routine, a check-in), handed back sealed (`sealBeside`).
   const beside = eligible ? openBeside(env, session, body?.beside) : Promise.resolve([]); // null when one won't open: the copy would be behind, so the history is read whole
@@ -167,12 +174,13 @@ export function warmTurn(env, session, body, { eligible, now = Date.now(), write
     /** The chat's event log (`log.js` `readEvents`), with the Worker's newest events on top. */
     async events(chatKey, read) {
       // The Worker holds the chat's whole log (`apps/agent/src/events.ts` `holdsLog`): its events are all of it, nothing is read from storage.
-      const held = eligible && body?.holdsLog === true && Array.isArray(body?.recent);
+      const logs = eligible || logEligible; // the texting Worker's own turn, one to one or a group's
+      const held = logs && body?.holdsLog === true && Array.isArray(body?.recent);
       const warm = held ? undefined : await chat;
       const base = held ? [] : warm?.events ?? (await read());
-      const events = mergeEvents(base, eligible ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
+      const events = mergeEvents(base, logs ? body?.recent : null, { chat: chatKey, now }); // only the texting Worker's own turn hands events in
       chatRead = { ...(chatRead ?? {}), events };
-      if (eligible && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
+      if (logs && !held) logRead = events; // read from storage (or a copy of that read): handed to the Worker to hold from now on
       return events;
     },
     /** The log this turn read from storage, for the Worker to hold so the next turn reads none (`apps/agent/src/events.ts` `keepLog`); null when it read none. */

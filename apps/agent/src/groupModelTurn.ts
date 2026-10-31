@@ -18,7 +18,7 @@ import { chatBefore, dropChatLines, notePeople, peopleHash, sha256Hex } from "./
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, resumeJobs, startJobs, steerJobs, threadsLines } from "./jobs";
-import { addEvent, kindOf, logAsk } from "./events";
+import { addEvent, holdsLog, keepLog, kindOf, logAsk, recentEvents } from "./events";
 import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
@@ -94,7 +94,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
         arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
-        ...(covers.length > 0 ? { covers, chat: message.groupId } : {}),
+        ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await heldLog(storage, message.groupId)) } : {}), // the chat's log, when this object holds it (`events.ts` `holdsLog`)
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
         ...(asked.texStyle ? { texStyle: asked.texStyle } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : {}), // a job reporting to this chat's turn (`jobTexts.ts`)
@@ -113,6 +113,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     end();
   }
   const answered = deps.now();
+  // The log the gateway read from storage, held here from now on, so the next turn reads none (`events.ts` `keepLog`).
+  if (answer.kind === "answer" && answer.log && covers.length > 0) await keepLog(storage, message.groupId, answer.log, deps.now());
   if (live.cancelled || answer.kind === "cancelled") {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
@@ -196,3 +198,12 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
   }
 }
 
+/**
+ * The chat's whole log as this object holds it, for the gateway to read instead of storage (production, 2026-10-31:
+ * every group turn read its log one file per event, 275 files and 4 to 6 s before the model). Nothing until the
+ * first turn's answer hands the log back (`keepLog`), so that turn reads it from storage once.
+ */
+async function heldLog(storage: InboxStorage, chat: string): Promise<{ recent?: unknown[]; holdsLog?: true }> {
+  if (!(await holdsLog(storage, chat))) return {};
+  return { recent: await recentEvents(storage, chat), holdsLog: true };
+}
