@@ -64,7 +64,7 @@ export function fakeModel() {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(
-        JSON.stringify({ content, stop_reason: (next.toolCalls ?? []).length > 0 ? "tool_use" : "end_turn" }),
+        JSON.stringify({ content, stop_reason: (next.toolCalls ?? []).length > 0 ? "tool_use" : "end_turn", ...(next.usage ? { usage: next.usage } : {}) }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     },

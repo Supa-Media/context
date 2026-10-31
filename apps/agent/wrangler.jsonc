@@ -79,6 +79,11 @@
   // (src/attachments.ts). Without it, such a photo is described, not shown.
   "images": { "binding": "IMAGES" },
   "observability": { "enabled": true },
+  // Each answered text's wait, from arrival to its first bubble out
+  // (src/textTiming.ts): a kind and milliseconds, never a number or a word.
+  // Read with the account's Analytics Engine SQL API. Optional when
+  // self-hosting: without it nothing is written.
+  "analytics_engine_datasets": [{ "binding": "TEX_TEXTS", "dataset": "tex_text_timing" }],
   "env": {
     "staging": {
       "name": "context-agent-staging",
@@ -93,6 +98,7 @@
       ],
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
+      "analytics_engine_datasets": [{ "binding": "TEX_TEXTS", "dataset": "tex_text_timing_staging" }],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on",

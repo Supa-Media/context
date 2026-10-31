@@ -13,6 +13,7 @@ import type { Picture } from "./line";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
+import { writeTextTiming, type TimingDataset } from "./textTiming";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -60,8 +61,9 @@ export function log(outcome: string, reason?: string): void {
 }
 
 /** Where an answered group turn's time went, from its first message in to its last bubble out: milliseconds only. */
-export function logTiming({ arrivedAt, asking, answered, sent }: { arrivedAt: number; asking: number; answered: number; sent: number }): void {
+export function logTiming({ arrivedAt, asking, answered, firstSent, sent, parts }: { arrivedAt: number; asking: number; answered: number; firstSent?: number; sent: number; parts: number }, dataset?: TimingDataset): void {
   console.log(JSON.stringify({ event: "group_turn_timing", waitMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, totalMs: sent - arrivedAt }));
+  writeTextTiming(dataset, "group", { queueMs: asking - arrivedAt, gatewayMs: answered - asking, sendMs: sent - answered, toFirstTextMs: firstSent === undefined ? undefined : firstSent - arrivedAt, toLastTextMs: sent - arrivedAt, parts });
 }
 
 /**

@@ -12,13 +12,17 @@
  *    "both deployments bind TEX_TIMING" fails. It was missing from #2496 to
  *    2026-10-31, so every point went nowhere and a 78-second "hi" could not be
  *    taken apart.
+ *  - `usage`/`said`/`calls` dropped from the round's trace entry in `turn.js`:
+ *    "each model call writes its own point" fails (the tokens read 0);
+ *  - `timing?.trace` dropped from `stages?.ran` in `route.js`: the same test
+ *    fails, since the turn log's wired trace carries no tokens.
  */
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { callsLine, COLUMNS, keyShape, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
+import { CALL_COLUMNS, callPoints, callsLine, COLUMNS, keyShape, MAX_CALL_POINTS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("the steps before the model, the model, the tools and the time after it add up, in columns", () => {
@@ -100,4 +104,45 @@ test("both deployments bind TEX_TIMING, so the points are kept and can be read b
   const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   assert.match(toml, /\[\[analytics_engine_datasets\]\]\s*binding = "TEX_TIMING"\s*dataset = "tex_timing"/);
   assert.match(toml, /\[\[env\.staging\.analytics_engine_datasets\]\]\s*binding = "TEX_TIMING"\s*dataset = "tex_timing_staging"/);
+});
+
+test("each model call writes its own point: its time, tokens and cache, and nothing it said", async () => {
+  const world = await createEgressWorld();
+  const calls = [];
+  const turns = [];
+  try {
+    world.model.install([
+      { text: "Looking.", toolCalls: [{ name: "search", args: { query: "dentist" } }], usage: { input_tokens: 250, output_tokens: 900, cache_read_input_tokens: 9_000, cache_creation_input_tokens: 400 } },
+      { text: "Tuesday at 3.", usage: { input_tokens: 1_200, output_tokens: 40, cache_read_input_tokens: 9_400 } },
+    ]);
+    const env = { ...world.env, TEX_TIMING: { writeDataPoint: (point) => turns.push(point) }, TEX_CALLS: { writeDataPoint: (point) => calls.push(point) } };
+    const asked = await request(env, TOKEN_TEXTS, "/agent", { question: "when is my dentist", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(turns.length, 1, "the turn's own point still goes");
+    assert.equal(calls.length, 2, "one point per model round");
+    const rows = calls.map((point) => Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, point.doubles[i]])));
+    assert.deepEqual([rows[0].round, rows[0].input, rows[0].cacheRead, rows[0].cacheWrite, rows[0].output, rows[0].said, rows[0].calls], [1, 250, 9_000, 400, 900, "Looking.".length, 1]);
+    assert.deepEqual([rows[1].round, rows[1].input, rows[1].cacheRead, rows[1].cacheWrite, rows[1].output, rows[1].calls], [2, 1_200, 9_400, 0, 40, 0]);
+    assert.equal(calls[0].blobs[0], turns[0].blobs[0], "the call carries its turn's kind");
+    assert.equal(calls[0].blobs[2], "ok");
+    assert.doesNotMatch(JSON.stringify(calls), /dentist|Tuesday|Looking/);
+  } finally {
+    world.restore();
+  }
+});
+
+test("call points skip tools and the router, cap their count, and read a missing count as 0", () => {
+  const trace = [{ kind: "router", ms: 5 }, { kind: "model", model: "anthropic/claude-haiku-5-5", ms: 3_000, usage: { input: 10, output: -1 } }, { kind: "tool", tool: "search", ms: 40 }, { kind: "model", ok: false, ms: 9 }];
+  const points = callPoints("one", trace);
+  assert.equal(points.length, 2);
+  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok"]);
+  assert.deepEqual(points[0].doubles, [1, 3_000, 10, 0, 0, 0, 0, 0]);
+  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed"]);
+  assert.equal(callPoints("job", Array.from({ length: 40 }, () => ({ kind: "model", ms: 1 }))).length, MAX_CALL_POINTS);
+});
+
+test("both deployments bind TEX_CALLS", () => {
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  assert.match(toml, /\[\[analytics_engine_datasets\]\]\s*binding = "TEX_CALLS"\s*dataset = "tex_model_calls"/);
+  assert.match(toml, /\[\[env\.staging\.analytics_engine_datasets\]\]\s*binding = "TEX_CALLS"\s*dataset = "tex_model_calls_staging"/);
 });

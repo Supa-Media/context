@@ -77,9 +77,12 @@ import { handedTurnWaits, handOff, TURN_KEY, type HandedTurn } from "./groupTurn
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import { ENGAGEMENT_QUESTION, engagementChoice, expiredQuestion, groupStyle, keepQuestionAlarm, keepStyle, openQuestion, questionOpen, reachesDecide } from "./groupStyle";
+import type { TimingDataset } from "./textTiming";
 
 export type GroupDeps = {
   fetch: Fetch;
+  /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
+  textTiming?: TimingDataset;
   controlPlaneOrigin: string;
   workerSecret: string;
   gatewayOrigin: string;
