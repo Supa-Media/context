@@ -19,7 +19,14 @@
  * and the report is shown apart from it as the job's own words: a job reads
  * pages and mail, so its result vouches for nothing a guard allows, and the
  * turn is marked as having read from outside (`route.js`).
+ *
+ * A quiet answer is never texted and never kept as Tex's words (self-review
+ * fa3f7a, 2026-10-31: the history showed Tex answering "SKIP" to the person
+ * after a job reported back, and the next turn read it as said). The gateway
+ * sends nothing, and the chat's history keeps `QUIET_REPORT_LINE` instead.
  */
+
+import { saysQuiet } from "./checkInGuards.js";
 
 const MAX_TITLE = 120;
 const MAX_TEXTS = 12;
@@ -69,6 +76,15 @@ export function jobReportPrompt(report) {
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
     '(send { action: "background" }) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with send { action: "steer_job", args: { title, note } }.\n' +
-    "- If nothing in it is new to them (they already have it, or it repeats another job), answer exactly SKIP."
+    "- If nothing in it is new to them (they already have it, or it repeats another job), answer exactly SKIP. " +
+    "A job that finished or stopped whose outcome they haven't heard is never SKIP: text them where it stands, or fix it or start it again as above."
   );
+}
+
+/** What the chat's history keeps of a report the coordinator stayed quiet on, in place of the quiet word. */
+export const QUIET_REPORT_LINE = "(You texted them nothing: nothing in this report was new to them.)";
+
+/** Whether this turn answers a job's report with nothing to text (SKIP, `checkInGuards.js`). */
+export function quietReport(report, answer) {
+  return report !== null && report !== undefined && saysQuiet(answer);
 }

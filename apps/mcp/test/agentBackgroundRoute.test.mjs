@@ -296,6 +296,19 @@ export async function runAgentBackgroundRouteChecks(check) {
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
     );
+    // Self-review fa3f7a, 2026-10-31: "SKIP" stood in the history as Tex's text to the person after a job reported back.
+    check("...and its quiet answer is texted to nobody: the Worker gets no words", noted.body?.answer === "");
+    check(
+      "...and the history keeps that it stayed quiet, never the quiet word as said",
+      conversationTurns(bucket).at(-1)?.text === "(You texted them nothing: nothing in this report was new to them.)" && !conversationTurns(bucket).some((turn) => /^SKIP$/.test(turn.text ?? "")),
+    );
+    model.install([{ text: "Nothing new here. SKIP" }]);
+    const explained = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: report, running: [] });
+    check("a quiet answer that explains itself first is texted to nobody too", explained.body?.answer === "");
+    check("the coordinator is told a finished job they haven't heard about is never SKIP", /never SKIP: text them where it stands/.test(systemOf(model.requests.at(-1))));
+    model.install([{ text: "Skip the 3pm, it moved." }]);
+    const spoken = await post(env, TOKEN_TEXTS, "/agent", { conversation: "texts", event: "job_report", jobReport: report, running: [] });
+    check("...while a text that only uses the word still goes", /Skip the 3pm/.test(spoken.body?.answer ?? ""));
 
     /* ---------------- a job's steps stream to the Worker, for the chat to audit ---------------- */
 
