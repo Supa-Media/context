@@ -20,6 +20,7 @@
  */
 
 import { readWithEtag } from "./jobLog.js";
+import { isFenceLine } from "./promptFence.js";
 
 // Short: the texted system prompt has a size budget (`agentInstructions.test.mjs`).
 export const MIRROR_LINE =
@@ -43,23 +44,8 @@ export const BRIEF_LINE =
  */
 export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never "say yes": a 👍 on it is their yes, a 👎 their no.';
 
-/**
- * A line that is the fence `voicePrompt` quotes the note in.
- *
- * The note's words are the chat's: Tex writes them from what people say, and
- * anyone in the chat may edit the note by hand. A bullet that is the closing
- * marker would end the quote early and put everything after it into the
- * group's own words, on this turn and every later one. Such a line is never
- * style, so it is dropped — the same way the sharing judge strips its fence
- * out of a note's title before showing it (`privacy/judgeSubject.js`).
- */
-const FENCE_LINE = /^(?:<<<)?VOICE$/i;
-
-/** Characters that show as nothing, so "VOICE\u200b" reads as the marker but would not match it. */
-const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
-
-/** Whether this line, as a reader sees it, is the fence. */
-const isFence = (line) => FENCE_LINE.test(line.replace(INVISIBLE, "").trim());
+/** The word the note is fenced in below, dropped from its own lines (`promptFence.js`). */
+const FENCE = "VOICE";
 
 /** At most this much of a group's voice note is shown each turn; it is meant to be a few bullets. */
 export const MAX_VOICE_CHARS = 600;
@@ -79,7 +65,7 @@ export async function readGroupVoice(dispatch, path) {
     const lines = body
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line !== "" && !line.startsWith("#") && !isFence(line))
+      .filter((line) => line !== "" && !line.startsWith("#") && !isFenceLine(FENCE, line))
       .slice(0, MAX_VOICE_LINES);
     const text = lines.join("\n");
     return text.length > MAX_VOICE_CHARS ? text.slice(0, MAX_VOICE_CHARS) : text;
