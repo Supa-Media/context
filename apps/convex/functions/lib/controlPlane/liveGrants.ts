@@ -19,6 +19,7 @@ import { homeOnlyRows, homeOnlyStillShares } from "../textGroupHomeOnly";
 import { guestNamesIn, pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
+import { TEXTS_CLIENT_ID } from "../../textLinks";
 import { phoneSignInPaused } from "../emailProof";
 import { mayOpenToGuests } from "../textGroupGuests";
 import { invitationsStillCount } from "../textGroupInvited";
@@ -63,7 +64,26 @@ export async function resolveLiveGrant(
       q.eq("hashedAccessToken", hashedAccessToken),
     )
     .unique();
-  return grant === null ? null : await validateLiveGrantRecord(ctx, grant);
+  if (grant !== null) return await validateLiveGrantRecord(ctx, grant);
+  return await earlierTextsToken(ctx, hashedAccessToken);
+}
+
+/**
+ * A texting token a newer mint replaced (`textsEarlierTokens`), still inside
+ * its own lifetime: the turn that holds it finishes instead of being told
+ * there is no model. Only the texting client's, only while that grant is live
+ * by every check below, and never once the person paused sign-ins by phone.
+ */
+async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Promise<LiveGrant | null> {
+  const earlier = await ctx.db
+    .query("textsEarlierTokens")
+    .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
+    .first();
+  if (earlier === null || earlier.expiresAt <= Date.now()) return null;
+  const grant = await ctx.db.get(earlier.grantId);
+  if (grant === null || grant.clientId !== TEXTS_CLIENT_ID) return null;
+  if (await phoneSignInPaused(ctx, grant.userId)) return null;
+  return await validateLiveGrantRecord(ctx, grant);
 }
 
 /**
