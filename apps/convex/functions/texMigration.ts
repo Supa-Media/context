@@ -20,7 +20,7 @@ import type { FileStore } from "./lib/fileOps/store";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexStore } from "./lib/texStore";
-import { migrateTexNotes } from "./lib/texMigration/run";
+import { migrateTexNotes, type TexMigrationPage } from "./lib/texMigration/run";
 
 /** The bucket, as the console opens it for this workspace, with Tex keys routed to the person's object; `null` without a binding. */
 async function openWorkspaceStore(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<FileStore | null> {
@@ -58,8 +58,8 @@ export const run = internalAction({
     only: v.optional(v.string()),
   },
   returns: countsValidator,
-  handler: async (ctx, args) => {
-    const only = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.personalWorkspaceBySlug, { slug: args.only });
+  handler: async (ctx, args): Promise<TexMigrationPage> => {
+    const only: Id<"workspaces"> | null | undefined = args.only === undefined ? undefined : await ctx.runQuery(internal.functions.texMigrationRows.personalWorkspaceBySlug, { slug: args.only });
     if (only === null) {
       return { workspaces: 0, rows: 0, wouldMove: 0, moved: 0, alreadyMoved: 0, swept: 0, other: 0, refused: { NO_WORKSPACE: 1 }, cursor: "", done: true };
     }
