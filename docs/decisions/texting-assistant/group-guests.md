@@ -5,10 +5,15 @@
 > ([chat-homes](./chat-homes.md)), reached by a home-only grant held by the
 > chat's sponsor, and it gets no group or folder in the workspace it was bound
 > to. Nobody is added to a group or named on a folder for being in the chat,
-> the group-people route is gone, and the guest phone pass does not reach
-> home-only chats. What follows is the record of the 2026-10-25 decision and
-> why it was made. It no longer describes running code, except for legacy
-> guest chats, which a one-off move is to carry into homes (not yet written).
+> the group-people route is gone. The owner kept the guest phone pass: a code
+> for a number in a home-only chat makes a light account, named on the chat's
+> home to edit and nowhere else in the pin. Each legacy guest chat's folder,
+> the members' notes included, moves into its home by the ordinary
+> cross-context move, marked as the chat's own (`chatHome` on the
+> `contextMoves` row, re-derived from the chat's row on every pass, set by no
+> public mutation), run once from the `Tex guest chats retire` workflow
+> (`functions/texGuestRetire.ts`). What follows is the record of the
+> 2026-10-25 decision and why it was made. It no longer describes running code.
 
 Tex in a group answered only when every person in the chat was linked to an
 account and all of them shared one workspace ([groups](./groups.md)). One
