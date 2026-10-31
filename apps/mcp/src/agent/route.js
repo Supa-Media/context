@@ -28,7 +28,7 @@ import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb, theirEarlierWords } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
-import { meterEach, meterParts } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
+import { meterEach, meterParts, turnRouter } from "./modelPlan.js"; import { advisorRequest, advisorTools } from "./advisor.js"; import { turnStages } from "./turnStages.js";
 import { attachmentsLine, carriesData, carriesPictures, hearVoiceMessages, pictureFallback, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { withEmailFiles } from "./emailFiles.js";
 import { carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "./keptFiles.js";
@@ -405,10 +405,7 @@ async function agentTurn(request, env, store, session, controlPlane, { progress 
   const builtinUsed = productionModel ?? builtinModel(env);
   // The setup's router (`router.js`), when this deployment can run both the
   // decision model and the thinking model; otherwise every text runs on `main`.
-  const router =
-    productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt, thinkRounds: production.router.thinkRounds }
-      : null;
+  const router = productionModel !== null ? turnRouter(production, (name) => canRunBuiltin(name, env), () => decisionEngine(env.AI)) : null; // or a planner for jobs alone (`modelPlan.js`)
   // The setup's fallback model (`production.js`), when this deployment can call it.
   const fallback = pictureFallback(productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null, [builtinUsed, router?.think], attachments);
 
