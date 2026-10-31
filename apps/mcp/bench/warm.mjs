@@ -22,6 +22,7 @@ import { assertIsoDate, installClock, noonUtcMs, realNow } from "./clock.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID } from "../test/searchProjection/fixtures.mjs";
 import { bindingEmbedder } from "../src/search/meaning/embed.js";
+import { MeaningError } from "../src/search/meaning/errors.js";
 import { createMeaningClient } from "../src/search/meaning/client.js";
 import { meaningChangeFor } from "../src/search/meaning/project.js";
 import { S3_ENDPOINT, fixtureVisibility, placeWorkspaces, searchIndexFor } from "./world.mjs";
@@ -39,7 +40,7 @@ import { S3_ENDPOINT, fixtureVisibility, placeWorkspaces, searchIndexFor } from 
  * @returns {Promise<{ buckets: Map<string, Map>, indexed: Map<string, number>,
  *   vectors: Map | null, embedded: Map<string, number>, openCopy: Function, close: Function }>}
  */
-export async function prepareRun(bench, { today = null, ai = null } = {}) {
+export async function prepareRun(bench, { today = null, ai = null, embedWaits = EMBED_WAITS_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   if (today !== null) assertIsoDate(today);
   if (!DatabaseSync) throw new Error("node:sqlite is needed to warm the benchmark world (Node 22.5 or later)");
   const baseMs = today === null ? realNow() : noonUtcMs(today);
@@ -68,7 +69,7 @@ export async function prepareRun(bench, { today = null, ai = null } = {}) {
         visibility: fixtureVisibility(bench, name, path),
       }));
       indexed.set(name, fillSearchDatabase(d1.dbFor(searchIndexFor(name, "ready").databaseId), notes));
-      if (vectorize) embedded.set(name, await fillMeaningIndex(bench, name, ai));
+      if (vectorize) embedded.set(name, await fillMeaningIndex(bench, name, ai, { waits: embedWaits, sleep }));
       buckets.set(name, new Map([...s3.bucketFor(`bench-${name}`)].map(([key, object]) => [key, { ...object }])));
       // The temp dir's name is ours (mkdtemp), so it holds nothing a quote could break.
       d1.dbFor(searchIndexFor(name, "ready").databaseId).exec(`VACUUM INTO '${join(dir, `${name}.db`)}'`);
@@ -107,13 +108,34 @@ export async function prepareRun(bench, { today = null, ai = null } = {}) {
 const EMBED_CONCURRENCY = 8;
 
 /**
+ * The waits before a note's embedding is tried again. The model call is
+ * already retried inside its 10-second deadline (`cachedEmbeddings`), but a
+ * slow model runs out that deadline, and one note that could not be embedded
+ * lost the whole shard's conversations (gh-139, 2026-10-31).
+ */
+export const EMBED_WAITS_MS = [2_000, 8_000];
+
+/**
  * Put every note of one workspace in its meaning index, the way the control
  * plane's catch-up pass does for a real workspace: each note cut into passages
  * (`meaningChangeFor`), fingerprinted by the run's embedder, upserted under
  * the tier its visibility gives it. Returns how many passages went in.
  */
-async function fillMeaningIndex(bench, name, ai) {
-  const embed = bindingEmbedder(ai);
+/** The failures worth another try: the model was slow, down or busy. */
+const RETRIED = new Set(["UNAVAILABLE", "RATE_LIMITED"]);
+
+async function fillMeaningIndex(bench, name, ai, { waits, sleep }) {
+  const once = bindingEmbedder(ai);
+  const embed = async (texts) => {
+    for (let tried = 0; ; tried += 1) {
+      try {
+        return await once(texts);
+      } catch (error) {
+        if (!(error instanceof MeaningError) || !RETRIED.has(error.code) || tried >= waits.length) throw error;
+        await sleep(waits[tried]);
+      }
+    }
+  };
   const client = createMeaningClient(meaningIndexFor(name, "ready", D1_ACCOUNT_ID));
   const entries = Object.entries(bench.workspaces[name].files);
   const vectors = [];
