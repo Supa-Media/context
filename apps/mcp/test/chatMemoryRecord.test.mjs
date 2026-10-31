@@ -135,11 +135,11 @@ test("the bucket's old copy is moved in once: written, read back the same, then 
   const again = await readGroupMemory(store, group());
   assert.deepEqual(again, first);
   assert.deepEqual(objectKeys(`chat:${KEY}`), [`state/${CHAT_MEMORY_NAME}.json`]);
-  // A bucket copy left by another set of people is not read once the chat has its record (a later job merges them).
-  const older = await groupMemoryPath(group({ members: "e".repeat(64) }));
-  await store.put(older, record("@bo: from before"));
+  // The record is one per chat (the owner, 2026-10-31): the same bucket name for anybody added, and a copy left there is not read once the chat has its record.
+  assert.equal(await groupMemoryPath(group({ members: "e".repeat(64) })), legacy);
+  await store.put(legacy, record("@bo: from before"));
   assert.doesNotMatch(JSON.stringify(await readGroupMemory(store, group({ members: "e".repeat(64) }))), /from before/);
-  assert.ok(bucketKeys().includes(older), "left for the later merge");
+  assert.ok(bucketKeys().includes(legacy), "left in place, as the chat's record was already kept elsewhere");
 });
 
 test("a move whose read-back differs keeps the bucket copy", { skip }, async () => {

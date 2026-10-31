@@ -190,9 +190,10 @@ The owner asked for group memory "inside the shared workspaces", in a `tex/`
 folder like heartbeat. Naming people on a note is owner only, and the
 group grant's `team` tier would hide a note shared by name, so the first
 version keeps each chat's memory as plumbing in the bound workspace,
-`.context/agent/groups/<hash>.json`, filed by the chat and the exact set of
-people in it: somebody added later starts a new memory and is never
-replayed what was said before they joined, untagged lines included. A visible `tex/groups/` note the
+`.context/agent/groups/<hash>.json`, filed by the chat's key alone: one memory
+per chat, and somebody added later reads what came before them, untagged
+lines included (the owner, 2026-10-31, reversing the people-named file).
+A visible `tex/groups/` note the
 people in the chat can read and correct is the follow-up.
 
 ## What Sendblue gives and doesn't
@@ -374,7 +375,7 @@ note the last one wrote") fail if either is reversed.
 ## A chat's memory as a note people can fix (the owner, 2026-10-23)
 
 The owner chose "Visible tex/ folder, team-wide" over memory nobody can see.
-Each chat, filed by its exact set of people as before, keeps
+Each chat, filed by its key alone (one memory per chat, 2026-10-31), keeps
 `tex/groups/chat-<id>.md` in its workspace (`groupMemoryNote.js`): every
 question with the chat lines before it, every answer, and a hidden line under
 each answer naming the tools it used and the notes and pages behind it. Tex

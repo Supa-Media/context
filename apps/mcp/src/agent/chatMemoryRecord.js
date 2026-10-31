@@ -12,7 +12,9 @@
  * (`docs/decisions/texting-assistant/tex-durable-objects.md`).
  *
  * - Read: the object's copy. With none, the bucket's old copy for this chat
- *   and these people (`.context/agent/groups/<sha>.json`) is moved in once:
+ *   (`.context/agent/groups/<sha>.json`, named by the chat's key alone) is
+ *   moved in once; a copy named by the people in it before that is not
+ *   (the visible note carries those words, `chatNoteMove.js`):
  *   written to the object only where nothing is yet, read back, and deleted
  *   from the bucket only when the read-back is the same bytes.
  * - Write: the object alone.

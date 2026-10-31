@@ -62,9 +62,9 @@ blocker. They proposed guest mode, and chose every default below on
   workspace member in the chat, on that person's own yes (`as`): a guest's
   yes never releases anything, and a guest's tag never holds anything for
   someone else.
-- **New joiners see the group's notes, never the chat before they joined.**
-  The chat's memory is filed by its exact set of people, as before, and an
-  answer is held when someone joins mid-turn.
+- **New joiners see the group's notes, and the chat before they joined.**
+  The chat's memory is one per chat, shared with whoever joins (the owner,
+  2026-10-31), and an answer is held when someone joins mid-turn.
 - **Usage counts against whoever turned guest mode on**, whoever tags Tex.
   Guests have no account to count against. The audit names the person whose
   grant acted, and says when a guest asked.
