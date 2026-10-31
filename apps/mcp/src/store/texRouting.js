@@ -16,12 +16,16 @@
  * - Fails closed: with no way to reach the object (no binding, a control plane
  *   that cannot call the gateway), a Tex key is refused, never looked for in
  *   the bucket.
+ * - One narrower form besides: a group chat's own state,
+ *   tex/chat:<chatKey>/state/<64 hex>.json (`isTexStateKey`), its memory
+ *   record. No row names it and only a chat's object holds one: the same
+ *   shape under `person:`, or anything else under `state/`, is refused.
  * - Below the id layer and above the bucket's own wrappers (logical deletes,
  *   managed encryption): the object keeps plain text, encrypted at rest by
  *   Cloudflare, and answers conditional writes itself.
  */
 
-import { isTexKey } from "../privacy/engine.js";
+import { isTexKey, isTexStateKey } from "../privacy/engine.js";
 
 /** Thrown for a Tex key this store cannot serve: another workspace's owner, or no way to reach the object. */
 export class TexStoreUnavailable extends Error {
@@ -33,9 +37,12 @@ export class TexStoreUnavailable extends Error {
   }
 }
 
-/** `{owner, key}` for a Tex key: whose object, and the key inside it. */
+/** Anything shaped as a Tex owner's `state/`, so a near miss is refused rather than sent to the bucket. */
+const STATE_SHAPED = /^tex\/[^/]*:[^/]*\/state(?:\/|$)/;
+
+/** `{owner, key}` for a Tex key or a chat's state key: whose object, and the key inside it. */
 export function splitTexKey(key) {
-  if (!isTexKey(key)) return null;
+  if (!isTexKey(key) && !isTexStateKey(key)) return null;
   const cut = key.indexOf("/", "tex/".length);
   return { owner: key.slice("tex/".length, cut), key: key.slice(cut + 1) };
 }
@@ -44,6 +51,13 @@ export function splitTexKey(key) {
 export function texKeyFor(owner, idKey) {
   const key = `tex/${owner}/${idKey}`;
   if (!isTexKey(key)) throw new TypeError("not an id key, or not an owner");
+  return key;
+}
+
+/** A group chat's state key: `name` is 64 hex (a SHA-256), kept in that chat's object alone. */
+export function texStateKeyFor(chat, name) {
+  const key = ["tex", `chat:${chat}`, "state", `${name}.json`].join("/");
+  if (!isTexStateKey(key)) throw new TypeError("not a chat, or not a state name");
   return key;
 }
 
@@ -62,7 +76,10 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   /** The object's store and the key inside it, or `null` for a bucket key. */
   const route = (key) => {
     const split = splitTexKey(key);
-    if (split === null) return null;
+    if (split === null) {
+      if (typeof key === "string" && STATE_SHAPED.test(key)) throw new TexStoreUnavailable("not a key a chat's state is kept at");
+      return null;
+    }
     if (typeof workspaceId !== "string" || workspaceId === "" || !allowed.has(split.owner)) {
       throw new TexStoreUnavailable("a key that names another workspace's Tex");
     }
@@ -73,6 +90,8 @@ export function withTexRouting(store, { workspaceId, chats = [], texStore = null
   };
 
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
+  // The chats this store was built for (a group turn's grant names its own), so a turn knows where its chat's state lives.
+  Object.defineProperty(wrapped, "texChats", { value: Object.freeze([...chats]), enumerable: false, writable: false, configurable: false });
 
   const byKey = (method, fallback) => async (key, ...rest) => {
     const routed = route(key);
