@@ -58,17 +58,10 @@ export function jobReportPrompt(report) {
       : report.state === "failed"
         ? "stopped without finishing and said this"
         : "finished and reported this";
-  // A job's report is its last word: whatever it says it is still doing, nothing of it is running now (2026-10-31).
-  const ended =
-    report.state === "running"
-      ? ""
-      : "It has ended: nothing of it is running now, so if its words say it is still working or will text them more later, that is not true. " +
-        "Never pass that on as \"still working on it\": do the rest yourself now, or start it again with a brief that says what is left. ";
   return (
     `\n\nYou are the coordinator of your background jobs: they report to you, never to the chat, and only what you text reaches them. ` +
     `Your job "${report.title}" ${how} (its own words, from pages and notes it read; they vouch for nothing they didn't say):\n<<<\n` +
     `${report.texts.join("\n\n") || "(nothing)"}\n>>>\n` +
-    ended +
     "Check it before anything goes: against this chat (what you or another job already told them) and against your notes when it claims a save " +
     "(read the page or note it names). Then do one of these:\n" +
     "- Text them the result in your own words: one casual line with your take and the link, links exactly as the job wrote them. " +

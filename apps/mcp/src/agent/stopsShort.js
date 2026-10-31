@@ -23,7 +23,6 @@
  */
 
 import { MAX_JOB_ATTEMPTS } from "./background.js";
-import { STILL_WORKING_NOTICE, stillWorking } from "./stillWorking.js";
 
 const LOOKING = String.raw`(?:priced|costed|checked|confirmed|compared|researched|verified|totalled|totaled|looked (?:up|into|at))`;
 
@@ -72,9 +71,7 @@ const FINISH =
   "with where each figure came from. Looking up published prices never needs their yes; only contacting someone (an email, a call, a quote request) does, so offer that as one line at the end if it helps. ";
 
 /** The notice for an answer that stops short: a job is told to finish; a chat turn may also hand it to a job. */
-export function finishNotice({ job = false, answer = "" } = {}) {
-  // A job ending on "I'm still filling it in" has no research left short: it has the whole task left (`stillWorking.js`).
-  if (job && stillWorking(answer)) return STILL_WORKING_NOTICE + "If it was already finished and reported in full, send it again as it was.";
+export function finishNotice({ job = false } = {}) {
   return (
     FINISH +
     (job
@@ -126,9 +123,9 @@ export function fewerThanAsked(answer, question = "") {
 */
 const NEXT_STEP = /(?:^|[.!?]\s+|\n)(?:so\s+)?next,?\s+I(?:'ll| will| am going to|'m going to)\s+(?!text|let you know|tell you|send you)/i;
 
-/** Whether a job's answer names the next thing it will do, or says it is still doing it (`stillWorking.js`), rather than doing it. */
+/** Whether an answer names the next thing it will do, rather than doing it. */
 export function announcesNextStep(answer) {
-  return NEXT_STEP.test(said(answer)) || stillWorking(answer);
+  return NEXT_STEP.test(said(answer));
 }
 
 /**
