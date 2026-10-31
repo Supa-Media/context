@@ -42,9 +42,12 @@ export function mayAnswerAsk(question, quoted, hasAttachments) {
  * wait. `{ setAside }` or `{ dropped }` as `settleTextedText` returns them, or
  * null when none wait.
  */
-export async function waitingAsks(store, session, { conversation = null, told, now, warm = null }) {
+export async function waitingAsks(store, session, { conversation = null, told, now }) {
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
-  if (warm !== null && (await warm.noAsks())) return null; // a warm copy that knows none waited, and no turn since (`warmCopy.js`)
+  // Always read, never taken from a warm copy's "none waited": a job, a routine or the heartbeat arms an ask beside
+  // the chat, and none of them writes that copy (`route.js` keeps one for an ordinary text alone) or clears it when
+  // it arms. A copy sealed before the ask would hide it, and this listing is what the model is told about and what
+  // the disarm below rests on.
   const asked = await listPending(store, { userId: session.actorUserId, texting: true, now });
   if (asked.length === 0) return null;
   if (await askOvertaken(store, conversation, asked.map(({ record }) => record))) {

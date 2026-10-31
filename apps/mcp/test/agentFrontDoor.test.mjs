@@ -14,14 +14,17 @@
  *    fails;
  *  - `front_door` read as always on: "off brings the old turn back" fails;
  *  - `textedAsk` handing its disarm to a host deferral: "a reply that asks
- *    something disarms the older ask before it answers" fails.
+ *    something disarms the older ask before it answers" fails;
+ *  - `waitingAsks` trusting a warm copy's "none waited", or `textedAsk`
+ *    skipping its disarm on a reading taken before the model: "an ask armed
+ *    since the last turn is still found and disarmed" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { mayAnswerAsk, readFrontDoor } from "../src/agent/frontDoor.js";
+import { mayAnswerAsk, readFrontDoor, waitingAsks } from "../src/agent/frontDoor.js";
 import { textedAsk } from "../src/agent/textedApprovals.js";
 import { createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
@@ -143,12 +146,36 @@ test("a reply that asks something disarms the older ask before it answers", asyn
   assert.equal((await listPending(slow, { userId: "u1", texting: true })).length, 0, "the older ask is still armed: a bare yes would release it");
 });
 
-test("a reply that asks something lists nothing when the turn already saw no ask waiting", async () => {
+test("a reply that asks something always lists the waiting asks, whatever the turn saw earlier", async () => {
   const kept = createMemoryStore();
   let lists = 0;
   const counted = { ...kept, list: async (...args) => ((lists += 1), kept.list(...args)) };
   await textedAsk(counted, { actorUserId: "u1" }, [], "Sure, what time?", { noneWaiting: true });
-  assert.equal(lists, 0, "nothing was waiting before the model, so the reply's last seconds don't list the asks again");
-  await textedAsk(counted, { actorUserId: "u1" }, [], "Sure, what time?");
-  assert.ok(lists > 0, "without that knowledge the asks are listed and disarmed");
+  assert.ok(lists > 0, "a reading taken before the model is older than an ask armed while it ran, so no caller may skip this");
+});
+
+test("an ask armed since the last turn is still found and disarmed", async () => {
+  // A job, a routine or the heartbeat arms an ask beside the chat. None of them writes the person's warm copy
+  // (`route.js` keeps one only for an ordinary text), and arming never clears it, so a copy sealed "none waited"
+  // outlives the fact. The listing and the disarm are what stand between that ask and a bare yes meant for Tex's
+  // own question (`askOvertaken` only drops an ask after a text Tex sent by itself), so neither may be skipped on
+  // a reading older than the ask.
+  const store = createMemoryStore();
+  const session = { actorUserId: "u1" };
+  await createPending(store, {
+    name: "send_email",
+    args: { summary: "email jo" },
+    actor: { userId: "u1", clientId: "context_texts" },
+    widening: { summary: "email jo" },
+    detail: "To: jo@example.com\n\nshort",
+    texting: true,
+  });
+  const warm = { noAsks: async () => true, log: () => null };
+
+  const waiting = await waitingAsks(store, session, { conversation: null, told: null, now: Date.now(), warm });
+  assert.equal(waiting?.setAside?.length, 1, "the ask is listed though the warm copy said none waited");
+
+  const { ask } = await textedAsk(store, session, [], "Sunny — want the hourly too?");
+  assert.equal(ask, null);
+  assert.equal((await listPending(store, { userId: "u1", texting: true })).length, 0, "and it is disarmed before the reply goes");
 });

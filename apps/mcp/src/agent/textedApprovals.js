@@ -202,7 +202,7 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked, told = "", { who = null, stale = null, noneWaiting = false } = {}) {
+export async function textedAsk(store, session, asked, told = "", { who = null, stale = null } = {}) {
   if (asked.length === 0) {
     // Asks their text corrected, with nothing new drawn, are dropped (`claimCheck.js` rule 6): `stale` names them.
     if (Array.isArray(stale) && stale.length > 0) return { ask: await dropStale(store, session, stale), verbatim: [] };
@@ -210,8 +210,9 @@ export async function textedAsk(store, session, asked, told = "", { who = null, 
     // Awaited, never handed to the host's deferral: `askOvertaken` counts only Tex's texts sent by
     // themselves, so for a reply that asks something this disarm is the whole protection, and a
     // deferral is "an optimisation it may not get, never where the work happens" (`http/route.js`).
-    // `noneWaiting`: this turn listed the waiting asks before its model (`frontDoor.js`) and none was armed, so there is nothing to disarm and no listing to wait on (2026-10-31: a reply's last seconds).
-    if (/\?/.test(told) && !noneWaiting) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+    // Unconditional: a reading taken before the model (`frontDoor.js`) is older than anything a job, a routine or the
+    // heartbeat armed while the model ran, and this is the only check between such an ask and a bare yes.
+    if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return { ask: null, verbatim: [] };
   }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
