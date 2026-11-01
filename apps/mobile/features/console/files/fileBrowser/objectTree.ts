@@ -1,5 +1,5 @@
 /**
- * The file tree's socket to the workspace's object (`GET /tree` on the
+ * The file tree's socket to the workspace's object (`GET /presence/tree` on the
  * gateway; decided by the owner, 2026-11-01). Each watched folder arrives as
  * the server's listing at this person's clearance, and again whenever it
  * changes for them.
@@ -24,6 +24,7 @@ import {
   TREE_CLOSE_NOT_SERVED,
   TREE_CLOSE_REAUTH,
   TREE_PROTOCOL,
+  TREE_SOCKET_PATH,
   watchFrame,
 } from "@context/shared/src/treeFrames.cjs";
 import type { FolderListing } from "../types";
@@ -34,7 +35,7 @@ const PING_MS = 30_000;
 const MAX_BACKOFF_MS = 30_000;
 
 export function treeSocketUrl(gatewayOrigin: string): string {
-  const url = new URL("/tree", gatewayOrigin);
+  const url = new URL(TREE_SOCKET_PATH, gatewayOrigin);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   return url.toString();
 }

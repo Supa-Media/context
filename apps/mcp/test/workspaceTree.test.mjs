@@ -15,7 +15,7 @@ import { treeRows } from "../src/workspaceStore/treeRows.js";
 import { handleTree } from "../src/live/treeRoute.js";
 import { handleWorkspaceStoreDoor } from "../src/workspaceStore/door.js";
 import { isTransportPath } from "../src/origin.js";
-import { decodeClientFrame, decodeServerFrame, TREE_CLOSE_NOT_SERVED, TREE_CLOSE_REAUTH } from "../../../packages/shared/src/treeFrames.cjs";
+import { decodeClientFrame, decodeServerFrame, TREE_CLOSE_NOT_SERVED, TREE_CLOSE_REAUTH, TREE_SOCKET_PATH } from "../../../packages/shared/src/treeFrames.cjs";
 
 let DatabaseSync = null;
 try {
@@ -296,7 +296,7 @@ function routeWorld(resolved) {
   const deps = { controlPlane: { resolveSession: async () => resolved }, upgraded: (headers, webSocket) => ({ status: 101, headers, webSocket }) };
   const ask = (headers = {}) =>
     handleTree(
-      new Request("https://gateway/tree", {
+      new Request("https://gateway/presence/tree", {
         headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `context.tree, context.token.${TOKEN}`, ...headers },
       }),
       env,
@@ -331,14 +331,14 @@ test("the tree route refuses no token, a read-less grant, a guest's names, and a
   const guest = await routeWorld(session("member", ["#reads-as-guest"])).ask();
   assert.equal(guest.status, 403);
   const { env } = routeWorld(session());
-  const plain = await handleTree(new Request("https://gateway/tree"), env, { slug: null, pathToken: null, origin: null });
+  const plain = await handleTree(new Request("https://gateway/presence/tree"), env, { slug: null, pathToken: null, origin: null });
   assert.equal(plain.status, 426);
-  const unbound = await handleTree(new Request("https://gateway/tree", { headers: { Upgrade: "websocket" } }), {}, { slug: null, pathToken: null, origin: null });
+  const unbound = await handleTree(new Request("https://gateway/presence/tree", { headers: { Upgrade: "websocket" } }), {}, { slug: null, pathToken: null, origin: null });
   assert.equal(unbound.status, 501);
 });
 
 test("the tree socket is origin-checked, as every socket a browser can open", () => {
-  assert.equal(isTransportPath("/tree"), true);
+  assert.equal(isTransportPath(TREE_SOCKET_PATH), true);
 });
 
 test("the control plane's door never forwards an upgrade or a reader to a workspace object", async () => {
@@ -375,4 +375,16 @@ test("a socket that went without a close event leaves no rows behind once anothe
   const held = w.sql.exec("SELECT COUNT(*) AS n FROM ws_tree_watch").toArray()[0].n;
   assert.equal(held, 0);
   assert.equal(w.sql.exec("SELECT COUNT(*) AS n FROM ws_tree_sockets").toArray()[0].n, 1);
+});
+
+test("the socket's path reaches the route: it is never read as a workspace's name", async () => {
+  // Shipped as a bare `/tree` first, which read as the workspace called `tree` and answered 404 in production.
+  const { splitWorkspacePath } = await import("../src/workspacePath.js");
+  assert.deepEqual(splitWorkspacePath(TREE_SOCKET_PATH), { slug: null, path: TREE_SOCKET_PATH });
+  assert.deepEqual(splitWorkspacePath(`/@studio${TREE_SOCKET_PATH}`), { slug: "studio", path: TREE_SOCKET_PATH });
+  // And through the gateway's own router: no token is the route's 401, never the 404 a workspace path gets.
+  const { route } = await import("../src/http/route.js");
+  const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => new Response(null, { status: 500 }) }) } };
+  const answer = await route(new Request(`https://gateway.test${TREE_SOCKET_PATH}`, { headers: { Upgrade: "websocket" } }), env, { waitUntil() {} });
+  assert.equal(answer.status, 401);
 });

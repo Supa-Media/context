@@ -1,5 +1,5 @@
 /**
- * The app's live file tree socket (`GET /tree` on the gateway, answered by the
+ * The app's live file tree socket (`GET /presence/tree` on the gateway, answered by the
  * workspace's object: `apps/mcp/src/workspaceStore/treeSockets.js`). Both
  * sides read their frames through this file, so neither can drift.
  *
@@ -16,6 +16,12 @@
  */
 
 const TREE_PROTOCOL = "context.tree";
+/**
+ * The socket's path on the gateway. Under `/presence`, whose first segment is
+ * reserved (`apps/mcp/src/workspacePath.js`): a bare `/tree` read as "the
+ * workspace called tree" and answered 404 in production (2026-11-01).
+ */
+const TREE_SOCKET_PATH = "/presence/tree";
 /** Folders one socket watches: the same bound as `LIVE_FOLDERS` in the app. */
 const TREE_WATCH_MAX = 40;
 /** The longest a tree socket stays open before its grant is checked again. */
@@ -71,6 +77,7 @@ const pongFrame = () => JSON.stringify({ t: "pong" });
 
 module.exports = {
   TREE_PROTOCOL,
+  TREE_SOCKET_PATH,
   TREE_WATCH_MAX,
   TREE_SOCKET_MAX_MS,
   TREE_CLOSE_REAUTH,

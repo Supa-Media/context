@@ -1,5 +1,5 @@
 /**
- * `GET /tree` — the app's live file tree, kept by the workspace's object
+ * `GET /presence/tree` — the app's live file tree, kept by the workspace's object
  * (`workspaceStore/treeSockets.js`; decided by the owner, 2026-11-01).
  *
  * ## It authorizes like `/presence`, and the client names nothing that matters
@@ -33,7 +33,9 @@ import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { json } from "../http/responses.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 import { TREE_READER_HEADER } from "../workspaceStore/treeSockets.js";
-import { TREE_PROTOCOL, TREE_SOCKET_MAX_MS } from "../../../../packages/shared/src/treeFrames.cjs";
+import { TREE_PROTOCOL, TREE_SOCKET_MAX_MS, TREE_SOCKET_PATH } from "../../../../packages/shared/src/treeFrames.cjs";
+
+export { TREE_SOCKET_PATH };
 
 const MEMBER_ROLES = new Set(["owner", "editor", "member"]);
 
@@ -61,7 +63,7 @@ export async function handleTree(request, env, { slug, pathToken, origin }, deps
   const controlPlane = deps.controlPlane ?? createControlPlane(env);
   let session;
   try {
-    session = await resolvePresentedSession(request, { pathToken, path: "/tree", slug, controlPlane });
+    session = await resolvePresentedSession(request, { pathToken, path: TREE_SOCKET_PATH, slug, controlPlane });
   } catch (error) {
     if (!(error instanceof SessionRefusal)) throw error;
     return error.status === 403 ? forbiddenResponse(origin, null, error) : unauthorizedResponse(origin, slug, error);

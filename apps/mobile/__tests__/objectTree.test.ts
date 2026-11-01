@@ -90,8 +90,8 @@ function harness() {
 
 describe("the tree socket to the workspace object", () => {
   test("its address and token never put the token in the URL", () => {
-    expect(treeSocketUrl("https://gateway.example")).toBe("wss://gateway.example/tree");
-    expect(treeSocketUrl("http://127.0.0.1:8799")).toBe("ws://127.0.0.1:8799/tree");
+    expect(treeSocketUrl("https://gateway.example")).toBe("wss://gateway.example/presence/tree");
+    expect(treeSocketUrl("http://127.0.0.1:8799")).toBe("ws://127.0.0.1:8799/presence/tree");
     expect(treeSocketProtocols("tok")).toEqual(["context.tree", "context.token.tok"]);
   });
 
