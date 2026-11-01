@@ -62,7 +62,7 @@ jobs:
             fi
             answer=$(npx convex run functions/texHistoryMigration:run "$args")
             echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
-            total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c 'del(.cursor, .done)')" '$b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries')
+            total=$(jq -cn --argjson a "$total" --argjson b "$(echo "$answer" | jq -c '(.failedCodes // {} | with_entries(.key |= "failed_" + .)) + del(.cursor, .done, .failedCodes)')" '$a + ($b | to_entries | map({key, value: (.value + ($a[.key] // 0))}) | from_entries)')
             if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
             cursor=$(echo "$answer" | jq -r '.cursor')
             if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
