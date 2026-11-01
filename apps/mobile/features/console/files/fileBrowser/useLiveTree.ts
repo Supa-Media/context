@@ -14,12 +14,24 @@
  *
  * A refusal (membership taken away) clears the folder, for the reason
  * `refresh` gives: a listing kept after a refusal shows what was withheld.
+ *
+ * **From the workspace's object once it serves the tree** (decided by the
+ * owner, 2026-11-01): the same folders are watched over one socket to the
+ * object (`objectTree.ts`), which sends each listing at this person's
+ * clearance and again when it changes. While the object does not serve this
+ * workspace (not switched yet, switched back, or unreachable) the Convex
+ * queries above answer as before; the first listing from the object turns
+ * them off, and the object saying it does not serve turns them back on.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../../querySpec";
+import { useConsoleGrant } from "../../../agent/useConsoleGrant";
+import { gatewayOriginFrom } from "../../../meetings/gateway";
+import { MCP_ENDPOINT } from "../../placeholderData";
+import { openObjectTree, type ObjectTree } from "./objectTree";
 import { parentPath } from "../paths";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
@@ -72,14 +84,19 @@ export function useLiveTree(deps: LiveTreeDeps): void {
     () => liveFolders(expanded, selectedPath, selectedIsFolder).join("\n"),
     [expanded, selectedPath, selectedIsFolder],
   );
+
+  // Whether the workspace's object serves this tree now: until it says so, Convex does.
+  const [servedBy, setServedBy] = useState<string | null>(null);
+  const byObject = workspaceId !== null && servedBy === workspaceId && !offline;
+
   const spec = useMemo(() => {
-    if (workspaceId === null || offline) return EMPTY_QUERY_SPEC;
+    if (workspaceId === null || offline || byObject) return EMPTY_QUERY_SPEC;
     const queries: Record<string, { query: typeof api.functions.nodesListing.listFolder; args: { workspaceId: Id<"workspaces">; path: string } }> = {};
     for (const path of key.split("\n")) {
       queries[`f:${path}`] = { query: api.functions.nodesListing.listFolder, args: { workspaceId, path } };
     }
     return queries;
-  }, [workspaceId, offline, key]);
+  }, [workspaceId, offline, byObject, key]);
   const results = useQueries(spec) as Record<string, FolderListing | null | undefined | Error>;
 
   // What was last laid down per folder, so an unchanged answer redraws nothing.
@@ -90,31 +107,66 @@ export function useLiveTree(deps: LiveTreeDeps): void {
   });
   if (applied.current.workspaceId !== workspaceId) applied.current = { workspaceId, pages: new Map(), files: new Map() };
 
+  /** Lay one server answer down, unless it is the one already laid; the files it dropped are returned. */
+  const apply = useCallback(
+    (folder: string, result: FolderListing | Error): string[] => {
+      if (result instanceof Error) {
+        if (applied.current.pages.get(folder) === "refused") return [];
+        applied.current.pages.set(folder, "refused");
+        applied.current.files.delete(folder);
+        commitLive(folder, null, true);
+        return [];
+      }
+      const page = withoutKind(result);
+      const seen = JSON.stringify(page);
+      if (applied.current.pages.get(folder) === seen) return [];
+      applied.current.pages.set(folder, seen);
+      const vanished = vanishedFiles(applied.current.files.get(folder), page);
+      applied.current.files.set(folder, new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path)));
+      commitLive(folder, page, false);
+      return vanished;
+    },
+    [commitLive],
+  );
+
   useEffect(() => {
     const vanished: string[] = [];
     for (const [name, result] of Object.entries(results)) {
       if (!name.startsWith("f:") || result === undefined || result === null) continue;
-      const folder = name.slice(2);
-      if (result instanceof Error) {
-        if (applied.current.pages.get(folder) === "refused") continue;
-        applied.current.pages.set(folder, "refused");
-        applied.current.files.delete(folder);
-        commitLive(folder, null, true);
-        continue;
-      }
-      const page = withoutKind(result);
-      const seen = JSON.stringify(page);
-      if (applied.current.pages.get(folder) === seen) continue;
-      applied.current.pages.set(folder, seen);
-      vanished.push(...vanishedFiles(applied.current.files.get(folder), page));
-      applied.current.files.set(folder, new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path)));
-      commitLive(folder, page, false);
+      vanished.push(...apply(name.slice(2), result));
     }
     if (vanished.length > 0) onVanished?.(vanished);
-  }, [results, commitLive, onVanished]);
+  }, [results, apply, onVanished]);
 
+  // The socket to the workspace's object: one per workspace, kept while the tree is on screen.
+  const mint = useConsoleGrant();
+  const latest = useRef({ apply, onVanished, key });
+  latest.current = { apply, onVanished, key };
+  const objectTree = useRef<ObjectTree | null>(null);
+  const gatewayOrigin = gatewayOriginFrom(MCP_ENDPOINT);
+  useEffect(() => {
+    if (workspaceId === null || offline || gatewayOrigin === null) return;
+    const tree = openObjectTree({
+      gatewayOrigin,
+      token: async (refresh) => (await mint({ workspaceId }, refresh)).accessToken,
+      onServed: (served) => setServedBy((held) => (served ? workspaceId : held === workspaceId ? null : held)),
+      onListing: (folder, page) => {
+        const vanished = latest.current.apply(folder, page);
+        if (vanished.length > 0) latest.current.onVanished?.(vanished);
+      },
+    });
+    tree.watch(latest.current.key.split("\n"));
+    objectTree.current = tree;
+    return () => {
+      tree.close();
+      if (objectTree.current === tree) objectTree.current = null;
+      setServedBy(null);
+    };
+  }, [workspaceId, offline, gatewayOrigin, mint]);
+  useEffect(() => {
+    objectTree.current?.watch(key.split("\n"));
+  }, [key]);
 }
-
 /** The listing as `listFiles` hands it to the console: the result's `kind` tag dropped. */
 function withoutKind(result: FolderListing & { kind?: string }): FolderListing {
   const { kind: _kind, ...page } = result;
