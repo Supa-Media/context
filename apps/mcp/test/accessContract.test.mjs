@@ -126,3 +126,13 @@ test("call names are unique and say which object they go to", () => {
   assert.equal(ACCESS_OPS.REACH_PUT, "person.reach.put");
   assert.equal(ACCESS_OPS.REACH_REMOVE, "person.reach.remove");
 });
+
+test("a connection digest ignores when it was last used and the order of its scopes", async () => {
+  const row = { grantId: "g1", clientId: "c1", clientName: null, workspaceId: "w1", scopes: ["context:write", "context:read"], tokenHash: HASH, refreshHash: "b".repeat(64), previousRefreshHash: null, expiresAt: 10, status: "active", lastUsedAt: 5, at: 1 };
+  const same = await accessDigest("connections", [{ ...row, scopes: ["context:read", "context:write"], lastUsedAt: 99 }]);
+  assert.deepEqual(await accessDigest("connections", [row]), same);
+  assert.notEqual((await accessDigest("connections", [{ ...row, status: "revoked" }])).sha, same.sha);
+  assert.equal(checkConnectionRow({ ...row, previousRefreshHash: "c".repeat(64) }).previousRefreshHash, "c".repeat(64));
+  assert.throws(() => checkConnectionRow({ ...row, previousRefreshHash: "crt_x" }), AccessRowRefused);
+  assert.throws(() => checkConnectionRow({ ...row, clientId: "context_texts" }) && checkConnectionRow({ ...row, clientId: "" }), AccessRowRefused);
+});

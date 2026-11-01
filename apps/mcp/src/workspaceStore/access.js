@@ -88,6 +88,17 @@ export const ACCESS_OPS = Object.freeze({
 });
 
 /**
+ * The gateway's client for these calls (built beside `workspaceClient` in `workspaceStore/api.js`):
+ *
+ * - `workspaceClient(env, personalWorkspaceId).access.{reach, sharedToMe, connections}`, each with `put(rows)`,
+ *   `remove(keys, at)`, `list({after, limit})`, `snapshot({epoch, rows, last, mode})`, `digest()`; plus
+ *   `access.connections.revoke(grantId, at)` and `.rotate({refreshHash, next, at})`, `access.session(tokenHash)`,
+ *   `access.pin(userId)` and `access.setHome(home)`. `state()` carries `access: {home, person}`.
+ * - `workspaceClient(env, workspaceId).members` and `.invites` the same five calls, `members.get(userId)`, and
+ *   `members.setHome(home)`.
+ *
+ * The person object's tables are `reach`, `shared` (`sharedToMe`) and `connections` (`ROW_KEYS`).
+ *
  * Every `*.list` takes `{after, limit}` (`after` a row key from the last page, `limit` at most `MAX_LIST`) and answers
  * `{rows, next}`, `next` null on the last page. Every `*.put` and `*.snapshot` page carries at most `MAX_ROWS_PER_CALL`.
  */
@@ -98,6 +109,7 @@ export const MAX_ROWS_PER_CALL = 2000;
 export const ROW_KEYS = Object.freeze({
   reach: (row) => (row.chatId !== undefined ? `chat:${row.chatId}` : `workspace:${row.workspaceId}`),
   shared: (row) => sharedKey(row),
+  sharedToMe: (row) => sharedKey(row),
   connections: (row) => row.grantId,
   members: (row) => row.userId,
   invites: (row) => row.id,
@@ -118,13 +130,18 @@ export function canonicalJson(value) {
 
 /**
  * A table's digest: `{count, sha}`, `sha` the sha256 (lowercase hex) of the canonical JSON of its live rows sorted by
- * key, each row as its `check*Row` returns it without `at` (the clock is when, not what). Both sides compute it with
- * this function, so the parity check compares like with like.
+ * key, each row as its `check*Row` returns it without `at` and `lastUsedAt` (when, not what), and `scopes` and `groups`
+ * sorted. Both sides compute it with this function, so the parity check compares like with like.
  */
 export async function accessDigest(table, rows) {
   const keyOf = ROW_KEYS[table];
   if (keyOf === undefined) throw new TypeError("not an access table");
-  const sorted = [...rows].map(({ at, ...row }) => row).sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
+  const sorted = [...rows]
+    .map(({ at, lastUsedAt, ...row }) => ({
+      ...row,
+      ...(Array.isArray(row.scopes) ? { scopes: [...row.scopes].sort() } : {}),
+      ...(Array.isArray(row.groups) ? { groups: [...row.groups].sort() } : {}),
+    })).sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
   const bytes = new TextEncoder().encode(canonicalJson(sorted));
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return { count: sorted.length, sha: [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("") };
@@ -249,8 +266,10 @@ export function checkSharedRow(row) {
 export const sharedKey = (row) => `${row.fromWorkspaceId}:${row.noteId !== undefined ? `note:${row.noteId}` : `folder:${row.folder}`}`;
 
 /**
- * One AI client's grant: `{grantId, clientId, clientName, workspaceId, scopes[], tokenHash, refreshHash, expiresAt,
- * status, lastUsedAt, at}`. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
+ * One AI client's grant: `{grantId, clientId, clientName, workspaceId, scopes[], tokenHash, refreshHash,
+ * previousRefreshHash?, expiresAt, status, lastUsedAt, at}`. `previousRefreshHash` is the refresh token the last
+ * rotation spent: presented again, it revokes the grant. Texting clients (`context_texts`, `context_texts_group`) are
+ * never held here; their checks stay with the control plane. `workspaceId` is the workspace the person connected it at, the session's default. Hashes
  * only, never a token. `clientName` is display text the client asserted and decides nothing.
  */
 export function checkConnectionRow(row) {
@@ -265,6 +284,7 @@ export function checkConnectionRow(row) {
   if (!clock(row.expiresAt)) refuse("a connection's token expires");
   if (!CONNECTION_STATES.includes(row.status)) refuse("not a connection state");
   if (row.lastUsedAt !== undefined && row.lastUsedAt !== null && !clock(row.lastUsedAt)) refuse("not a time");
+  if (row.previousRefreshHash !== undefined && row.previousRefreshHash !== null && !(typeof row.previousRefreshHash === "string" && TOKEN_HASH.test(row.previousRefreshHash))) refuse("not a refresh token's sha256");
   if (!clock(row.at)) refuse("a row needs its writer's clock");
   return {
     grantId: row.grantId,
@@ -277,6 +297,7 @@ export function checkConnectionRow(row) {
     expiresAt: row.expiresAt,
     status: row.status,
     lastUsedAt: row.lastUsedAt ?? null,
+    previousRefreshHash: row.previousRefreshHash ?? null,
     at: row.at,
   };
 }
