@@ -313,3 +313,4 @@ test/groupMemoryCarry.test.mjs
 test/workspaceStore.test.mjs
 test/workspaceRouting.test.mjs
 test/texEntryPoint.test.mjs
+test/workspaceTree.test.mjs

@@ -51,6 +51,7 @@ import { handleMessagesBackupFile } from "../communications/messagesBackupFiles.
 import { MESSAGES_BACKUP_ROUTE, parseFileRoute } from "../../../../packages/communications/src/backup.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
+import { handleTree } from "../live/treeRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import { handleMcp } from "../mcp/handlers.js";
@@ -196,6 +197,11 @@ export async function route(request, env, ctx) {
     // budget — it never reads a note and never writes one.
     if (path === "/presence") {
       return await handlePresence(request, env, { slug, pathToken, origin });
+    }
+
+    // The app's live file tree, from the workspace's object (`live/treeRoute.js`). A socket, as `/presence`.
+    if (path === "/tree") {
+      return await handleTree(request, env, { slug, pathToken, origin });
     }
 
     // Which notes agents touched lately, for the console's file tree. Its own
