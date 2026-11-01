@@ -133,6 +133,8 @@ export interface S3GatewayCredential {
   /** Where the note texts are read from while they move into the workspace object; absent while `bucket`. */
   notesHome?: "dual" | "object";
   notesBackfilledAt?: number;
+  /** Row changes the object has not taken yet (`workspaceObjectPush.ts`): read by the control plane until they land. */
+  notesBehind?: true;
 }
 
 export type GatewayCredential = S3GatewayCredential;

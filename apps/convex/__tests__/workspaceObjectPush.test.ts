@@ -10,7 +10,7 @@
 
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { handleWorkspaceStoreDoor } from "../../mcp/src/workspaceStore/door.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
@@ -19,7 +19,7 @@ import { texObjects } from "../../mcp/src/texStore/objects.js";
 import type { MutationCtx } from "../_generated/server";
 import { flushRowChanges } from "../functions/lib/rowWatch/mutations";
 import { watchDb } from "../functions/lib/rowWatch/watch";
-import { TEST_GATEWAY_SECRET, createUser, createWorkspace, gatewayPost, seedTreeRows, setupTest, type TestConvex } from "./fixtures.helpers";
+import { TEST_GATEWAY_SECRET, asUser, createUser, createWorkspace, drainScheduled, gatewayPost, seedStorageBinding, seedTreeRows, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 const GATEWAY = "https://gateway.example.invalid";
@@ -84,10 +84,12 @@ async function world() {
     },
   };
   let calls = 0;
+  let held = false;
   vi.stubEnv("STORAGE_MOVER_ORIGIN", GATEWAY);
   vi.stubEnv("GATEWAY_SECRET", TEST_GATEWAY_SECRET);
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     calls += 1;
+    if (held) throw new Error("the object is not reachable yet");
     if (!String(url).startsWith(`${GATEWAY}/internal/workspace-store`)) throw new Error(`unexpected fetch ${url}`);
     return await handleWorkspaceStoreDoor(new Request(url, init), env, { controlPlane });
   });
@@ -105,7 +107,7 @@ async function world() {
     );
     return ((await response.json()) as { rows: { found: boolean; path?: string }[] }).rows[0];
   };
-  return { t, owner, workspaceId, lookup, calls: () => calls };
+  return { t, owner, workspaceId, lookup, calls: () => calls, hold: (on: boolean) => (held = on) };
 }
 
 async function setHome(t: TestConvex, workspaceId: Id<"workspaces">, home: "bucket" | "dual" | "object") {
@@ -172,6 +174,38 @@ describe("row changes reach the workspace's object", () => {
     expect(await lookup("plans/a.md", "private")).toMatchObject({ found: true });
     // The lease was let go with the last entry.
     expect(await t.run((ctx) => ctx.db.query("workspaceObjectPushLeases").collect())).toEqual([]);
+  });
+
+  test("a share taken back by the app's own mutation is never served from the object before its push lands", async () => {
+    const { t, owner, workspaceId, lookup, hold } = await world();
+    await seedStorageBinding(t, { workspaceId, boundBy: owner, status: "connected" });
+    await seedTreeRows(t, workspaceId, ["plans/a.md"]);
+    await setFolder(t, workspaceId, owner, "plans", "team");
+    await setHome(t, workspaceId, "object");
+    await t.run(async (ctx) => {
+      const ids = (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).map((row) => row._id);
+      await ctx.db.insert("workspaceObjectOutbox", { workspaceId, nodeIds: ids, access: true, at: Date.now() });
+    });
+    await drain(t, workspaceId);
+    const binding = () => t.action(internal.functions.storage.getBindingForGateway, { workspaceId });
+    expect(await binding()).not.toHaveProperty("notesBehind");
+
+    // The app takes the folder back from the team through the public mutation, which cannot wait for the push; the
+    // push is held off so the window between the commit and the push is pinned open rather than raced.
+    hold(true);
+    expect(await asUser(t, owner).mutation(api.functions.nodesAccess.setGrantees, { workspaceId, path: "plans", grantees: [], base: "private" })).toMatchObject({ ok: true });
+    // The window: until the push lands, the object still holds the team's old rule…
+    expect(await lookup("plans/a.md", "team")).toMatchObject({ found: true });
+    // …so every binding opened now says so, and the gateway asks the control plane instead (`objectLookup.js`).
+    expect(await binding()).toMatchObject({ notesHome: "object", notesBehind: true });
+
+    // The push lands.
+    hold(false);
+    await drainScheduled(t);
+    await drain(t, workspaceId);
+    expect(await outbox(t, workspaceId)).toEqual([]);
+    expect(await lookup("plans/a.md", "team")).toMatchObject({ found: false });
+    expect(await binding()).not.toHaveProperty("notesBehind");
   });
 
   test("a team folder moved under a private one is judged at its new path, with its notes, once the push lands", async () => {

@@ -13,7 +13,10 @@ member and guest rules, and sends rows, removals and rules in one `ws.apply`, so
 the old rules. The object keeps a row only from a newer clock and rules only from a newer access version; an entry
 leaves the outbox only after the object took it. Actions that move, hide or narrow (app file operations, the
 gateway's `setAccess`, removals, moves) wait for the push before answering (`objectSettled`). Public mutations the
-app calls directly (`nodesAccess.setGrantees`) cannot wait; their push follows the commit as a scheduled action.
+app calls directly (`nodesAccess.setGrantees`) cannot wait, so the gap is closed on the read side: while any entry
+waits, every binding the gateway opens carries `notesBehind`, and that request's lookups go to the control plane,
+which already has the change. A share taken back is never served from the object's older rows
+(`__tests__/workspaceObjectPush.test.ts`, "a share taken back by the app's own mutation…").
 
 **What a simplification would cost.** Importing `mutation` from `_generated/server` again, or hooking writers one by
 one, lets one missed writer narrow access in Convex while the object goes on showing the note.
