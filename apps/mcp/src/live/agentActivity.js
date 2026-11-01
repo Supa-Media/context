@@ -13,6 +13,7 @@ import { isConsoleActor, presenceActor, presenceClientKey } from "./presence.js"
  */
 export const AGENT_ACTIVITY_TOOLS = new Map([
   ["read_note", "read"],
+  ["read_notes", "read"],
   ["fetch", "read"],
   ["write_note", "write"],
   ["move_note", "move"],
