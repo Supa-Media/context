@@ -22,7 +22,10 @@
  * in `object`: the object keeps each document's current and pending ones, and
  * one it lacks is read from the bucket and never copied in. Saving a
  * document's state drops the object's copies of the versions it no longer
- * names, and a listing that reaches them is the bucket's.
+ * names, and a listing that reaches them is the bucket's. One the bucket does
+ * not hold is kept instead: the copy and compare check cannot repair a missing
+ * older revision, because it skips them when it walks the bucket, so the
+ * object's copy may be the only one.
  *
  * Because both sides are written in every home but `bucket`, a request built
  * from a binding a moment older than a switch reads a current copy either way. A mirror
@@ -102,7 +105,16 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       for (const entry of page?.objects ?? []) {
         const revision = entry.key.slice(prefix.length).replace(/\.json$/, "");
         const uploaded = new Date(entry.uploaded ?? 0).getTime();
-        if (!named.has(revision) && Number.isFinite(uploaded) && uploaded < before) await object.delete(entry.key);
+        if (named.has(revision) || !Number.isFinite(uploaded) || uploaded >= before) continue;
+        // Only ever a second copy comes out. A mirror write that failed is logged and never fails the caller's
+        // write, so the object can hold the only copy of a version; deleting that one would lose customer-owned
+        // editing history, and no parity side could see the gap afterwards (walking the bucket skips older
+        // revisions, and walking the object no longer finds the key).
+        if ((await store.head(entry.key)) === null) {
+          log("workspace_revision_unmirrored", { workspaceId, key: entry.key });
+          continue;
+        }
+        await object.delete(entry.key);
       }
       if (!page?.truncated || !page.cursor) break;
       cursor = page.cursor;

@@ -176,3 +176,16 @@ test("dual: a document's state saved never prunes anything (the bucket is still 
   await routed.put(stateKey, JSON.stringify({ revision: "r-2" }));
   assert.equal(await (await object.get(revisionKey("r-1"))).text(), "v1");
 });
+
+// A mirror write that fails is logged and never fails the caller's write, so the object can hold a version the
+// bucket does not. Pruning it then destroys the only copy of customer-owned editing history, and neither parity
+// side would see the gap afterwards: side 0 skips the bucket's older revisions, and side 1 no longer has the key.
+test("object: a saved version the bucket does not hold is kept, not pruned", { skip }, async () => {
+  const { bucket, object, routed } = objectHome({ later: 11 * 60 * 1000 });
+  await object.put(revisionKey("r-unmirrored"), "only copy");
+  await routed.put(revisionKey("r-current"), "current", { onlyIf: { absent: true } });
+  await routed.put(stateKey, JSON.stringify({ revision: "r-current" }));
+  assert.equal(await bucket.get(revisionKey("r-unmirrored")), null);
+  assert.equal(await (await object.get(revisionKey("r-unmirrored"))).text(), "only copy");
+  assert.equal(await (await routed.get(revisionKey("r-unmirrored"))).text(), "only copy");
+});
