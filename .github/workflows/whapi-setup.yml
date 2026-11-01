@@ -233,7 +233,7 @@ jobs:
                 url: process.env.WORKER_URL + "/whapi",
                 mode: "body",
                 headers: { "x-tex-webhook-secret": process.env.WHAPI_WEBHOOK_SECRET },
-                events: [{ type: "messages", method: "post" }],
+                events: [{ type: "messages", method: "post" }, { type: "presences", method: "post" }],
               }],
               media: { auto_download: ["image", "audio", "voice", "video", "document", "sticker"] },
               callback_persist: true,
