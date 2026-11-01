@@ -138,6 +138,17 @@ class_name = "TexStore"
 tag = "v2-tex-store"
 new_sqlite_classes = ["TexStore"]
 
+# Each workspace's notes, tree rows and access rules: one SQLite-backed object
+# per workspace (src/workspaceStore.js). Bodies are read from here once the
+# workspace's home is switched to "object"; until then nothing reads it.
+[[durable_objects.bindings]]
+name = "WORKSPACE_STORE"
+class_name = "WorkspaceStore"
+
+[[migrations]]
+tag = "v3-workspace-store"
+new_sqlite_classes = ["WorkspaceStore"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -253,6 +264,10 @@ class_name = "PresenceRoom"
 [[env.staging.durable_objects.bindings]]
 name = "TEX_STORE"
 class_name = "TexStore"
+
+[[env.staging.durable_objects.bindings]]
+name = "WORKSPACE_STORE"
+class_name = "WorkspaceStore"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
