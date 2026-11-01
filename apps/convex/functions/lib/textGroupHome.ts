@@ -102,7 +102,8 @@ export async function ensureChatHome(
 ): Promise<string | null> {
   const answer = await makeChatHome(ctx, chat, people, actor);
   if ("folder" in answer) return answer.folder;
-  console.log(JSON.stringify({ event: "chat_home_not_made", reason: answer.refused }));
+  // A deployment with no pinned workspace has no homes at all (self-hosting): that is how it runs, not a failure.
+  if (answer.refused !== "no_pin") console.log(JSON.stringify({ event: "chat_home_not_made", reason: answer.refused }));
   return null;
 }
 
