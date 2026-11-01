@@ -55,16 +55,50 @@ const ids = {
 };
 const PATHS = { plain: "1-projects/plain.md", held: "1-projects/held.md", other: "1-projects/other.md" };
 
-/** A bucket and a tree that log every call with the step it ran at. */
+/**
+ * A bucket and a tree that log every call with the step it ran at. No call
+ * finishes on its own: `drive` lets the operation start every call it can,
+ * waits until it has started no new one for a while, then finishes all of
+ * them at once, and that is one step. A call's step is the wave it started
+ * in, so the count is which calls had to wait for others, not how fast the
+ * machine was (a timer-based count read 3 under a loaded CI runner).
+ */
 function world() {
   const log = [];
-  let finished = 0;
+  let wave = 0;
+  let waiting = [];
   const call = async (kind, detail, answer) => {
-    const entry = { kind, detail, step: finished + 1 };
-    log.push(entry);
-    await new Promise((resolve) => setTimeout(resolve, 1));
-    finished = Math.max(finished, entry.step);
+    log.push({ kind, detail, step: wave + 1 });
+    await new Promise((resolve) => waiting.push(resolve));
     return answer();
+  };
+  /** Run `operation`, finishing its pending calls one wave at a time. */
+  const drive = async (operation) => {
+    let done = false;
+    const result = operation().finally(() => {
+      done = true;
+    });
+    result.catch(() => {});
+    while (!done) {
+      // Quiet: no new call for 20 turns of the event loop (hashing a head key runs off the main thread).
+      let quiet = 0;
+      let seen = log.length;
+      while (!done && quiet < 20) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        if (log.length === seen) quiet += 1;
+        else {
+          seen = log.length;
+          quiet = 0;
+        }
+      }
+      if (done) break;
+      if (waiting.length === 0) throw new Error("the operation is stuck on something that is not a storage call");
+      const released = waiting;
+      waiting = [];
+      wave += 1;
+      for (const resolve of released) resolve();
+    }
+    return await result;
   };
   const objects = new Map();
   const put = (key, body) => objects.set(key, { body, etag: `etag-${objects.size}` });
@@ -94,9 +128,9 @@ function world() {
   });
   const reset = () => {
     log.length = 0;
-    finished = 0;
+    wave = 0;
   };
-  return { store, log, reset };
+  return { store, log, reset, drive };
 }
 
 /** The rows as a reader is judged by them: projects for the team, one note there held back, the archive private. */
@@ -110,9 +144,9 @@ const steps = (log) => Math.max(0, ...log.map((entry) => entry.step));
 
 test("a plain note is read in two steps: one lookup, then its body beside its collaboration heads", async () => {
   const { rules, overrides } = await privacy();
-  const { store, log, reset } = world();
+  const { store, log, reset, drive } = world();
   reset();
-  const result = await toolReadNote(store, "private", rules, overrides, PATHS.plain);
+  const result = await drive(() => toolReadNote(store, "private", rules, overrides, PATHS.plain));
   assert.equal(result.isError, undefined, result.content[0].text);
   assert.match(result.content[0].text, /The plain note\./);
   assert.equal(log.filter((entry) => entry.kind === "lookup").length, 1, JSON.stringify(log));
@@ -127,9 +161,9 @@ test("every refusal costs the same: held back, missing, or held back and missing
   const { rules, overrides } = await privacy();
   const shapes = [];
   for (const path of [PATHS.held, "1-projects/never.md", "4-archive/never.md"]) {
-    const { store, log, reset } = world();
+    const { store, log, reset, drive } = world();
     reset();
-    const result = await toolReadNote(store, "team", rules, overrides, path);
+    const result = await drive(() => toolReadNote(store, "team", rules, overrides, path));
     assert.equal(result.isError, true);
     assert.equal(result.content[0].text, "not found");
     // The bucket never sees a note's key on a refusal: only the forwarding table is read.
@@ -141,9 +175,9 @@ test("every refusal costs the same: held back, missing, or held back and missing
 
 test("read_notes looks every path up in one lookup, and reads the notes side by side", async () => {
   const { rules, overrides } = await privacy();
-  const { store, log, reset } = world();
+  const { store, log, reset, drive } = world();
   reset();
-  const result = await toolReadNotes(store, "team", rules, overrides, [PATHS.plain, PATHS.other, PATHS.held, "1-projects/never.md"]);
+  const result = await drive(() => toolReadNotes(store, "team", rules, overrides, [PATHS.plain, PATHS.other, PATHS.held, "1-projects/never.md"]));
   assert.equal(result.isError, undefined, JSON.stringify(result) + JSON.stringify(log));
   assert.equal(result.content.length, 4);
   assert.match(result.content[0].text, /^etag: .*\npath: 1-projects\/plain\.md\n[\s\S]*The plain note\./);
@@ -161,16 +195,16 @@ test("read_notes looks every path up in one lookup, and reads the notes side by 
 
 test("read_notes refuses an empty list, a list too long, and anything but strings", async () => {
   const { rules, overrides } = await privacy();
-  const { store } = world();
-  assert.equal((await toolReadNotes(store, "private", rules, overrides, [])).isError, true);
-  assert.equal((await toolReadNotes(store, "private", rules, overrides, Array.from({ length: 26 }, (_, i) => `n${i}.md`))).isError, true);
-  assert.equal((await toolReadNotes(store, "private", rules, overrides, [PATHS.plain, 7])).isError, true);
+  const { store, drive } = world();
+  assert.equal((await drive(() => toolReadNotes(store, "private", rules, overrides, []))).isError, true);
+  assert.equal((await drive(() => toolReadNotes(store, "private", rules, overrides, Array.from({ length: 26 }, (_, i) => `n${i}.md`)))).isError, true);
+  assert.equal((await drive(() => toolReadNotes(store, "private", rules, overrides, [PATHS.plain, 7]))).isError, true);
 });
 
 test("read_notes answers isError only when no note could be read", async () => {
   const { rules, overrides } = await privacy();
-  const { store } = world();
-  const result = await toolReadNotes(store, "team", rules, overrides, [PATHS.held, "1-projects/never.md"]);
+  const { store, drive } = world();
+  const result = await drive(() => toolReadNotes(store, "team", rules, overrides, [PATHS.held, "1-projects/never.md"]));
   assert.equal(result.isError, true);
 });
 
