@@ -765,6 +765,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
 - [How Tex sounds in each chat: mirror, language, group voice note, a text not an essay (Dev2, 2026-10-28, 2026-10-29)](./texting-assistant/tex-voice.md)
 - [Tex's chat commands are tools the agent calls (2026-10-31)](./texting-assistant/command-tools.md)
+- [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does

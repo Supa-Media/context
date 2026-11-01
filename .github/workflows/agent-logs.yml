@@ -70,7 +70,7 @@ jobs:
           timeout "$seconds" npx --yes wrangler@4 tail "$SERVICE" --format pretty 2>/dev/null \
             | grep --line-buffered -o '{"event":.*}' \
             | node -e '
-              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+              const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms", "keys", "idKind"];
               // Only a code the Worker chose is published; anything else is "other", never stripped down to a
               // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
               const NUMERIC = new Set(["attempts", "ms", "status"]);
@@ -106,7 +106,7 @@ jobs:
           const prefix = process.env.EVENT_PREFIX ?? "";
           const to = Date.now();
           const from = to - minutes * 60_000;
-          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms"];
+          const keep = ["event", "outcome", "reason", "status", "service", "kind", "attempts", "ms", "keys", "idKind"];
           // Only a code the Worker chose is published; anything else is "other", never stripped down to a
           // readable remnant (scripts/log-codes.mjs, which this run page cannot import: no checkout here).
           const NUMERIC = new Set(["attempts", "ms", "status"]);

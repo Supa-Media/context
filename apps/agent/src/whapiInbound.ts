@@ -6,7 +6,8 @@
  *
  * One delivery can carry several messages (`messages: [...]`), so this
  * returns a list. Everything else Whapi can send (statuses, chats, contacts,
- * presences, Tex's own messages) reads as nothing, and the delivery is still
+ * presences, Tex's own messages) reads as nothing (a presence is only described
+ * in the logs, `logPresenceShape`), and the delivery is still
  * answered 200 so it is not retried.
  *
  * The same rules as Sendblue's (`sendblue.ts`, `sendblueGroups.ts`):
@@ -65,8 +66,25 @@ function bareEmoji(emoji: string): string {
 
 /** Every message in one delivery, read; `line` is Tex's own WhatsApp number (E.164). */
 export function parseWhapiWebhook(payload: unknown, line: string): WhapiEvent[] {
+  if (isRecord(payload) && Array.isArray(payload.presences)) logPresenceShape(payload);
   if (!isRecord(payload) || !Array.isArray(payload.messages)) return [];
   return payload.messages.slice(0, READ_LIMIT).map((message) => parseMessage(message, line));
+}
+
+/**
+ * A presences delivery (typing) is only described, never acted on: its keys, each status, and whether
+ * `contact_id` names a group or a person, never the id (Jhonatan, 2026-11-01: build group typing only if
+ * Whapi's payload names the group; `docs/decisions/texting-assistant/whapi-presence-probe.md`).
+ */
+function logPresenceShape(payload: Record<string, unknown>): void {
+  const presences = (payload.presences as unknown[]).slice(0, READ_LIMIT);
+  for (const presence of presences) {
+    const keys = [...Object.keys(payload).filter((key) => key !== "presences"), ...(isRecord(presence) ? Object.keys(presence) : [])].sort().slice(0, 20).join(":");
+    const status = isRecord(presence) && typeof presence.status === "string" && /^[a-z_]{1,20}$/.test(presence.status) ? presence.status : "other";
+    const id = isRecord(presence) && typeof presence.contact_id === "string" ? presence.contact_id : "";
+    const idKind = id.endsWith("@g.us") ? "group" : /^\d{6,16}(?:@s\.whatsapp\.net)?$/.test(id) ? "person" : "other";
+    console.log(JSON.stringify({ event: "whapi_presence_shape", keys, status, idKind }));
+  }
 }
 
 function logShape(message: unknown): void {
