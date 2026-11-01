@@ -56,7 +56,7 @@ export function folderPathOf(raw) {
  * something to the caller (so a shared note in a private folder stays reachable).
  *
  * @param {string} folderPath
- * @param {{scope: "private"|"team", names: Set<string>}} clearance
+ * @param {{scope: "private"|"team", names: ReadonlySet<string>}} clearance
  */
 export function folderVisibleAtScope(folderPath, clearance, rules, overrides) {
   if (isPlumbing(folderPath)) return false;
@@ -90,7 +90,7 @@ function describeFile(key, rules, overrides, extra) {
 
 /**
  * @typedef {{path: string, kind: "file"|"folder", size?: number|null, uploaded?: number|null, role?: string|null, order?: number|null, archiveOf?: string|null}} TreeRow
- * @typedef {{scope: "private"|"team", names: Set<string>}} Clearance
+ * @typedef {{scope: "private"|"team", names: ReadonlySet<string>}} Clearance
  */
 
 /**
