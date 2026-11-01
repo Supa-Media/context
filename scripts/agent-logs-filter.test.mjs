@@ -63,6 +63,17 @@ test("a duration, a count and a status still read as numbers, and only under the
   }
 });
 
+test("a group reply's timings read as numbers, and a job tag, a site and an error class pass as codes (2026-11-01)", () => {
+  for (const show of inlineShows()) {
+    for (const key of ["queueMs", "startMs", "membersMs", "controlMs", "replyMs", "totalMs"]) assert.equal(show(key, 3390), "3390");
+    assert.equal(show("job", "j1a2b3c4d"), "j1a2b3c4d");
+    assert.equal(show("where", "alarm_group"), "alarm_group");
+    assert.equal(show("name", "TypeError"), "TypeError");
+    assert.equal(show("name", "+1 555 123 4567"), "other");
+  }
+  for (const key of ["queueMs", "totalMs", "where", "name", "job"]) assert.match(WORKFLOW, new RegExp(`"${key}"`));
+});
+
 test("an exception publishes its class, never its message", () => {
   assert.equal(exceptionClass("TypeError: failed to fetch https://x/?token=sk_live_9f2c1"), "TypeError");
   assert.equal(exceptionClass("+1 555 123 4567 did not answer"), "unknown");

@@ -49,7 +49,7 @@ export type Looked =
 
 /** Why a look failed, for the log: the gateway's own code when it gave one, else the status. Never its words. */
 function failedBecause(status: number, body: Record<string, unknown>): string {
-  const codeish = (value: unknown): value is string => typeof value === "string" && /^[a-z_]{1,40}$/.test(value);
+  const codeish = (value: unknown): value is string => typeof value === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(value);
   return codeish(body.reason) ? body.reason : codeish(body.error) ? body.error : `status_${status}`;
 }
 

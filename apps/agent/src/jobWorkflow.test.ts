@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { ANSWER_RETRIES } from "./groupTurnWorkflow";
 import { acceptJob, armJobNext, failJob, runJob, type JobDeps, type JobNext } from "./jobRun";
-import { JOB_LINES, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
+import { JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
 import { handOverJob, jobInstanceId, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 
@@ -97,14 +97,16 @@ describe("a background job's workflow", () => {
     const busy = { status: 503, body: { error: "model_unavailable" } };
     const { d, reports } = deps([busy, { body: { answer: "Found three so far.", exhausted: true } }, { body: { answer: "Wrote the note." } }]);
     const { step, sleeps } = fakeStep();
-    expect(await runJobFlow(step, objectCall(storage, d))).toBe("done");
+    expect(await runJobFlow(step, objectCall(storage, d), RUN.id)).toBe("done");
     expect(started).toEqual(["job-job-1234-abcd"]);
     expect(storage.alarms).toEqual([]);
     expect(sleeps).toHaveLength(1);
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Wrote the note."] });
     expect(storage.data.has(RUN_KEY)).toBe(false);
     const lines = logs.mock.calls.flat().map((line) => JSON.parse(String(line))).filter((line) => line.kind === "job");
-    expect(lines).toEqual([{ event: "group_turn", outcome: "workflow_answered", kind: "job", attempts: 3 }]);
+    // The job by its tag, never its id (2026-11-01).
+    expect(lines).toEqual([{ event: "group_turn", outcome: "workflow_answered", kind: "job", job: jobTag(RUN.id), attempts: 3 }]);
+    expect(JSON.stringify(lines)).not.toContain(RUN.id);
   });
 
   it("a job that takes every one of its parts, each after a busy model, still ends through its instance (2026-10-31)", async () => {
@@ -115,7 +117,7 @@ describe("a background job's workflow", () => {
     const parts = Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => [busy, busy, { body: { answer: i === MAX_JOB_ATTEMPTS - 1 ? "Wrote the note." : "More to do.", unfinished: true, verdict: "keep_going", advice: "Carry on." } }]).flat();
     const { d, reports } = deps(parts);
     const { step } = fakeStep();
-    expect(await runJobFlow(step, objectCall(storage, d))).toBe("done");
+    expect(await runJobFlow(step, objectCall(storage, d), RUN.id)).toBe("done");
     expect(reports.at(-1)).toMatchObject({ state: "stuck", texts: ["Wrote the note."] });
   });
 
@@ -125,7 +127,7 @@ describe("a background job's workflow", () => {
     await acceptJob(storage, RUN, NOW, async () => {});
     const { d, reports } = deps([]);
     const { step, runs } = fakeStep();
-    expect(await runJobFlow(step, objectCall(storage, d, true))).toBe("failed");
+    expect(await runJobFlow(step, objectCall(storage, d, true), RUN.id)).toBe("failed");
     expect(runs.filter((name) => name === "pass 0")).toHaveLength(1 + ANSWER_RETRIES.limit);
     expect(reports).toEqual([expect.objectContaining({ state: "failed", texts: [JOB_LINES.failed(RUN.title)] })]);
     expect(storage.data.has(RUN_KEY)).toBe(false);

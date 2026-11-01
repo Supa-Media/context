@@ -24,6 +24,7 @@
  * grant, exactly as it does for any other connected client.
  */
 
+import { logged } from "./agentError";
 import { plainHttpResponse } from "./httpsOnly";
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, react, type InboxDeps } from "./inbox";
@@ -568,19 +569,22 @@ export class SenderInbox implements DurableObject {
 
   async alarm(): Promise<void> {
     // A group's object has only `gpending:` keys, a phone's only `pending:`; each drain finds the other's empty.
-    await drainGroup(this.state.storage, this.deps());
-    await drain(this.state.storage, this.deps());
-    await checkReady(this.state.storage, this.deps());
-    await checkGmail(this.state.storage, this.deps());
-    await carryOnAfterSave(this.state.storage, this.deps());
+    // Each stage names its throw in the logs, then throws on as before, so the alarm still retries (`agentError.ts`).
+    await logged("alarm_group", () => drainGroup(this.state.storage, this.deps()));
+    await logged("alarm_inbox", () => drain(this.state.storage, this.deps()));
+    await logged("alarm_ready", () => checkReady(this.state.storage, this.deps()));
+    await logged("alarm_gmail", () => checkGmail(this.state.storage, this.deps()));
+    await logged("alarm_carry_on", () => carryOnAfterSave(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
-    await checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) });
+    await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run. With Workflows, an alarm
     // set before they ran jobs (one release) hands its job to its workflow and sets no alarm of its own.
-    const flow = this.env.JOB_RUN;
-    if (!(flow && (await handOverJob(this.state.storage, flow)))) {
-      await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
-    }
+    await logged("alarm_job", async () => {
+      const flow = this.env.JOB_RUN;
+      if (!(flow && (await handOverJob(this.state.storage, flow)))) {
+        await armJobNext(this.state.storage, await runJob(this.state.storage, this.jobDeps()), Date.now());
+      }
+    });
   }
 
   private jobDeps() {
