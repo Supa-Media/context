@@ -118,10 +118,16 @@ jobs:
           # Not all of apps/mcp: only the gateway files Convex code and tests
           # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
           # list; check-ci-path-gates.mjs fails when it stops covering them).
-          # A texting-assistant change under apps/mcp/src/agent reaches none,
-          # so it no longer waits four minutes on this suite; the tests that
-          # read the whole gateway run in Gateway Contracts instead.
+          # A texting-assistant change under apps/mcp/src/agent reaches none but
+          # the history move's files named here, so it no longer waits four
+          # minutes on this suite; the tests that read the whole gateway run in
+          # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
+          - 'apps/mcp/src/agent/agentHomeMove.js'
+          - 'apps/mcp/src/agent/conversation.js'
+          - 'apps/mcp/src/agent/events.js'
+          - 'apps/mcp/src/agent/history.js'
+          - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -152,6 +158,11 @@ jobs:
           - 'apps/mcp/src/store/**'
           - 'apps/mcp/src/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
+          - 'apps/mcp/src/tools/emailRead.js'
+          - 'apps/mcp/src/tools/fileParts.js'
+          - 'apps/mcp/src/tools/googleAiAccess.js'
+          - 'apps/mcp/src/tools/pdfLinks.js'
+          - 'apps/mcp/src/tools/readFile.js'
           - 'apps/mcp/src/tools/moves/archive.js'
           - 'apps/mcp/src/tools/moves/destination.js'
           - 'apps/mcp/src/tools/moves/folder.js'
@@ -719,6 +730,11 @@ jobs:
           # check-ci-path-gates.mjs holds both lists to the same derivation.
           paths: |
             apps/mcp/src/activity/**
+            apps/mcp/src/agent/agentHomeMove.js
+            apps/mcp/src/agent/conversation.js
+            apps/mcp/src/agent/events.js
+            apps/mcp/src/agent/history.js
+            apps/mcp/src/agent/sources.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**
@@ -749,6 +765,11 @@ jobs:
             apps/mcp/src/store/**
             apps/mcp/src/texStore/**
             apps/mcp/src/tools/approvalKeys.js
+            apps/mcp/src/tools/emailRead.js
+            apps/mcp/src/tools/fileParts.js
+            apps/mcp/src/tools/googleAiAccess.js
+            apps/mcp/src/tools/pdfLinks.js
+            apps/mcp/src/tools/readFile.js
             apps/mcp/src/tools/moves/archive.js
             apps/mcp/src/tools/moves/destination.js
             apps/mcp/src/tools/moves/folder.js
